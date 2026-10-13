@@ -21,7 +21,7 @@
 //! resolves to `None`, which callers treat as odd but well-formed data: a typed
 //! counted skip, never a mutation and never a disconnect.
 
-use crate::ids::{ContainerName, WindowID};
+use protocol_ids::{ContainerName, WindowID};
 
 use super::ContainerIdentity;
 use super::container_policy::{CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_HOTBAR};

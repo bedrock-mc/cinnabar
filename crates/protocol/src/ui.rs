@@ -802,14 +802,14 @@ pub(crate) fn normalize_block_crack(packet: LevelEvent) -> Result<BlockCrackEven
         floored_block_coordinate(packet.position.z, "z")?,
     ];
     let event_id = packet.event_id.0;
-    let action = match crate::ids::LevelEvent::from_wire(event_id) {
-        Some(crate::ids::LevelEvent::StopBlockCracking) => BlockCrackAction::Stop,
+    let action = match protocol_ids::LevelEvent::from_wire(event_id) {
+        Some(protocol_ids::LevelEvent::StopBlockCracking) => BlockCrackAction::Stop,
         Some(
-            crate::ids::LevelEvent::StartBlockCracking
-            | crate::ids::LevelEvent::UpdateBlockCracking,
+            protocol_ids::LevelEvent::StartBlockCracking
+            | protocol_ids::LevelEvent::UpdateBlockCracking,
         ) => {
             let progress_per_tick = packet.data.0;
-            if event_id == crate::ids::LevelEvent::StartBlockCracking.wire_value() {
+            if event_id == protocol_ids::LevelEvent::StartBlockCracking.wire_value() {
                 BlockCrackAction::Start { progress_per_tick }
             } else {
                 BlockCrackAction::UpdateSpeed { progress_per_tick }

@@ -13,8 +13,6 @@ mod disconnect;
 mod emote;
 mod experience;
 pub mod identity;
-pub mod ids;
-pub use ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
 mod interaction;
 mod inventory;
 mod item;

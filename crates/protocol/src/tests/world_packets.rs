@@ -1,3 +1,5 @@
+use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
+
 #[path = "world_packets/block_sync.rs"]
 mod block_sync;
 #[path = "world_packets/dimension.rs"]
@@ -24,25 +26,24 @@ use bedrock_protocol_1_26_51::types::{
 use bedrock_protocol_1_26_51::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
-    GameRulesEvent, HASHED_AIR_NETWORK_ID, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS,
-    MAX_BIOME_NAME_BYTES, MAX_SUB_CHUNK_REQUESTS, SEQUENTIAL_AIR_NETWORK_ID, SetTimeEvent,
-    SubChunkResult, WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldEnvironmentBootstrap,
-    WorldEvent, WorldPacketError, air_network_id, into_world_event, request_sub_chunk_column,
-    vanilla_dimension_range,
+    GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
+    MAX_SUB_CHUNK_REQUESTS, SetTimeEvent, SubChunkResult, WeatherChannel, WeatherUpdateEvent,
+    WorldBootstrap, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError, air_network_id,
+    into_world_event, request_sub_chunk_column, vanilla_dimension_range,
 };
 
 /// `LevelEventStartRaining`, from gophertunnel `packet/level_event.go`
 /// @ be6713da4dc051a4197f897d04835e89e9c54321.
-const LEVEL_EVENT_START_RAINING: i32 = protocol::ids::LevelEvent::StartRaining.wire_value();
+const LEVEL_EVENT_START_RAINING: i32 = protocol_ids::LevelEvent::StartRaining.wire_value();
 /// `LevelEventStartThunderstorm`.
 const LEVEL_EVENT_START_THUNDERSTORM: i32 =
-    protocol::ids::LevelEvent::StartThunderstorm.wire_value();
+    protocol_ids::LevelEvent::StartThunderstorm.wire_value();
 /// `LevelEventStopRaining`.
-const LEVEL_EVENT_STOP_RAINING: i32 = protocol::ids::LevelEvent::StopRaining.wire_value();
+const LEVEL_EVENT_STOP_RAINING: i32 = protocol_ids::LevelEvent::StopRaining.wire_value();
 /// `LevelEventStopThunderstorm`.
-const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = protocol::ids::LevelEvent::StopThunderstorm.wire_value();
+const LEVEL_EVENT_STOP_THUNDERSTORM: i32 = protocol_ids::LevelEvent::StopThunderstorm.wire_value();
 /// `LevelEventSoundClick`, an event this crate deliberately ignores.
-const LEVEL_EVENT_SOUND_CLICK: i32 = protocol::ids::LevelEvent::SoundClick.wire_value();
+const LEVEL_EVENT_SOUND_CLICK: i32 = protocol_ids::LevelEvent::SoundClick.wire_value();
 
 /// One biome-map entry: the string-table index and its definition. gophertunnel
 /// protocol/biome.go writes the index as a signed Int16 over the same two bytes.

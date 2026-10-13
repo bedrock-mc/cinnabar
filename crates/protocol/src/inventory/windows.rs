@@ -4,7 +4,7 @@
 //! whose cells follow content order, and the personal UI inventory (anvil,
 //! enchanting table, ...) whose cells sit at fixed UI slots.
 
-use crate::ids::{ContainerName, WindowType};
+use protocol_ids::{ContainerName, WindowType};
 
 use super::container_policy::CONTAINER_NAME_CREATED_OUTPUT;
 use super::request::StackRequestContainer;

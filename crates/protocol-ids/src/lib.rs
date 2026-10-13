@@ -1,4 +1,6 @@
-//! Named wire IDs generated from the vendored codec and pinned numeric fixtures.
+//! Named wire IDs shared by packet, asset and WebAssembly consumers.
+
+#![no_std]
 
 macro_rules! wire_ids {
     ($name:ident, $raw:ty, {$($variant:ident => $value:expr),* $(,)?}) => {
@@ -24,7 +26,4 @@ macro_rules! wire_ids {
     };
 }
 
-include!(concat!(env!("OUT_DIR"), "/protocol_ids.rs"));
-
-#[cfg(test)]
-mod tests;
+include!("generated.rs");

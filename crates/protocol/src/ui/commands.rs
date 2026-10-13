@@ -7,7 +7,7 @@ use bedrock_protocol_1_26_51::packets::AvailableCommands;
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
-use crate::ids::{CommandArgFlag, CommandArgType};
+use protocol_ids::{CommandArgFlag, CommandArgType};
 
 use super::{
     ChatAutocompleteAction, ChatAutocompleteEvent, MAX_CHAT_AUTOCOMPLETE,

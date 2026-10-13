@@ -2,8 +2,10 @@ use super::*;
 
 #[test]
 fn basic_parameter_shapes_follow_the_pinned_wire_ids() {
-    let fixture: serde_json::Value =
-        serde_json::from_str(include_str!("../../../data/protocol-ids.json")).unwrap();
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../protocol-ids/data/protocol-ids.json"
+    ))
+    .unwrap();
     let values = fixture["groups"]["CommandArgType"].as_object().unwrap();
     for (names, shape) in [
         (&["Int", "WildcardInt"][..], CommandParamKind::Int),

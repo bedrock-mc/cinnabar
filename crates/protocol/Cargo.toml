@@ -12,8 +12,8 @@ platform-specific = ["windows"]
 reads = [
     "assets/bedrock-target.json",
     "assets/block-data-sources.json",
-    "crates/assets/data/registry-schema.json",
-    "crates/assets/data/block-registry-v2193.bin",
+    "crates/protocol-ids/data/protocol-ids.json",
+    "crates/protocol-ids/data/actor-data-extensions.json",
     "tools/localserver/experience/testdata/protocol/limits.json",
 ]
 
@@ -26,6 +26,7 @@ name = "it"
 path = "tests/it/main.rs"
 
 [dependencies]
+protocol-ids = { path = "../protocol-ids" }
 simulation-clock = { path = "../simulation-clock" }
 zeroize = "1"
 cap-std = "3.4.5"
@@ -51,10 +52,6 @@ bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 test-alloc = { path = "../test-alloc" }
 tempfile = "3"
 test-time = { path = "../test-time" }
-
-[build-dependencies]
-serde_json = "1"
-sha2.workspace = true
 
 [lints]
 workspace = true

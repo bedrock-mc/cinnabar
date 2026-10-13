@@ -1,12 +1,9 @@
-use super::*;
-
-#[path = "../../build_support.rs"]
-mod build_support;
+use protocol_ids::*;
 
 #[test]
 fn generated_groups_cover_every_fixture_value_and_preserve_wire_ids() {
     let fixture: serde_json::Value =
-        serde_json::from_str(include_str!("../../data/protocol-ids.json")).unwrap();
+        serde_json::from_str(include_str!("../../../protocol-ids/data/protocol-ids.json")).unwrap();
     macro_rules! check {
         ($($group:ident),* $(,)?) => {$({
             let values = fixture["groups"][stringify!($group)].as_object().unwrap();
@@ -48,22 +45,11 @@ fn enchantments_cover_the_vendored_codec_including_sentinels() {
 }
 
 #[test]
-fn fallback_air_ids_identify_the_active_registry_air_record() {
-    let target =
-        serde_json::from_str(include_str!("../../../../assets/bedrock-target.json")).unwrap();
-    let schema =
-        serde_json::from_str(include_str!("../../../assets/data/registry-schema.json")).unwrap();
-    let bytes = include_bytes!("../../../assets/data/block-registry-v2193.bin");
-    assert_eq!(
-        (SEQUENTIAL_AIR_NETWORK_ID, HASHED_AIR_NETWORK_ID),
-        build_support::air_ids(bytes, &schema, &target)
-    );
-}
-
-#[test]
 fn third_flag_word_keeps_its_explicit_contract_despite_the_pinned_key_alias() {
-    let extensions: serde_json::Value =
-        serde_json::from_str(include_str!("../../data/actor-data-extensions.json")).unwrap();
+    let extensions: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../protocol-ids/data/actor-data-extensions.json"
+    ))
+    .unwrap();
     assert_eq!(
         ActorDataKey::FlagsThird.wire_value() as u64,
         extensions["FlagsThird"].as_u64().unwrap()
@@ -81,10 +67,10 @@ fn third_flag_word_keeps_its_explicit_contract_despite_the_pinned_key_alias() {
 #[test]
 fn fixed_open_window_lengths_match_the_pinned_container_contract() {
     let fixture: serde_json::Value =
-        serde_json::from_str(include_str!("../../data/protocol-ids.json")).unwrap();
+        serde_json::from_str(include_str!("../../../protocol-ids/data/protocol-ids.json")).unwrap();
     for (name, count) in fixture["slot_counts"].as_object().unwrap() {
         let raw = fixture["groups"]["WindowType"][name].as_i64().unwrap() as i8;
-        let Some(kind) = crate::WindowKind::from_window_type(raw) else {
+        let Some(kind) = protocol::WindowKind::from_window_type(raw) else {
             continue;
         };
         if !kind.is_ui_backed() {

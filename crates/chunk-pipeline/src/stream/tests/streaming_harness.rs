@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use super::*;
 
 const STONE: u32 = 1;
-const AIR: u32 = protocol::SEQUENTIAL_AIR_NETWORK_ID;
+const AIR: u32 = protocol_ids::SEQUENTIAL_AIR_NETWORK_ID;
 const RADIUS: i32 = 8;
 const FRAME: Duration = Duration::from_millis(8);
 const REPLY_LATENCY_FRAMES: u64 = 3;

@@ -50,7 +50,7 @@ fn unannounced_prefetch_column_prevents_explicit_cohort_exactness() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
@@ -81,7 +81,7 @@ fn in_scope_prefetch_cannot_replace_a_missing_required_column() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort::from_publisher(0, [0, 64, 0], 16);
@@ -113,7 +113,7 @@ fn columns_outside_square_prefetch_scope_prevent_exact_cohort_readiness() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort {
@@ -141,7 +141,7 @@ fn publisher_cohort_is_exposed_only_after_fifo_commit() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort {
@@ -180,7 +180,7 @@ fn publisher_cohort_accessor_is_exposed_only_after_fifo_commit() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort {
@@ -222,7 +222,7 @@ fn source_capture_occurs_at_move_fifo_commit_before_later_publisher_eviction() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let source = ChunkKey::new(0, 0, 0);
@@ -292,7 +292,7 @@ fn disjoint_local_teleport_accepts_destination_chunks_before_publisher_update() 
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();
@@ -446,7 +446,7 @@ fn only_disjoint_local_teleports_may_provisionally_rebase_publisher_retention() 
             local_player_runtime_id: 1,
             player_position: [0.5, 70.0, 0.5],
             world_spawn_position: [0, 70, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         });
         stream.chunk_radius = Some(8);
@@ -510,7 +510,7 @@ fn publisher_cohort_preserves_over_max_radius_while_runtime_scope_clamps() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let max = super::MAX_VIEW_RADIUS_CHUNKS;
@@ -555,7 +555,7 @@ fn equal_resident_and_known_air_counts_with_key_replacement_change_identity_hash
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let target = super::ViewCohort {
@@ -597,7 +597,7 @@ fn newer_subchunk_is_validated_after_fifo_blocked_dimension_change_commits() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -655,7 +655,7 @@ fn deferred_request_events_reserve_outbound_capacity_at_admission() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -727,7 +727,7 @@ fn heavy_admission_is_bounded_before_rayon_and_retained_work_never_exceeds_const
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -778,7 +778,7 @@ fn one_dispatch_drains_the_entire_bounded_heavy_admission_window() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -805,7 +805,7 @@ fn eviction_purges_unsent_requests_and_late_subchunks_cannot_resurrect_the_colum
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 1, 0);
@@ -854,7 +854,7 @@ fn valid_late_inactive_subchunk_reply_records_stale_without_world_side_effects()
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 1, 0);
@@ -927,7 +927,7 @@ fn old_dimension_and_out_of_radius_chunks_are_rejected_and_radii_are_clamped() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -1005,7 +1005,7 @@ fn subchunk_admission_requires_the_exact_expected_dimension_column_and_y() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream

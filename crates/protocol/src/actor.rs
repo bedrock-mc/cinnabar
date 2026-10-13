@@ -59,11 +59,11 @@ pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 /// both absolute/delta movement carry the native origin, not collision feet.
 pub const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.125;
 
-const ACTOR_DATA_ID_FLAGS: u32 = crate::ids::ActorDataKey::Flags.wire_value();
-const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = crate::ids::ActorDataKey::FlagsTwo.wire_value();
+const ACTOR_DATA_ID_FLAGS: u32 = protocol_ids::ActorDataKey::Flags.wire_value();
+const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = protocol_ids::ActorDataKey::FlagsTwo.wire_value();
 
 /// Actor-data ID for flags starting at bit 128.
-pub const ACTOR_DATA_ID_FLAGS_THIRD: u32 = crate::ids::ActorDataKey::FlagsThird.wire_value();
+pub const ACTOR_DATA_ID_FLAGS_THIRD: u32 = protocol_ids::ActorDataKey::FlagsThird.wire_value();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -210,9 +210,9 @@ pub enum ActorEffectAction {
 }
 
 /// MobEffect id of Haste, which shortens arm swings.
-pub const HASTE_EFFECT_ID: i32 = crate::ids::Effect::Haste.wire_value();
+pub const HASTE_EFFECT_ID: i32 = protocol_ids::Effect::Haste.wire_value();
 /// MobEffect id of Mining Fatigue, which lengthens arm swings.
-pub const MINING_FATIGUE_EFFECT_ID: i32 = crate::ids::Effect::MiningFatigue.wire_value();
+pub const MINING_FATIGUE_EFFECT_ID: i32 = protocol_ids::Effect::MiningFatigue.wire_value();
 
 /// One server-authoritative MobEffect change. Effect and amplifier values are
 /// retained raw; presentation decides which ids it can draw.

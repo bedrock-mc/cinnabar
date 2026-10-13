@@ -11,7 +11,7 @@ fn undrained_ui_commits_apply_bounded_backpressure_without_panicking() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for sequence in 1..=MAX_ADMITTED_WORLD_EVENTS as u64 {
@@ -42,7 +42,7 @@ fn chunk_grid_retention_follows_player_and_ignores_publisher() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();
@@ -82,7 +82,7 @@ fn shrinking_confirmed_radius_evicts_columns_that_leave_the_grid() {
         local_player_runtime_id: 1,
         player_position: [0.5, 70.0, 0.5],
         world_spawn_position: [0, 70, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.submit(1, WorldEvent::ChunkRadiusUpdated(8)).unwrap();
@@ -109,7 +109,7 @@ fn stationary_dirty_storm_keeps_the_mesh_scan_bounded_by_live_work() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.dispatch_mesh_jobs([0.0; 3], 1);
@@ -140,7 +140,7 @@ fn still_running_light_solves_hold_their_worker_slots() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -149,7 +149,7 @@ fn still_running_light_solves_hold_their_worker_slots() {
         .update_block(
             key,
             BlockUpdate::new(0, 0, 0, 0, 99),
-            protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         )
         .unwrap();
     stream.resident.insert(key);
@@ -177,7 +177,7 @@ fn evicted_removal_acks_leave_no_applied_generation_behind() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let now = Instant::now();

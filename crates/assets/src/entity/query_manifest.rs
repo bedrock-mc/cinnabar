@@ -1,6 +1,6 @@
 //! Versioned contracts for the queries admitted by the entity compiler.
 
-use protocol::ids::{ActorDataKey, ActorFlag};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 use super::{MAX_MOLANG_QUERY_ARGUMENTS, MolangSymbol, MolangSymbolKind};
 

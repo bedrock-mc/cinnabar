@@ -11,8 +11,8 @@ fn protocol_air_fallbacks_select_the_pinned_air_state() {
         .iter()
         .find(|record| record.name.as_ref() == "minecraft:air")
         .unwrap();
-    assert_eq!(protocol::SEQUENTIAL_AIR_NETWORK_ID, air.sequential_id);
-    assert_eq!(protocol::HASHED_AIR_NETWORK_ID, air.network_hash);
+    assert_eq!(protocol_ids::SEQUENTIAL_AIR_NETWORK_ID, air.sequential_id);
+    assert_eq!(protocol_ids::HASHED_AIR_NETWORK_ID, air.network_hash);
     assert!(air.flags.contains(BlockFlags::AIR));
 }
 

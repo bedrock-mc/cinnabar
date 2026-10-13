@@ -78,7 +78,7 @@ use self::game_rules::{
 pub(crate) use self::level_chunk::normalize_level_chunk_payload;
 pub use self::requests::request_sub_chunk_column;
 
-use crate::ids::LevelEvent;
+use protocol_ids::LevelEvent;
 
 /// Client safety limit for block storage layers in update packets.
 pub const MAX_BLOCK_LAYERS: usize = 16;

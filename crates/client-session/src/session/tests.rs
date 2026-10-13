@@ -748,7 +748,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
         local_player_runtime_id: 42,
         player_position: [1.0, 72.0, -2.0],
         world_spawn_position: [1, 64, -2],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     };
     let environment = WorldEnvironmentBootstrap {
