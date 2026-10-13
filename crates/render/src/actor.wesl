@@ -49,8 +49,8 @@ struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     // xy samples the artwork; zw carries the item sprite or face origin.
     @location(0) uv: vec4<f32>,
-    // Texture layer, geometry validity and optional glint instance index.
-    @location(1) @interpolate(flat) skin_info: vec3<u32>,
+    // Texture layer, geometry validity, optional glint instance index and UV wrapping.
+    @location(1) @interpolate(flat) skin_info: vec4<u32>,
     @if(!ACTOR_MOTION)
     @location(2) world_normal: vec3<f32>,
     @if(ACTOR_MOTION)
@@ -58,7 +58,6 @@ struct VertexOutput {
     @location(3) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
-    @location(6) @interpolate(flat) uv_wrap: u32,
     @location(7) @interpolate(flat) light: u32,
     @location(8) world_position: vec3<f32>,
     @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
@@ -68,7 +67,7 @@ struct VertexOutput {
     @location(13) @interpolate(flat) surface: u32,
     @location(14) back_native_lighting: vec3<f32>,
     @if(ACTOR_MOTION)
-    @location(15) previous_clip: vec4<f32>,
+    @location(6) previous_clip: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -143,7 +142,7 @@ fn actor_vertex(
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
-    out.uv_wrap = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
+    out.skin_info.w = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
         @if(ACTOR_MOTION)
@@ -287,7 +286,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(ALPHA_TO_COVERAGE)
     let uv_dy = dpdy(uv);
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
-    if (input.uv_wrap != 0u) {
+    if (input.skin_info.w != 0u) {
         uv = fract(uv);
     }
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
@@ -295,7 +294,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
     @if(ALPHA_TO_COVERAGE)
-    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.uv_wrap != 0u);
+    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u);
     @if(ALPHA_TO_COVERAGE)
     let coverage = cutout.coverage;
     @if(ALPHA_TO_COVERAGE)
