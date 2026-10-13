@@ -333,6 +333,9 @@ impl PlayerInventoryLedger {
         network_id: i32,
         metadata: u32,
     ) -> Vec<Cell> {
+        let tags = self
+            .negotiated_item_entry(network_id)
+            .map_or(&[][..], |entry| entry.item_tags.as_ref());
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .map(Cell::Storage)
@@ -360,19 +363,21 @@ impl PlayerInventoryLedger {
                 .map(|slot| Cell::Storage(*slot))
                 .filter(|cell| self.confirmed.contains(*cell))
                 .collect(),
-            WindowKind::Horse => match item_roles::horse_slot(id) {
+            WindowKind::Horse => match item_roles::horse_slot(id, tags) {
                 Some(slot) => storage(slot..slot + 1),
                 None => storage(2..u8::MAX),
             },
             WindowKind::Anvil => ui(&[1, 2]),
             WindowKind::Enchanting => ui(&[if item_roles::is_lapis(id) { 15 } else { 14 }]),
             WindowKind::Beacon if item_roles::is_beacon_payment(id) => ui(&[27]),
-            WindowKind::Loom => item_roles::loom_slot(id).map_or_else(Vec::new, |slot| ui(&[slot])),
+            WindowKind::Loom => {
+                item_roles::loom_slot(id, tags).map_or_else(Vec::new, |slot| ui(&[slot]))
+            }
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),
             WindowKind::Cartography => ui(&[item_roles::cartography_slot(id)]),
             WindowKind::Smithing => {
-                item_roles::smithing_slot(id).map_or_else(Vec::new, |slot| ui(&[slot]))
+                item_roles::smithing_slot(id, tags).map_or_else(Vec::new, |slot| ui(&[slot]))
             }
             WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
         }

@@ -2,6 +2,7 @@
 //! Routes that still rely on name guesses remain provisional.
 
 use assets::item::armour::{ItemArmour, ItemArmourSlot, builtin_item_armour};
+use std::sync::Arc;
 
 pub(super) fn bare(identifier: &str) -> &str {
     identifier.strip_prefix("minecraft:").unwrap_or(identifier)
@@ -43,9 +44,10 @@ pub(super) fn armor_row(identifier: &str) -> Option<u8> {
     }
 }
 
-/// Whether the pinned item tags admit this exact item identity.
-fn tagged(identifier: &str, tag: &str) -> bool {
-    protocol::vanilla_tag_contains(tag, identifier) == Some(true)
+/// Whether a negotiated declaration or pinned membership admits the item to this tag.
+fn tagged(identifier: &str, tags: &[Arc<str>], tag: &str) -> bool {
+    tags.iter().any(|declared| declared.as_ref() == tag)
+        || protocol::vanilla_tag_contains(tag, identifier) == Some(true)
 }
 
 /// Whether a stock item without declared components may be held in the offhand.
@@ -75,11 +77,11 @@ pub(super) fn is_beacon_payment(identifier: &str) -> bool {
 
 /// The loom UI slot for a banner (9), dye (10) or pattern item (11).
 #[must_use]
-pub(super) fn loom_slot(identifier: &str) -> Option<u8> {
+pub(super) fn loom_slot(identifier: &str, tags: &[Arc<str>]) -> Option<u8> {
     let name = bare(identifier);
     if ends_with(name, "_banner_pattern") {
         Some(11)
-    } else if identifier == "minecraft:banner" {
+    } else if tagged(identifier, tags, "minecraft:banner") {
         Some(9)
     } else if ends_with(name, "_dye") || name == "ink_sac" || name == "glow_ink_sac" {
         Some(10)
@@ -99,17 +101,17 @@ pub(super) fn cartography_slot(identifier: &str) -> u8 {
 
 /// The smithing UI slot admitted by item tags, or no slot for an unrelated item.
 #[must_use]
-pub(super) fn smithing_slot(identifier: &str) -> Option<u8> {
-    if tagged(identifier, "minecraft:trim_templates")
-        || tagged(identifier, "minecraft:transform_templates")
+pub(super) fn smithing_slot(identifier: &str, tags: &[Arc<str>]) -> Option<u8> {
+    if tagged(identifier, tags, "minecraft:trim_templates")
+        || tagged(identifier, tags, "minecraft:transform_templates")
     {
         Some(53)
-    } else if tagged(identifier, "minecraft:trim_materials")
-        || tagged(identifier, "minecraft:transform_materials")
+    } else if tagged(identifier, tags, "minecraft:trim_materials")
+        || tagged(identifier, tags, "minecraft:transform_materials")
     {
         Some(52)
-    } else if tagged(identifier, "minecraft:trimmable_armors")
-        || tagged(identifier, "minecraft:transformable_items")
+    } else if tagged(identifier, tags, "minecraft:trimmable_armors")
+        || tagged(identifier, tags, "minecraft:transformable_items")
     {
         Some(51)
     } else {
@@ -119,11 +121,11 @@ pub(super) fn smithing_slot(identifier: &str) -> Option<u8> {
 
 /// The horse-window cell an item equips into: `0` saddle, `1` armor.
 #[must_use]
-pub(super) fn horse_slot(identifier: &str) -> Option<u8> {
+pub(super) fn horse_slot(identifier: &str, tags: &[Arc<str>]) -> Option<u8> {
     let name = bare(identifier);
     if name == "saddle" {
         Some(0)
-    } else if tagged(identifier, "minecraft:horse_armor") || ends_with(name, "_carpet") {
+    } else if tagged(identifier, tags, "minecraft:horse_armor") || ends_with(name, "_carpet") {
         Some(1)
     } else {
         None
@@ -149,8 +151,8 @@ mod tests {
         assert_eq!(armor_row("minecraft:elytra"), Some(1));
         assert!(stock_offhand("minecraft:arrow"));
         assert!(!stock_offhand("minecraft:dirt"));
-        assert_eq!(loom_slot("minecraft:banner"), Some(9));
-        assert_eq!(loom_slot("minecraft:creeper_banner_pattern"), Some(11));
-        assert_eq!(smithing_slot("minecraft:netherite_ingot"), Some(52));
+        assert_eq!(loom_slot("minecraft:banner", &[]), Some(9));
+        assert_eq!(loom_slot("minecraft:creeper_banner_pattern", &[]), Some(11));
+        assert_eq!(smithing_slot("minecraft:netherite_ingot", &[]), Some(52));
     }
 }

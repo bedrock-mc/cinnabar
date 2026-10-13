@@ -17,8 +17,11 @@ fn ledger(entry: &ItemRegistryEntry, metadata: u32) -> PlayerInventoryLedger {
     let mut ledger = PlayerInventoryLedger::default();
     ledger.begin_session(1);
     ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+    let mut entries = protocol::vanilla_item_registry().to_vec();
+    entries.retain(|existing| existing.network_id != entry.network_id);
+    entries.push(entry.clone());
     ledger.apply_registry(&ItemRegistryEvent {
-        entries: protocol::vanilla_item_registry(),
+        entries: entries.into(),
     });
     let mut slots = vec![NetworkItemStack::default(); PLAYER_INVENTORY_SLOT_COUNT];
     slots[usize::from(SOURCE_SLOT)] = NetworkItemStack {
@@ -123,6 +126,41 @@ fn registered(identifier: &str) -> ItemRegistryEntry {
         .clone()
 }
 
+/// Admits a server-defined item with a known role tag and an optional wearable slot.
+fn tagged_entry(identifier: &str, tag: &str, wearable: Option<&str>) -> ItemRegistryEntry {
+    assert!(protocol::vanilla_tag_contains(tag, identifier).is_some());
+    let mut bytes = vec![10, 0, 10];
+    nbt_string(&mut bytes, "components");
+    bytes.push(9);
+    nbt_string(&mut bytes, "item_tags");
+    bytes.extend_from_slice(&[8, 2]);
+    nbt_string(&mut bytes, tag);
+    if let Some(slot) = wearable {
+        bytes.push(10);
+        nbt_string(&mut bytes, "minecraft:wearable");
+        bytes.push(8);
+        nbt_string(&mut bytes, "slot");
+        nbt_string(&mut bytes, slot);
+        bytes.push(0);
+    }
+    bytes.extend_from_slice(&[0, 0]);
+    let event =
+        protocol::test_support::items::component_item_registry_payload(identifier, 10_001, bytes);
+    let entry = event.entries[0].clone();
+    assert_eq!(
+        entry.item_tags.as_ref(),
+        &[std::sync::Arc::<str>::from(tag)]
+    );
+    entry
+}
+
+/// Writes a network-NBT string whose length fits the fixture's single-byte prefix.
+fn nbt_string(bytes: &mut Vec<u8>, value: &str) {
+    assert!(value.len() < 128);
+    bytes.push(u8::try_from(value.len()).unwrap());
+    bytes.extend_from_slice(value.as_bytes());
+}
+
 #[derive(Deserialize)]
 struct ArmourTable {
     items: Vec<ArmourEntry>,
@@ -178,7 +216,7 @@ fn registered_banner_quick_moves_to_the_loom_without_losing_its_colour() {
 }
 
 #[test]
-fn smithing_tag_members_quick_move_to_the_matching_input() {
+fn smithing_tags_use_negotiated_members_and_pinned_fallback() {
     for (tag, slot) in [
         ("minecraft:trim_templates", 53),
         ("minecraft:transform_templates", 53),
@@ -187,6 +225,21 @@ fn smithing_tag_members_quick_move_to_the_matching_input() {
         ("minecraft:trimmable_armors", 51),
         ("minecraft:transformable_items", 51),
     ] {
+        let custom = tagged_entry("custom:ruby_ingot", tag, None);
+        assert!(crate::screen_ingredient_accepts(
+            &protocol::ScreenIngredient {
+                name: tag.into(),
+                tag: true,
+                aux: protocol::RECIPE_ANY_AUX,
+            },
+            &custom.identifier,
+            0,
+            &custom.item_tags,
+        ));
+        let mut custom_ledger = ledger(&custom, 0);
+        open(&mut custom_ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
+        assert_quick_move(&mut custom_ledger, &custom, InventoryTarget::Craft(slot));
+
         let entries = protocol::vanilla_item_registry();
         let members: Vec<_> = entries
             .iter()
@@ -198,6 +251,36 @@ fn smithing_tag_members_quick_move_to_the_matching_input() {
             open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
             assert_quick_move(&mut ledger, entry, InventoryTarget::Craft(slot));
         }
+    }
+}
+
+#[test]
+fn unrelated_session_tags_preserve_the_pinned_smithing_fallback() {
+    let entry = tagged_entry("minecraft:netherite_ingot", "minecraft:is_food", None);
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(52));
+}
+
+#[test]
+fn negotiated_banner_tag_routes_a_custom_item_to_the_loom() {
+    let entry = tagged_entry("custom:standard", "minecraft:banner", None);
+    let mut ledger = ledger(&entry, 11);
+    open(&mut ledger, protocol::WINDOW_TYPE_LOOM);
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(9));
+}
+
+#[test]
+fn custom_head_items_follow_the_wearable_slot_rather_than_a_general_armour_tag() {
+    for wearable in [Some("slot.armor.head"), None] {
+        let entry = tagged_entry("custom:mask", "minecraft:is_armor", wearable);
+        let mut ledger = equipment_ledger(&entry);
+        let target = if wearable.is_some() {
+            InventoryTarget::Armor(0)
+        } else {
+            InventoryTarget::Player(0)
+        };
+        assert_quick_move(&mut ledger, &entry, target);
     }
 }
 
@@ -230,4 +313,16 @@ fn horse_armour_tag_members_quick_move_to_the_mount_equipment_slot() {
         ));
         assert_quick_move(&mut ledger, entry, InventoryTarget::Storage(1));
     }
+}
+
+#[test]
+fn negotiated_horse_armour_tag_routes_a_custom_item_to_mount_equipment() {
+    let entry = tagged_entry("custom:mount_guard", "minecraft:horse_armor", None);
+    let mut ledger = ledger(&entry, 0);
+    open(&mut ledger, protocol::WINDOW_TYPE_HORSE);
+    ledger.apply(&content(
+        ContainerIdentity::window(3),
+        vec![NetworkItemStack::default(); 2],
+    ));
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Storage(1));
 }
