@@ -38,6 +38,7 @@ pub(super) fn descriptor_for(
         || visuals::shelf::is_record(record)
         || visuals::sea_pickle::is_record(record)
         || visuals::brewing_stand::is_record(record)
+        || visuals::campfire::is_record(record)
         || visuals::grindstone::is_record(record)
         || visuals::tripwire_hook::is_record(record)
         || visuals::end_portal_frame::is_record(record)

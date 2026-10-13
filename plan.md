@@ -5153,8 +5153,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
           campfire items, tinted scrolling beacon beams, end portal, sign text and
           model-shaped break cracks. Entity-drawn block states compile to
           `Invisible` terrain (`entity_drawn.rs`). Filled maps, spawner mob,
-          flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
-          terrain and native lighting/measurement remain open.
+          flower-pot plants, conduit wind cube, hopper/brewing-stand terrain and
+          native lighting/measurement remain open. Campfire terrain logs, ember bed
+          and flames match the 26.30 client model. The model is unchanged for
+          1.26.50 but remains unverified there.
           The enchanting-table book follows the native block actor tick and model
           animation (Bedrock 1.26.10): it turns toward the nearest player within
           three blocks, opens and closes, leafs toward random pages, hovers and
