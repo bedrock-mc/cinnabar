@@ -1,6 +1,9 @@
 package control
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // methodFriendsPeople lists the account's Xbox friends for the invite screen.
 const methodFriendsPeople = "friends_people.v1"
@@ -34,4 +37,16 @@ func peopleResult(people []Person) peopleResultV1 {
 		result.Friends = result.Friends[:len(result.Friends)-1]
 	}
 	return result
+}
+
+// frameBudget leaves headroom under MaxFrameLen for the response envelope.
+const frameBudget = MaxFrameLen - 2048
+
+// encodedLen returns the JSON size, or an over-budget size if encoding fails.
+func encodedLen(value any) int {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return frameBudget + 1
+	}
+	return len(payload)
 }
