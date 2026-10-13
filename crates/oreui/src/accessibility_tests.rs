@@ -1,5 +1,7 @@
 //! Accessibility sizing through the same screen entry point the client paints.
 
+#[path = "accessibility_overlay_tests.rs"]
+mod overlays;
 #[path = "accessibility_route_tests.rs"]
 mod routes;
 
