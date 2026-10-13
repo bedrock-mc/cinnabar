@@ -122,8 +122,9 @@ fn normalized_opaque_and_cutout_sheets_keep_the_shortened_gui_model() {
         assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD - 1,
         assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD,
         192,
+        255,
     ] {
-        let (base, entities) = cubes::catalog_for(assets::END_PORTAL_FRAME_IDENTIFIER);
+        let (base, entities) = cubes::catalog_for(assets::END_PORTAL_FRAME_IDENTIFIER, 255, 255);
         let icons = icons(&entities, base.icon_catalog.as_deref().unwrap(), alpha);
         let mut presentation = UiPresentationRuntime::with_hud_and_icons(
             ui_engine::test_support::fixture_font(),

@@ -527,6 +527,42 @@ fn creative_take_moves_a_full_stack_into_the_cursor() {
     assert!(!ledger.resync_required());
 }
 
+#[test]
+fn creative_take_refuses_unparsed_stack_size_data() {
+    for unrelated_depth in [0, 40] {
+        let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+        let registry = protocol::test_support::items::component_item_registry(
+            "minecraft:cobblestone",
+            COBBLE as i16,
+            1,
+            unrelated_depth,
+        );
+        ledger.apply_registry(&registry);
+        creative(&mut ledger);
+        if unrelated_depth == 0 {
+            ledger
+                .begin_creative_take(44, CreativeDestination::Cursor)
+                .unwrap();
+            assert_eq!(ledger.cursor_stack().unwrap().count, 1);
+            continue;
+        }
+        for destination in [
+            CreativeDestination::Cursor,
+            CreativeDestination::Player(4),
+            CreativeDestination::Drop { whole_stack: false },
+            CreativeDestination::Drop { whole_stack: true },
+        ] {
+            assert_eq!(
+                ledger.begin_creative_take(44, destination),
+                Err(InventoryGestureError::InvalidRequest)
+            );
+            assert_eq!(ledger.pending_request_count(), 0);
+            assert!(ledger.cursor_stack().is_none());
+            assert!(ledger.displayed_stack(4).is_none());
+        }
+    }
+}
+
 /// Vanilla's creative create-item scope declares
 /// the catalog prototype, not the full-stack prediction used for the transfer.
 #[test]

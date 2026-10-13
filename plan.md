@@ -1167,6 +1167,18 @@ acceptance gate.
   maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
   container screen is likewise unconfirmed by capture.
 
+## Item stack sizes
+
+- DataDriven entries use component stack sizes even for known item names. They use
+  `item_properties.max_stack_size`, or the item default when no capacity is declared. Legacy
+  and unversioned entries retain the known item's capacity; other names use the component
+  flag to choose between a component item and a plain item. Unknown item versions bind by
+  name in the same way. Unavailable component facts leave capacity unresolved unless the
+  payload is the canonical empty compound.
+- Provisional: a component item's top-level `minecraft:max_stack_size` component is read when
+  it has no `item_properties`, and plain or vanilla items carrying that component leave their
+  capacity unsettled. Parity verification of these layouts remains incomplete.
+
 ## Eating and drinking presentation
 
 - While a player uses an admitted food or drink, the client sets `variable.use_item_startup_progress` and
@@ -2414,14 +2426,15 @@ first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
-state). Cut-out cubes (glass, leaves) and chests (a cube of their inventory tiles) draw as
-GUI geometry too, as do translucent sheets of exact cubes (stained glass) and blend-flagged art
-that is only opaque or cut out (anvils). Cubes retain their three-face mesh in faded controls;
-overlapping non-cube meshes keep their thumbnail. Optional sources follow required atlas pages
-and fall back to thumbnails when the atlas is full. Incomplete: their GUI tessellation is still
-the provisional cube projection, truly translucent non-cube materials (stained panes) keep the
-thumbnail, and the bamboo fence and fence gate items show misplaced quads, as their thumbnails
-already did.
+state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
+visible through holes. Non-blended face alpha uses the thumbnail threshold; fractional blended
+faces (stained glass) retain their composed thumbnail. Chests (a cube of their inventory tiles)
+and blend-flagged art that is only opaque or cut out (anvils) draw as GUI geometry too. Overlapping
+meshes keep their thumbnail when faded. Optional sources follow required atlas pages and fall
+back to thumbnails when the atlas is full. Incomplete: layered translucent cube GUI geometry is
+not implemented, non-cube GUI tessellation still uses the provisional cube projection, truly
+translucent non-cube materials (stained panes) keep the thumbnail, and the bamboo fence and fence
+gate items show misplaced quads, as their thumbnails already did.
 Integration retains upstream's gamma-space UI layer, font/animation paths and
 independently inherited image/sidecar overrides. Stateful inventory/HUD providers
 explicitly clear empty icon bindings so compact icon tables cannot leave duplicate

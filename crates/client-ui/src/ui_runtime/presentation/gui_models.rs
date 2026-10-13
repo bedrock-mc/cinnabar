@@ -21,8 +21,8 @@ mod held;
 mod live_player;
 mod pack_equipment;
 mod sources;
-use sources::modulated;
-pub(super) use sources::{SheetCoverage, ordinary_cube_sheet, sheet_coverage, sheet_faces};
+use sources::{gui_cube_sheet, modulated};
+pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
 #[cfg(test)]
 mod cube_budget;
 #[cfg(any(test, feature = "test-support"))]
@@ -36,8 +36,8 @@ pub(super) const MODEL_PAGE: usize = render_model::UI_MODEL_ATLAS_PAGE_OFFSET;
 pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
 /// Swaps sprites that have native models for their geometry. The player preview mesh is built
-/// at most once, and only when a node shows the preview icon. Overlapping block models
-/// retain their original sprite when faded; cubes keep their three-face mesh.
+/// at most once, and only when a node shows the preview icon. Models with overlapping faces
+/// retain their original sprite when faded so the control's opacity applies once.
 fn replace_model_icons<'a>(
     nodes: &mut [UiNode],
     preview: Option<IconKey>,
@@ -122,8 +122,9 @@ impl GuiModels {
     }
 }
 
-/// Existing carried geometry must span the full cube before either cube fast path can use it.
-fn cube_geometry_admitted(
+/// A sheet can become a cube only when an existing carried model spans the full cube.
+/// Shortened models keep the shaped-model path even when their source texels are transparent.
+fn cube_shape_admitted(
     ordinary: &render_model::equipment::blocks::BlockSheets,
     visual: u32,
 ) -> bool {
@@ -135,20 +136,6 @@ fn cube_geometry_admitted(
                 .any(|coordinate| coordinate.abs() != 0.5)
         })
     })
-}
-
-/// Shortened models keep their shaped path; unsupported translucent sheets keep their thumbnail.
-fn cube_sheet_admitted(
-    ordinary: &render_model::equipment::blocks::BlockSheets,
-    visual: u32,
-    pixels: &[u8],
-) -> bool {
-    cube_geometry_admitted(ordinary, visual)
-        && match sheet_coverage(pixels) {
-            SheetCoverage::Cutout => true,
-            SheetCoverage::Translucent => ordinary.by_visual.contains_key(&visual),
-            SheetCoverage::Opaque => false,
-        }
 }
 
 impl UiPresentationRuntime {
@@ -182,22 +169,10 @@ impl UiPresentationRuntime {
                 icons.sprites()[sheet.sprite as usize].clone(),
             );
         }
-        for (visual, sprite) in &mut sources {
-            let block = world.resolve(assets::NetworkIdMode::Sequential, *visual);
-            if block.is_known() {
-                let flags = assets::BlockFace::ALL.map(|face| {
-                    world
-                        .materials()
-                        .get(block.face(face).material_id() as usize)
-                        .map(|material| material.flags)
-                });
-                sources::normalize_sheet_alpha(sprite, flags);
-            }
-        }
         let mut meshes = BTreeMap::new();
         let mut held_sources = BTreeMap::new();
         for (visual, sprite) in &sources {
-            if !cube_geometry_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
+            if !cube_shape_admitted(&ordinary, *visual) || !ordinary_cube_sheet(&sprite.rgba8) {
                 continue;
             }
             let icon = atlas.insert([sprite.width, sprite.height], &sprite.rgba8)?;
@@ -264,17 +239,19 @@ impl UiPresentationRuntime {
                 let Some(sprite) = sources.get(&block_visual.0) else {
                     continue;
                 };
-                // Carried sheets only describe cubes and chests. Translucent special shapes
-                // keep their thumbnail unless the world also supplies a cube sheet.
-                let admitted = cube_sheet_admitted(&ordinary, block_visual.0, &sprite.rgba8);
-                if !admitted {
+                if !cube_shape_admitted(&ordinary, block_visual.0) {
                     continue;
                 }
+                // Normalize alpha-tested faces using their material mode. Fractional blended
+                // faces retain the thumbnail's composited front and rear contributions.
+                let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
+                    continue;
+                };
                 // Optional sources follow required textures so discarding their meshes can
                 // reclaim their pages. A full atlas leaves the original thumbnail intact.
                 let Some(mesh) = atlas.try_insert(
                     [([sprite.width, sprite.height], sprite.rgba8.as_ref())],
-                    |icons| item_gui::cube(sheet_faces(icons[0])),
+                    |icons| item_gui::cutout_cube(sheet_faces(icons[0])),
                 ) else {
                     continue;
                 };
@@ -284,6 +261,7 @@ impl UiPresentationRuntime {
             models.insert(key, mesh);
             if !held_sources.contains_key(&block_visual.0) {
                 optional_models.insert(key);
+                faded_thumbnails.insert(key);
             }
         }
         if let Some(refs) = self.icon_refs.as_deref() {

@@ -2,16 +2,22 @@ use super::super::*;
 use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
 use ui::{UiNodeId, UiPoint, UiRect};
 
+mod alpha;
+
 const ITEM: &str = "fixture:cutout_cube";
 const VISUAL: assets::BlockVisualId = assets::BlockVisualId(1);
 
 /// Creates two item icons sharing one cut-out cube sheet, without installed carriers.
 fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
-    catalog_for(ITEM)
+    catalog_for(ITEM, 255, 255)
 }
 
-/// Binds the same original item fixture to the requested identifier.
-pub(super) fn catalog_for(item: &str) -> (UiPresentationRuntime, RuntimeEntityAssets) {
+/// Gives the face sheet and baked thumbnail separate alpha values for material-mode assertions.
+pub(super) fn catalog_for(
+    item: &str,
+    alpha: u8,
+    thumbnail_alpha: u8,
+) -> (UiPresentationRuntime, RuntimeEntityAssets) {
     let entity_path = "entity/fixture.json";
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube","geometry":{"default":"geometry.fixture"},"render_controllers":["controller.render.fixture"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
@@ -55,7 +61,7 @@ pub(super) fn catalog_for(item: &str) -> (UiPresentationRuntime, RuntimeEntityAs
         .map(|variant| assets::IconSprite {
             width: 16,
             height: 16,
-            rgba8: [variant, 70, 80, 255].repeat(16 * 16).into(),
+            rgba8: [variant, 70, 80, thumbnail_alpha].repeat(16 * 16).into(),
         })
         .collect();
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
@@ -64,7 +70,7 @@ pub(super) fn catalog_for(item: &str) -> (UiPresentationRuntime, RuntimeEntityAs
         width,
         height,
         rgba8: (0..usize::from(width) * usize::from(height))
-            .flat_map(|pixel| [20, 40, 60, if pixel % 7 == 0 { 0 } else { 255 }])
+            .flat_map(|pixel| [20, 40, 60, if pixel % 7 == 0 { 0 } else { alpha }])
             .collect::<Vec<_>>()
             .into(),
     });
@@ -145,7 +151,7 @@ fn control(icon: IconRef, alpha: u8, glint: bool) -> UiNode {
 }
 
 #[test]
-fn fading_cutout_cubes_preserves_faces_uvs_and_coverage() {
+fn cutout_cubes_keep_six_faces_and_fade_as_a_single_layer() {
     let (mut presentation, entities) = catalog();
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
@@ -155,16 +161,21 @@ fn fading_cutout_cubes_preserves_faces_uvs_and_coverage() {
             .item_icon(&entry.identifier, entry.metadata)
             .unwrap();
         let original = &presentation.gui_models.models[&icon_key(icon)];
-        assert_eq!(
-            original.indices().len(),
-            assets::gui_item::CUBE_FACES.len() * 6
-        );
+        assert_eq!(original.indices().len(), assets::BlockFace::ALL.len() * 6);
         for alpha in [255, 254, 127, 0] {
             for glint in [false, true] {
-                let mut nodes = [control(icon, alpha, glint)];
+                let control = control(icon, alpha, glint);
+                let mut nodes = [control.clone()];
                 presentation.apply_gui_models(&mut nodes);
+                if alpha < 255 {
+                    assert_eq!(
+                        nodes[0], control,
+                        "fading applies opacity to the composed icon once"
+                    );
+                    continue;
+                }
                 let UiVisual::Mesh(faded) = nodes[0].visual() else {
-                    panic!("fading a cube must retain its original visible faces");
+                    panic!("a cutout cube must draw all six faces at full opacity");
                 };
                 assert_eq!(faded.indices(), original.indices());
                 assert_eq!(faded.batches(), original.batches());
@@ -292,14 +303,31 @@ fn transparent_carried_sheets_preserve_shortened_models() {
         [30, 60, 90, 0, 30, 60, 90, 255],
         [30, 60, 90, 127, 30, 60, 90, 255],
     ] {
+        let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+        let sprite = assets::IconSprite {
+            width,
+            height,
+            rgba8: pixels
+                .repeat(usize::from(width) * usize::from(height) / 2)
+                .into(),
+        };
         assert!(
-            !cube_sheet_admitted(&ordinary, VISUAL.0, &pixels),
+            gui_cube_sheet(
+                &alpha::world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]),
+                VISUAL,
+                &sprite,
+            )
+            .is_some(),
+            "these source alpha modes can draw normalized cube faces"
+        );
+        assert!(
+            !cube_shape_admitted(&ordinary, VISUAL.0),
             "short models must reach the shaped fallback"
         );
         let short = ordinary.models.remove(&VISUAL.0).unwrap();
         ordinary.models.insert(VISUAL.0, carried_geometry(1.0));
         assert!(
-            cube_sheet_admitted(&ordinary, VISUAL.0, &pixels),
+            cube_shape_admitted(&ordinary, VISUAL.0),
             "full-height cubes retain transparent faces"
         );
         ordinary.models.insert(VISUAL.0, short);

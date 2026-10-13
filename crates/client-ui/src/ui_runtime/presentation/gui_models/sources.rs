@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use assets::{BlockFace, BlockVisualId, IconSprite, NetworkIdMode, RuntimeAssets};
 use ui::UiMesh;
 
 use ui::IconRef;
@@ -32,10 +33,44 @@ pub(in crate::ui_runtime::presentation) fn ordinary_cube_sheet(rgba8: &[u8]) -> 
     sheet_coverage(rgba8) == SheetCoverage::Opaque
 }
 
+/// Normalizes non-blended cube faces like the thumbnail baker. Fractional blended faces or
+/// unresolved alpha modes keep the thumbnail; binary alpha is independent of material mode.
+pub(super) fn gui_cube_sheet(
+    world: &RuntimeAssets,
+    visual: BlockVisualId,
+    sprite: &IconSprite,
+) -> Option<IconSprite> {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+    if [sprite.width, sprite.height] != [width, height]
+        || sprite.rgba8.len() != usize::from(width) * usize::from(height) * 4
+    {
+        return None;
+    }
+    if sheet_coverage(&sprite.rgba8) != SheetCoverage::Translucent {
+        return Some(sprite.clone());
+    }
+    let block = world.resolve(NetworkIdMode::Sequential, visual.0);
+    if !block.is_known() {
+        return None;
+    }
+    let flags = BlockFace::ALL.map(|face| {
+        let id = block.face(face).material_id();
+        (id != assets::DIAGNOSTIC_MATERIAL)
+            .then(|| world.materials().get(id as usize))
+            .flatten()
+            .map(|material| material.flags)
+    });
+    let mut normalized = sprite.clone();
+    normalize_sheet_alpha(&mut normalized, flags);
+    (sheet_coverage(&normalized.rgba8) != SheetCoverage::Translucent).then_some(normalized)
+}
+
 /// Matches the block GUI baker's cutoff independently for each non-blended material face.
 /// Blended faces keep their source alpha; RGB and unsupported material references stay unchanged.
 pub(super) fn normalize_sheet_alpha(sprite: &mut assets::IconSprite, flags: [Option<u32>; 6]) {
-    if [sprite.width, sprite.height] != assets::BLOCK_ITEM_SHEET_SIZE {
+    if [sprite.width, sprite.height] != assets::BLOCK_ITEM_SHEET_SIZE
+        || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
+    {
         return;
     }
     let cutoff = flags
