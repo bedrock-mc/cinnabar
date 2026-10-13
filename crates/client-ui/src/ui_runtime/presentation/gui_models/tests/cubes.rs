@@ -2,11 +2,21 @@ use super::super::*;
 use assets::{EquipmentTexture, RuntimeEquipmentCatalog, RuntimeIconCatalog};
 use ui::{UiNodeId, UiPoint, UiRect};
 
+mod alpha;
+
 const ITEM: &str = "fixture:cutout_cube";
 const VISUAL: assets::BlockVisualId = assets::BlockVisualId(1);
 
 /// Creates two item icons sharing one cut-out cube sheet, without installed carriers.
 fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
+    catalog_with_alpha(255, 255)
+}
+
+/// Gives the face sheet and baked thumbnail separate alpha values for material-mode assertions.
+fn catalog_with_alpha(
+    alpha: u8,
+    thumbnail_alpha: u8,
+) -> (UiPresentationRuntime, RuntimeEntityAssets) {
     let entity_path = "entity/fixture.json";
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:cube","geometry":{"default":"geometry.fixture"},"render_controllers":["controller.render.fixture"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.fixture","texture_width":16,"texture_height":16},"bones":[{"name":"body","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]}]}]}"#;
@@ -50,7 +60,7 @@ fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
         .map(|variant| assets::IconSprite {
             width: 16,
             height: 16,
-            rgba8: [variant, 70, 80, 255].repeat(16 * 16).into(),
+            rgba8: [variant, 70, 80, thumbnail_alpha].repeat(16 * 16).into(),
         })
         .collect();
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
@@ -59,7 +69,7 @@ fn catalog() -> (UiPresentationRuntime, RuntimeEntityAssets) {
         width,
         height,
         rgba8: (0..usize::from(width) * usize::from(height))
-            .flat_map(|pixel| [20, 40, 60, if pixel % 7 == 0 { 0 } else { 255 }])
+            .flat_map(|pixel| [20, 40, 60, if pixel % 7 == 0 { 0 } else { alpha }])
             .collect::<Vec<_>>()
             .into(),
     });
@@ -140,7 +150,7 @@ fn control(icon: IconRef, alpha: u8, glint: bool) -> UiNode {
 }
 
 #[test]
-fn fading_cutout_cubes_preserves_faces_uvs_and_coverage() {
+fn cutout_cubes_keep_six_faces_and_fade_as_a_single_layer() {
     let (mut presentation, entities) = catalog();
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
@@ -150,16 +160,21 @@ fn fading_cutout_cubes_preserves_faces_uvs_and_coverage() {
             .item_icon(&entry.identifier, entry.metadata)
             .unwrap();
         let original = &presentation.gui_models.models[&icon_key(icon)];
-        assert_eq!(
-            original.indices().len(),
-            assets::gui_item::CUBE_FACES.len() * 6
-        );
+        assert_eq!(original.indices().len(), assets::BlockFace::ALL.len() * 6);
         for alpha in [255, 254, 127, 0] {
             for glint in [false, true] {
-                let mut nodes = [control(icon, alpha, glint)];
+                let control = control(icon, alpha, glint);
+                let mut nodes = [control.clone()];
                 presentation.apply_gui_models(&mut nodes);
+                if alpha < 255 {
+                    assert_eq!(
+                        nodes[0], control,
+                        "fading applies opacity to the composed icon once"
+                    );
+                    continue;
+                }
                 let UiVisual::Mesh(faded) = nodes[0].visual() else {
-                    panic!("fading a cube must retain its original visible faces");
+                    panic!("a cutout cube must draw all six faces at full opacity");
                 };
                 assert_eq!(faded.indices(), original.indices());
                 assert_eq!(faded.batches(), original.batches());

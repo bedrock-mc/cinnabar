@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use assets::{BlockFace, BlockVisualId, IconSprite, NetworkIdMode, RuntimeAssets};
 use ui::UiMesh;
 
 use ui::IconRef;
@@ -30,6 +31,57 @@ pub(in crate::ui_runtime::presentation) fn sheet_coverage(rgba8: &[u8]) -> Sheet
 /// Special translucent GUI tessellators (for example beacon) are not ordinary cubes.
 pub(in crate::ui_runtime::presentation) fn ordinary_cube_sheet(rgba8: &[u8]) -> bool {
     sheet_coverage(rgba8) == SheetCoverage::Opaque
+}
+
+/// Normalizes non-blended cube faces like the thumbnail baker. Fractional blended faces or
+/// unresolved alpha modes keep the thumbnail; binary alpha is independent of material mode.
+pub(super) fn gui_cube_sheet(
+    world: &RuntimeAssets,
+    visual: BlockVisualId,
+    sprite: &IconSprite,
+) -> Option<IconSprite> {
+    let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+    if [sprite.width, sprite.height] != [width, height]
+        || sprite.rgba8.len() != usize::from(width) * usize::from(height) * 4
+    {
+        return None;
+    }
+    if sheet_coverage(&sprite.rgba8) != SheetCoverage::Translucent {
+        return Some(sprite.clone());
+    }
+    let block = world.resolve(NetworkIdMode::Sequential, visual.0);
+    if !block.is_known() {
+        return None;
+    }
+    let blending = BlockFace::ALL.map(|face| {
+        let id = block.face(face).material_id();
+        (id != assets::DIAGNOSTIC_MATERIAL)
+            .then(|| world.materials().get(id as usize))
+            .flatten()
+            .map(|material| material.flags & assets::MATERIAL_FLAG_ALPHA_BLEND != 0)
+    });
+    let mut pixels = sprite.rgba8.to_vec();
+    let side = usize::from(assets::BLOCK_ITEM_FACE_SIDE);
+    let columns = usize::from(assets::BLOCK_ITEM_SHEET_GRID[0]);
+    for (index, texel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let face =
+            (index / usize::from(width) / side) * columns + index % usize::from(width) / side;
+        if blending[face]? {
+            if texel[3] != 0 && texel[3] != 255 {
+                return None;
+            }
+        } else {
+            texel[3] = if texel[3] >= assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD {
+                255
+            } else {
+                0
+            };
+        }
+    }
+    Some(IconSprite {
+        rgba8: pixels.into(),
+        ..sprite.clone()
+    })
 }
 
 pub(in crate::ui_runtime::presentation) fn sheet_faces(icon: IconRef) -> [IconRef; 6] {

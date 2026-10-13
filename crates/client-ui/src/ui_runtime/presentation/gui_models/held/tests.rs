@@ -261,8 +261,7 @@ fn installed_gui_carriers_reuse_sprite_pages_within_the_model_atlas_budget() {
     );
 }
 
-// Local-only: chests, leaves, glass, stained glass and anvils draw as GUI geometry, not their
-// pixelated thumbnails.
+// Local-only: cutout cubes and chests draw as geometry; blended cubes retain composed thumbnails.
 #[test]
 fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
     use crate::test_support::fixture_hud;
@@ -298,7 +297,6 @@ fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
         "minecraft:chest",
         "minecraft:oak_leaves",
         "minecraft:glass",
-        "minecraft:white_stained_glass",
         "minecraft:anvil",
     ] {
         let icon = presentation.item_icon(identifier, 0).unwrap();
@@ -310,4 +308,14 @@ fn installed_see_through_and_chest_blocks_draw_as_gui_geometry() {
             "{identifier} draws as GUI geometry"
         );
     }
+    let blended = presentation
+        .item_icon("minecraft:white_stained_glass", 0)
+        .unwrap();
+    assert!(
+        !presentation
+            .gui_models
+            .models
+            .contains_key(&super::super::icon_key(blended)),
+        "fractional blended cubes retain the thumbnail's rear-face compositing"
+    );
 }
