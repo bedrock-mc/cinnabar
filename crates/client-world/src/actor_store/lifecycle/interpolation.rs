@@ -227,11 +227,12 @@ impl ActorStore {
                                 .unwrap_or(equipment.item.identity.metadata)
                         })
                 };
-                let mut main_hand_max_use_ticks = items.held_use_ticks(
+                let main_hand_use = items.held_use_profile(
                     lifetime,
                     protocol::ActorHandedness::Right,
                     is_local.then_some(local_held_network_ids[0]),
                 );
+                let mut main_hand_max_use_ticks = main_hand_use.ticks.unwrap_or(0);
                 let local_item_use_ticks = if is_local
                     && let LocalItemUse::Predicted {
                         elapsed_ticks,
@@ -246,11 +247,14 @@ impl ActorStore {
                     None
                 };
                 let off_hand = held(protocol::ActorHandedness::Left);
-                let off_hand_max_use_ticks = items.held_use_ticks(
-                    lifetime,
-                    protocol::ActorHandedness::Left,
-                    is_local.then_some(local_held_network_ids[1]),
-                );
+                let off_hand_max_use_ticks = items
+                    .held_use_profile(
+                        lifetime,
+                        protocol::ActorHandedness::Left,
+                        is_local.then_some(local_held_network_ids[1]),
+                    )
+                    .ticks
+                    .unwrap_or(0);
                 let attack = main_hand.as_deref().and_then(|id| items.attack_timing(id));
                 let main_hand_kinetic = attack.and_then(|attack| attack.kinetic_weapon);
                 let main_hand_is_spear = attack.is_some_and(|attack| attack.is_spear);
@@ -303,6 +307,7 @@ impl ActorStore {
                             .map_or(0, |equipment| equipment.selected_slot)
                     },
                     main_hand_max_use_ticks,
+                    main_hand_consumption: main_hand_use.consumption,
                     local_item_use_ticks,
                     off_hand_max_use_ticks,
                     main_hand_kinetic,

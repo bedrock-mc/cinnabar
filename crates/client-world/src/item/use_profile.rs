@@ -159,20 +159,20 @@ impl ItemStateStore {
         self.use_profiles = profiles;
     }
 
-    /// Reads animation duration from the selected numerical admission; local zero means empty.
-    pub(crate) fn held_use_ticks(
+    /// Reads the selected hand's numerical admission; an explicit local zero means empty.
+    pub(crate) fn held_use_profile(
         &self,
         actor: ActorLifetimeId,
         hand: ActorHandedness,
         local_network_id: Option<i32>,
-    ) -> u32 {
+    ) -> EffectiveItemUse {
         let network_id = local_network_id
             .or_else(|| {
                 self.get_in_hand(actor, hand)
                     .map(|held| held.item.identity.network_id)
             })
             .unwrap_or(0);
-        self.item_use_profile(network_id).ticks.unwrap_or(0)
+        self.item_use_profile(network_id)
     }
 
     /// Retrieves admitted facts without resolving names or parsing component data.
@@ -349,6 +349,9 @@ mod tests {
         };
         let component = |ticks| protocol::ItemComponents {
             use_duration_ticks: Some(ticks),
+            use_animation: Some("drink".into()),
+            food: true,
+            food_can_always_eat: Some(true),
             ..Default::default()
         };
         assert!(store.apply_registry(protocol::ItemRegistryEvent {
@@ -383,22 +386,37 @@ mod tests {
                     handedness: Some(hand),
                 }
             ));
-            assert_eq!(store.held_use_ticks(actor, hand, None), ticks);
-            assert_eq!(store.held_use_ticks(actor, hand, Some(network_id)), ticks);
-            assert_eq!(store.held_use_ticks(actor, hand, Some(0)), 0);
+            let remote = store.held_use_profile(actor, hand, None);
+            assert_eq!(remote.ticks, Some(ticks));
+            assert_eq!(remote.consumption, ItemConsumption::Drink);
+            assert_eq!(
+                store.held_use_profile(actor, hand, Some(network_id)),
+                remote
+            );
+            assert_eq!(
+                store.held_use_profile(actor, hand, Some(0)),
+                EffectiveItemUse::default()
+            );
         }
         assert!(store.apply_registry(protocol::ItemRegistryEvent {
             entries: Arc::from([entry(15000, "fixture:renamed", component(31))])
         }));
         assert_eq!(
-            store.held_use_ticks(actor, ActorHandedness::Right, None),
-            31
+            store
+                .held_use_profile(actor, ActorHandedness::Right, None)
+                .ticks,
+            Some(31)
         );
         assert_eq!(
-            store.held_use_ticks(actor, ActorHandedness::Right, Some(15000)),
-            31
+            store
+                .held_use_profile(actor, ActorHandedness::Right, Some(15000))
+                .ticks,
+            Some(31)
         );
-        assert_eq!(store.held_use_ticks(actor, ActorHandedness::Left, None), 0);
+        assert_eq!(
+            store.held_use_profile(actor, ActorHandedness::Left, None),
+            EffectiveItemUse::default()
+        );
     }
 
     #[test]

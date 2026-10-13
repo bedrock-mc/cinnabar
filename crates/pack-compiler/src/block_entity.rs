@@ -18,7 +18,7 @@ use assets::{
 use sha2::{Digest, Sha256};
 
 const MAX_SOURCE_BYTES: usize = 1024 * 1024;
-const MAX_TEXTURE_SIDE: u32 = 256;
+pub(crate) const MAX_TEXTURE_SIDE: u32 = 256;
 /// Animation strips packed frame-stacked; only these names may exceed the side bound in height.
 const STRIP_TEXTURES: &[&str] = &[
     "textures/blocks/conduit_wind_horizontal",

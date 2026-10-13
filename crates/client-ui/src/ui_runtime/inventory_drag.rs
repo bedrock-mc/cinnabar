@@ -16,7 +16,7 @@ pub enum PointerAction {
     Click(InventoryCellHit),
     /// A plain secondary click on a cell.
     SecondaryClick(InventoryCellHit),
-    /// A primary click with Shift held.
+    /// A primary or secondary click with Shift held.
     QuickMove(InventoryCellHit),
     /// A drag over two or more cells with the held stack.
     Distribute {
@@ -109,6 +109,11 @@ impl InventoryPointer {
             let Some(hit) = frame.hit else {
                 return actions;
             };
+            if frame.shift {
+                self.last_primary = None;
+                actions.push(PointerAction::QuickMove(hit));
+                return actions;
+            }
             if frame.holding && draggable(hit) {
                 self.distribution = None;
                 self.drag = Some(Drag {
@@ -302,15 +307,18 @@ mod tests {
     }
 
     #[test]
-    fn shift_click_quick_moves() {
-        let mut pointer = InventoryPointer::default();
-        let press = PointerFrame {
-            primary_pressed: true,
-            shift: true,
-            holding: false,
-            ..frame(Some(A), 0)
-        };
-        assert_eq!(pointer.step(press), vec![PointerAction::QuickMove(A)]);
+    fn shift_click_quick_moves_with_either_button() {
+        for secondary in [false, true] {
+            let mut pointer = InventoryPointer::default();
+            let press = PointerFrame {
+                primary_pressed: !secondary,
+                secondary_pressed: secondary,
+                shift: true,
+                holding: false,
+                ..frame(Some(A), 0)
+            };
+            assert_eq!(pointer.step(press), vec![PointerAction::QuickMove(A)]);
+        }
     }
     #[test]
     fn shift_quick_move_wins_over_a_recent_primary_click() {

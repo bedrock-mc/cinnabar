@@ -27,6 +27,7 @@ const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
 mod actor;
 pub use actor::{AnimatedActor, AnimatedActors, MAX_ANIMATED_ACTORS};
+pub mod consumables;
 mod properties;
 pub use properties::{PropertyDefinition, PropertyKind};
 mod rig;

@@ -26,7 +26,7 @@ glyphs do. Sneak tags additionally test world depth, while ordinary tags use Alw
 | Rule | Behaviour |
 | --- | --- |
 | Ordinary black background | RGBA `(0, 0, 0, 0.25)` |
-| Head clearance above adjusted AABB height | `0.7` blocks |
+| Head clearance above the AABB height, both scaled | `0.7` blocks |
 | Font world scale | `1.6 * (1/60)` blocks/design pixel |
 | Line pitch | `10` design pixels |
 | Background top and horizontal padding | `-1`, `1` design pixels |
@@ -35,6 +35,18 @@ glyphs do. Sneak tags additionally test world depth, while ordinary tags use Alw
 | Billboard zero-horizontal fallback | `0.0001` |
 | Cubic acos coefficients | `0.87266463`, `-0.69813168` |
 | Below-name score distance squared | `<100` blocks squared |
+
+The tag anchor sits at the feet plus the published box height (data 54) and the clearance,
+both times the Scale data (38), so the whole offset follows the actor's size. A published zero
+height is a size, not a missing value. The client applies Scale to the published box as it does
+for collision: PocketMine-MP's `Entity::syncNetworkData` publishes its box divided by its scale,
+and GeyserMC's `ArmorStandEntity#getBoundingBoxHeight` leaves the published height unscaled
+because "the SCALE entity data handles that for us". The clearance scaling follows the user's
+observation of the vanilla client, where a falling-block text host at near-zero scale shows its
+tag at its base; no client trace fixes it yet. A falling block's network offset likewise follows
+its scaled box (`0.5` for the vanilla `0.98` box), consistent with Dragonfly's falling-block
+text entity, which sends its authored position with no offset. Without a published height,
+`1.8` (`1.5` sneaking) stands in provisionally.
 
 For each nonempty LF-separated line the native font width is halved with integer truncation.
 Every line starts at its own negative half-width. Each line gets its own plate,

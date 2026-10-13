@@ -1,6 +1,7 @@
 //! Group headers retain visibility and order preferences independently of the picked server.
 
-use super::super::motion::{Feedback, Kind, opacity};
+use super::super::motion::{Feedback, Kind, mix, opacity};
+use super::super::theme::TEXT_DIMMEST;
 use crate::images::CHEVRON_DOWN_IMAGE;
 use launcher::menu::server_list::{ServerGroup, ServerListAction};
 use {
@@ -121,7 +122,7 @@ pub(super) fn draw(
         canvas.frame(b, super::super::theme::EDGE, super::super::theme::BORDER)?;
         let expanded =
             u8::from(!view.settings_options.server_list().collapsed(preview.group)) as f32;
-        header_label(canvas, preview.group, count, b, expanded)?;
+        header_label(canvas, preview.group, count, b, expanded, 1.0)?;
     }
     Ok(y)
 }
@@ -258,7 +259,7 @@ fn header(
             opacity(super::super::theme::OUTLINE, motion.focus),
         )?;
     }
-    header_label(canvas, group, count, row, motion.selected)?;
+    header_label(canvas, group, count, row, motion.selected, motion.hover)?;
     canvas.alpha = alpha;
     canvas.hit(action, row)?;
     divider(
@@ -276,14 +277,18 @@ fn header_label(
     count: usize,
     b: Bounds,
     expanded: f32,
+    hover: f32,
 ) -> Result<(), PaintError> {
     let pad = canvas.r(1.6);
     let side = canvas.r(1.2);
     let top = (b[1] + b[3] - side) * 0.5;
     let icon = [b[2] - pad - side, top, b[2] - pad, top + side];
+    let grip_right = icon[0] - canvas.r(0.8);
+    let grip = [grip_right - side, top, grip_right, top + side];
+    drag::handle(canvas, grip, mix(TEXT_DIMMEST, TEXT_DIMMER, hover))?;
     canvas.text_line_vertically_centred(
         &format!("{} ({count})", group.label()),
-        [b[0] + pad, b[1], icon[0] - canvas.r(0.8), b[3]],
+        [b[0] + pad, b[1], grip[0] - canvas.r(0.8), b[3]],
         CAPTION,
         TEXT_DIMMER,
     )?;

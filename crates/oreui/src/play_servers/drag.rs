@@ -3,11 +3,29 @@
 use launcher::menu::server_list::{ServerGroup, ServerListAction};
 use ui::UiPoint;
 
-use super::super::paint::Bounds;
+use super::super::paint::{Bounds, Canvas};
+use super::super::theme::{EDGE, Rgba};
 use launcher::menu::{MenuAction, MenuScreen};
+use ui_engine::engine::screen::PaintError;
 
 #[cfg(test)]
 mod tests;
+
+/// Draws a centred six-dot grip without adding a separate input target.
+pub(super) fn handle(canvas: &mut Canvas<'_>, b: Bounds, color: Rgba) -> Result<(), PaintError> {
+    let dot = canvas.r(EDGE);
+    let left = (b[0] + b[2] - dot * 3.0) * 0.5;
+    let top = (b[1] + b[3] - dot * 5.0) * 0.5;
+    let color = canvas.appearance.ink(color);
+    for row in 0..3 {
+        for column in 0..2 {
+            let x = left + column as f32 * dot * 2.0;
+            let y = top + row as f32 * dot * 2.0;
+            canvas.fill([x, y, x + dot, y + dot], color)?;
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy)]
 struct Section {

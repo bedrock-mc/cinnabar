@@ -1101,6 +1101,33 @@ acceptance gate.
 - Local prediction updates both cells immediately without an inventory transition animation or a server round trip.
 - Focused text fields retain input ownership. Installed Windows input acceptance is pending.
 
+## Inventory close buttons and quick-move
+
+- Engine-drawn container screens, the personal and creative inventory included, set
+  `#close_button_visible`, so the pack's own close button shows (`common_panel`'s, or the
+  inventory top bar's `close_button_panel`). Pressing it (`button.menu_exit`) closes the screen as
+  the inventory key does, and in browsers that click recaptures the mouse.
+- Shift with either mouse button quick-moves a stack between the open container or creative
+  catalog and the player inventory, through the existing whole-stack item stack requests.
+- Provisional: the pack routes `button.menu_auto_place` to `button.container_auto_place`, but no
+  capture confirms which desktop clicks raise it; the Shift+right binding follows the
+  maintainer's report of vanilla. Whether desktop vanilla shows the close button on every
+  container screen is likewise unconfirmed by capture.
+
+## Eating and drinking presentation
+
+- While a player uses an admitted food or drink, the client sets `variable.use_item_startup_progress` and
+  `variable.use_item_interval_progress`, so the pack's third-person `use_item_progress` pose
+  raises the arm to the mouth and bobs it, for remote players and the local third-person body.
+- The local player's crumbs follow its own eating sound steps: in front of a first-person camera,
+  else from the mouth other players see. A server's eat event for the local player is skipped so
+  bites do not double; other players' crumbs come from feed events for admitted foods.
+- Arm poses, sounds and crumbs use the effective consumption after server and pack overrides.
+  A food overridden to drink plays drinking presentation without emitting crumbs.
+- Provisional: the engine sets both variables natively and no version-matched witness is
+  recorded; the 4-tick rise, the 4-tick sine bob and the first-person crumb point (0.45 ahead,
+  0.15 below the camera) are approximations.
+
 ## Read-back terrain occlusion on direct-draw devices
 
 - Metal (any direct-draw device with compute) never draws indirectly. While the view holds
@@ -1267,6 +1294,13 @@ acceptance gate.
 - Rebuilt macOS/Metal frames show cube geometry; the user confirmed the live fix.
 - Non-cube, animated and high-resolution carried geometry parity remains open.
 - Vanilla rules: [held block items](docs/reference/held-block-items.md).
+
+## Scaled name tags
+
+- Name-tag offsets (box height plus head clearance) follow the actor's Scale, a published zero
+  box height counts, and a falling block's network offset follows its scaled box, so
+  falling-block text hosts sit where their server puts them. Provisional: the user's vanilla
+  observation and Dragonfly's zero-offset text entity are the witnesses, not a client trace.
 
 ## Flower-pot floor and lily-pad atlas tint
 
@@ -5119,8 +5153,10 @@ Scope: block registry + block-state → model/texture mapping (generated export 
           campfire items, tinted scrolling beacon beams, end portal, sign text and
           model-shaped break cracks. Entity-drawn block states compile to
           `Invisible` terrain (`entity_drawn.rs`). Filled maps, spawner mob,
-          flower-pot plants, conduit wind cube, campfire/hopper/brewing-stand
-          terrain and native lighting/measurement remain open.
+          flower-pot plants, conduit wind cube, hopper/brewing-stand terrain and
+          native lighting/measurement remain open. Campfire terrain logs, ember bed
+          and flames match the 26.30 client model. The model is unchanged for
+          1.26.50 but remains unverified there.
           The enchanting-table book follows the native block actor tick and model
           animation (Bedrock 1.26.10): it turns toward the nearest player within
           three blocks, opens and closes, leafs toward random pages, hovers and
@@ -6402,7 +6438,12 @@ bind to their block's first canonical state. `assetc icon-assets` reports the
 leftovers: block-entity items (chests, shulkers, beds, banners, pots, statues),
 world-diagnostic cubes, grass (overlay tint), and seeds without a sprite source.
 Shape classification, stair orientation and GUI shading are unverified against
-the retail GUI tessellator.
+the retail GUI tessellator. Head items (provisional, incomplete): every head draws
+its placed skull model (player heads with the default skin; dragon and piglin heads
+the pack geometry's head bone tree, shared with the placed renderer through
+`assets::block_entity_geometry::heads`) turned to face south like other block items'
+fronts, its uninflated bounds scaled to fill the cube frame; vanilla's skull GUI
+transform and lighting are unmeasured.
 Server item components (StartGame registry) drive display names, rarity and
 hover colours, durability maxima, stack-merge capacity, held grip, wearable
 slots and use durations. Item glint: stacks marked as glinting (an `ench` list,

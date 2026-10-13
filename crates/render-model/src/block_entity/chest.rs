@@ -3,11 +3,12 @@
 //! Box sizes and UV origins follow the chest textures' unwraps (56x19 lid, 56x24 body,
 //! 6x5 latch; 88 wide for the double); hinge height and latch placement need native measurement.
 
+use assets::block_entity_geometry::BoxSpec;
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{BoxSpec, Facing, Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Facing, Layer, MeshBuilder, WHITE, model_matrix},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

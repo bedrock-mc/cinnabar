@@ -3,12 +3,12 @@
 //! Box sizes follow the conduit textures (6x6x6 shell, 8x8x8 cage, 16x16x16 wind cube); wind
 //! frame timing, wind spin, bob and eye size need native measurement.
 
-use assets::block_entity_geometry as geometry;
+use assets::block_entity_geometry::{self as geometry, BoxSpec};
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas, TextureRef},
-    mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Layer, MeshBuilder, WHITE, model_matrix},
     scene::SceneClock,
 };
 

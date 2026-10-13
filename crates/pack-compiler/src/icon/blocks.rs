@@ -250,6 +250,30 @@ impl IconBlocks {
         }
         Ok(super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite))
     }
+
+    /// A model texture to sample, as large as the block-entity carrier packs; `None` when absent
+    /// or larger.
+    pub(super) fn model_texture(root: &Path, path: &str) -> Result<Option<IconSprite>, AssetError> {
+        let file = static_texture_path(root, path, path)?;
+        if !file.is_file() {
+            return Ok(None);
+        }
+        // Bound the size before decoding, whose allocation limit only fits carrier-sized art.
+        let oversized =
+            |(width, height): (u32, u32)| width.max(height) > crate::block_entity::MAX_TEXTURE_SIDE;
+        if image::image_dimensions(&file).is_ok_and(oversized) {
+            return Ok(None);
+        }
+        let decoded = decode_texture(&file, path)?;
+        if oversized((decoded.width, decoded.height)) {
+            return Ok(None);
+        }
+        Ok(Some(IconSprite {
+            width: decoded.width as u16,
+            height: decoded.height as u16,
+            rgba8: decoded.rgba8.into(),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -283,5 +307,19 @@ mod tests {
                 .unwrap();
             assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
         }
+    }
+
+    /// A model texture past the carrier's side is skipped rather than failing its decode.
+    #[test]
+    fn oversized_model_textures_are_skipped() {
+        let root = tempfile::tempdir().unwrap();
+        image::RgbaImage::new(512, 512)
+            .save(root.path().join("head.png"))
+            .unwrap();
+        assert!(
+            IconBlocks::model_texture(root.path(), "head")
+                .unwrap()
+                .is_none()
+        );
     }
 }

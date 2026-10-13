@@ -6,9 +6,8 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use assets::block_entity_geometry::heads::HeadModel;
 use assets::{EntityAssetKind, RuntimeActorCatalog, RuntimeEntityAssets};
-
-use super::heads::HeadModel;
 
 /// Mobs a spawner can show; others draw an empty cage.
 pub const SPAWNER_MOBS: &[&str] = &[

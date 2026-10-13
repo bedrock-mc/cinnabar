@@ -4,12 +4,12 @@
 //! quads use the shared side tile plus the sherd pattern; wobble and which sherd
 //! sits on which face need native measurement.
 
-use assets::block_entity_geometry::{self as geometry, POT_BODY_HALF as BODY_HALF};
+use assets::block_entity_geometry::{self as geometry, BoxSpec, POT_BODY_HALF as BODY_HALF};
 use glam::Vec3;
 
 use super::{
     atlas::{AtlasRect, BlockEntityAtlas},
-    mesh::{BoxSpec, Facing, Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Facing, Layer, MeshBuilder, WHITE, model_matrix},
 };
 
 /// Sherd patterns sit this far off the side tile so they never fight it, in pixels.

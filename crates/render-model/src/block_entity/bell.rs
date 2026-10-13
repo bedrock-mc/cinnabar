@@ -3,11 +3,12 @@
 //! Body and lip boxes come from the bell texture's unwrap; the frame geometry, its textures
 //! and the swing curve are provisional and need native measurement.
 
+use assets::block_entity_geometry::BoxSpec;
 use glam::{Mat4, Vec3};
 
 use super::{
     atlas::BlockEntityAtlas,
-    mesh::{BoxSpec, Layer, MeshBuilder, WHITE, model_matrix},
+    mesh::{Layer, MeshBuilder, WHITE, model_matrix},
 };
 
 /// Swing amplitude right after a ring, in degrees.

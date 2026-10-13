@@ -489,6 +489,10 @@ impl UiRuntime {
             InventoryCellHit::RecipeBook(index) => {
                 self.recipe_book_click(player_runtime, index, true)
             }
+            // Shift does not stop the close button closing the screen.
+            InventoryCellHit::Widget(Widget::Close) => {
+                self.activate_widget(player_runtime, Widget::Close)
+            }
             hit => match gesture_target(hit) {
                 Some(target) => {
                     let equipment = self.screen_state().mount_equipment;
@@ -644,6 +648,12 @@ impl UiRuntime {
             }
             Widget::Reader(button) => {
                 self.reader_button(player_runtime, button);
+                Ok(0)
+            }
+            Widget::Close => {
+                if self.inventory_open() {
+                    self.toggle_inventory(player_runtime);
+                }
                 Ok(0)
             }
             Widget::BookToggle => {

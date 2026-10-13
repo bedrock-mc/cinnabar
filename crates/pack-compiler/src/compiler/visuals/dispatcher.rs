@@ -145,6 +145,7 @@ struct VisualCompiler {
     coral_templates: BTreeMap<(u32, super::coral::Shape), u32>,
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
+    campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
     candle_cake_templates: BTreeMap<[u32; 4], u32>,
     hollow_container_templates: BTreeMap<(super::hollow_containers::VesselState, Vec<u32>), u32>,
@@ -312,6 +313,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.brewing_stand_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::campfire::compile_rule(
+            record,
+            inputs,
+            &mut self.campfire_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

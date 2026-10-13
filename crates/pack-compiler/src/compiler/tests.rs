@@ -14,6 +14,8 @@ pub(crate) mod barrel;
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
 mod bubble_column;
+#[path = "tests/campfire.rs"]
+mod campfire;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
 #[path = "tests/coral.rs"]

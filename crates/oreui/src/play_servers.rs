@@ -1,5 +1,5 @@
 //! The play route's Servers tab (classic layout): the side menu in four of
-//! twelve columns (Add server, featured experiences then custom servers) and
+//! twelve columns (Add server and reorderable server categories) and
 //! the selected server's details in eight (10:3 banner with ping and players,
 //! name with the hero Play button, then description, activities and news for
 //! an experience, or edit and remove for a saved server).
