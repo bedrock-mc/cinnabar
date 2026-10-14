@@ -4,9 +4,8 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"errors"
-	"fmt"
-	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -30,8 +29,9 @@ import (
 // NewAccount returns the signed-in account's runtime: the Xbox, PlayFab and Minecraft service
 // credentials every consumer shares, with proof-key-bound state persisted at path (empty disables
 // persistence). The OAuth source stays authoritative: new token material makes the cache miss.
-// Cache failures are optional misses reported without paths or secrets. Close ends the runtime.
-func NewAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics io.Writer) *Account {
+// Cache failures are optional misses reported without paths or secrets as AUTH_ACCEL_CACHE records
+// on diagnostics (nil discards them). Close ends the runtime.
+func NewAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics *slog.Logger) *Account {
 	return newAccount(ctx, path, oauth, diagnostics, defaultDerivedDeps())
 }
 
@@ -81,8 +81,7 @@ type Account struct {
 	oauthGate       chan struct{} // orders OAuth reads with the binding change each applies
 	publishGate     chan struct{} // serializes bundle publication
 	path            string
-	diagnostics     io.Writer
-	diagnosticsMu   sync.Mutex // diagnostics are written outside the gate
+	diagnostics     *slog.Logger
 	oauth           oauth2.TokenSource
 	binding         string
 	resets          uint64 // counts resetLocked, so a derivation can tell its own OAuth rotation from a replaced account state
@@ -132,12 +131,12 @@ var (
 // ErrAccountClosed is returned once the account has been signed out or shut down.
 var ErrAccountClosed = errors.New("authentication: account is closed")
 
-func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics io.Writer, deps derivedDeps) *Account {
+func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics *slog.Logger, deps derivedDeps) *Account {
 	if oauth == nil {
 		return nil
 	}
 	if diagnostics == nil {
-		diagnostics = io.Discard
+		diagnostics = slog.New(slog.DiscardHandler)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	source := &Account{
@@ -188,9 +187,7 @@ func newAccount(ctx context.Context, path string, oauth oauth2.TokenSource, diag
 }
 
 func (s *Account) diagnostic(event, layer, reason string) {
-	s.diagnosticsMu.Lock()
-	defer s.diagnosticsMu.Unlock()
-	_, _ = fmt.Fprintf(s.diagnostics, "AUTH_ACCEL_CACHE event=%s layer=%s reason=%s\n", event, layer, reason)
+	s.diagnostics.Info("AUTH_ACCEL_CACHE", "event", event, "layer", layer, "reason", reason)
 }
 
 // Token returns the OAuth credential only while this account is open.

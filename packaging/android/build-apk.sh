@@ -58,7 +58,7 @@ install -m 0644 "$toolchain/sysroot/usr/lib/$triple/libc++_shared.so" "$libs/lib
 # Pion's Android interface lookup (anet) needs Go's private net linknames.
 CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$toolchain/bin/$triple$min_sdk-clang" \
     go build -buildmode=pie -trimpath \
-    -ldflags "-s -w -checklinkname=0 -extldflags=$page_flags" \
+    -ldflags "-s -w -checklinkname=0 -extldflags=$page_flags $(bash "$here/../common/core-ldflags.sh")" \
     -o "$libs/$(pin core_library)" ./core/cmd/bedrock-core
 
 # The desktop resource root, minus the kit's compiler: setup links it from the native libraries.
