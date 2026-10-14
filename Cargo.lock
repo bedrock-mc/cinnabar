@@ -2393,6 +2393,7 @@ dependencies = [
  "chunk-pipeline",
  "client-ui",
  "client-world",
+ "diagnostics",
  "glam",
  "image",
  "inventory 0.1.20",
@@ -3213,6 +3214,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_json",
+ "tracing",
  "windows-sys 0.61.2",
  "world",
 ]
