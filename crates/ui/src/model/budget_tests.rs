@@ -18,3 +18,19 @@ fn packed_vertex_flags_preserve_near_cap_draw_admission() {
         ),
     );
 }
+
+#[test]
+fn aggregate_mesh_batches_cap_reservation_and_preserve_the_upper_bound() {
+    let batches = UiLimits::MAX_DRAW_BATCHES + 1;
+    let counts = DrawCounts {
+        mesh_vertices: batches * 3,
+        mesh_indices: batches * 3,
+        mesh_batches: batches,
+        ..Default::default()
+    };
+    assert_eq!(
+        counts.budget().unwrap(),
+        (UiLimits::MAX_DRAW_BATCHES, batches * 3, batches * 3)
+    );
+    assert_eq!(counts.batch_upper_bound().unwrap(), batches);
+}

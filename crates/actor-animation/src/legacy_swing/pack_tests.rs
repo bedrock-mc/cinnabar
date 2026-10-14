@@ -131,10 +131,11 @@ fn frame_sampling_keeps_pack_attack_channels_on_scratch_poses() {
         )
         .unwrap();
     assert_eq!(layers.render.len(), 1);
-    assert_eq!(
-        layers.render[0].pose[0].rotation,
-        pose::quat_from_euler([-55.0, 0.0, 0.0])
-    );
+    // The attack samples halfway between its 2/6 and 3/6 ticks; the camera adds its own -10.
+    let expected = pose::quat_from_euler([-47.5, 0.0, 0.0]);
+    for (actual, expected) in layers.render[0].pose[0].rotation.into_iter().zip(expected) {
+        assert!((actual - expected).abs() < 1.0e-5, "{actual} vs {expected}");
+    }
     assert_ne!(layers.render[0].pose[0].rotation, committed[0].rotation);
     assert_eq!(
         store.get(actor.runtime_id).unwrap().current,
