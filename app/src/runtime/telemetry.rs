@@ -51,7 +51,7 @@ use diagnostics::metrics::{
 };
 use {
     crate::runtime::{
-        shutdown::record_fatal_error,
+        shutdown::{FatalError, record_fatal_error},
         visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
         world::{ClientWorld, WorldStreamFramePoll},
     },
@@ -121,6 +121,9 @@ pub(crate) struct MetricsSamplingState {
     pub(crate) runtime_metadata_emitted: bool,
     pub(crate) diagnostic_attribution_revision: u64,
     diagnostic_attribution_log: DiagnosticAttributionLogState,
+    /// Network and stream decode errors already added to the metrics, kept here so the
+    /// sampler reads the world without borrowing it mutably.
+    reported_decode_errors: u64,
     #[cfg(feature = "acceptance")]
     pub(crate) last_biome_blend_identity: Option<CommittedBiomeBlendIdentity>,
     #[cfg(feature = "acceptance")]
@@ -250,7 +253,8 @@ pub(crate) fn send_player_auth_inputs(
     local_frame: Res<LocalPlayerFrameCarrier>,
     mut metrics: ResMut<AppMetrics>,
     mut movement: ResMut<MovementTicker>,
-    mut client_world: ResMut<ClientWorld>,
+    client_world: Res<ClientWorld>,
+    mut fatal_error: ResMut<FatalError>,
 ) {
     #[cfg(feature = "acceptance")]
     if acceptance.deadline_reached(Instant::now()) {
@@ -309,7 +313,7 @@ pub(crate) fn send_player_auth_inputs(
         Err(MovementSendError::Encode(error)) => {
             movement.deactivate();
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 format!("failed to encode PlayerAuthInput: {error}"),
             );
         }
@@ -318,21 +322,21 @@ pub(crate) fn send_player_auth_inputs(
         Err(MovementSendError::Transport(client_session::PacketSendError::Closed(_))) => {
             movement.deactivate();
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 "failed to send PlayerAuthInput: network command channel is closed".to_owned(),
             );
         }
         Err(MovementSendError::RestoreOverflow) => {
             movement.deactivate();
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 "failed to restore backpressured PlayerAuthInput".to_owned(),
             );
         }
         Err(MovementSendError::MissingEvidenceContext) => {
             movement.deactivate();
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 "failed to stage immutable movement evidence for PlayerAuthInput".to_owned(),
             );
         }
@@ -370,7 +374,7 @@ pub(crate) fn update_visibility_diagnostics(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn record_metrics(
     time: Res<Time<Real>>,
-    mut client_world: ResMut<ClientWorld>,
+    client_world: Res<ClientWorld>,
     #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,
     cache: Res<CaveVisibilityCache>,
     mut metrics: ResMut<AppMetrics>,
@@ -768,7 +772,7 @@ pub(crate) fn record_metrics(
     let total_errors = client_world
         .network_decode_errors
         .saturating_add(stream_errors);
-    if total_errors != client_world.reported_decode_errors {
+    if total_errors != sampling.reported_decode_errors {
         let (world_decode_errors, world_normalization_errors, normalization_reasons) =
             client_world.stream.as_ref().map_or_else(
                 || (0, 0, Default::default()),
@@ -790,9 +794,9 @@ pub(crate) fn record_metrics(
             normalization_reason_total,
         );
     }
-    let error_delta = cumulative_counter_delta(total_errors, client_world.reported_decode_errors);
+    let error_delta = cumulative_counter_delta(total_errors, sampling.reported_decode_errors);
     metrics.0.add_decode_errors(error_delta);
-    client_world.reported_decode_errors = total_errors;
+    sampling.reported_decode_errors = total_errors;
 }
 
 pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStageProfiler>>) {

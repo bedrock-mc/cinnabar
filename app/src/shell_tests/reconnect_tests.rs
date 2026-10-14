@@ -33,6 +33,7 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())

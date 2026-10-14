@@ -24,7 +24,7 @@ use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
-        shutdown::record_fatal_error,
+        shutdown::{FatalError, record_fatal_error},
         world::{ClientWorld, TransferNotice},
     },
     client_interaction::movement::{LocalPhysicsController, MovementTicker},
@@ -277,6 +277,7 @@ pub(crate) struct SessionResources<'w> {
     runtime: ResMut<'w, UiRuntimeResource>,
     player_runtime: ResMut<'w, PlayerRuntime>,
     client_world: ResMut<'w, ClientWorld>,
+    fatal_error: ResMut<'w, FatalError>,
     movement: ResMut<'w, MovementTicker>,
     local_physics: ResMut<'w, LocalPhysicsController>,
     local_frame: ResMut<'w, LocalPlayerFrameCarrier>,
@@ -324,7 +325,7 @@ impl SessionResources<'_> {
             self.client_world.session_items.take(),
         ));
         self.client_world.pending_surface_spawn = None;
-        self.client_world.fatal_error = None;
+        self.fatal_error.0 = None;
         self.client_world.transfer_notice = None;
         quiesce_local_player(
             &mut self.movement,
@@ -645,7 +646,7 @@ pub(crate) fn recover_session_failure(
     mut menu: ResMut<MenuRuntime>,
     mut session: SessionResources,
 ) {
-    let Some(error) = session.client_world.fatal_error.clone() else {
+    let Some(error) = session.fatal_error.0.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
@@ -688,7 +689,7 @@ fn follow_transfer(
         // the server-directed move named explicitly instead of followed.
         session.leave();
         record_fatal_error(
-            &mut session.client_world.fatal_error,
+            &mut session.fatal_error.0,
             format!(
                 "server transferred to {}",
                 format_transfer_address(&notice.host, notice.port)

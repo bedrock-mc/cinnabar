@@ -17,6 +17,7 @@ use {
     crate::{
         runtime::{
             network::CompiledStacks,
+            shutdown::FatalError,
             world::{ClientWorld, TransferNotice},
         },
         session::{
@@ -68,6 +69,7 @@ fn run_session<M>(
     root: &Path,
     kept: &'static CompiledStacks,
     client_world: ClientWorld,
+    fatal_error: FatalError,
     prepare: impl FnOnce(&mut MenuRuntime),
     system: impl IntoScheduleConfigs<ScheduleSystem, M>,
 ) {
@@ -93,6 +95,7 @@ fn run_session<M>(
             1,
         )))
         .insert_resource(client_world)
+        .insert_resource(fatal_error)
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
@@ -117,6 +120,7 @@ fn a_failed_transfer_keeps_the_server_packs_for_a_rejoin() {
         root.path(),
         kept,
         client_world,
+        FatalError::default(),
         |_| {},
         follow_server_transfer,
     );
@@ -131,6 +135,7 @@ fn an_explicit_disconnect_keeps_the_server_packs_for_a_rejoin() {
         root.path(),
         kept,
         ClientWorld::default(),
+        FatalError::default(),
         |menu| {
             menu.open_pause();
             menu.activate(MenuAction::PauseDisconnect);
@@ -144,14 +149,11 @@ fn an_explicit_disconnect_keeps_the_server_packs_for_a_rejoin() {
 fn a_session_failure_keeps_the_server_packs_for_a_rejoin() {
     let root = tempfile::tempdir().unwrap();
     let kept = kept_stacks();
-    let client_world = ClientWorld {
-        fatal_error: Some("network read failed: closed".to_owned()),
-        ..ClientWorld::default()
-    };
     run_session(
         root.path(),
         kept,
-        client_world,
+        ClientWorld::default(),
+        FatalError(Some("network read failed: closed".to_owned())),
         |_| {},
         recover_session_failure,
     );

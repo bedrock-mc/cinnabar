@@ -137,6 +137,7 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
@@ -191,6 +192,7 @@ fn app_with_core(root: &Path, script: &str) -> App {
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
@@ -373,6 +375,7 @@ fn failed_automatic_replacement(
         .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(client_world)
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(client_interaction::movement::MovementTicker::default())
         .insert_resource(client_interaction::movement::LocalPhysicsController::default())
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())

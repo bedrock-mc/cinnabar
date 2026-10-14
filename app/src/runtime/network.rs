@@ -111,6 +111,7 @@ pub(crate) fn receive_network_events(
             controls::Retirement {
                 player_runtime: &mut player_runtime,
                 client_world: &mut state.client_world,
+                fatal_error: &mut state.fatal_error.0,
                 ui_runtime: &mut state.ui_runtime,
                 resource_pack_admission: &mut resource_pack_admission,
                 pack_reload: pack_reload.as_deref_mut(),
@@ -126,6 +127,7 @@ pub(crate) fn receive_network_events(
     world_ingress::drain(
         &mut network,
         &mut state.client_world,
+        &mut state.fatal_error.0,
         &mut player_runtime,
         &mut state.ui_runtime,
         #[cfg(feature = "acceptance")]

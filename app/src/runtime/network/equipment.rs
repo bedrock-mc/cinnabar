@@ -79,6 +79,7 @@ pub(super) fn publish_bootstrap_equipment(
     player_runtime: &mut client_state::PlayerRuntime,
     ui_runtime: &mut UiRuntime,
     client_world: &mut crate::runtime::world::ClientWorld,
+    fatal_error: &mut Option<String>,
     session_generation: u64,
     runtime_id: u64,
 ) -> bool {
@@ -92,7 +93,7 @@ pub(super) fn publish_bootstrap_equipment(
         Ok(routed) => routed,
         Err(error) => {
             record_fatal_error(
-                &mut client_world.fatal_error,
+                fatal_error,
                 format!("inventory identity publication failed: {error:?}"),
             );
             return false;
@@ -115,7 +116,7 @@ pub(super) fn publish_bootstrap_equipment(
         };
         if let Some(Err(error)) = result {
             record_fatal_error(
-                &mut client_world.fatal_error,
+                fatal_error,
                 format!("world FIFO rejected buffered equipment: {error}"),
             );
             break;
