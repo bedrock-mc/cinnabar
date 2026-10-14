@@ -290,6 +290,7 @@ fn beacon_refs(refs: &mut BTreeSet<Reference>, document: &Value) {
 /// Checks every TSV identity column and the sprite keys of retained legacy routes.
 fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
     let domain = match file {
+        "item-name-identities-1.26.50.tsv" => "item",
         "item-fuel-v2193.tsv"
         | "item-glint-v2193.tsv"
         | "item-grips-v2193.tsv"

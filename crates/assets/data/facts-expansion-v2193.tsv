@@ -2,7 +2,7 @@ identifier	traits	rules	provisional
 minecraft:acacia_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:acacia_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:acacia_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:acacia_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:acacia_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:acacia_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:acacia_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:acacia_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -10,7 +10,7 @@ minecraft:acacia_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_I
 minecraft:acacia_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:acacia_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:acacia_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:acacia_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:acacia_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:acacia_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:acacia_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:acacia_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -22,7 +22,7 @@ minecraft:air	REPLACEABLE,AIR	air-9,family-air-0,full_top_support-122,replaceabl
 minecraft:allium	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:allow	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:amethyst_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:amethyst_cluster	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	
+minecraft:amethyst_cluster	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	-
 minecraft:ancient_debris	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:andesite	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:andesite_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
@@ -39,7 +39,7 @@ minecraft:bamboo_block	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD
 minecraft:bamboo_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:bamboo_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:bamboo_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:bamboo_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:bamboo_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:bamboo_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:bamboo_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:bamboo_mosaic	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -49,7 +49,7 @@ minecraft:bamboo_mosaic_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTE
 minecraft:bamboo_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:bamboo_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:bamboo_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-55,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-61,survival-unresolved-80
-minecraft:bamboo_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:bamboo_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:bamboo_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:bamboo_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:bamboo_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -69,7 +69,7 @@ minecraft:big_dripleaf	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive
 minecraft:birch_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:birch_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:birch_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:birch_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:birch_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:birch_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:birch_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:birch_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -77,7 +77,7 @@ minecraft:birch_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_IN
 minecraft:birch_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:birch_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:birch_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:birch_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:birch_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:birch_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:birch_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:birch_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -86,7 +86,7 @@ minecraft:birch_wall_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,WALL_SIGN,BLOCK_EN
 minecraft:birch_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:black_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:black_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:black_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:black_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:black_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:black_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:black_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -109,7 +109,7 @@ minecraft:blackstone_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full
 minecraft:blast_furnace	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
 minecraft:blue_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:blue_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:blue_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:blue_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:blue_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:blue_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:blue_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -141,7 +141,7 @@ minecraft:brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	bu
 minecraft:brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:brown_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:brown_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:brown_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:brown_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:brown_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:brown_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:brown_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -163,17 +163,17 @@ minecraft:bubble_coral	SURVIVAL_RULE,CUTOUT,PLANT,CORAL	coral-108,cutout-82,fami
 minecraft:bubble_coral_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:bubble_coral_fan	SURVIVAL_RULE,CUTOUT,PLANT,CORAL	coral-109,cutout-82,family-aquatic-29,plant-111,survival-unresolved-71,survival-unresolved-80,survival:Unresolved	coral-109,cutout-82,plant-111,survival-unresolved-71,survival-unresolved-80
 minecraft:bubble_coral_wall_fan	SURVIVAL_RULE,CUTOUT,PLANT,CORAL	coral-110,cutout-82,family-aquatic-29,plant-111,survival-unresolved-72,survival-unresolved-80,survival:Unresolved	coral-110,cutout-82,plant-111,survival-unresolved-72,survival-unresolved-80
-minecraft:budding_amethyst		survival:None	
+minecraft:budding_amethyst		survival:None	-
 minecraft:bush	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:cactus	SURVIVAL_RULE	family-cuboid-39,full_top_support-122,survival-unresolved-55,survival:Unresolved,vine_support-114	full_top_support-122,survival-unresolved-55,vine_support-114
 minecraft:cactus_flower	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-43,plant-111,survival-unresolved-59,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-59,survival-unresolved-80
-minecraft:cake		family-cuboid-39,survival:None	
+minecraft:cake		family-cuboid-39,survival:None	-
 minecraft:calcite	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:calibrated_sculk_sensor	ORIENTATION_SENSITIVE	full_top_support-122,orientation_sensitive-39,survival:None	full_top_support-122
 minecraft:camera		survival:None	unadmitted
 minecraft:campfire	ORIENTATION_SENSITIVE,CAMPFIRE,BLOCK_ENTITY_BACKING	block-entity-backings,campfire-95,full_top_support-122,orientation_sensitive-39,survival:None	campfire-95,full_top_support-122
 minecraft:candle	SURVIVAL_RULE,CANDLE	candle-100,survival-candle-52,survival-unresolved-55,survival:Candle	candle-100,survival-unresolved-55
-minecraft:candle_cake		survival:None	
+minecraft:candle_cake		survival:None	-
 minecraft:carrots	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:cartography_table	OPENS_CONTAINER	opens_container-24,survival:None	opens_container-24
 minecraft:carved_pumpkin	HUMANOID_WEARABLE,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,humanoid_wearable-33,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -181,13 +181,13 @@ minecraft:cauldron	FULL_TOP_SUPPORT,CAULDRON	cauldron-90,full_top_support-120,su
 minecraft:cave_vines	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-42,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
 minecraft:cave_vines_body_with_berries	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-42,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
 minecraft:cave_vines_head_with_berries	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-42,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
-minecraft:chain_command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:chain_command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:chalkboard	ORIENTATION_SENSITIVE	orientation_sensitive-37,survival:None	unadmitted
 minecraft:chemical_heat		survival:None	unadmitted
 minecraft:cherry_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:cherry_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:cherry_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:cherry_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:cherry_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:cherry_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:cherry_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:cherry_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -195,7 +195,7 @@ minecraft:cherry_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_I
 minecraft:cherry_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:cherry_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:cherry_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:cherry_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:cherry_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:cherry_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:cherry_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:cherry_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -203,9 +203,9 @@ minecraft:cherry_trapdoor	TOGGLES_BY_HAND,FULL_TOP_SUPPORT,ONE_WAY_COLLIDABLE,OR
 minecraft:cherry_wall_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,WALL_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-3,survival-unresolved-67,survival-unresolved-68,survival-unresolved-80,survival:Unresolved,wall_sign-104	survival-unresolved-67,survival-unresolved-68,survival-unresolved-80,wall_sign-104
 minecraft:cherry_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
-minecraft:chipped_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	
+minecraft:chipped_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	-
 minecraft:chiseled_bookshelf	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-chiseledbookshelf-36,full_top_support-131,orientation_sensitive-37,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:chiseled_cinnabar		survival:None	
+minecraft:chiseled_cinnabar		survival:None	-
 minecraft:chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chiseled_deepslate	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chiseled_nether_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -215,23 +215,23 @@ minecraft:chiseled_red_sandstone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	b
 minecraft:chiseled_resin_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chiseled_sandstone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chiseled_stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:chiseled_sulfur		survival:None	
+minecraft:chiseled_sulfur		survival:None	-
 minecraft:chiseled_tuff	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chiseled_tuff_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:chorus_flower	SURVIVAL_RULE,CHORUS_CONNECT	chorus_connect-21,full_top_support-122,survival-unresolved-55,survival-unresolved-59,survival:Unresolved	full_top_support-122,survival-unresolved-55,survival-unresolved-59
 minecraft:chorus_plant	SURVIVAL_RULE,CHORUS_CONNECT	chorus_connect-21,full_top_support-122,survival-unresolved-55,survival:Unresolved	full_top_support-122,survival-unresolved-55
-minecraft:cinnabar		survival:None	
+minecraft:cinnabar		survival:None	-
 minecraft:cinnabar_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:cinnabar_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:cinnabar_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:cinnabar_brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
-minecraft:cinnabar_bricks		survival:None	
+minecraft:cinnabar_bricks		survival:None	-
 minecraft:cinnabar_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:cinnabar_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:cinnabar_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:cinnabar_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:clay	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:client_request_placeholder_block		survival:None	
+minecraft:client_request_placeholder_block		survival:None	-
 minecraft:closed_eyeblossom	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	survival-unresolved-55
 minecraft:coal_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:coal_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -250,13 +250,13 @@ minecraft:colored_torch_blue	TORCH,ORIENTATION_SENSITIVE	family-torch-22,orienta
 minecraft:colored_torch_green	TORCH,ORIENTATION_SENSITIVE	family-torch-22,orientation_sensitive-41,survival:None,torch-0	unadmitted
 minecraft:colored_torch_purple	TORCH,ORIENTATION_SENSITIVE	family-torch-22,orientation_sensitive-41,survival:None,torch-0	unadmitted
 minecraft:colored_torch_red	TORCH,ORIENTATION_SENSITIVE	family-torch-22,orientation_sensitive-41,survival:None,torch-0	unadmitted
-minecraft:command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:composter	FULL_TOP_SUPPORT,COMPOSTER	composter-91,full_top_support-120,survival:None,vine_support-114	composter-91,full_top_support-120,vine_support-114
 minecraft:compound_creator	ORIENTATION_SENSITIVE	orientation_sensitive-37,survival:None	unadmitted
 minecraft:conduit	BLOCK_ENTITY_DRAWN	block_entity_drawn-112,survival:None	block_entity_drawn-112
 minecraft:copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
 minecraft:copper_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:copper_bulb		survival:None	
+minecraft:copper_bulb		survival:None	-
 minecraft:copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -274,21 +274,21 @@ minecraft:cracked_polished_blackstone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD
 minecraft:cracked_stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:crafter	OPENS_CONTAINER	opens_container-24,survival:None	opens_container-24
 minecraft:crafting_table	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,opens_container-24,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
-minecraft:creaking_heart	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	
+minecraft:creaking_heart	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	-
 minecraft:creeper_head	HUMANOID_WEARABLE,SURVIVAL_RULE,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,HEAD,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-113,head-86,humanoid_wearable-31,orientation_sensitive-3,survival-unresolved-78,survival:Unresolved	block_entity_drawn-113,head-86,survival-unresolved-78
 minecraft:crimson_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:crimson_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:crimson_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:crimson_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:crimson_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:crimson_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:crimson_fungus	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-64,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-64,survival-unresolved-80
 minecraft:crimson_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:crimson_hyphae	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:crimson_nylium		survival:None	
+minecraft:crimson_nylium		survival:None	-
 minecraft:crimson_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:crimson_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:crimson_roots	REPLACEABLE,SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,replaceable-23,survival-unresolved-63,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,replaceable-23,survival-unresolved-63,survival-unresolved-80
-minecraft:crimson_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:crimson_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:crimson_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:crimson_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:crimson_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -307,7 +307,7 @@ minecraft:cut_sandstone_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BU
 minecraft:cut_sandstone_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:cyan_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:cyan_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:cyan_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:cyan_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:cyan_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:cyan_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:cyan_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -322,12 +322,12 @@ minecraft:cyan_wool	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intentio
 minecraft:cyan_wool_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:cyan_wool_slab	BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-slab-11,full_top_support-130,pinned-components,survival:None	full_top_support-130
 minecraft:cyan_wool_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,pinned-components,survival:None	full_top_support-126,full_top_support-127
-minecraft:damaged_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	
+minecraft:damaged_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	-
 minecraft:dandelion	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:dark_oak_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:dark_oak_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:dark_oak_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:dark_oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:dark_oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:dark_oak_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:dark_oak_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:dark_oak_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -335,7 +335,7 @@ minecraft:dark_oak_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD
 minecraft:dark_oak_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:dark_oak_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:dark_oak_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:dark_oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:dark_oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:dark_oak_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:dark_oak_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:dark_oak_trapdoor	TOGGLES_BY_HAND,FULL_TOP_SUPPORT,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-trapdoor-8,full_top_support-125,full_top_support-127,one_way_collidable-8,orientation_sensitive-37,survival:None,toggles_by_hand-30	full_top_support-125,full_top_support-127,toggles_by_hand-30
@@ -390,9 +390,9 @@ minecraft:deepslate_tile_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INT
 minecraft:deepslate_tile_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:deepslate_tiles	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:deny	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:deprecated_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	
-minecraft:deprecated_purpur_block_1	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	
-minecraft:deprecated_purpur_block_2	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	
+minecraft:deprecated_anvil	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	-
+minecraft:deprecated_purpur_block_1	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	-
+minecraft:deprecated_purpur_block_2	ORIENTATION_SENSITIVE	orientation_sensitive-40,survival:None	-
 minecraft:detector_rail	SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-rail-21,orientation_sensitive-42,survival-unresolved-65,survival-unresolved-80,survival:Unresolved	survival-unresolved-65,survival-unresolved-80
 minecraft:diamond_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:diamond_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -405,9 +405,9 @@ minecraft:dirt	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,
 minecraft:dirt_with_roots	SURVIVAL_RULE	survival-unresolved-63,survival:Unresolved	survival-unresolved-63
 minecraft:dispenser	OPENS_CONTAINER,BODY_RELATIVE_FACING,ORIENTATION_SENSITIVE	body_relative_facing-34,opens_container-24,orientation_sensitive-3,survival:None	body_relative_facing-34,opens_container-24
 minecraft:double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:dragon_egg		family-decorative-4,survival:None	
+minecraft:dragon_egg		family-decorative-4,survival:None	-
 minecraft:dragon_head	HUMANOID_WEARABLE,SURVIVAL_RULE,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,HEAD,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-113,head-86,humanoid_wearable-31,orientation_sensitive-3,survival-unresolved-78,survival:Unresolved	block_entity_drawn-113,head-86,survival-unresolved-78
-minecraft:dried_ghast	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	
+minecraft:dried_ghast	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	-
 minecraft:dried_kelp_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:dripstone_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:dropper	OPENS_CONTAINER,ORIENTATION_SENSITIVE	opens_container-24,orientation_sensitive-3,survival:None	opens_container-24
@@ -536,10 +536,10 @@ minecraft:emerald_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intent
 minecraft:enchanting_table	OPENS_CONTAINER,BLOCK_ENTITY_BACKING	block-entity-backings,full_top_support-122,opens_container-24,survival:None	full_top_support-122,opens_container-24
 minecraft:end_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:end_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:end_gateway		survival:None	
+minecraft:end_gateway		survival:None	-
 minecraft:end_portal	BLOCK_ENTITY_DRAWN,PORTAL,END_PORTAL	block_entity_drawn-112,end_portal-97,portal-19,survival:None	block_entity_drawn-112,end_portal-97
 minecraft:end_portal_frame	ORIENTATION_SENSITIVE	full_top_support-122,orientation_sensitive-39,survival:None	full_top_support-122
-minecraft:end_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:end_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:end_stone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:end_stone_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:end_stone_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
@@ -548,7 +548,7 @@ minecraft:ender_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,B
 minecraft:exposed_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:exposed_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:exposed_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:exposed_copper_bulb		survival:None	
+minecraft:exposed_copper_bulb		survival:None	-
 minecraft:exposed_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:exposed_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:exposed_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -560,7 +560,7 @@ minecraft:exposed_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build
 minecraft:exposed_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:exposed_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:exposed_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:exposed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:exposed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:farmland	VINE_SUPPORT,FARMLAND	family-cuboid-39,farmland-101,full_top_support-122,survival:None,vine_support-116	farmland-101,full_top_support-122,vine_support-116
 minecraft:fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:fern	REPLACEABLE,SURVIVAL_RULE,CUTOUT,GRASS_TINT,PLANT	cutout-82,family-cross-41,grass_tint-84,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,grass_tint-84,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80
@@ -577,14 +577,14 @@ minecraft:flowing_lava	REPLACEABLE,TRANSLUCENT,LAVA	family-liquid-1,lava-12,repl
 minecraft:flowing_water	REPLACEABLE,TRANSLUCENT,WATER_TINT,WATER	family-liquid-1,replaceable-23,survival:None,translucent-81,water-11,water_tint-85	replaceable-23,translucent-81,water_tint-85
 minecraft:frame	BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,FRAME,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-112,frame-87,orientation_sensitive-3,survival:None	block_entity_drawn-112,frame-87
 minecraft:frog_spawn	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	survival-unresolved-55
-minecraft:frosted_ice		survival:None	
+minecraft:frosted_ice		survival:None	-
 minecraft:furnace	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
 minecraft:gilded_blackstone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:glass	VINE_SUPPORT,FULL_TOP_SUPPORT,TRANSLUCENT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,translucent-81,vine_support-119	full_top_support-131,translucent-81,vine_support-119
 minecraft:glass_pane	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-15,full_top_support-127,survival:None	cutout-82,full_top_support-127
 minecraft:glow_frame	BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,FRAME,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-112,frame-87,orientation_sensitive-3,survival:None	block_entity_drawn-112,frame-87
 minecraft:glow_lichen	MULTIFACE,REPLACEABLE,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE,PLANT	cutout-82,family-glowlichen-34,multiface-2,multiface-7,orientation_sensitive-44,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80
-minecraft:glowingobsidian		survival:None	
+minecraft:glowingobsidian		survival:None	-
 minecraft:glowstone	VINE_SUPPORT,FULL_TOP_SUPPORT,GLOWSTONE,BUILD_INTENTION	build_intention-22,full_top_support-131,glowstone-17,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:gold_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:gold_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -600,7 +600,7 @@ minecraft:grass_path	VINE_SUPPORT	full_top_support-122,survival:None,vine_suppor
 minecraft:gravel	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:gray_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:gray_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:gray_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:gray_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:gray_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:gray_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:gray_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -617,7 +617,7 @@ minecraft:gray_wool_slab	BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,famil
 minecraft:gray_wool_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,pinned-components,survival:None	full_top_support-126,full_top_support-127
 minecraft:green_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:green_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:green_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:green_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:green_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:green_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:green_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -670,7 +670,7 @@ minecraft:hard_yellow_stained_glass	TRANSLUCENT	survival:None,translucent-81	tra
 minecraft:hard_yellow_stained_glass_pane	CONNECTS_THIN	family-pane-15,survival:None	unadmitted
 minecraft:hardened_clay	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:hay_block	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-cube-6,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:heavy_core		survival:None	
+minecraft:heavy_core		survival:None	-
 minecraft:heavy_weighted_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:honey_block	VINE_SUPPORT,FULL_TOP_SUPPORT,TRANSLUCENT	full_top_support-131,survival:None,translucent-81,vine_support-116	full_top_support-131,translucent-81,vine_support-116
 minecraft:honeycomb_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -687,8 +687,8 @@ minecraft:infested_deepslate	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE
 minecraft:infested_mossy_stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:infested_stone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:infested_stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:info_update		survival:None	
-minecraft:info_update2		survival:None	
+minecraft:info_update		survival:None	-
+minecraft:info_update2		survival:None	-
 minecraft:invisible_bedrock	BUILD_INTENTION	build_intention-22,full_top_support-122,full_top_support-131,survival:None,vine_support-114,vine_support-119	full_top_support-122,full_top_support-131,vine_support-114,vine_support-119
 minecraft:iron_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
 minecraft:iron_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -701,7 +701,7 @@ minecraft:jukebox	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION,BLOCK_ENTITY_BAC
 minecraft:jungle_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:jungle_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:jungle_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:jungle_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:jungle_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:jungle_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:jungle_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:jungle_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -709,7 +709,7 @@ minecraft:jungle_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_I
 minecraft:jungle_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:jungle_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:jungle_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:jungle_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:jungle_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:jungle_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:jungle_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:jungle_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -722,7 +722,7 @@ minecraft:ladder	SURVIVAL_RULE,ORIENTATION_SENSITIVE,LADDER	ladder-88,orientatio
 minecraft:lantern	LANTERN_LIKE,SURVIVAL_RULE,CUTOUT	cutout-82,lantern_like-1,survival-lantern-51,survival-unresolved-55,survival:Lantern	cutout-82,survival-unresolved-55
 minecraft:lapis_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:lapis_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:large_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	
+minecraft:large_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	-
 minecraft:large_fern	REPLACEABLE,SURVIVAL_RULE,CUTOUT,GRASS_TINT,MULTIPART,PLANT	cutout-82,family-cross-41,grass_tint-84,multipart-35,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,grass_tint-84,multipart-35,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-80
 minecraft:lava	REPLACEABLE,TRANSLUCENT,LAVA	family-liquid-1,lava-12,replaceable-23,survival:None,translucent-81	replaceable-23,translucent-81
 minecraft:leaf_litter	SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-layer-27,orientation_sensitive-39,survival-unresolved-55,survival:Unresolved	survival-unresolved-55
@@ -746,7 +746,7 @@ minecraft:light_block_8	REPLACEABLE,LIGHT_BLOCK	light_block-15,replaceable-26,su
 minecraft:light_block_9	REPLACEABLE,LIGHT_BLOCK	light_block-15,replaceable-26,survival:None	replaceable-26
 minecraft:light_blue_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:light_blue_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:light_blue_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:light_blue_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:light_blue_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:light_blue_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:light_blue_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -763,7 +763,7 @@ minecraft:light_blue_wool_slab	BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22
 minecraft:light_blue_wool_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,pinned-components,survival:None	full_top_support-126,full_top_support-127
 minecraft:light_gray_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:light_gray_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:light_gray_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:light_gray_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:light_gray_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:light_gray_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:light_gray_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -778,12 +778,12 @@ minecraft:light_gray_wool_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,
 minecraft:light_gray_wool_slab	BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-slab-11,full_top_support-130,pinned-components,survival:None	full_top_support-130
 minecraft:light_gray_wool_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,pinned-components,survival:None	full_top_support-126,full_top_support-127
 minecraft:light_weighted_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
-minecraft:lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:lilac	SURVIVAL_RULE,CUTOUT,MULTIPART,PLANT	cutout-82,family-cross-41,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:lily_of_the_valley	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:lime_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:lime_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:lime_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:lime_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:lime_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:lime_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:lime_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -802,14 +802,14 @@ minecraft:lit_blast_furnace	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENT
 minecraft:lit_deepslate_redstone_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:lit_furnace	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
 minecraft:lit_pumpkin	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:lit_redstone_lamp		survival:None	
+minecraft:lit_redstone_lamp		survival:None	-
 minecraft:lit_redstone_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:lit_smoker	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
-minecraft:lodestone		survival:None	
+minecraft:lodestone		survival:None	-
 minecraft:loom	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-37,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
 minecraft:magenta_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:magenta_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:magenta_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:magenta_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:magenta_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:magenta_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:magenta_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -828,7 +828,7 @@ minecraft:magma	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22
 minecraft:mangrove_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:mangrove_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:mangrove_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:mangrove_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:mangrove_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:mangrove_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:mangrove_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:mangrove_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -837,7 +837,7 @@ minecraft:mangrove_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_in
 minecraft:mangrove_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:mangrove_propagule	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
 minecraft:mangrove_roots	SURVIVAL_RULE	survival-unresolved-63,survival:Unresolved	survival-unresolved-63
-minecraft:mangrove_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:mangrove_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:mangrove_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:mangrove_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:mangrove_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -845,11 +845,11 @@ minecraft:mangrove_trapdoor	TOGGLES_BY_HAND,FULL_TOP_SUPPORT,ONE_WAY_COLLIDABLE,
 minecraft:mangrove_wall_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,WALL_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-3,survival-unresolved-67,survival-unresolved-68,survival-unresolved-80,survival:Unresolved,wall_sign-104	survival-unresolved-67,survival-unresolved-68,survival-unresolved-80,wall_sign-104
 minecraft:mangrove_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:material_reducer	ORIENTATION_SENSITIVE	orientation_sensitive-37,survival:None	unadmitted
-minecraft:medium_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	
+minecraft:medium_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	-
 minecraft:melon_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:melon_stem	SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE,PLANT	cutout-82,family-crop-31,orientation_sensitive-3,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:mob_spawner	SPAWNER	spawner-96,survival:None	spawner-96
-minecraft:moss_block		survival:None	
+minecraft:moss_block		survival:None	-
 minecraft:moss_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival-unresolved-55,survival:Carpet	survival-unresolved-55
 minecraft:mossy_cobblestone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:mossy_cobblestone_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
@@ -861,7 +861,7 @@ minecraft:mossy_stone_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-
 minecraft:mossy_stone_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:mossy_stone_brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:mossy_stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:moving_block		survival:None	
+minecraft:moving_block		survival:None	-
 minecraft:mud	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,family-cuboid-5,full_top_support-131,survival:None,vine_support-116	full_top_support-131,vine_support-116
 minecraft:mud_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:mud_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
@@ -873,7 +873,7 @@ minecraft:mushroom_stem	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_inte
 minecraft:mycelium	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:nether_brick	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:nether_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:nether_brick_fence	CONNECTS_FENCE,NETHER_BRICK_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,nether_brick_fence-18,survival:None	
+minecraft:nether_brick_fence	CONNECTS_FENCE,NETHER_BRICK_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,nether_brick_fence-18,survival:None	-
 minecraft:nether_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:nether_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:nether_brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
@@ -883,29 +883,29 @@ minecraft:nether_wart	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-
 minecraft:nether_wart_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:netherite_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:netherrack	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:netherreactor		survival:None	
+minecraft:netherreactor		survival:None	-
 minecraft:normal_stone_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:normal_stone_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:normal_stone_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:noteblock	USES_LOCALLY,VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,survival:None,uses_locally-25,vine_support-119	full_top_support-131,uses_locally-25,vine_support-119
 minecraft:oak_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:oak_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:oak_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
 minecraft:oak_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:oak_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:oak_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:oak_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:oak_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:oak_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:observer		survival:None	
+minecraft:observer		survival:None	-
 minecraft:obsidian	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:ochre_froglight	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:open_eyeblossom	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	survival-unresolved-55
 minecraft:orange_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:orange_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:orange_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:orange_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:orange_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:orange_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:orange_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -926,7 +926,7 @@ minecraft:oxeye_daisy	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant
 minecraft:oxidized_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:oxidized_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:oxidized_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:oxidized_copper_bulb		survival:None	
+minecraft:oxidized_copper_bulb		survival:None	-
 minecraft:oxidized_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:oxidized_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:oxidized_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -938,16 +938,16 @@ minecraft:oxidized_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	buil
 minecraft:oxidized_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:oxidized_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:oxidized_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:oxidized_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:oxidized_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:packed_ice	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:packed_mud	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:pale_hanging_moss	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
-minecraft:pale_moss_block		survival:None	
+minecraft:pale_moss_block		survival:None	-
 minecraft:pale_moss_carpet	SURVIVAL_RULE,MULTIPART,BUILD_INTENTION	build_intention-22,family-carpet-26,multipart-35,survival-carpet-48,survival-unresolved-55,survival:Carpet	multipart-35,survival-unresolved-55
 minecraft:pale_oak_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:pale_oak_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:pale_oak_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:pale_oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:pale_oak_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:pale_oak_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:pale_oak_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:pale_oak_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -955,7 +955,7 @@ minecraft:pale_oak_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD
 minecraft:pale_oak_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:pale_oak_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:pale_oak_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:pale_oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:pale_oak_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:pale_oak_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:pale_oak_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:pale_oak_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -969,7 +969,7 @@ minecraft:petrified_oak_slab	BUILD_INTENTION	build_intention-22,family-slab-11,f
 minecraft:piglin_head	HUMANOID_WEARABLE,SURVIVAL_RULE,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,HEAD,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-113,head-86,humanoid_wearable-31,orientation_sensitive-3,survival-unresolved-78,survival:Unresolved	block_entity_drawn-113,head-86,survival-unresolved-78
 minecraft:pink_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:pink_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:pink_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:pink_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:pink_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:pink_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:pink_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1010,7 +1010,7 @@ minecraft:polished_blackstone_pressure_plate	SURVIVAL_RULE	family-pressureplate-
 minecraft:polished_blackstone_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:polished_blackstone_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:polished_blackstone_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
-minecraft:polished_cinnabar		survival:None	
+minecraft:polished_cinnabar		survival:None	-
 minecraft:polished_cinnabar_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:polished_cinnabar_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:polished_cinnabar_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
@@ -1028,7 +1028,7 @@ minecraft:polished_granite	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_i
 minecraft:polished_granite_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:polished_granite_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:polished_granite_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
-minecraft:polished_sulfur		survival:None	
+minecraft:polished_sulfur		survival:None	-
 minecraft:polished_sulfur_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:polished_sulfur_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:polished_sulfur_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
@@ -1041,14 +1041,14 @@ minecraft:polished_tuff_wall	BUILD_INTENTION	build_intention-22,family-wall-13,f
 minecraft:poplar_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:poplar_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:poplar_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:poplar_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:poplar_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:poplar_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:poplar_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:poplar_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:poplar_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:poplar_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:poplar_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:poplar_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:poplar_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:poplar_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:poplar_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:poplar_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN	family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -1058,7 +1058,7 @@ minecraft:poplar_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_
 minecraft:poppy	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:portal	TRANSLUCENT,PORTAL	portal-19,survival:None,translucent-81	translucent-81
 minecraft:potatoes	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
-minecraft:potent_sulfur		survival:None	
+minecraft:potent_sulfur		survival:None	-
 minecraft:powder_snow		full_top_support-122,survival:None	full_top_support-122
 minecraft:powered_comparator	USES_LOCALLY,SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-39,survival-unresolved-55,survival:Unresolved,uses_locally-25	survival-unresolved-55,uses_locally-25
 minecraft:powered_repeater	USES_LOCALLY,SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-39,survival-unresolved-55,survival:Unresolved,uses_locally-25	survival-unresolved-55,uses_locally-25
@@ -1075,7 +1075,7 @@ minecraft:pumpkin	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTE
 minecraft:pumpkin_stem	SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE,PLANT	cutout-82,family-crop-31,orientation_sensitive-3,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:purple_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:purple_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:purple_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:purple_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:purple_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:purple_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:purple_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1108,7 +1108,7 @@ minecraft:raw_gold_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_int
 minecraft:raw_iron_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:red_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:red_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:red_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:red_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:red_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:red_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:red_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1140,14 +1140,14 @@ minecraft:red_wool_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_I
 minecraft:red_wool_slab	BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-slab-11,full_top_support-130,pinned-components,survival:None	full_top_support-130
 minecraft:red_wool_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,FIRE_FLAMMABLE	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,pinned-components,survival:None	full_top_support-126,full_top_support-127
 minecraft:redstone_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:redstone_lamp		survival:None	
+minecraft:redstone_lamp		survival:None	-
 minecraft:redstone_ore	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:redstone_torch	TORCH,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE	cutout-82,family-torch-22,orientation_sensitive-41,survival-torch-46,survival:Torch,torch-0	cutout-82
 minecraft:redstone_wire	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	survival-unresolved-55
 minecraft:reeds	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:reinforced_deepslate	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:repeating_command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
-minecraft:reserved6		survival:None	
+minecraft:repeating_command_block	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
+minecraft:reserved6		survival:None	-
 minecraft:resin_block	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:resin_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:resin_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
@@ -1155,7 +1155,7 @@ minecraft:resin_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENT
 minecraft:resin_brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:resin_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:resin_clump	MULTIFACE,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE	cutout-82,family-resinclump-38,multiface-2,multiface-7,orientation_sensitive-44,survival-unresolved-80,survival:Unresolved	cutout-82,survival-unresolved-80
-minecraft:respawn_anchor	RESPAWN_ANCHOR	respawn_anchor-16,survival:None	
+minecraft:respawn_anchor	RESPAWN_ANCHOR	respawn_anchor-16,survival:None	-
 minecraft:rose_bush	SURVIVAL_RULE,CUTOUT,MULTIPART,PLANT	cutout-82,family-cross-41,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-76,survival-unresolved-80,survival:Unresolved	cutout-82,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-76,survival-unresolved-80
 minecraft:sand	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:sandstone	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1164,8 +1164,8 @@ minecraft:sandstone_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_
 minecraft:sandstone_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:sandstone_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:scaffolding	SURVIVAL_RULE,FULL_TOP_SUPPORT,SCAFFOLDING	full_top_support-120,scaffolding-92,survival-unresolved-55,survival:Unresolved,vine_support-114	full_top_support-120,scaffolding-92,survival-unresolved-55,vine_support-114
-minecraft:sculk		survival:None	
-minecraft:sculk_catalyst		survival:None	
+minecraft:sculk		survival:None	-
+minecraft:sculk_catalyst		survival:None	-
 minecraft:sculk_sensor	VINE_SUPPORT	full_top_support-122,survival:None,vine_support-116	full_top_support-122,vine_support-116
 minecraft:sculk_shrieker		full_top_support-122,survival:None	full_top_support-122
 minecraft:sculk_vein	MULTIFACE,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE,PLANT	cutout-82,family-sculkvein-35,multiface-2,multiface-7,orientation_sensitive-44,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
@@ -1179,7 +1179,7 @@ minecraft:shroomlight	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intent
 minecraft:silver_glazed_terracotta	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-cube-7,full_top_support-131,orientation_sensitive-3,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:skeleton_skull	HUMANOID_WEARABLE,SURVIVAL_RULE,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,HEAD,BLOCK_ENTITY_BACKING	block-entity-backings,block_entity_drawn-113,head-86,humanoid_wearable-32,orientation_sensitive-3,survival-unresolved-77,survival:Unresolved	block_entity_drawn-113,head-86,survival-unresolved-77
 minecraft:slime	VINE_SUPPORT,FULL_TOP_SUPPORT,TRANSLUCENT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,translucent-81,vine_support-119	full_top_support-131,translucent-81,vine_support-119
-minecraft:small_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	
+minecraft:small_amethyst_bud	ORIENTATION_SENSITIVE	orientation_sensitive-45,survival:None	-
 minecraft:small_dripleaf_block	SURVIVAL_RULE,ORIENTATION_SENSITIVE,MULTIPART	multipart-35,orientation_sensitive-39,survival-unresolved-55,survival:Unresolved	multipart-35,survival-unresolved-55
 minecraft:smithing_table	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,opens_container-24,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
 minecraft:smoker	OPENS_CONTAINER,VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION,BLOCK_ENTITY_BACKING	block-entity-backings,build_intention-22,full_top_support-131,opens_container-24,orientation_sensitive-39,survival:None,vine_support-119	full_top_support-131,opens_container-24,vine_support-119
@@ -1213,7 +1213,7 @@ minecraft:spore_blossom	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved
 minecraft:spruce_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:spruce_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:spruce_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:spruce_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:spruce_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:spruce_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:spruce_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:spruce_leaves	VINE_SUPPORT,CUTOUT,FOLIAGE_TINT,BUILD_INTENTION	build_intention-22,cutout-82,foliage_tint-83,full_top_support-127,survival:None,vine_support-119	cutout-82,foliage_tint-83,full_top_support-127,vine_support-119
@@ -1221,7 +1221,7 @@ minecraft:spruce_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_I
 minecraft:spruce_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:spruce_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:spruce_sapling	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-44,plant-111,survival-unresolved-61,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-61,survival-unresolved-80
-minecraft:spruce_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:spruce_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:spruce_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:spruce_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:spruce_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -1241,7 +1241,7 @@ minecraft:stone_bricks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_inten
 minecraft:stone_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:stone_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:stone_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
-minecraft:stonecutter		survival:None	
+minecraft:stonecutter		survival:None	-
 minecraft:stonecutter_block	OPENS_CONTAINER,ORIENTATION_SENSITIVE	full_top_support-122,opens_container-24,orientation_sensitive-39,survival:None	full_top_support-122,opens_container-24
 minecraft:straw_bed	ORIENTATION_SENSITIVE	family-bed-18,orientation_sensitive-39,survival:None	unadmitted
 minecraft:stripped_acacia_log	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1271,32 +1271,32 @@ minecraft:stripped_warped_hyphae	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSI
 minecraft:stripped_warped_stem	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:structure_block		full_top_support-122,survival:None,vine_support-114	full_top_support-122,vine_support-114
 minecraft:structure_void	REPLACEABLE	replaceable-23,survival:None	replaceable-23
-minecraft:sulfur		survival:None	
+minecraft:sulfur		survival:None	-
 minecraft:sulfur_brick_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:sulfur_brick_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:sulfur_brick_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:sulfur_brick_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
-minecraft:sulfur_bricks		survival:None	
+minecraft:sulfur_bricks		survival:None	-
 minecraft:sulfur_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:sulfur_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
-minecraft:sulfur_spike	DRIPSTONE_OFFSET	dripstone_offset-20,survival:None	
+minecraft:sulfur_spike	DRIPSTONE_OFFSET	dripstone_offset-20,survival:None	-
 minecraft:sulfur_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:sulfur_wall	BUILD_INTENTION	build_intention-22,family-wall-13,full_top_support-127,survival:None	full_top_support-127
 minecraft:sunflower	SURVIVAL_RULE,CUTOUT,MULTIPART,PLANT	cutout-82,family-cross-41,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,multipart-35,plant-111,survival-unresolved-55,survival-unresolved-80
-minecraft:suspicious_gravel		survival:None	
-minecraft:suspicious_sand		survival:None	
+minecraft:suspicious_gravel		survival:None	-
+minecraft:suspicious_sand		survival:None	-
 minecraft:sweet_berry_bush	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-111,survival-unresolved-76,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-76,survival-unresolved-80
 minecraft:tall_dry_grass	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-57,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-57,survival-unresolved-80
 minecraft:tall_grass	REPLACEABLE,SURVIVAL_RULE,CUTOUT,GRASS_TINT,MULTIPART,PLANT	cutout-82,family-cross-41,grass_tint-84,multipart-35,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-57,survival-unresolved-80,survival:Unresolved	cutout-82,grass_tint-84,multipart-35,plant-111,replaceable-23,survival-unresolved-55,survival-unresolved-57,survival-unresolved-80
-minecraft:target		survival:None	
-minecraft:tinted_glass		survival:None	
+minecraft:target		survival:None	-
+minecraft:tinted_glass		survival:None	-
 minecraft:tnt	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,family-cube-6,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:torch	TORCH,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE	cutout-82,family-torch-22,orientation_sensitive-41,survival-torch-46,survival:Torch,torch-0	cutout-82
 minecraft:torchflower	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:torchflower_crop	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
 minecraft:trapdoor	TOGGLES_BY_HAND,FULL_TOP_SUPPORT,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-trapdoor-8,full_top_support-125,full_top_support-127,one_way_collidable-8,orientation_sensitive-37,survival:None,toggles_by_hand-30	full_top_support-125,full_top_support-127,toggles_by_hand-30
 minecraft:trapped_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
-minecraft:trial_spawner		survival:None	
+minecraft:trial_spawner		survival:None	-
 minecraft:trip_wire	CONNECTS_THIN,SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	survival-unresolved-55
 minecraft:tripwire_hook	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-37,survival-unresolved-55,survival:Unresolved	survival-unresolved-55
 minecraft:tube_coral	SURVIVAL_RULE,CUTOUT,PLANT,CORAL	coral-108,cutout-82,family-aquatic-29,plant-111,survival-unresolved-70,survival-unresolved-80,survival:Unresolved	coral-108,cutout-82,plant-111,survival-unresolved-70,survival-unresolved-80
@@ -1318,11 +1318,11 @@ minecraft:twisting_vines	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,pl
 minecraft:underwater_tnt		survival:None	unadmitted
 minecraft:underwater_torch	TORCH,ORIENTATION_SENSITIVE	family-torch-22,orientation_sensitive-41,survival:None,torch-0	unadmitted
 minecraft:undyed_shulker_box	OPENS_CONTAINER,SURVIVAL_RULE,BLOCK_ENTITY_DRAWN,SHULKER_BOX	block_entity_drawn-112,full_top_support-124,opens_container-28,shulker_box-106,survival-unresolved-58,survival:Unresolved,vine_support-115	block_entity_drawn-112,full_top_support-124,opens_container-28,shulker_box-106,survival-unresolved-58,vine_support-115
-minecraft:unknown		survival:None	
+minecraft:unknown		survival:None	-
 minecraft:unlit_redstone_torch	TORCH,SURVIVAL_RULE,CUTOUT,ORIENTATION_SENSITIVE	cutout-82,family-torch-22,orientation_sensitive-41,survival-torch-46,survival-unresolved-55,survival:Torch,torch-0	cutout-82,survival-unresolved-55
 minecraft:unpowered_comparator	USES_LOCALLY,SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-39,survival-unresolved-55,survival:Unresolved,uses_locally-25	survival-unresolved-55,uses_locally-25
 minecraft:unpowered_repeater	USES_LOCALLY,SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-39,survival-unresolved-55,survival:Unresolved,uses_locally-25	survival-unresolved-55,uses_locally-25
-minecraft:vault	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	
+minecraft:vault	ORIENTATION_SENSITIVE	orientation_sensitive-39,survival:None	-
 minecraft:verdant_froglight	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:vine	REPLACEABLE,SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-vine-33,plant-111,replaceable-23,survival-unresolved-55,survival-vine-50,survival:Vine	cutout-82,plant-111,replaceable-23,survival-unresolved-55
 minecraft:wall_banner	BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE,BANNER,BLOCK_ENTITY_BACKING	banner-102,block-entity-backings,block_entity_drawn-112,orientation_sensitive-3,survival:None	banner-102,block_entity_drawn-112
@@ -1330,16 +1330,16 @@ minecraft:wall_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,WALL_SIGN,BLOCK_ENTITY_B
 minecraft:warped_button	TOGGLES_BY_HAND,SURVIVAL_RULE,ORIENTATION_SENSITIVE	family-button-24,orientation_sensitive-3,survival-button-47,survival:Button,toggles_by_hand-30	toggles_by_hand-30
 minecraft:warped_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
 minecraft:warped_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
-minecraft:warped_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	
+minecraft:warped_fence	CONNECTS_FENCE,BUILD_INTENTION	build_intention-22,connects_fence-6,family-fence-14,survival:None	-
 minecraft:warped_fence_gate	TOGGLES_BY_HAND,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE	family-gate-12,one_way_collidable-8,orientation_sensitive-39,survival:None,toggles_by_hand-30	toggles_by_hand-30
 minecraft:warped_fungus	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-64,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-64,survival-unresolved-80
 minecraft:warped_hanging_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,HANGING_SIGN	family-sign-20,hanging_sign-105,orientation_sensitive-3,orientation_sensitive-38,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80,survival:Unresolved	hanging_sign-105,survival-unresolved-67,survival-unresolved-69,survival-unresolved-80
 minecraft:warped_hyphae	VINE_SUPPORT,FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,full_top_support-131,orientation_sensitive-40,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:warped_nylium		survival:None	
+minecraft:warped_nylium		survival:None	-
 minecraft:warped_planks	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:warped_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:warped_roots	REPLACEABLE,SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,replaceable-23,survival-unresolved-63,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,replaceable-23,survival-unresolved-63,survival-unresolved-80
-minecraft:warped_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	
+minecraft:warped_shelf	ORIENTATION_SENSITIVE	family-shelf,orientation_sensitive-39,survival:None	-
 minecraft:warped_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:warped_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:warped_standing_sign	SURVIVAL_RULE,ORIENTATION_SENSITIVE,STANDING_SIGN,BLOCK_ENTITY_BACKING	block-entity-backings,family-sign-20,orientation_sensitive-38,standing_sign-103,survival-unresolved-67,survival-unresolved-80,survival:Unresolved	standing_sign-103,survival-unresolved-67,survival-unresolved-80
@@ -1352,7 +1352,7 @@ minecraft:waterlily	SURVIVAL_RULE	survival-unresolved-55,survival:Unresolved	sur
 minecraft:waxed_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:waxed_copper_bulb		survival:None	
+minecraft:waxed_copper_bulb		survival:None	-
 minecraft:waxed_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:waxed_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:waxed_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -1367,7 +1367,7 @@ minecraft:waxed_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB
 minecraft:waxed_exposed_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_exposed_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_exposed_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:waxed_exposed_copper_bulb		survival:None	
+minecraft:waxed_exposed_copper_bulb		survival:None	-
 minecraft:waxed_exposed_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:waxed_exposed_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:waxed_exposed_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -1379,12 +1379,12 @@ minecraft:waxed_exposed_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION
 minecraft:waxed_exposed_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:waxed_exposed_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:waxed_exposed_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:waxed_exposed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
-minecraft:waxed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:waxed_exposed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
+minecraft:waxed_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:waxed_oxidized_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_oxidized_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_oxidized_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:waxed_oxidized_copper_bulb		survival:None	
+minecraft:waxed_oxidized_copper_bulb		survival:None	-
 minecraft:waxed_oxidized_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:waxed_oxidized_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:waxed_oxidized_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -1396,11 +1396,11 @@ minecraft:waxed_oxidized_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTIO
 minecraft:waxed_oxidized_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:waxed_oxidized_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:waxed_oxidized_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:waxed_oxidized_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:waxed_oxidized_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:waxed_weathered_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_weathered_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:waxed_weathered_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:waxed_weathered_copper_bulb		survival:None	
+minecraft:waxed_weathered_copper_bulb		survival:None	-
 minecraft:waxed_weathered_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:waxed_weathered_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:waxed_weathered_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -1412,11 +1412,11 @@ minecraft:waxed_weathered_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTI
 minecraft:waxed_weathered_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:waxed_weathered_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:waxed_weathered_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:waxed_weathered_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:waxed_weathered_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:weathered_chiseled_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:weathered_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:weathered_copper_bars	CONNECTS_THIN,CUTOUT,BUILD_INTENTION	build_intention-22,connects_thin-5,cutout-82,family-pane-17,full_top_support-127,survival:None	cutout-82,full_top_support-127
-minecraft:weathered_copper_bulb		survival:None	
+minecraft:weathered_copper_bulb		survival:None	-
 minecraft:weathered_copper_chain	SURVIVAL_RULE,ORIENTATION_SENSITIVE	orientation_sensitive-40,survival-unresolved-79,survival:Unresolved	survival-unresolved-79
 minecraft:weathered_copper_chest	OPENS_CONTAINER,BLOCK_ENTITY_DRAWN,ORIENTATION_SENSITIVE	block_entity_drawn-112,family-chest-19,full_top_support-127,opens_container-28,orientation_sensitive-39,survival:None	block_entity_drawn-112,full_top_support-127,opens_container-28
 minecraft:weathered_copper_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIENTATION_SENSITIVE,MULTIPART	door-4,family-door-9,multipart-35,one_way_collidable-8,orientation_sensitive-39,survival-door-49,survival-unresolved-75,survival:Door,toggles_by_hand-30	multipart-35,survival-unresolved-75,toggles_by_hand-30
@@ -1428,14 +1428,14 @@ minecraft:weathered_cut_copper	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	bui
 minecraft:weathered_cut_copper_slab	BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,survival:None	full_top_support-130
 minecraft:weathered_cut_copper_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:weathered_double_cut_copper_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-14,family-slab-11,full_top_support-129,full_top_support-130,survival:None,vine_support-118	full_top_support-129,full_top_support-130,vine_support-118
-minecraft:weathered_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	
+minecraft:weathered_lightning_rod	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:web	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-80
 minecraft:weeping_vines	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-cross-41,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:wet_sponge	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:wheat	SURVIVAL_RULE,CUTOUT,PLANT	cutout-82,family-crop-31,plant-111,survival-unresolved-55,survival-unresolved-80,survival:Unresolved	cutout-82,plant-111,survival-unresolved-55,survival-unresolved-80
 minecraft:white_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:white_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:white_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:white_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:white_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:white_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:white_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
@@ -1459,7 +1459,7 @@ minecraft:wooden_door	DOOR,TOGGLES_BY_HAND,SURVIVAL_RULE,ONE_WAY_COLLIDABLE,ORIE
 minecraft:wooden_pressure_plate	SURVIVAL_RULE	family-pressureplate-25,survival-unresolved-66,survival-unresolved-80,survival:Unresolved	survival-unresolved-66,survival-unresolved-80
 minecraft:yellow_candle	SURVIVAL_RULE,CANDLE	candle-107,survival-candle-52,survival-unresolved-73,survival:Candle	candle-107,survival-unresolved-73
 minecraft:yellow_candle_cake	SURVIVAL_RULE	survival-unresolved-74,survival:Unresolved	survival-unresolved-74
-minecraft:yellow_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	
+minecraft:yellow_carpet	SURVIVAL_RULE,BUILD_INTENTION	build_intention-22,family-carpet-26,survival-carpet-48,survival:Carpet	-
 minecraft:yellow_concrete	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:yellow_concrete_double_slab	VINE_SUPPORT,FULL_TOP_SUPPORT,DOUBLE_SLAB,BUILD_INTENTION	build_intention-22,double_slab-13,family-slab-11,full_top_support-128,full_top_support-130,pinned-components,survival:None,vine_support-117	full_top_support-128,full_top_support-130,vine_support-117
 minecraft:yellow_concrete_powder	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119

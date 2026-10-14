@@ -1,99 +1,99 @@
 identifier	components
-minecraft:black_concrete_double_slab	
-minecraft:black_concrete_slab	
-minecraft:black_concrete_stairs	
+minecraft:black_concrete_double_slab	-
+minecraft:black_concrete_slab	-
+minecraft:black_concrete_stairs	-
 minecraft:black_wool_double_slab	minecraft:flammable
 minecraft:black_wool_slab	minecraft:flammable
 minecraft:black_wool_stairs	minecraft:flammable
-minecraft:blue_concrete_double_slab	
-minecraft:blue_concrete_slab	
-minecraft:blue_concrete_stairs	
+minecraft:blue_concrete_double_slab	-
+minecraft:blue_concrete_slab	-
+minecraft:blue_concrete_stairs	-
 minecraft:blue_wool_double_slab	minecraft:flammable
 minecraft:blue_wool_slab	minecraft:flammable
 minecraft:blue_wool_stairs	minecraft:flammable
-minecraft:brown_concrete_double_slab	
-minecraft:brown_concrete_slab	
-minecraft:brown_concrete_stairs	
+minecraft:brown_concrete_double_slab	-
+minecraft:brown_concrete_slab	-
+minecraft:brown_concrete_stairs	-
 minecraft:brown_wool_double_slab	minecraft:flammable
 minecraft:brown_wool_slab	minecraft:flammable
 minecraft:brown_wool_stairs	minecraft:flammable
-minecraft:cyan_concrete_double_slab	
-minecraft:cyan_concrete_slab	
-minecraft:cyan_concrete_stairs	
+minecraft:cyan_concrete_double_slab	-
+minecraft:cyan_concrete_slab	-
+minecraft:cyan_concrete_stairs	-
 minecraft:cyan_wool_double_slab	minecraft:flammable
 minecraft:cyan_wool_slab	minecraft:flammable
 minecraft:cyan_wool_stairs	minecraft:flammable
-minecraft:gray_concrete_double_slab	
-minecraft:gray_concrete_slab	
-minecraft:gray_concrete_stairs	
+minecraft:gray_concrete_double_slab	-
+minecraft:gray_concrete_slab	-
+minecraft:gray_concrete_stairs	-
 minecraft:gray_wool_double_slab	minecraft:flammable
 minecraft:gray_wool_slab	minecraft:flammable
 minecraft:gray_wool_stairs	minecraft:flammable
-minecraft:green_concrete_double_slab	
-minecraft:green_concrete_slab	
-minecraft:green_concrete_stairs	
+minecraft:green_concrete_double_slab	-
+minecraft:green_concrete_slab	-
+minecraft:green_concrete_stairs	-
 minecraft:green_wool_double_slab	minecraft:flammable
 minecraft:green_wool_slab	minecraft:flammable
 minecraft:green_wool_stairs	minecraft:flammable
-minecraft:light_blue_concrete_double_slab	
-minecraft:light_blue_concrete_slab	
-minecraft:light_blue_concrete_stairs	
+minecraft:light_blue_concrete_double_slab	-
+minecraft:light_blue_concrete_slab	-
+minecraft:light_blue_concrete_stairs	-
 minecraft:light_blue_wool_double_slab	minecraft:flammable
 minecraft:light_blue_wool_slab	minecraft:flammable
 minecraft:light_blue_wool_stairs	minecraft:flammable
-minecraft:light_gray_concrete_double_slab	
-minecraft:light_gray_concrete_slab	
-minecraft:light_gray_concrete_stairs	
+minecraft:light_gray_concrete_double_slab	-
+minecraft:light_gray_concrete_slab	-
+minecraft:light_gray_concrete_stairs	-
 minecraft:light_gray_wool_double_slab	minecraft:flammable
 minecraft:light_gray_wool_slab	minecraft:flammable
 minecraft:light_gray_wool_stairs	minecraft:flammable
-minecraft:lime_concrete_double_slab	
-minecraft:lime_concrete_slab	
-minecraft:lime_concrete_stairs	
+minecraft:lime_concrete_double_slab	-
+minecraft:lime_concrete_slab	-
+minecraft:lime_concrete_stairs	-
 minecraft:lime_wool_double_slab	minecraft:flammable
 minecraft:lime_wool_slab	minecraft:flammable
 minecraft:lime_wool_stairs	minecraft:flammable
-minecraft:magenta_concrete_double_slab	
-minecraft:magenta_concrete_slab	
-minecraft:magenta_concrete_stairs	
+minecraft:magenta_concrete_double_slab	-
+minecraft:magenta_concrete_slab	-
+minecraft:magenta_concrete_stairs	-
 minecraft:magenta_wool_double_slab	minecraft:flammable
 minecraft:magenta_wool_slab	minecraft:flammable
 minecraft:magenta_wool_stairs	minecraft:flammable
-minecraft:orange_concrete_double_slab	
-minecraft:orange_concrete_slab	
-minecraft:orange_concrete_stairs	
+minecraft:orange_concrete_double_slab	-
+minecraft:orange_concrete_slab	-
+minecraft:orange_concrete_stairs	-
 minecraft:orange_wool_double_slab	minecraft:flammable
 minecraft:orange_wool_slab	minecraft:flammable
 minecraft:orange_wool_stairs	minecraft:flammable
-minecraft:pink_concrete_double_slab	
-minecraft:pink_concrete_slab	
-minecraft:pink_concrete_stairs	
+minecraft:pink_concrete_double_slab	-
+minecraft:pink_concrete_slab	-
+minecraft:pink_concrete_stairs	-
 minecraft:pink_wool_double_slab	minecraft:flammable
 minecraft:pink_wool_slab	minecraft:flammable
 minecraft:pink_wool_stairs	minecraft:flammable
-minecraft:purple_concrete_double_slab	
-minecraft:purple_concrete_slab	
-minecraft:purple_concrete_stairs	
+minecraft:purple_concrete_double_slab	-
+minecraft:purple_concrete_slab	-
+minecraft:purple_concrete_stairs	-
 minecraft:purple_wool_double_slab	minecraft:flammable
 minecraft:purple_wool_slab	minecraft:flammable
 minecraft:purple_wool_stairs	minecraft:flammable
-minecraft:red_concrete_double_slab	
-minecraft:red_concrete_slab	
-minecraft:red_concrete_stairs	
+minecraft:red_concrete_double_slab	-
+minecraft:red_concrete_slab	-
+minecraft:red_concrete_stairs	-
 minecraft:red_shrub	minecraft:flammable,minecraft:replaceable
 minecraft:red_wool_double_slab	minecraft:flammable
 minecraft:red_wool_slab	minecraft:flammable
 minecraft:red_wool_stairs	minecraft:flammable
-minecraft:shelf_mushroom	
-minecraft:white_concrete_double_slab	
-minecraft:white_concrete_slab	
-minecraft:white_concrete_stairs	
+minecraft:shelf_mushroom	-
+minecraft:white_concrete_double_slab	-
+minecraft:white_concrete_slab	-
+minecraft:white_concrete_stairs	-
 minecraft:white_wool_double_slab	minecraft:flammable
 minecraft:white_wool_slab	minecraft:flammable
 minecraft:white_wool_stairs	minecraft:flammable
-minecraft:yellow_concrete_double_slab	
-minecraft:yellow_concrete_slab	
-minecraft:yellow_concrete_stairs	
+minecraft:yellow_concrete_double_slab	-
+minecraft:yellow_concrete_slab	-
+minecraft:yellow_concrete_stairs	-
 minecraft:yellow_wool_double_slab	minecraft:flammable
 minecraft:yellow_wool_slab	minecraft:flammable
 minecraft:yellow_wool_stairs	minecraft:flammable
