@@ -34,7 +34,7 @@ impl Raster {
 struct Occluder {{ @builtin(frag_depth) depth: f32, @builtin(sample_mask) coverage: u32 }}
 @fragment fn occluder() -> Occluder {{ return Occluder({z}, {}u); }}
 "#,
-                        super::super::shader_source(include_str!("../../motion_blur.wgsl"), false),
+                        super::super::shader::source(include_str!("../../motion_blur.wgsl"), false),
                         mask as u32,
                     )
                     .into(),

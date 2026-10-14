@@ -14,6 +14,7 @@ mod prepare;
 mod raster_tests;
 #[cfg(test)]
 mod resource_tests;
+mod shader;
 #[cfg(test)]
 mod tests;
 
@@ -38,10 +39,10 @@ impl Plugin for CameraMotionBlurPlugin {
             return;
         }
         load_internal_asset!(app, SHADER, "motion_blur.wgsl", |source, path| {
-            crate::shader_safety::from_wgsl(shader_source(source, false), path)
+            crate::shader_safety::from_wgsl(shader::source(source, false), path)
         });
         load_internal_asset!(app, MSAA_SHADER, "motion_blur.wgsl", |source, path| {
-            crate::shader_safety::from_wgsl(shader_source(source, true), path)
+            crate::shader_safety::from_wgsl(shader::source(source, true), path)
         });
         crate::pipeline_warmup::register::<pipeline::BlurPipeline>(app);
         app.sub_app_mut(RenderApp)
@@ -56,54 +57,6 @@ impl Plugin for CameraMotionBlurPlugin {
                         .after(crate::actor_render::prepare_actor_bind_group),
                 ),
             );
-    }
-}
-
-fn shader_source(source: &str, multisampled: bool) -> String {
-    let source = source.replace("MOTION_TILE_SIZE", &footprint::TILE_SIZE.to_string());
-    if multisampled {
-        source
-            .replace("texture_depth_2d", "texture_depth_multisampled_2d")
-            .replace(
-                "let covered_depth = textureLoad(depth, pixel, 0);",
-                r#"var covered_depth = 0.0;
-    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
-        if textureLoad(actor_velocity, pixel, i32(sample)).z >= 0.5 {
-            covered_depth = max(covered_depth, textureLoad(depth, pixel, i32(sample)));
-        }
-    }"#,
-            )
-            .replace(
-                "return textureLoad(depth, pixel, 0);",
-                r#"var nearest = 0.0;
-    for (var sample = 0u; sample < textureNumSamples(depth); sample++) {
-        nearest = max(nearest, textureLoad(depth, pixel, i32(sample)));
-    }
-    return nearest;"#,
-            )
-            .replace(
-                "var actor_velocity: texture_2d<f32>",
-                "var actor_velocity: texture_multisampled_2d<f32>",
-            )
-            .replace(
-                "return textureLoad(actor_velocity, pixel, 0);",
-                r#"var velocity = vec2<f32>(0.0);
-    var covered = 0u;
-    let samples = textureNumSamples(actor_velocity);
-    for (var sample = 0u; sample < samples; sample++) {
-        let motion = textureLoad(actor_velocity, pixel, i32(sample));
-        if motion.z >= 0.5 {
-            velocity += motion.xy;
-            covered += 1u;
-        }
-    }
-    if covered == 0u {
-        return vec4<f32>(0.0);
-    }
-    return vec4<f32>(velocity / f32(covered), 1.0, f32(covered) / f32(samples));"#,
-            )
-    } else {
-        source
     }
 }
 

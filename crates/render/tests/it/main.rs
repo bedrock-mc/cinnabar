@@ -8,6 +8,8 @@ mod hand_rig_bindings;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
+#[path = "../../src/motion_blur/shader.rs"]
+mod motion_blur_shader;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
 #[path = "support/rod_snapshot.rs"]
