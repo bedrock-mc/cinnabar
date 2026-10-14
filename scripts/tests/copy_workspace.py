@@ -16,7 +16,7 @@ def copy_workspace(source: Path, destination: Path) -> None:
             "--format-version", "1", "--manifest-path", str(source / "Cargo.toml"),
         ],
         cwd=source,
-        text=True,
+        encoding="utf-8",
     ))
     members = set(metadata["workspace_members"])
     directories = {
