@@ -431,6 +431,29 @@ fn overhanging_shapes_are_found_from_the_adjacent_voxel() {
     assert_eq!(hit.runtime_id, 9);
     assert_eq!(hit.distance, 1.5);
     assert_eq!(hit.hit_local, Vec3::new(0.0, 0.5, 0.5));
+    assert_eq!(hit.hit_world, Vec3::new(0.5, 0.5, 0.5));
+}
+
+#[test]
+fn selection_hit_keeps_the_world_intercept_outside_the_block_cell() {
+    let (store, mut registry, expected) = fixture(7);
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::new(1.5, 1.0, 1.0))])
+        .unwrap();
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
+        .block_interaction_ray(
+            Vec3::new(3.0, 0.5, 0.5),
+            Vec3::new(-1.0, 0.0, 0.0),
+            3.0,
+            &expected,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 0, 0]);
+    assert_eq!(hit.face, 5);
+    assert_eq!(hit.hit_local, Vec3::new(1.0, 0.5, 0.5));
+    assert_eq!(hit.hit_world, Vec3::new(1.5, 0.5, 0.5));
+    assert_eq!(hit.distance, 1.5);
 }
 
 #[test]

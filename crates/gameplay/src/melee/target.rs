@@ -154,9 +154,8 @@ fn pick_box_point(
     closest.map(|(point, _)| point)
 }
 
-/// Reconstructs a block intercept before measuring it, matching actor occlusion rounding.
-pub fn block_pick_distance(origin: [f32; 3], block: [i32; 3], relative: [f32; 3]) -> f64 {
-    let point = std::array::from_fn(|axis| block[axis] as f32 + relative[axis]);
+/// Measures an unclamped world-space block intercept with actor occlusion rounding.
+pub fn block_pick_distance(origin: [f32; 3], point: [f32; 3]) -> f64 {
     f64::from(pick_distance(origin, point))
 }
 
@@ -223,11 +222,10 @@ pub fn classify_block_hit(
     let distance = block.map(|hit| {
         block_pick_distance(
             origin,
-            hit.block_pos,
             [
-                hit.hit_local.x as f32,
-                hit.hit_local.y as f32,
-                hit.hit_local.z as f32,
+                hit.hit_world.x as f32,
+                hit.hit_world.y as f32,
+                hit.hit_world.z as f32,
             ],
         )
     });

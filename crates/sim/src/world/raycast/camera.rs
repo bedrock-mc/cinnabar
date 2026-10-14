@@ -188,6 +188,7 @@ impl PaletteWorld<'_> {
                     (point.y - offset.y).clamp(0.0, 1.0),
                     (point.z - offset.z).clamp(0.0, 1.0),
                 ),
+                hit_world: point,
             };
             if best
                 .as_ref()
