@@ -1,4 +1,5 @@
-use std::collections::{HashMap, HashSet};
+// Update batches hash every position's value; seeded foldhash avoids SipHash's cost.
+use hashbrown::{HashMap, HashSet};
 
 /// Number of block positions in a 16×16×16 sub-chunk.
 pub const BLOCKS_PER_SUB_CHUNK: usize = SUB_CHUNK_SIDE * SUB_CHUNK_SIDE * SUB_CHUNK_SIDE;
@@ -209,11 +210,11 @@ impl PalettedStorage {
             return;
         }
         self.usage = None;
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            if self
-                .palette_index(linear)
-                .is_some_and(|index| index >= palette_len)
-            {
+        let mut indices = [0_u32; BLOCKS_PER_SUB_CHUNK];
+        self.palette_indices(&mut indices);
+        for (linear, &index) in indices.iter().enumerate() {
+            // `u32::MAX` marks a missing word, which `palette_index` leaves unread.
+            if index != u32::MAX && index as usize >= palette_len {
                 write_palette_index(&mut self.words, self.bits_per_index, linear, 0);
             }
         }
@@ -270,29 +271,57 @@ impl PalettedStorage {
     /// Applies a whole layer's final mutations with one palette-map build and
     /// one packed-word allocation, regardless of duplicate coordinates.
     pub(crate) fn apply_runtime_updates(&mut self, updates: &[(usize, u32)]) -> bool {
-        let mut final_updates = HashMap::with_capacity(updates.len());
+        let old = &self.palette.values;
+        let mut indices = [0_u32; BLOCKS_PER_SUB_CHUNK];
+        self.palette_indices(&mut indices);
+        // The last update of each position wins; positions past the section change no block.
+        let mut updated = [0_u64; BLOCKS_PER_SUB_CHUNK / 64];
+        let mut final_values = [0_u32; BLOCKS_PER_SUB_CHUNK];
         for &(linear, runtime_id) in updates {
-            final_updates.insert(linear, runtime_id);
+            if linear < BLOCKS_PER_SUB_CHUNK {
+                updated[linear / 64] |= 1 << (linear % 64);
+                final_values[linear] = runtime_id;
+            }
         }
+        let is_updated = |linear: usize| updated[linear / 64] & (1 << (linear % 64)) != 0;
+        let final_update = |linear: usize| {
+            if linear < BLOCKS_PER_SUB_CHUNK {
+                is_updated(linear).then(|| final_values[linear])
+            } else {
+                updates
+                    .iter()
+                    .rev()
+                    .find(|&&(candidate, _)| candidate == linear)
+                    .map(|&(_, value)| value)
+            }
+        };
 
         let mut changed = false;
-        let mut used_values = HashSet::with_capacity(self.palette.len().min(BLOCKS_PER_SUB_CHUNK));
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            let current = self
-                .palette_index(linear)
-                .and_then(|index| self.palette.get(index))
+        let mut used_old = vec![false; old.len()];
+        let mut used_values = HashSet::with_capacity(old.len().min(BLOCKS_PER_SUB_CHUNK));
+        for (linear, &index) in indices.iter().enumerate() {
+            let index = index as usize;
+            let current = *old
+                .get(index)
                 .expect("valid packed storage has a runtime value");
-            let value = final_updates.get(&linear).copied().unwrap_or(current);
-            changed |= value != current;
-            used_values.insert(value);
+            if is_updated(linear) {
+                let value = final_values[linear];
+                changed |= value != current;
+                used_values.insert(value);
+            } else {
+                used_old[index] = true;
+            }
         }
         if !changed {
             return false;
         }
+        for (&value, _) in old.iter().zip(&used_old).filter(|(_, used)| **used) {
+            used_values.insert(value);
+        }
 
         let mut values = Vec::with_capacity(used_values.len());
         let mut value_indices = HashMap::with_capacity(used_values.len());
-        for &value in self.palette.values.iter() {
+        for &value in old.iter() {
             if used_values.contains(&value) && !value_indices.contains_key(&value) {
                 let index = values.len();
                 values.push(value);
@@ -300,23 +329,28 @@ impl PalettedStorage {
             }
         }
         for &(linear, value) in updates {
-            if final_updates.get(&linear) == Some(&value) && !value_indices.contains_key(&value) {
+            if final_update(linear) == Some(value) && !value_indices.contains_key(&value) {
                 let index = values.len();
                 values.push(value);
                 value_indices.insert(value, index);
             }
         }
 
+        // Unchanged positions keep their value, so their new index follows their old one.
+        let remap: Vec<usize> = old
+            .iter()
+            .zip(&used_old)
+            .map(|(value, &used)| if used { value_indices[value] } else { 0 })
+            .collect();
         let bits_per_index = bits_for_palette_len(values.len());
         let mut words = vec![0; word_count(bits_per_index)];
         let mut counts = vec![0_u16; values.len()];
-        for linear in 0..BLOCKS_PER_SUB_CHUNK {
-            let current = self
-                .palette_index(linear)
-                .and_then(|index| self.palette.get(index))
-                .expect("valid packed storage has a runtime value");
-            let value = final_updates.get(&linear).copied().unwrap_or(current);
-            let index = value_indices[&value];
+        for (linear, &index) in indices.iter().enumerate() {
+            let index = if is_updated(linear) {
+                value_indices[&final_values[linear]]
+            } else {
+                remap[index as usize]
+            };
             counts[index] += 1;
             write_palette_index(&mut words, bits_per_index, linear, index);
         }
@@ -380,11 +414,14 @@ impl PalettedStorage {
     }
 
     pub(crate) fn contains_only(&self, runtime_id: u32) -> bool {
-        (0..BLOCKS_PER_SUB_CHUNK).all(|linear| {
-            self.palette_index(linear)
-                .and_then(|index| self.palette.get(index))
-                == Some(runtime_id)
-        })
+        if !self.palette.values.contains(&runtime_id) {
+            return false;
+        }
+        let mut indices = [0_u32; BLOCKS_PER_SUB_CHUNK];
+        self.palette_indices(&mut indices);
+        indices
+            .iter()
+            .all(|&index| self.palette.get(index as usize) == Some(runtime_id))
     }
 }
 

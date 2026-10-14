@@ -213,6 +213,17 @@ impl ChunkStore {
         self.chunk(key.chunk())?.sub_chunk(key.y)
     }
 
+    /// Borrows a resident section without cloning its `Arc`, for per-block readers that hold
+    /// the store for the whole query.
+    #[must_use]
+    pub fn sub_chunk_ref(&self, key: SubChunkKey) -> Option<&SubChunk> {
+        self.chunks
+            .get(&key.chunk())?
+            .sub_chunks
+            .get(&key.y)
+            .map(Arc::as_ref)
+    }
+
     /// Returns a palette-native biome storage snapshot for a mesh worker.
     #[must_use]
     pub fn biome_storage(&self, key: SubChunkKey) -> Option<Arc<BiomeStorage>> {
