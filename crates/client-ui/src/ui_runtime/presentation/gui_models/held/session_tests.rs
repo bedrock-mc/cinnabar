@@ -490,3 +490,86 @@ fn preview_session_mesh_cache_retires_old_items_under_aggregate_storage_pressure
         "the selected source still reuses its extrusion"
     );
 }
+
+#[test]
+fn preview_batch_admission_includes_surrounding_sprite_batches() {
+    use ui::{
+        SafeArea, UiBlendMode, UiLimits, UiMesh, UiMeshBatch, UiMeshVertex, UiNode, UiNodeId,
+        UiPoint, UiRect, UiScale, UiTree, UiVisual,
+    };
+    let mut presentation = presentation();
+    install(&mut presentation, vec![sword(0, [220, 80, 12])]);
+    presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+    let bounds = UiRect::new(
+        UiPoint::new(0.0, 0.0).unwrap(),
+        UiPoint::new(96.0, 112.0).unwrap(),
+    )
+    .unwrap();
+    let vertices = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]].map(|position| UiMeshVertex {
+        position,
+        clip_z: 0.5,
+        clip_w: 1.0,
+        uv: [0.0; 2],
+        color: [255; 4],
+        model_light: 1.0,
+        overlay_color: [0.0; 4],
+        style_flags: 0,
+        alpha_test: false,
+    });
+    let mesh = Arc::new(
+        UiMesh::new(
+            vertices.into(),
+            Arc::from([0, 1, 2]),
+            Arc::from([UiMeshBatch {
+                texture_page: 0,
+                index_range: 0..3,
+                blend: UiBlendMode::Alpha,
+                depth_test: false,
+                depth_write: false,
+                alpha_cutoff: None,
+            }]),
+        )
+        .unwrap(),
+    );
+    let count = UiLimits::MAX_DRAW_BATCHES - 2;
+    let mut nodes = (0..count)
+        .map(|index| {
+            UiNode::new(UiNodeId::new(index as u32 + 1), None, bounds)
+                .with_visual(UiVisual::Mesh(Arc::clone(&mesh)))
+        })
+        .collect::<Vec<_>>();
+    nodes.push(
+        UiNode::new(UiNodeId::new(count as u32 + 1), None, bounds).with_visual(UiVisual::Sprite {
+            texture_page: 0,
+            uv: [0, 0, 1, 1],
+            color: [255; 4],
+        }),
+    );
+    let preview = IconRef {
+        page: u16::MAX,
+        uv: [0, 0, 96, 112],
+        glint: false,
+    };
+    presentation.player_preview_icon = Some(preview);
+    nodes.push(
+        UiNode::new(UiNodeId::new(count as u32 + 2), None, bounds).with_visual(UiVisual::Sprite {
+            texture_page: preview.page,
+            uv: preview.uv,
+            color: [255; 4],
+        }),
+    );
+    player_preview::geometry::take_held_projection_work();
+    presentation.apply_gui_models(&mut nodes);
+    let mut tree = UiTree::new(nodes).unwrap();
+    tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let draw = tree
+        .build_draw_list()
+        .expect("a held item must not stop a frame at its batch limit");
+    assert!(draw.batches.len() <= UiLimits::MAX_DRAW_BATCHES);
+    assert_eq!(
+        player_preview::geometry::take_held_projection_work(),
+        0,
+        "rejected held work stays out of projection"
+    );
+}
