@@ -47,6 +47,7 @@ impl DeliveryManifest {
                 || !matches!(
                     carrier.recipe,
                     Recipe::World
+                        | Recipe::ItemFacts
                         | Recipe::Atmosphere
                         | Recipe::Entity
                         | Recipe::Actor
@@ -160,6 +161,8 @@ impl MemoryCarriers {
     /// Decodes and pins every startup carrier, including the entity-linked actor artwork.
     pub fn decode_startup(&self) -> Result<StartupCarriers, DeliveryError> {
         let decode = || -> Result<_, Box<dyn std::error::Error>> {
+            crate::facts::ItemFacts::validate_pinned(self.read(&carriers::ITEM_FACTS)?)?;
+            let item_facts = Arc::clone(crate::facts::ItemFacts::builtin()?);
             let world = RuntimeAssets::decode(self.read(&carriers::WORLD)?)?;
             super::world_provenance::verify_world_carrier(
                 Path::new(carriers::WORLD.output),
@@ -200,6 +203,7 @@ impl MemoryCarriers {
             )?;
             Ok(StartupCarriers {
                 world,
+                item_facts,
                 atmosphere,
                 entities,
                 actors,
@@ -216,6 +220,7 @@ impl MemoryCarriers {
 /// Validated domain data for client composition; no browser objects escape the web host.
 pub struct StartupCarriers {
     pub world: RuntimeAssets,
+    pub item_facts: Arc<crate::facts::ItemFacts>,
     pub atmosphere: RuntimeAtmosphereAssets,
     pub entities: RuntimeEntityAssets,
     pub actors: RuntimeActorCatalog,
@@ -277,14 +282,7 @@ mod tests {
     #[test]
     fn memory_source_feeds_entity_validator() {
         let bytes = super::super::test_carriers::synthetic_entity_blob(1);
-        let mut manifest = manifest(&bytes);
-        let entry = manifest
-            .entries
-            .iter_mut()
-            .find(|entry| entry.name == carriers::ENTITY.name)
-            .unwrap();
-        entry.sha256 = Sha256::digest(&bytes).into();
-        let mut source = MemoryCarriers::new(manifest).unwrap();
+        let mut source = MemoryCarriers::new(manifest(&bytes)).unwrap();
         source
             .insert(carriers::ENTITY.name, bytes.to_vec())
             .unwrap();
