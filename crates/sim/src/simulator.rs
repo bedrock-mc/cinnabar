@@ -253,6 +253,14 @@ impl Simulator {
             }
         }
         if input.skip_travel {
+            if input.jumping
+                && !scaffold_jump
+                && !jump_suppressed
+                && sampled.movement.on_climbable
+                && !matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+            {
+                next.velocity.y = CLIMB_SPEED;
+            }
             let jump_initiated =
                 jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
             return travel::tick_without_travel(

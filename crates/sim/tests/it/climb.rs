@@ -8,6 +8,31 @@ struct ClimbWorld {
     flags: BlockPhysicsFlags,
 }
 
+/// A held climb jump updates motion without moving during the skipped travel tick.
+#[test]
+fn skipped_travel_preserves_climb_jump_motion() {
+    let world = ClimbWorld {
+        flags: BlockPhysicsFlags::CLIMBABLE,
+    };
+    let mut player = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    let target = player.position;
+    let output = Simulator::default()
+        .tick(
+            &mut player,
+            MovementInput {
+                skip_travel: true,
+                jumping: true,
+                ..Default::default()
+            },
+            &world,
+        )
+        .unwrap();
+    assert_eq!(output.position, target);
+    assert_eq!(output.movement, Vec3::ZERO);
+    assert_eq!(output.velocity.y, f64::from(0.2_f32));
+    assert_eq!(player.jump_delay, 0);
+}
+
 impl CollisionWorld for ClimbWorld {
     fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
         Ok(CollisionQuery::synthetic(Vec::new()))
