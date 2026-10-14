@@ -47,7 +47,9 @@ pub(super) fn append_header(bytes: &mut Vec<u8>, record: &RegistryRecord) {
         bytes.extend_from_slice(&record.model_state.get(field).unwrap_or(0).to_le_bytes());
     }
     bytes.push(record.beacon_tint as u8);
+    bytes.extend_from_slice(&(record.traits.bits()).to_le_bytes());
+    bytes.push(record.survival as u8);
 }
 pub(super) const MAX_REGISTRY_RECORDS: usize = 65536;
 pub(super) const MAX_COLLISION_BOXES: usize = 7;
-pub(super) const REGISTRY_MAGIC: &[u8; 8] = b"BREG1004";
+pub(super) const REGISTRY_MAGIC: &[u8; 8] = b"BREG1005";

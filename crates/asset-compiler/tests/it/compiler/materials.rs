@@ -396,7 +396,7 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
             2,
             102,
             "minecraft:pillar",
-            r#"{"pillar_axis":"x"}"#,
+            r#"{"pillar_axis":{"type":"string","value":"x"}}"#,
             BlockFlags::CUBE_GEOMETRY,
         ),
         record(3, 103, "minecraft:blue", "{}", BlockFlags::CUBE_GEOMETRY),

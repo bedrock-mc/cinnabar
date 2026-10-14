@@ -1,6 +1,65 @@
 //! Outbound batching, receipts, transfer barriers and the split write path.
 
 use super::*;
+
+#[test]
+fn a_full_packet_queue_still_submits_its_frame_without_another_update() {
+    let (handle, mut captured) = NetworkHandle::stub_capturing_packets();
+    for id in 0..COMMAND_CAPACITY {
+        handle
+            .send_inventory_packet(protocol::modal_form_cancel_response(id as u32))
+            .unwrap();
+    }
+    handle.flush_frame();
+    let frame = captured
+        .take_flushed_frame()
+        .expect("accepted packets must not wait for another frame's flush");
+    let ids: Vec<_> = frame
+        .iter()
+        .map(|packet| protocol::encode(packet).unwrap().to_vec())
+        .collect();
+    let expected: Vec<_> = (0..COMMAND_CAPACITY)
+        .map(|id| {
+            protocol::encode(&protocol::modal_form_cancel_response(id as u32))
+                .unwrap()
+                .to_vec()
+        })
+        .collect();
+    assert_eq!(ids, expected);
+}
+
+#[test]
+fn a_rejected_batch_does_not_emit_an_empty_frame_or_lose_packet_capacity() {
+    let (mut handle, _) = NetworkHandle::stub();
+    let (commands, mut receiver) = super::super::frame_flush::command_channel(1);
+    handle.commands = commands;
+    assert!(matches!(
+        handle.send_inventory_packets(vec![test_packet(), test_packet()]),
+        Err(super::super::BatchSendError::Full)
+    ));
+    assert_eq!(handle.pending_command_count(), 0);
+    handle.flush_frame();
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+
+    handle.send_inventory_packet(test_packet()).unwrap();
+    assert_eq!(handle.pending_command_count(), 1);
+    handle.flush_frame();
+    assert!(matches!(
+        receiver.try_recv().unwrap(),
+        NetworkCommand::Send { .. }
+    ));
+    assert!(matches!(
+        receiver.try_recv().unwrap(),
+        NetworkCommand::FlushFrame
+    ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+}
 use simulation_clock::PhysicsTick;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
@@ -570,7 +629,7 @@ async fn each_frame_leaves_as_one_ordered_batch_and_an_empty_frame_sends_nothing
     }
 
     let (mut handle, _) = NetworkHandle::stub();
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (commands, command_rx) = super::super::frame_flush::command_channel(COMMAND_CAPACITY);
     handle.commands = commands;
     let frames = [
         vec![

@@ -2,17 +2,18 @@ use std::{collections::HashSet, str};
 
 use crate::AssetError;
 
-mod family_routing;
 mod schema;
+use crate::facts::{self, family_routing};
 
 #[cfg(test)]
 mod wire_tests;
 
 pub use schema::{
-    BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
-    LEGACY_PHYSICS_REGISTRY_MAGIC, ModelFamily, ModelState, ModelStateField, MovementSemantics,
-    PHYSICS_MOVEMENT_SEMANTICS_OFFSET, PHYSICS_RECORD_HEADER_BYTES, PHYSICS_REGISTRY_HEADER_BYTES,
-    PHYSICS_REGISTRY_MAGIC, RegistryMetadata, RegistryProvenance, RegistryRecord,
+    BeaconTint, BlockFlags, BlockTraits, CollisionBox, CollisionConfidence, CollisionSeed,
+    ContributorRole, LEGACY_PHYSICS_REGISTRY_MAGIC, ModelFamily, ModelState, ModelStateField,
+    MovementSemantics, PHYSICS_MOVEMENT_SEMANTICS_OFFSET, PHYSICS_RECORD_HEADER_BYTES,
+    PHYSICS_REGISTRY_HEADER_BYTES, PHYSICS_REGISTRY_MAGIC, RegistryMetadata, RegistryProvenance,
+    RegistryRecord, SurvivalRule,
 };
 use schema::{
     LEGACY_REGISTRY_PROTOCOL, MAX_COLLISION_BOXES, MAX_REGISTRY_RECORDS, MAX_REGISTRY_STATE_BYTES,
@@ -151,7 +152,12 @@ pub fn read_registry_for_protocol(
             state_len,
             values,
             beacon_tint,
+            raw_traits,
+            survival,
         } = read_record_header(&mut reader, previous)?;
+        let traits =
+            BlockTraits::from_bits(raw_traits).ok_or(AssetError::InvalidRegistryFlags(0xff))?;
+        let survival = SurvivalRule::read(survival)?;
         let beacon_tint = BeaconTint::read(beacon_tint)?;
         let model_family = ModelFamily::read(model_family)?;
         let contributor_role = ContributorRole::read(contributor_role)?;
@@ -216,12 +222,14 @@ pub fn read_registry_for_protocol(
             valentine_name_set.insert(name.clone());
         }
         names.insert(name.clone());
-        let canonical_state = str::from_utf8(reader.read_exact(state_len, "record state")?)
-            .map_err(|source| AssetError::InvalidRegistryUtf8 {
-                field: "canonical state",
-                source,
-            })?
-            .into();
+        let canonical_state: Box<str> =
+            str::from_utf8(reader.read_exact(state_len, "record state")?)
+                .map_err(|source| AssetError::InvalidRegistryUtf8 {
+                    field: "canonical state",
+                    source,
+                })?
+                .into();
+        let properties = facts::decode(&canonical_state)?;
         let model_family = family_routing::resolve(
             metadata.protocol == LEGACY_REGISTRY_PROTOCOL,
             &name,
@@ -247,6 +255,9 @@ pub fn read_registry_for_protocol(
             },
             provenance,
             beacon_tint,
+            traits,
+            survival,
+            properties,
         });
     }
     if names.len() != name_count
@@ -296,6 +307,15 @@ impl<'a> Reader<'a> {
     fn read_i32(&mut self, context: &'static str) -> Result<i32, AssetError> {
         Ok(i32::from_le_bytes(
             self.read_exact(4, context)?.try_into().expect("four bytes"),
+        ))
+    }
+
+    /// Reads a bounded little-endian trait mask.
+    fn read_u64(&mut self, context: &'static str) -> Result<u64, AssetError> {
+        Ok(u64::from_le_bytes(
+            self.read_exact(8, context)?
+                .try_into()
+                .expect("eight bytes"),
         ))
     }
 

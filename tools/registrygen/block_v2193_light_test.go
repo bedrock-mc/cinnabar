@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 )
@@ -128,7 +129,18 @@ func TestStateEmissionVectors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name+c.state, func(t *testing.T) {
-			record := Record{Name: "minecraft:" + c.name, StateJSON: []byte(fmt.Sprintf(`{"%s":{"value":%s}}`, c.key, c.state))}
+			value := TypedScalar{Kind: ScalarInt}
+			if err := json.Unmarshal([]byte(c.state), &value.Int); err != nil {
+				value.Kind = ScalarString
+				if err := json.Unmarshal([]byte(c.state), &value.String); err != nil {
+					t.Fatal(err)
+				}
+			}
+			state, err := canonicalTypedState([]StateProperty{{Name: c.key, Value: value}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := Record{Name: "minecraft:" + c.name, StateJSON: state}
 			got, ok, err := stateEmission(record)
 			if err != nil || !ok || got != c.want {
 				t.Fatalf("emission=%d resolved=%v err=%v want=%d", got, ok, err, c.want)

@@ -36,6 +36,9 @@ fn cube() -> (RegistryRecord, BlockVisual, Vec<Material>) {
         collision_seed: Default::default(),
         provenance: assets::RegistryProvenance::PMMP,
         beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
     };
     let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
     visual.faces = [1; 6];

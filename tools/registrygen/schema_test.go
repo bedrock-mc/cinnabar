@@ -27,7 +27,7 @@ func TestRegistryEncoderMatchesCrossLanguageFixture(t *testing.T) {
 	records := []Record{
 		{
 			BeaconTint: BeaconTintRed, SequentialID: 7, NetworkHash: 0x12345678, Flags: flagCubeGeometry | flagLeafModel,
-			Name: "fixture:leaf", StateJSON: []byte(`{"color":{"type":"int","value":3}}`),
+			Name: "fixture:leaf", StateJSON: []byte(`{"growth":{"type":"int","value":3}}`),
 			ModelFamily: ModelFamilyLeaves, ContributorRole: ContributorPrimary,
 			ModelState:   ModelState{Mask: 0xff, Values: [8]uint32{1, 2, 3, 4, 5, 6, 7, 8}},
 			FaceCoverage: 0x3f, Provenance: allProvenance,
@@ -55,5 +55,31 @@ func TestRegistryEncoderMatchesCrossLanguageFixture(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("registry wire contract changed:\n got %x\nwant %x", got, want)
+	}
+}
+
+// TestActiveBlockFactsWireRoundTrip checks nonzero compiled masks against the real pinned palette.
+func TestActiveBlockFactsWireRoundTrip(t *testing.T) {
+	data, err := os.ReadFile("../../crates/assets/data/block-registry-v2193.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, records, err := decodeBREGRecords(data, v2193BlockProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, record := range records {
+		found = found || record.Traits != 0
+	}
+	if !found {
+		t.Fatal("active palette has no compiled block traits")
+	}
+	encoded, err := encodeWithMetadata(metadata, records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, encoded) {
+		t.Fatal("compiled block facts changed during a wire round trip")
 	}
 }

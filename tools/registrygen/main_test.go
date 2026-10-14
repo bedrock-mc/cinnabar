@@ -563,8 +563,8 @@ func TestEncodeLREG1001RequiresOneBoundedBytePerBREGState(t *testing.T) {
 
 func TestLightBindingRequiresExactBREGIdentityOrderAndCount(t *testing.T) {
 	records := []Record{testRecord(0, 10), testRecord(1, 20)}
-	records[0].Name, records[0].StateJSON = "minecraft:first", []byte(`{"lit":0}`)
-	records[1].Name, records[1].StateJSON = "minecraft:second", []byte(`{"lit":1}`)
+	records[0].Name, records[0].StateJSON = "minecraft:first", []byte(`{"lit":{"type":"byte","value":0}}`)
+	records[1].Name, records[1].StateJSON = "minecraft:second", []byte(`{"lit":{"type":"byte","value":1}}`)
 	for i := range records {
 		records[i].Provenance = ProvenanceDragonfly
 	}
@@ -581,7 +581,7 @@ func TestLightBindingRequiresExactBREGIdentityOrderAndCount(t *testing.T) {
 		t.Fatalf("count mismatch error = %v", err)
 	}
 	wrongState := slices.Clone(records)
-	wrongState[1].StateJSON = []byte(`{"lit":0}`)
+	wrongState[1].StateJSON = []byte(`{"lit":{"type":"byte","value":0}}`)
 	if err := validateLightBindingBREG(breg, wrongState); err == nil || !strings.Contains(err.Error(), "identity") {
 		t.Fatalf("state mismatch error = %v", err)
 	}

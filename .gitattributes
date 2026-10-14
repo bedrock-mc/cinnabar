@@ -33,5 +33,8 @@ crates/assets/data/entity-facts-*.bin binary
 crates/assets/data/entity-facts-expansion-*.tsv text eol=lf
 crates/asset-compiler/data/entity-components-*.json text eol=lf
 packaging/common/prep-kit-files.txt text eol=lf
+assets/bedrock-target.json text eol=lf
+crates/assets/data/facts-expansion-v*.tsv text eol=lf
+crates/assets/data/vocabulary-v*.txt text eol=lf
 crates/assets/data/item-facts-expansion-*.tsv text eol=lf
 crates/assets/data/item-facts-*.bin binary

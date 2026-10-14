@@ -127,7 +127,7 @@ fn required<'a>(path: &'a Option<PathBuf>, flag: &str) -> Result<&'a Path> {
 
 /// Regenerates into one directory and optionally compares every byte with the tracked carrier.
 fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
-    let target: serde_json::Value = serde_json::from_slice(&std::fs::read(
+    let mut target: serde_json::Value = serde_json::from_slice(&std::fs::read(
         args.root.join("assets/bedrock-target.json"),
     )?)?;
     let block: serde_json::Value = serde_json::from_slice(&std::fs::read(
@@ -223,6 +223,20 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         &args.out.join(&item_path),
         Some(&args.out.join(&item_expansion)),
     )?;
+    for (key, path) in [
+        ("block_registry", &block_path),
+        ("light_registry", &light_path),
+        ("biome_registry", &biome_path),
+        ("physics_registry", &physics_path),
+    ] {
+        target["hashes"][key] =
+            format!("{:x}", Sha256::digest(std::fs::read(args.out.join(path))?)).into();
+    }
+    let target_path = PathBuf::from("assets/bedrock-target.json");
+    std::fs::write(
+        args.out.join(&target_path),
+        serde_json::to_string_pretty(&target)? + "\n",
+    )?;
     if args.check {
         for path in [
             assets::facts::entity::SOURCE_PATH,
@@ -238,6 +252,9 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         }
 
         for path in [
+            &target_path,
+            &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
+            &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
             &item_path,
             &item_expansion,
             &block_path,

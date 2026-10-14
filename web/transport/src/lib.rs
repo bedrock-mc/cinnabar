@@ -2,11 +2,10 @@
 //! play connection into the existing session plumbing; gameplay always stays reliable.
 
 #[cfg(target_arch = "wasm32")]
-mod browser;
-#[cfg(target_arch = "wasm32")]
-pub use browser::BrowserTransport;
-mod session;
-pub use session::{AccountOperation, ControlEvent, Session, State};
+pub mod browser;
+pub mod session;
+
+use session::{Session, State};
 
 use std::future::Future;
 use tokio::io::{AsyncRead, AsyncWrite};

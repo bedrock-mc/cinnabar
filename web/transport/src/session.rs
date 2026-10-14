@@ -240,14 +240,14 @@ impl<T: RelayTransport> Session<T> {
     }
     /// Opens play once, writes the relay prefix, then returns the existing bounded bridge
     /// reader/queue/writer. The host spawns the writer locally and drops it on cancellation.
-    pub async fn open_play<Clock: FnMut() -> Duration>(
+    pub async fn open_play<N: FnMut() -> Duration>(
         &mut self,
-        mut now: Clock,
+        mut now: N,
     ) -> Result<
         (
             bridge::FramedReader<tokio::io::ReadHalf<T::Stream>>,
             bridge::FrameQueue,
-            impl std::future::Future<Output = ()> + use<T, Clock>,
+            impl std::future::Future<Output = ()> + use<T, N>,
         ),
         CloseReason,
     > {

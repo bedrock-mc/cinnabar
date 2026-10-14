@@ -22,6 +22,9 @@ fn identity(f: &BlockFact) -> RegistryRecord {
         collision_seed: CollisionSeed::default(),
         provenance: RegistryProvenance::DRAGONFLY,
         beacon_tint: BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
     }
 }
 
@@ -261,6 +264,8 @@ pub(super) fn project(
             }
         };
         if record.name.as_ref() != RESERVED {
+            record.model_family =
+                super::block_rules::family(&policy.model_family_rules, f, record.model_family)?;
             record.collision_seed = collision(f)?;
         }
         if routes

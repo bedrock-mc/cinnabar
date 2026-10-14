@@ -6,6 +6,14 @@ under the ignored `.local/assets/block-data/` directory, and the verified
 download cache stays in the ignored sibling `.local/assets/block-data.downloads/`
 directory. This notice is checked in and is not rewritten by the acquisition script.
 
+## Block property and component data
+
+`crates/assets/data/block-properties-v2193.json` and
+`crates/assets/data/block-components-v2193.tsv` contain selected metadata facts
+from the sample archive pinned in `assets/vanilla-source.json`. The sample files
+carry the notice “(c) Mojang AB. All rights reserved.” and are subject to the
+[Minecraft End User License Agreement](https://www.minecraft.net/en-us/eula).
+
 ## Setup window panorama
 
 - Files: `assets/panorama/` (`panorama_0.jpg` .. `panorama_5.jpg`)
