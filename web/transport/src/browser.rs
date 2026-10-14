@@ -11,7 +11,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen(module = "/src/adapters.mjs")]
