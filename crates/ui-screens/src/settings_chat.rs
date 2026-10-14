@@ -158,9 +158,13 @@ pub fn apply_hud(settings: &SettingsOptions, model: &mut HudModel) {
         model.chat_visible = false;
         model.chat.clear();
     }
-    model.chat_background_opacity =
-        f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0;
+    model.chat_background_opacity = background_opacity(settings);
     model.chat_lifetime = settings.chat_lifetime();
+}
+
+/// The saved percentage shared by closed-chat notifications and the open chat screen.
+pub(crate) fn background_opacity(settings: &SettingsOptions) -> f64 {
+    f64::from(settings.value(SettingId::ChatBackgroundOpacity)) / 100.0
 }
 
 /// Applies the selected default color without discarding server-authored formatting codes.

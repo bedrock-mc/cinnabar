@@ -132,7 +132,12 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 }
             }
         }
-        Fixture::Chat { draft, suggestions } => {
+        Fixture::Chat {
+            draft,
+            suggestions,
+            messages,
+            options,
+        } => {
             let catalog = json_ui::Catalog::from_files(
                 carriers
                     .ui
@@ -159,6 +164,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             editor.set_text(draft);
             frame.now = CAPTURE_SECONDS;
             let mut screen = ChatScreen::default();
+            screen.settings.set_snapshot((Arc::new(options), None));
             for now in [0.0, CAPTURE_SECONDS] {
                 frame.nodes.clear();
                 *frame.next = 1;
@@ -168,7 +174,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                         &engine,
                         ChatInput {
                             editor: &editor,
-                            messages: &Default::default(),
+                            messages: &messages,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -217,10 +223,22 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
     canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
+    let mut pixels = canvas.into_rgba();
+    if !menu {
+        // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
+        for pixel in pixels.chunks_exact_mut(4) {
+            let alpha = f32::from(pixel[3]) / 255.0;
+            for (channel, background) in [70.0, 90.0, 110.0].into_iter().enumerate() {
+                pixel[channel] =
+                    (f32::from(pixel[channel]) * alpha + background * (1.0 - alpha)).round() as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(
-            &canvas.into_rgba(),
+            &pixels,
             state.size[0],
             state.size[1],
             image::ExtendedColorType::Rgba8,
