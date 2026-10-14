@@ -211,7 +211,7 @@ fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
                         force_completion: true,
                     };
                     for store in [&mut early, &mut late] {
-                        store.apply(1, 2, ActorEvent::Move(movement.clone()));
+                        store.apply(1, 2, ActorEvent::Move(movement));
                         if history == "queued" {
                             store.advance_interpolation_ticks(1);
                         }
@@ -220,14 +220,14 @@ fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
                         movement.position[1] = Some(wire_y + 4.0);
                         movement.interpolation.force_completion = false;
                         for store in [&mut early, &mut late] {
-                            store.apply(1, 3, ActorEvent::Move(movement.clone()));
+                            store.apply(1, 3, ActorEvent::Move(movement));
                         }
                         // A rotation-only feet packet must retain the buffered Y's original frame.
                         movement.position = [None; 3];
                         movement.position_origin = ActorPositionOrigin::Feet;
                         movement.yaw = Some(45.0);
                         for store in [&mut early, &mut late] {
-                            store.apply(1, 4, ActorEvent::Move(movement.clone()));
+                            store.apply(1, 4, ActorEvent::Move(movement));
                         }
                     }
                 }
