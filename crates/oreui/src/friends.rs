@@ -5,18 +5,29 @@
 use super::grid::space;
 use super::icons::{self, Icon};
 use super::paint::Canvas;
-use super::theme::{BODY, BORDER, CAPTION, NEUTRAL90, TEXT, TEXT_DIMMER, TEXT_DIMMEST};
+use super::theme::{BODY, BORDER, CAPTION, NEUTRAL90, SPACE, TEXT, TEXT_DIMMER, TEXT_DIMMEST};
 use super::widgets::{Variant, button, panel, row, screen_overlay, tabs};
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
 use ui_engine::engine::screen::PaintError;
 
 const DRAWER_WIDTH: f32 = 37.6;
+const SEARCH_HEIGHT: f32 = 4.4;
+const TABS_HEIGHT: f32 = 5.2;
+const FRIEND_HEIGHT: f32 = 6.4;
 
+/// Fits the drawer's fixed chrome while retaining a visible portion of its first row.
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
+    let minimum = SPACE[1] * 4.0 + SEARCH_HEIGHT + TABS_HEIGHT + FRIEND_HEIGHT * 0.5;
+    let scale = (size[1] / canvas.r(minimum)).min(1.0);
+    canvas.with_scale(scale, |canvas| draw_fitted(canvas, view, size))
+}
+
+/// Paints scaled navigation and a bounded friends viewport with matching pointer targets.
+fn draw_fitted(canvas: &mut Canvas<'_>, view: &MenuView, size: [f32; 2]) -> Result<(), PaintError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
     let drawer_width = canvas.r(DRAWER_WIDTH).min(width);
@@ -29,7 +40,7 @@ pub(super) fn draw(
 
     // Search field and close button.
     let close_width = canvas.r(4.8);
-    let field_bottom = top + canvas.r(4.4);
+    let field_bottom = top + canvas.r(SEARCH_HEIGHT);
     let field = [left, top, right - close_width - pad, field_bottom];
     canvas.fill(field, NEUTRAL90)?;
     canvas.frame(field, 0.2, BORDER)?;
@@ -68,7 +79,7 @@ pub(super) fn draw(
     )?;
 
     let tab_top = field_bottom + pad;
-    let tab_bottom = tab_top + canvas.r(5.2);
+    let tab_bottom = tab_top + canvas.r(TABS_HEIGHT);
     tabs(
         canvas,
         view,
@@ -91,7 +102,7 @@ pub(super) fn draw(
     let list_top = y;
     let scroll = canvas.begin_scroll("friends_list", [left, list_top, right, height - pad])?;
     y -= scroll.offset;
-    let row_height = canvas.r(6.4);
+    let row_height = canvas.r(FRIEND_HEIGHT);
     for (index, friend) in view.friends.iter().enumerate() {
         if y + row_height < list_top || y > height - pad {
             y += row_height + space(canvas, 1);

@@ -1,4 +1,11 @@
-//! Local crash capture: a panic hook records a report on disk for debugging; nothing is uploaded.
+//! Local panic and native crash reports; nothing is uploaded.
+
+#[cfg(windows)]
+mod native;
+#[cfg(any(windows, test))]
+mod native_address;
+#[cfg(unix)]
+pub(crate) mod unix;
 
 use std::{
     backtrace::Backtrace,
@@ -10,6 +17,7 @@ use std::{
 
 use serde::Serialize;
 
+use crate::renderer_startup::Attempt;
 use launcher::install_layout::InstallLayout;
 
 const LOG_TAIL_BYTES: u64 = 16 * 1024;
@@ -24,15 +32,21 @@ struct Report<'a> {
     release: &'a str,
     os: &'a str,
     arch: &'a str,
+    renderer: Option<Attempt>,
 }
 
 /// Records a report and flushes the caller's logs before the previous panic hook runs.
 pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
     let crash_dir = layout.crash_dir();
     let core_log = layout.log_dir().join("core.log");
+    let data_root = layout.user_data_root.clone();
+    #[cfg(windows)]
+    native::install(layout, flush_logs);
+    #[cfg(unix)]
+    unix::install(layout);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        write_report(&crash_dir, &core_log, &info.to_string());
+        write_report(&crash_dir, &core_log, &data_root, &info.to_string());
         // Queued log lines precede the panic message.
         flush_logs();
         previous(info);
@@ -52,7 +66,7 @@ fn prune(crash_dir: &Path, keep: usize) {
     }
 }
 
-fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
+fn write_report(crash_dir: &Path, core_log: &Path, data_root: &Path, message: &str) {
     let report = Report {
         source: "client",
         message: message.to_owned(),
@@ -61,6 +75,7 @@ fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
         release: env!("CARGO_PKG_VERSION"),
         os: std::env::consts::OS,
         arch: std::env::consts::ARCH,
+        renderer: renderer_context(data_root),
     };
     let Ok(bytes) = serde_json::to_vec(&report) else {
         return;
@@ -69,6 +84,11 @@ fn write_report(crash_dir: &Path, core_log: &Path, message: &str) {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis());
     write_at(crash_dir, millis, &bytes);
+}
+
+/// Attributes a crash only to a renderer used by this process, never another client's saved choice.
+fn renderer_context(data_root: &Path) -> Option<Attempt> {
+    crate::renderer_startup::context::current(data_root)
 }
 
 /// Writes one report at its timestamp without losing a simultaneous report.
@@ -115,6 +135,7 @@ fn reports(crash_dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::renderer_startup::StartupGuard;
 
     fn scratch(label: &str) -> PathBuf {
         let dir =
@@ -152,7 +173,7 @@ mod tests {
         let dir = scratch("report");
         let log = dir.join("core.log");
         fs::write(&log, "old\nrecent line").unwrap();
-        write_report(&dir.join("crashes"), &log, "boom");
+        write_report(&dir.join("crashes"), &log, &dir, "boom");
         let file = reports(&dir.join("crashes")).remove(0);
         let value: serde_json::Value = serde_json::from_slice(&fs::read(file).unwrap()).unwrap();
         for key in [
@@ -163,6 +184,7 @@ mod tests {
             "release",
             "os",
             "arch",
+            "renderer",
         ] {
             assert!(value.get(key).is_some(), "missing {key}");
         }
@@ -180,6 +202,113 @@ mod tests {
         assert_eq!(tail(&log, 4), "6789");
         assert_eq!(tail(&dir.join("missing"), 4), "");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn panic_report_retains_the_pending_renderer_stage_and_gpu() {
+        use crate::renderer_startup::Stage;
+        use launcher::graphics_backend::{Adapter, Backend};
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = StartupGuard::open(dir.path()).unwrap();
+        let attempt = Attempt {
+            backend: Backend::Dx12,
+            adapter: Some(Adapter {
+                name: "test GPU".into(),
+                vendor: 1,
+                device: 2,
+                driver: "driver".into(),
+                driver_info: "version".into(),
+                driver_version: String::new(),
+                integrated: false,
+            }),
+            stage: Stage::FirstPresentation,
+            explicit: false,
+        };
+        guard.begin(attempt.clone()).unwrap();
+        let crash_dir = dir.path().join("crashes");
+        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
+        assert_eq!(value["renderer"], serde_json::to_value(attempt).unwrap());
+    }
+
+    #[test]
+    fn renderer_context_fixture() {
+        let Some(root) = std::env::var_os("CINNABAR_RENDERER_CONTEXT_FIXTURE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        assert!(renderer_context(&root).is_none());
+        let mut guard = StartupGuard::open(&root).unwrap();
+        guard
+            .begin(Attempt {
+                backend: launcher::graphics_backend::Backend::Gl,
+                adapter: None,
+                stage: crate::renderer_startup::Stage::FirstPresentation,
+                explicit: false,
+            })
+            .unwrap();
+        guard.presented().unwrap();
+    }
+
+    #[test]
+    fn completed_renderer_context_survives_another_clients_saved_choice() {
+        use crate::renderer_startup::Stage;
+        use launcher::graphics_backend::{Adapter, Backend};
+        let dir = tempfile::tempdir().unwrap();
+        let mut first = StartupGuard::open(dir.path()).unwrap();
+        let mut attempt = Attempt {
+            backend: Backend::Dx12,
+            adapter: Some(Adapter {
+                name: "first process GPU".into(),
+                vendor: 1,
+                device: 2,
+                driver: "driver".into(),
+                driver_info: "version".into(),
+                driver_version: "1".into(),
+                integrated: false,
+            }),
+            stage: Stage::FirstPresentation,
+            explicit: false,
+        };
+        first.begin(attempt.clone()).unwrap();
+        first.presented().unwrap();
+        attempt.stage = Stage::Ready;
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "lifecycle::crash::tests::renderer_context_fixture",
+            ])
+            .env("CINNABAR_RENDERER_CONTEXT_FIXTURE", dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        assert_eq!(
+            StartupGuard::saved(dir.path())
+                .unwrap()
+                .working
+                .unwrap()
+                .backend,
+            Backend::Gl
+        );
+        assert_eq!(renderer_context(dir.path()), Some(attempt.clone()));
+        let crash_dir = dir.path().join("crashes");
+        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
+        let value: serde_json::Value =
+            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
+        assert_eq!(
+            value["renderer"],
+            serde_json::to_value(attempt.clone()).unwrap()
+        );
+        let mut retry = StartupGuard::open(dir.path()).unwrap();
+        attempt.stage = Stage::CreatingDevice;
+        retry.begin(attempt).unwrap();
+        retry.failed().unwrap();
+        assert!(renderer_context(dir.path()).is_none());
     }
 
     #[test]

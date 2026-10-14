@@ -73,6 +73,7 @@ fn accessibility(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.video.tab.title", "menu.video.tab.description")?;
     super::presets::draw(content)?;
+    content.option(SettingId::GraphicsApi)?;
     content.heading(
         "menu.video.group.general",
         "menu.video.group.general.description",
@@ -105,6 +106,8 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.accessibility.description",
     )?;
     options(content, SettingPanel::VideoAccessibility)?;
+    content.heading("options.cinnabar.advanced", "")?;
+    options(content, SettingPanel::VideoAdvanced)?;
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 
@@ -613,6 +616,7 @@ fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 pub(super) fn fallback(key: &str) -> &str {
     match key {
         "options.renderClouds" => "Render Clouds",
+        "options.cinnabar.advanced" => "Advanced",
         "options.framerateLimit.description" => {
             "Choose an FPS limit or Unlimited. VSync and Variable Refresh Rate may still limit the frame rate."
         }

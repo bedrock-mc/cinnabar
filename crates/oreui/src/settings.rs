@@ -5,6 +5,7 @@ mod button;
 mod controls;
 mod gui_scale;
 mod layout;
+mod mods;
 mod picker;
 mod presets;
 mod resources;
@@ -369,6 +370,14 @@ impl Content<'_, '_> {
     }
 
     pub(super) fn option(&mut self, id: SettingId) -> Result<(), PaintError> {
+        if id == SettingId::GraphicsApi
+            && launcher::graphics_backend::Platform::current()
+                .backends()
+                .len()
+                < 2
+        {
+            return Ok(());
+        }
         if id == SettingId::FullScreen {
             let action = MenuAction::SettingsFullscreen(!self.view.fullscreen);
             let title = self.word("options.fullscreen");
@@ -393,7 +402,9 @@ impl Content<'_, '_> {
         };
         let description =
             (self.translate)(&description_key).map_or_else(String::new, |text| text.to_string());
-        let description = if id == SettingId::Vrr {
+        let description = if id == SettingId::GraphicsApi {
+            "Restart required. Auto checks driver stability before choosing an API. WGPU_BACKEND takes priority over this setting.".to_owned()
+        } else if id == SettingId::Vrr {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if id == SettingId::CinnabarVisible {
             "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
@@ -403,6 +414,10 @@ impl Content<'_, '_> {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
+        } else if id == SettingId::FarTerrain {
+            "Draw terrain you have already visited beyond the render distance, in less detail. Auto turns it on only at render distances past what this device draws in full detail.".to_owned()
+        } else if id == SettingId::FullDetailDistance {
+            "Chunks around you drawn with every block. Farther terrain inside the render distance is drawn simplified. Auto picks for this device.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (id == SettingId::RenderClouds
@@ -442,6 +457,12 @@ impl Content<'_, '_> {
                     SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
+                    SettingId::FullDetailDistance => {
+                        launcher::menu::settings_options::full_detail_label(value, &|chunks| {
+                            self.word("options.renderDistanceFormat")
+                                .replace("%s", &chunks.to_string())
+                        })
+                    }
                     SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

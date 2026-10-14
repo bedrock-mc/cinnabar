@@ -61,7 +61,7 @@ jobs:
             export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="$EXPERIMENT_CODEGEN_UNITS"
           fi
           cargo build --release --locked --no-default-features -p cinnabar \
-            --features local-mods --bin cinnabar --timings
+            --bin cinnabar --timings
       - name: Upload build timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

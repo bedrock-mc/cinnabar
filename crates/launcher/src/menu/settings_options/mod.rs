@@ -7,6 +7,7 @@ pub mod command_macros;
 pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
+pub mod graphics_api;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -34,11 +35,12 @@ pub use command_macros::{
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
-    DISCORD_PRESENCE_OPTION, FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
+    DISCORD_PRESENCE_OPTION, FAR_TERRAIN_CHOICES, FAR_TERRAIN_OPTION, FRAME_RATE_UNLIMITED,
+    FULL_DETAIL_DISTANCE_OPTION, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION,
     MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION,
     MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES,
     SMAA_OPTION, SettingDefinition, SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION,
-    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION, full_detail_label,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -46,6 +48,9 @@ pub use keybindings::{
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
+
+/// Persisted toggle shared by the new UI's sizing and settings controls.
+pub const EXTRA_LARGE_UI: &str = SettingId::GuiAccessibilityScaling.name();
 
 pub const SHOW_EXACT_SERVER_PING: &str = SettingId::ShowExactServerPing.name();
 pub const OREUI_DARK_MODE: &str = SettingId::OreuiDarkMode.name();
@@ -68,8 +73,11 @@ impl OptionPreference {
 #[serde(default)]
 pub struct SettingsOptions {
     /// Version of the stored settings format.
+    #[serde(default = "persistence::legacy_schema")]
     schema: u32,
     values: BTreeMap<String, i32>,
+    /// Increments on Graphics API selections so choosing Auto can reset crash recovery.
+    graphics_api_revision: u64,
     #[serde(skip)]
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
@@ -88,6 +96,7 @@ impl Default for SettingsOptions {
         Self {
             schema: SETTINGS_SCHEMA,
             values: BTreeMap::new(),
+            graphics_api_revision: 0,
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
@@ -147,6 +156,11 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
+    /// Whether new menu screens use the additional accessibility scale step.
+    pub fn extra_large_ui(&self) -> bool {
+        self.value(SettingId::GuiAccessibilityScaling) != 0
+    }
+
     /// Returns the saved value, or the registry default for an untouched option.
     pub fn get(&self, index: usize) -> i32 {
         let Some(definition) = SETTINGS_OPTIONS.get(index) else {
@@ -157,6 +171,11 @@ impl SettingsOptions {
             .get(definition.name)
             .copied()
             .unwrap_or_else(|| self.option_default(definition));
+        if definition.id == SettingId::GraphicsApi
+            && !graphics_api::visible(value as usize, crate::graphics_backend::Platform::current())
+        {
+            return 0;
+        }
         if definition.id == SettingId::Msaa {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
         } else {
@@ -192,6 +211,11 @@ impl SettingsOptions {
         } else {
             value
         };
+        if definition.id == SettingId::GraphicsApi {
+            self.graphics_api_revision = self.graphics_api_revision.wrapping_add(1);
+            self.values.insert(definition.name.to_owned(), value);
+            return true;
+        }
         if self
             .values
             .get(definition.name)

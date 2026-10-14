@@ -103,6 +103,52 @@ fn changed_values_persist_without_saving_viewport_clamps_or_cli_overrides() {
 }
 
 #[test]
+fn extra_large_ui_actions_persist_without_changing_ordinary_gui_preferences() {
+    use launcher::menu::settings_options::{EXTRA_LARGE_UI, SETTINGS_OPTIONS, SettingsGroup};
+
+    let root = ConfigRoot::new();
+    let ordinary = SavedVideoSettings {
+        fullscreen: false,
+        gui_scale_offset: -1,
+    };
+    save(&root.0, ordinary).unwrap();
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == EXTRA_LARGE_UI)
+        .expect("the accessibility toggle is registered") as u16;
+    let mut menu = root.menu();
+    let fixed = menu.gui_scale_preference();
+    assert!(!menu.view().settings_options.extra_large_ui());
+    for enabled in [true, false] {
+        menu.activate(MenuAction::SettingsOption(index, i32::from(enabled)));
+        menu.sync_user_settings(None);
+        assert!(
+            !menu.settings_dirty,
+            "the real action must save successfully"
+        );
+        assert_eq!(menu.view().settings_options.extra_large_ui(), enabled);
+        assert_eq!(menu.gui_scale_preference(), fixed);
+        assert_eq!(menu.gui_scale_offset(), ordinary.gui_scale_offset);
+        assert_eq!(load(&root.0).unwrap(), ordinary);
+
+        // A new runtime must read the persisted toggle and both native preferences.
+        let restarted = root.menu();
+        assert_eq!(restarted.view().settings_options.extra_large_ui(), enabled);
+        assert_eq!(restarted.gui_scale_preference(), fixed);
+        assert_eq!(restarted.gui_scale_offset(), ordinary.gui_scale_offset);
+        assert_eq!(restarted.view().fullscreen, ordinary.fullscreen);
+    }
+    menu.activate(MenuAction::SettingsOption(index, 1));
+    menu.activate(MenuAction::SettingsResetGroup(SettingsGroup::Audio));
+    menu.activate(MenuAction::SettingsConfirmResetGroup(SettingsGroup::Audio));
+    menu.sync_user_settings(None);
+    assert!(root.menu().view().settings_options.extra_large_ui());
+    assert_eq!(load(&root.0).unwrap(), ordinary);
+    assert_eq!(menu.gui_scale_preference(), fixed);
+    assert_eq!(menu.gui_scale_offset(), ordinary.gui_scale_offset);
+}
+
+#[test]
 fn a_loaded_fullscreen_preference_applies_to_the_new_window() {
     let root = ConfigRoot::new();
     save(

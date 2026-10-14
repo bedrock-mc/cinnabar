@@ -12,8 +12,6 @@ use launcher::menu::settings_sections::{SETTINGS_SECTIONS, SettingSection};
 use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 use ui_engine::engine::screen::{Translate, translated};
 
-/// The section the settings screen opens on before one is picked.
-
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
@@ -657,14 +655,6 @@ fn settings_context(context: Context) -> Context {
         .fold(context, |context, (name, index)| {
             context.with_var(name, Value::from(*index))
         })
-}
-
-/// Resolves a section selector received from the JSON-UI contract.
-fn section_index(name: &str) -> u8 {
-    SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(section, index)| (*section == name).then_some(*index))
-        .unwrap_or_default()
 }
 
 /// The menu action a pressed region means on `view`'s screen.

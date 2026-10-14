@@ -1,0 +1,278 @@
+//! The Mods tab: the resource-pack page's toolbar, groups and cards over the mod library.
+
+use super::super::theme;
+use super::super::transitions::resources::{Group, Listing, Mods};
+use super::super::widgets::Variant;
+use super::Content;
+use super::resources::{Face, accordion, actions, caption, card, cards, empty, note, reveal};
+use launcher::menu::{MenuAction, file_size};
+use launcher::mods::{Action, InstalledMod, Snapshot, Status};
+use ui_engine::engine::screen::PaintError;
+
+#[cfg(test)]
+mod tests;
+
+/// Wraps a card action for the shared Settings input router.
+fn command(action: Action) -> MenuAction {
+    MenuAction::Mods(action)
+}
+
+/// Draws the ordered Active and available mod groups with retained card motion.
+pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+    let mut motion = content
+        .canvas
+        .transitions
+        .as_deref_mut()
+        .map(|transitions| std::mem::take(&mut transitions.mods))
+        .unwrap_or_default();
+    let animated = content
+        .canvas
+        .transitions
+        .as_deref()
+        .is_some_and(|t| t.motion.enabled());
+    let snapshot = content.view.mods.clone();
+    let (active, available) = snapshot.library.groups();
+    let position = |list: &[InstalledMod], id: u64| list.iter().position(|item| item.id == id);
+    let details = snapshot.details_expanded.and_then(|id| {
+        position(&active, id)
+            .map(|index| (true, index))
+            .or_else(|| position(&available, id).map(|index| (false, index)))
+    });
+    motion.sync_listing(
+        Listing {
+            active: &active,
+            available: &available,
+            expanded: [snapshot.active_expanded, snapshot.available_expanded],
+            details,
+            pending: false,
+        },
+        content.canvas.seconds,
+        animated,
+    );
+    let result = draw_sections(content, &snapshot, &motion);
+    if let Some(transitions) = content.canvas.transitions.as_deref_mut() {
+        transitions.mods = motion;
+    }
+    result
+}
+
+/// Draws page actions and both groups from one immutable library snapshot.
+fn draw_sections(
+    content: &mut Content<'_, '_>,
+    snapshot: &Snapshot,
+    motion: &Mods,
+) -> Result<(), PaintError> {
+    let library = &snapshot.library;
+    content.heading("Mods", "Add features to your game with WebAssembly mods.")?;
+    actions(
+        content,
+        &[
+            (
+                "Import mod…",
+                Variant::Secondary,
+                (!library.busy).then_some(command(Action::Import)),
+            ),
+            (
+                "Reload all",
+                Variant::Secondary,
+                (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
+            ),
+        ],
+    )?;
+    content.y += content.canvas.r(1.2);
+    if !library.message.is_empty() {
+        note(content, &library.message, theme::NEUTRAL80.fill)?;
+    }
+    let enabled = library.active.len();
+    accordion(
+        content,
+        &format!("Active mods ({enabled})"),
+        motion.expanded[0],
+        command(Action::ToggleActive),
+    )?;
+    reveal(
+        content,
+        motion.expanded[0],
+        snapshot.active_expanded,
+        |content| {
+            cards(content, motion, Group::Active, |content, card| {
+                mod_card(
+                    content,
+                    snapshot,
+                    &card.item,
+                    true,
+                    card.details,
+                    card.present,
+                )
+            })?;
+            caption(
+                content,
+                "Higher mods take priority. Reorder Active mods to choose which wins.",
+            )
+        },
+    )?;
+    content.y += content.canvas.r(1.2);
+    accordion(
+        content,
+        &format!("My mods ({})", library.installed.len() - enabled),
+        motion.expanded[1],
+        command(Action::ToggleAvailable),
+    )?;
+    reveal(
+        content,
+        motion.expanded[1],
+        snapshot.available_expanded,
+        |content| {
+            reveal(content, motion.empty_fraction, false, |content| {
+                empty(
+                    content,
+                    if library.installed.is_empty() {
+                        "No mods installed"
+                    } else {
+                        "No other mods"
+                    },
+                    "Import a .wasm mod component to add it here.",
+                )
+            })?;
+            cards(content, motion, Group::Available, |content, card| {
+                mod_card(
+                    content,
+                    snapshot,
+                    &card.item,
+                    false,
+                    card.details,
+                    card.present,
+                )
+            })
+        },
+    )?;
+    content.y += content.canvas.r(2.4);
+    Ok(())
+}
+
+/// Draws identity-scoped controls, reload outcomes and generated permission toggles.
+fn mod_card(
+    content: &mut Content<'_, '_>,
+    snapshot: &Snapshot,
+    item: &InstalledMod,
+    active: bool,
+    details: f32,
+    interactive: bool,
+) -> Result<(), PaintError> {
+    let library = &snapshot.library;
+    let status = library
+        .active
+        .iter()
+        .find(|entry| entry.id == item.id)
+        .map(|entry| &entry.status);
+    let failure = status.and_then(|status| match status {
+        Status::Failed(message) | Status::ReloadFailed(message) => Some(message.as_str()),
+        _ => None,
+    });
+    let subtitle = match (active, status) {
+        (false, _) => "Ready to enable",
+        (true, Some(Status::Running)) => "Running",
+        (true, Some(Status::ReloadFailed(_))) => "Reload failed · previous instance running",
+        (true, Some(Status::Failed(_))) => "Failed",
+        (true, Some(Status::Starting) | None) => "Starting…",
+    };
+    let face = Face {
+        icon: None,
+        title: &item.name,
+        subtitle,
+        expanded: snapshot.details_expanded == Some(item.id),
+        toggle: command(Action::ReadMore(item.id)),
+        details,
+        interactive,
+    };
+    card(content, face, |content| {
+        caption(
+            content,
+            &format!("{} · {}", item.file, file_size(item.bytes)),
+        )?;
+        if let Some(message) = failure {
+            caption(content, message)?;
+        }
+        let available = interactive && !library.busy;
+        let toggle = if active {
+            (
+                "Disable",
+                Variant::Secondary,
+                available.then_some(command(Action::Disable(item.id))),
+            )
+        } else {
+            (
+                "Enable",
+                Variant::Primary,
+                available.then_some(command(Action::Enable(item.id))),
+            )
+        };
+        let mut buttons = vec![toggle];
+        if active {
+            buttons.push((
+                "Reload",
+                Variant::Secondary,
+                available.then_some(command(Action::Reload(item.id))),
+            ));
+            let position = library.active.iter().position(|entry| entry.id == item.id);
+            if position.is_some_and(|position| position > 0) {
+                buttons.push((
+                    "Move up",
+                    Variant::Neutral,
+                    available.then_some(command(Action::MoveUp(item.id))),
+                ));
+            }
+            if position.is_some_and(|position| position + 1 < library.active.len()) {
+                buttons.push((
+                    "Move down",
+                    Variant::Neutral,
+                    available.then_some(command(Action::MoveDown(item.id))),
+                ));
+            }
+        }
+        buttons.push((
+            "Remove",
+            Variant::Destructive,
+            available.then_some(command(Action::Remove(item.id))),
+        ));
+        actions(content, &buttons)?;
+        caption(content, "Permissions")?;
+        for (index, permission) in item.permissions.iter().enumerate() {
+            let [left, right] = content.inset();
+            let y = content.y;
+            let action = command(Action::Permission(item.id, index, !permission.enabled));
+            super::controls::toggle_control(
+                content.canvas,
+                content.view,
+                [left, y],
+                permission.enabled,
+                action,
+                available,
+            )?;
+            let request = match permission.requested {
+                Some(true) => " · requested",
+                Some(false) => " · not requested",
+                None => "",
+            };
+            content.canvas.text_line_vertically_centred(
+                &format!("{}{request}", permission.name),
+                [
+                    left + content.canvas.r(8.0),
+                    y,
+                    right,
+                    y + content.canvas.r(3.6),
+                ],
+                theme::BODY,
+                theme::TEXT,
+            )?;
+            if available {
+                content
+                    .canvas
+                    .hit(action, [left, y, right, y + content.canvas.r(3.6)])?;
+            }
+            content.y += content.canvas.r(4.4);
+            caption(content, &permission.description)?;
+        }
+        Ok(())
+    })
+}

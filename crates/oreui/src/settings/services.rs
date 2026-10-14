@@ -23,6 +23,7 @@ pub(super) fn draw(
         SettingSection::Language => language(content)?,
         SettingSection::Account => account(content)?,
         SettingSection::GlobalTexturePack => resources(content)?,
+        SettingSection::Mods => super::mods::draw(content)?,
         SettingSection::StorageManagement => storage(content)?,
         SettingSection::Touch => {
             content.heading("menu.touch.tab.title", "menu.touch.tab.description")?;

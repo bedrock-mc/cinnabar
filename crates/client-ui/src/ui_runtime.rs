@@ -464,6 +464,7 @@ impl UiRuntime {
         ledger
     }
 
+    /// Keeps the screen aligned with the retained intent while timed-out controls recover.
     pub fn poll_inventory_timeout(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -473,9 +474,15 @@ impl UiRuntime {
             self.inventory_open = player_runtime
                 .inventory
                 .ledger()
-                .storage_generation()
-                .is_some();
-            self.inventory_pointer_gui = None;
+                .personal_inventory_desired_open()
+                || player_runtime
+                    .inventory
+                    .ledger()
+                    .storage_generation()
+                    .is_some();
+            if !self.inventory_open {
+                self.inventory_pointer_gui = None;
+            }
         }
     }
 

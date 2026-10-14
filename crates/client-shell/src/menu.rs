@@ -181,6 +181,9 @@ pub struct MenuRuntime {
     accounts: accounts::Manager,
     pub global_resource_actions: Vec<launcher::global_resources::Action>,
     pub global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
+    /// Mods-tab work for the mod runtime; disclosure toggles apply in place.
+    pub mod_actions: Vec<launcher::mods::Action>,
+    pub mods: std::sync::Arc<launcher::mods::Snapshot>,
     minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
     minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
@@ -759,6 +762,11 @@ impl MenuRuntime {
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::Mods(action) => {
+                if let Some(work) = std::sync::Arc::make_mut(&mut self.mods).apply(action) {
+                    self.mod_actions.push(work);
+                }
+            }
             MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {

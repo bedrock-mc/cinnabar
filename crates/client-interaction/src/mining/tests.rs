@@ -1,13 +1,28 @@
 use protocol::PlayerInputMode;
 
-use gameplay::mining::{creative_reach, survival_reach};
+use gameplay::mining::{
+    CREATIVE_GAMEPAD_REACH_BLOCKS, CREATIVE_MOUSE_REACH_BLOCKS, CREATIVE_TOUCH_REACH_BLOCKS,
+    SURVIVAL_TOUCH_REACH_BLOCKS, creative_reach, survival_reach,
+};
 
 #[test]
 fn creative_reach_is_frozen_per_input_mode() {
-    assert_eq!(creative_reach(PlayerInputMode::Mouse), 5.7);
-    assert_eq!(creative_reach(PlayerInputMode::GamePad), 5.6);
-    assert_eq!(creative_reach(PlayerInputMode::Touch), 12.0);
-    assert_eq!(survival_reach(PlayerInputMode::Touch), 6.7);
+    assert_eq!(
+        creative_reach(PlayerInputMode::Mouse),
+        CREATIVE_MOUSE_REACH_BLOCKS
+    );
+    assert_eq!(
+        creative_reach(PlayerInputMode::GamePad),
+        CREATIVE_GAMEPAD_REACH_BLOCKS
+    );
+    assert_eq!(
+        creative_reach(PlayerInputMode::Touch),
+        CREATIVE_TOUCH_REACH_BLOCKS
+    );
+    assert_eq!(
+        survival_reach(PlayerInputMode::Touch),
+        SURVIVAL_TOUCH_REACH_BLOCKS
+    );
 }
 
 #[test]

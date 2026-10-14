@@ -144,6 +144,7 @@ impl WorldStream {
                 self.diagnose_inline_column(&event, &stored_keys);
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
+                self.note_far_column_complete(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
                 for old in &old_keys {
                     self.resident.remove(old);

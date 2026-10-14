@@ -199,7 +199,10 @@ fn custom_hitboxes_ignore_render_scale_and_collision_dimensions() {
             },
         ],
     );
-    assert!(store.get(8).unwrap().bounding_box().is_none());
+    assert_ne!(
+        boxes(&store),
+        [store.get(8).unwrap().bounding_box().unwrap()]
+    );
     assert_boxes_near(&boxes(&store), &[([9.5, 67.0, 20.5], [10.5, 69.0, 21.5])]);
     update(
         &mut store,

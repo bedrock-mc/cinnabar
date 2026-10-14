@@ -305,9 +305,21 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/global")
     }
 
+    /// Mod components imported through Settings.
+    #[must_use]
+    pub fn mods_dir(&self) -> PathBuf {
+        self.user_data_root.join("mods")
+    }
+
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    /// Far-terrain summaries of terrain servers sent, per hashed server; safe to delete.
+    #[must_use]
+    pub fn far_terrain_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("far-terrain/v1")
     }
 
     /// Join-time server-pack archives and compilations reused across launches; safe to delete.
