@@ -49,9 +49,14 @@ pub(super) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
     is_chat_edit_shortcut(&held)
 }
 
-/// Whether either physical Alt key is held, for vanilla's Alt+key command macros.
-pub(crate) fn alt_held(held: &ButtonInput<KeyCode>) -> bool {
-    held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight)
+/// Samples both physical sides of each modifier for keyboard and mouse shortcuts.
+pub(crate) fn held_chord(held: &ButtonInput<KeyCode>) -> semantic_input::ModifierChord {
+    semantic_input::ModifierChord {
+        alt: held.pressed(KeyCode::AltLeft) || held.pressed(KeyCode::AltRight),
+        control: held.pressed(KeyCode::ControlLeft) || held.pressed(KeyCode::ControlRight),
+        shift: held.pressed(KeyCode::ShiftLeft) || held.pressed(KeyCode::ShiftRight),
+        super_key: held.pressed(KeyCode::SuperLeft) || held.pressed(KeyCode::SuperRight),
+    }
 }
 
 /// Matches the command binding, also accepting a typed slash on other layouts

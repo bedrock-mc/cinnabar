@@ -369,6 +369,8 @@ macro_rules! settings {
 }
 
 settings! {
+    MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
+        [(SettingPanel::Keyboard, 6)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2)], [SettingsGroup::Video], None, None;
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),

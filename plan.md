@@ -8412,17 +8412,19 @@ No visual parity or hardware performance gate closes with this extension.
   keybind, each with a "Command Macro N" label, an Unassigned binding button and
   a command box. The section header matches the shipped wording. A press on a
   binding button captures one desktop key or mouse button; Alt supplies the
-  modifier when the macro runs, so macro rows are keyboard and mouse only and
-  never join the gamepad layout.
+  modifier by default. Cinnabar's Macro Modifier setting applies to all slots and
+  offers Alt, Ctrl, Shift, Super or None; None runs the bound control alone.
+  This customization is an intentional extension to vanilla. Macro rows are
+  keyboard and mouse only and never join the gamepad layout.
 - Commands persist in settings alongside the bindings, bounded to one outbound
   chat packet, including the command slash, and free of control characters.
   Oversized drafts remain editable with an inline error and do not replace the
   saved command. A slot with a binding but no command stays silent, and an empty
   command box returns that slot to untouched.
   A keyboard layout reset clears macro rows while retaining their commands.
-- Alt plus a bound key while playing queues the command as Enter would, consuming
-  that control even if the queue refuses the send, without resetting other held
-  controls or pointer motion. Mouse buttons use the same macro dispatch. A leading
+- The selected modifier plus a bound control while playing queues the command as
+  Enter would, consuming that control even if the queue refuses the send, without
+  resetting other held controls or pointer motion. Mouse buttons use the same macro dispatch. A leading
   slash is added for commands typed without one; macros do nothing while a menu,
   chat box, inventory, sign editor or emote wheel owns input. Keyboard macros
   fire once per physical press; consumed controls stay suppressed until release.

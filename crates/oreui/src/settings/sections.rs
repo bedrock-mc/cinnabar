@@ -651,7 +651,7 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "menu.keyboardAndMouse.tab.macros.title" => "Macros",
         "menu.keyboardAndMouse.tab.macros.description" => {
-            "Assign a keyboard input that will run a command when pressing ALT and the bound key"
+            "Run a command with its bound control and the Macro Modifier selected above. Choose None to use the control alone."
         }
         "options.commandMacro.placeholder" => "Command to run",
         "menu.controller.tab.title" | "options.controller" => "Controller",
