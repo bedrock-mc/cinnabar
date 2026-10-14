@@ -34,6 +34,12 @@ fn cutout_mip_coverage(alpha: f32, threshold: f32) -> f32 {
 
 // Minification keeps mip coverage; magnification filters only the binary alpha contour.
 fn cutout_alpha_array(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool, threshold: f32) -> CutoutSample {
+    let limit = vec2<i32>(textureDimensions(image, 0)) - vec2(1);
+    return cutout_alpha_array_region(image, uv, layer, dx, dy, sampled, repeat_uv, threshold, vec4(vec2(0), limit));
+}
+
+// An authored face chart repeats its border texels, preserving contours inside that chart.
+fn cutout_alpha_array_region(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, dx: vec2<f32>, dy: vec2<f32>, sampled: vec4<f32>, repeat_uv: bool, threshold: f32, region: vec4<i32>) -> CutoutSample {
     let size = vec2<f32>(textureDimensions(image, 0));
     let texel_dx = dx * size;
     let texel_dy = dy * size;
@@ -43,12 +49,18 @@ fn cutout_alpha_array(image: texture_2d_array<f32>, uv: vec2<f32>, layer: i32, d
     let position = uv * size - vec2(0.5);
     let base = vec2<i32>(floor(position));
     let texels = array(
-        textureLoad(image, cutout_texel_address(base, vec2<i32>(size), repeat_uv), layer, 0),
-        textureLoad(image, cutout_texel_address(base + vec2(1, 0), vec2<i32>(size), repeat_uv), layer, 0),
-        textureLoad(image, cutout_texel_address(base + vec2(0, 1), vec2<i32>(size), repeat_uv), layer, 0),
-        textureLoad(image, cutout_texel_address(base + vec2(1), vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_region_texel_address(base, region, vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_region_texel_address(base + vec2(1, 0), region, vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_region_texel_address(base + vec2(0, 1), region, vec2<i32>(size), repeat_uv), layer, 0),
+        textureLoad(image, cutout_region_texel_address(base + vec2(1), region, vec2<i32>(size), repeat_uv), layer, 0),
     );
     return cutout_sample(texels, fract(position), abs(texel_dx) + abs(texel_dy), threshold);
+}
+
+
+// Clamp sampling stays inside its chart; repeating materials retain whole-image modulo.
+fn cutout_region_texel_address(coordinate: vec2<i32>, region: vec4<i32>, size: vec2<i32>, repeat_uv: bool) -> vec2<i32> {
+    return select(clamp(coordinate, region.xy, region.zw), cutout_texel_address(coordinate, size, true), repeat_uv);
 }
 
 // Signed modulo keeps neighbours inside the same array layer at a repeating seam.
