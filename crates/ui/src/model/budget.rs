@@ -106,7 +106,7 @@ impl DrawCounts {
         ))
     }
 
-    /// Conservative batch count before adjacent quads coalesce during emission.
+    /// Conservative batch count before clipping and quad coalescing.
     pub(super) fn batch_upper_bound(self) -> Result<usize, UiError> {
         self.reserved().map(|(batches, _, _)| batches)
     }
@@ -114,14 +114,9 @@ impl DrawCounts {
     /// Checks the whole list's reservation against the draw-list byte limit, returning the
     /// `(batch, vertex, index)` capacities to reserve.
     pub(super) fn budget(self) -> Result<(usize, usize, usize), UiError> {
-        if self.mesh_batches > UiLimits::MAX_DRAW_BATCHES {
-            return Err(UiError::DrawBatchLimitExceeded {
-                actual: self.mesh_batches,
-                limit: UiLimits::MAX_DRAW_BATCHES,
-            });
-        }
-        let (quad_count, vertex_count, index_count) = self.reserved()?;
-        let batch_capacity = quad_count.min(UiLimits::MAX_DRAW_BATCHES);
+        let (batch_count, vertex_count, index_count) = self.reserved()?;
+        // Clipping can drop meshes; emission enforces the actual batch limit.
+        let batch_capacity = batch_count.min(UiLimits::MAX_DRAW_BATCHES);
         let reserved_bytes = vertex_count
             .checked_mul(size_of::<UiVertex>())
             .and_then(|bytes| {
