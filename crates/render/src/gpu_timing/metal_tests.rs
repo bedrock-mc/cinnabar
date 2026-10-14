@@ -62,7 +62,7 @@ fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_sub
         mapped_at_creation: false,
     });
     let profiler = RuntimeStageProfiler::for_gameplay(true, None);
-    // Every positive completion latency exceeds this deliberately tiny diagnostic budget.
+    // Callback latency must remain informational even with a tiny frame budget.
     profiler.set_frame_interval(std::time::Duration::from_nanos(1));
     let mut render_app = bevy::app::SubApp::new();
     render_app
@@ -118,7 +118,7 @@ fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_sub
     assert!(frame.total > std::time::Duration::ZERO);
     assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 0);
     assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
-    assert_eq!(profiler.slow_frame_counts().unwrap().gpu_latency, 1);
+    assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
     eprintln!(
         "completion latency coverage: 0 -> {} samples; graph submissions: 1 -> 1; latency: {:?}",
         frame.count, frame.total

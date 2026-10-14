@@ -752,7 +752,7 @@ mod tests {
         let whole = crate::gpu_times::decode_spans([(RuntimeStage::GpuFrame, 10, 50)], 1.0, true);
         profiler.record_gpu_frame(&whole);
         assert_eq!(profiler.latest_pass_frame(), Some(frame));
-        let latency = crate::GpuFrameTimes::completion_latency(Duration::from_millis(7));
+        let latency = crate::GpuFrameTimes::completion_latency(Duration::from_millis(100));
         profiler.record_gpu_frame(&latency);
         assert_eq!(profiler.latest_pass_frame(), Some(frame));
         let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
@@ -764,7 +764,7 @@ mod tests {
         );
         assert_eq!(latency.get(RuntimeStage::GpuFrame), None);
         assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
-        assert_eq!(profiler.slow_frame_counts().unwrap().gpu_latency, 0);
+        assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
     }
 
     #[test]

@@ -23,13 +23,11 @@ const INTERVAL: u8 = 1;
 const MAIN: u8 = 1 << 1;
 const RENDER: u8 = 1 << 2;
 const GPU: u8 = 1 << 3;
-const GPU_LATENCY: u8 = 1 << 4;
-const REASONS: [(u8, &str); 5] = [
+const REASONS: [(u8, &str); 4] = [
     (INTERVAL, "interval"),
     (MAIN, "main"),
     (RENDER, "render"),
     (GPU, "gpu"),
-    (GPU_LATENCY, "gpu_latency"),
 ];
 
 /// Per-frame limits for one display interval T.
@@ -92,8 +90,6 @@ pub struct SlowFrameCounts {
     pub main: u64,
     pub render: u64,
     pub gpu: u64,
-    /// Completion callbacks beyond the full-frame slow threshold.
-    pub gpu_latency: u64,
     pub hitches: u64,
     pub hard_hitches: u64,
 }
@@ -106,7 +102,6 @@ impl SlowFrameCounts {
             (MAIN, &mut self.main),
             (RENDER, &mut self.render),
             (GPU, &mut self.gpu),
-            (GPU_LATENCY, &mut self.gpu_latency),
         ] {
             *count += u64::from(reasons & bit != 0);
         }
@@ -159,8 +154,8 @@ struct FrameWindow {
     suppressed: u64,
     sequence: u64,
     counts: SlowFrameCounts,
-    /// GPU and completion-latency reasons since the last line, counted on arrival.
-    gpu_pending: u8,
+    /// GPU overruns since the last line, counted on arrival.
+    gpu_pending: bool,
 }
 
 impl Default for FrameWindow {
@@ -175,14 +170,14 @@ impl Default for FrameWindow {
             suppressed: 0,
             sequence: 0,
             counts: SlowFrameCounts::default(),
-            gpu_pending: 0,
+            gpu_pending: false,
         }
     }
 }
 
 impl SlowFrameRecorder {
-    /// Counts GPU and callback-latency overruns separately from the current CPU frame.
-    /// GPU time uses its stage budget; latency uses the full-frame slow threshold.
+    /// Counts GPU execution overruns separately from the current CPU frame.
+    /// Completion latency stays informational because polling can delay callbacks.
     pub fn record(&self, stage: RuntimeStage, elapsed: Duration) -> Option<SlowFrameEvent> {
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         self.totals[stage as usize].fetch_add(nanos, Ordering::Relaxed);
@@ -198,24 +193,15 @@ impl SlowFrameRecorder {
             RuntimeStage::RenderFrame if elapsed > self.budgets().render_cpu => {
                 self.violations.fetch_or(RENDER, Ordering::Relaxed);
             }
-            RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency => {
-                let budgets = self.budgets();
-                let (reason, limit) = if stage == RuntimeStage::GpuFrame {
-                    (GPU, budgets.gpu)
-                } else {
-                    (GPU_LATENCY, budgets.slow)
-                };
-                if elapsed <= limit {
-                    return None;
-                }
+            RuntimeStage::GpuFrame if elapsed > self.budgets().gpu => {
                 let mut frame = self
                     .frame
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                frame.counts.record(reason);
-                frame.gpu_pending |= reason;
+                frame.counts.record(GPU);
+                frame.gpu_pending = true;
                 return Some(SlowFrameEvent {
-                    reasons: reason,
+                    reasons: GPU,
                     frame: elapsed,
                 });
             }
@@ -298,7 +284,9 @@ impl FrameWindow {
                 self.counts.record(reasons);
                 SlowFrameEvent { reasons, frame: interval }
             });
-            reasons |= std::mem::take(&mut self.gpu_pending);
+            if std::mem::take(&mut self.gpu_pending) {
+                reasons |= GPU;
+            }
             if reasons == 0 {
                 return (None, None);
             }
@@ -522,26 +510,27 @@ mod tests {
     }
 
     #[test]
-    fn completion_latency_overruns_keep_their_own_reason_and_counter() {
+    fn late_completion_callbacks_do_not_count_as_slow_frames() {
         let recorder = SlowFrameRecorder::default();
-        recorder.set_interval(Duration::from_secs_f64(1.0 / 120.0));
-        assert!(
-            recorder
-                .record(
-                    RuntimeStage::GpuFrameCompletionLatency,
-                    Duration::from_millis(8)
-                )
-                .is_none()
-        );
-        let event = recorder
-            .record(
-                RuntimeStage::GpuFrameCompletionLatency,
-                Duration::from_millis(10),
-            )
-            .unwrap();
-        assert_eq!(event.reasons(), "gpu_latency");
-        let counts = recorder.counts();
-        assert_eq!([counts.gpu, counts.gpu_latency, counts.slow], [0, 1, 1]);
+        let interval = Duration::from_secs_f64(1.0 / 120.0);
+        recorder.set_interval(interval);
+        let now = Instant::now();
+        assert!(recorder.begin_frame(now, true, false).is_none());
+        for latency in [interval, Duration::from_millis(100)] {
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrame, Duration::from_millis(2))
+                    .is_none()
+            );
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrameCompletionLatency, latency)
+                    .is_none()
+            );
+        }
+        recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
+        assert!(recorder.begin_frame(now + interval, true, false).is_none());
+        assert_eq!(recorder.counts(), SlowFrameCounts::default());
     }
 
     /// Several read-back GPU frames can land before one main-frame boundary.
@@ -576,7 +565,7 @@ mod tests {
         let mut frame = FrameWindow {
             started: Some(now),
             main: Some((Duration::from_millis(1), [0; STAGES])),
-            gpu_pending: GPU,
+            gpu_pending: true,
             ..FrameWindow::default()
         };
         let budgets = at_hz(120.0);
