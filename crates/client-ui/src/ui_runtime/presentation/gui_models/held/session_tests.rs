@@ -155,8 +155,9 @@ fn preview_session_replacement_removal_and_transparency_retire_old_meshes() {
     let base = presentation.gui_player_mesh().unwrap();
     let base_icon = presentation.item_icon(ITEM, 0).unwrap();
     install(&mut presentation, vec![sword(0, [12, 38, 96])]);
-    let (_, first) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
-    let first = Arc::downgrade(&first);
+    let (_, first_mesh) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
+    let first = Arc::downgrade(&first_mesh);
+    drop(first_mesh);
     let changed = presentation.gui_player_mesh().unwrap();
     let body = base.batches()[0].index_range.clone();
     for (base, changed) in base.vertices()[body.start as usize..body.end as usize]
