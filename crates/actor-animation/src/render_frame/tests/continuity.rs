@@ -34,14 +34,21 @@ fn drawn_pose(previous: &[BoneTransform], current: &[BoneTransform], alpha: f32)
                 .map(|(a, b)| a * b)
                 .sum();
             let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+            let mix = |from: f32, to: f32| from + (to - from) * alpha;
             let mut out = [0.0; 7];
-            for axis in 0..4 {
-                out[axis] = previous.rotation[axis]
-                    + (current.rotation[axis] * sign - previous.rotation[axis]) * alpha;
+            for (slot, (from, to)) in out[..4]
+                .iter_mut()
+                .zip(previous.rotation.iter().zip(current.rotation))
+            {
+                *slot = mix(*from, to * sign);
             }
-            for axis in 0..3 {
-                out[4 + axis] = previous.translation_scale[axis]
-                    + (current.translation_scale[axis] - previous.translation_scale[axis]) * alpha;
+            for (slot, (from, to)) in out[4..].iter_mut().zip(
+                previous
+                    .translation_scale
+                    .iter()
+                    .zip(current.translation_scale),
+            ) {
+                *slot = mix(*from, to);
             }
             out
         })

@@ -68,8 +68,10 @@ impl MotionSampling {
                     }
                     _ => None,
                 };
+                // Camera queries read each frame's live camera, never a frozen endpoint value.
                 if let Some(symbol) = symbol
                     && !super::rotation::is_query(assets, symbol)
+                    && !super::camera::camera_symbol(assets, symbol, false)
                     && assets
                         .molang_symbols()
                         .get(symbol as usize)

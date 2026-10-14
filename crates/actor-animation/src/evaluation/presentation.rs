@@ -281,6 +281,26 @@ fn conservative_stores(
         .collect()
 }
 
+/// Whether `op` inside `from..until` returns or transfers control outside that region.
+fn leaves(op: &MolangOp, from: usize, until: usize) -> bool {
+    let target = match *op {
+        MolangOp::Return => return true,
+        MolangOp::Jump(target)
+        | MolangOp::JumpIfFalse(target)
+        | MolangOp::JumpIfTrue(target)
+        | MolangOp::LoopStart(target)
+        | MolangOp::LoopNext(target)
+        | MolangOp::LoopBreak(target)
+        | MolangOp::Arrow(target) => target,
+        MolangOp::Coalesce(branch)
+        | MolangOp::ForEachStart(branch)
+        | MolangOp::ForEachNext(branch) => branch.target,
+        _ => return false,
+    };
+    let target = usize::from(target);
+    target < from || target > until
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,24 +398,4 @@ mod tests {
         let unguarded = [zero, one, random, MolangOp::StoreVariable(17), zero];
         assert!(!written(&unguarded, 17));
     }
-}
-
-/// Whether `op` inside `from..until` returns or transfers control outside that region.
-fn leaves(op: &MolangOp, from: usize, until: usize) -> bool {
-    let target = match *op {
-        MolangOp::Return => return true,
-        MolangOp::Jump(target)
-        | MolangOp::JumpIfFalse(target)
-        | MolangOp::JumpIfTrue(target)
-        | MolangOp::LoopStart(target)
-        | MolangOp::LoopNext(target)
-        | MolangOp::LoopBreak(target)
-        | MolangOp::Arrow(target) => target,
-        MolangOp::Coalesce(branch)
-        | MolangOp::ForEachStart(branch)
-        | MolangOp::ForEachNext(branch) => branch.target,
-        _ => return false,
-    };
-    let target = usize::from(target);
-    target < from || target > until
 }
