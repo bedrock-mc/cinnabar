@@ -149,19 +149,8 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     flags
 }
 
-/// Bounds a movement vector with separately rounded float products and component division.
-pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let length_squared = vector[0] * vector[0] + vector[1] * vector[1];
-    if length_squared > 1.0 {
-        let length = length_squared.sqrt();
-        [vector[0] / length, vector[1] / length]
-    } else {
-        vector
-    }
-}
-
 /// Converts processed right-positive controls to the wire's left-positive vector.
 pub(super) fn wire_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let [right, forward] = normalize_move_vector(vector);
+    let [right, forward] = semantic_input::clamp_movement_vector(vector);
     [if right == 0.0 { 0.0 } else { -right }, forward]
 }

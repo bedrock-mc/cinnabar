@@ -435,18 +435,25 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
         };
+        let fallback = || {
+            self.frame_fallbacks
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            completed()
+        };
         let Some(frame) = state.render_frame.as_ref().filter(|frame| {
             (partial_tick > 0.0
                 || state.samples_camera_poses
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor)
                 || frame.needs_rotation_sampling())
-                && *remaining_ops > 0
                 && (!state.culled || state.samples_camera_poses || frame.samples_rig_scale(actor))
                 && !state.reset_pending
         }) else {
             return Some(completed());
         };
+        if *remaining_ops == 0 {
+            return Some(fallback());
+        }
         let (assets, layout) = if state.pack {
             let pack = self.pack.as_ref()?;
             (pack.assets.as_ref(), pack.layout.as_ref())
@@ -537,7 +544,7 @@ impl ActorAnimationStore {
                 .run(script as usize, &mut variables, 0.0, &mut budget)
                 .is_err()
         {
-            return Some(completed());
+            return Some(fallback());
         }
         if state.complete_spear_variables {
             layout.engine.spear.apply(
@@ -577,7 +584,7 @@ impl ActorAnimationStore {
                     false,
                     &mut budget,
                 ) else {
-                    return Some(completed());
+                    return Some(fallback());
                 };
                 let Ok(current) = frame.motion.sample(
                     evaluator,
@@ -587,7 +594,7 @@ impl ActorAnimationStore {
                     true,
                     &mut budget,
                 ) else {
-                    return Some(completed());
+                    return Some(fallback());
                 };
                 Some((previous, current))
             } else {
@@ -598,7 +605,7 @@ impl ActorAnimationStore {
         } else if motion_changed {
             let Ok(scale) = tick::evaluate_scale(&evaluator, rig, &mut variables, &mut budget)
             else {
-                return Some(completed());
+                return Some(fallback());
             };
             scale
         } else {
@@ -634,7 +641,7 @@ impl ActorAnimationStore {
                 !motion_changed,
                 &mut budget,
             ) else {
-                return Some(completed());
+                return Some(fallback());
             };
             Some(clips)
         } else {
@@ -644,7 +651,7 @@ impl ActorAnimationStore {
             && endpoints.is_none()
             && frame.selection_effects.apply(&mut variables).is_err()
         {
-            return Some(completed());
+            return Some(fallback());
         }
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
             let Ok(local) = pose::sample_clips(
@@ -655,7 +662,7 @@ impl ActorAnimationStore {
                 &current.clips,
                 &mut budget,
             ) else {
-                return Some(completed());
+                return Some(fallback());
             };
             Some(local)
         } else if (frame.samples_camera_poses && pose_inputs_changed)
@@ -670,7 +677,7 @@ impl ActorAnimationStore {
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
-                return Some(completed());
+                return Some(fallback());
             };
             Some(local)
         } else {
@@ -704,10 +711,10 @@ impl ActorAnimationStore {
             });
         let sampled_previous_local = if let Some((previous, _)) = endpoints.as_mut() {
             let Some(history) = frame.motion_poses.as_ref() else {
-                return Some(completed());
+                return Some(fallback());
             };
             let Some(local) = sampled_local.as_mut() else {
-                return Some(completed());
+                return Some(fallback());
             };
             let Ok(sampled_previous) = pose::sample_clips(
                 &previous.evaluator,
@@ -717,7 +724,7 @@ impl ActorAnimationStore {
                 &previous.clips,
                 &mut budget,
             ) else {
-                return Some(completed());
+                return Some(fallback());
             };
             Some(history.sample(local, &sampled_previous, sampled_motion_mask.as_deref()))
         } else {
@@ -726,7 +733,7 @@ impl ActorAnimationStore {
         let motion_previous = match &sampled_previous_local {
             Some(local) => {
                 let Some(pose) = state.compose(local) else {
-                    return Some(completed());
+                    return Some(fallback());
                 };
                 Some(Arc::<[BoneTransform]>::from(pose))
             }
@@ -735,7 +742,7 @@ impl ActorAnimationStore {
         let pose = match &sampled_local {
             Some(local) => {
                 let Some(pose) = state.compose(local) else {
-                    return Some(completed());
+                    return Some(fallback());
                 };
                 Some(Arc::<[BoneTransform]>::from(pose))
             }
@@ -746,7 +753,7 @@ impl ActorAnimationStore {
             .get(state.geometry_binding)?
             .geometry;
         if sampled_local.is_none() && frame.retained_pose_effects.apply(&mut variables).is_err() {
-            return Some(completed());
+            return Some(fallback());
         }
         if let Some((_, current)) = &endpoints {
             current.variables.publish_writes(&mut variables);
@@ -760,7 +767,7 @@ impl ActorAnimationStore {
         let Ok(mut layers) =
             render::evaluate_render(&evaluator, &mut variables, render_rig, &mut budget)
         else {
-            return Some(completed());
+            return Some(fallback());
         };
         if state
             .motion_sampling
@@ -778,7 +785,7 @@ impl ActorAnimationStore {
                 )
                 .is_err()
                 {
-                    return Some(completed());
+                    return Some(fallback());
                 }
             }
         }
@@ -816,7 +823,7 @@ impl ActorAnimationStore {
                     &mut budget,
                 ) {
                     Ok(changed) => changed,
-                    Err(_) => return Some(completed()),
+                    Err(_) => return Some(fallback()),
                 }
             } else {
                 false
@@ -842,10 +849,10 @@ impl ActorAnimationStore {
                             geometry,
                             &mut budget,
                         ) else {
-                            return Some(completed());
+                            return Some(fallback());
                         };
                         let Some(Some(skeleton)) = state.layer_skeletons.get(&geometry) else {
-                            return Some(completed());
+                            return Some(fallback());
                         };
                         let sampled_mask = (sampled_clips.is_some() || layer_endpoints.is_some())
                             .then_some(state.motion_sampling.as_ref())
@@ -875,7 +882,7 @@ impl ActorAnimationStore {
                                 geometry,
                                 &mut budget,
                             ) else {
-                                return Some(completed());
+                                return Some(fallback());
                             };
                             Some(match frame.motion_layers.get(&geometry) {
                                 Some(history) => history.sample(
@@ -891,13 +898,13 @@ impl ActorAnimationStore {
                         let Some(current) = pose::compose_pose(&skeleton.bones, &local)
                             .map(Arc::<[BoneTransform]>::from)
                         else {
-                            return Some(completed());
+                            return Some(fallback());
                         };
                         let previous = match previous_local {
                             Some(local) => {
                                 let Some(previous) = pose::compose_pose(&skeleton.bones, &local)
                                 else {
-                                    return Some(completed());
+                                    return Some(fallback());
                                 };
                                 Arc::from(previous)
                             }
@@ -925,7 +932,7 @@ impl ActorAnimationStore {
                 layer.previous_pose = Arc::clone(&previous.previous_pose);
                 layer.pose = Arc::clone(&previous.pose);
             } else if layer.geometry.is_some() {
-                return Some(completed());
+                return Some(fallback());
             }
             if let Some(previous) = previous
                 && previous.hidden_bones == layer.hidden_bones
