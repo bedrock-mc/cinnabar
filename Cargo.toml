@@ -125,7 +125,8 @@ bevy = { version = "=0.20.0", default-features = false, features = [
     "x11",
 ] }
 # The noop backend only runs when an instance explicitly enables it (render tests).
-wgpu = { version = "30.0.1", default-features = false, features = ["noop", "wgsl"] }
+# `std` keeps error scopes per thread; without it, concurrent pipeline compiles share one stack.
+wgpu = { version = "30.0.1", default-features = false, features = ["noop", "std", "wgsl"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
 # Native bridge and session composition add OS I/O and the multithreaded runtime.
 tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
