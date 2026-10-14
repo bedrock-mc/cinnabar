@@ -106,6 +106,11 @@ impl DrawCounts {
         ))
     }
 
+    /// Conservative batch count before adjacent quads coalesce during emission.
+    pub(super) fn batch_upper_bound(self) -> Result<usize, UiError> {
+        self.reserved().map(|(batches, _, _)| batches)
+    }
+
     /// Checks the whole list's reservation against the draw-list byte limit, returning the
     /// `(batch, vertex, index)` capacities to reserve.
     pub(super) fn budget(self) -> Result<(usize, usize, usize), UiError> {

@@ -7,7 +7,9 @@ use std::{
 
 use assets::{ItemVisualDefinitionRoute, RuntimeAssets, RuntimeEntityAssets};
 use render_model::UiTexturePage;
-use ui::{UiMesh, UiNode, UiVisual};
+use ui::{
+    RetainedDraw, SafeArea, TextEffects, UiLimits, UiMesh, UiNode, UiRect, UiScale, UiVisual,
+};
 
 use {
     super::{UiPresentationError, UiPresentationRuntime, item_gui, player_preview},
@@ -340,7 +342,32 @@ impl UiPresentationRuntime {
 
     /// Conversion happens after JSON-UI has resolved positions, visibility and clipping. The
     /// replacement keeps node identity, parents, bounds and ordering intact, including the cursor.
+    #[cfg(test)]
     pub(super) fn apply_gui_models(&self, nodes: &mut [UiNode]) {
+        let width = nodes
+            .iter()
+            .map(|node| node.bounds().max().x())
+            .fold(1.0, f32::max);
+        let height = nodes
+            .iter()
+            .map(|node| node.bounds().max().y())
+            .fold(1.0, f32::max);
+        self.apply_gui_models_in(
+            nodes,
+            super::rect(0.0, 0.0, width, height).unwrap(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        );
+    }
+
+    /// Admits player geometry against the actual frame, measuring coalescing only near batch limits.
+    pub(super) fn apply_gui_models_in(
+        &self,
+        nodes: &mut [UiNode],
+        viewport: UiRect,
+        safe_area: SafeArea,
+        effects: TextEffects<'_>,
+    ) {
         if !self.gui_models.enabled {
             return;
         }
@@ -377,11 +404,13 @@ impl UiPresentationRuntime {
             .iter()
             .filter(|node| is_preview(node.visual()))
             .count();
+        let baseline_batches = std::cell::OnceCell::new();
         let admitted = [[true; 2], [true, false], [false, true], [false; 2]]
             .into_iter()
             .find(|mask| {
                 let mut indices = body.indices().len();
                 let mut batches = body.batches().len();
+                let mut hand_batches = 0usize;
                 for (index, model) in held.iter().enumerate() {
                     if mask[index]
                         && let Some(model) = model
@@ -391,19 +420,52 @@ impl UiPresentationRuntime {
                         };
                         indices = next;
                         batches += 1;
+                        hand_batches += 1;
                     }
                 }
-                UiMesh::check_size(indices, indices, batches).is_ok()
-                    && ui::UiTree::check_visual_budget_with_mesh(
-                        nodes
-                            .iter()
-                            .filter(|node| !is_preview(node.visual()))
-                            .map(UiNode::visual),
-                        indices,
-                        batches,
-                        instances,
-                    )
-                    .is_ok()
+                if UiMesh::check_size(indices, indices, batches).is_err() {
+                    return false;
+                }
+                let prospective = ui::UiTree::check_visual_budget_with_mesh(
+                    nodes
+                        .iter()
+                        .filter(|node| !is_preview(node.visual()))
+                        .map(UiNode::visual),
+                    indices,
+                    batches,
+                    instances,
+                );
+                match prospective {
+                    Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
+                    Ok(_) => {
+                        let actual = baseline_batches.get_or_init(|| {
+                            let mut baseline = nodes.to_vec();
+                            replace_model_icons(
+                                &mut baseline,
+                                preview,
+                                &self.gui_models.faded_thumbnails,
+                                || Some(Arc::clone(&body)),
+                                |_| None,
+                            );
+                            RetainedDraw::build(
+                                &baseline,
+                                viewport,
+                                UiScale::default(),
+                                safe_area,
+                                effects,
+                            )
+                            .ok()
+                            .map(|draw| draw.draw_list().batches.len())
+                        });
+                        actual.is_some_and(|actual| {
+                            hand_batches
+                                .checked_mul(instances)
+                                .and_then(|extra| actual.checked_add(extra))
+                                .is_some_and(|total| total <= UiLimits::MAX_DRAW_BATCHES)
+                        })
+                    }
+                    Err(_) => false,
+                }
             });
         let player = admitted.map(|mask| {
             if mask == [false; 2] {

@@ -785,13 +785,13 @@ impl UiTree {
         Self::visual_budget(visuals).map(|_| ())
     }
 
-    /// Checks surrounding visuals and repeated triangle meshes before their vertices are projected.
+    /// Checks surrounding visuals and repeated meshes, returning the batch bound before coalescing.
     pub fn check_visual_budget_with_mesh<'a>(
         surrounding: impl IntoIterator<Item = &'a UiVisual>,
         mesh_indices: usize,
         mesh_batches: usize,
         instances: usize,
-    ) -> Result<(), UiError> {
+    ) -> Result<usize, UiError> {
         let indices = mesh_indices
             .checked_mul(instances)
             .ok_or(UiError::DrawIndexOverflow)?;
@@ -807,7 +807,8 @@ impl UiTree {
         for visual in surrounding {
             total = total.add(DrawCounts::of(visual)?)?;
         }
-        total.budget().map(|_| ())
+        total.budget()?;
+        total.batch_upper_bound()
     }
 
     /// Uses the same reservation contract for prospective visuals and installed tree nodes.
