@@ -127,19 +127,33 @@ pub fn mesh_with_cape(
     for vertex in &mut vertices {
         vertex.overlay_color = overlay_color;
     }
+    let (mut fire_vertices, mut fire_batches) = (Vec::new(), Vec::new());
+    if let Some(fire) = fire {
+        fire::append(&mut fire_vertices, &mut fire_batches, fire)?;
+    }
     for (hand, model) in hands.into_iter().enumerate() {
         if let Some(model) = model {
-            let count = vertices.len().checked_add(model.vertices.len())?;
-            if UiMesh::check_size(count, count, batches.len().checked_add(1)?).is_err() {
+            let count = vertices
+                .len()
+                .checked_add(model.vertices.len())?
+                .checked_add(fire_vertices.len())?;
+            let batch_count = batches
+                .len()
+                .checked_add(1)?
+                .checked_add(fire_batches.len())?;
+            if UiMesh::check_size(count, count, batch_count).is_err() {
                 // One oversized held item must not hide the player's skin and other equipment.
                 continue;
             }
             held::append(&mut vertices, &mut batches, &rig, model, hand, fancy)?;
         }
     }
-    if let Some(fire) = fire {
-        fire::append(&mut vertices, &mut batches, fire)?;
-    }
+    let offset = u32::try_from(vertices.len()).ok()?;
+    vertices.extend(fire_vertices);
+    batches.extend(fire_batches.into_iter().map(|mut batch| {
+        batch.index_range = batch.index_range.start + offset..batch.index_range.end + offset;
+        batch
+    }));
     normalize_depth(&mut vertices)?;
     let indices: Vec<_> = (0..u32::try_from(vertices.len()).ok()?).collect();
     UiMesh::new(vertices.into(), indices.into(), batches.into())
