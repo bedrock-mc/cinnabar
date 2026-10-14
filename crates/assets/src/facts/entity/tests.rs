@@ -5,6 +5,10 @@ fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
     for (class, expected) in [
         (NativeEntityClass::Player, "minecraft:player"),
         (NativeEntityClass::Tnt, "minecraft:tnt"),
+        (
+            NativeEntityClass::FireworksRocket,
+            "minecraft:fireworks_rocket",
+        ),
     ] {
         assert_eq!(class.identifier(), Some(expected));
     }
