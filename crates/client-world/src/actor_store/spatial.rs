@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// Minecart identifiers without the `minecraft:` namespace.
+const MINECART_PATHS: [&str; 5] = [
+    "minecart",
+    "hopper_minecart",
+    "tnt_minecart",
+    "chest_minecart",
+    "command_block_minecart",
+];
+
 /// Collision dimensions retain a small positive extent after server scaling.
 const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
@@ -116,6 +125,14 @@ impl ActorSnapshot {
             .then_some(position)
     }
 
+    /// Whether this actor is any minecart variant.
+    pub(crate) fn is_minecart(&self) -> bool {
+        matches!(&self.kind, ActorKind::Entity { identifier }
+            if identifier
+                .strip_prefix("minecraft:")
+                .is_some_and(|path| MINECART_PATHS.contains(&path)))
+    }
+
     /// Offset from stored collision feet to the native actor-state position.
     pub(crate) fn network_position_offset(&self) -> f32 {
         match &self.kind {
@@ -134,11 +151,7 @@ impl ActorSnapshot {
                     "item" => ITEM_ACTOR_NETWORK_OFFSET,
                     "falling_block" => self.falling_block_network_offset(),
                     "tnt" => self.primed_tnt_network_offset(),
-                    "minecart"
-                    | "hopper_minecart"
-                    | "tnt_minecart"
-                    | "chest_minecart"
-                    | "command_block_minecart" => MINECART_NETWORK_OFFSET,
+                    path if MINECART_PATHS.contains(&path) => MINECART_NETWORK_OFFSET,
                     "boat" => BOAT_NETWORK_OFFSET,
                     _ => 0.0,
                 }
