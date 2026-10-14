@@ -35,6 +35,7 @@ use {
     assets::pinned_world_provenance,
 };
 
+/// Creates an isolated startup fixture with the required pinned item facts.
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -45,6 +46,9 @@ fn temporary_directory(label: &str) -> PathBuf {
         std::process::id()
     ));
     fs::create_dir_all(&path).unwrap();
+    assets::carriers::startup::test_carriers::write_pinned_item_facts(
+        &path.join(assets::carriers::WORLD.output),
+    );
     path
 }
 

@@ -249,6 +249,7 @@ fn persona_face_blinks_with_the_pinned_runtime_controller() {
         path.clone(),
         assets::carriers::startup::entity_asset_path(&path),
         assets::carriers::startup::atmosphere_asset_path(&path),
+        path.with_file_name(assets::carriers::ITEM_FACTS.output),
     ] {
         if !fixture.is_file() {
             eprintln!(

@@ -288,12 +288,15 @@ mod carrier_tests {
     use super::*;
     use assets::carriers::startup::{
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
-        test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob},
+        test_carriers::{
+            synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_item_facts,
+        },
     };
     use std::path::PathBuf;
 
     struct Directory(PathBuf);
     impl Directory {
+        /// Creates an isolated carrier set with the required pinned item facts.
         fn new(label: &str) -> Self {
             let path = std::env::temp_dir().join(format!(
                 "startup-carriers-{label}-{}-{}",
@@ -304,6 +307,7 @@ mod carrier_tests {
                     .as_nanos()
             ));
             fs::create_dir_all(&path).unwrap();
+            write_pinned_item_facts(&path.join(assets::carriers::WORLD.output));
             Self(path)
         }
         fn world(&self) -> PathBuf {
@@ -352,6 +356,7 @@ mod carrier_tests {
                 "font",
                 "hud",
                 "icon",
+                "item-facts",
                 "lang",
                 "particle",
                 "pcm",

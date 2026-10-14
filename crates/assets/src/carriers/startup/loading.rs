@@ -243,3 +243,48 @@ fn runtime_metrics(
         missing_mapping_count: runtime.missing_count(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::carriers::startup::test_carriers::{
+        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_item_facts,
+    };
+
+    #[derive(Default)]
+    struct Loads(std::sync::Mutex<Vec<&'static str>>);
+
+    impl CarrierLoadObserver for Loads {
+        /// Records each carrier load without reading the clock.
+        fn observe<T>(&self, carrier: &'static str, load: impl FnOnce() -> T) -> T {
+            self.0.lock().unwrap().push(carrier);
+            load()
+        }
+    }
+
+    #[test]
+    fn diagnostic_startup_loads_every_required_sibling_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join(crate::carriers::WORLD.output);
+        write_pinned_item_facts(&world);
+        std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
+        std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
+        let observer = Loads::default();
+        let loaded = load_runtime_assets_observed(
+            super::super::select_asset_path(Some(&world), None),
+            &observer,
+        )
+        .unwrap();
+        assert_eq!(loaded.kind, LoadedAssetKind::Diagnostic);
+        assert!(Arc::ptr_eq(
+            &loaded.item_facts,
+            crate::facts::ItemFacts::builtin().unwrap(),
+        ));
+        let mut loads = observer.0.into_inner().unwrap();
+        loads.sort_unstable();
+        assert_eq!(
+            loads,
+            ["atmosphere", "entity", "font", "item-facts", "world"]
+        );
+    }
+}

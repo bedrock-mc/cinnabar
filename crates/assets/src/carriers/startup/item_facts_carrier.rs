@@ -26,6 +26,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn startup_fixture_installs_the_exact_pinned_item_facts() {
+        let dir = tempfile::tempdir().unwrap();
+        let world = dir.path().join(crate::carriers::WORLD.output);
+        super::super::test_carriers::write_pinned_item_facts(&world);
+        let facts = require_item_facts(&world).unwrap();
+        assert!(Arc::ptr_eq(&facts, ItemFacts::builtin().unwrap()));
+    }
+
+    #[test]
     fn missing_corrupt_and_stale_item_facts_fail_startup_with_a_rebuild_command() {
         let dir = tempfile::tempdir().unwrap();
         let world = dir.path().join(crate::carriers::WORLD.output);
