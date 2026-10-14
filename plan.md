@@ -9,8 +9,13 @@ keep their foreground/background threads and priority policy. Native cache-file 
 FreeType compilation are excluded from browser targets. Divergent fragment samples use
 explicit gradients computed before rejection.
 
+Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
+session controller. Both use the bridge codec and bounded receive/send queues. Control
+resumption retains account intent and bearer expiry; play reconnects never replay packets.
+
 Incomplete: CI must compile the native changes and run the written regression tests. The
-browser entry, transport, timer implementation and asset source remain pending. Shared
+browser entry, timer implementation and asset source remain pending. Relay integration
+and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
 job costs remain unverified. No browser release or parity gate closes here.
@@ -521,6 +526,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
+  interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
+  and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart
+  association remains incomplete and does not close shader parity.
 - Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
   vanilla coverage parity. Matched hardware performance and native foliage comparison remain
   incomplete; no parity or performance gate closes from these changes.
@@ -8894,3 +8903,12 @@ Incomplete: native replacement and interaction membership, support-rule parity,
 complete survival coverage, and refreshed block-entity backings remain open.
 Gameplay, shape, rendering and session consumers still require migration onto the
 compiled facts. Adding this owner does not close those behavior gates.
+## Compiled item facts
+
+A hash-checked item-facts carrier joins the pinned retail IDs, tags, capacities,
+armour, durability, fuel, glint, grips and use profiles. Startup requires its exact
+fingerprint; `make assets` rebuilds it. Registry admission caches server component
+facts by negotiated numeric ID and retires them on replacement or reconnect.
+The consumer migration remains incomplete. Native compatibility rules retain their
+provisional status, and identities absent from the retail table remain unresolved.
+This infrastructure does not close a gameplay or rendering parity gate.

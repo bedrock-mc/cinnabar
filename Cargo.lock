@@ -8687,6 +8687,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-transport"
+version = "0.1.19"
+dependencies = [
+ "bridge",
+ "bytes",
+ "futures",
+ "js-sys",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
 name = "webpki-roots"
 version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"

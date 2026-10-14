@@ -12,6 +12,8 @@ mod matching;
 mod screen_recipes;
 mod selection;
 mod session;
+mod session_items;
+pub use session_items::SessionItemFacts;
 mod transport;
 
 pub use anvil::{ANVIL_TOO_EXPENSIVE, AnvilItem, AnvilOutcome, evaluate_anvil, repairs_with};

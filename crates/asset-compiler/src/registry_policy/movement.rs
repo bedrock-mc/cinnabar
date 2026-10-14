@@ -248,6 +248,7 @@ mod tests {
         Policy {
             block_rules: Vec::new(),
             model_family_rules: Vec::new(),
+            item_rules: Vec::new(),
             twins: BTreeMap::new(),
             unresolved_retail: Vec::new(),
             movement: vec![super::super::Movement {

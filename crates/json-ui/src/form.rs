@@ -233,8 +233,6 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
     context
 }
 
-/// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
-
 const PACK_TEXTURE_FS: &str = "InUserPackage";
 const DOWNLOADED_TEXTURE_FS: &str = "RawPath";
 

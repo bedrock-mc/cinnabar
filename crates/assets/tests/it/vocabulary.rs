@@ -54,6 +54,14 @@ impl Vocabulary {
             );
         }
         domains.insert(
+            "item_tag".into(),
+            include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+                .lines()
+                .filter(|row| !row.starts_with('#') && !row.is_empty())
+                .map(|row| row.split_once('\t').unwrap().0.to_owned())
+                .collect(),
+        );
+        domains.insert(
             "retail_item".into(),
             include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
                 .lines()
@@ -192,6 +200,10 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     "state_property" | "state_properties" | "state_values" => "property",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "twin" if file == "registry-policy.json" => "legacy_block",
+                    "item_rules" if file == "registry-policy.json" => "retail_item",
+                    "tag" if file == "registry-policy.json" && path.starts_with("/item_rules/") => {
+                        "item_tag"
+                    }
                     "duration_alias" => "behavior_item",
                     "default_alias" => "item_texture",
                     "canonical_state" => domain,
@@ -202,19 +214,23 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                 } else {
                     child_domain
                 };
-                let identity_field = matches!(
-                    key.as_str(),
-                    "identifier"
-                        | "block_name"
-                        | "twin"
-                        | "item"
-                        | "duration_alias"
-                        | "default_alias"
-                ) || (key == "name"
-                    && (file == "registry-policy.json"
-                        || file == "block-properties-v2193.json"
-                        || file == "visual-coverage-v1001.json"
-                        || path.contains("/backing_blocks/")));
+                let identity_field = (file == "registry-policy.json"
+                    && path.starts_with("/item_rules/")
+                    && key == "tag")
+                    || matches!(
+                        key.as_str(),
+                        "identifier"
+                            | "block_name"
+                            | "twin"
+                            | "item"
+                            | "duration_alias"
+                            | "default_alias"
+                    )
+                    || (key == "name"
+                        && (file == "registry-policy.json"
+                            || file == "block-properties-v2193.json"
+                            || file == "visual-coverage-v1001.json"
+                            || path.contains("/backing_blocks/")));
                 if identity_field {
                     if let Some(identifier) = value.as_str() {
                         add(refs, file, &child, child_domain, identifier);
@@ -245,13 +261,17 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
         Value::Array(values) => {
             for (index, value) in values.iter().enumerate() {
                 let child = format!("{path}/{index}");
-                if matches!(
-                    path,
-                    "/crossed_planes"
-                        | "/unresolved_retail"
-                        | "/movement_census/unmodeled"
-                        | "/movement_census/unresolved"
-                ) || (path.is_empty() && file == "visual-invisible-v1001.json")
+                if (file == "registry-policy.json"
+                    && path.starts_with("/item_rules/")
+                    && path.ends_with("/members"))
+                    || matches!(
+                        path,
+                        "/crossed_planes"
+                            | "/unresolved_retail"
+                            | "/movement_census/unmodeled"
+                            | "/movement_census/unresolved"
+                    )
+                    || (path.is_empty() && file == "visual-invisible-v1001.json")
                 {
                     add(refs, file, &child, domain, value.as_str().unwrap());
                 } else {
@@ -289,6 +309,18 @@ fn beacon_refs(refs: &mut BTreeSet<Reference>, document: &Value) {
 
 /// Checks every TSV identity column and the sprite keys of retained legacy routes.
 fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
+    if file == "item-facts-expansion-v2193.tsv" {
+        for (index, line) in text.lines().skip(1).enumerate() {
+            let fields: Vec<_> = line.split('\t').collect();
+            let domain = if fields.last() == Some(&"missing_retail_id") {
+                "behavior_item"
+            } else {
+                "retail_item"
+            };
+            add(refs, file, &format!("/{index}/0"), domain, fields[0]);
+        }
+        return;
+    }
     let domain = match file {
         "item-name-identities-1.26.50.tsv" => "item",
         "item-fuel-v2193.tsv"
@@ -359,6 +391,28 @@ fn references(root: &Path) -> BTreeSet<Reference> {
                                 if legacy { "legacy_block" } else { "block" },
                             );
                         }
+                    }
+                }
+                "bin" if file.starts_with("item-facts-") => {
+                    let facts =
+                        assets::facts::ItemFacts::decode(&fs::read(&path).unwrap()).unwrap();
+                    for record in &facts.payload().records {
+                        add(
+                            &mut refs,
+                            file,
+                            &format!("/{}", record.network_id),
+                            "retail_item",
+                            &record.identifier,
+                        );
+                    }
+                    for (index, tag) in facts.payload().tags.iter().enumerate() {
+                        add(
+                            &mut refs,
+                            file,
+                            &format!("/tags/{index}"),
+                            "item_tag",
+                            &tag.name,
+                        );
                     }
                 }
                 "bin" if file.starts_with("biome-registry-") => {

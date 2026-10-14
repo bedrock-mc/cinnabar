@@ -4,6 +4,45 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 type Event = Box<dyn FnOnce() + Send>;
 
+/// Captures when ordinary frame work ends, before admission of the next frame.
+#[derive(Resource, Default)]
+struct FinishedWork(Vec<Instant>);
+
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+struct ObserveFinishedWork;
+
+/// Records the current deterministic time at the end of ordinary frame work.
+fn finish_work(clock: Res<Clock>, mut finished: ResMut<FinishedWork>) {
+    finished.0.push(clock.0.now());
+}
+
+#[test]
+fn unpipelined_wait_starts_after_ordinary_frame_work() {
+    let clock = FakeClock::new();
+    let mut app = App::new();
+    app.insert_resource(Clock(clock.clone()))
+        .insert_resource(FramePacing {
+            rate: FrameRate::from_hz(60),
+            precise: true,
+        })
+        .init_resource::<FinishedWork>()
+        .add_plugins(InputPacingPlugin::with_pacer(InputPacer::new(
+            clock.clone(),
+            true,
+        )))
+        .init_schedule(ObserveFinishedWork)
+        .add_systems(ObserveFinishedWork, finish_work);
+    app.world_mut()
+        .resource_mut::<MainScheduleOrder>()
+        .insert_before(FrameEnd, ObserveFinishedWork);
+    app.update();
+    assert_eq!(app.world().resource::<FinishedWork>().0, [clock.base]);
+    assert!(
+        clock.now() > clock.base,
+        "the next frame still obeys its cadence"
+    );
+}
+
 /// Advances only when the simulated frame works or waits, firing scheduled events on the way.
 struct FakeClock {
     base: Instant,
