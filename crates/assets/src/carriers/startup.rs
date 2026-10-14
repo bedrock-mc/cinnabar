@@ -16,8 +16,8 @@ pub use loading::{
     CarrierLoadObserver, atmosphere_asset_path, entity_asset_path, font_asset_path,
     load_runtime_assets, load_runtime_assets_observed, local_font_asset_path,
 };
-mod world_provenance;
 pub mod delivery;
+mod world_provenance;
 
 pub const ATMOSPHERE_FILENAME: &str = crate::carriers::ATMOSPHERE.output;
 pub const ATMOSPHERE_COMPILE_COMMAND: &str = "make atmosphere-assets";
