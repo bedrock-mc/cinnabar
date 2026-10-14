@@ -1,3 +1,4 @@
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
 use std::{collections::BTreeMap, path::Path};
 
 use assets::{AssetError, BlockFace, RegistryRecord, legacy_resource_pack_block_alias};
@@ -87,15 +88,15 @@ impl BlockTextureMap {
     /// fallback, alias, missing, or additional face keys.
     #[must_use]
     pub fn get_exact_cake_faces(&self) -> Option<[&str; 6]> {
-        let faces = self.get_exact_faces("cake")?;
+        let faces = self.get_exact_faces(B::Cake.bare())?;
         (faces
             == [
-                "cake_west",
-                "cake_side",
-                "cake_bottom",
-                "cake_top",
-                "cake_side",
-                "cake_side",
+                T::CakeWest.key(),
+                T::CakeSide.key(),
+                T::CakeBottom.key(),
+                T::CakeTop.key(),
+                T::CakeSide.key(),
+                T::CakeSide.key(),
             ])
         .then_some(faces)
     }
@@ -480,7 +481,7 @@ fn state_axis(canonical_state: &str) -> AxisState {
     let Ok(properties) = serde_json::from_str::<Map<String, Value>>(canonical_state) else {
         return AxisState::Invalid;
     };
-    let pillar_axis = properties.get("pillar_axis");
+    let pillar_axis = properties.get(assets::facts::BlockProperty::PillarAxis.name());
     let legacy_axis = properties.get("axis");
     match (pillar_axis, legacy_axis) {
         (None, None) => AxisState::Absent,

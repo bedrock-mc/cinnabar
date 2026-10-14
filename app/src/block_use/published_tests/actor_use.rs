@@ -142,9 +142,7 @@ fn throw_at_player(interact_text: &str) -> Vec<&'static str> {
         )
         .unwrap();
     world.run_system_cached(produce_block_use).unwrap();
-    world
-        .run_system_cached(crate::item_use::produce_item_use)
-        .unwrap();
+    produce_air_use(&mut world);
     captured
         .drain()
         .into_iter()

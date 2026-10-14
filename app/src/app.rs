@@ -144,6 +144,7 @@ const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
 
 mod authority;
 mod executor;
+mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 /// Registers the production actor observation and publication boundaries.
@@ -192,7 +193,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     configure_actor_render_systems(app);
     crate::audio::configure(app);
+    interaction::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
+        .init_resource::<crate::melee::MeleeTarget>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
@@ -301,25 +304,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (publish_ui_runtime, drive_menu_panorama)
                 .chain()
                 .in_set(ClientFrameSet::UiPublication),
-        )
-        .add_systems(
-            Update,
-            (
-                flush_inventory_network,
-                #[cfg(feature = "acceptance")]
-                emit_movement_evidence,
-                #[cfg(not(feature = "acceptance"))]
-                crate::runtime::telemetry::discard_completed_movement_evidence,
-                produce_melee,
-                produce_survival_mining,
-                crate::item_use::produce_item_use,
-                #[cfg(feature = "tracy")]
-                crate::tracy::plot_physics_to_send,
-                send_player_auth_inputs,
-                crate::pick_block::produce_pick_block,
-            )
-                .chain()
-                .in_set(ClientFrameSet::NetworkSend),
         );
     #[cfg(feature = "tracy")]
     app.init_resource::<crate::tracy::PhysicsEnd>().add_systems(
