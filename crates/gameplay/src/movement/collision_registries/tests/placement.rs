@@ -26,6 +26,37 @@ fn fixtures() -> &'static (Box<[RegistryRecord]>, PhysicsCollisionRegistries) {
     })
 }
 
+#[test]
+fn compiled_identity_and_named_admission_resolve_the_same_palette_states() {
+    use assets::facts::BlockStateIdentity as I;
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let (records, registries) = fixtures();
+        for record in records
+            .iter()
+            .filter(|r| r.model_family != assets::ModelFamily::Unknown)
+        {
+            let states = serde_json::from_str(&record.canonical_state).unwrap();
+            let identity = registries
+                .block_facts(mode, id(record, mode))
+                .identity
+                .unwrap();
+            assert_eq!(
+                registries.block_state_runtime_id(mode, I::Compiled(identity), &states),
+                Some(id(record, mode))
+            );
+            assert_eq!(
+                registries.block_state_runtime_id(mode, I::Named(&record.name), &states),
+                Some(id(record, mode))
+            );
+            assert!(
+                registries
+                    .block_state_runtime_id(mode, I::Compiled(u32::MAX), &states)
+                    .is_none()
+            );
+        }
+    }
+}
+
 /// Selects one real state by its observable values rather than palette ordering.
 fn record(name: &str, values: &[(&str, serde_json::Value)]) -> &'static RegistryRecord {
     fixtures()
@@ -353,9 +384,17 @@ fn indexed_state_lookup_preserves_typed_values_in_both_identity_spaces() {
         }) {
             let states = serde_json::from_str(&record.canonical_state).unwrap();
             assert_eq!(
-                fixtures()
-                    .1
-                    .block_state_runtime_id(mode, &record.name, &states),
+                fixtures().1.block_state_runtime_id(
+                    mode,
+                    assets::facts::BlockStateIdentity::Compiled(
+                        fixtures()
+                            .1
+                            .block_facts(mode, id(record, mode))
+                            .identity
+                            .unwrap()
+                    ),
+                    &states
+                ),
                 Some(id(record, mode))
             );
         }

@@ -20,10 +20,14 @@ pub(crate) fn states_for_neighbours(
     mode: NetworkIdMode,
     world: &PaletteWorld<'_>,
     position: [i32; 3],
-    identifier: &str,
+    identity: u32,
     states: &mut Map<String, Value>,
 ) -> Option<()> {
-    let block = collisions.block_state_runtime_id(mode, identifier, states)?;
+    let block = collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(identity),
+        states,
+    )?;
     let center = connection_facts(collisions, mode, block)?;
     connected_states(states, center, |face| {
         let neighbor = world

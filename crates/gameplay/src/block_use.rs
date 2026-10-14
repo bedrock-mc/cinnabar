@@ -480,12 +480,17 @@ pub fn predicted_toggle(
     clicked: u32,
 ) -> Option<u32> {
     let mode = stream.network_id_mode();
-    let identifier = collisions.block_identifier(mode, clicked)?;
     let states = toggled_states(
         collisions.block_facts(mode, clicked),
         collisions.block_canonical_state(mode, clicked)?,
     )?;
-    collisions.block_state_runtime_id(mode, identifier, &states)
+    collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(
+            collisions.block_facts(mode, clicked).identity?,
+        ),
+        &states,
+    )
 }
 
 /// Trapdoors and levers flip `open_bit`; an

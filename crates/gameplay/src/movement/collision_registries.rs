@@ -62,7 +62,8 @@ pub struct PhysicsCollisionRegistries {
     interleave_supported: bool,
     canonical_states: BTreeMap<u32, Arc<str>>,
     hashed_canonical_states: BTreeMap<u32, Arc<str>>,
-    state_ids: BTreeMap<Arc<str>, BTreeMap<String, (u32, u32)>>,
+    state_ids: BTreeMap<u32, BTreeMap<String, (u32, u32)>>,
+    named_block_identities: BTreeMap<Arc<str>, u32>,
     max_vanilla_sort_key: u64,
     /// Hashes this session added to `hashed`, dropped when the next session begins.
     session_hashes: Vec<u32>,
@@ -157,7 +158,8 @@ impl PhysicsCollisionRegistries {
         let mut hashed_interaction_blocks = BTreeMap::new();
         let mut canonical_states = BTreeMap::new();
         let mut hashed_canonical_states = BTreeMap::new();
-        let mut state_ids: BTreeMap<Arc<str>, BTreeMap<String, (u32, u32)>> = BTreeMap::new();
+        let mut state_ids: BTreeMap<u32, BTreeMap<String, (u32, u32)>> = BTreeMap::new();
+        let mut named_block_identities = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
         let mut vanilla_runs: Vec<(u64, Arc<str>, u32)> = Vec::new();
         let block_facts = assets::facts::BlockFacts::new(records)?;
@@ -215,13 +217,17 @@ impl PhysicsCollisionRegistries {
             canonical_states.insert(record.sequential_id, Arc::clone(&state));
             hashed_canonical_states.insert(record.network_hash, state);
             if let Some(states) = states {
-                state_ids
+                let identity = block_facts
+                    .get(record.sequential_id)
+                    .identity
+                    .expect("admitted palette identity");
+                named_block_identities
                     .entry(Arc::from(record.name.as_ref()))
-                    .or_default()
-                    .insert(
-                        serde_json::to_string(&states).expect("block state JSON is serializable"),
-                        (record.sequential_id, record.network_hash),
-                    );
+                    .or_insert(identity);
+                state_ids.entry(identity).or_default().insert(
+                    serde_json::to_string(&states).expect("block state JSON is serializable"),
+                    (record.sequential_id, record.network_hash),
+                );
             }
             let register = |registry: &mut CollisionRegistry, runtime_id, boxes: Vec<Aabb>| {
                 registry.register_primitives(
@@ -318,6 +324,7 @@ impl PhysicsCollisionRegistries {
             canonical_states,
             hashed_canonical_states,
             state_ids,
+            named_block_identities,
             max_vanilla_sort_key,
             session_hashes: Vec::new(),
         })
@@ -460,16 +467,6 @@ impl PhysicsCollisionRegistries {
             .map_or_else(Default::default, |block| block.facts)
     }
 
-    /// Borrows a compiled counterpart's identity from the sequential palette.
-    pub fn block_alternate_identifier(
-        &self,
-        mode: assets::NetworkIdMode,
-        runtime_id: u32,
-    ) -> Option<&str> {
-        let alternate = self.block_facts(mode, runtime_id).alternate?;
-        self.block_identifier(assets::NetworkIdMode::Sequential, alternate)
-    }
-
     pub fn block_identifier(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
         let map = match mode {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
@@ -492,15 +489,21 @@ impl PhysicsCollisionRegistries {
         map.get(&runtime_id)?.second_part
     }
 
-    /// The runtime id of `identifier` in exactly `states`, compared as parsed JSON.
+    /// Resolves state values by compiled identity or a named external descriptor.
     pub fn block_state_runtime_id(
         &self,
         mode: assets::NetworkIdMode,
-        identifier: &str,
+        identity: assets::facts::BlockStateIdentity<'_>,
         states: &serde_json::Map<String, serde_json::Value>,
     ) -> Option<u32> {
+        let identity = match identity {
+            assets::facts::BlockStateIdentity::Compiled(identity) => identity,
+            assets::facts::BlockStateIdentity::Named(name) => {
+                *self.named_block_identities.get(name)?
+            }
+        };
         let key = serde_json::to_string(states).ok()?;
-        let &(sequential, hashed) = self.state_ids.get(identifier)?.get(&key)?;
+        let &(sequential, hashed) = self.state_ids.get(&identity)?.get(&key)?;
         Some(match mode {
             assets::NetworkIdMode::Sequential => sequential,
             assets::NetworkIdMode::Hashed => hashed,

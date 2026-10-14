@@ -5,6 +5,13 @@ use crate::{
     registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule},
 };
 
+/// A compiled palette identity, or a named descriptor arriving at an admission boundary.
+#[derive(Debug, Clone, Copy)]
+pub enum BlockStateIdentity<'a> {
+    Compiled(u32),
+    Named(&'a str),
+}
+
 /// Compiled facts for one admitted block state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {

@@ -138,12 +138,11 @@ pub fn resolve_placement_state(
 /// `clicked_face` is absent when the existing slab is in the neighboring destination.
 pub fn merge_slab_state(
     held_fact: BlockFact,
-    alternate_identifier: Option<&str>,
     held_canonical_state: &str,
     existing_fact: BlockFact,
     existing_canonical_state: &str,
     clicked_face: Option<u8>,
-) -> Option<(String, Map<String, Value>)> {
+) -> Option<(u32, Map<String, Value>)> {
     if held_fact.identity.is_none()
         || held_fact.identity != existing_fact.identity
         || held_fact.placement != R::Slab
@@ -168,7 +167,7 @@ pub fn merge_slab_state(
     {
         return None;
     }
-    let identifier = alternate_identifier?.to_owned();
+    let identity = held_fact.alternate?;
     let mut states = held;
     // A double slab is the double block's default state, irrespective of the first half.
     set_value(
@@ -176,7 +175,7 @@ pub fn merge_slab_state(
         P::MinecraftVerticalHalf.name(),
         Value::from("bottom"),
     )?;
-    Some((identifier, states))
+    Some((identity, states))
 }
 
 /// Reject state keys whose placement behavior has not been modeled.
@@ -319,18 +318,9 @@ mod tests {
         )
         .unwrap();
         let fact = block_fact(held);
-        let alternate = fact
-            .alternate
-            .and_then(|id| records.get(id as usize))
-            .map(|r| r.name.as_ref());
-        super::merge_slab_state(
-            fact,
-            alternate,
-            held_state,
-            block_fact(existing),
-            existing_state,
-            face,
-        )
+        let (identity, states) =
+            super::merge_slab_state(fact, held_state, block_fact(existing), existing_state, face)?;
+        Some((records.get(identity as usize)?.name.to_string(), states))
     }
     use serde_json::json;
 

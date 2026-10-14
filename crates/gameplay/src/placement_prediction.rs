@@ -3,7 +3,11 @@
 use assets::facts::BlockProperty as P;
 use std::ops::Range;
 
-use assets::{NetworkIdMode, facts::PlacementRule as R, registry::BlockTraits as T};
+use assets::{
+    NetworkIdMode,
+    facts::{BlockStateIdentity as I, PlacementRule as R},
+    registry::BlockTraits as T,
+};
 use sim::PaletteWorld;
 
 use crate::{
@@ -42,8 +46,7 @@ pub fn predicted_placement(
     context: &PlacementContext<'_>,
 ) -> Option<PredictedPlacement> {
     let fact = collisions.block_facts(mode, held);
-    let identifier = collisions.block_identifier(mode, held)?;
-    let alternate = collisions.block_alternate_identifier(mode, held);
+    let identity = fact.identity?;
     let canonical = collisions.block_canonical_state(mode, held)?;
     let original = serde_json::from_str(canonical).ok()?;
     if context.input.face > 5 {
@@ -78,7 +81,6 @@ pub fn predicted_placement(
         let state = collisions.block_canonical_state(mode, existing)?;
         if let Some((name, state)) = merge_slab_state(
             fact,
-            alternate,
             canonical,
             collisions.block_facts(mode, existing),
             state,
@@ -99,14 +101,7 @@ pub fn predicted_placement(
                     face,
                 )
             })
-            .map(|state| {
-                (
-                    position,
-                    identifier.to_owned(),
-                    state,
-                    fact.placement == R::Snow,
-                )
-            })
+            .map(|state| (position, identity, state, fact.placement == R::Snow))
     });
     let position = merged.as_ref().map_or(destination, |merged| merged.0);
     if (merged.is_none() && !free) || !context.build_height.contains(&position[1]) {
@@ -151,30 +146,30 @@ pub fn predicted_placement(
             let block = world.primary_runtime_id(cell).ok()?;
             Some(collisions.block_facts(mode, block))
         });
-    let (placed_identifier, mut states, full_cell) = if let Some((_, name, states, full_cell)) =
-        merged
-    {
-        (name, states, full_cell)
-    } else if let Some((name, states)) =
-        crate::placement_signs::sign_states(fact, identifier, alternate, canonical, context.input)
-    {
-        (name, states, false)
-    } else {
-        let states = attachment_states(fact, &original, context.input, support)
-            .or_else(|| {
-                crate::placement_facing::facing_states(
-                    fact,
-                    canonical,
-                    position,
-                    context.surroundings.player_box,
-                    context.input.yaw,
-                )
-            })
-            .or_else(|| door_pair.as_ref().map(|pair| pair.0.clone()))
-            .or_else(|| resolve_placement_state(fact, canonical, context.input))?;
-        (identifier.to_owned(), states, false)
-    };
-    let placed_id = collisions.block_state_runtime_id(mode, &placed_identifier, &states)?;
+    let (placed_identity, mut states, full_cell) =
+        if let Some((_, name, states, full_cell)) = merged {
+            (name, states, full_cell)
+        } else if let Some((name, states)) =
+            crate::placement_signs::sign_states(fact, canonical, context.input)
+        {
+            (name, states, false)
+        } else {
+            let states = attachment_states(fact, &original, context.input, support)
+                .or_else(|| {
+                    crate::placement_facing::facing_states(
+                        fact,
+                        canonical,
+                        position,
+                        context.surroundings.player_box,
+                        context.input.yaw,
+                    )
+                })
+                .or_else(|| door_pair.as_ref().map(|pair| pair.0.clone()))
+                .or_else(|| resolve_placement_state(fact, canonical, context.input))?;
+            (identity, states, false)
+        };
+    let placed_id =
+        collisions.block_state_runtime_id(mode, I::Compiled(placed_identity), &states)?;
     let placed_fact = collisions.block_facts(mode, placed_id);
     // Stacking existing snow skips the first-placement support check.
     let requirement = if full_cell {
@@ -192,7 +187,7 @@ pub fn predicted_placement(
         mode,
         world,
         position,
-        &placed_identifier,
+        placed_identity,
         &mut states,
     )?;
     let read = |position| {
@@ -203,7 +198,7 @@ pub fn predicted_placement(
         ))
     };
     crate::placement_stairs::corner_states(placed_fact, &mut states, position, read)?;
-    let block = collisions.block_state_runtime_id(mode, &placed_identifier, &states)?;
+    let block = collisions.block_state_runtime_id(mode, I::Compiled(placed_identity), &states)?;
     let mut neighbors = Vec::new();
     let door = placed_fact.traits.contains(T::DOOR);
     if door {
@@ -220,7 +215,8 @@ pub fn predicted_placement(
             return None;
         }
         let (_, upper) = door_pair?;
-        let upper_block = collisions.block_state_runtime_id(mode, &placed_identifier, &upper)?;
+        let upper_block =
+            collisions.block_state_runtime_id(mode, I::Compiled(placed_identity), &upper)?;
         neighbors.push((upper_position, upper_block));
     }
     if placed_fact.placement == R::Stair {
@@ -242,10 +238,8 @@ pub fn predicted_placement(
                     }
                 },
             )?;
-            let existing_neighbor = world.primary_runtime_id(neighbor_position).ok()?;
-            let neighbor_name = collisions.block_identifier(mode, existing_neighbor)?;
             let neighbor_block =
-                collisions.block_state_runtime_id(mode, neighbor_name, &neighbor)?;
+                collisions.block_state_runtime_id(mode, I::Compiled(name.identity?), &neighbor)?;
             if world.primary_runtime_id(neighbor_position).ok()? != neighbor_block {
                 neighbors.push((neighbor_position, neighbor_block));
             }

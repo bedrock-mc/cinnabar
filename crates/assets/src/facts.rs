@@ -1,7 +1,7 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
-pub use block::{BlockFact, BlockFacts};
+pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
 mod placement;
 pub use placement::{BLOCK_PLACEMENT_SOURCE_PATH, PlacementRule, SupportKind};
 

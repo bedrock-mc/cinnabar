@@ -16,11 +16,9 @@ fn sign_rotations() -> u8 {
 /// Chooses the wood-matched sign and its standing rotation or wall attachment face.
 pub(crate) fn sign_states(
     fact: BlockFact,
-    identifier: &str,
-    alternate_identifier: Option<&str>,
     canonical: &str,
     input: PlacementInput,
-) -> Option<(String, Map<String, Value>)> {
+) -> Option<(u32, Map<String, Value>)> {
     if !(1..=5).contains(&input.face) {
         return None;
     }
@@ -52,9 +50,9 @@ pub(crate) fn sign_states(
     };
     Some((
         if rule == fact.placement {
-            identifier.to_owned()
+            fact.identity?
         } else {
-            alternate_identifier?.to_owned()
+            fact.alternate?
         },
         serde_json::from_value(json!({key:{"type":"int","value":direction}})).ok()?,
     ))
@@ -90,11 +88,8 @@ mod tests {
         )
         .unwrap();
         let fact = block_fact(name);
-        let alternate = fact
-            .alternate
-            .and_then(|id| records.get(id as usize))
-            .map(|r| r.name.as_ref());
-        super::sign_states(fact, name, alternate, canonical, input)
+        let (identity, states) = super::sign_states(fact, canonical, input)?;
+        Some((records.get(identity as usize)?.name.to_string(), states))
     }
 
     /// Reads the sign kind from its pinned numeric facts.
