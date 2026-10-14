@@ -130,6 +130,7 @@ pub struct PackRules {
     superseded_eggs: BTreeMap<String, String>,
     pub minerals: Vec<MineralRule>,
     item_visuals: BTreeMap<String, ItemVisualKind>,
+    empty_hand: PackBlock,
 }
 
 /// Loads the compiler's embedded pack contracts once for asset admission.
@@ -264,15 +265,15 @@ impl PackRules {
     }
     /// Resolves the exact legacy item presentation exceptions at compile time.
     pub fn item_visual(&self, identifier: &str) -> Option<ItemVisualKind> {
-        self.item_visuals.get(identifier).copied()
+        if identifier == self.empty_hand() {
+            Some(ItemVisualKind::EmptyHand)
+        } else {
+            self.item_visuals.get(identifier).copied()
+        }
     }
     /// Returns the canonical empty-hand item identity for constructing its route.
     pub fn empty_hand(&self) -> &str {
-        self.item_visuals
-            .iter()
-            .find(|(_, kind)| **kind == ItemVisualKind::EmptyHand)
-            .expect("validated empty-hand rule")
-            .0
+        &self.blocks[&self.empty_hand]
     }
     /// Finds a pinned mineral contract without copying its identity list.
     pub fn mineral(&self, identifier: &str) -> Option<&MineralRule> {

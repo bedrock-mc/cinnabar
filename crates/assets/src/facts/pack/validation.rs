@@ -171,17 +171,16 @@ impl PackRules {
         }
         for name in self.item_visuals.keys() {
             if !retail.contains(name.as_str()) {
-                block(name)?;
+                return Err(format!("unknown retail item visual rule {name}"));
             }
         }
-        if self
-            .item_visuals
-            .values()
-            .filter(|kind| **kind == ItemVisualKind::EmptyHand)
-            .count()
-            != 1
+        if self.empty_hand != PackBlock::Air
+            || self
+                .item_visuals
+                .values()
+                .any(|kind| *kind == ItemVisualKind::EmptyHand)
         {
-            return Err("pack rules require one empty hand".into());
+            return Err("pack rules require canonical air for the empty hand".into());
         }
         Ok(())
     }
