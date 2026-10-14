@@ -427,11 +427,13 @@ impl UiPresentationRuntime {
         );
     }
 
+    #[cfg(test)]
     fn gui_player_mesh(&self) -> Option<Arc<UiMesh>> {
         self.gui_player_mesh_with_held([true; 2])
     }
 
     /// Omits held geometry when it would exhaust the surrounding inventory or HUD frame.
+    #[cfg(test)]
     fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
         self.gui_player_mesh_with_models(self.preview_held_models(include_held))
     }

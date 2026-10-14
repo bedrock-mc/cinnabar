@@ -109,6 +109,12 @@ impl DrawCounts {
     /// Checks the whole list's reservation against the draw-list byte limit, returning the
     /// `(batch, vertex, index)` capacities to reserve.
     pub(super) fn budget(self) -> Result<(usize, usize, usize), UiError> {
+        if self.mesh_batches > UiLimits::MAX_DRAW_BATCHES {
+            return Err(UiError::DrawBatchLimitExceeded {
+                actual: self.mesh_batches,
+                limit: UiLimits::MAX_DRAW_BATCHES,
+            });
+        }
         let (quad_count, vertex_count, index_count) = self.reserved()?;
         let batch_capacity = quad_count.min(UiLimits::MAX_DRAW_BATCHES);
         let reserved_bytes = vertex_count
