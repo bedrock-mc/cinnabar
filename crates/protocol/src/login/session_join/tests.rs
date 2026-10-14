@@ -154,6 +154,14 @@ fn spawn_prerequisites() -> Vec<Packet> {
     ]
 }
 
+/// Keeps the handed-off packs and startup facts for the test to inspect.
+fn keep_prepared(
+    packs: ResourcePackHandoff,
+    game_data: GameData,
+) -> (ResourcePackHandoff, GameData) {
+    (packs, game_data)
+}
+
 fn identity(display_name: &str) -> serde_json::Value {
     serde_json::json!({"display_name": display_name, "xuid": "", "uuid": "00000000-0000-4000-8000-000000000001"})
 }
@@ -227,16 +235,16 @@ async fn check_handed_off_packs(cached: bool) {
         Some(ClientBlobCache::default()),
         None,
         &settings,
+        keep_prepared,
     );
     let (joined, mut core) = tokio::join!(join, core);
-    let (mut session, game_data) = joined.expect("join");
+    let (mut session, (handoff, game_data)) = joined.expect("join");
     assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
     assert!(
         !session.blob_cache_enabled(),
         "a cache serves only an upstream login that advertised one"
     );
 
-    let handoff = session.take_resource_pack_handoff();
     assert!(handoff.required());
     let archives: Vec<_> = handoff
         .into_archives()
@@ -317,12 +325,58 @@ async fn a_startup_longer_than_one_batch_still_joins() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            keep_prepared,
         ),
         core
     );
-    let (_, game_data) = joined.expect("a long startup joins");
+    let (_, (_, game_data)) = joined.expect("a long startup joins");
     assert_eq!(game_data.world.local_player_runtime_id, RUNTIME_ID);
+}
+
+/// Pack preparation starts once StartGame and the item registry arrive, before PlayerSpawn, so a
+/// slow preparation overlaps the server's spawn instead of following it.
+#[tokio::test]
+async fn pack_preparation_starts_before_player_spawn() {
+    let dir = SocketDir::new("early-preparation");
+    let settings = LoginSettings::default();
+    let listener = listen(dir.path());
+    let (started, preparing) = tokio::sync::oneshot::channel();
+    let core = async {
+        let mut core = FakeCore::accept(&listener).await;
+        core.receive().await;
+        core.send(handoff_frame(
+            serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
+            &[start_game()],
+        ))
+        .await;
+        core.receive_packets().await;
+        let [registry, radius, spawn] = <[Packet; 3]>::try_from(spawn_prerequisites()).unwrap();
+        core.send(batch_frame(&[registry])).await;
+        let runtime_id = preparing
+            .await
+            .expect("preparation started before PlayerSpawn");
+        core.send(batch_frame(&[radius, spawn])).await;
+        (core, runtime_id)
+    };
+    let join = LoginSequence::connect_session(
+        dir.path(),
+        "Fixture",
+        crate::ClientRandomId::new(-7).unwrap(),
+        None,
+        None,
+        &settings,
+        move |_, game_data| {
+            let _ = started.send(game_data.world.local_player_runtime_id);
+        },
+    );
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(join, core)
+    })
+    .await;
+    let (joined, (_core, runtime_id)) = joined.expect("preparation waited for PlayerSpawn");
+    joined.expect("join");
+    assert_eq!(runtime_id, RUNTIME_ID);
 }
 
 /// A join the core could not make ends with the server's disconnect screen text.
@@ -348,7 +402,8 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            keep_prepared,
         ),
         core
     );
@@ -384,7 +439,8 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
             crate::ClientRandomId::new(-7).unwrap(),
             None,
             None,
-            &settings
+            &settings,
+            keep_prepared,
         ),
         core
     );
@@ -427,6 +483,7 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         None,
         None,
         &settings,
+        keep_prepared,
     );
     let (result, _core) = tokio::join!(join, core);
     match result {

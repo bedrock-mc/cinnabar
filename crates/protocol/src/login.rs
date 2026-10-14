@@ -56,7 +56,6 @@ pub struct PlaySession {
     pending_blob_prefetch: Option<(Packet, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
-    resource_packs: ResourcePackHandoff,
 }
 
 struct PendingBlobCacheDelivery {
@@ -103,7 +102,6 @@ impl PlaySession {
     fn new(
         transport: SessionTransport,
         cache: Option<ClientBlobCache>,
-        resource_packs: ResourcePackHandoff,
         runtime_id: u64,
         terrain_before_spawn: bool,
     ) -> Self {
@@ -121,7 +119,6 @@ impl PlaySession {
             pending_blob_prefetch: None,
             server_disconnect: None,
             server_transfer: None,
-            resource_packs,
         }
     }
 
@@ -144,12 +141,6 @@ impl PlaySession {
     /// completely and the session survives.
     pub fn transfer_skip_count(&self) -> u64 {
         self.transfer_skips
-    }
-
-    /// Takes the validated ordered resource-pack archives captured during login.
-    /// No archive is parsed or applied, and a second call returns an empty handoff.
-    pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
-        std::mem::take(&mut self.resource_packs)
     }
 
     /// Whether the server sent terrain before login completed at PlayerSpawn.
