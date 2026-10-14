@@ -66,6 +66,8 @@ impl PlayerInputFlags {
     /// asserts this flag on the first transmitted sample after a qualifying
     /// server teleport; see the movement `teleport_ack` module.
     pub const HANDLED_TELEPORT: Self = Self(1 << 37);
+    /// Wire ordinal 38: the local player's emote duration has not expired.
+    pub const EMOTING: Self = Self(1 << 38);
     /// Wire ordinal 39: an attack press hit neither an actor nor a block.
     pub const MISSED_SWING: Self = Self(1 << 39);
     pub const START_CRAWLING: Self = Self(1 << 40);
