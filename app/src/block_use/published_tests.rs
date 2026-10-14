@@ -201,6 +201,23 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     (world, captured)
 }
 
+/// Drains completed movement before the frame-time air-use producer runs.
+fn produce_air_use(world: &mut World) {
+    world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
+        let network = world.resource::<NetworkHandle<PackApplication>>();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut movement,
+            gameplay::movement::OUTBOX_CAPACITY,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+    });
+    world
+        .run_system_cached(crate::item_use::produce_item_use)
+        .unwrap();
+}
+
 /// A press resolves before the next tick simulates, even when the last completed tick's
 /// swing has already been published; its swing precedes its transaction.
 #[test]

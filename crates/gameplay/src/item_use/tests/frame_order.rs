@@ -60,12 +60,12 @@ fn a_frame_use_waits_for_every_completed_input_and_starts_on_the_next_tick() {
         ..Default::default()
     };
     let baseline = plain
-        .advance(std::time::Duration::from_millis(50), controls, &EmptyWorld)
+        .advance(simulation_clock::TICK_DURATION, controls, &EmptyWorld)
         .samples
         .remove(0);
     let next = physics
         .advance(
-            std::time::Duration::from_millis(50),
+            simulation_clock::TICK_DURATION,
             sim::MovementInput {
                 item_use_movement_modifier: runtime.movement_modifier(),
                 ..controls

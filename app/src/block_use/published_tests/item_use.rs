@@ -117,9 +117,7 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
         let (mut world, mut captured) = attack_and_throw_fixture(enabled);
         world.run_system_cached(produce_block_use).unwrap();
         assert!(!world.resource::<BlockUseRuntime>().press_pending());
-        world
-            .run_system_cached(crate::item_use::produce_item_use)
-            .unwrap();
+        produce_air_use(&mut world);
         let throws = captured
             .drain()
             .into_iter()
