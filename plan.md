@@ -8937,3 +8937,5 @@ absent from the pinned retail carrier. Native compatibility rules remain provisi
 missing identities, animal armor enchantment slots and complete repair membership
 remain unresolved. Other consumer migrations and gameplay or rendering parity gates
 remain incomplete.
+Registered native filled maps retain provisional offhand admission at session admission;
+explicit component permissions take precedence.

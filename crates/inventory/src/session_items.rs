@@ -1,7 +1,7 @@
 //! Effective item facts admitted once for each negotiated registry.
 
 use assets::{
-    facts::{ItemFact, ItemFacts, ItemTraits, ItemUseAnimationFact},
+    facts::{FILLED_MAP_IDENTIFIER, ItemFact, ItemFacts, ItemTraits, ItemUseAnimationFact},
     item::{
         armour::{ItemArmour, ItemArmourSlot},
         durability::ItemDurability,
@@ -131,6 +131,7 @@ fn resolve(
     }
     let component_item =
         entry.component_based || matches!(entry.version, ItemRegistryVersion::DataDriven);
+    let pinned_fact = pinned.by_identifier(&entry.identifier);
     let retail_id = if component_item {
         None
     } else {
@@ -139,16 +140,19 @@ fn resolve(
     let mut fact = if component_item {
         ItemFact::default()
     } else {
-        pinned
-            .by_identifier(&entry.identifier)
-            .copied()
-            .unwrap_or_default()
+        pinned_fact.copied().unwrap_or_default()
     };
+    // Preserve admission for registered native maps outside the retail census.
+    if !component_item
+        && pinned_fact.is_none()
+        && entry.identifier.as_ref() == FILLED_MAP_IDENTIFIER
+    {
+        fact.allow_off_hand = Some(true);
+        fact.offhand_provisional = true;
+    }
     fact.max_stack_size = super::inventory_ledger::registry::entry_capacity_with_base(
         entry,
-        pinned
-            .by_identifier(&entry.identifier)
-            .and_then(|fact| fact.max_stack_size),
+        pinned_fact.and_then(|fact| fact.max_stack_size),
     );
     pinned.apply_tags(&mut fact, entry.item_tags.iter().map(AsRef::as_ref));
     let mut armour_row = fact.armour_slot.map(armour_slot_row);

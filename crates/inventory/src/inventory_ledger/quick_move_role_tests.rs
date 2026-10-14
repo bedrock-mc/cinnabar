@@ -85,6 +85,7 @@ fn assert_quick_move(
             protocol::open_cell_request(ledger.window_kind().unwrap(), slot, None, None).unwrap()
         }
         InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, slot),
+        InventoryTarget::Offhand => (StackRequestContainer::Offhand, 1),
         _ => panic!("unsupported quick-move fixture target"),
     };
     ledger
@@ -124,6 +125,51 @@ fn registered(identifier: &str) -> ItemRegistryEntry {
         .find(|entry| entry.identifier.as_ref() == identifier)
         .unwrap_or_else(|| panic!("missing pinned item {identifier}"))
         .clone()
+}
+
+#[test]
+fn registered_filled_maps_admit_manual_and_quick_move_offhand_placement() {
+    let identifier = assets::facts::FILLED_MAP_IDENTIFIER;
+    assert!(assets::item::names::serialization_ids(identifier).is_some());
+    assert!(
+        assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)
+            .is_none()
+    );
+    let mut entry = registered("minecraft:empty_map");
+    entry.identifier = identifier.into();
+    entry.network_id += 10_000;
+    for quick_move in [false, true] {
+        let mut ledger = equipment_ledger(&entry);
+        ledger.apply(&content(
+            ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+            vec![NetworkItemStack::empty()],
+        ));
+        assert_eq!(
+            ledger.item_facts().get(entry.network_id).allow_off_hand,
+            Some(true)
+        );
+        assert!(
+            ledger
+                .item_facts()
+                .get(entry.network_id)
+                .offhand_provisional
+        );
+        if quick_move {
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Offhand);
+        } else {
+            ledger.begin_click(SOURCE_SLOT).unwrap();
+            ledger
+                .begin_target_gesture(InventoryTarget::Offhand, CellGesture::Click)
+                .unwrap();
+            assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+            assert!(ledger.cursor_stack().is_none());
+            let moved = ledger.target_stack(InventoryTarget::Offhand).unwrap();
+            assert_eq!(moved.network_id, entry.network_id);
+            assert_eq!(moved.count, 1);
+        }
+    }
 }
 
 /// Admits a server-defined item with a known role tag and an optional wearable slot.

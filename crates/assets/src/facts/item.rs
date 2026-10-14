@@ -1,5 +1,7 @@
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
+/// Native filled-map identity used for session admission outside the retail census.
+pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 
 use crate::{
     item::{

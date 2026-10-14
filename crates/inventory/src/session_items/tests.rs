@@ -48,6 +48,50 @@ fn registry_admission_copies_pinned_facts_after_id_remapping() {
 }
 
 #[test]
+fn filled_map_offhand_compatibility_respects_component_and_version_boundaries() {
+    let identifier = assets::facts::FILLED_MAP_IDENTIFIER;
+    assert!(assets::item::names::serialization_ids(identifier).is_some());
+    let mut item = entry("minecraft:empty_map");
+    item.identifier = identifier.into();
+    item.network_id += 10_000;
+    for (component_based, version, declared, permission, expected) in [
+        (false, ItemRegistryVersion::None, false, None, Some(true)),
+        (
+            false,
+            ItemRegistryVersion::Legacy,
+            true,
+            Some(false),
+            Some(false),
+        ),
+        (false, ItemRegistryVersion::Legacy, true, None, None),
+        (true, ItemRegistryVersion::DataDriven, false, None, None),
+        (
+            true,
+            ItemRegistryVersion::DataDriven,
+            true,
+            Some(true),
+            Some(true),
+        ),
+        (false, ItemRegistryVersion::Unknown(99), false, None, None),
+    ] {
+        item.component_based = component_based;
+        item.version = version;
+        item.components = Some(Arc::new(protocol::ItemComponents {
+            allow_off_hand_declared: declared,
+            allow_off_hand: permission,
+            ..Default::default()
+        }));
+        let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+        assert_eq!(facts.get(item.network_id).allow_off_hand, expected);
+        assert_eq!(
+            facts.get(item.network_id).offhand_provisional,
+            expected == Some(true) && !declared
+        );
+        assert_eq!(facts.retail_id(item.network_id), None);
+    }
+}
+
+#[test]
 fn component_entries_derive_tags_and_equipment_without_inheriting_their_names() {
     let mut custom = entry("minecraft:stick");
     let armour = *pinned().by_identifier("minecraft:iron_chestplate").unwrap();
