@@ -95,6 +95,10 @@ impl WorldStream {
             return;
         }
         if self.full_detail.radius.is_none() {
+            let retired = std::mem::take(&mut self.full_detail);
+            if !retired.columns.is_empty() || !retired.handoffs.is_empty() {
+                rayon::spawn(move || drop(retired));
+            }
             self.full_detail.initial_generation = Some(self.resident.column_generation());
         }
         if radius.is_none() {
@@ -250,7 +254,8 @@ impl WorldStream {
                 }
             } else {
                 if self.full_detail.radius.is_none() {
-                    self.full_detail = FullDetail::default();
+                    let retired = std::mem::take(&mut self.full_detail);
+                    rayon::spawn(move || drop(retired));
                     self.full_detail.centre = Some(centre);
                 }
                 return;

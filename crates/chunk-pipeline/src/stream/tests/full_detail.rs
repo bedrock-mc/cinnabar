@@ -298,6 +298,26 @@ fn paused_initial_limit_keeps_existing_columns_active() {
     assert!(!stream.wants_mesh(ChunkKey::new(0, 3, 0)));
 }
 
+/// Replacing an unfinished unlimited transition uses current residency, not an old disk.
+#[test]
+fn interrupted_unlimited_transition_does_not_promote_new_outer_columns() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(4));
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    test_time::eventually("the replacement radius", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+}
+
 /// Radius changes, mode and render-distance changes (Auto crossing its threshold), block
 /// changes, uploads, resends and evictions in a scrambled order never leave a column that had
 /// a drawer without one: near terrain draws it once its meshes are published, and far terrain
