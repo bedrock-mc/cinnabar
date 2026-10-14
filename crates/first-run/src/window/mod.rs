@@ -6,7 +6,7 @@ mod view;
 
 use std::process::Command;
 
-use bootstrap_ui::{canvas::Text, input::Actions};
+use bootstrap_ui::input::Actions;
 use winit::{
     dpi::LogicalSize,
     event_loop::{ControlFlow, EventLoop},
@@ -68,10 +68,7 @@ pub fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;
     };
-    let text = bootstrap_ui::font(&layout).and_then(|bytes| {
-        Text::from_bytes(&bytes).ok_or_else(|| anyhow::anyhow!("the UI font does not parse"))
-    });
-    let text = match text {
+    let text = match bootstrap_ui::text(&layout) {
         Ok(text) => text,
         Err(error) => {
             eprintln!("first-run window unavailable: no usable UI font ({error:#})");
@@ -98,6 +95,7 @@ pub fn run_setup_process() -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bootstrap_ui::input::{Input, Source};
 
     #[test]
     fn child_exit_codes_map_to_outcomes() {
@@ -106,5 +104,51 @@ mod tests {
         assert_eq!(outcome(Some(EXIT_UNAVAILABLE)), ChildOutcome::Unavailable);
         assert_eq!(outcome(Some(101)), ChildOutcome::Failed(101));
         assert_eq!(outcome(None), ChildOutcome::Failed(-1));
+    }
+
+    /// The real setup screens drive the shared input state machine: focus wraps over Consent,
+    /// Cancel quits everywhere, and a held Quit survives download and unpack reports.
+    #[test]
+    fn setup_screens_quit_on_cancel_and_keep_a_held_quit_through_progress() {
+        let download = Screen::Downloading {
+            received: 50,
+            total: Some(100),
+            bytes_per_second: None,
+        };
+        let unpack = Screen::Preparing {
+            step: 1,
+            total: 2,
+            label: "Unpacking".into(),
+        };
+        let failed = Screen::Failed {
+            message: "offline".into(),
+        };
+        for screen in [&Screen::Consent, &Screen::Starting, &download, &failed] {
+            assert_eq!(Actions::cancel(screen), Action::Quit);
+        }
+        for source in [Source::Keyboard, Source::Controller] {
+            let mut input = Input::default();
+            input.reset(&Screen::Consent);
+            input.navigate(&Screen::Consent, true);
+            assert_eq!(input.focused, Some(Action::Quit));
+            input.navigate(&Screen::Consent, false);
+            assert_eq!(input.focused, Some(Action::Accept));
+            input.reset(&Screen::Starting);
+            input.press(&Screen::Starting, source, None);
+            assert_eq!(input.release(source, None), Some(Action::Quit));
+        }
+        for source in [Source::Keyboard, Source::Controller, Source::Pointer] {
+            let mut input = Input::default();
+            input.reset(&Screen::Starting);
+            input.press(&Screen::Starting, source, Some(Action::Quit));
+            input.update_screen(&Screen::Starting, &download);
+            input.update_screen(&download, &unpack);
+            assert_eq!(
+                input.release(source, Some(Action::Quit)),
+                Some(Action::Quit)
+            );
+            input.update_screen(&unpack, &failed);
+            assert_eq!(input.focused, Some(Action::Retry));
+        }
     }
 }

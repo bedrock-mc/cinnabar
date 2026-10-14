@@ -10,7 +10,7 @@ pub mod input;
 pub mod view;
 pub mod window;
 
-use std::{fs, time::Duration};
+use std::{fs, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use assets::carriers::{FONT_MANIFEST, Sources};
@@ -40,12 +40,19 @@ const BUILT_IN_FACES: [&[u8]; 6] = [
     include_bytes!("../../../assets/panorama/panorama_5.jpg"),
 ];
 
-/// The UI font's bytes (Cinnangles Sans) for `layout`, as the pinned font manifest names it.
+/// The UI font (Cinnangles Sans) for `layout`, parsed for drawing; errors name the font file.
+pub fn text(layout: &InstallLayout) -> Result<canvas::Text> {
+    let (path, bytes) = font(layout)?;
+    canvas::Text::from_bytes(&bytes)
+        .with_context(|| format!("the UI font {} does not parse", path.display()))
+}
+
+/// The UI font's path and bytes for `layout`, as the pinned font manifest names it.
 ///
 /// An install reads the prep kit's copy of the manifest and the font packaging put under its
 /// resources. A development layout keeps its resources in the checkout's `.local`, so it reads the
 /// checkout's own manifest and font.
-pub fn font(layout: &InstallLayout) -> Result<Vec<u8>> {
+fn font(layout: &InstallLayout) -> Result<(PathBuf, Vec<u8>)> {
     let path = if layout.is_installed() {
         let file = ui_font_file(&Sources::Kit(layout.prep_kit()))?;
         layout.resource_root.join(INSTALLED_FONT_DIR).join(file)
@@ -58,7 +65,8 @@ pub fn font(layout: &InstallLayout) -> Result<Vec<u8>> {
         let file = ui_font_file(&sources)?;
         sources.resolve(&format!("{CHECKOUT_FONT_DIR}/{file}"))
     };
-    fs::read(&path).with_context(|| format!("read {}", path.display()))
+    let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
+    Ok((path, bytes))
 }
 
 /// The UI font's file name, from the font manifest in `sources`.
@@ -201,7 +209,9 @@ mod tests {
             b"checkout",
         );
 
-        assert_eq!(font(&installed).unwrap(), b"installed");
-        assert_eq!(font(&development).unwrap(), b"checkout");
+        assert_eq!(font(&installed).unwrap().1, b"installed");
+        assert_eq!(font(&development).unwrap().1, b"checkout");
+        let unparsable = text(&installed).err().unwrap().to_string();
+        assert!(unparsable.contains("Pinned.ttf"), "{unparsable}");
     }
 }

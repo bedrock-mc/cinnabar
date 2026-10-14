@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
+platform-specific = ["windows"]
 reads = ["assets/panorama/*"]
 
 [dependencies]

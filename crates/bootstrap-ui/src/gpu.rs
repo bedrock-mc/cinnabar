@@ -70,7 +70,7 @@ impl Gpu {
             .context("find a graphics adapter")?;
         let (device, queue) = runtime
             .block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: Some("first-run setup"),
+                label: Some("bootstrap window"),
                 required_limits:
                     wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
                 ..Default::default()
@@ -171,7 +171,7 @@ impl Gpu {
             .is_some_and(|(texture, _)| texture.size() == size);
         if !reuse {
             let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("setup overlay"),
+                label: Some("bootstrap overlay"),
                 size,
                 mip_level_count: 1,
                 sample_count: 1,
@@ -182,7 +182,7 @@ impl Gpu {
             });
             let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
             let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("setup overlay"),
+                label: Some("bootstrap overlay"),
                 layout: &self.overlay_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
@@ -209,7 +209,7 @@ impl Gpu {
                 self.surface = self
                     .instance
                     .create_surface(self.window.clone())
-                    .context("recreate setup window surface")?;
+                    .context("recreate bootstrap window surface")?;
             }
             self.surface.configure(&self.device, &self.config);
             Ok(())
@@ -229,7 +229,7 @@ impl Gpu {
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("setup"),
+                label: Some("bootstrap window"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &target,
                     depth_slice: None,
@@ -271,7 +271,7 @@ fn upload_faces(
         depth_or_array_layers: 6,
     };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("setup panorama"),
+        label: Some("bootstrap panorama"),
         size,
         mip_level_count: 1,
         sample_count: 1,
@@ -421,7 +421,9 @@ fn acquire_frame(
             Ok(None)
         }
         Frame::Timeout | Frame::Occluded => Ok(None),
-        Frame::Validation => anyhow::bail!("setup surface acquisition failed validation"),
+        Frame::Validation => {
+            anyhow::bail!("bootstrap window surface acquisition failed validation")
+        }
     }
 }
 
