@@ -52,6 +52,10 @@ pub(crate) fn install(process: Process) {
 
 /// The profiler layers this build enables.
 #[cfg(any(feature = "tracy", feature = "frame-trace"))]
+#[allow(
+    clippy::vec_init_then_push,
+    reason = "each push depends on its own feature"
+)]
 fn profiler_layers() -> Vec<CallerLayer> {
     let mut layers = Vec::new();
     #[cfg(feature = "tracy")]

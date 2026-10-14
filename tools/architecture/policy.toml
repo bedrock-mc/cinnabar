@@ -796,18 +796,6 @@ producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/app.rs"
 
 [[markers]]
-literal = "CINNABAR_CRASH_UI"
-kind = "environment_variable"
-producer = "crates/crash-monitor/src/run.rs"
-consumer = "crates/crash-monitor/src/run.rs"
-
-[[markers]]
-literal = "CINNABAR_FULL_DUMP"
-kind = "environment_variable"
-producer = "crates/launcher-host/src/lifecycle/crash.rs"
-consumer = "crates/launcher-host/src/lifecycle/crash.rs"
-
-[[markers]]
 literal = "CINNABAR_WORLD_SERVICE"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"

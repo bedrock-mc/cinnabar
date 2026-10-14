@@ -79,6 +79,19 @@ pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<Au
     }
 }
 
+/// Publishes the end-of-frame session observations: presence for the Discord driver and game
+/// state for crash reports.
+pub(crate) fn configure_observations(app: &mut App) {
+    app.init_resource::<client_state::PresenceObservation>()
+        .add_systems(
+            Last,
+            (
+                publish_presence_observation.before(client_state::ShellFrameSet::Presence),
+                publish_crash_state,
+            ),
+        );
+}
+
 /// Samples session presence at the same end-of-frame boundary as the Discord driver.
 pub(crate) fn publish_presence_observation(
     world: Res<ClientWorld>,

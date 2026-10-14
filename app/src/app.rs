@@ -952,15 +952,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::developer_control::configure(&mut app);
     app.add_plugins(client_extensions::ClientExtensionsPlugin);
     crate::server_experiences::configure(&mut app);
-    app.init_resource::<client_state::PresenceObservation>()
-        .add_systems(
-            Last,
-            (
-                crate::shell_adapters::publish_presence_observation
-                    .before(client_state::ShellFrameSet::Presence),
-                crate::shell_adapters::publish_crash_state,
-            ),
-        );
+    crate::shell_adapters::configure_observations(&mut app);
     session::configure_finish_system(&mut app);
 
     #[cfg(feature = "enhanced-diagnostics")]
