@@ -207,15 +207,10 @@ pub(super) fn apply_inventory_pointer(
         }
     }
     if hit.is_none() && !mod_owned {
-        // A held stack released outside the panel is dropped: all of it on a
-        // primary click, one item on a secondary click.
+        // A held stack clicked off the screen's panels is dropped: all of it
+        // on a primary click, one item on a secondary click.
         let outside = gui.is_some_and(|gui| {
-            !presentation.inventory_panel_contains(
-                gui,
-                physical_size,
-                window.scale_factor(),
-                screen,
-            )
+            presentation.inventory_press_drops(gui, physical_size, window.scale_factor(), screen)
         });
         if outside && (primary_pressed || secondary_pressed) {
             let amount = (!primary_pressed).then_some(1);

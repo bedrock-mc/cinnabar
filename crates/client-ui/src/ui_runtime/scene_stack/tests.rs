@@ -17,7 +17,7 @@ fn vanilla_like_table() -> Arc<ScreenSettingsTable> {
         "low_frequency_rendering": true, "absorbs_input": false}));
     let chest = settings(json!({"close_on_player_hurt": true}));
     Arc::new(ScreenSettingsTable(HashMap::from([
-        (json_ui::HUD_SCREEN, hud),
+        (json_ui::vanilla::Reference::HudHudScreen.as_str(), hud),
         ("crafting.inventory_screen", chest),
     ])))
 }
@@ -48,7 +48,7 @@ fn death_overlay_keeps_the_hud_visible_and_absorbs_gameplay_input() {
     let mut player = player_state::PlayerState::new(1);
     let table = Arc::new(ScreenSettingsTable(HashMap::from([
         (
-            json_ui::HUD_SCREEN,
+            json_ui::vanilla::Reference::HudHudScreen.as_str(),
             settings(
                 json!({"absorbs_input":false,"is_showing_menu":false,"render_only_when_topmost":true}),
             ),
@@ -113,7 +113,10 @@ fn hud_only_routes_clicks_to_gameplay() {
         "is_showing_menu": false, "should_steal_mouse": false}),
     );
     let mut table = (*vanilla_like_table()).clone();
-    table.0.insert(json_ui::CROSSHAIR_SCREEN, crosshair);
+    table.0.insert(
+        json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
+        crosshair,
+    );
     let mut runtime = in_world(&mut player_runtime, Arc::new(table));
     assert!(
         runtime.steals_mouse(&player_runtime, None),
@@ -161,7 +164,10 @@ fn pack_declared_absorbing_hud_blocks_gameplay() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let hud = settings(json!({"is_showing_menu": false, "should_steal_mouse": true}));
-    let table = ScreenSettingsTable(HashMap::from([(json_ui::HUD_SCREEN, hud)]));
+    let table = ScreenSettingsTable(HashMap::from([(
+        json_ui::vanilla::Reference::HudHudScreen.as_str(),
+        hud,
+    )]));
     let runtime = in_world(&mut player_runtime, Arc::new(table));
     assert!(!runtime.gameplay_input(&player_runtime, None));
 }
@@ -230,7 +236,7 @@ fn carrier_settings_route_input_like_vanilla() {
     .unwrap();
     let table = ScreenSettingsTable::for_catalog(&catalog, &Context::retail(true));
     let hud = table
-        .get(json_ui::HUD_SCREEN)
+        .get(json_ui::vanilla::Reference::HudHudScreen.as_str())
         .expect("the HUD screen resolves");
     assert!(!hud.absorbs_input && hud.should_steal_mouse);
     let mut runtime = in_world(&mut player_runtime, Arc::new(table));

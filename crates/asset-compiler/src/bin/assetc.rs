@@ -193,8 +193,15 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             source_manifest,
             out,
             actors_out,
+            ui_out,
         } => {
-            vocabulary_command::compile(&archive, &source_manifest, &out, &actors_out)?;
+            vocabulary_command::compile(
+                &archive,
+                &source_manifest,
+                &out,
+                &actors_out,
+                ui_out.as_deref(),
+            )?;
         }
         Command::ItemFacts { root, out } => {
             asset_compiler::registry_policy::items::write(&root, &out, None)?;

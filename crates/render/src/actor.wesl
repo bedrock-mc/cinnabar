@@ -263,6 +263,10 @@ repeat_uv: bool) -> CutoutSample {
 }
 
 fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
+    var uv = select(input.back_uv, input.uv.xy, front);
+    // Gradients precede per-pixel rejection and remain valid inside material branches.
+    let uv_dx = dpdx(uv);
+    let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
     let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
@@ -280,11 +284,6 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (!front && one_sided_material && input.surface == 0u) {
         discard;
     }
-    var uv = select(input.back_uv, input.uv.xy, front);
-    @if(ALPHA_TO_COVERAGE)
-    let uv_dx = dpdx(uv);
-    @if(ALPHA_TO_COVERAGE)
-    let uv_dy = dpdy(uv);
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
     if (input.skin_info.w != 0u) {
         uv = fract(uv);
@@ -333,8 +332,8 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (multitexture_material) {
         // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
         // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
-        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex

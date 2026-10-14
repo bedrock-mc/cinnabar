@@ -1010,7 +1010,7 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
                 ..Default::default()
             });
             let render = json_ui::render_screen(
-                json_ui::HUD_SCREEN,
+                json_ui::vanilla::Reference::HudHudScreen.as_str(),
                 &catalog,
                 &context,
                 &data,

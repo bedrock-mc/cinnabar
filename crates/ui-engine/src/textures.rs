@@ -20,6 +20,8 @@ use ui::IconRef;
 
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub const TITLE_KEY: &str = "textures/ui/title";
+/// Prepared local branding has its own original-art key; base/server title ownership stays distinct.
+pub const MOD_MENU_TITLE_KEY: &str = "local-mod:menu-title";
 
 /// Texture sources a form engine owns across frames.
 pub struct TextureSet {

@@ -154,9 +154,10 @@ fn scripted_stream() -> WorldStream {
     stream
 }
 
-/// One visual update preserves elapsed clocks and transition hooks without replaying keyframe scripts.
+/// A long frame evaluates its last two ticks: script time and transition hooks advance once in
+/// total, and the blend endpoints stay one tick apart.
 #[test]
-fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
+fn long_frame_advances_time_and_events_with_two_visual_evaluations() {
     let mut stream = scripted_stream();
     stream.advance_actor_interpolation_frame(1);
     let previous = stream.authority().actor_rig(42).unwrap().current.to_vec();
@@ -164,22 +165,30 @@ fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
     let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.completed_tick, 21);
     assert_eq!(rig.rest_completed_tick, 21);
-    assert_eq!(rig.previous, previous);
-    let (root, wing) = (
-        rig.current[0].translation_scale,
-        rig.current[1].translation_scale,
-    );
-    assert_eq!(root[2], 2.0, "one on_exit and one on_entry");
-    assert_eq!(
-        root[1], 0.0,
-        "the new controller state starts at this frame's time"
-    );
-    assert_eq!(
-        wing[0], -2.0,
-        "the keyframe script runs once per published frame"
-    );
+    assert_ne!(rig.previous, previous, "the second-to-last tick evaluates");
+    let [previous_root, previous_wing, root, wing] = [
+        rig.previous[0],
+        rig.previous[1],
+        rig.current[0],
+        rig.current[1],
+    ]
+    .map(|bone| bone.translation_scale);
     let tick = simulation_clock::TICK_DURATION.as_secs_f32();
-    assert!((wing[1] - root[1] - 2.0 - 20.0 * tick).abs() < 1.0e-5);
+    assert_eq!(root[2], 2.0, "one on_exit and one on_entry");
+    assert_eq!(previous_root[2], 2.0, "the transition fires once");
+    assert_eq!(
+        previous_root[1], 0.0,
+        "the new controller state starts at the evaluation that entered it"
+    );
+    assert!((root[1] - tick).abs() < 1.0e-5);
+    assert_eq!(previous_wing[0], -2.0);
+    assert_eq!(
+        wing[0], -3.0,
+        "the keyframe script runs once per evaluation"
+    );
+    // The frame's delta splits across both evaluations and sums to the elapsed interval.
+    assert!((previous_wing[1] - previous_root[1] - 2.0 - 19.0 * tick).abs() < 1.0e-5);
+    assert!((wing[1] - root[1] - 2.0 - tick).abs() < 1.0e-5);
     assert!((wing[2] - root[2] - 21.0 * tick).abs() < 1.0e-5);
     let current = rig.current.to_vec();
     let stats = stream.authority().actor_animation_stats();
@@ -189,7 +198,7 @@ fn long_frame_advances_time_and_events_with_one_visual_evaluation() {
     stream.advance_actor_interpolation_frame(1);
     let rig = stream.authority().actor_rig(42).unwrap();
     assert_eq!(rig.completed_tick, 22);
-    assert!((rig.current[0].translation_scale[1] - tick).abs() < 1.0e-5);
+    assert!((rig.current[0].translation_scale[1] - 2.0 * tick).abs() < 1.0e-5);
     assert_eq!(rig.current[0].translation_scale[2], 2.0);
 }
 
@@ -245,12 +254,13 @@ fn gap_preserves_motion_and_bounds_visual_work() {
         assert_eq!(left.hand, right.hand);
         assert_eq!(left.completed_tick, right.completed_tick);
     }
+    // Only the last two ticks evaluate, each within one world budget.
     assert!(
         frame
             .authority()
             .actor_animation_stats()
             .evaluated_molang_ops
             - before
-            <= MAX_MOLANG_OPS_PER_WORLD_TICK as u64
+            <= 2 * MAX_MOLANG_OPS_PER_WORLD_TICK as u64
     );
 }

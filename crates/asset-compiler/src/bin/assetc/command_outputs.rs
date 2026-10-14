@@ -25,9 +25,11 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
             source_manifest,
             out,
             actors_out,
+            ui_out,
         } => {
             inputs.extend([archive.as_path(), source_manifest.as_path()]);
             outputs.extend([out.as_path(), actors_out.as_path()]);
+            outputs.extend(ui_out.as_deref());
         }
         BlockPhysics {
             registry,
@@ -264,6 +266,18 @@ mod tests {
                 source_manifest: "/tmp/source.json".into(),
                 out: "/tmp/vocabulary.tsv".into(),
                 actors_out,
+                ui_out: None,
+            };
+            let error = crate::run(command).unwrap_err().to_string();
+            assert!(error.contains("distinct files"), "{error}");
+        }
+        for ui_out in [PathBuf::from("/tmp/vocabulary.tsv"), archive.clone()] {
+            let command = Command::Vocabulary {
+                archive: archive.clone(),
+                source_manifest: "/tmp/source.json".into(),
+                out: "/tmp/vocabulary.tsv".into(),
+                actors_out: "/tmp/actors.txt".into(),
+                ui_out: Some(ui_out),
             };
             let error = crate::run(command).unwrap_err().to_string();
             assert!(error.contains("distinct files"), "{error}");
