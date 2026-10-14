@@ -769,6 +769,8 @@ pub(crate) struct ActorStore {
     synchronized_audio: synchronized_audio::SynchronizedAudio,
 }
 
+pub use synchronized_audio::{FIREWORK_ROCKET_IDENTIFIER, ROCKET_LAUNCH_EVENT};
+
 mod cloud_particles;
 pub(crate) mod creeper;
 mod crystal_beam;

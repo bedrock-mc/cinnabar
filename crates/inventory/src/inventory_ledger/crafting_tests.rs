@@ -909,7 +909,7 @@ fn invalid_close_input_identity_still_closes_and_keeps_the_grid() {
     ledger.request_personal_close();
     assert!(!ledger.personal_inventory_desired_open());
     assert_eq!(ledger.pending_request_count(), 0);
-    assert_eq!(ledger.pending_closes.len(), 1);
+    assert!(ledger.pending_control_packet().unwrap().is_some());
     assert_eq!(
         ledger
             .target_stack(InventoryTarget::Craft(28))
@@ -928,7 +928,7 @@ fn refused_close_return_after_the_close_preserves_the_ingredient() {
     let request_id = ledger.newest_request().unwrap().request_id;
     assert!(ledger.mark_transport_enqueued(10));
     assert!(ledger.mark_transport_enqueued(11));
-    assert!(ledger.pending_closes.is_empty());
+    assert!(ledger.pending_control_packet().unwrap().is_none());
     ledger.apply(&InventoryEvent::Response(ItemStackResponseEvent {
         responses: Arc::from([StackResponse {
             status: StackResponseStatus::Rejected,

@@ -61,7 +61,8 @@ pub(super) fn sample_clips(
     });
     let mut pending: Option<ControllerBlend> = None;
     let mut legacy_weight = 0.0_f32;
-    let legacy_attack = !evaluator.context.is_local_first_person
+    let legacy_attack = !evaluator.pack
+        && !evaluator.context.is_local_first_person
         && super::legacy_swing::ordinary(
             evaluator.actor,
             evaluator.context,

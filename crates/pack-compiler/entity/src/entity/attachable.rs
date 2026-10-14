@@ -48,6 +48,7 @@ pub(super) struct ItemTransforms {
 }
 
 struct ParsedAttachable {
+    resources: assets::equipment::EquipmentResources,
     item_identifier: Box<str>,
     prefer: bool,
     geometry: Box<str>,
@@ -215,6 +216,7 @@ fn binding(
     Ok(EquipmentBinding {
         geometry: reference(parsed.geometry, geometry_symbols),
         texture: reference(parsed.texture, texture_symbols),
+        resources: parsed.resources,
         color_mask: materials.color_mask(&parsed.material),
         material: parsed.material,
         render_controller: parsed.render_controller,
@@ -298,6 +300,7 @@ fn parse_attachable(
     };
     Ok(ParsedAttachable {
         poses,
+        resources: resources::aliases(description)?,
         geometry,
         texture: named_resource(
             description,

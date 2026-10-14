@@ -24,6 +24,11 @@ struct Shared {
     wake: Condvar,
 }
 
+/// The fixed preference companion for a component or a package's settings anchor.
+pub fn settings_companion(component: &Path) -> PathBuf {
+    component.with_extension("settings.json")
+}
+
 pub(super) struct SettingsWriter {
     shared: Arc<Shared>,
     worker: Option<JoinHandle<()>>,
@@ -41,7 +46,7 @@ impl SettingsWriter {
 
     /// Creates the disk lane off-frame but permits no writes until publication.
     pub fn prepare(component: &Path) -> io::Result<Self> {
-        let path = component.with_extension("settings.json");
+        let path = settings_companion(component);
         // Resolve the directory without following a companion-file link: writes
         // atomically replace the selected companion entry, as the ordinary loader does.
         let destination = path

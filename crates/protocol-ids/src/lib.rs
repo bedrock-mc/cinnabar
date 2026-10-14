@@ -26,4 +26,8 @@ macro_rules! wire_ids {
     };
 }
 
-include!("generated.rs");
+mod generated;
+pub use generated::{
+    ActorDataKey, ActorFlag, CommandArgFlag, CommandArgType, ContainerName, Effect, Enchantment,
+    HASHED_AIR_NETWORK_ID, LevelEvent, SEQUENTIAL_AIR_NETWORK_ID, WindowID, WindowType,
+};

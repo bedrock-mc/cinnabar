@@ -474,7 +474,7 @@ fn adversarial_finite_inputs_fail_without_mutation_and_large_sweeps_stop_before_
 
     let world = TerrainWorld::default();
     let mut state = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
-    state.velocity.x = 70.0;
+    state.velocity.x = sim::MAX_COLLISION_QUERY_EXTENT;
     let before = state.clone();
     assert_eq!(
         simulator.tick(&mut state, MovementInput::default(), &world),

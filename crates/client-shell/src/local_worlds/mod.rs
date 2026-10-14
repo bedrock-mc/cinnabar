@@ -4,6 +4,7 @@
 //! the attached core where the open world is. The menu module embeds it by calling `attach`,
 //! `input`, `menu` and `take_ready`.
 
+use launcher::menu::settings_options::SettingId;
 mod client;
 
 use launcher::local_worlds::model;
@@ -209,7 +210,11 @@ fn pause_on_focus(
     driven: Option<Res<client_state::DrivenInput>>,
 ) {
     if let Some(menu) = menu {
-        worlds.pause_on_unfocus = menu.settings_snapshot().0.value("pause_menu_on_focus_lost") != 0;
+        worlds.pause_on_unfocus = menu
+            .settings_snapshot()
+            .0
+            .value(SettingId::PauseMenuOnFocusLost)
+            != 0;
         worlds.sync_pause();
     }
     if let Some(desktop_focus) = desktop_focus {

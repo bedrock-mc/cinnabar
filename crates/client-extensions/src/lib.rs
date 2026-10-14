@@ -1,6 +1,5 @@
 //! Local component hosts and trusted server experience input.
 
-#[cfg(feature = "local-mods")]
 pub mod modding;
 pub mod server_experiences;
 

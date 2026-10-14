@@ -64,6 +64,10 @@ mod diagnostics;
 mod dimension_transfer;
 mod dirty;
 mod entity_occlusion;
+mod far_summaries;
+mod full_detail;
+pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
+pub use full_detail::FULL_DETAIL_HYSTERESIS_CHUNKS;
 mod helpers;
 mod light_diagnostics;
 mod light_queries;
@@ -71,6 +75,7 @@ mod lighting;
 mod map_data;
 mod meshing;
 mod model;
+mod near_drawn;
 mod particle_events;
 mod polling;
 mod prediction;
@@ -90,8 +95,10 @@ mod service;
 pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
-mod workers;
-pub use workers::{on_idle_world_cores, world_worker_threads};
+pub(crate) mod workers;
+#[cfg(not(target_arch = "wasm32"))]
+pub use workers::on_idle_world_cores;
+pub use workers::world_worker_threads;
 
 use client_world::ingestion::{
     BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
@@ -377,6 +384,14 @@ pub struct WorldStream {
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
+    /// Queued sections found to be air, by their pending revision; drained under removal credit.
+    air_removals: BTreeMap<SubChunkKey, u64>,
+    /// Last air entry examined, so bounded passes over `air_removals` rotate through it.
+    air_removal_cursor: Option<SubChunkKey>,
+    /// Sections the air pass returned to the worker queue, by revision, until a dispatch pops them.
+    air_requeued: BTreeMap<SubChunkKey, u64>,
+    /// Last `air_requeued` entry pruned, so bounded passes rotate through it.
+    air_requeue_cursor: Option<SubChunkKey>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,
@@ -425,6 +440,9 @@ pub struct WorldStream {
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
     local_player_chunk: Option<ChunkKey>,
+    far_terrain: far_summaries::FarTerrainFeed,
+    full_detail: full_detail::FullDetail,
+    near_drawn: near_drawn::NearDrawn,
     stats: WorldStreamStats,
 }
 

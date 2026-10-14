@@ -92,3 +92,28 @@ fn bamboo_collision_and_camera_use_the_same_displaced_stalk() {
         collision.value[0]
     );
 }
+
+#[test]
+fn displaced_shape_rounds_the_owner_before_adding_its_offset() {
+    use block_transform::random_offset::{RandomOffsetAxis, RandomOffsetComponent};
+    let mut registry = CollisionRegistry::new();
+    registry
+        .register(1, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
+        .unwrap();
+    assert!(registry.set_random_offset(
+        1,
+        RandomOffsetComponent {
+            axes: [
+                RandomOffsetAxis {
+                    range: [0.3; 2],
+                    steps: 0
+                },
+                RandomOffsetAxis::default(),
+                RandomOffsetAxis::default(),
+            ],
+        }
+    ));
+    let offset = registry.block_shape_offset(1, [16_777_217, 0, 0]).unwrap();
+    let bounds = Aabb::new(Vec3::ZERO, Vec3::ONE).translated(offset);
+    assert_eq!(bounds.min.x, 16_777_216.0);
+}

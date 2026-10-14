@@ -87,6 +87,9 @@ impl EquipmentRuntime {
 
     /// Authored pack attachables and held items Java never had keep their own hand animation.
     pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
+        if self.uses_native_item_mesh(identifier) {
+            return false;
+        }
         self.binding_source(identifier)
             .and_then(|(catalog, from_pack)| {
                 catalog
@@ -103,7 +106,18 @@ impl EquipmentRuntime {
         item: &WornItem,
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
-        let (mesh, location, block, span) = self.held_mesh(item, true)?;
+        self.first_person_java_item_with_use(body, item, hand, Default::default())
+    }
+
+    /// Uses native stage artwork with Java's first-person swing and use transforms.
+    pub fn first_person_java_item_with_use(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: JavaHand,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
         let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
         let rest = [rest_bone([0.0; 3])];
         let poses = self

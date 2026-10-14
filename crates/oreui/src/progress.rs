@@ -24,6 +24,51 @@ pub(super) struct Progress<'a> {
     pub(super) destination: Option<i32>,
 }
 
+impl Progress<'_> {
+    /// Measures the loader and both status labels with the canvas's actual wrapped text metrics.
+    fn status_heights(
+        &self,
+        canvas: &mut Canvas<'_>,
+        width: f32,
+        title: &str,
+    ) -> Result<[f32; 3], PaintError> {
+        let title = canvas.measure_height(title, width, HEADER5)?;
+        let detail = if self.detail.is_empty() {
+            0.0
+        } else {
+            canvas.r(theme::SPACE[1]) + canvas.measure_height(self.detail, width, CAPTION)?
+        };
+        let destination_art = self
+            .destination
+            .is_some_and(|dimension| world::has_destination_art(canvas, dimension));
+        let loader =
+            if destination_art || self.indicator && !self.fraction.is_some_and(f32::is_finite) {
+                canvas.r(6.4)
+            } else {
+                0.0
+            };
+        Ok([title, detail, loader])
+    }
+
+    /// Reserves a pinned track only when the displayed progress is determinate.
+    fn track_area(&self) -> f32 {
+        if self.indicator && self.fraction.is_some_and(f32::is_finite) {
+            theme::LOADING_PROGRESS_AREA
+        } else {
+            0.0
+        }
+    }
+
+    /// Reserves the pinned Cancel control and its separation from the status text.
+    fn footer_area(&self) -> f32 {
+        if self.cancel.is_some() {
+            theme::LOADING_FOOTER_AREA
+        } else {
+            0.0
+        }
+    }
+}
+
 pub(super) fn join(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -78,6 +123,38 @@ pub(super) fn draw(
     size: [f32; 2],
     progress: &Progress<'_>,
 ) -> Result<(), PaintError> {
+    let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
+    let width = canvas.r(theme::LOADING_WIDTH).min(size[0] - margin * 2.0);
+    let pad = canvas.r(theme::LOADING_PAD).min(width * 0.07);
+    // Non-interactive loading has no scroll input, so its entire status must fit.
+    let scale = if view.is_none() {
+        let status: f32 = progress
+            .status_heights(canvas, width - pad * 2.0, &progress.title.to_uppercase())?
+            .into_iter()
+            .sum();
+        let body = status + canvas.r(progress.track_area() + progress.footer_area());
+        let available = size[1] - margin * 2.0 - pad * 2.0;
+        if body <= available {
+            1.0
+        } else {
+            // Width-clamped padding may stay fixed as the text shrinks; reserve it first.
+            available / (body + canvas.r(theme::EDGE))
+        }
+    } else {
+        let minimum =
+            pad * 2.0 + canvas.r(HEADER5.line + progress.track_area() + progress.footer_area());
+        ((size[1] - margin * 2.0) / minimum).min(1.0)
+    };
+    canvas.with_scale(scale, |canvas| draw_fitted(canvas, view, size, progress))
+}
+
+/// Draws loading status after fitting its fixed chrome to the available height.
+fn draw_fitted(
+    canvas: &mut Canvas<'_>,
+    view: Option<&MenuView>,
+    size: [f32; 2],
+    progress: &Progress<'_>,
+) -> Result<(), PaintError> {
     world::backdrop(canvas, size, progress.stage, progress.destination)?;
     let entrance = canvas.begin_entrance(super::motion::Surface::Loading);
     let margin = canvas.r(2.0).min(size[0] * 0.05).min(size[1] * 0.05);
@@ -85,33 +162,16 @@ pub(super) fn draw(
     let pad = canvas.r(theme::LOADING_PAD).min(width * 0.07);
     let inner = width - pad * 2.0;
     let title = progress.title.to_uppercase();
-    let mut title_height = canvas.measure_height(&title, inner, HEADER5)?;
-    let mut detail_height = if progress.detail.is_empty() {
-        0.0
-    } else {
-        canvas.r(0.8) + canvas.measure_height(progress.detail, inner, CAPTION)?
-    };
+    let [mut title_height, mut detail_height, loader_height] =
+        progress.status_heights(canvas, inner, &title)?;
     let fraction = progress.fraction.filter(|value| value.is_finite());
     let destination_art = progress
         .destination
         .filter(|dimension| world::has_destination_art(canvas, *dimension));
-    let loader_height = if destination_art.is_some() || progress.indicator && fraction.is_none() {
-        canvas.r(6.4)
-    } else {
-        0.0
-    };
     let mut body_height = loader_height + title_height + detail_height;
-    let progress_height = if progress.indicator && fraction.is_some() {
-        canvas.r(theme::LOADING_PROGRESS_AREA)
-    } else {
-        0.0
-    };
-    let footer_height = if progress.cancel.is_some() {
-        canvas.r(theme::LOADING_FOOTER_AREA)
-    } else {
-        0.0
-    };
-    let logo = canvas.title_artwork.filter(|_| size[1] >= canvas.r(32.0));
+    let progress_height = canvas.r(progress.track_area());
+    let footer_height = canvas.r(progress.footer_area());
+    let mut logo = canvas.title_artwork.filter(|_| size[1] >= canvas.r(32.0));
     let logo_size = logo
         .map(|icon| {
             let ratio =
@@ -120,11 +180,19 @@ pub(super) fn draw(
             [w, w / ratio]
         })
         .unwrap_or([0.0; 2]);
-    let logo_height = if logo.is_some() {
+    let mut logo_height = if logo.is_some() {
         logo_size[1] + canvas.r(2.4)
     } else {
         0.0
     };
+    if view.is_none()
+        && pad * 2.0 + body_height + progress_height + footer_height + logo_height
+            > size[1] - margin * 2.0
+    {
+        // Branding yields to status when loading has no way to reveal clipped text.
+        logo = None;
+        logo_height = 0.0;
+    }
     let height = (pad * 2.0 + body_height + progress_height + footer_height)
         .min(size[1] - margin * 2.0 - logo_height);
     let group_top = (size[1] - height - logo_height) * 0.5;
@@ -151,12 +219,8 @@ pub(super) fn draw(
             0.0
         };
     if content_width < inner {
-        title_height = canvas.measure_height(&title, content_width, HEADER5)?;
-        detail_height = if progress.detail.is_empty() {
-            0.0
-        } else {
-            canvas.r(0.8) + canvas.measure_height(progress.detail, content_width, CAPTION)?
-        };
+        [title_height, detail_height, _] =
+            progress.status_heights(canvas, content_width, &title)?;
         body_height = loader_height + title_height + detail_height;
     }
     let max = (body_height - (viewport[3] - viewport[1])).max(0.0);

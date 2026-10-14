@@ -59,6 +59,7 @@ impl ActorStore {
         actor.interaction_traits = interaction_traits;
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
+        self.queue_rocket_launch_audio(runtime_id);
         self.effect_members.update(&self.actors[&runtime_id]);
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
             if self.actors[&runtime_id]

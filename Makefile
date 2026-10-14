@@ -159,7 +159,7 @@ PACKAGE_CARGO_FLAGS ?=
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --features cinnabar/local-mods --bin assetc
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
 	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 

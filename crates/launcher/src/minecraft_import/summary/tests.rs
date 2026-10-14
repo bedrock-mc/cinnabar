@@ -7,14 +7,14 @@ fn every_supported_setting_has_a_category_and_is_counted() {
     let mut rows = Vec::new();
     for mapping in MAPPINGS {
         assert_ne!(
-            category(mapping.destination),
+            category(mapping.destination.name()),
             Category::Other,
-            "{}",
+            "{:?}",
             mapping.destination
         );
         let definition = SETTINGS_OPTIONS
             .iter()
-            .find(|option| option.name == mapping.destination)
+            .find(|option| option.id == mapping.destination)
             .unwrap();
         let raw = match mapping.encoding {
             Encoding::Fraction => "0.5".to_owned(),
@@ -42,7 +42,7 @@ fn every_supported_setting_has_a_category_and_is_counted() {
     assert_eq!(category("full_screen"), Category::Video);
     let summary = parsed.summary();
     for mapping in MAPPINGS {
-        assert!(!summary.contains(mapping.destination));
+        assert!(!summary.contains(mapping.destination.name()));
     }
     assert!(!summary.contains("key."));
     assert!(summary.contains("Audio:"));

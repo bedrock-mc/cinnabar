@@ -91,17 +91,7 @@ pub(super) fn current_target(
     )
     .ok()?;
     let ray_origin = ray.origin().to_array();
-    let block_distance = observed.map(|block| {
-        (0..3)
-            .map(|axis| {
-                (f64::from(block.target.position[axis])
-                    + f64::from(block.target.relative_hit[axis])
-                    - f64::from(ray_origin[axis]))
-                .powi(2)
-            })
-            .sum::<f64>()
-            .sqrt()
-    });
+    let block_distance = observed.map(|block| block.hit_distance());
     let aim = context.aim.as_deref()?;
     let authority = stream.authority();
     let hit = gameplay::melee::pick_actor_by(

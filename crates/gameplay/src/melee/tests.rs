@@ -10,7 +10,8 @@ use protocol::{ActorKind, ActorMetadataValue};
 
 use super::*;
 
-fn actor(
+/// Spawns a pickable actor with optional collision dimensions.
+pub(super) fn actor(
     runtime_id: u64,
     identifier: &str,
     feet: [f32; 3],

@@ -1,12 +1,13 @@
 //! Renderer setup shared by direct and launcher sessions.
 
-use std::{ffi::OsStr, num::NonZeroU32};
+use std::num::NonZeroU32;
+
+mod device;
+mod guarded;
+mod selection;
 
 use bevy::{
-    render::{
-        RenderPlugin,
-        settings::{Backends, RenderCreation, WgpuSettings},
-    },
+    render::settings::WgpuSettings,
     window::{PresentMode, Window, WindowResizeConstraints},
 };
 
@@ -29,58 +30,45 @@ pub(super) fn primary_window(
     }
 }
 
-pub(super) fn render_plugin() -> RenderPlugin {
-    let mut settings = WgpuSettings::default();
-    configure_render_settings(&mut settings);
-    if let Some(backends) = preferred_render_backends(std::env::var_os("WGPU_BACKEND").as_deref()) {
-        settings.backends = Some(backends);
-    }
-    #[cfg(windows)]
-    {
-        static LOG_COMPILER: std::sync::Once = std::sync::Once::new();
-        // Renderer settings are selected before the log plugin is installed.
-        LOG_COMPILER.call_once(|| {
-            eprintln!(
-                "Configured DX12 shader compiler: {:?}",
-                settings.dx12_shader_compiler
-            );
-        });
-    }
-    RenderPlugin {
-        render_creation: RenderCreation::Automatic(Box::new(settings)),
-        ..Default::default()
-    }
+/// Initializes the renderer after winit has supplied the real display connection.
+pub(super) struct RendererSetup {
+    pub data_root: std::path::PathBuf,
+    pub graphics_api_revision: u64,
+    pub video_override: Option<launcher::graphics_backend::Backend>,
 }
 
-/// Applies renderer limits and compiler policy to Bevy's defaults.
-fn configure_render_settings(settings: &mut WgpuSettings) {
-    // Shipping installs use FXC; a DLL in the launch directory must not change that.
-    settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
-    settings.limits.max_storage_buffers_per_shader_stage = settings
-        .limits
-        .max_storage_buffers_per_shader_stage
-        .max(render::required_vertex_storage_buffers());
-}
-
-/// Preserves explicit backend choices; otherwise Windows admits Vulkan before DX12 and Android
-/// admits only Vulkan.
-/// Vulkan uses count-driven GPU culling, with DX12 available as a fallback.
-fn preferred_render_backends(explicit: Option<&OsStr>) -> Option<Backends> {
-    if explicit.is_some() {
-        None
-    } else if cfg!(target_os = "windows") {
-        Some(Backends::VULKAN | Backends::DX12)
-    } else if cfg!(target_os = "android") {
-        // Android's GLES backend lacks the vertex-stage storage buffers the renderer needs.
-        Some(Backends::VULKAN)
-    } else {
-        None
+impl bevy::prelude::Plugin for RendererSetup {
+    /// Keeps GL on the same display as Bevy's windows and installs first-frame recovery.
+    fn build(&self, app: &mut bevy::prelude::App) {
+        let mut settings = WgpuSettings::default();
+        device::configure_render_settings(&mut settings);
+        let renderer = guarded::render_plugin(
+            app,
+            &self.data_root,
+            self.video_override,
+            self.graphics_api_revision,
+            settings,
+        )
+        .unwrap_or_else(|error| panic!("Renderer startup failed: {error:#}"));
+        app.add_plugins(renderer);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn browser_requests_portable_webgpu_device_settings() {
+        let mut settings = WgpuSettings::default();
+        device::configure_render_settings(&mut settings);
+        assert!(matches!(
+            settings.priority,
+            bevy::render::settings::WgpuSettingsPriority::WebGPU
+        ));
+        assert_eq!(settings.backends, Some(wgpu::Backends::BROWSER_WEBGPU));
+    }
 
     #[test]
     fn shader_compiler_does_not_inherit_a_launch_directory_dxc() {
@@ -90,25 +78,11 @@ mod tests {
             },
             ..Default::default()
         };
-        configure_render_settings(&mut settings);
+        device::configure_render_settings(&mut settings);
         assert!(matches!(
             settings.dx12_shader_compiler,
             wgpu::Dx12Compiler::Fxc
         ));
-    }
-
-    #[test]
-    fn windows_admits_vulkan_before_dx12_without_overriding_an_explicit_backend() {
-        use bevy::render::settings::Backends;
-        use std::ffi::OsStr;
-
-        assert_eq!(preferred_render_backends(Some(OsStr::new("dx12"))), None);
-        let expected = if cfg!(target_os = "windows") {
-            Some(Backends::VULKAN | Backends::DX12)
-        } else {
-            cfg!(target_os = "android").then_some(Backends::VULKAN)
-        };
-        assert_eq!(preferred_render_backends(None), expected);
     }
 
     #[test]

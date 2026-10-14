@@ -73,6 +73,7 @@ pub(super) fn resolve_binding(
     let context = ActorTickContext::default();
     let evaluator = Evaluator {
         assets,
+        pack: false,
         layout,
         program: None,
         actor,
@@ -127,26 +128,32 @@ pub(super) fn resolve_binding(
     motion.horse = super::horse::AnimationState::new(random_seed);
     let samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,
+        layout,
         rig_binding,
         geometry_binding,
         &controllers,
     );
     let samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
         assets,
+        layout,
         rig_binding,
         geometry_binding,
         &controllers,
     );
-    let motion_sampling = (actor.is_creeper() || matches!(actor.kind(), ActorKind::Player { .. }))
-        .then(|| {
-            super::render_frame::motion_sampling::MotionSampling::new(
-                assets,
-                rig_binding,
-                geometry_binding,
-                &controllers,
-                &[],
-            )
-        });
+    // Camera rigs keep tick endpoints so camera frames can blend motion.
+    let motion_sampling = (samples_camera_poses
+        || actor.is_creeper()
+        || matches!(actor.kind(), ActorKind::Player { .. }))
+    .then(|| {
+        super::render_frame::motion_sampling::MotionSampling::new(
+            assets,
+            layout,
+            rig_binding,
+            geometry_binding,
+            &controllers,
+            &[],
+        )
+    });
     Some(ActorRigState {
         placement_frame: rig.placement_frame,
         pack: false,
@@ -201,6 +208,7 @@ pub(super) fn resolve_binding(
         samples_camera_poses,
         presentation_expressions: super::render_frame::camera::presentation_expressions(
             assets,
+            layout,
             rig_binding,
             geometry_binding,
         ),
@@ -483,6 +491,7 @@ fn reselect_geometry_with_checkpoint(
     let input = state.history.back().copied()?;
     let evaluator = Evaluator {
         assets,
+        pack: state.pack,
         layout,
         program: None,
         actor,
@@ -548,23 +557,31 @@ fn reselect_geometry_with_checkpoint(
     state.rig = EntityRigId(rig_id);
     state.samples_camera_poses = super::render_frame::camera::needs_camera_sampling(
         assets,
+        layout,
         state.rig_binding,
         selected,
         &controllers,
     );
-    state.presentation_expressions =
-        super::render_frame::camera::presentation_expressions(assets, state.rig_binding, selected);
+    state.presentation_expressions = super::render_frame::camera::presentation_expressions(
+        assets,
+        layout,
+        state.rig_binding,
+        selected,
+    );
     state.samples_swing_poses = super::render_frame::camera::needs_swing_sampling(
         assets,
+        layout,
         state.rig_binding,
         selected,
         &controllers,
     );
-    state.motion_sampling = (actor.is_creeper()
+    state.motion_sampling = (state.samples_camera_poses
+        || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
         super::render_frame::motion_sampling::MotionSampling::new(
             assets,
+            layout,
             state.rig_binding,
             selected,
             &controllers,

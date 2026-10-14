@@ -252,6 +252,7 @@ fn equipped(dye_rgb: Option<u32>, enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                charged_projectile: None,
                 grip: assets::item::grip::builtin_item_grip(ITEM),
                 use_facts: Default::default(),
                 identifier: ITEM.into(),

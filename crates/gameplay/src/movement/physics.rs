@@ -54,11 +54,14 @@ impl MovementEffectSource for NoMovementEffects {
     fn commit_successful_tick(&mut self) {}
 }
 
-pub fn is_transient_collision_unavailability(error: &SimulationError) -> bool {
+/// Keeps missing terrain and bounded-query limits retryable without revoking authority.
+pub fn is_retryable_collision_block(error: &SimulationError) -> bool {
     matches!(
         error,
         SimulationError::World(
-            sim::WorldQueryError::UnloadedChunk(_) | sim::WorldQueryError::UnknownRuntimeId { .. }
+            sim::WorldQueryError::UnloadedChunk(_)
+                | sim::WorldQueryError::UnknownRuntimeId { .. }
+                | sim::WorldQueryError::QueryExtentExceeded
         )
     )
 }
@@ -791,18 +794,19 @@ impl LocalPhysicsController {
                 }
                 Err(error) => {
                     self.modes = previous_modes;
-                    let transient_collision_blocked = matches!(
+                    let retryable_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
-                            if is_transient_collision_unavailability(error)
+                            if is_retryable_collision_block(error)
                     );
-                    if transient_collision_blocked {
+                    if retryable_collision_blocked {
                         // Prediction is transactional: the failed tick did
                         // not mutate state or history. Discard all elapsed
                         // time in this blocked frame instead of retaining a
                         // retry backlog that could become a false overflow
                         // or a large catch-up burst when collision data
-                        // returns. New elapsed time starts a fresh tick.
+                        // returns or motion fits the query limit. New elapsed
+                        // time starts a fresh tick.
                         self.previous_position = state.position;
                         self.eye_offset.finish_interpolation();
                         self.visual_correction.finish_interpolation();

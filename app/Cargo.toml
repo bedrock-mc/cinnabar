@@ -38,8 +38,6 @@ default = ["acceptance"]
 acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
-# Honours CINNABAR_MOD_COMPONENT by running a local Wasmtime component.
-local-mods = ["client-runtime/local-mods", "client-extensions/local-mods", "mod-host/execution", "dep:experience-sdk", "dep:mod-api", "dep:mod-render"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans.
@@ -68,9 +66,9 @@ pack-runtime = { path = "../crates/pack-runtime" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }
-experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"], optional = true }
-mod-api = { path = "../crates/mod-api", optional = true }
-mod-render = { path = "../crates/mod-render", optional = true }
+experience-sdk = { path = "../crates/experience-sdk", default-features = false, features = ["declarations"] }
+mod-api = { path = "../crates/mod-api" }
+mod-render = { path = "../crates/mod-render" }
 block-transform = { path = "../crates/block-transform" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 profiling = { version = "=1.0.18", default-features = false, features = ["profile-with-tracing"], optional = true }
@@ -97,6 +95,7 @@ glam.workspace = true
 crossbeam-channel = "0.5"
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
+far-terrain = { path = "../crates/far-terrain" }
 client-world = { path = "../crates/client-world" }
 actor-animation = { path = "../crates/actor-animation" }
 image.workspace = true
@@ -104,7 +103,7 @@ json-ui = { path = "../crates/json-ui" }
 meshing = { path = "../crates/meshing" }
 oreui = { path = "../crates/oreui" }
 mod-ui = { path = "../crates/mod-ui" }
-mod-host = { path = "../crates/mod-host", default-features = false }
+mod-host = { path = "../crates/mod-host" }
 particles = { path = "../crates/particles" }
 protocol = { path = "../crates/protocol" }
 resource-pack = { path = "../crates/resource-pack" }
@@ -128,6 +127,9 @@ ui-screens = { path = "../crates/ui-screens" }
 wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06"] }
 world = { path = "../crates/world" }
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+wgpu = { workspace = true, features = ["gles"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"

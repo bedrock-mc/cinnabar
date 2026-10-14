@@ -241,7 +241,8 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         },
         WorldEvent::NetworkStackLatency(_) => Footprint {
             local_authority: true,
-            ..Footprint::session(C::CONTROLS)
+            // The reply acknowledges earlier actor positions and collision metadata too.
+            ..Footprint::session(C::CONTROLS.with(C::ACTORS))
         },
         WorldEvent::ActorMotion(motion) if local(motion.actor_runtime_id) => Footprint {
             local_authority: true,

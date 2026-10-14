@@ -1,9 +1,9 @@
 use super::{
     ambient::MusicScheduler,
     engine::{AudioEngine, SoundRequest},
-    settings::AudioCategory,
 };
 
+use assets::audio_category::AudioCategory;
 const MUSIC_TRANSITION_SECONDS: f32 = 3.0;
 
 pub(super) fn drive_music(

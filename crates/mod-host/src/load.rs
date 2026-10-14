@@ -31,6 +31,17 @@ impl ModHost {
         Ok(host)
     }
 
+    /// Rejects oversized bytes, invalid imports and incompatible callbacks without running
+    /// guest code.
+    pub fn validate_component(bytes: &[u8]) -> Result<()> {
+        ensure!(
+            bytes.len() <= MAX_COMPONENT_BYTES,
+            "component exceeds byte limit"
+        );
+        let (engine, _ticker) = execution::engine()?;
+        Instance::check(&engine, bytes)
+    }
+
     /// Loads the package at `dir` with what its manifest asks for granted, plus `extra`: the
     /// developer profile of a package selected on its own.
     pub fn load_package(dir: &Path, extra: ModGrants) -> Result<Self> {
@@ -138,6 +149,7 @@ impl ModHost {
             grants,
             settings_writer,
             settings_seed,
+            pending_events: Vec::new(),
             package: None,
             layout: None,
             session: Arc::default(),
@@ -177,6 +189,9 @@ impl ModHost {
         if self.attempted == digest {
             return Ok(false);
         }
+        if !self.instance.can_reload() {
+            return Ok(false);
+        }
         self.attempted = digest;
         let (bytes, declared) = match &package {
             Some(package) => (&package.component, declared(package)),
@@ -186,19 +201,22 @@ impl ModHost {
             || self.grants.clone(),
             |package| self.authorized_grants.with_manifest(&package.manifest),
         );
-        let mut candidate = Instance::new(
-            &self.engine,
-            bytes,
-            grants.clone(),
-            self.instance.settings().to_owned(),
-            declared,
-        )
-        .context("reload rejected; previous mod retained")?;
+        let mut candidate = self
+            .instance
+            .replacement(
+                &self.engine,
+                bytes,
+                grants.clone(),
+                self.instance.settings().to_owned(),
+                declared,
+            )
+            .context("reload rejected; previous mod retained")?;
         if let Some(bundle) = self.instance.panel_bundle() {
             candidate.set_panel_bundle(bundle)?;
         }
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
+        self.pending_events.clear();
         self.grants = grants;
         if let Some(package) = package {
             self.package = Some(loaded(package));
@@ -289,7 +307,7 @@ pub(crate) fn read_settings(path: &Path, grants: &ModGrants) -> Result<String> {
     if !grants.settings {
         return Ok(String::new());
     }
-    let path = path.with_extension("settings.json");
+    let path = crate::settings_companion(path);
     let bytes = match local_files::read(&path, mod_api::MAX_SETTINGS_BYTES) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),

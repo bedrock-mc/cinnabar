@@ -12,6 +12,7 @@ use crate::{
     ServerDisconnectEvent, ServerTransferEvent, SessionError, WorldEvent, into_world_event,
 };
 
+mod blob_prefetch;
 mod boundary;
 mod client_data;
 mod game_data;
@@ -52,6 +53,7 @@ pub struct PlaySession {
     blob_cache: Option<BlobCacheResolver>,
     packet_id_trace: PacketIdTraceState,
     pending_blob_cache_delivery: Option<PendingBlobCacheDelivery>,
+    pending_blob_prefetch: Option<(Packet, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
     resource_packs: ResourcePackHandoff,
@@ -116,6 +118,7 @@ impl PlaySession {
             blob_cache: cache.map(BlobCacheResolver::new),
             packet_id_trace: PacketIdTraceState::default(),
             pending_blob_cache_delivery: None,
+            pending_blob_prefetch: None,
             server_disconnect: None,
             server_transfer: None,
             resource_packs,
@@ -356,6 +359,7 @@ impl PlaySession {
             resolver.reset_pending();
         }
         self.pending_blob_cache_delivery = None;
+        self.pending_blob_prefetch = None;
     }
 
     /// Arms a one-shot selective transaction rotation for the next raw
@@ -467,6 +471,11 @@ impl PlaySession {
                 continue;
             }
 
+            if self.pending_blob_prefetch.is_some() {
+                self.finish_blob_prefetch().await?;
+                continue;
+            }
+
             let raw = match self.transport.recv().await {
                 Ok(Inbound::Packet(raw)) => raw,
                 Ok(Inbound::Terminal(terminal)) => {
@@ -541,33 +550,7 @@ impl PlaySession {
                 }
 
                 if is_cached_world_packet(&packet) {
-                    let mut status = match self
-                        .blob_cache
-                        .as_mut()
-                        .expect("enabled path owns a resolver")
-                        .accept_cached_packet_with_size(packet, packet_bytes)
-                    {
-                        Ok(status) => status,
-                        Err(error) => return Err(error.into()),
-                    };
-                    let recovery = status.take_recovery();
-                    let admission = status.take_admission();
-                    let mut events = VecDeque::with_capacity(2);
-                    if let Some(admission) = admission {
-                        events.push_back(WorldEvent::SubChunkReplyAdmission(admission));
-                    }
-                    if let Some(recovery) = recovery {
-                        events.push_back(WorldEvent::ChunkResync(recovery));
-                    }
-                    self.pending_blob_cache_delivery = Some(PendingBlobCacheDelivery {
-                        status_packets: status
-                            .into_packets()
-                            .into_iter()
-                            .map(Packet::new)
-                            .collect(),
-                        status_send_in_flight: false,
-                        events,
-                    });
+                    self.pending_blob_prefetch = Some((packet, packet_bytes));
                     continue;
                 }
 

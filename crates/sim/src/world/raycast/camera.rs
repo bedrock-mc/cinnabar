@@ -1,8 +1,8 @@
 //! Borrowed visibility queries share interaction geometry without allocating hit provenance.
 
 use super::{
-    Candidate, TraversalState, candidate_precedes, checked_offset, ray_box, ray_union_box,
-    strictly_precedes, validate_ray,
+    Candidate, TraversalState, candidate_precedes, checked_offset, crossing_order, ray_box,
+    ray_union_box, validate_ray,
 };
 use crate::{Aabb, PaletteWorld, Vec3, WorldQueryError};
 use std::borrow::Cow;
@@ -32,8 +32,10 @@ impl PaletteWorld<'_> {
         direction: Vec3,
         max_distance: f64,
     ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
+        let origin = origin.rounded();
+        let max_distance = f64::from(max_distance as f32);
         let direction = validate_ray(origin, direction, max_distance)?;
-        let mut state = TraversalState::new(origin, direction)?;
+        let mut state = TraversalState::new(origin, direction, max_distance)?;
         let mut best = None;
         let mut bounds = Aabb::new(Vec3::ZERO, Vec3::ZERO);
         loop {
@@ -48,8 +50,8 @@ impl PaletteWorld<'_> {
             let next = state.next_crossing();
             if best
                 .as_ref()
-                .is_some_and(|hit: &Candidate| strictly_precedes(hit.distance, next))
-                || next > max_distance
+                .is_some_and(|hit: &Candidate| crossing_order(hit.fraction, next).is_lt())
+                || next > 1.0
             {
                 break;
             }
@@ -167,7 +169,7 @@ impl PaletteWorld<'_> {
                 continue;
             }
             let shape = shape.translated(physics.shape_offset(block));
-            let Some((distance, face, point)) = ray_union_box(
+            let Some((fraction, distance, face, point)) = ray_union_box(
                 origin,
                 direction,
                 max_distance,
@@ -177,17 +179,20 @@ impl PaletteWorld<'_> {
             ) else {
                 continue;
             };
+            let local = point - offset;
             let candidate = Candidate {
                 block_pos: block,
                 runtime_id,
                 shape_index,
                 distance,
+                fraction,
                 face,
                 hit_local: Vec3::new(
-                    (point.x - offset.x).clamp(0.0, 1.0),
-                    (point.y - offset.y).clamp(0.0, 1.0),
-                    (point.z - offset.z).clamp(0.0, 1.0),
+                    local.x.clamp(0.0, 1.0),
+                    local.y.clamp(0.0, 1.0),
+                    local.z.clamp(0.0, 1.0),
                 ),
+                hit_world: point,
             };
             if best
                 .as_ref()

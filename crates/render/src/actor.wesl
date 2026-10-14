@@ -34,17 +34,30 @@ struct BoneMatrix {
 @group(0) @binding(13) var glint_sampler: sampler;
 @group(0) @binding(14) var item_glint: texture_2d<f32>;
 
+@if(ACTOR_MOTION)
+struct MotionInstance {
+    current_clip_from_actor: mat4x4<f32>,
+    previous_clip_from_actor: mat4x4<f32>,
+    pose: vec4<u32>,
+}
+@if(ACTOR_MOTION)
+@group(2) @binding(0) var<storage, read> actor_motion: array<MotionInstance>;
+@if(ACTOR_MOTION)
+@group(2) @binding(1) var<storage, read> rendered_previous_bones: array<BoneMatrix>;
+
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     // xy samples the artwork; zw carries the item sprite or face origin.
     @location(0) uv: vec4<f32>,
-    // Texture layer, geometry validity and optional glint instance index.
-    @location(1) @interpolate(flat) skin_info: vec3<u32>,
+    // Texture layer, geometry validity, optional glint instance index and UV wrapping.
+    @location(1) @interpolate(flat) skin_info: vec4<u32>,
+    @if(!ACTOR_MOTION)
     @location(2) world_normal: vec3<f32>,
+    @if(ACTOR_MOTION)
+    @location(2) current_clip: vec4<f32>,
     @location(3) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
-    @location(6) @interpolate(flat) uv_wrap: u32,
     @location(7) @interpolate(flat) light: u32,
     @location(8) world_position: vec3<f32>,
     @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
@@ -53,6 +66,8 @@ struct VertexOutput {
     @location(12) @interpolate(flat) dissolve_multiplier: f32,
     @location(13) @interpolate(flat) surface: u32,
     @location(14) back_native_lighting: vec3<f32>,
+    @if(ACTOR_MOTION)
+    @location(6) previous_clip: vec4<f32>,
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -127,12 +142,17 @@ fn actor_vertex(
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
     let uv_scale = vec2(word_f32(instance_base + 22u), word_f32(instance_base + 23u));
-    out.uv_wrap = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
+    out.skin_info.w = select(0u, 1u, any(uv_offset != vec2(0.0)) || any(uv_scale != vec2(1.0)));
     if (vertex_index >= span.vertex_count) {
         out.position = vec4(2.0, 2.0, 2.0, 1.0);
+        @if(ACTOR_MOTION)
+        out.current_clip = out.position;
+        @if(ACTOR_MOTION)
+        out.previous_clip = out.position;
         out.uv = vec4(0.0);
         out.back_uv = vec2(0.0);
         out.skin_info.y = 0u;
+        @if(!ACTOR_MOTION)
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
@@ -185,16 +205,28 @@ fn actor_vertex(
         1.0,
     );
     out.position = view.clip_from_world * world;
+    @if(ACTOR_MOTION)
+    {
+        let motion = actor_motion[instance_index];
+        out.current_clip = motion.current_clip_from_actor * vec4(posed, 1.0);
+        out.previous_clip = out.current_clip;
+        if (motion.pose.y != 0u) {
+            let previous_rendered = transform_point(rendered_previous_bones[motion.pose.x + bone_index], local);
+            out.previous_clip = motion.previous_clip_from_actor * vec4(previous_rendered, 1.0);
+        }
+    }
     out.world_position = world.xyz;
-    out.world_normal = normalize(vec3(
+    let world_normal = normalize(vec3(
         dot(instance_row(instance_base, 0u).xyz, posed_normal),
         dot(instance_row(instance_base, 1u).xyz, posed_normal),
         dot(instance_row(instance_base, 2u).xyz, posed_normal),
     ));
-    out.native_lighting = actor_lighting(out.light, out.world_normal, out.overlay.a) * light_color_multiplier;
+    @if(!ACTOR_MOTION)
+    out.world_normal = world_normal;
+    out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;
     out.back_native_lighting = out.native_lighting;
     if (out.surface != 0u) {
-        out.back_native_lighting = actor_lighting(out.light, -out.world_normal, out.overlay.a) * light_color_multiplier;
+        out.back_native_lighting = actor_lighting(out.light, -world_normal, out.overlay.a) * light_color_multiplier;
     }
     out.skin_info.y = 1u;
     return out;
@@ -230,8 +262,11 @@ repeat_uv: bool) -> CutoutSample {
     }
 }
 
-@fragment
-fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
+    var uv = select(input.back_uv, input.uv.xy, front);
+    // Gradients precede per-pixel rejection and remain valid inside material branches.
+    let uv_dx = dpdx(uv);
+    let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
     let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
@@ -249,13 +284,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (!front && one_sided_material && input.surface == 0u) {
         discard;
     }
-    var uv = select(input.back_uv, input.uv.xy, front);
-    @if(ALPHA_TO_COVERAGE)
-    let uv_dx = dpdx(uv);
-    @if(ALPHA_TO_COVERAGE)
-    let uv_dy = dpdy(uv);
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
-    if (input.uv_wrap != 0u) {
+    if (input.skin_info.w != 0u) {
         uv = fract(uv);
     }
     // Ordinary native actor materials compose gamma RGB. Undo Bevy's texture
@@ -263,7 +293,7 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
     @if(ALPHA_TO_COVERAGE)
-    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.uv_wrap != 0u);
+    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u);
     @if(ALPHA_TO_COVERAGE)
     let coverage = cutout.coverage;
     @if(ALPHA_TO_COVERAGE)
@@ -302,8 +332,8 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     if (multitexture_material) {
         // Native llama:entity_multitexture has three samplers, no ALPHA_TEST and no blend.
         // Coverage never comes from the base alpha; overlay alpha weights RGB instead.
-        let tex1 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.x)));
-        let tex2 = tint_to_gamma(textureSample(skins, skin_sampler, uv, i32(input.multitexture_layers.y)));
+        let tex1 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.x), uv_dx, uv_dy));
+        let tex2 = tint_to_gamma(textureSampleGrad(skins, skin_sampler, uv, i32(input.multitexture_layers.y), uv_dx, uv_dy));
         color = vec4(mix(mix(color.rgb, tex1.rgb, tex1.a), tex2.rgb, tex2.a), color.a);
     }
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
@@ -344,4 +374,27 @@ fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @l
     return fogged_gamma;
     @if(!ACTOR_GAMMA_BLEND)
     return tint_to_linear(fogged_gamma);
+}
+
+@fragment
+fn actor_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    return actor_colour(input, front);
+}
+
+@if(ACTOR_MOTION)
+// Both frames retain local detail by projecting their actor roots relative to their cameras.
+fn actor_motion_velocity(input: VertexOutput) -> vec2<f32> {
+    var velocity = vec2(0.0);
+    if (input.previous_clip.w > 0.00001 && input.current_clip.w > 0.00001) {
+        velocity = (input.current_clip.xy / input.current_clip.w - input.previous_clip.xy / input.previous_clip.w) * vec2(0.5, -0.5);
+    }
+    return velocity;
+}
+
+@if(ACTOR_MOTION)
+@fragment
+fn actor_motion_fragment(input: VertexOutput, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // The same artwork and discard rules retain cutouts and multisample alpha coverage.
+    let colour = actor_colour(input, front);
+    return vec4(actor_motion_velocity(input), 1.0, colour.a);
 }

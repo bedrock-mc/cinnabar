@@ -123,7 +123,10 @@ impl WorldAuthority {
         }
     }
     fn publish_actor_audio(&mut self) {
-        for event in self.actors.take_synchronized_audio() {
+        for mut event in self.actors.take_synchronized_audio() {
+            if event.client_generated {
+                event.dimension_epoch = self.form_dimension_epoch;
+            }
             self.push_committed_audio(event);
         }
     }

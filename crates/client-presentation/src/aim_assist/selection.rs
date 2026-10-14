@@ -37,7 +37,7 @@ impl AimAssistFrustum {
             up,
             half_angle_tangent: [view_angle[1], view_angle[0]].map(|angle| {
                 let radians = f64::from(angle.to_radians() * 0.5);
-                (sim::minecraft_sin(radians) / sim::minecraft_cos(radians)) as f32
+                sim::minecraft_sin(radians) as f32 / sim::minecraft_cos(radians) as f32
             }),
             distance_squared: distance * distance,
         })

@@ -34,6 +34,9 @@ impl EquipmentRuntime {
         off_hand: bool,
         layers: &mut Vec<EquipmentPresentation>,
     ) -> bool {
+        if self.uses_native_item_mesh(&item.identifier) {
+            return false;
+        }
         let Some(hand) = hand else {
             return false;
         };
