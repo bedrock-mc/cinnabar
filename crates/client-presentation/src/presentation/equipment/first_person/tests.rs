@@ -3,7 +3,9 @@ use bevy::math::Quat;
 
 #[test]
 fn sword_pack_resolution_preserves_first_and_third_person_placement_in_both_modes() {
-    use crate::presentation::equipment::display::first_person_display_for_profile;
+    use crate::presentation::equipment::display::{
+        FirstPersonHand, first_person_display_for_profile,
+    };
     use render_model::equipment::held_sprite_display;
     use render_model::java_animation::{self as java, JavaHand, JavaHeldItem, JavaItemMesh};
 
