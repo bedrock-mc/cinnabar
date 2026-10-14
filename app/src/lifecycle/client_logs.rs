@@ -48,11 +48,15 @@ fn session_header() -> String {
     )
 }
 
-/// Writes a crash folder for each panic or native fault, flushing the client log around it.
+/// Captures every panic and native fault, flushing the client log around it; `monitor` starts
+/// the crash monitor, without which reports are written in-process.
 ///
 /// When raw stderr is not captured, the default hook's panic text never reaches the client
 /// log, so it is recorded there with the report's backtrace.
-pub(super) fn install_panic_hook(layout: &InstallLayout) {
+pub(super) fn install_crash_capture(
+    layout: &InstallLayout,
+    monitor: Option<&launcher_host::lifecycle::crash::monitor::MonitorCommand>,
+) {
     let identity = crash_report::report::Identity {
         session_id: session::id().to_owned(),
         started_at_ms: session::started_at_ms(),
@@ -60,10 +64,8 @@ pub(super) fn install_panic_hook(layout: &InstallLayout) {
         commit: session::COMMIT.to_owned(),
         build_profile: session::BUILD_PROFILE.to_owned(),
     };
-    launcher_host::lifecycle::crash::install_panic_hook(
-        layout,
-        identity,
-        |panic| {
+    let hooks = launcher_host::lifecycle::crash::LogHooks {
+        log_panic: |panic| {
             let console = diagnostics::console::console();
             if !console.captures_raw_stderr() {
                 console.write(
@@ -72,9 +74,10 @@ pub(super) fn install_panic_hook(layout: &InstallLayout) {
                 );
             }
         },
-        || {
+        flush: || {
             diagnostics::console::flush_before_exit();
         },
-        diagnostics::console::drain_raw_stderr_on_signal,
-    );
+        drain_on_signal: diagnostics::console::drain_raw_stderr_on_signal,
+    };
+    launcher_host::lifecycle::crash::install(layout, identity, hooks, monitor);
 }

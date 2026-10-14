@@ -5,11 +5,12 @@ use bevy::{app::PluginGroupBuilder, prelude::App};
 use diagnostics::logging::CallerLayer;
 
 /// Which process installs logging: the client adds the build's profiler layers, the
-/// first-run setup window does not.
+/// first-run setup window and the crash monitor do not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Process {
     Client,
     Setup,
+    Monitor,
 }
 
 /// Keeps wgpu's encoding and submission scopes for Tracy.
@@ -33,7 +34,7 @@ fn base_filter() -> String {
 pub(crate) fn install(process: Process) {
     let layers = match process {
         Process::Client => profiler_layers(),
-        Process::Setup => Vec::new(),
+        Process::Setup | Process::Monitor => Vec::new(),
     };
     let installed = diagnostics::logging::install(diagnostics::logging::Options {
         base_filter: base_filter(),

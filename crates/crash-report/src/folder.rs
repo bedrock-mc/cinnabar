@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     report::{Report, SCHEMA},
-    utc,
+    section, utc,
 };
 
 /// Crash folders kept on disk, so a crash loop cannot fill it.
@@ -31,6 +31,38 @@ const MAX_COLLISIONS: usize = 1024;
 pub struct Logs {
     pub client: Vec<u8>,
     pub core: Vec<u8>,
+}
+
+/// Where a crashing session's logs live.
+#[derive(Clone, Copy, Debug)]
+pub struct LogSources<'a> {
+    pub client: &'a Path,
+    pub core: &'a Path,
+    /// Unix milliseconds when the session began; `core.log` sections from before it belong to
+    /// an earlier session and are left out.
+    pub started_at_ms: u64,
+}
+
+impl Logs {
+    /// Reads the crashing session's sections of both logs; an unreadable log gives an empty
+    /// section.
+    pub fn read(sources: &LogSources<'_>) -> Self {
+        Self {
+            client: section::read(
+                sources.client,
+                section::CLIENT_SESSION_START,
+                section::MAX_SECTION_BYTES,
+            )
+            .unwrap_or_default(),
+            core: section::read_since(
+                sources.core,
+                section::CORE_SESSION_START,
+                section::MAX_SECTION_BYTES,
+                sources.started_at_ms,
+            )
+            .unwrap_or_default(),
+        }
+    }
 }
 
 /// Names the folder for a crash at `now_ms` (Unix milliseconds); `id` keeps `[0-9a-z-]` only.
@@ -59,12 +91,19 @@ pub fn created_at_ms(folder: &Path) -> Option<u64> {
     utc::parse(stamp)
 }
 
-/// Writes `report` and `logs` into a new folder named by `now_ms` and the report's session id.
+/// Writes `report` and `logs` into a new folder named by `now_ms` and the report's session id,
+/// moving the minidump at `dump`, when given, in as [`DUMP_FILE`].
 ///
 /// Prunes first so the directory holds at most [`MAX_REPORTS`] folders afterwards. A folder
 /// that already exists gets a `-N` suffix, so simultaneous writers never share one. Every file
 /// is synced before this returns its folder.
-pub fn write(crash_dir: &Path, report: &Report, logs: &Logs, now_ms: u64) -> io::Result<PathBuf> {
+pub fn write(
+    crash_dir: &Path,
+    report: &Report,
+    logs: &Logs,
+    dump: Option<&Path>,
+    now_ms: u64,
+) -> io::Result<PathBuf> {
     prune(crash_dir, MAX_REPORTS - 1);
     fs::create_dir_all(crash_dir)?;
     let base = name(now_ms, &report.session_id);
@@ -75,7 +114,19 @@ pub fn write(crash_dir: &Path, report: &Report, logs: &Logs, now_ms: u64) -> io:
     )?;
     write_new(&folder.join(CLIENT_LOG_FILE), &logs.client)?;
     write_new(&folder.join(CORE_LOG_FILE), &logs.core)?;
+    if let Some(dump) = dump {
+        move_file(dump, &folder.join(DUMP_FILE))?;
+    }
     Ok(folder)
+}
+
+/// Renames `from` to `to`, copying across volumes.
+fn move_file(from: &Path, to: &Path) -> io::Result<()> {
+    if fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    fs::copy(from, to)?;
+    fs::remove_file(from)
 }
 
 /// Reads a folder's report, rejecting other schema versions.
@@ -189,7 +240,10 @@ mod tests {
             client: b"CLIENT_SESSION_START\nclient\n".to_vec(),
             core: b"CORE_SESSION_START\ncore\n".to_vec(),
         };
-        let folder = write(&crash_dir, &report("boom"), &logs, NOW_MS).unwrap();
+        fs::create_dir_all(&crash_dir).unwrap();
+        let dump = crash_dir.join("pending.dmp");
+        fs::write(&dump, b"MDMP").unwrap();
+        let folder = write(&crash_dir, &report("boom"), &logs, Some(&dump), NOW_MS).unwrap();
         assert_eq!(
             folder.file_name().unwrap(),
             "20251014-120000-0123456789abcdef"
@@ -198,7 +252,36 @@ mod tests {
         assert_eq!(read(&folder).unwrap(), report("boom"));
         assert_eq!(fs::read(folder.join(CLIENT_LOG_FILE)).unwrap(), logs.client);
         assert_eq!(fs::read(folder.join(CORE_LOG_FILE)).unwrap(), logs.core);
+        assert_eq!(fs::read(folder.join(DUMP_FILE)).unwrap(), b"MDMP");
+        assert!(!dump.exists());
         assert_eq!(list(&crash_dir), [folder]);
+    }
+
+    #[test]
+    fn logs_read_this_sessions_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("client.log");
+        let core = dir.path().join("core.log");
+        fs::write(
+            &client,
+            "CLIENT_SESSION_START session=old\nold\nCLIENT_SESSION_START session=new\nnew\n",
+        )
+        .unwrap();
+        fs::write(&core, "CORE_SESSION_START timestamp_ms=5\nearlier core\n").unwrap();
+        let logs = Logs::read(&LogSources {
+            client: &client,
+            core: &core,
+            started_at_ms: 10,
+        });
+        assert_eq!(logs.client, b"CLIENT_SESSION_START session=new\nnew\n");
+        assert!(logs.core.is_empty());
+        let missing = dir.path().join("missing.log");
+        let logs = Logs::read(&LogSources {
+            client: &missing,
+            core: &missing,
+            started_at_ms: 0,
+        });
+        assert!(logs.client.is_empty() && logs.core.is_empty());
     }
 
     #[test]
@@ -214,6 +297,7 @@ mod tests {
                             target,
                             &report(&format!("crash {index}")),
                             &Logs::default(),
+                            None,
                             NOW_MS,
                         )
                         .unwrap()
@@ -267,6 +351,7 @@ mod tests {
                 dir.path(),
                 &report("loop"),
                 &Logs::default(),
+                None,
                 NOW_MS + second * 1000,
             )
             .unwrap();
@@ -279,7 +364,7 @@ mod tests {
     #[test]
     fn read_rejects_other_schema_versions() {
         let dir = tempfile::tempdir().unwrap();
-        let folder = write(dir.path(), &report("boom"), &Logs::default(), NOW_MS).unwrap();
+        let folder = write(dir.path(), &report("boom"), &Logs::default(), None, NOW_MS).unwrap();
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(folder.join(REPORT_FILE)).unwrap()).unwrap();
         value["schema"] = 2.into();

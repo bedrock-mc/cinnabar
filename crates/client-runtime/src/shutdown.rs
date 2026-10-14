@@ -38,6 +38,7 @@ impl ShutdownWatchdog {
     pub fn process(timeout: Duration) -> Self {
         Self::new(timeout, |code| {
             launcher_host::lifecycle::children::stop_all(std::time::Duration::ZERO);
+            launcher_host::lifecycle::crash::announce_exit(code);
             std::process::exit(code)
         })
     }

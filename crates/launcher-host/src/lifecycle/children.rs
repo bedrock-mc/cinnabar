@@ -36,6 +36,8 @@ pub enum StopOutcome {
 struct Tracked {
     child: Mutex<Child>,
     grace: Duration,
+    /// Exit sweeps leave it running: it watches this process and ends itself afterwards.
+    outlives: bool,
 }
 
 type Entry = Arc<Tracked>;
@@ -93,6 +95,7 @@ impl Children {
         let entry = Arc::new(Tracked {
             child: Mutex::new(child),
             grace,
+            outlives: false,
         });
         let mut live = lock(&self.live);
         live.entries
@@ -107,8 +110,8 @@ impl Children {
     }
 
     /// Spawns and registers under the same lock that revokes shutdown authority; exit sweeps wait
-    /// `grace` for the child before signalling it.
-    fn spawn(&self, command: &mut Command, grace: Duration) -> io::Result<Spawned> {
+    /// `grace` for the child before signalling it, or skip an `outlives` child entirely.
+    fn spawn(&self, command: &mut Command, grace: Duration, outlives: bool) -> io::Result<Spawned> {
         let mut live = lock(&self.live);
         if live.shutting_down {
             return Err(io::Error::other("client is shutting down"));
@@ -120,6 +123,7 @@ impl Children {
         let entry = Arc::new(Tracked {
             child: Mutex::new(command.spawn()?),
             grace,
+            outlives,
         });
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
@@ -143,8 +147,8 @@ impl Children {
         ExitHookGuard { children: self, id }
     }
 
-    /// Ends every tracked child: run the exit hooks, close stdin and wait `graceful`, then
-    /// SIGTERM, then SIGKILL.
+    /// Ends every tracked child except those that outlive this process: run the exit hooks,
+    /// close stdin and wait `graceful`, then SIGTERM, then SIGKILL.
     pub fn stop_all(&self, graceful: Duration) {
         let hooks: Vec<ExitHook> = {
             let mut live = lock(&self.live);
@@ -156,7 +160,13 @@ impl Children {
             hook();
         }
         let mut live = lock(&self.live);
-        escalate(&live.entries, graceful);
+        let stopping: Vec<Entry> = live
+            .entries
+            .iter()
+            .filter(|entry| !entry.outlives)
+            .cloned()
+            .collect();
+        escalate(&stopping, graceful);
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
     }
@@ -183,14 +193,20 @@ impl From<Child> for Spawned {
 /// Spawns `command` as a tracked child that knows to exit with this process.
 pub fn spawn(command: &mut Command) -> io::Result<Spawned> {
     command.env(PARENT_ENV, std::process::id().to_string());
-    CHILDREN.spawn(command, Duration::ZERO)
+    CHILDREN.spawn(command, Duration::ZERO, false)
 }
 
 /// [`spawn`] for a child that saves after its stop request: exit sweeps wait up to `save_budget`
 /// for it to exit before signalling it.
 pub fn spawn_saving(command: &mut Command, save_budget: Duration) -> io::Result<Spawned> {
     command.env(PARENT_ENV, std::process::id().to_string());
-    CHILDREN.spawn(command, save_budget)
+    CHILDREN.spawn(command, save_budget, false)
+}
+
+/// Spawns a tracked watcher that exit sweeps never stop, such as the crash monitor, which must
+/// see this process end and then report it; the child must end itself once this process is gone.
+pub fn spawn_outliving(command: &mut Command) -> io::Result<Spawned> {
+    CHILDREN.spawn(command, Duration::ZERO, true)
 }
 
 /// Marks every open socket close-on-exec before a spawn, so no child holds a listener or
@@ -255,6 +271,7 @@ pub fn install_exit_hooks(flush_logs: fn()) {
         crate::renderer_startup::termination::cancel_on_termination();
         stop_all(EXIT_GRACE);
         flush_logs();
+        crate::lifecycle::crash::announce_exit(130);
         std::process::exit(130);
     });
     if let Err(error) = installed {
@@ -263,8 +280,7 @@ pub fn install_exit_hooks(flush_logs: fn()) {
 }
 
 impl Spawned {
-    /// Returns the tracked child PID for process-lifetime fixtures.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The child's process id.
     pub fn id(&self) -> u32 {
         lock(&self.0.child).id()
     }

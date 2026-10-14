@@ -143,6 +143,11 @@ client MCP `log_filter_set` and `log_filter_get` tools change and report the sam
 runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per line to
 `logs/client.jsonl`.
 
+Every client also starts a `--crash-monitor` process that exits with it and logs to
+`logs/crash-monitor.log`. A crash, abort or kill opens the crash window once the client is gone;
+set `CINNABAR_CRASH_UI=0` for scripted and headless sessions so a crash only writes its
+`crashes/` folder, and `CINNABAR_FULL_DUMP=1` for a full-memory `crash.dmp` (Windows).
+
 | Category | Covers |
 | --- | --- |
 | `net` | Protocol, web transport and client network runtime |

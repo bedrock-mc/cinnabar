@@ -496,9 +496,21 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
   If no non-excluded candidate succeeds, startup clears allowed exclusions for one more attempt pass.
   Startup log boundaries flush the file directly without waiting for terminal output.
-- The driver blocklist has one data source and bounded numeric version rules. Native Windows
-  exception capture and Unix fatal-signal capture retain local renderer context and normal OS
-  crash handling.
+- The driver blocklist has one data source and bounded numeric version rules. Crash capture
+  attributes the renderer attempt pushed to the crash monitor and keeps normal OS crash handling.
+- Diagnostics Phase 3, crash monitor and window: the client re-runs itself as
+  `--crash-monitor` before startup; `crash-handler` faults and panics request a `minidumper`
+  dump, and the monitor writes the folder (dump, report, log sections read after the client
+  died), prunes to 8 and shows the crash window (shared `bootstrap-ui` window stack) or a native
+  dialog. Game state (renderer attempt, session phase, server kind, dimension, server packs) is
+  pushed on change; exits without a dump report `kind: abort`; GUI-build `main` failures show
+  `kind: startup`. In-process folders remain the fallback before connection and on Android.
+  Verified locally on Windows: panic, access violation, stack overflow, abort (fail-fast) and
+  external kill each give one folder of the right kind (dump where native/panic), clean exit gives
+  none and the monitor exits with its client. Incomplete: Linux and macOS fixtures run only in
+  CI; the window and native dialog are not visually verified on macOS or Linux; dumps are not
+  yet walked with `minidump-stackwalk`; next-launch notices for unshown reports and the optional
+  user comment remain open.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel

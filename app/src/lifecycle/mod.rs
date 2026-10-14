@@ -24,6 +24,24 @@ pub fn run_first_run_setup() -> i32 {
     code
 }
 
+/// The `--crash-monitor` child process: logs to its own `crash-monitor.log`, then watches the
+/// client until it exits and reports a crash; returns its exit code.
+pub fn run_crash_monitor() -> i32 {
+    crate::app::logging::install(crate::app::logging::Process::Monitor);
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+    let Some(args) = crash_monitor::Args::parse(&args) else {
+        diagnostics::log_stderr!(
+            "usage: cinnabar {} <ipc name> <parent pid> <crash dir>",
+            crash::MONITOR_FLAG
+        );
+        return 2;
+    };
+    let layout = InstallLayout::discover().ok();
+    let code = crash_monitor::run(&args, layout.as_ref());
+    diagnostics::console::flush_before_exit();
+    code
+}
+
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
@@ -31,9 +49,15 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     crate::app::logging::install(crate::app::logging::Process::Client);
     launched_at();
     let layout = InstallLayout::discover().context("resolve install layout")?;
-    client_logs::capture(&layout);
-    client_logs::install_panic_hook(&layout);
     crash::prune_reports(&layout);
+    // The monitor starts first, so it can report even a failure of the rest of startup.
+    let monitor = if cfg!(target_os = "android") {
+        None
+    } else {
+        crash::monitor::MonitorCommand::current_exe().ok()
+    };
+    client_logs::install_crash_capture(&layout, monitor.as_ref());
+    client_logs::capture(&layout);
     if !layout.is_installed() {
         return Ok(true);
     }
@@ -51,6 +75,22 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
         return Ok(false);
     }
     Ok(true)
+}
+
+/// Shows why `main` failed when this build has no console for it: the crash monitor shows it
+/// in the crash window once this process exits, else a native alert does.
+pub fn show_startup_failure(error: &anyhow::Error) {
+    if !launcher_host::desktop::gui_subsystem() {
+        return;
+    }
+    let text = format!("{error:#}");
+    if !crash::report_startup_failure(&text) {
+        use launcher_host::native_dialog::{NativePrompter, Prompter};
+        NativePrompter.alert(
+            &format!("{} couldn't start", launcher::PRODUCT_NAME),
+            &text,
+        );
+    }
 }
 
 /// Acknowledges startup once the renderer confirms several completed primary-window frames.

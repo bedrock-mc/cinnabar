@@ -5,6 +5,18 @@ pub mod dbus;
 #[cfg(windows)]
 pub mod windows;
 
+/// Whether this executable has no console for its errors: a Windows GUI-subsystem build.
+pub fn gui_subsystem() -> bool {
+    #[cfg(windows)]
+    {
+        windows::gui_subsystem()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
 /// Opens a trusted or user-confirmed web URL on a worker thread.
 pub fn open_url(url: &str) {
     let url = url.to_owned();

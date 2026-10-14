@@ -83,7 +83,7 @@ fn client_logging_child() {
         assert!(diagnostics::console::flush_before_exit());
         return;
     }
-    client_logs::install_panic_hook(&logging_layout(&root));
+    client_logs::install_crash_capture(&logging_layout(&root), None);
     assert!(particle_carrier::load_optional_carrier(&root.join("missing-world")).is_none());
     panic!("{PANIC_MARKER}");
 }

@@ -131,15 +131,26 @@ The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri
 code and URL; no packaging-specific UI exists.
 
 ## Crash reports
-Each panic or native fault writes one folder, `crashes/<UTC yyyymmdd-hhmmss>-<session id>/`, under
-the user data directory. It holds `report.json` (schema 1: kind, message, thread, backtrace, release,
-commit, build profile, OS, architecture, GPU and driver, uptime, session ID and renderer attempt;
-native faults add a `native` object), plus `client.log` and `core.log` with this session's part of each
-log, up to 1 MiB apiece. Folders from fatal Unix signals end in `-signal` and are dated when the
-handler last prepared them, since it uses only async-signal-safe calls. The newest 8 folders are
-kept: startup and each panic or Windows fault prune before writing, and startup also deletes the
-older `crash-*.json` reports. `devtool diag` bundles the latest session's folders after redaction.
-Nothing is uploaded.
+The client starts a crash monitor first: the same executable re-run as `cinnabar --crash-monitor
+<ipc name> <parent pid> <crash dir>`, which logs to `logs/crash-monitor.log` and exits with the
+client. A panic or native fault only asks it for a minidump; once the client is gone the monitor
+writes one folder, `crashes/<UTC yyyymmdd-hhmmss>-<session id>/`, under the user data directory and
+opens the crash window (Restart, Copy report, Open folder, Close, Join our Discord). The folder
+holds `crash.dmp` (thread stacks, thread and module lists), `report.json` (schema 1: kind, message,
+thread, backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session
+ID, renderer attempt and game state — session phase, server kind without its address, dimension,
+server pack count; native faults add a `native` object), plus `client.log` and `core.log` with this
+session's part of each log, up to 1 MiB apiece, read after the client died so the panic text and
+drained stderr are included. A client that dies without a dump (a fail-fast abort such as
+`0xC0000409`, an out-of-memory or external kill) gets a `kind: abort` report from its exit status;
+a clean exit (code 0, or 130 after Ctrl+C) gets none. When `main` fails in a Windows GUI build,
+such as on a missing carrier, the window shows the error as `Cinnabar couldn't start`
+(`kind: startup`). Without a GPU for the window the monitor uses a native dialog with the same
+actions. Until the monitor is connected, or where it cannot run (Android), the client writes the
+folder itself; folders from fatal Unix signals then end in `-signal`. The newest 8 folders are kept.
+`CINNABAR_CRASH_UI=0` suppresses the window and `CINNABAR_FULL_DUMP=1` writes full-memory dumps
+(Windows). `devtool diag` bundles the latest session's folders after redaction. Nothing is
+uploaded.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and

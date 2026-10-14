@@ -955,8 +955,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.init_resource::<client_state::PresenceObservation>()
         .add_systems(
             Last,
-            crate::shell_adapters::publish_presence_observation
-                .before(client_state::ShellFrameSet::Presence),
+            (
+                crate::shell_adapters::publish_presence_observation
+                    .before(client_state::ShellFrameSet::Presence),
+                crate::shell_adapters::publish_crash_state,
+            ),
         );
     session::configure_finish_system(&mut app);
 

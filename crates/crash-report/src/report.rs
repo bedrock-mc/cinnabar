@@ -21,6 +21,8 @@ pub enum Kind {
     Hang,
     /// The Go core process exited abnormally.
     Core,
+    /// The client failed from `main` before the game started, such as on a missing carrier.
+    Startup,
 }
 
 /// The reporting thread; `id` is an opaque platform- or runtime-defined identifier.
@@ -42,7 +44,7 @@ impl Thread {
 }
 
 /// Build and session identity of the reporting process, fixed for its lifetime.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
     /// Process session id, also printed in the session's log header.
     pub session_id: String,
@@ -193,6 +195,7 @@ mod tests {
             (Kind::Abort, "abort"),
             (Kind::Hang, "hang"),
             (Kind::Core, "core"),
+            (Kind::Startup, "startup"),
         ] {
             assert_eq!(serde_json::to_value(kind).unwrap(), name);
         }

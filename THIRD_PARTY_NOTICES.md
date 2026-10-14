@@ -380,6 +380,18 @@ SOFTWARE.
   adds `tracing-chrome` (https://github.com/thoren-d/tracing-chrome), MIT; release builds do
   not include it.
 
+## Crash capture and minidumps
+
+- Source: https://github.com/EmbarkStudios/crash-handling and
+  https://github.com/rust-minidump/minidump-writer
+- Dependencies: `crash-handler`, `crash-context`, `minidumper` and `minidump-writer`, pinned in
+  `Cargo.lock`; the client installs the handler and the `--crash-monitor` process writes dumps.
+  Tests add `sadness-generator` from the same repository.
+- License: MIT OR Apache-2.0; Cinnabar distributes them under the MIT option.
+- Copyright: Copyright (c) 2022 Embark Studios; rust-minidump contributors.
+- `minidump` (https://github.com/rust-minidump/rust-minidump), MIT, reads the fault location
+  from each dump for the crash window.
+
 ## Gophertunnel numeric contracts
 
 The protocol ID fixture uses numeric constants from Gophertunnel, under the MIT license.

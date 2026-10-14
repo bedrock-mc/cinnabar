@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 use super::*;
 use crate::renderer_startup::{Stage, StartupGuard};
+use fallback::write_panic;
 use launcher::graphics_backend::Backend;
 
 const NOW_MS: u64 = 1_760_443_200_000;
@@ -148,7 +149,7 @@ fn renderer_context_fixture() {
         return;
     };
     let root = PathBuf::from(root);
-    assert!(renderer_context(&root).is_none());
+    assert!(state::renderer(&root).is_none());
     let mut guard = StartupGuard::open(&root).unwrap();
     guard
         .begin(Attempt {
@@ -190,7 +191,7 @@ fn completed_renderer_context_survives_another_clients_saved_choice() {
             .backend,
         Backend::Gl
     );
-    assert_eq!(renderer_context(dir.path()), Some(attempt.clone()));
+    assert_eq!(state::renderer(dir.path()), Some(attempt.clone()));
     let context = context(&layout(dir.path()), identity());
     let folder = write_panic(
         &context,
@@ -208,7 +209,7 @@ fn completed_renderer_context_survives_another_clients_saved_choice() {
     attempt.stage = Stage::CreatingDevice;
     retry.begin(attempt).unwrap();
     retry.failed().unwrap();
-    assert!(renderer_context(dir.path()).is_none());
+    assert!(state::renderer(dir.path()).is_none());
 }
 
 /// Appends the hook's panic text to the fixture's client log, as the app's file log would.
@@ -225,7 +226,14 @@ fn log_fixture_panic(panic: &str) {
     }
 }
 
-/// Installs the real hook in a disposable process and panics on a named thread.
+const NO_HOOKS: LogHooks = LogHooks {
+    log_panic: |_| {},
+    flush: || {},
+    drain_on_signal: || {},
+};
+
+/// Installs the real hook without a monitor in a disposable process and panics on a named
+/// thread.
 #[test]
 fn panic_hook_fixture() {
     let Some(root) = std::env::var_os("CINNABAR_PANIC_HOOK_FIXTURE") else {
@@ -234,7 +242,11 @@ fn panic_hook_fixture() {
     let root = PathBuf::from(root);
     let mut identity = identity();
     identity.started_at_ms = 0;
-    install_panic_hook(&layout(&root), identity, log_fixture_panic, || {}, || {});
+    let hooks = LogHooks {
+        log_panic: log_fixture_panic,
+        ..NO_HOOKS
+    };
+    install(&layout(&root), identity, hooks, None);
     let worker = std::thread::Builder::new()
         .name("crash-fixture".into())
         .spawn(|| panic!("fixture panic"))
@@ -243,7 +255,7 @@ fn panic_hook_fixture() {
 }
 
 #[test]
-fn installed_hook_writes_one_folder_per_panic_with_the_client_log() {
+fn without_a_monitor_the_hook_writes_the_panic_folder_with_the_client_log() {
     let dir = tempfile::tempdir().unwrap();
     write_logs(dir.path());
     let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -309,4 +321,192 @@ fn startup_prune_removes_legacy_reports_and_keeps_folders() {
         .map(|entry| entry.unwrap().path())
         .collect();
     assert_eq!(remaining, [folder]);
+}
+
+/// Linux and Android only: macOS crash capture uses Mach exception ports, whose forwarding of
+/// a raised `SIGABRT` differs.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod signals {
+    use std::sync::atomic::AtomicPtr;
+
+    use super::*;
+
+    const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nearlier core run\nCORE_SESSION_START timestamp_ms=2\ncore line\n";
+    static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+    /// Checks that chaining retains the kernel's fault address, cause and machine context.
+    unsafe extern "C" fn previous_siginfo_handler(
+        signal: i32,
+        info: *mut libc::siginfo_t,
+        context: *mut libc::c_void,
+    ) {
+        let original = signal == libc::SIGSEGV
+            && !info.is_null()
+            && !context.is_null()
+            && unsafe {
+                (*info).si_code > 0 && (*info).si_addr() == FAULT_ADDRESS.load(Ordering::Relaxed)
+            };
+        unsafe {
+            libc::_exit(if original { 77 } else { 78 });
+        }
+    }
+
+    /// Exits through the handler installed before capture, proving it remains in control.
+    unsafe extern "C" fn previous_handler(_signal: i32) {
+        unsafe {
+            libc::_exit(77);
+        }
+    }
+
+    #[test]
+    fn signal_fixture() {
+        let Some(root) = std::env::var_os("CINNABAR_SIGNAL_FIXTURE") else {
+            return;
+        };
+        let root = PathBuf::from(root);
+        let hardware = std::env::var_os("CINNABAR_SIGNAL_HARDWARE").is_some();
+        let software_fault = std::env::var_os("CINNABAR_SIGNAL_SOFTWARE_FAULT").is_some();
+        let signal = if hardware || software_fault {
+            libc::SIGSEGV
+        } else {
+            libc::SIGABRT
+        };
+        // SAFETY: This test runs in a disposable subprocess; disable core files and install its handler.
+        unsafe {
+            let limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            libc::setrlimit(libc::RLIMIT_CORE, &limit);
+            if std::env::var_os("CINNABAR_SIGNAL_CHAIN").is_some() {
+                if hardware {
+                    let mut action: libc::sigaction = std::mem::zeroed();
+                    action.sa_sigaction =
+                        previous_siginfo_handler as *const () as libc::sighandler_t;
+                    action.sa_flags = libc::SA_SIGINFO;
+                    libc::sigaction(libc::SIGSEGV, &action, std::ptr::null_mut());
+                } else {
+                    libc::signal(signal, previous_handler as *const () as libc::sighandler_t);
+                }
+            } else {
+                libc::signal(signal, libc::SIG_DFL);
+            }
+        }
+        let mut identity = identity();
+        identity.started_at_ms = 0;
+        install(&layout(&root), identity, NO_HOOKS, None);
+        let attempt = Attempt {
+            backend: Backend::Metal,
+            adapter: None,
+            stage: Stage::CreatingDevice,
+            explicit: false,
+        };
+        state::set_renderer(&root, Some(&attempt));
+        unsafe {
+            if hardware {
+                let page_size = libc::sysconf(libc::_SC_PAGESIZE);
+                assert!(page_size > 0);
+                let address = libc::mmap(
+                    std::ptr::null_mut(),
+                    page_size as usize,
+                    libc::PROT_NONE,
+                    libc::MAP_PRIVATE | libc::MAP_ANON,
+                    -1,
+                    0,
+                );
+                assert_ne!(address, libc::MAP_FAILED);
+                FAULT_ADDRESS.store(address, Ordering::Relaxed);
+                std::ptr::read_volatile(address.cast::<u8>());
+            } else {
+                libc::raise(signal);
+            }
+        }
+        panic!("fatal signal unexpectedly returned");
+    }
+
+    #[test]
+    fn without_a_monitor_signals_write_a_folder_and_preserve_previous_handling() {
+        use std::{os::unix::process::ExitStatusExt, process::Command};
+        for (chain, hardware, software_fault) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let logs = directory.path().join("logs");
+            fs::create_dir_all(&logs).unwrap();
+            fs::write(logs.join("client.log"), CLIENT_LOG).unwrap();
+            fs::write(logs.join("core.log"), CORE_LOG).unwrap();
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "lifecycle::crash::tests::signals::signal_fixture",
+                    "--nocapture",
+                ])
+                .env("CINNABAR_SIGNAL_FIXTURE", directory.path());
+            if chain {
+                command.env("CINNABAR_SIGNAL_CHAIN", "1");
+            }
+            if hardware {
+                command.env("CINNABAR_SIGNAL_HARDWARE", "1");
+            }
+            if software_fault {
+                command.env("CINNABAR_SIGNAL_SOFTWARE_FAULT", "1");
+            }
+            let signal = if hardware || software_fault {
+                libc::SIGSEGV
+            } else {
+                libc::SIGABRT
+            };
+            let mut child = command.spawn().unwrap();
+            let mut status = None;
+            let complete = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
+                status = child.try_wait().unwrap();
+                status.is_some()
+            });
+            if !complete {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            assert!(complete, "signal fixture must terminate");
+            let status = status.unwrap();
+            if chain {
+                assert_eq!(status.code(), Some(77));
+            } else {
+                assert_eq!(status.signal(), Some(signal));
+            }
+            let folders = folder::list(&directory.path().join("crashes"));
+            assert_eq!(folders.len(), 1);
+            assert!(
+                folders[0]
+                    .to_str()
+                    .unwrap()
+                    .ends_with("-0123456789abcdef-signal")
+            );
+            let report = folder::read(&folders[0]).unwrap();
+            assert_eq!(report.kind, Kind::Native);
+            assert_eq!(report.session_id, "0123456789abcdef");
+            assert!(report.uptime_ms > 0);
+            assert_eq!(report.thread.name, None);
+            assert!(report.thread.id.parse::<u64>().is_ok());
+            let native = report.native.unwrap();
+            assert_eq!(native["signal"], signal);
+            if hardware {
+                assert!(native["signal_code"].as_i64().unwrap() > 0);
+                assert!(native["fault_address"].as_u64().unwrap() > 0);
+            }
+            assert_eq!(report.renderer.unwrap()["stage"], "creating_device");
+            assert_eq!(
+                fs::read_to_string(folders[0].join(folder::CLIENT_LOG_FILE)).unwrap(),
+                "CLIENT_SESSION_START session=0123456789abcdef\nclient line\n"
+            );
+            assert_eq!(
+                fs::read_to_string(folders[0].join(folder::CORE_LOG_FILE)).unwrap(),
+                "CORE_SESSION_START timestamp_ms=2\ncore line\n"
+            );
+        }
+    }
 }

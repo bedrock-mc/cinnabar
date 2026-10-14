@@ -65,6 +65,8 @@ client-extensions = { path = "../crates/client-extensions" }
 client-state = { path = "../crates/client-state" }
 client-audio = { path = "../crates/client-audio" }
 pack-runtime = { path = "../crates/pack-runtime" }
+bootstrap-ui = { path = "../crates/bootstrap-ui" }
+crash-monitor = { path = "../crates/crash-monitor" }
 first-run = { path = "../crates/first-run" }
 launcher-host = { path = "../crates/launcher-host" }
 bridge = { path = "../crates/bridge" }

@@ -1,27 +1,52 @@
-//! Local panic and native crash reports written as crash folders; nothing is uploaded.
+//! Crash capture for the client; nothing is uploaded.
+//!
+//! The client starts an out-of-process monitor (`<client> --crash-monitor`) first. Faults and
+//! panics only ask it for a minidump; it writes the crash folder once this process is gone and
+//! tells the player. Until it is connected, or without one, the process writes the folder
+//! itself.
 
-#[cfg(windows)]
-mod native;
-#[cfg(any(windows, test))]
-mod native_address;
-#[cfg(unix)]
-pub(crate) mod unix;
+mod fallback;
+mod handler;
+pub mod monitor;
+pub mod protocol;
+pub mod state;
 
 use std::{
     backtrace::Backtrace,
     path::PathBuf,
-    sync::OnceLock,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use crash_report::{
-    folder,
+    folder::{self, LogSources},
     report::{Identity, Kind, Report, Thread},
-    section,
 };
 use launcher::{graphics_backend::Adapter, install_layout::InstallLayout};
 
 use crate::renderer_startup::Attempt;
+
+/// Runs the executable as the crash monitor: `<client> --crash-monitor <ipc name> <parent pid>
+/// <crash dir>`.
+pub const MONITOR_FLAG: &str = "--crash-monitor";
+/// `1` makes dumps hold all process memory, for developers; Windows only.
+pub const FULL_DUMP_ENV: &str = "CINNABAR_FULL_DUMP";
+/// How long a failing `main` waits for the monitor to show its error.
+const STARTUP_FAILURE_WAIT: Duration = Duration::from_secs(5);
+
+/// The caller's logging, which crash capture flushes so the crash's log section is complete.
+#[derive(Clone, Copy)]
+pub struct LogHooks {
+    /// Records the panic message and its backtrace in the client log.
+    pub log_panic: fn(&str),
+    /// Writes queued log lines.
+    pub flush: fn(),
+    /// Async-signal-safe: moves raw stderr still in its capture pipe into the client log.
+    pub drain_on_signal: fn(),
+}
 
 /// Where this process writes crash folders and which logs and identity they record.
 struct Context {
@@ -30,54 +55,122 @@ struct Context {
     core_log: PathBuf,
     data_root: PathBuf,
     identity: Identity,
+    full_dump: bool,
+}
+
+impl Context {
+    fn log_sources(&self) -> LogSources<'_> {
+        LogSources {
+            client: &self.client_log,
+            core: &self.core_log,
+            started_at_ms: self.identity.started_at_ms,
+        }
+    }
 }
 
 static CONTEXT: OnceLock<Context> = OnceLock::new();
+/// One report per process: the first panic or fault claims it.
+static REPORTED: AtomicBool = AtomicBool::new(false);
 
-/// Writes a crash folder for every panic and native fault of this process.
+/// Captures every panic and native fault of this process.
 ///
-/// Each panic captures one backtrace, hands `log_panic` the message and that backtrace, and
-/// flushes the caller's logs before copying this session's log sections; the previous hook
-/// then runs as before. On Unix a fatal signal first calls `drain_on_signal`, which must be
-/// async-signal-safe, so output still buffered for the client log reaches it before its
-/// section is copied. `identity` names the process in every report; a second call keeps the
-/// first identity.
-pub fn install_panic_hook(
+/// Starts the monitor from `monitor` when given, attaches the native crash handler and wraps the
+/// panic hook. Each panic captures one backtrace, hands `hooks.log_panic` the message and that
+/// backtrace and flushes; the first panic or fault then asks the monitor for a dump, or writes
+/// its folder in-process without one. `identity` names the process in every report. Later calls
+/// change nothing.
+pub fn install(
     layout: &InstallLayout,
     identity: Identity,
-    log_panic: fn(&str),
-    flush_logs: fn(),
-    drain_on_signal: fn(),
+    hooks: LogHooks,
+    monitor: Option<&monitor::MonitorCommand>,
 ) {
-    let context = configure(layout, identity);
-    #[cfg(windows)]
-    {
-        // The Windows filter runs outside signal restrictions and flushes the logs instead.
-        let _ = drain_on_signal;
-        native::install(context, flush_logs);
+    let mut installed = false;
+    let context = CONTEXT.get_or_init(|| {
+        installed = true;
+        context(layout, identity)
+    });
+    if !installed {
+        return;
     }
+    handler::install(context, hooks);
     #[cfg(unix)]
-    unix::install(context, drain_on_signal);
+    {
+        fallback::prepare(context);
+        announce_exit_on_return();
+    }
+    if let Some(command) = monitor {
+        monitor::start(command, &context.crash_dir, hello(context));
+    }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let message = info.to_string();
         let backtrace = Backtrace::force_capture().to_string();
-        log_panic(&format!("{message}\n{backtrace}\n"));
+        (hooks.log_panic)(&format!("{message}\n{backtrace}\n"));
         // Queued lines must reach `client.log` before its section is copied.
-        flush_logs();
-        let _ = write_panic(context, message, Thread::current(), backtrace, now_ms());
+        (hooks.flush)();
+        if !REPORTED.swap(true, Ordering::AcqRel) {
+            let thread = Thread::current();
+            let now_ms = now_ms();
+            if !report_panic(context, &message, &thread, &backtrace, now_ms) {
+                let _ = fallback::write_panic(context, message, thread, backtrace, now_ms);
+            }
+        }
         previous(info);
-        flush_logs();
+        (hooks.flush)();
     }));
+}
+
+/// Hands a panic to the monitor and dumps the panicking thread; false without a monitor.
+fn report_panic(
+    context: &Context,
+    message: &str,
+    thread: &Thread,
+    backtrace: &str,
+    now_ms: u64,
+) -> bool {
+    let panic = protocol::Panic {
+        message: message.to_owned(),
+        thread: thread.clone(),
+        backtrace: backtrace.to_owned(),
+        uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
+    };
+    let sent = serde_json::to_vec(&panic).is_ok_and(|panic| monitor::send(protocol::PANIC, &panic));
+    if sent {
+        handler::dump_this_thread();
+    }
+    sent
+}
+
+/// Tells the monitor this process is about to exit with `code` on purpose, so it reports
+/// nothing.
+pub fn announce_exit(code: i32) {
+    monitor::send(protocol::EXIT, &code.to_le_bytes());
+}
+
+/// Hands the error `main` failed with to the monitor, which shows it once this process exits;
+/// false when no monitor is connected, so the caller must show it itself.
+pub fn report_startup_failure(error: &str) -> bool {
+    monitor::wait_for_connection(STARTUP_FAILURE_WAIT)
+        && monitor::send(protocol::STARTUP_FAILURE, error.as_bytes())
+}
+
+/// Any other `exit()` or return from `main` is deliberate too; only signals and aborts bypass
+/// this.
+#[cfg(unix)]
+fn announce_exit_on_return() {
+    extern "C" fn announce() {
+        announce_exit(i32::MIN);
+    }
+    // SAFETY: `announce` has the C ABI and only sends on an established socket.
+    unsafe {
+        libc::atexit(announce);
+    }
 }
 
 /// Drops legacy report files and the oldest crash folders beyond the bound.
 pub fn prune_reports(layout: &InstallLayout) {
     folder::prune(&layout.crash_dir(), folder::MAX_REPORTS);
-}
-
-fn configure(layout: &InstallLayout, identity: Identity) -> &'static Context {
-    CONTEXT.get_or_init(|| context(layout, identity))
 }
 
 fn context(layout: &InstallLayout, identity: Identity) -> Context {
@@ -87,23 +180,73 @@ fn context(layout: &InstallLayout, identity: Identity) -> Context {
         core_log: layout.log_dir().join("core.log"),
         data_root: layout.user_data_root.clone(),
         identity,
+        full_dump: std::env::var_os(FULL_DUMP_ENV).is_some_and(|value| value == "1"),
     }
 }
 
-/// Starts a report for this process, attributing it to `attempt` and its GPU.
+/// Introduces this client to its monitor.
+fn hello(context: &Context) -> protocol::Hello {
+    protocol::Hello {
+        identity: context.identity.clone(),
+        client_log: context.client_log.clone(),
+        core_log: context.core_log.clone(),
+        restart: protocol::Restart {
+            program: std::env::current_exe().unwrap_or_default(),
+            args: std::env::args_os().skip(1).collect(),
+            env_remove: vec![update_installer::startup::STARTUP_ENV.to_owned()],
+        },
+        full_dump: context.full_dump,
+    }
+}
+
+/// Pushes the current state to the monitor, or prepares the in-process report without one.
+fn state_changed() {
+    let Some(context) = CONTEXT.get() else {
+        return;
+    };
+    if monitor::connection().is_some() {
+        if let Ok(state) = serde_json::to_vec(&snapshot(context)) {
+            monitor::send(protocol::STATE, &state);
+        }
+    } else {
+        #[cfg(unix)]
+        fallback::prepare(context);
+    }
+}
+
+/// This process's renderer attempt and game state, as reports record them.
+fn snapshot(context: &Context) -> protocol::State {
+    state_of(state::renderer(&context.data_root), state::game())
+}
+
+/// [`snapshot`] without waiting on another thread.
+#[cfg(windows)]
+fn try_snapshot(context: &Context) -> Option<protocol::State> {
+    state::try_snapshot(&context.data_root).map(|(attempt, game)| state_of(attempt, game))
+}
+
+fn state_of(attempt: Option<Attempt>, game: state::GameState) -> protocol::State {
+    let adapter = attempt
+        .as_ref()
+        .and_then(|attempt| attempt.adapter.as_ref());
+    protocol::State {
+        gpu: adapter.map(|adapter| adapter.name.clone()),
+        driver: adapter.and_then(driver),
+        renderer: attempt.and_then(|attempt| serde_json::to_value(attempt).ok()),
+        game_state: game.entries(),
+    }
+}
+
+/// Starts a report for this process with `state`.
 fn report(
     context: &Context,
     kind: Kind,
     message: String,
-    attempt: Option<&Attempt>,
+    state: &protocol::State,
     now_ms: u64,
 ) -> Report {
     let mut report = Report::new(kind, message, &context.identity, now_ms);
-    if let Some(adapter) = attempt.and_then(|attempt| attempt.adapter.as_ref()) {
-        report.gpu = Some(adapter.name.clone());
-        report.driver = driver(adapter);
-    }
-    report.renderer = attempt.and_then(|attempt| serde_json::to_value(attempt).ok());
+    state.apply_to(&mut report);
     report
 }
 
@@ -119,45 +262,6 @@ fn driver(adapter: &Adapter) -> Option<String> {
     .filter(|part| !part.is_empty())
     .collect();
     (!parts.is_empty()).then(|| parts.join(" "))
-}
-
-/// Writes `report` with this session's client and core log sections beside it.
-fn write(context: &Context, report: &Report, now_ms: u64) -> std::io::Result<PathBuf> {
-    let logs = folder::Logs {
-        client: section::read(
-            &context.client_log,
-            section::CLIENT_SESSION_START,
-            section::MAX_SECTION_BYTES,
-        )
-        .unwrap_or_default(),
-        core: section::read_since(
-            &context.core_log,
-            section::CORE_SESSION_START,
-            section::MAX_SECTION_BYTES,
-            context.identity.started_at_ms,
-        )
-        .unwrap_or_default(),
-    };
-    folder::write(&context.crash_dir, report, &logs, now_ms)
-}
-
-fn write_panic(
-    context: &Context,
-    message: String,
-    thread: Thread,
-    backtrace: String,
-    now_ms: u64,
-) -> std::io::Result<PathBuf> {
-    let attempt = renderer_context(&context.data_root);
-    let mut report = report(context, Kind::Panic, message, attempt.as_ref(), now_ms);
-    report.thread = thread;
-    report.backtrace = backtrace;
-    write(context, &report, now_ms)
-}
-
-/// Attributes a crash only to a renderer used by this process, never another client's saved choice.
-fn renderer_context(data_root: &std::path::Path) -> Option<Attempt> {
-    crate::renderer_startup::context::current(data_root)
 }
 
 /// Unix milliseconds now; crash handlers are the edge that reads the clock.

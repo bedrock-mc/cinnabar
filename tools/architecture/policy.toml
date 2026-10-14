@@ -395,7 +395,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "bootstrap-ui", "crash-monitor", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -794,6 +794,18 @@ literal = "CINNABAR_STAGE_PROFILE_FRAMES"
 kind = "environment_variable"
 producer = "crates/diagnostics/src/markers.rs"
 consumer = "app/src/app.rs"
+
+[[markers]]
+literal = "CINNABAR_CRASH_UI"
+kind = "environment_variable"
+producer = "crates/crash-monitor/src/run.rs"
+consumer = "crates/crash-monitor/src/run.rs"
+
+[[markers]]
+literal = "CINNABAR_FULL_DUMP"
+kind = "environment_variable"
+producer = "crates/launcher-host/src/lifecycle/crash.rs"
+consumer = "crates/launcher-host/src/lifecycle/crash.rs"
 
 [[markers]]
 literal = "CINNABAR_WORLD_SERVICE"
@@ -1273,7 +1285,21 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "first-run"
 path = "crates/first-run"
-allowed_dependencies = ["assets", "diagnostics", "launcher", "launcher-host", "render-model", "semantic-input", "test-time", "ui", "gilrs"]
+allowed_dependencies = ["assets", "bootstrap-ui", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
+# The pre-game window stack (winit, wgpu, CPU-drawn OreUI) the setup and crash windows share.
+[[crates]]
+name = "bootstrap-ui"
+path = "crates/bootstrap-ui"
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
+
+# The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
+[[crates]]
+name = "crash-monitor"
+path = "crates/crash-monitor"
+allowed_dependencies = ["bootstrap-ui", "crash-report", "diagnostics", "launcher", "launcher-host", "render-model", "test-time", "ui", "gilrs"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # Environment reads accepting the pre-rename `RUST_MCBE_` spellings for one release.
