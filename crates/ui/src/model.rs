@@ -773,9 +773,23 @@ impl UiTree {
 
     /// The `(batch, vertex, index)` capacities this tree's draw list reserves, within limits.
     fn draw_budget(&self) -> Result<(usize, usize, usize), UiError> {
+        Self::visual_budget(self.nodes.values().map(|node| &node.visual))
+    }
+
+    /// Checks a complete frame's visual reservations without allocating a tree or draw list.
+    pub fn check_visual_budget<'a>(
+        visuals: impl IntoIterator<Item = &'a UiVisual>,
+    ) -> Result<(), UiError> {
+        Self::visual_budget(visuals).map(|_| ())
+    }
+
+    /// Uses the same reservation contract for prospective visuals and installed tree nodes.
+    fn visual_budget<'a>(
+        visuals: impl IntoIterator<Item = &'a UiVisual>,
+    ) -> Result<(usize, usize, usize), UiError> {
         let mut total = DrawCounts::default();
-        for node in self.nodes.values() {
-            total = total.add(DrawCounts::of(&node.visual)?)?;
+        for visual in visuals {
+            total = total.add(DrawCounts::of(visual)?)?;
         }
         total.budget()
     }

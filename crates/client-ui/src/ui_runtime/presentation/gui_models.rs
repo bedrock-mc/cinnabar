@@ -347,9 +347,9 @@ impl UiPresentationRuntime {
         let preview = self.player_preview_icon.map(icon_key);
         replace_model_icons(
             nodes,
-            preview,
+            None,
             &self.gui_models.faded_thumbnails,
-            || self.gui_player_mesh(),
+            || None,
             |key| {
                 self.gui_models
                     .models
@@ -357,9 +357,49 @@ impl UiPresentationRuntime {
                     .or_else(|| self.session_icons.models.get(key))
             },
         );
+        let is_preview = |visual: &UiVisual| match visual {
+            UiVisual::Sprite {
+                texture_page, uv, ..
+            }
+            | UiVisual::GlintSprite {
+                texture_page, uv, ..
+            } => preview == Some((*texture_page, *uv)),
+            _ => false,
+        };
+        if !nodes.iter().any(|node| is_preview(node.visual())) {
+            return;
+        }
+        let fits = |mesh: &Arc<UiMesh>| {
+            let visual = UiVisual::Mesh(Arc::clone(mesh));
+            ui::UiTree::check_visual_budget(nodes.iter().map(|node| {
+                if is_preview(node.visual()) {
+                    &visual
+                } else {
+                    node.visual()
+                }
+            }))
+            .is_ok()
+        };
+        let player = self.gui_player_mesh().filter(&fits).or_else(|| {
+            [[false, true], [true, false], [false; 2]]
+                .into_iter()
+                .find_map(|hands| self.gui_player_mesh_with_held(hands).filter(&fits))
+        });
+        replace_model_icons(
+            nodes,
+            preview,
+            &self.gui_models.faded_thumbnails,
+            || player,
+            |_| None,
+        );
     }
 
     fn gui_player_mesh(&self) -> Option<Arc<UiMesh>> {
+        self.gui_player_mesh_with_held([true; 2])
+    }
+
+    /// Omits held geometry when it would exhaust the surrounding inventory or HUD frame.
+    fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
         let skin = self.gui_models.skin.as_ref()?;
         let [width, height] = skin.dimensions();
         let skin = IconRef {
@@ -378,7 +418,11 @@ impl UiPresentationRuntime {
                 })
                 .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
         });
-        let held = self.player_preview_gear.hands.each_ref().map(|hand| {
+        let held = std::array::from_fn(|index| {
+            let hand = &self.player_preview_gear.hands[index];
+            if !include_held[index] {
+                return None;
+            }
             let hand = hand.as_ref()?;
             let (identifier, metadata) = Self::item_icon_key(
                 &hand.identifier,
