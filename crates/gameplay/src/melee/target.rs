@@ -77,15 +77,10 @@ pub fn pick_actor_by<'a, Boxes>(
 where
     Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
 {
-    let length = direction
-        .into_iter()
-        .map(|axis| f64::from(axis).powi(2))
-        .sum::<f64>()
-        .sqrt();
-    if !length.is_finite() || length == 0.0 || !reach.is_finite() || reach < 0.0 {
+    if !reach.is_finite() || reach < 0.0 {
         return None;
     }
-    let direction = direction.map(|axis| (f64::from(axis) / length) as f32);
+    let direction = sim::normalize_direction(direction)?;
     let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))

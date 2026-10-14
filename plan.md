@@ -6785,6 +6785,14 @@ end-to-end verification. Terrain availability during asynchronous chunk ingestio
 and native-origin rounding also remain unverified. These
 changes do not close the combat parity gate.
 
+Block rays now normalize, traverse and clip in f32 against rounded world endpoints.
+Block-local clicks, placement obstruction and body-facing decisions round before
+comparison. Actor picks share the normalization boundary. Traversal limits and
+nearest-hit decisions use segment fractions so endpoint rounding cannot change
+their units. Incomplete: native block tie/union rules, camera-direction generation,
+and runtime witnesses still need verification; these precision fixes do not close
+the interaction parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid

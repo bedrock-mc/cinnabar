@@ -13,6 +13,7 @@ impl PaletteWorld<'_> {
         origin: Vec3,
         direction: Vec3,
     ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let origin = origin.rounded();
         let direction = validate_ray(origin, direction, BLOCK_USE_SUPPORT_DEPTH)?;
         if direction.y as f32 >= BLOCK_USE_SUPPORT_MAX_Y {
             return Ok(None);

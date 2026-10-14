@@ -243,6 +243,11 @@ argument completion, and live visual acceptance remain incomplete.
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Block and actor rays share float normalization. Block traversal and clipping use
+rounded float segments; placement bounds and click coordinates stay in float
+precision. CI must verify the new rounding regressions. Block tie/union rules,
+camera-direction generation and runtime witnesses remain incomplete.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |
