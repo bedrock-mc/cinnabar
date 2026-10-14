@@ -1,13 +1,12 @@
 //! Tile velocities bound the actor footprint search without a full-resolution neighbourhood scan.
 
-use super::{MSAA_SHADER, SHADER, history::ExposureUniform};
+use super::{MSAA_SHADER, SHADER, history::ExposureUniform, shader::TILE_SIZE};
 use bevy::{
     prelude::*,
     render::{render_resource::*, renderer::RenderDevice},
 };
 use std::mem::size_of;
 
-pub(super) const TILE_SIZE: u32 = 48;
 pub(super) const FORMAT: TextureFormat = TextureFormat::Rg16Float;
 
 /// Retains the reduced velocity texture and its source binding for one enabled view.

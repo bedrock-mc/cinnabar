@@ -739,6 +739,10 @@ these changes do not close the movement, camera, or actor parity gates.
   absence identities and replay snapshots. Missing sections in partially received
   columns still wait for authoritative data. Streaming-boundary server, input and
   rendered acceptance remain incomplete; this does not close creative-flight parity.
+- The flight double-tap counts presses from the per-tick `JumpDown`/`Jumping`
+  pair the server replays, every ability update overwrites local flight, flight
+  persists on the ground, and only the double-tap sends `StartFlying`/`StopFlying`.
+  The flying-on-ground lift-off nudge is not modelled; creative-flight parity stays open.
 - All movement modes sample block effects at body contact instead of the swept
   volume; post-move effects use the inset destination body, and solid collision
   still checks the full move. Query limits retain physics authority without

@@ -7,6 +7,7 @@ mod chat;
 mod death;
 mod events;
 mod forms;
+mod inventory_layout;
 mod inventory_send;
 mod inventory_transaction;
 mod leniency;

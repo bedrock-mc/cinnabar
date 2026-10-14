@@ -3,14 +3,13 @@ use protocol::{StackRequestAction, StackRequestContainer, StackRequestSlot};
 use super::{Cell, ContainerIdentity, InventoryGestureError, PlayerInventoryLedger, StorageWindow};
 
 impl PlayerInventoryLedger {
-    /// A legacy full-container descriptor can be zero/default on a server chest.
-    /// Resolve it only against the already-open generic window; zero remains a
-    /// real screen-input name everywhere else, and dynamic names stay distinct.
+    /// Resolves a default descriptor only against the open legacy storage window.
+    /// Real named and dynamic containers retain their exact identities.
     pub(super) fn storage_wire_identity(&self, identity: ContainerIdentity) -> ContainerIdentity {
-        if matches!(identity.slot_type, None | Some(0))
-            && identity.dynamic_id.is_none()
+        if identity.has_legacy_default_descriptor()
             && self.storage.as_ref().is_some_and(|storage| {
                 identity.window_id == Some(storage.window_id)
+                    && storage.window_id != protocol::DYNAMIC_STORAGE_WINDOW_ID
                     && matches!(
                         storage.kind.open_cells(),
                         Some(protocol::OpenCells::Generic(_))
@@ -19,6 +18,7 @@ impl PlayerInventoryLedger {
         {
             ContainerIdentity {
                 slot_type: Some(protocol::CONTAINER_NAME_LEVEL_ENTITY),
+                dynamic_id: None,
                 ..identity
             }
         } else {

@@ -95,6 +95,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
 }
 
 /// Start/stop edges for each locomotion mode, plus flight's vertical intent.
+///
+/// Flight edges follow the double-tap request alone: ability updates and ground
+/// contact change flight without one, as in vanilla.
 fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
     let mut flags = PlayerInputFlags::NONE;
@@ -115,17 +118,17 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             PlayerInputFlags::START_CRAWLING,
             PlayerInputFlags::STOP_CRAWLING,
         ),
-        (
-            Flying,
-            PlayerInputFlags::START_FLYING,
-            PlayerInputFlags::STOP_FLYING,
-        ),
     ] {
         match (current == mode, previous.mode == mode) {
             (true, false) => flags |= start,
             (false, true) => flags |= stop,
             _ => {}
         }
+    }
+    match sample.processed.flight_request {
+        Some(true) => flags |= PlayerInputFlags::START_FLYING,
+        Some(false) => flags |= PlayerInputFlags::STOP_FLYING,
+        None => {}
     }
     if current == sim::MovementMode::Riding && sample.processed.ride == Some(super::RideKind::Boat)
     {

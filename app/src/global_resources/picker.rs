@@ -31,6 +31,8 @@ pub(super) fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Shares filters and fallback tools while preserving each caller's selection mode.
+// Windows compiles only its own branch, so that branch's early return is the tail.
+#[cfg_attr(windows, allow(clippy::needless_return))]
 fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {

@@ -249,7 +249,7 @@ fn actor_streaks_respect_foreground_depth_and_diagonal_reach() {
         return;
     };
     // The rectangle crosses a tile boundary so both neighbour lookup and source reduction matter.
-    let edge = super::footprint::TILE_SIZE;
+    let edge = super::shader::TILE_SIZE;
     let bounds = UVec4::new(edge - 4, edge - 4, 8, 8);
     let input = image(|x, y| {
         if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w {
