@@ -100,7 +100,7 @@ pub fn poll_transparent_witness_request(
             *request = TransparentWitnessRequest::default();
             evidence.reset();
             source.last_digest = None;
-            eprintln!("transparent witness request read failed: {error}");
+            bevy::log::warn!("transparent witness request read failed: {error}");
             return;
         }
     };
@@ -120,7 +120,7 @@ pub fn poll_transparent_witness_request(
         Err(error) => {
             *request = TransparentWitnessRequest::default();
             evidence.reset();
-            eprintln!("transparent witness request rejected: {error:#}");
+            bevy::log::warn!("transparent witness request rejected: {error:#}");
         }
     }
 }

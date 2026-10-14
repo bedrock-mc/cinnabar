@@ -269,7 +269,7 @@ fn pull_audio(audio: &mut AudioCapture, fps: u32, copies: u64) {
         // An empty mixer yields nothing; silence keeps the track aligned with the video.
         let samples = (0..count).map(|_| mixer.next().unwrap_or(0.0));
         if let Err(error) = audio.wav.write(samples) {
-            eprintln!("developer recording: audio write failed: {error}");
+            warn!("developer recording: audio write failed: {error}");
         }
     }
 }
@@ -327,7 +327,7 @@ impl Drop for Recording {
         if self.recorder.is_some()
             && let Err(error) = self.finalize()
         {
-            eprintln!("developer recording: finishing on shutdown failed: {error}");
+            warn!("developer recording: finishing on shutdown failed: {error}");
         }
     }
 }

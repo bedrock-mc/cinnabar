@@ -240,7 +240,7 @@ impl FrameTrace {
             writer.flush()
         });
         if let Err(error) = result {
-            eprintln!("write stage frame trace {}: {error}", self.path.display());
+            bevy::log::warn!("write stage frame trace {}: {error}", self.path.display());
         }
     }
 }

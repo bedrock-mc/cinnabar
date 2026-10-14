@@ -106,6 +106,10 @@ impl WorldAuthority {
         self.block_names.clear_custom();
     }
     /// Retains the single wire-to-internal sequential palette mapping.
+    #[expect(
+        clippy::print_stderr,
+        reason = "SESSION_BLOCK_PALETTE is a stderr marker line read during live session runs"
+    )]
     pub fn set_sequential_id_remap(&mut self, remap: assets::SequentialIdRemap) {
         eprintln!(
             "SESSION_BLOCK_PALETTE session={} mode={:?} air={:#010x} wire_air={:#010x} visual_count={} block_registry_sha256={} custom_internal_ids={:?} sequential_id_remapped={}",

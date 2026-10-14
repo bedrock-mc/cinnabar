@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "assetc reports compiled outputs and prepare progress on stdout and prepare failures on stderr"
+)]
+
 use std::{
     fs::{self, File},
     io::{self, Read},

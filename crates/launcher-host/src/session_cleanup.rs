@@ -346,7 +346,7 @@ impl SessionDirectoryGuard {
             }
             Ok(_) | Err(_) => {
                 // Identity mismatch or unreadable proof: never guess.
-                eprintln!(
+                tracing::warn!(
                     "session-runtime: refusing removal of {}: its identity marker no longer proves this binding owns it",
                     self.directory.display()
                 );
@@ -367,7 +367,7 @@ impl SessionDirectoryGuard {
                 Ok(Some(on_disk))
                     if on_disk.token == self.token && on_disk.pid == process::id() =>
                 {
-                    eprintln!(
+                    tracing::warn!(
                         "session-runtime: could not remove session directory {}; the still-proven owner may retry",
                         self.directory.display()
                     );
@@ -377,7 +377,7 @@ impl SessionDirectoryGuard {
                     // Never recreate deletion authority through a pathname after
                     // removal failed: the path may now name a foreign directory.
                     self.bound = false;
-                    eprintln!(
+                    tracing::warn!(
                         "session-runtime: removal of {} failed and ownership proof no longer matches; refusing retry",
                         self.directory.display()
                     );
@@ -809,6 +809,10 @@ fn modified_unix(path: &Path) -> Option<u64> {
 }
 
 /// One bounded diagnostic line per notable cleanup event.
+#[expect(
+    clippy::print_stderr,
+    reason = "startup reclaim runs before the client installs its log subscriber"
+)]
 fn log_line(message: &str) {
     eprintln!("session-runtime: {message}");
 }

@@ -15,6 +15,10 @@ const LEGACY_PREFIX: &str = "RUST_MCBE_";
 static WARNED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
 
 /// Returns `name`'s value, else its `RUST_MCBE_` spelling's value, warning once per old name.
+#[expect(
+    clippy::print_stderr,
+    reason = "dependency-free crate read before any subscriber exists; stderr is its only warning channel"
+)]
 pub fn var_os(name: &str) -> Option<OsString> {
     resolve(
         name,
