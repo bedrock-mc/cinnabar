@@ -296,8 +296,13 @@ pub(crate) fn feed_far_terrain(
     ) as i32;
     // Near terrain owns everything within the full-detail radius, or all it is sent without
     // one, even before its meshes load; past that far terrain hides under the columns near
-    // terrain draws, such as those handing over to it.
-    let near_radius = full_detail.unwrap_or(loaded);
+    // terrain draws, such as those handing over to it. While turning off, far terrain still
+    // covers the columns it drew until their meshes are drawn.
+    let near_radius = if draining {
+        0
+    } else {
+        full_detail.unwrap_or(loaded)
+    };
     let (drawn_revision, _) = stream.near_drawn_columns();
     let near_view = ([centre.x, centre.z], near_radius, drawn_revision);
     let near_changed = far.near_view != Some(near_view);
