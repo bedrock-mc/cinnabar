@@ -228,9 +228,10 @@ unsafe extern "C" fn unhandled(
     }
 }
 
-/// Copies the latest session of a log, read from at most its final `scratch.len()` bytes, into a
-/// new file with async-signal-safe calls only; a missing log leaves the copy empty. With
-/// `since_ms`, a section whose header predates it belongs to an earlier session and is left out.
+/// Copies a log's session, read from at most its final `scratch.len()` bytes, into a new file
+/// with async-signal-safe calls only; a missing log leaves the copy empty. Without `since_ms`
+/// the copy starts at the latest header; with it, at the first header of the session that
+/// began at `since_ms`, keeping every later section.
 unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scratch: &mut [u8]) {
     // SAFETY: The paths are prebuilt C strings; open, lseek, read, write, fsync and close are
     // async-signal-safe, and the section helpers neither allocate nor lock.
@@ -250,10 +251,12 @@ unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scra
             if length >= 0 && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0 {
                 let filled = read_full(source, scratch);
                 let tail = &scratch[..filled];
-                let part = &tail[section::start(tail, marker, offset > 0)..];
-                if !since_ms.is_some_and(|since| section::is_stale(part, marker, since)) {
-                    write_all(target, part);
-                }
+                let truncated = offset > 0;
+                let cut = match since_ms {
+                    Some(since) => section::since(tail, marker, since, truncated),
+                    None => section::start(tail, marker, truncated),
+                };
+                write_all(target, &tail[cut..]);
             }
             libc::close(source);
         }
@@ -430,7 +433,10 @@ mod tests {
     use crash_report::report::Identity;
 
     const CLIENT_LOG: &str = "CLIENT_SESSION_START session=old\nprevious launch\nCLIENT_SESSION_START session=0123456789abcdef\nclient line\n";
-    const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nearlier core run\nCORE_SESSION_START timestamp_ms=2\ncore line\n";
+    /// Starts before the fixture session (`SESSION_STARTED_MS`), then holds two of its cores.
+    const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nearlier session core\nCORE_SESSION_START timestamp_ms=2\naccount core\nCORE_SESSION_START timestamp_ms=3\ngame core\n";
+    const SESSION_CORES: &str = "CORE_SESSION_START timestamp_ms=2\naccount core\nCORE_SESSION_START timestamp_ms=3\ngame core\n";
+    const SESSION_STARTED_MS: u64 = 2;
     static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
 
     /// Checks that chaining retains the kernel's fault address, cause and machine context.
@@ -493,7 +499,7 @@ mod tests {
         }
         let identity = Identity {
             session_id: "0123456789abcdef".into(),
-            started_at_ms: 0,
+            started_at_ms: SESSION_STARTED_MS,
             release: "1.2.3".into(),
             commit: "abc123".into(),
             build_profile: "debug".into(),
@@ -609,7 +615,7 @@ mod tests {
             );
             assert_eq!(
                 std::fs::read_to_string(folders[0].join(folder::CORE_LOG_FILE)).unwrap(),
-                "CORE_SESSION_START timestamp_ms=2\ncore line\n"
+                SESSION_CORES
             );
         }
     }

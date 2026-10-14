@@ -69,10 +69,13 @@ pub fn prune_reports(layout: &InstallLayout) {
     folder::prune(&layout.crash_dir(), folder::MAX_REPORTS);
 }
 
+/// Publishes this process's crash context once; later calls return the first context unchanged.
 fn configure(layout: &InstallLayout, identity: Identity) -> &'static Context {
     CONTEXT.get_or_init(|| context(layout, identity))
 }
 
+/// Builds the crash context for `layout`: its crash directory, client and core logs, and data
+/// root for renderer attribution, without publishing it.
 fn context(layout: &InstallLayout, identity: Identity) -> Context {
     Context {
         crash_dir: layout.crash_dir(),
@@ -114,7 +117,8 @@ fn driver(adapter: &Adapter) -> Option<String> {
     (!parts.is_empty()).then(|| parts.join(" "))
 }
 
-/// Writes `report` with this session's client and core log sections beside it.
+/// Writes `report` with this session's client log section and every core section started
+/// since the session began beside it.
 fn write(context: &Context, report: &Report, now_ms: u64) -> std::io::Result<PathBuf> {
     let logs = folder::Logs {
         client: section::read(
@@ -134,6 +138,8 @@ fn write(context: &Context, report: &Report, now_ms: u64) -> std::io::Result<Pat
     folder::write(&context.crash_dir, report, &logs, now_ms)
 }
 
+/// Writes a panic report at `now_ms` with the panicking thread and its rendered backtrace,
+/// attributed to this process's renderer attempt, and returns the new crash folder.
 fn write_panic(
     context: &Context,
     message: String,

@@ -24,30 +24,19 @@ pub fn latest<'a>(text: &'a str, marker: &str) -> &'a str {
 /// When the header is older than the bound, the section starts at the first whole line inside
 /// it. A missing log yields an empty section.
 pub fn read(path: &Path, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
-    let mut file = match fs::File::open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
-    let length = file.metadata()?.len();
-    let offset = length.saturating_sub(max_bytes);
-    file.seek(SeekFrom::Start(offset))?;
-    let mut bytes = Vec::new();
-    file.take(max_bytes).read_to_end(&mut bytes)?;
-    let cut = start(&bytes, marker, offset > 0);
+    let (mut bytes, truncated) = read_tail(path, max_bytes)?;
+    let cut = start(&bytes, marker, truncated);
     bytes.drain(..cut);
     Ok(bytes)
 }
 
-/// Like [`read`], but empty when the section's header `timestamp_ms` precedes `since_ms`,
-/// because that section belongs to an earlier session.
+/// Reads every section of the log at `path` that began at or after `since_ms`, from at most
+/// its final `max_bytes`; see [`since`]. A missing log yields an empty section.
 pub fn read_since(path: &Path, marker: &str, max_bytes: u64, since_ms: u64) -> io::Result<Vec<u8>> {
-    let section = read(path, marker, max_bytes)?;
-    Ok(if is_stale(&section, marker, since_ms) {
-        Vec::new()
-    } else {
-        section
-    })
+    let (mut bytes, truncated) = read_tail(path, max_bytes)?;
+    let cut = since(&bytes, marker, since_ms, truncated);
+    bytes.drain(..cut);
+    Ok(bytes)
 }
 
 /// Offset in `tail`, the final bytes of a log, where its latest session begins.
@@ -65,26 +54,68 @@ pub fn start(tail: &[u8], marker: &str, truncated: bool) -> usize {
     }
 }
 
-/// Whether `section` opens with a `marker` header whose `timestamp_ms` precedes `since_ms`.
+/// Offset in `tail`, the final bytes of a log, of the first `marker` header line whose
+/// `timestamp_ms` is at or after `since_ms`, so one session's several sections stay together.
 ///
-/// Allocation-free, so signal handlers may call it.
-pub fn is_stale(section: &[u8], marker: &str, since_ms: u64) -> bool {
-    section
-        .starts_with(marker.as_bytes())
-        .then(|| header_timestamp_ms(section))
-        .flatten()
-        .is_some_and(|at| at < since_ms)
+/// A header without a readable timestamp counts as current. A tail whose headers all precede
+/// `since_ms` yields its length: nothing in it belongs to the session. A tail without any
+/// header falls back to [`start`]. Allocation-free, so signal handlers may call it.
+pub fn since(tail: &[u8], marker: &str, since_ms: u64, truncated: bool) -> usize {
+    let mut older = false;
+    let mut line_start = 0;
+    while line_start < tail.len() {
+        let line_end = tail[line_start..]
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(tail.len(), |newline| line_start + newline + 1);
+        let line = &tail[line_start..line_end];
+        if contains(line, marker) {
+            match header_timestamp_ms(line) {
+                Some(at) if at < since_ms => older = true,
+                _ => return line_start,
+            }
+        }
+        line_start = line_end;
+    }
+    if older {
+        tail.len()
+    } else {
+        start(tail, marker, truncated)
+    }
 }
 
-/// The `timestamp_ms=` value on a section's first line.
-fn header_timestamp_ms(section: &[u8]) -> Option<u64> {
-    let line = section.split(|byte| *byte == b'\n').next()?;
+/// The final `max_bytes` of the log at `path`, and whether earlier bytes were left out.
+fn read_tail(path: &Path, max_bytes: u64) -> io::Result<(Vec<u8>, bool)> {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok((Vec::new(), false)),
+        Err(error) => return Err(error),
+    };
+    let length = file.metadata()?.len();
+    let offset = length.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(offset))?;
+    let mut bytes = Vec::new();
+    file.take(max_bytes).read_to_end(&mut bytes)?;
+    Ok((bytes, offset > 0))
+}
+
+/// The `timestamp_ms=` value on a header line; the line may keep its trailing newline.
+fn header_timestamp_ms(line: &[u8]) -> Option<u64> {
+    let line = line.split(|byte| *byte == b'\n').next()?;
     let line = std::str::from_utf8(line).ok()?;
     let value = line.split_once("timestamp_ms=")?.1;
     let digits = value
         .find(|character: char| !character.is_ascii_digit())
         .map_or(value, |end| &value[..end]);
     digits.parse().ok()
+}
+
+/// Whether `text` holds `marker` anywhere; an empty marker matches nothing.
+fn contains(text: &[u8], marker: &str) -> bool {
+    let marker = marker.as_bytes();
+    !marker.is_empty()
+        && marker.len() <= text.len()
+        && text.windows(marker.len()).any(|window| window == marker)
 }
 
 /// Byte offset of the start of the line holding the last `marker`.
@@ -158,6 +189,29 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn read_since_keeps_every_core_of_the_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = dir.path().join("core.log");
+        fs::write(
+            &core,
+            "CORE_SESSION_START timestamp_ms=1\nprevious session\nCORE_SESSION_START timestamp_ms=20\naccount core\nCORE_SESSION_START timestamp_ms=40\ngame core\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_since(&core, CORE_SESSION_START, MAX_SECTION_BYTES, 10).unwrap(),
+            b"CORE_SESSION_START timestamp_ms=20\naccount core\nCORE_SESSION_START timestamp_ms=40\ngame core\n"
+        );
+        assert_eq!(
+            read_since(&core, CORE_SESSION_START, MAX_SECTION_BYTES, 20).unwrap(),
+            read_since(&core, CORE_SESSION_START, MAX_SECTION_BYTES, 10).unwrap()
+        );
+        assert_eq!(
+            read_since(&core, CORE_SESSION_START, MAX_SECTION_BYTES, 21).unwrap(),
+            b"CORE_SESSION_START timestamp_ms=40\ngame core\n"
+        );
         assert!(
             read(&dir.path().join("missing.log"), CORE_SESSION_START, 64)
                 .unwrap()
@@ -194,9 +248,12 @@ mod tests {
         assert_eq!(start(b"ial line\nnext\n", CORE_SESSION_START, true), 9);
         assert_eq!(start(b"first\nnext\n", CORE_SESSION_START, false), 0);
         assert_eq!(start(b"no newline", CORE_SESSION_START, true), 10);
-        let section = &tail[9..];
-        assert!(is_stale(section, CORE_SESSION_START, 8));
-        assert!(!is_stale(section, CORE_SESSION_START, 7));
-        assert!(!is_stale(b"live\n", CORE_SESSION_START, u64::MAX));
+        assert_eq!(since(tail, CORE_SESSION_START, 7, true), 9);
+        assert_eq!(since(tail, CORE_SESSION_START, 8, true), tail.len());
+        // A truncated header-free tail is the middle of a session that began before it.
+        assert_eq!(since(b"ial line\nnext\n", CORE_SESSION_START, 8, true), 9);
+        assert_eq!(since(b"first\nnext\n", CORE_SESSION_START, 8, false), 0);
+        let untimed = b"old\nCORE_SESSION_START\nlive\n";
+        assert_eq!(since(untimed, CORE_SESSION_START, u64::MAX, false), 4);
     }
 }

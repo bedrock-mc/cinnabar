@@ -126,6 +126,8 @@ pub fn prune(crash_dir: &Path, keep: usize) {
     }
 }
 
+/// Creates and returns `crash_dir/base`, or the first free `base-N` when other writers already
+/// hold it; fails after [`MAX_COLLISIONS`] taken names or on any other I/O error.
 fn create_unique(crash_dir: &Path, base: &str) -> io::Result<PathBuf> {
     for suffix in 0..MAX_COLLISIONS {
         let folder = if suffix == 0 {
@@ -145,6 +147,7 @@ fn create_unique(crash_dir: &Path, base: &str) -> io::Result<PathBuf> {
     ))
 }
 
+/// Writes `bytes` to a file that must not exist yet and syncs it to disk before returning.
 fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = fs::File::options()
         .write(true)

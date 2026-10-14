@@ -46,6 +46,7 @@ pub(crate) fn parse(stamp: &str) -> Option<u64> {
     Some(((days * SECONDS_PER_DAY) + hour * 3600 + minute * 60 + second) * 1000)
 }
 
+/// Days in `month` (1-12) of the proleptic Gregorian `year`, counting leap-year Februaries.
 fn days_in_month(year: u64, month: u64) -> u64 {
     match month {
         2 if year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400)) => {

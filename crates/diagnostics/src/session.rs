@@ -45,9 +45,12 @@ pub fn started_at_ms() -> u64 {
 }
 
 /// Mixes start time and pid so concurrent clients and successive launches get distinct ids.
+///
+/// The pid fills the low 32 bits and the start time's low 32 bits the high ones, so two ids
+/// match only for the same pid started a multiple of 2^32 ms (about 49.7 days) apart.
 fn derive_id(started_at_ms: u64, pid: u32) -> String {
-    // SplitMix64 finalizer: a bijection, so distinct inputs never share an id.
-    let mut value = started_at_ms.rotate_left(20) ^ u64::from(pid);
+    // SplitMix64 finalizer: a bijection, so distinct packed inputs never share an id.
+    let mut value = (started_at_ms << 32) | u64::from(pid);
     value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
     value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     value ^= value >> 31;
@@ -78,6 +81,9 @@ mod tests {
         assert_ne!(derive_id(at, 1), derive_id(at + 1, 1));
         assert_eq!(derive_id(at, 1), derive_id(at, 1));
         assert_eq!(derive_id(0, 0).len(), 16);
+        // Pids above 2^20 (Linux allows up to 2^22) no longer overlap the time bits.
+        assert_ne!(derive_id(at, 1 << 20), derive_id(at ^ 1, 0));
+        assert_ne!(derive_id(at, u32::MAX), derive_id(at + 1, 0));
     }
 
     /// `option_env!` needs a literal; this keeps it tied to the registered marker constant.

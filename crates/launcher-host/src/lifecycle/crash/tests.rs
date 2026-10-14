@@ -6,7 +6,7 @@ use launcher::graphics_backend::Backend;
 
 const NOW_MS: u64 = 1_760_443_200_000;
 const CLIENT_LOG: &str = "CLIENT_SESSION_START session=old\nprevious launch\nCLIENT_SESSION_START session=0123456789abcdef\nclient line\n";
-const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nstale core\nCORE_SESSION_START timestamp_ms=1760443100000\ncore line\n";
+const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nstale core\nCORE_SESSION_START timestamp_ms=1760443100000\ncore line\nCORE_SESSION_START timestamp_ms=1760443150000\ngame core\n";
 
 fn identity() -> Identity {
     Identity {
@@ -80,7 +80,7 @@ fn panic_report_copies_the_client_session_not_core_log() {
     assert!(!client.contains("core line"));
     assert_eq!(
         fs::read_to_string(folder.join(folder::CORE_LOG_FILE)).unwrap(),
-        "CORE_SESSION_START timestamp_ms=1760443100000\ncore line\n"
+        "CORE_SESSION_START timestamp_ms=1760443100000\ncore line\nCORE_SESSION_START timestamp_ms=1760443150000\ngame core\n"
     );
     let report = folder::read(&folder).unwrap();
     assert_eq!(report.kind, Kind::Panic);
