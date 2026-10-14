@@ -3,20 +3,23 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
 // legacyFamilyRule is the selector contract shared with the production registry compiler.
 type legacyFamilyRule struct {
-	ID              string   `json:"id"`
-	Fact            string   `json:"fact"`
-	Members         []string `json:"members"`
-	Suffix          string   `json:"suffix"`
-	Prefix          string   `json:"prefix"`
-	Contains        string   `json:"contains"`
-	StateProperty   string   `json:"state_property"`
-	ExcludeMembers  []string `json:"exclude_members"`
-	ExcludeContains string   `json:"exclude_contains"`
+	ID                          string   `json:"id"`
+	Fact                        string   `json:"fact"`
+	Members                     []string `json:"members"`
+	Suffix                      string   `json:"suffix"`
+	Prefix                      string   `json:"prefix"`
+	Contains                    string   `json:"contains"`
+	StateProperty               string   `json:"state_property"`
+	ExcludeMembers              []string `json:"exclude_members"`
+	ExcludeContains             string   `json:"exclude_contains"`
+	CompatibilityMembers        []string `json:"compatibility_members"`
+	CompatibilityExcludeMembers []string `json:"compatibility_exclude_members"`
 }
 
 var legacyFamilyRules, legacyFamilyRulesError = loadLegacyFamilyRules()
@@ -39,20 +42,16 @@ func loadLegacyFamilyRules() ([]legacyFamilyRule, error) {
 	return policy.Rules, nil
 }
 
-// matches applies the shared identifier and state-property selectors with exclusions first.
+// matches applies historical names and shared state selectors, with exclusions first.
 func (rule legacyFamilyRule) matches(name string, properties []StateProperty) bool {
-	for _, excluded := range rule.ExcludeMembers {
-		if name == excluded {
-			return false
-		}
+	if slices.Contains(rule.ExcludeMembers, name) || slices.Contains(rule.CompatibilityExcludeMembers, name) {
+		return false
 	}
 	if rule.ExcludeContains != "" && strings.Contains(name, rule.ExcludeContains) {
 		return false
 	}
-	for _, member := range rule.Members {
-		if member == name {
-			return true
-		}
+	if slices.Contains(rule.Members, name) || slices.Contains(rule.CompatibilityMembers, name) {
+		return true
 	}
 	if rule.Suffix != "" && strings.HasSuffix(name, rule.Suffix) {
 		return true

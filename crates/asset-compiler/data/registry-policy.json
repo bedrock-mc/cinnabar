@@ -777,7 +777,10 @@
       "id": "family-fence-14",
       "fact": "family:Fence",
       "status": "verified",
-      "suffix": "_fence"
+      "suffix": "_fence",
+      "compatibility_members": [
+        "minecraft:fence"
+      ]
     },
     {
       "id": "family-pane-15",
@@ -828,7 +831,14 @@
       "id": "family-torch-22",
       "fact": "family:Torch",
       "status": "verified",
-      "state_property": "torch_facing_direction"
+      "state_property": "torch_facing_direction",
+      "compatibility_members": [
+        "minecraft:torch",
+        "minecraft:copper_torch",
+        "minecraft:soul_torch",
+        "minecraft:redstone_torch",
+        "minecraft:unlit_redstone_torch"
+      ]
     },
     {
       "id": "family-lever-23",
@@ -854,7 +864,10 @@
       "id": "family-carpet-26",
       "fact": "family:Carpet",
       "status": "verified",
-      "suffix": "_carpet"
+      "suffix": "_carpet",
+      "compatibility_members": [
+        "minecraft:carpet"
+      ]
     },
     {
       "id": "family-layer-27",
@@ -872,6 +885,10 @@
       "members": [
         "minecraft:seagrass",
         "minecraft:kelp"
+      ],
+      "compatibility_members": [
+        "minecraft:tall_seagrass",
+        "minecraft:kelp_plant"
       ]
     },
     {
@@ -978,7 +995,10 @@
       "id": "family-shelf",
       "fact": "family:Cuboid",
       "status": "verified",
-      "suffix": "_shelf"
+      "suffix": "_shelf",
+      "compatibility_exclude_members": [
+        "minecraft:poplar_shelf"
+      ]
     },
     {
       "id": "family-cross-41",

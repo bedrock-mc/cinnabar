@@ -38,6 +38,11 @@ pub(super) struct Rule {
     #[serde(default)]
     exclude_members: Vec<String>,
     exclude_contains: Option<String>,
+    /// Name-only compatibility selectors are used by the historical Go generator.
+    #[serde(default)]
+    compatibility_members: Vec<String>,
+    #[serde(default)]
+    compatibility_exclude_members: Vec<String>,
 }
 
 /// Rules add their fact unless an explicit exclusion declares otherwise.
@@ -97,7 +102,18 @@ impl Rule {
         states: &[BTreeMap<String, Scalar>],
     ) -> Result<()> {
         let names: BTreeSet<_> = source.iter().map(|b| b.name.as_str()).collect();
-        for member in self.members.iter().chain(&self.exclude_members) {
+        check(
+            (self.compatibility_members.is_empty()
+                && self.compatibility_exclude_members.is_empty())
+                || self.fact.starts_with("family:"),
+            "compatibility selectors require a model family rule",
+        )?;
+        for member in self
+            .members
+            .iter()
+            .chain(&self.exclude_members)
+            .chain(&self.compatibility_exclude_members)
+        {
             check(
                 names.contains(member.as_str()),
                 format!("{} has unknown block {member}", self.id),
@@ -448,5 +464,28 @@ mod tests {
     fn rules_require_explicit_confidence_and_reject_unrecognized_fields() {
         assert!(serde_json::from_value::<Rule>(serde_json::json!({ "id":"torch", "fact":"TORCH", "state_property":"torch_facing_direction" })).is_err());
         assert!(serde_json::from_value::<Rule>(serde_json::json!({ "id":"torch", "fact":"TORCH", "status":"verified", "suffixes":["torch"] })).is_err());
+    }
+
+    #[test]
+    fn historical_name_selectors_do_not_change_active_state_classification() {
+        let policy: super::super::Policy = serde_json::from_slice(super::super::POLICY).unwrap();
+        let torch = torch();
+        let state = serde_json::from_str(&torch.state).unwrap();
+        let empty = BTreeMap::new();
+        let rule = policy
+            .model_family_rules
+            .iter()
+            .find(|r| r.id == "family-torch-22")
+            .unwrap();
+        assert!(rule.matches(&torch.name, &state, ModelFamily::Unknown));
+        assert!(!rule.matches(&torch.name, &empty, ModelFamily::Unknown));
+        let shelf = policy
+            .model_family_rules
+            .iter()
+            .find(|r| r.id == "family-shelf")
+            .unwrap();
+        for name in &shelf.compatibility_exclude_members {
+            assert!(shelf.matches(name, &empty, ModelFamily::Unknown));
+        }
     }
 }
