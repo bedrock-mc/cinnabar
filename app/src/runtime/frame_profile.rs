@@ -10,6 +10,16 @@ use {
 
 use crate::present_mode::DisplayRefresh;
 
+/// Builds rolling attribution and sends owned reports to the background console.
+pub(crate) fn profiler(enabled: bool) -> RuntimeStageProfiler {
+    RuntimeStageProfiler::for_gameplay(
+        enabled,
+        env_compat::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
+            .map(std::path::PathBuf::from),
+    )
+    .with_diagnostic_sink(diagnostics::console::defer_stderr)
+}
+
 /// Feeds slow-frame thresholds the primary window's monitor interval, or a slower frame cap.
 pub(crate) fn track_frame_interval(
     profiler: Res<RuntimeStageProfiler>,
