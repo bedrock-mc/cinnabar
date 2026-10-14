@@ -106,6 +106,10 @@ mod chrome {
 
     /// Keeps the trace writer running; dropping it with the app finishes the trace file.
     #[derive(Resource)]
+    #[expect(
+        dead_code,
+        reason = "held only so dropping the app finishes the trace file"
+    )]
     struct TraceWriter(SyncCell<FlushGuard>);
 
     /// Writes to `TRACE_CHROME`, or a timestamped file in the working directory, naming spans

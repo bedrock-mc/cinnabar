@@ -121,6 +121,61 @@ fn raw_stderr_reaches_the_file_and_the_launcher_once_each() {
     }
 }
 
+/// Writes raw stderr the drain thread cannot reach, then dies the way a fatal-signal handler
+/// ends, with only the signal-time drain to save it.
+#[cfg(unix)]
+#[test]
+fn signal_drain_child() {
+    let Some(dir) = std::env::var_os("CINNABAR_SIGNAL_DRAIN_FIXTURE") else {
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    initialize_log(&SessionFiles {
+        dir: &dir,
+        stem: "client",
+        header: "fixture header",
+        json: false,
+        retention: Retention::DEFAULT,
+    })
+    .unwrap();
+    assert!(flush_before_exit());
+    // Holding the pipe reader keeps the drain thread from queueing what follows.
+    let raw = console().raw_stderr.get().unwrap();
+    let _held = raw.reader.lock().unwrap();
+    std::io::stderr()
+        .write_all(b"written just before the fault\n")
+        .unwrap();
+    drain_raw_stderr_on_signal();
+    std::process::abort();
+}
+
+/// Raw stderr still in the capture pipe at a fatal signal reaches the launcher's stderr and the
+/// session log once each.
+#[cfg(unix)]
+#[test]
+fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "console::tests::signal_drain_child",
+            "--nocapture",
+        ])
+        .env("CINNABAR_SIGNAL_DRAIN_FIXTURE", dir.path())
+        .stdout(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(
+        !output.status.success(),
+        "fixture did not abort: {output:?}"
+    );
+    let marker = "written just before the fault";
+    let text = std::fs::read_to_string(dir.path().join("client.log")).unwrap();
+    let launcher = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(text.matches(marker).count(), 1, "file: {text}");
+    assert_eq!(launcher.matches(marker).count(), 1, "stderr: {launcher}");
+}
+
 #[test]
 fn session_file_drops_terminal_colours_split_across_writes() {
     let mut filter = AnsiFilter::default();
@@ -155,7 +210,7 @@ fn output_before_the_log_attaches_follows_the_session_header() {
     files.record(Stream::Stderr, b"\x1b[33mearly\x1b[0m warning\n");
     files.record(Stream::Json, b"{}\n");
     let log = SessionLog::open(family.clone(), Retention::DEFAULT, b"HEADER\n".to_vec()).unwrap();
-    files.attach_log(log).unwrap();
+    files.attach_log(log);
     files.record(Stream::Stdout, b"after\n");
     assert_eq!(
         std::fs::read_to_string(family.current()).unwrap(),
@@ -171,7 +226,7 @@ fn early_output_past_its_bound_is_reported_as_lost() {
     let mut files = Files::default();
     files.record(Stream::Stderr, &vec![b'x'; EARLY_BYTES + 10]);
     let log = SessionLog::open(family.clone(), Retention::DEFAULT, Vec::new()).unwrap();
-    files.attach_log(log).unwrap();
+    files.attach_log(log);
     let text = std::fs::read_to_string(family.current()).unwrap();
     assert_eq!(text.matches('x').count(), EARLY_BYTES);
     assert!(text.ends_with("console: 10 bytes written before the log opened were not kept\n"));

@@ -28,6 +28,8 @@ const SCRATCH_BYTES: usize = section::MAX_SECTION_BYTES as usize;
 
 struct Capture {
     previous: [libc::sigaction; SIGNALS.len()],
+    /// The caller's async-signal-safe log drain, run before the client log is copied.
+    drain_logs: fn(),
 }
 
 /// Everything the handler writes except the deferred fields, prepared outside the handler.
@@ -48,7 +50,7 @@ struct LogCopy {
 }
 
 /// Saves every previous handler before installing ours, then prepares the first report.
-pub(super) fn install(context: &'static Context) {
+pub(super) fn install(context: &'static Context, drain_logs: fn()) {
     if !CAPTURE.load(Ordering::Acquire).is_null() {
         return;
     }
@@ -58,6 +60,7 @@ pub(super) fn install(context: &'static Context) {
     // SAFETY: A zeroed sigaction is initialized fully before installation and query writes all fields.
     let mut capture = Box::new(Capture {
         previous: unsafe { std::mem::zeroed() },
+        drain_logs,
     });
     for (i, signal) in SIGNALS.iter().enumerate() {
         // SAFETY: A null new action queries the current handler into valid owned storage.
@@ -151,6 +154,9 @@ unsafe extern "C" fn unhandled(
     }
     // SAFETY: Published snapshots are immutable and retained for the process lifetime.
     let capture = unsafe { &*capture };
+    // Raw stderr written just before the fault, such as an abort message, is still in the
+    // caller's capture pipe; it must reach the terminal and the client log before both go.
+    (capture.drain_logs)();
     let pending = PENDING.load(Ordering::Acquire);
     if !REPORTING.swap(true, Ordering::AcqRel) && !pending.is_null() {
         // SAFETY: Published snapshots are immutable and retained for the process lifetime.
@@ -498,7 +504,7 @@ mod tests {
             commit: "abc123".into(),
             build_profile: "debug".into(),
         };
-        install(super::super::configure(&layout, identity));
+        install(super::super::configure(&layout, identity), || {});
         let attempt = crate::renderer_startup::Attempt {
             backend: launcher::graphics_backend::Backend::Metal,
             adapter: None,

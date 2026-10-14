@@ -173,7 +173,8 @@ fn live_testing_guide_documents_every_category() {
     }
 }
 
-/// A process that installs logging before its session log opens, as client startup does.
+/// A process that installs logging with no caller layers, as default and setup builds do,
+/// before its session log opens, as client startup does.
 #[test]
 fn logging_child() {
     let Some(dir) = std::env::var_os(FIXTURE) else {
@@ -228,8 +229,8 @@ fn logging_child() {
     assert!(flush_before_exit());
 }
 
-/// Events from before the session log opens, `log`-crate records and runtime filter changes
-/// all reach the session file in the documented format.
+/// With no caller layers, events from before the session log opens, `log`-crate records and
+/// runtime filter changes all reach the session file in the documented format.
 #[test]
 fn installed_logging_writes_the_session_file() {
     let dir = tempfile::tempdir().unwrap();
@@ -280,4 +281,81 @@ fn installed_logging_writes_the_session_file() {
     assert_eq!(failure["level"], "ERROR");
     assert_eq!(failure["thread"], "log-fixture");
     assert_eq!(failure["spans"][0]["fields"]["server"], "local");
+}
+
+/// Counts the events a caller layer sees.
+static CALLER_EVENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+struct CountingLayer;
+
+impl Layer<Registry> for CountingLayer {
+    fn on_event(
+        &self,
+        _event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, Registry>,
+    ) {
+        CALLER_EVENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Installs logging with or without one caller layer, per `CINNABAR_LOGGING_LAYERS`.
+#[test]
+fn caller_layers_child() {
+    let Some(dir) = std::env::var_os(FIXTURE) else {
+        return;
+    };
+    let with_layer = std::env::var_os("CINNABAR_LOGGING_LAYERS").is_some_and(|value| value == "1");
+    let layers: Vec<CallerLayer> = if with_layer {
+        vec![Box::new(CountingLayer)]
+    } else {
+        Vec::new()
+    };
+    install(Options {
+        base_filter: "info".to_owned(),
+        omit_frame_marks: false,
+        layers,
+    })
+    .unwrap();
+    initialize_log(&SessionFiles {
+        dir: Path::new(&dir),
+        stem: "client",
+        header: "HEADER",
+        json: false,
+        retention: Retention::DEFAULT,
+    })
+    .unwrap();
+    tracing::info!(target: "cinnabar::lifecycle", "event through the subscriber");
+    assert_eq!(
+        CALLER_EVENTS.load(std::sync::atomic::Ordering::Relaxed),
+        usize::from(with_layer)
+    );
+    assert!(flush_before_exit());
+}
+
+/// An empty caller layer list must not disable callsites: a `tracing` event reaches the file
+/// with no caller layers, and with one, which also sees the event.
+#[test]
+fn a_tracing_event_reaches_the_file_with_and_without_caller_layers() {
+    for layers in ["0", "1"] {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "logging::tests::caller_layers_child",
+                "--nocapture",
+            ])
+            .env(FIXTURE, dir.path())
+            .env("CINNABAR_LOGGING_LAYERS", layers)
+            .env_remove(markers::LOG)
+            .env_remove("RUST_LOG")
+            .stdout(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "layers={layers}: {output:?}");
+        let text = fs::read_to_string(dir.path().join("client.log")).unwrap();
+        assert!(
+            text.contains("event through the subscriber"),
+            "layers={layers}: {text}"
+        );
+    }
 }

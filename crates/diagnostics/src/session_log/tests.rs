@@ -129,6 +129,32 @@ fn retention_deletes_the_oldest_archives_past_the_byte_budget() {
     assert_eq!(sizes, [30, 20, 10]);
 }
 
+/// Once an archive breaks the byte budget, every older archive goes too, even one that would
+/// still fit, so retention never keeps an older session over a newer one.
+#[test]
+fn retention_never_keeps_an_archive_older_than_one_it_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let family = Family::new(dir.path(), "client", "log");
+    for (index, size) in [1usize, 4, 7, 8].into_iter().enumerate() {
+        let at = UNIX_EPOCH + Duration::from_secs(index as u64 * 3600);
+        fs::write(family.archive_path(at), vec![b'x'; size]).unwrap();
+    }
+    family
+        .prune(Retention {
+            session_bytes: 1024,
+            archives: 10,
+            archive_bytes: 16,
+        })
+        .unwrap();
+    let sizes: Vec<u64> = family
+        .archives()
+        .unwrap()
+        .iter()
+        .map(|path| fs::metadata(path).unwrap().len())
+        .collect();
+    assert_eq!(sizes, [7, 8]);
+}
+
 #[test]
 fn archives_ignore_other_families_and_unrelated_names() {
     let dir = tempfile::tempdir().unwrap();

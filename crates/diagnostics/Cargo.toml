@@ -33,7 +33,7 @@ world = { path = "../world" }
 android_log-sys = "0.3"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["std", "stdio", "pipe"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std", "stdio", "pipe"] }
 
 [target.'cfg(windows)'.dependencies]
 libc = "0.2"
@@ -43,3 +43,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 client-ui = { path = "../client-ui" }
 tempfile = "3"
 toml = "0.9"
+
+[lints]
+workspace = true

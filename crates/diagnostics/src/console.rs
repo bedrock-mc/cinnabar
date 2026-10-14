@@ -9,6 +9,8 @@
 
 mod queue;
 mod raw_stderr;
+#[cfg(unix)]
+mod signal_drain;
 mod synchronized;
 mod terminal;
 #[cfg(test)]
@@ -144,21 +146,21 @@ impl Files {
         }
     }
 
-    /// Starts mirroring into `log`, first copying the output kept from before it attached.
-    fn attach_log(&mut self, mut log: SessionLog) -> io::Result<()> {
+    /// Starts mirroring into `log`, first copying the output kept from before it attached; a
+    /// failed copy loses only that early output, never the log itself.
+    fn attach_log(&mut self, mut log: SessionLog) {
         if let Some(early) = self.early.take() {
-            log.write_all(&early)?;
+            let _ = log.write_all(&early);
             if self.early_lost > 0 {
-                writeln!(
+                let _ = writeln!(
                     log,
                     "console: {} bytes written before the log opened were not kept",
                     self.early_lost
-                )?;
+                );
             }
-            log.flush()?;
+            let _ = log.flush();
         }
         self.log = Some(log);
-        Ok(())
     }
 }
 
@@ -286,22 +288,31 @@ impl Console {
                 files.retention,
                 format!("{}\n", files.header).into_bytes(),
             )?;
-            let json = if files.json {
+            sinks.attach_log(log);
+            // The JSON record is optional tooling output; failing to open it keeps the plain
+            // session log and says why in it.
+            if files.json {
                 let header = serde_json::json!({ "session_start": files.header });
-                Some(SessionLog::open(
+                match SessionLog::open(
                     Family::new(files.dir, files.stem, "jsonl"),
                     files.retention,
                     format!("{header}\n").into_bytes(),
-                )?)
-            } else {
-                None
-            };
-            sinks.json = json;
-            sinks.attach_log(log)?;
+                ) {
+                    Ok(json) => sinks.json = Some(json),
+                    Err(error) => sinks.write_plain(
+                        format!("console: JSON log unavailable: {error}\n").as_bytes(),
+                    ),
+                }
+            }
         }
         let Some(queue) = &self.queue else {
             return Ok(());
         };
+        #[cfg(unix)]
+        signal_drain::publish_destinations(
+            destination.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
+            &Family::new(files.dir, files.stem, "log").current(),
+        );
         let destination: Box<dyn Write + Send> = match destination {
             Some(file) => terminal::writer(file),
             None => Box::new(io::sink()),
@@ -435,6 +446,15 @@ pub fn flush() {
 /// earlier lines precede it without a stalled console holding the exit.
 pub fn flush_before_exit() -> bool {
     console().flush_within(EXIT_FLUSH_TIMEOUT)
+}
+
+/// For fatal-signal handlers, which must not lock or allocate: copies raw stderr still in the
+/// capture pipe, such as an abort message written just before the signal, to the launcher's
+/// stderr and the end of the session log. Async-signal-safe; acts once, and only on Unix
+/// once raw stderr is captured. Queued output is not flushed.
+pub fn drain_raw_stderr_on_signal() {
+    #[cfg(unix)]
+    signal_drain::drain();
 }
 
 /// A writer that hands what it collected to the console when flushed or dropped, so one

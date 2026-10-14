@@ -126,13 +126,18 @@ impl Family {
         fs::rename(path, self.archive_path(at))
     }
 
-    /// Deletes the oldest archives until both the count and byte budgets hold.
+    /// Keeps the newest archives while both the count and byte budgets hold, then deletes the
+    /// first archive that would break either budget and every older one. Tries every deletion
+    /// and reports the first failure.
     pub fn prune(&self, retention: Retention) -> io::Result<()> {
         let mut kept = 0usize;
         let mut bytes = 0u64;
+        let mut full = false;
+        let mut failure = None;
         for path in self.archives()?.into_iter().rev() {
             let size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
-            if kept < retention.archives && bytes + size <= retention.archive_bytes {
+            full = full || kept >= retention.archives || bytes + size > retention.archive_bytes;
+            if !full {
                 kept += 1;
                 bytes += size;
                 continue;
@@ -140,10 +145,12 @@ impl Family {
             match fs::remove_file(&path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error),
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
             }
         }
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 }
 
@@ -219,7 +226,9 @@ impl SessionLog {
         let now = clock();
         family.archive(&family.legacy_backup(), now)?;
         family.archive(&family.current(), now)?;
-        family.prune(retention)?;
+        // An archive that cannot be deleted now (held open elsewhere) must not cost this
+        // session its log; the next session retries.
+        let _ = family.prune(retention);
         let mut log = Self {
             family,
             retention,
@@ -237,27 +246,36 @@ impl SessionLog {
         &self.family
     }
 
-    /// Creates the current file and writes the header.
+    /// Creates the current file empty and writes the header. Writes append, so another writer
+    /// appending to the same file, such as a fatal-signal drain, never gets overwritten.
     fn start(&mut self) -> io::Result<()> {
         let mut file = OpenOptions::new()
             .create(true)
-            .truncate(true)
-            .write(true)
+            .append(true)
             .open(self.family.current())?;
+        file.set_len(0)?;
         file.write_all(&self.header)?;
         self.bytes = self.header.len() as u64;
         self.file = Some(file);
         Ok(())
     }
 
-    /// Archives the oversized current file and continues the session in a fresh one.
+    /// Archives the oversized current file and continues the session in a fresh one. When the
+    /// archive cannot be moved, the session keeps appending to the current file.
     fn rotate(&mut self) -> io::Result<()> {
         if let Some(mut file) = self.file.take() {
             file.flush()?;
         }
         let now = (self.clock)();
-        self.family.archive(&self.family.current(), now)?;
-        self.family.prune(self.retention)?;
+        if let Err(error) = self.family.archive(&self.family.current(), now) {
+            self.file = Some(
+                OpenOptions::new()
+                    .append(true)
+                    .open(self.family.current())?,
+            );
+            return Err(error);
+        }
+        let _ = self.family.prune(self.retention);
         self.start()
     }
 }

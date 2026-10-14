@@ -19,7 +19,9 @@ pub(crate) fn launched_at() -> Instant {
 /// stderr the client captures, then runs the setup window and returns its exit code.
 pub fn run_first_run_setup() -> i32 {
     crate::app::logging::install(crate::app::logging::Process::Setup);
-    first_run::run_setup_process()
+    let code = first_run::run_setup_process();
+    diagnostics::console::flush_before_exit();
+    code
 }
 
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.

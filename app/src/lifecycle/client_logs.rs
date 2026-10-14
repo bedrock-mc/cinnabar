@@ -75,5 +75,6 @@ pub(super) fn install_panic_hook(layout: &InstallLayout) {
         || {
             diagnostics::console::flush_before_exit();
         },
+        diagnostics::console::drain_raw_stderr_on_signal,
     );
 }

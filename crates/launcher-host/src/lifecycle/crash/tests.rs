@@ -234,7 +234,7 @@ fn panic_hook_fixture() {
     let root = PathBuf::from(root);
     let mut identity = identity();
     identity.started_at_ms = 0;
-    install_panic_hook(&layout(&root), identity, log_fixture_panic, || {});
+    install_panic_hook(&layout(&root), identity, log_fixture_panic, || {}, || {});
     let worker = std::thread::Builder::new()
         .name("crash-fixture".into())
         .spawn(|| panic!("fixture panic"))

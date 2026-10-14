@@ -35,7 +35,9 @@ use tracing_subscriber::{
 
 /// A layer the caller adds beneath the filter, such as a profiler.
 pub type CallerLayer = Box<dyn Layer<Registry> + Send + Sync>;
-type Base = Layered<Vec<CallerLayer>, Registry>;
+/// Caller layers sit in an `Option` because an empty `Vec` layer reports `Interest::never`
+/// for every callsite, which would disable all events beneath the filter.
+type Base = Layered<Option<Vec<CallerLayer>>, Registry>;
 
 /// What the caller supplies to [`install`].
 #[derive(Default)]
@@ -208,7 +210,7 @@ pub fn install(options: Options) -> Result<(), InstallError> {
         })
     });
     let subscriber = Registry::default()
-        .with(options.layers)
+        .with((!options.layers.is_empty()).then_some(options.layers))
         .with(filter)
         .with(tracing_error::ErrorLayer::default())
         .with(formatted)

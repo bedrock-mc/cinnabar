@@ -38,19 +38,26 @@ static CONTEXT: OnceLock<Context> = OnceLock::new();
 ///
 /// Each panic captures one backtrace, hands `log_panic` the message and that backtrace, and
 /// flushes the caller's logs before copying this session's log sections; the previous hook
-/// then runs as before. `identity` names the process in every report; a second call keeps the
+/// then runs as before. On Unix a fatal signal first calls `drain_on_signal`, which must be
+/// async-signal-safe, so output still buffered for the client log reaches it before its
+/// section is copied. `identity` names the process in every report; a second call keeps the
 /// first identity.
 pub fn install_panic_hook(
     layout: &InstallLayout,
     identity: Identity,
     log_panic: fn(&str),
     flush_logs: fn(),
+    drain_on_signal: fn(),
 ) {
     let context = configure(layout, identity);
     #[cfg(windows)]
-    native::install(context, flush_logs);
+    {
+        // The Windows filter runs outside signal restrictions and flushes the logs instead.
+        let _ = drain_on_signal;
+        native::install(context, flush_logs);
+    }
     #[cfg(unix)]
-    unix::install(context);
+    unix::install(context, drain_on_signal);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let message = info.to_string();

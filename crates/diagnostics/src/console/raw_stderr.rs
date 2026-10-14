@@ -20,7 +20,9 @@ const READ_SIZE: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub(super) struct RawStderr {
-    reader: Mutex<File>,
+    /// The capture pipe's read end; whoever holds it is the only reader besides a fatal-signal
+    /// drain.
+    pub(super) reader: Mutex<File>,
     cancelled: AtomicBool,
     dropped: Arc<AtomicU64>, // Shared with the console so overflow is reported once, in order.
 }
@@ -29,6 +31,8 @@ impl RawStderr {
     /// Installs a process-lifetime pipe only after its drain thread has started successfully.
     pub(super) fn start(queue: Arc<Queue>, dropped: Arc<AtomicU64>) -> io::Result<Arc<Self>> {
         let (reader, writer) = pipe()?;
+        #[cfg(unix)]
+        let reader_fd = std::os::fd::AsRawFd::as_raw_fd(&reader);
         let capture = Arc::new(Self {
             reader: Mutex::new(reader),
             cancelled: AtomicBool::new(false),
@@ -49,6 +53,9 @@ impl RawStderr {
             capture.cancelled.store(true, Ordering::Relaxed);
             return Err(error);
         }
+        // The console keeps the capture, and so the pipe, for the rest of the process.
+        #[cfg(unix)]
+        super::signal_drain::publish_reader(reader_fd);
         Ok(capture)
     }
 
