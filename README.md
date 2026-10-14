@@ -3,6 +3,11 @@
 > An independent, unofficial client compatible with Minecraft: Bedrock Edition. Not approved by
 > or associated with Mojang or Microsoft. Minecraft is a trademark of Microsoft Corporation.
 
+> [!WARNING]
+> Cinnabar is a non-vanilla client and still in development. Its movement and combat may not yet
+> match the official client exactly, so server anticheats may flag you and some servers may ban
+> you. Play on servers at your own risk.
+
 A Minecraft: Bedrock Edition client written from scratch in Rust. It plays on real servers, Realms
 and friends' worlds with vanilla behaviour, and it's built to run much faster than the official
 client.

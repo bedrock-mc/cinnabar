@@ -288,8 +288,10 @@ func (cache observedResourcePackCache) Store(ctx context.Context, key minecraft.
 	return nil
 }
 
-func secretSafeResourcePackLogger() *slog.Logger {
-	return slog.New(secretSafeResourcePackHandler{next: slog.Default().Handler()}).With("component", "upstream-dialer")
+// secretSafeResourcePackLogger routes third-party dialer and discovery logs through logger's
+// handler, so they share its format, level and attributes while dropping pack secrets.
+func secretSafeResourcePackLogger(logger *slog.Logger) *slog.Logger {
+	return slog.New(secretSafeResourcePackHandler{next: logger.Handler()}).With("component", "upstream-dialer")
 }
 
 type secretSafeResourcePackHandler struct{ next slog.Handler }

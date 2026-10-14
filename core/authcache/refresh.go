@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"io"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,11 +25,11 @@ var serviceDeviceNamespace = uuid.MustParse("52194710-c463-4fa4-98a9-334c1b905e0
 
 // CompleteSignIn exchanges the signed-in account's service token and persists it next to the Microsoft
 // token at oauthPath, so a join only mints its key-bound token.
-func CompleteSignIn(ctx context.Context, oauthPath string, oauth oauth2.TokenSource, diagnostics io.Writer) error {
+func CompleteSignIn(ctx context.Context, oauthPath string, oauth oauth2.TokenSource, diagnostics *slog.Logger) error {
 	return completeSignIn(ctx, oauthPath, oauth, diagnostics, defaultDerivedDeps())
 }
 
-func completeSignIn(ctx context.Context, oauthPath string, oauth oauth2.TokenSource, diagnostics io.Writer, deps derivedDeps) error {
+func completeSignIn(ctx context.Context, oauthPath string, oauth oauth2.TokenSource, diagnostics *slog.Logger, deps derivedDeps) error {
 	account := newAccount(ctx, DerivedCachePath(oauthPath), oauth, diagnostics, deps)
 	if account == nil {
 		return errors.New("authentication: no signed-in account")
