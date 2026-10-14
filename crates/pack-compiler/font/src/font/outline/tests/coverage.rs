@@ -54,7 +54,7 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
                 codepoint as u32
             );
         }
-        for codepoint in ['\u{2b50}', '\u{a000}', '\u{ac00}', '𝑩', '𝗦', '𝟭'] {
+        for codepoint in ['\u{2b50}', '\u{a000}', '\u{ac00}', '𝑩', '𝗦', '𝟭', '🛏'] {
             assert!(
                 catalog.glyph(codepoint).is_some(),
                 "{} missing U+{:04X}",
