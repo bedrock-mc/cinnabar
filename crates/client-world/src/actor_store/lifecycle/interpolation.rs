@@ -277,7 +277,12 @@ impl ActorStore {
                         actor, prepared, &self.players, &self.unlisted_players,
                     ),
                     frame_alpha: 0.0,
-                    animation_elapsed_ticks: frame.then_some(ticks),
+                    // The last two evaluations split the interval, so script time advances once.
+                    animation_elapsed_ticks: frame.then_some(if ticks == 0 || tick + 1 == ticks {
+                        ticks.min(1)
+                    } else {
+                        ticks - 1
+                    }),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
                     main_hand,
