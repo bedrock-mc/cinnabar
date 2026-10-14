@@ -1,8 +1,8 @@
 //! Borrowed visibility queries share interaction geometry without allocating hit provenance.
 
 use super::{
-    Candidate, TraversalState, candidate_precedes, checked_offset, crossing_order, ray_box,
-    ray_union_box, validate_ray,
+    super::section::SectionCache, Candidate, TraversalState, candidate_precedes, checked_offset,
+    crossing_order, ray_box, ray_union_box, validate_ray,
 };
 use crate::{Aabb, PaletteWorld, Vec3, WorldQueryError};
 use std::borrow::Cow;
@@ -38,6 +38,7 @@ impl PaletteWorld<'_> {
         let mut state = TraversalState::new(origin, direction, max_distance)?;
         let mut best = None;
         let mut bounds = Aabb::new(Vec3::ZERO, Vec3::ZERO);
+        let mut section = SectionCache::default();
         loop {
             self.inspect_camera_halo(
                 state.cell,
@@ -46,6 +47,7 @@ impl PaletteWorld<'_> {
                 max_distance,
                 &mut best,
                 &mut bounds,
+                &mut section,
             )?;
             let next = state.next_crossing();
             if best
@@ -63,6 +65,7 @@ impl PaletteWorld<'_> {
                     max_distance,
                     &mut best,
                     &mut bounds,
+                    &mut section,
                 )?;
             }
         }
@@ -78,6 +81,7 @@ impl PaletteWorld<'_> {
     }
 
     /// Inspects borrowed palette layers, including selection boxes extending into adjacent cells.
+    #[allow(clippy::too_many_arguments)]
     fn inspect_camera_halo(
         &self,
         cell: [i32; 3],
@@ -86,6 +90,7 @@ impl PaletteWorld<'_> {
         distance: f64,
         best: &mut Option<Candidate>,
         bounds: &mut Aabb,
+        section: &mut SectionCache,
     ) -> Result<(), WorldQueryError> {
         let halo = self.registry.selection_ray_halo();
         for x in halo[0].0..=halo[0].1 {
@@ -98,10 +103,10 @@ impl PaletteWorld<'_> {
                         block[1] >> 4,
                         block[2] >> 4,
                     );
-                    if !self.store.is_sub_chunk_loaded(key) {
+                    let Some(loaded) = section.get(self, key) else {
                         return Err(WorldQueryError::UnloadedChunk(key.chunk()));
-                    }
-                    let Some(chunk) = self.store.sub_chunk(key) else {
+                    };
+                    let Some(chunk) = loaded else {
                         continue;
                     };
                     for layer in 0..chunk.storages().len() {
