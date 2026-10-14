@@ -291,7 +291,7 @@ fn preview_rejects_invalid_duplicate_session_sprite_before_the_valid_source() {
 }
 
 #[test]
-fn review_regression_cpu_session_pixels_are_reused_between_preview_dress_updates() {
+fn session_preview_cpu_pixels_are_reused_between_dress_updates() {
     let mut presentation = presentation();
     install(&mut presentation, vec![sword(0, [12, 38, 96])]);
     presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
@@ -331,7 +331,7 @@ fn dense_sprite(side: u32) -> SessionIcon {
 }
 
 #[test]
-fn review_regression_dense_session_hands_preserve_the_player_within_ui_budgets() {
+fn session_preview_dense_hands_preserve_the_player_within_ui_budgets() {
     for side in [192, 128] {
         let mut presentation = presentation();
         install(&mut presentation, vec![dense_sprite(side)]);
@@ -354,7 +354,7 @@ fn review_regression_dense_session_hands_preserve_the_player_within_ui_budgets()
         assert_eq!(mesh.batches().len(), if side == 192 { 1 } else { 2 });
         assert_eq!(
             mesh.batches()[0].texture_page,
-            (presentation.textures.dynamic_start() + ui_engine::pages::SKIN_PAGE) as u16
+            (presentation.textures.dynamic_start() + super::super::SKIN_PAGE) as u16
         );
     }
 }
