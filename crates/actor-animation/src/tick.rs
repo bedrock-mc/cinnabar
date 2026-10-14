@@ -493,6 +493,7 @@ pub(super) fn evaluate_state(
         } else {
             state.history.iter().rev().nth(1).copied().unwrap_or(input)
         },
+        previous_walk: state.history.iter().rev().nth(1).copied().unwrap_or(input),
         samples_camera_poses: false,
         samples_swing_poses: false,
         selection_effects: evaluation::MolangEffects::default(),

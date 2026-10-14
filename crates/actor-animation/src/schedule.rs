@@ -690,6 +690,7 @@ impl Ledger<'_> {
         if let Some(next) = evaluated.render_frame.as_mut() {
             if restart {
                 next.previous_rotation = next.motion.input;
+                next.previous_walk = next.motion.input;
             }
             let previous = state.render_frame.as_mut().filter(|_| !restart);
             super::render_frame::carry_motion_history(previous, next, self.advance_history);
