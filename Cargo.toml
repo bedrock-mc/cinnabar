@@ -9,6 +9,7 @@ members = [
     "crates/asset-compiler",
     "crates/assets",
     "crates/bridge",
+    "web/transport",
     "crates/block-transform",
     "crates/client-world",
     "crates/client-state",

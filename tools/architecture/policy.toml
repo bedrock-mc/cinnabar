@@ -50,6 +50,12 @@ allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "web-transport"
+path = "web/transport"
+allowed_dependencies = ["bridge"]
+forbidden_dependencies = ["bevy", "protocol", "client-session", "wgpu"]
+
+[[crates]]
 name = "protocol-ids"
 path = "crates/protocol-ids"
 allowed_dependencies = []
