@@ -16,7 +16,7 @@ use launcher::menu::{
     MenuAction, MenuScreen, MenuView,
     view::{SettingsFocusLandmark, SettingsFocusTarget},
 };
-use launcher::menu::{MenuField, settings_sections::SETTINGS_SECTIONS};
+use launcher::menu::{MenuField, settings_sections::SettingSection};
 use ui_engine::caret::TextSpot;
 use ui_engine::engine::screen::{
     PaintError, PaintFrame, Screen, ScreenOutput, ScreenRegistry, Translate,
@@ -136,6 +136,7 @@ impl OreUiScreen {
         artwork: &HashMap<String, IconRef>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<EditorPaint, PaintError> {
+        self.configure_accessibility(&view.settings_options);
         let originals = self
             .originals
             .clone()
@@ -145,7 +146,7 @@ impl OreUiScreen {
             &mut *frame.next,
             &mut *frame.layouts,
             frame.font,
-            frame.metrics,
+            self.accessibility_metrics(frame.metrics),
             frame.solid_page,
             originals.as_deref(),
         );
@@ -189,6 +190,7 @@ impl Screen for OreUiScreen {
             scrolls,
             geometry,
         } = input;
+        self.configure_accessibility(&view.settings_options);
         let progress = view.connecting || view.local.progress.is_some();
         let sign_in = view.sign_in_prompt_open();
         let screen = view.screen;
@@ -203,7 +205,7 @@ impl Screen for OreUiScreen {
             &mut *frame.next,
             &mut *frame.layouts,
             frame.font,
-            frame.metrics,
+            self.accessibility_metrics(frame.metrics),
             frame.solid_page,
             originals.as_deref(),
         );
@@ -319,15 +321,13 @@ impl Screen for OreUiScreen {
                     focus = Some(focus_actions(&canvas));
                 }
                 MenuScreen::Settings => {
-                    let section = SETTINGS_SECTIONS
-                        .iter()
-                        .find_map(|(key, index)| (*index == view.settings_section).then_some(*key))
-                        .unwrap_or("accessibility_forced_index");
+                    let section = SettingSection::from_index(view.settings_section)
+                        .unwrap_or(SettingSection::Accessibility);
                     canvas
                         .transitions
                         .as_deref_mut()
                         .unwrap()
-                        .begin_settings(settings::section_index(section));
+                        .begin_settings(section.definition().index);
                     let rollback = (canvas.nodes.len(), *canvas.next);
                     for attempt in 0..2 {
                         settings::draw(

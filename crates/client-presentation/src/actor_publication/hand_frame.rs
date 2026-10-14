@@ -46,9 +46,7 @@ pub(super) fn prepare(
     // First person draws the player's own rig near the camera: the visible arms with every other
     // bone hidden, and a drawable held item in its own first-person frame. Anything not covered
     // (an undrawable item) leaves the CPU viewmodel in charge.
-    if java_mode
-        && let Some(rig) = stream.and_then(|stream| stream.authority().actor_rig(local_runtime_id))
-    {
+    if let Some(rig) = stream.and_then(|stream| stream.authority().actor_rig(local_runtime_id)) {
         java_hand.remember(&rig, input.local_equipment.main.as_ref());
     }
     let mut reused_hand = false;

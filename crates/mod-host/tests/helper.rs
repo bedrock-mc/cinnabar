@@ -1,7 +1,6 @@
 //! The developer helper process: a failed callback answers with an error reply and the helper
 //! keeps running, a failed start answers with its reason, and the helper's stderr reaches the
 //! client.
-#![cfg(feature = "execution")]
 
 use std::{
     collections::BTreeSet,

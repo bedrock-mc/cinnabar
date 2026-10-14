@@ -60,6 +60,7 @@ mod tests;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
+mod far_terrain;
 mod render_distance;
 mod shell_adapters;
 #[cfg(test)]

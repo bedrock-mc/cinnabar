@@ -2,6 +2,8 @@ use super::*;
 use crate::tick::WeightedClip;
 use assets::{EntityAnimationProperty, RuntimeEntityAssets};
 
+mod frame_tests;
+
 /// A player double with no item use or special posture.
 fn player() -> TestActor {
     TestActor {
@@ -68,6 +70,7 @@ fn sample(
     };
     let evaluator = Evaluator {
         assets: &assets,
+        pack: false,
         layout: &layout,
         program: None,
         actor,
@@ -237,6 +240,38 @@ fn modern_and_special_postures_keep_the_authored_attack() {
             sample(ActorTickContext::default(), &actor, 0.5, None)[2].rotation,
             expected
         );
+    }
+}
+
+#[test]
+fn registered_maps_keep_the_authored_attack_in_either_hand() {
+    let items = protocol::vanilla_item_registry();
+    let maps = items
+        .iter()
+        .filter(|item| {
+            matches!(
+                item.identifier.as_ref(),
+                "minecraft:empty_map" | "minecraft:filled_map"
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(maps.len(), 2);
+    for item in maps {
+        for off_hand in [false, true] {
+            let mut context = ActorTickContext {
+                combat_visuals: CombatVisuals::Legacy112,
+                ..Default::default()
+            };
+            if off_hand {
+                context.off_hand = Some(item.identifier.clone());
+            } else {
+                context.main_hand = Some(item.identifier.clone());
+            }
+            assert_eq!(
+                sample(context, &player(), 0.5, None)[2].rotation,
+                pose::quat_from_euler([-40.0, 0.0, 0.0])
+            );
+        }
     }
 }
 

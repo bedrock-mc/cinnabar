@@ -26,8 +26,15 @@ impl DecodeJob {
                 previous,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                let decoded =
-                    DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+                let decoded = DecodedLevelChunk::decode_inline_reusing(
+                    chunk,
+                    slots,
+                    count,
+                    &payload,
+                    &ids,
+                    &ids,
+                    previous.as_deref(),
+                );
                 let light_neutral = previous.map_or_else(Vec::new, |previous| {
                     light_neutral_sections(&previous, &decoded, &ids)
                 });
@@ -97,10 +104,15 @@ impl DecodeJob {
                 sequence,
                 batches,
                 events,
+                crack_batches,
                 ids,
             } => {
-                let (result, events) =
-                    super::block_sync::prepare_synced_block_mutations(batches, events, &ids);
+                let (result, events) = super::block_sync::prepare_synced_block_mutations(
+                    batches,
+                    events,
+                    crack_batches,
+                    &ids,
+                );
                 DecodeCompletion {
                     sequence,
                     queue_wait,

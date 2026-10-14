@@ -53,6 +53,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
     effects: Res<'w, LocalMovementEffectTimeline>,
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
@@ -167,6 +168,9 @@ pub(crate) fn produce_item_use(
             Some(AirUse::Hold { needs, .. }) => {
                 creative || needs_met(&player_runtime, stream, &context.ui, needs)
             }
+            Some(AirUse::GlideRocket) => context.physics.as_deref().is_some_and(|physics| {
+                physics.is_active() && physics.mode() == sim::MovementMode::Gliding
+            }),
             _ => false,
         },
         creative,

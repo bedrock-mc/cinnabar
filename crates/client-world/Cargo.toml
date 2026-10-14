@@ -13,6 +13,7 @@ assets = { path = "../assets" }
 bytes.workspace = true
 hashbrown = "0.16"
 protocol = { path = "../protocol" }
+protocol-ids = { path = "../protocol-ids" }
 tracing.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

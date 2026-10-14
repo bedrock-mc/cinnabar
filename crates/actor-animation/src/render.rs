@@ -344,7 +344,7 @@ pub(super) fn evaluate_render(
             )
             .ok_or(EvalError::Invalid)?;
         let mut selected_sources = Vec::with_capacity(slots.len());
-        for slot in slots {
+        for (texture_slot, slot) in slots.iter().enumerate() {
             let candidates = render
                 .candidates
                 .get(
@@ -361,7 +361,10 @@ pub(super) fn evaluate_render(
                         .truthy(),
                 };
                 if selected {
-                    selected_sources.push(candidate.source);
+                    // Later slots are samplers for this draw, not additional mesh layers.
+                    if multitexture || texture_slot == 0 {
+                        selected_sources.push(candidate.source);
+                    }
                     break;
                 }
             }
@@ -424,3 +427,7 @@ mod tests {
 #[cfg(test)]
 #[path = "render/multitexture_tests.rs"]
 mod multitexture_tests;
+
+#[cfg(test)]
+#[path = "render/projectile_tests.rs"]
+mod projectile_tests;

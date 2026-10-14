@@ -101,6 +101,39 @@ fn sign_art_follows_the_block_wood_and_mount() {
 }
 
 #[test]
+fn pinned_poplar_signs_select_the_available_editor_art() {
+    let registry = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let names = registry
+        .iter()
+        .filter(|record| {
+            record.name.starts_with("minecraft:poplar_") && record.name.ends_with("sign")
+        })
+        .map(|record| record.name.as_ref())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(!names.is_empty());
+    for name in names {
+        let look = SignLook::of_block(Some(name));
+        if !look.hanging {
+            assert_eq!(look.texture, "textures/ui/poplar_sign");
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let pack = root.join(assets::vanilla_source().resource_pack_dir());
+        if pack.is_dir() {
+            assert!(
+                pack.join(format!("{}.png", look.texture)).is_file(),
+                "{name}"
+            );
+        } else {
+            eprintln!("skipping poplar sign texture-file check: missing pinned resource pack");
+        }
+    }
+}
+
+#[test]
 fn review_editing_the_legacy_back_preserves_the_front_text_and_color() {
     let mut root = NbtCompound::default();
     root.insert("Text", NbtValue::String("legacy front".into()));

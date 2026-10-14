@@ -1,16 +1,18 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
 mod icons;
-mod picker;
+pub(crate) mod picker;
 mod worker;
 
 use bevy::prelude::*;
 use std::{path::PathBuf, sync::Arc};
 use {crate::runtime::network::PackReload, client_shell::menu::MenuRuntime};
 
+const WORKER_UNAVAILABLE: &str = "The resource pack worker is unavailable. Restart the client after correcting the resource pack storage error.";
+
 /// Creates the import worker; no filesystem or ZIP work runs on a frame.
-pub(crate) fn configure(app: &mut App, root: PathBuf, files: Vec<PathBuf>) {
-    app.insert_resource(worker::Worker::new(root, files))
+pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, files: Vec<PathBuf>) {
+    app.insert_resource(worker::Worker::new(root, config_root, files))
         .init_resource::<PackReload>()
         .add_systems(
             Update,
@@ -33,6 +35,12 @@ fn drive(
     mut reload: ResMut<PackReload>,
     mut drops: MessageReader<bevy::window::FileDragAndDrop>,
 ) {
+    for request in menu.take_minecraft_import_requests() {
+        let action = request.action;
+        if !worker.send_minecraft_import(request) {
+            menu.fail_minecraft_import(action, WORKER_UNAVAILABLE);
+        }
+    }
     for event in drops.read() {
         if let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = event {
             worker.send(worker::Command::Import(path_buf.clone()));
@@ -42,8 +50,33 @@ fn drive(
         let revision = worker.snapshot.revision;
         worker.send(worker::Command::Action { action, revision });
     }
-    while let Ok(event) = worker.events.try_recv() {
+    loop {
+        let event = match worker.events.try_recv() {
+            Ok(event) => event,
+            Err(crossbeam_channel::TryRecvError::Empty) => break,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                if let Some(action) = worker.minecraft_import_request.take() {
+                    menu.fail_minecraft_import(action, WORKER_UNAVAILABLE);
+                }
+                if worker.minecraft_import_pending {
+                    menu.publish_minecraft_import_pack_status(WORKER_UNAVAILABLE);
+                    worker.minecraft_import_pending = false;
+                }
+                worker.awaiting = None;
+                worker.snapshot.busy = false;
+                break;
+            }
+        };
         match event {
+            worker::Event::MinecraftImportStatus(message) => {
+                worker.minecraft_import_pending = false;
+                menu.publish_minecraft_import_pack_status(&message);
+            }
+            worker::Event::MinecraftImport(snapshot, state) => {
+                worker.minecraft_import_request = None;
+                worker.minecraft_import_pending |= state.is_some();
+                menu.publish_minecraft_import(snapshot, state.map(|state| *state))
+            }
             worker::Event::Snapshot(snapshot) => worker.snapshot = snapshot,
             worker::Event::Apply(stack, selection) => {
                 let revision = reload.request_globals(stack);
@@ -56,6 +89,15 @@ fn drive(
     }) {
         let (_, selection) = worker.awaiting.take().expect("completed selection");
         worker.send(worker::Command::Commit(selection));
+    }
+    if worker.minecraft_import_pending {
+        if let Some(error) = reload.error() {
+            menu.publish_minecraft_import_pack_status(&format!(
+                "Resource packs could not be applied: {error}"
+            ));
+        } else if let Some(progress) = reload.progress() {
+            menu.publish_minecraft_import_pack_status(progress);
+        }
     }
     let mut snapshot = worker.snapshot.clone();
     if let Some(progress) = reload.progress() {

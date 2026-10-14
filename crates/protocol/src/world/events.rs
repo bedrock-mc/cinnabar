@@ -15,7 +15,7 @@ use crate::{
     CameraEvent, EquipmentEvent, InventoryEvent, ItemActorEvent, UiEvent,
 };
 
-use super::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
+use protocol_ids::{HASHED_AIR_NETWORK_ID, SEQUENTIAL_AIR_NETWORK_ID};
 
 /// Native vanilla Nether dimension identifier.
 pub const NETHER_DIMENSION_ID: i32 = 1;

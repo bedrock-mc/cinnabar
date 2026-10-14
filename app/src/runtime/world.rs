@@ -130,6 +130,8 @@ pub(crate) struct ClientWorld {
     pub(crate) reported_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
+    /// StartGame's hashed world identity, which keys far-terrain caches.
+    pub(crate) level_identity: u64,
 }
 
 impl Default for ClientWorld {
@@ -156,6 +158,7 @@ impl ClientWorld {
             reported_decode_errors: 0,
             client_blob_cache_enabled: false,
             client_blob_cache: BlobCacheStats::default(),
+            level_identity: 0,
         }
     }
 
@@ -218,12 +221,20 @@ pub(crate) fn update_camera_medium(
     mut context: ResMut<environment::EnvironmentContext>,
     mut fog_bindings: ResMut<environment::FogBindings>,
     atmosphere: Res<render_scene::AtmosphereTextureAssets>,
+    mut arena_hint: ResMut<render_scene::chunk::capacity::ChunkArenaCapacityHint>,
 ) {
     let Some((stream, camera)) = client_world.stream.as_ref().zip(camera.single().ok()) else {
+        arena_hint.sections = 0;
         medium.0 = CameraMedium::Air;
         *context = environment::EnvironmentContext::default();
         return;
     };
+    *arena_hint = render_scene::chunk::capacity::ChunkArenaCapacityHint::for_view(
+        (stream.render_distance_blocks() / 16.0) as usize,
+        stream
+            .dimension_range(stream.current_dimension())
+            .map_or(0, |range| range.sub_chunk_count),
+    );
     let position = camera.translation.to_array();
     fog_bindings.refresh(
         stream.authority().resolved_biome_tints(),

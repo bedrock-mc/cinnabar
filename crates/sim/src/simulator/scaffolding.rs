@@ -8,7 +8,7 @@ use super::environment::SampledEnvironment;
 /// How far below a scaffolding top the feet may sit and still stand on it.
 const TOP_TOLERANCE: f32 = 1.0e-6;
 /// Vertical speed of both the held-jump ascent and the sneak descent.
-pub(super) const CLIMB_SPEED: f64 = 0.15;
+pub(super) const CLIMB_SPEED: f64 = 0.15_f32 as f64;
 
 /// Scaffolding facts of the body footprint at the feet layer and the layer below it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

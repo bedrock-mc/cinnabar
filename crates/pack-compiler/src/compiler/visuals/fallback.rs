@@ -241,6 +241,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || super::campfire::is_record(record)
         || super::grindstone::is_record(record)
         || super::tripwire_hook::is_record(record)
+        || super::lever::is_record(record)
         || super::lily_pad::is_record(record)
         || super::end_rod::is_record(record)
         || super::lightning_rod::is_record(record)

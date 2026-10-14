@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
@@ -17,38 +18,38 @@ import (
 type ResourcePackOffer string
 
 const (
-	ResourcePackOfferNone     ResourcePackOffer = "none"
-	ResourcePackOfferOptional ResourcePackOffer = "optional"
-	ResourcePackOfferRequired ResourcePackOffer = "required"
+	ResourcePackOfferNone     ResourcePackOffer = bridgecontract.PackOfferNone
+	ResourcePackOfferOptional ResourcePackOffer = bridgecontract.PackOfferOptional
+	ResourcePackOfferRequired ResourcePackOffer = bridgecontract.PackOfferRequired
 )
 
 type ResourcePackAcquisition string
 
 const (
-	ResourcePackAcquisitionNone      ResourcePackAcquisition = "none"
-	ResourcePackAcquisitionComplete  ResourcePackAcquisition = "complete"
-	ResourcePackAcquisitionIgnored   ResourcePackAcquisition = "ignored"
-	ResourcePackAcquisitionPartial   ResourcePackAcquisition = "partial"
-	ResourcePackAcquisitionFailed    ResourcePackAcquisition = "failed"
-	ResourcePackAcquisitionCancelled ResourcePackAcquisition = "cancelled"
+	ResourcePackAcquisitionNone      ResourcePackAcquisition = bridgecontract.PackAcquisitionNone
+	ResourcePackAcquisitionComplete  ResourcePackAcquisition = bridgecontract.PackAcquisitionComplete
+	ResourcePackAcquisitionIgnored   ResourcePackAcquisition = bridgecontract.PackAcquisitionIgnored
+	ResourcePackAcquisitionPartial   ResourcePackAcquisition = bridgecontract.PackAcquisitionPartial
+	ResourcePackAcquisitionFailed    ResourcePackAcquisition = bridgecontract.PackAcquisitionFailed
+	ResourcePackAcquisitionCancelled ResourcePackAcquisition = bridgecontract.PackAcquisitionCancelled
 )
 
 type ResourcePackDownstreamOutcome string
 
 const (
-	ResourcePackDownstreamNone              ResourcePackDownstreamOutcome = "none"
-	ResourcePackDownstreamOfferedOptional   ResourcePackDownstreamOutcome = "offered_optional"
-	ResourcePackDownstreamHandedOffOptional ResourcePackDownstreamOutcome = "handed_off_optional"
-	ResourcePackDownstreamOfferedRequired   ResourcePackDownstreamOutcome = "offered_required"
-	ResourcePackDownstreamHandedOffRequired ResourcePackDownstreamOutcome = "handed_off_required"
-	ResourcePackDownstreamRejectedRequired  ResourcePackDownstreamOutcome = "rejected_required"
-	ResourcePackDownstreamStrippedIgnored   ResourcePackDownstreamOutcome = "stripped_ignored"
+	ResourcePackDownstreamNone              ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamNone
+	ResourcePackDownstreamOfferedOptional   ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamOfferedOptional
+	ResourcePackDownstreamHandedOffOptional ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamHandedOffOptional
+	ResourcePackDownstreamOfferedRequired   ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamOfferedRequired
+	ResourcePackDownstreamHandedOffRequired ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamHandedOffRequired
+	ResourcePackDownstreamRejectedRequired  ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamRejectedRequired
+	ResourcePackDownstreamStrippedIgnored   ResourcePackDownstreamOutcome = bridgecontract.PackDownstreamStrippedIgnored
 )
 
 const (
-	ResourcePackApplicationUnavailable = "unavailable"
+	ResourcePackApplicationUnavailable = bridgecontract.PackApplicationUnavailable
 	// ResourcePackApplicationApplied is reported once the client confirms it applied the handed-off packs.
-	ResourcePackApplicationApplied = "applied"
+	ResourcePackApplicationApplied = bridgecontract.PackApplicationApplied
 )
 
 // ResourcePackAdmissionSnapshot deliberately contains no pack identity,

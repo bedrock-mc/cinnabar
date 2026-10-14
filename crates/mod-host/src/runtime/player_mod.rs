@@ -71,9 +71,14 @@ impl State {
     /// Whether the host may deliver `event`: actions, edit boxes and keys must be declared.
     pub(super) fn check_event(&self, event: &ModEvent) -> Result<()> {
         match event {
-            ModEvent::Action { id, .. }
-            | ModEvent::SecondaryAction { id, .. }
-            | ModEvent::TextChanged { control: id, .. } => {
+            ModEvent::TextChanged { control, text } => {
+                ensure!(
+                    self.declared.actions.contains(control),
+                    "{control} is not a declared action"
+                );
+                ensure!(host_screen::edit_text(text), "invalid edit text");
+            }
+            ModEvent::Action { id, .. } | ModEvent::SecondaryAction { id, .. } => {
                 ensure!(
                     self.declared.actions.contains(id),
                     "{id} is not a declared action"

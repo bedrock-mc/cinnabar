@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 var (
@@ -15,23 +17,23 @@ var (
 )
 
 const (
-	GameModeSurvival  = "survival"
-	GameModeCreative  = "creative"
-	GameModeAdventure = "adventure"
+	GameModeSurvival  = bridgecontract.GameModeSurvival
+	GameModeCreative  = bridgecontract.GameModeCreative
+	GameModeAdventure = bridgecontract.GameModeAdventure
 
-	BackendBDS       = "bds"       // Bedrock Dedicated Server: vanilla worldgen and mobs
-	BackendDragonfly = "dragonfly" // built-in server
+	BackendBDS       = bridgecontract.BackendBds       // Bedrock Dedicated Server: vanilla worldgen and mobs
+	BackendDragonfly = bridgecontract.BackendDragonfly // built-in server
 )
 
 // State is the lifecycle of the launcher's open world.
 type State string
 
 const (
-	StateIdle     State = "idle"
-	StateStarting State = "starting"
-	StateRunning  State = "running"
-	StateStopping State = "stopping"
-	StateFailed   State = "failed" // stays until closed so a failed open never falls through to another target
+	StateIdle     State = bridgecontract.WorldStateIdle
+	StateStarting State = bridgecontract.WorldStateStarting
+	StateRunning  State = bridgecontract.WorldStateRunning
+	StateStopping State = bridgecontract.WorldStateStopping
+	StateFailed   State = bridgecontract.WorldStateFailed // stays until closed so a failed open never falls through to another target
 )
 
 // World identifies the open world to Xbox friends.

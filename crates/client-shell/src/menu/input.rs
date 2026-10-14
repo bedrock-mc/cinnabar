@@ -1,3 +1,4 @@
+use launcher::menu::settings_options::SettingId;
 mod cancel;
 pub(super) mod command_macros;
 pub mod context;
@@ -34,8 +35,10 @@ use launcher::menu::view::MenuCaret;
 use {super::MenuRuntime, launcher::menu::MenuField};
 
 /// Vanilla's fixed desktop option hotkeys.
-pub const HOTKEY_OPTIONS: [(KeyCode, &str); 2] =
-    [(KeyCode::F1, "hide_hud"), (KeyCode::F8, "hide_paperdoll")];
+pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
+    (KeyCode::F1, SettingId::HideHud),
+    (KeyCode::F8, SettingId::HidePaperdoll),
+];
 
 #[derive(Resource)]
 pub struct MenuClipboard(
@@ -325,9 +328,14 @@ impl MenuRuntime {
         });
     }
 
-    /// A caret or deletion key in the focused field; `false` leaves it to focus navigation.
-    fn edit_key(&mut self, key: KeyCode, selecting: bool) -> bool {
+    /// A caret or deletion key in the focused field, acting on whole words when `by_word`;
+    /// `false` leaves it to focus navigation.
+    fn edit_key(&mut self, key: KeyCode, selecting: bool, by_word: bool) -> bool {
         let edit: fn(&mut ChatEditor, bool) = match key {
+            KeyCode::ArrowLeft if by_word => ChatEditor::move_word_left,
+            KeyCode::ArrowRight if by_word => ChatEditor::move_word_right,
+            KeyCode::Backspace if by_word => |editor, _| editor.backspace_word(),
+            KeyCode::Delete if by_word => |editor, _| editor.delete_word(),
             KeyCode::ArrowLeft => |editor, selecting| {
                 if selecting {
                     editor.select_left();
@@ -478,7 +486,7 @@ pub fn drive_menu_input(
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if !menu.is_visible()
-            && menu.settings_options.value("pause_menu_on_focus_lost") != 0
+            && menu.settings_options.value(SettingId::PauseMenuOnFocusLost) != 0
             && !crate::screen_policy::absorbs_input(
                 &player_runtime,
                 runtime.as_deref().map(|runtime| &runtime.0),
@@ -896,6 +904,11 @@ pub fn drive_menu_input(
         ) {
             menu.input_mode = MenuInputMode::Keyboard;
         }
+        // Caret and deletion keys come first: Backspace and Delete carry control
+        // text that the shortcut guard below would otherwise swallow.
+        if menu.edit_key(input.key_code, modifiers.shift(), modifiers.shortcut()) {
+            continue;
+        }
         if modifiers.shortcut() && menu.has_focused_field() {
             match input.key_code {
                 KeyCode::KeyA => {
@@ -920,9 +933,6 @@ pub fn drive_menu_input(
             if input.text.is_some() {
                 continue;
             }
-        }
-        if menu.edit_key(input.key_code, modifiers.shift()) {
-            continue;
         }
         match input.key_code {
             // A held key's repeats keep moving focus and typing but never go back or activate.

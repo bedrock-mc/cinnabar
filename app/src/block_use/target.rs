@@ -1,7 +1,7 @@
 //! Adapts fresh world evidence to the gameplay-owned held placement intention.
 use gameplay::{
     block_use::PlacementTarget,
-    melee::{Crosshair, classify, pick_actor},
+    melee::{Crosshair, classify_block_hit, pick_actor},
 };
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::CollisionWorld;
@@ -74,10 +74,11 @@ pub(super) fn observe_use_target(
             };
             let (origin, direction) = (vector(pick.origin), vector(pick.direction));
             let hit = world.block_interaction_ray_current(origin, direction, reach)?;
-            let mut actor = match classify(actor, hit.as_ref().map(|hit| hit.distance), reach) {
-                Crosshair::Actor(actor) => Some(actor),
-                _ => None,
-            };
+            let mut actor =
+                match classify_block_hit(actor, pick.origin.to_array(), hit.as_ref(), reach) {
+                    Crosshair::Actor(actor) => Some(actor),
+                    _ => None,
+                };
             let indirect = if hit.is_none() && actor.is_none() {
                 world.block_use_miss_support_current(origin, direction)?
             } else {

@@ -4,11 +4,12 @@ use {
     client_world::ingestion::{MAX_ADMITTED_HEAVY_EVENTS, MAX_ADMITTED_WORLD_EVENTS},
 };
 
-fn remote_move(runtime_id: u64) -> WorldEvent {
+/// Moves a remote actor to the given X coordinate with Y and Z fixed at one.
+fn remote_move(runtime_id: u64, x: f32) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::Move(ActorMoveEvent {
         dimension: 0,
         runtime_id,
-        position: [Some(1.0); 3],
+        position: [Some(x), Some(1.0), Some(1.0)],
         position_origin: ActorPositionOrigin::NetworkOffset,
         pitch: None,
         yaw: None,
@@ -53,10 +54,10 @@ fn light_events_commit_with_zero_polls_while_heavy_admission_is_full() {
     }
     assert_eq!(stream.order.heavy_capacity(), 0);
     assert!(stream.light_admission_capacity() > 0);
-    stream.submit(heavy + 1, inline_air_event(0)).unwrap();
+    stream.submit(heavy + 1, inline_air_event(-1)).unwrap();
     assert_eq!(stream.order.deferred_count(), 1);
     assert!(stream.remaining_admission_capacity() > 0);
-    stream.submit(heavy + 2, remote_move(9)).unwrap();
+    stream.submit(heavy + 2, remote_move(9, 1.0)).unwrap();
     stream
         .submit(heavy + 3, WorldEvent::NetworkStackLatency(5))
         .unwrap();
@@ -85,7 +86,7 @@ fn admission_checks_the_event_lane_when_all_terrain_slots_are_full() {
     assert_eq!(stream.remaining_admission_capacity(), 0);
     assert!(!stream.can_admit(&inline_air_event(1000)));
     let sequence = terrain_count as u64 + 1;
-    let movement = remote_move(9);
+    let movement = remote_move(9, 1.0);
     assert!(stream.can_admit(&movement));
     stream.submit(sequence, movement).unwrap();
     assert!(stream.order.is_finished(sequence));
@@ -100,7 +101,7 @@ fn full_light_consumers_do_not_use_terrain_admission() {
         assert!(stream.can_admit(&event));
         stream.submit(sequence, event).unwrap();
     }
-    assert!(!stream.can_admit(&remote_move(9)));
+    assert!(!stream.can_admit(&remote_move(9, 1.0)));
     let terrain = inline_air_event(0);
     assert!(stream.can_admit(&terrain));
     stream
@@ -110,7 +111,7 @@ fn full_light_consumers_do_not_use_terrain_admission() {
         stream.take_committed_controls().len(),
         MAX_ADMITTED_WORLD_EVENTS
     );
-    assert!(stream.can_admit(&remote_move(9)));
+    assert!(stream.can_admit(&remote_move(9, 1.0)));
 }
 
 #[test]
@@ -119,11 +120,11 @@ fn actor_move_after_a_block_decode_on_another_column_commits_without_waiting() {
     stream.submit(1, inline_air_event(0)).unwrap();
     stream.submit(2, inline_air_event(1)).unwrap();
     complete_pending_decode_jobs(&mut stream);
-    stream.submit(3, worker_block_batch(0, 1)).unwrap();
+    stream.submit(3, worker_block_batch(1, 1)).unwrap();
     assert_eq!(stream.order.blocking_block_updates(), Some(3));
-    stream.submit(4, remote_move(9)).unwrap();
+    stream.submit(4, remote_move(9, 1.0)).unwrap();
     assert!(stream.order.is_finished(4));
-    stream.submit(5, worker_block_batch(1, 1)).unwrap();
+    stream.submit(5, worker_block_batch(0, 1)).unwrap();
     assert!(
         !stream.order.is_finished(5),
         "one block decode is in flight at a time"
@@ -133,12 +134,26 @@ fn actor_move_after_a_block_decode_on_another_column_commits_without_waiting() {
 }
 
 #[test]
-fn actor_move_after_a_level_chunk_commits_without_waiting() {
+fn actor_move_after_a_level_chunk_on_another_column_commits_without_waiting() {
     let mut stream = block_entity_visual_stream();
-    stream.submit(1, inline_air_event(0)).unwrap();
-    stream.submit(2, remote_move(9)).unwrap();
+    stream.submit(1, inline_air_event(1)).unwrap();
+    stream.submit(2, remote_move(9, 1.0)).unwrap();
     assert!(stream.order.is_finished(2));
     assert_eq!(stream.committed_sequence(), 0);
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.committed_sequence(), 2);
+}
+
+#[test]
+fn actor_move_after_a_level_chunk_on_its_target_column_waits_for_decode() {
+    let mut stream = block_entity_visual_stream();
+    stream.submit(1, inline_air_event(0)).unwrap();
+    stream.submit(2, remote_move(9, 1.0)).unwrap();
+    assert!(!stream.order.is_finished(2));
+    assert_eq!(stream.committed_sequence(), 0);
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.order.is_finished(2));
+    assert_eq!(stream.committed_sequence(), 2);
 }
 
 #[test]
@@ -161,7 +176,7 @@ fn block_update_on_a_pending_column_waits_only_for_that_column() {
 }
 
 #[test]
-fn move_commits_in_the_frame_whose_budget_sub_chunk_commits_spent() {
+fn move_on_another_column_commits_in_the_frame_whose_budget_sub_chunk_commits_spent() {
     let (mut stream, key) = stream_with_one_expected_sub_chunk();
     stream.enqueue_request(key.chunk(), key.y, 3, None);
     stream
@@ -189,7 +204,7 @@ fn move_commits_in_the_frame_whose_budget_sub_chunk_commits_spent() {
     apply_spent_slice(&mut stream);
     stream.polling = false;
     assert!(stream.order.pending_batch_sequence().is_some());
-    stream.submit(3, remote_move(9)).unwrap();
+    stream.submit(3, remote_move(9, 17.0)).unwrap();
     assert!(stream.order.is_finished(3));
 }
 
@@ -209,7 +224,7 @@ fn randomized_interleavings_match_strict_fifo_world_state() {
             .map(|_| match next(5) {
                 0 => inline_block_entity_event(next(3) as i32, 1 + next(3) as u32, Vec::new()),
                 1 => block_update(next(3) as i32, next(4) as u32),
-                2 => remote_move(9),
+                2 => remote_move(9, 1.0),
                 3 => WorldEvent::NetworkStackLatency(next(1000)),
                 _ => WorldEvent::SetTime(SetTimeEvent {
                     time: next(1000) as i32,
@@ -343,7 +358,7 @@ fn deferred_barrier_behind_full_terrain_drains_after_light_admission_fills() {
     let mut last = heavy + 2;
     while stream.remaining_admission_capacity() > 0 {
         last += 1;
-        stream.submit(last, remote_move(9)).unwrap();
+        stream.submit(last, remote_move(9, 1.0)).unwrap();
     }
     assert!(last - heavy - 2 >= MAX_ADMITTED_WORLD_EVENTS as u64 - 1);
     complete_pending_decode_jobs(&mut stream);
@@ -376,7 +391,7 @@ fn randomized_ingress_always_drains() {
                     (5, true) => block_update(next(4) as i32, next(3) as u32),
                     (6, _) => WorldEvent::ChangeDimension(ChangeDimensionEvent::default()),
                     (5, false) => WorldEvent::NetworkStackLatency(sequence),
-                    _ => remote_move(9),
+                    _ => remote_move(9, 1.0),
                 };
                 stream.submit(sequence, event).unwrap();
                 stalled = 0;

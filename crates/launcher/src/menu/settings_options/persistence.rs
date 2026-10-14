@@ -1,5 +1,6 @@
 //! Bounded settings loading and atomic replacement keep incomplete writes out of the store.
 
+use super::SettingId;
 use std::{
     fs,
     io::{self, Read},
@@ -11,7 +12,12 @@ use super::{ANIMATIONS_OPTION, SETTINGS_OPTIONS, SettingsOptions};
 const MAX_SETTINGS_BYTES: u64 = 64 * 1024;
 pub const SETTINGS_FILE: &str = "settings.json";
 /// Version written with the current settings format.
-pub const SETTINGS_SCHEMA: u32 = 1;
+pub const SETTINGS_SCHEMA: u32 = 2;
+
+/// Files without a version predate the removal of the saved GL choice.
+pub(super) fn legacy_schema() -> u32 {
+    1
+}
 
 impl SettingsOptions {
     /// Loads known settings and rejects malformed values without losing defaults.
@@ -34,6 +40,16 @@ impl SettingsOptions {
     /// Parses and validates stored values against the current option registry.
     pub fn decode(bytes: &[u8]) -> Option<Self> {
         let mut saved: Self = serde_json::from_slice(bytes).ok()?;
+        if saved.schema < 2
+            && let Some(choice) = saved.values.get_mut(SettingId::GraphicsApi.name())
+        {
+            // The old GL slot is Auto; Metal moves down after removing that slot.
+            *choice = match *choice {
+                3 => 0,
+                4 => 3,
+                choice => choice,
+            };
+        }
         if let Some(toggle) = saved.values.remove("java_animations") {
             saved
                 .values
@@ -42,12 +58,17 @@ impl SettingsOptions {
         }
         let mut validated = Self::default();
         for (index, option) in SETTINGS_OPTIONS.iter().enumerate() {
+            if matches!(option.kind, super::SettingKind::Host) {
+                continue;
+            }
             if let Some(value) = saved.values.get(option.name) {
-                if option.name == "max_framerate" && !(option.min..=option.max).contains(value) {
+                if option.id == SettingId::MaxFramerate
+                    && !(option.min..=option.max).contains(value)
+                {
                     // Unsupported FPS values keep the default instead of clamping to one FPS.
                     continue;
                 }
-                if option.name == "render_distance" && *value == 4 {
+                if option.id == SettingId::RenderDistance && *value == 4 {
                     // Preserve the old minimum when the user explicitly saved it.
                     validated.values.insert(option.name.to_owned(), *value);
                     continue;
@@ -64,6 +85,7 @@ impl SettingsOptions {
         for slot in 0..super::COMMAND_MACRO_COUNT {
             validated.set_macro_command(slot, saved.macro_command(slot));
         }
+        validated.graphics_api_revision = saved.graphics_api_revision;
         validated.keys = saved.keys;
         validated.server_list = saved.server_list;
         if let Some(slots) = saved.emote_slots {

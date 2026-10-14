@@ -10,6 +10,8 @@ pub struct SequencedAudioEvent {
     pub sequence: u64,
     pub dimension: i32,
     pub dimension_epoch: u64,
+    /// A client actor lifecycle request, paired with packet audio by the echo ledger.
+    pub client_generated: bool,
     pub actor_synchronization: Option<actor_animation::ActorLifetimeId>,
     pub event: protocol::AudioEvent,
 }
@@ -26,6 +28,7 @@ pub fn drain_committed_audio(
             sequence: committed.sequence,
             dimension: committed.dimension,
             dimension_epoch: committed.dimension_epoch,
+            client_generated: committed.client_generated,
             actor_synchronization: committed.actor_synchronization,
             event: committed.event,
         });

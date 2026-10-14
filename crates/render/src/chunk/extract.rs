@@ -14,6 +14,8 @@ pub(in crate::chunk) fn install_chunk_extraction(app: &mut App) {
             ExtractResourcePlugin::<ChunkAnimationClock>::default(),
             ExtractResourcePlugin::<ChunkBiomeTints>::default(),
             ExtractResourcePlugin::<ChunkUploadBudget>::default(),
+            ExtractResourcePlugin::<render_scene::chunk::capacity::ChunkArenaCapacityHint>::default(
+            ),
             ExtractResourcePlugin::<ChunkGpuRemovalQueue>::default(),
             ExtractResourcePlugin::<
                 crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications,

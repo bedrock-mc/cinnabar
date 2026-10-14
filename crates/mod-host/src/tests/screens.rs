@@ -634,3 +634,285 @@ fn package_reload_rechecks_manifest_permissions_and_preserves_loader_policy() {
         }
     }
 }
+
+#[test]
+fn frame_authority_preserves_the_full_session_loading_budget() {
+    let (_dir, mut host) = probe();
+    host.set_frame_authority(
+        crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+        0,
+        crate::HudClaims::default(),
+    );
+    host.set_session(session_sized(4_000, 3_000, 1)).unwrap();
+    assert!(host.is_active());
+    assert_eq!(value(&host, "#items_read"), Some(&Value::Integer(4_000)));
+    assert_eq!(value(&host, "#recipes_read"), Some(&Value::Integer(3_000)));
+    assert!(host.last_fuel_used() > server_experience::runtime::CALLBACK_FUEL);
+}
+
+#[test]
+fn deferred_lifecycle_notifications_coalesce_and_run_after_the_lanes_reset() {
+    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
+    let (_dir, mut host) = probe();
+    let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    assert!(budget.reserve(CALLBACK_FUEL).is_some());
+    assert!(budget.reserve(LOAD_FUEL).is_some());
+    let mut first = layout();
+    first.screen = "chest.small_chest_screen".into();
+    let changed = host.update_session(session(2, 1)).unwrap();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(Some(first)), changed])
+            .unwrap(),
+        CallbackOutcome::Deferred
+    );
+    let changed = host.update_session(session(7, 2)).unwrap();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), changed])
+            .unwrap(),
+        CallbackOutcome::Deferred
+    );
+    assert!(host.is_active());
+    assert_eq!(value(&host, "#items"), Some(&Value::Integer(0)));
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(text(&host, "#screen"), "crafting.inventory_screen");
+    assert_eq!(value(&host, "#items"), Some(&Value::Integer(7)));
+    assert_eq!(value(&host, "#data_layout_open"), Some(&Value::Bool(true)));
+    let revision = host.screens().data.revision;
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(host.screens().data.revision, revision);
+}
+
+#[test]
+fn view_closure_is_delivered_even_when_the_layout_callback_uses_the_event_lane() {
+    use crate::{CallbackBudget, CallbackOutcome, HudClaims};
+    let (_dir, mut host) = probe();
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(Some(layout())),
+        action("probe.view"),
+    ])
+    .unwrap();
+    let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, HudClaims::default());
+    let before = value(&host, "#view_closed").cloned();
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(None)]).unwrap(),
+        CallbackOutcome::Deferred
+    );
+    assert!(host.screens().view.is_none());
+    assert_eq!(value(&host, "#view_closed"), before.as_ref());
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(value(&host, "#view_closed"), Some(&Value::Integer(1)));
+}
+
+#[test]
+fn ordinary_events_keep_their_callback_allowance_under_frame_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = partial_component(
+        directory.path(),
+        &[(
+            "view-closed",
+            "",
+            r#"(local $n i32)
+        (local.set $n (i32.const 100000))
+        (loop $work (local.set $n (i32.sub (local.get $n) (i32.const 1)))
+        (br_if $work (local.get $n)))"#,
+        )],
+    );
+    let mut host = ModHost::load(&path).unwrap();
+    host.set_frame_authority(
+        crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+        0,
+        crate::HudClaims::default(),
+    );
+    host.dispatch(vec![
+        ModEvent::ScreenChanged(Some(layout())),
+        ModEvent::DataChanged(vec![DataSource::Items]),
+        ModEvent::ViewClosed,
+    ])
+    .unwrap();
+    assert!(host.is_active());
+    assert!(host.last_fuel_used() > mod_api::TOTAL_MOD_FRAME_FUEL);
+    assert!(host.last_fuel_used() < server_experience::runtime::CALLBACK_FUEL);
+}
+
+/// Creates a declared edit event whose latest value is observable in the probe's bound state.
+fn edit(value: &str) -> ModEvent {
+    ModEvent::TextChanged {
+        control: "probe.search".into(),
+        text: value.into(),
+    }
+}
+
+#[test]
+fn deferred_edit_text_coalesces_and_survives_same_screen_geometry_changes() {
+    let (_dir, mut host) = probe();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    assert_eq!(
+        host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), edit("dir")])
+            .unwrap(),
+        crate::CallbackOutcome::Deferred
+    );
+    host.dispatch(vec![edit("dirt")]).unwrap();
+    let mut resized = layout();
+    resized.size.width += 1.0;
+    host.dispatch(vec![ModEvent::ScreenChanged(Some(resized)), edit("stone")])
+        .unwrap();
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(value(&host, "#search"), None);
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(text(&host, "#search"), "probe.search=stone");
+    let revision = host.screens().data.revision;
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(host.screens().data.revision, revision);
+}
+
+#[test]
+fn departing_screens_and_views_discard_deferred_edits() {
+    for departure in [ModEvent::ScreenChanged(None), ModEvent::ViewClosed, {
+        let mut other = layout();
+        other.screen = "chest.small_chest_screen".into();
+        ModEvent::ScreenChanged(Some(other))
+    }] {
+        let (_dir, mut host) = probe();
+        let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+        host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+        host.dispatch(vec![
+            ModEvent::ScreenChanged(Some(layout())),
+            edit("old-screen"),
+        ])
+        .unwrap();
+        host.dispatch(vec![departure]).unwrap();
+        for _ in 0..2 {
+            budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+            host.frame(false).unwrap();
+        }
+        assert_eq!(value(&host, "#search"), None);
+    }
+}
+
+#[test]
+fn deferred_edits_reject_undeclared_controls_and_unbounded_text_before_queueing() {
+    let (_dir, mut host) = probe();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    assert!(
+        budget
+            .reserve(server_experience::runtime::CALLBACK_FUEL)
+            .is_some()
+    );
+    for event in [
+        ModEvent::TextChanged {
+            control: "probe.unknown".into(),
+            text: "value".into(),
+        },
+        edit(&"x".repeat(server_experience::policy::MAX_EDIT_TEXT_BYTES + 1)),
+        edit("invalid\u{0000}text"),
+    ] {
+        assert!(host.dispatch(vec![event]).is_err());
+    }
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.dispatch(vec![edit("valid")]).unwrap();
+    assert_eq!(text(&host, "#search"), "probe.search=valid");
+}
+
+#[test]
+fn replacement_quarantine_and_revocation_discard_the_old_guests_deferred_text() {
+    for transition in 0..3 {
+        let (directory, mut host) = probe();
+        let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+        host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+        host.dispatch(vec![
+            ModEvent::ScreenChanged(Some(layout())),
+            edit("old-guest"),
+        ])
+        .unwrap();
+        match transition {
+            0 => host.quarantine(),
+            1 => host.revoke(),
+            _ => {
+                budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+                write_probe(directory.path(), |manifest| format!("{manifest}\n"));
+                assert!(host.reload_if_changed().unwrap());
+            }
+        }
+        for _ in 0..3 {
+            budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+            host.frame(false).unwrap();
+        }
+        assert_eq!(value(&host, "#search"), None);
+    }
+}
+
+#[test]
+fn deferred_edits_keep_one_latest_value_for_each_declared_control() {
+    let (_dir, mut host) = probe();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    assert!(
+        budget
+            .reserve(server_experience::runtime::CALLBACK_FUEL)
+            .is_some()
+    );
+    host.dispatch(vec![
+        edit("old-search"),
+        ModEvent::TextChanged {
+            control: "probe.close".into(),
+            text: "close-text".into(),
+        },
+    ])
+    .unwrap();
+    host.dispatch(vec![edit("new-search")]).unwrap();
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(text(&host, "#search"), "probe.close=close-text");
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.frame(false).unwrap();
+    assert_eq!(text(&host, "#search"), "probe.search=new-search");
+}
+
+#[test]
+fn escaping_cancels_deferred_edits_before_actions_and_closes_their_view() {
+    let (_dir, mut host) = probe();
+    let open = ModEvent::Action {
+        id: "probe.view".into(),
+        index: None,
+    };
+    host.dispatch(vec![ModEvent::ScreenChanged(Some(layout())), open.clone()])
+        .unwrap();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.set_frame_authority(budget.clone(), false, false, 0, crate::HudClaims::default());
+    assert!(
+        budget
+            .reserve(server_experience::runtime::CALLBACK_FUEL)
+            .is_some()
+    );
+    assert_eq!(
+        host.dispatch(vec![edit("old")]).unwrap(),
+        crate::CallbackOutcome::Deferred
+    );
+    budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+    host.dispatch_and_close_view(vec![open, edit("current")])
+        .unwrap();
+    assert!(host.is_active());
+    assert!(host.screens().view.is_none());
+    assert_eq!(text(&host, "#action"), "probe.view:None:Ok(())");
+    for _ in 0..2 {
+        budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        host.frame(false).unwrap();
+        assert_eq!(value(&host, "#search"), None);
+    }
+    assert_eq!(value(&host, "#view_closed"), Some(&Value::Integer(1)));
+}

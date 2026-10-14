@@ -180,8 +180,9 @@ fn resolve(
             ControlButton::Forward => MouseButton::Forward,
         })),
         Control::Binding(name) => {
-            match client_shell::menu::settings_options::control_bindings::named_control(menu, name)
-            {
+            let id = launcher::menu::settings_options::BindingId::from_name(name)
+                .ok_or_else(|| format!("unknown binding `{name}`"))?;
+            match client_shell::menu::settings_options::control_bindings::named_control(menu, id) {
                 Some(PhysicalControl::KeyboardUsage(usage)) => DESKTOP_KEYS
                     .iter()
                     .find(|(_, key)| key.usage() == Some(usage))

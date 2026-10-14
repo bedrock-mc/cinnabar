@@ -69,13 +69,6 @@ impl MeshLightSampler for MeshLightHalo {
     }
 }
 
-pub(in crate::stream) fn pack_biome_record(
-    storages: &BiomeNeighbourhood,
-    resolved: &ResolvedBiomeTints,
-) -> PackedBiomeRecord {
-    PackedBiomeRecord::from_neighbourhood(storages, |raw_id| resolved.dense_index(raw_id))
-}
-
 impl MeshSnapshot {
     pub(in crate::stream) fn neighbourhood(&self) -> MeshNeighbourhood<'_> {
         let origin = self.light_halo.center.map_or([0; 3], |key| {
@@ -131,3 +124,5 @@ pub(in crate::stream) fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
 /// Mesh scheduler lanes: resident geometry, and removals for evicted or known-air keys.
 pub(in crate::stream) const RESIDENT_MESH_LANE: usize = 0;
 pub(in crate::stream) const MESH_REMOVAL_LANE: usize = 1;
+/// Returned-section records one dispatch re-checks for a pending revision that moved on.
+pub(in crate::stream) const AIR_REQUEUE_PRUNES_PER_DISPATCH: usize = 32;

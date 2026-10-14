@@ -61,6 +61,7 @@ resource-pack = { path = "../resource-pack" }
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
 launcher = { path = "../launcher", features = ["test-support"] }
 oreui = { path = "../oreui", features = ["test-support"] }

@@ -64,6 +64,10 @@ mod diagnostics;
 mod dimension_transfer;
 mod dirty;
 mod entity_occlusion;
+mod far_summaries;
+mod full_detail;
+pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
+pub use full_detail::FULL_DETAIL_HYSTERESIS_CHUNKS;
 mod helpers;
 mod light_diagnostics;
 mod light_queries;
@@ -71,6 +75,7 @@ mod lighting;
 mod map_data;
 mod meshing;
 mod model;
+mod near_drawn;
 mod particle_events;
 mod polling;
 mod prediction;
@@ -101,6 +106,7 @@ use client_world::ingestion::{
 use column_set::ColumnSubChunkSet;
 use helpers::*;
 use lighting::types::*;
+use meshing::biome_records::pack_biome_record;
 use meshing::types::*;
 use request_queue::RequestQueue;
 
@@ -295,18 +301,32 @@ impl SchedulerView {
         }
     }
 
-    /// Changes when the camera crosses a sub-chunk or turns into another eighth of the compass.
-    fn cell(self) -> [i32; 4] {
-        let [x, y, z] = self
-            .position
-            .map(|value| floor_to_i32(value).div_euclid(16));
-        let sector = self.forward.map_or(-1, |forward| {
-            ((forward[2].atan2(forward[0]) / std::f32::consts::TAU * 8.0).floor() as i32)
-                .rem_euclid(8)
-        });
-        [x, y, z, sector]
+    /// The sub-chunk holding the camera.
+    fn cell(self) -> [i32; 3] {
+        self.position
+            .map(|value| floor_to_i32(value).div_euclid(16))
+    }
+
+    /// Whether ranks queued under `previous` are stale: the camera changed sub-chunk or startup
+    /// footing, or its view direction turned, in any axis, by more than a sixth of the 60° cone.
+    fn reranks_from(self, previous: Self) -> bool {
+        self.cell() != previous.cell()
+            || self.startup_center != previous.startup_center
+            || match (self.forward, previous.forward) {
+                (None, None) => false,
+                (Some(current), Some(previous)) => {
+                    current[0].mul_add(
+                        previous[0],
+                        current[1].mul_add(previous[1], current[2] * previous[2]),
+                    ) < RERANK_TURN_COSINE
+                }
+                _ => true,
+            }
     }
 }
+
+/// Cosine of the 10° turn after which queued view ranks are refreshed.
+const RERANK_TURN_COSINE: f32 = 0.984_807_8;
 
 use model::{
     CorrelatedSubChunkAttempts, MeshChangeQueue, MeshCompletion, NormalizationErrorReason,
@@ -344,6 +364,7 @@ pub struct WorldStream {
     predictions: prediction::DeferredPredictions,
     decode_tx: Sender<DecodeCompletion>,
     decode_rx: Receiver<DecodeCompletion>,
+    biome_records: Option<Arc<meshing::biome_records::BiomeRecordCache>>,
     mesh_tx: Sender<MeshCompletion>,
     mesh_rx: Receiver<MeshCompletion>,
     lighting: lighting::Lighting,
@@ -351,7 +372,7 @@ pub struct WorldStream {
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
-    mesh_dependency_masks: HashMap<SubChunkKey, (u64, MeshDependencyMask)>,
+    mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
     /// Unit view direction the schedulers favour; `None` orders by distance alone.
     view_forward: Option<[f32; 3]>,
@@ -361,6 +382,14 @@ pub struct WorldStream {
     admitted_mesh_jobs: Arc<AtomicUsize>,
     mesh_memory: meshing::memory::MeshMemoryBudget,
     mesh_cancellations: HashMap<SubChunkKey, Arc<AtomicBool>>,
+    /// Queued sections found to be air, by their pending revision; drained under removal credit.
+    air_removals: BTreeMap<SubChunkKey, u64>,
+    /// Last air entry examined, so bounded passes over `air_removals` rotate through it.
+    air_removal_cursor: Option<SubChunkKey>,
+    /// Sections the air pass returned to the worker queue, by revision, until a dispatch pops them.
+    air_requeued: BTreeMap<SubChunkKey, u64>,
+    /// Last `air_requeued` entry pruned, so bounded passes rotate through it.
+    air_requeue_cursor: Option<SubChunkKey>,
     urgent_mesh_in_flight: HashSet<SubChunkKey>,
     staged_mesh_completions: VecDeque<MeshCompletion>,
     staged_mesh_bytes: u64,
@@ -409,6 +438,9 @@ pub struct WorldStream {
     last_retention_center: Option<ChunkKey>,
     last_retention_radius: Option<i32>,
     local_player_chunk: Option<ChunkKey>,
+    far_terrain: far_summaries::FarTerrainFeed,
+    full_detail: full_detail::FullDetail,
+    near_drawn: near_drawn::NearDrawn,
     stats: WorldStreamStats,
 }
 

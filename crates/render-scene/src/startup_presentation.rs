@@ -27,6 +27,11 @@ impl StartupPresentation {
     pub fn is_complete(&self) -> bool {
         self.0.load(Ordering::Acquire) >= Self::REQUIRED_FRAMES
     }
+
+    /// Whether the first primary-window presentation has completed its submitted GPU work.
+    pub fn has_presented(&self) -> bool {
+        self.0.load(Ordering::Acquire) > 0
+    }
 }
 
 #[cfg(test)]
@@ -38,8 +43,10 @@ mod tests {
         let feedback = StartupPresentation::default();
         let render_feedback = feedback.clone();
         assert!(!feedback.is_complete());
+        assert!(!feedback.has_presented());
         for _ in 1..StartupPresentation::REQUIRED_FRAMES {
             render_feedback.record_completed_frame();
+            assert!(feedback.has_presented());
             assert!(!feedback.is_complete());
         }
         render_feedback.record_completed_frame();

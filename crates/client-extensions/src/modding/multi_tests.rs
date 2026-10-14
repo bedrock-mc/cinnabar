@@ -246,6 +246,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
     let mut merged = Merged::default();
     let mut captures = 0;
     for _ in 0..frames {
+        runtime.begin_frame();
         merged = run_frame(
             &mut runtime,
             FrameInput {
@@ -279,6 +280,8 @@ fn load_order_decides_single_valued_outputs_and_keeps_every_command() {
     );
     assert!(failures.is_empty());
     assert_eq!(merged.time_override, Some(1000));
+    assert_eq!(runtime.host(0).refused_outputs(), 0);
+    assert!(runtime.host(1).refused_outputs() >= 2);
     assert_eq!(merged.rig.unwrap().offset.x, 0.5);
     assert_eq!(runtime.merged_label(), Some("A | B"));
     assert_eq!(merged.commands, ["/ability flash", "/ability flash"]);
@@ -337,6 +340,7 @@ fn grants_stay_per_mod() {
         ),
     ]);
     let controls = mod_host::empty_controls();
+    runtime.begin_frame();
     let merged = run_frame(
         &mut runtime,
         FrameInput {
@@ -440,4 +444,154 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
         hosts.next().unwrap(),
         hosts.map(|host| Companion { host }).collect(),
     )
+}
+
+#[test]
+fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods() {
+    let directory = tempfile::tempdir().unwrap();
+    let paths: Vec<_> = (0..3)
+        .map(|index| {
+            let path = directory.path().join(format!("spin-{index}.wat"));
+            let source = EMPTY_COMPONENT.replace(
+                "(func (export \"frame\"))",
+                "(func (export \"frame\") (loop $spin br $spin))",
+            );
+            std::fs::write(&path, source).unwrap();
+            (path, ModGrants::default())
+        })
+        .collect();
+    let mut runtime = load_set(paths);
+    runtime.begin_frame();
+    let controls = mod_host::empty_controls();
+    let mut failures = Vec::new();
+    run_frame(
+        &mut runtime,
+        FrameInput {
+            pressed: false,
+            controls: &controls,
+            previous_cues: &[],
+            player_state: None,
+            world_observation: None,
+            modules: None,
+            fps: None,
+            sidebar: None,
+            chat: &[],
+        },
+        |_| (None, Vec::new(), None),
+        |index, _| failures.push(index),
+    );
+    assert_eq!(failures, [0, 1]);
+    assert!(!runtime.host(0).is_active() && !runtime.host(1).is_active());
+    assert!(runtime.host(2).is_active());
+    assert_eq!(runtime.budget.remaining(), 0);
+    assert_eq!(runtime.host(2).last_fuel_used(), 0);
+    runtime.begin_frame();
+    assert_eq!(runtime.budget.remaining(), mod_api::TOTAL_MOD_FRAME_FUEL);
+}
+
+#[test]
+fn a_higher_mod_releasing_its_outputs_allows_the_next_mod_to_publish() {
+    let idle = Probe {
+        extra: "i32.const 0 i32.const 0 i32.const 512 call $time i32.const 0 f32.const 0 f32.const 0 f32.const 0 f32.const 0 f32.const 0 i32.const 512 call $rig",
+        ..Probe::new("A", 1000, 0.5)
+    };
+    let (runtime, merged, failures) = run(&[idle, Probe::new("B", 6000, -0.5)], 1);
+    assert!(failures.is_empty());
+    assert_eq!(merged.time_override, Some(6000));
+    assert_eq!(merged.rig.unwrap().offset.x, -0.5);
+    assert_eq!(runtime.host(1).refused_outputs(), 0);
+}
+
+/// Publishes a validated HUD through the real guest import used by component instances.
+fn hud_host(root: &Path, name: &str, json: &str) -> ModHost {
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (namespace, version) = package.split_once('@').unwrap();
+    let escaped = json
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("\\{byte:02x}"))
+        .collect::<String>();
+    let source = include_str!("../../../mod-host/src/tests/hud.wat")
+        .replace("$HUD", &format!("{namespace}/hud@{version}"))
+        .replace("$CONTENT_LENGTH", &json.len().to_string())
+        .replace("$CONTENT", &escaped)
+        .replace("$CROSSHAIR_LENGTH", "0")
+        .replace("$CROSSHAIR", "")
+        .replace("$INIT", "call $cards")
+        .replace("$FRAME", "")
+        .replace("$ERROR", "0");
+    let path = root.join(name);
+    std::fs::write(&path, source).unwrap();
+    ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            hud: true,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+}
+
+#[test]
+fn merged_huds_admit_whole_cards_within_aggregate_row_and_cell_limits() {
+    use ui::mod_hud::{MAX_CARD_CELLS, MAX_CARD_ROWS, MAX_HUD_CELLS, MAX_HUD_ROWS};
+    for cells in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (per_card, total) = if cells {
+            (MAX_CARD_CELLS, MAX_HUD_CELLS)
+        } else {
+            (MAX_CARD_ROWS, MAX_HUD_ROWS)
+        };
+        let cards = |prefix: &str| {
+            (0..total / per_card)
+                .map(|index| {
+                    let id = format!("{prefix}_{index}");
+                    if cells {
+                        serde_json::json!({
+                            "id": id,
+                            "rows": [],
+                            "cells": vec![serde_json::json!({"label": "cell"}); per_card]
+                        })
+                    } else {
+                        serde_json::json!({
+                            "id": id,
+                            "rows": vec![serde_json::json!({"label": "row", "value": "value"}); per_card]
+                        })
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let higher = serde_json::json!({"cards":cards("higher")}).to_string();
+        let mut lower_cards = cards("lower");
+        // A card using the other lane still fits after oversized lower-priority cards are skipped.
+        lower_cards.push(if cells {
+            serde_json::json!({"id":"small","rows":[{"label":"row","value":"v"}]})
+        } else {
+            serde_json::json!({"id":"small","rows":[],"cells":[{"label":"cell"}]})
+        });
+        let lower = serde_json::json!({"cards":lower_cards}).to_string();
+        let runtime = ModHosts::new(
+            hud_host(directory.path(), "a.wat", &higher),
+            vec![Companion {
+                host: hud_host(directory.path(), "b.wat", &lower),
+            }],
+        );
+        for index in 0..runtime.host_count() {
+            runtime.host(index).hud().unwrap().validate().unwrap();
+        }
+        let merged = runtime.merged_hud().unwrap();
+        merged.validate().unwrap();
+        assert!(
+            merged.cards[..total / per_card]
+                .iter()
+                .all(|card| card.id.starts_with("higher_"))
+        );
+        assert_eq!(merged.cards.last().unwrap().id, "small");
+        assert_eq!(merged.cards.len(), total / per_card + 1);
+    }
 }

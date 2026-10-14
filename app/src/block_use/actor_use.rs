@@ -1,5 +1,5 @@
 //! Actor use shares the pre-physics pick and press admission with block use.
-use gameplay::melee::{Crosshair, classify, pick_actor};
+use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use simulation_clock::identity::SessionGeneration;
 use {
     super::*,
@@ -61,12 +61,13 @@ pub(super) fn produce(
     );
     let vector =
         |v: bevy::prelude::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-    let block_distance = world
+    let block = world
         .block_interaction_ray_current(vector(pick.origin), vector(pick.direction), reach)
         .ok()
-        .flatten()
-        .map(|hit| hit.distance);
-    let Crosshair::Actor(hit) = classify(actor, block_distance, reach) else {
+        .flatten();
+    let Crosshair::Actor(hit) =
+        classify_block_hit(actor, pick.origin.to_array(), block.as_ref(), reach)
+    else {
         return false;
     };
     if (0..3)

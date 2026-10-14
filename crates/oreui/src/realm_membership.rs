@@ -6,11 +6,26 @@ use super::{
     grid::Grid,
     modal,
     paint::Canvas,
-    theme::{CAPTION, TEXT, TEXT_DIMMER},
+    theme::{CAPTION, EDGE, HEADER_HEIGHT, TEXT, TEXT_DIMMER},
     widgets::{self, Variant},
 };
 use launcher::menu::{MenuAction, MenuView};
 use ui_engine::engine::screen::PaintError;
+
+const PAD: f32 = 1.6;
+const FIELD_HEIGHT: f32 = 4.8;
+const BUTTON_HEIGHT: f32 = 4.4;
+const LABEL_GAP: f32 = 0.8;
+const INVITE_HELP: &str = "Ask the Realm owner for an invite link or code.";
+
+/// Resolves the invite form's content span at the current geometry and text scale.
+fn form_span(canvas: &Canvas<'_>, width: f32) -> [f32; 2] {
+    let grid = Grid::new(canvas.r(1.0), width);
+    grid.span(
+        if grid.narrow { 0 } else { 1 },
+        if grid.narrow { 8 } else { 10 },
+    )
+}
 
 /// Draws the invitation flow with input isolated from the underlying Play tabs.
 pub(super) fn draw(
@@ -18,6 +33,33 @@ pub(super) fn draw(
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
+    let Some(state) = &view.realm_membership else {
+        return Ok(());
+    };
+    let scale = if state.stage == Stage::Code {
+        let [left, right] = form_span(canvas, size[0]);
+        let error = match state.error {
+            Some(error) => canvas.measure_height(error, right - left, CAPTION)? + canvas.r(PAD),
+            None => 0.0,
+        };
+        let minimum = canvas.r(HEADER_HEIGHT
+            + EDGE
+            + PAD * 4.0
+            + CAPTION.line
+            + LABEL_GAP
+            + FIELD_HEIGHT
+            + BUTTON_HEIGHT)
+            + canvas.measure_height(INVITE_HELP, right - left, CAPTION)?
+            + error;
+        (size[1] / minimum).min(1.0)
+    } else {
+        1.0
+    };
+    canvas.with_scale(scale, |canvas| draw_fitted(canvas, view, size))
+}
+
+/// Paints a complete invite form at the fitted scale; other stages keep their modal layout.
+fn draw_fitted(canvas: &mut Canvas<'_>, view: &MenuView, size: [f32; 2]) -> Result<(), PaintError> {
     let Some(state) = &view.realm_membership else {
         return Ok(());
     };
@@ -30,12 +72,8 @@ pub(super) fn draw(
         size[0],
         state.can_back().then_some(action(Action::Back)),
     )?;
-    let grid = Grid::new(canvas.r(1.0), size[0]);
-    let [left, right] = grid.span(
-        if grid.narrow { 0 } else { 1 },
-        if grid.narrow { 8 } else { 10 },
-    );
-    let pad = canvas.r(1.6);
+    let [left, right] = form_span(canvas, size[0]);
+    let pad = canvas.r(PAD);
     let mut y = top + pad;
     if let Some(error) = state.error {
         y += canvas.text(
@@ -56,8 +94,8 @@ pub(super) fn draw(
                 CAPTION,
                 TEXT,
             )?;
-            y += canvas.r(CAPTION.line + 0.8);
-            let field = [left, y, right, y + canvas.r(4.8)];
+            y += canvas.r(CAPTION.line + LABEL_GAP);
+            let field = [left, y, right, y + canvas.r(FIELD_HEIGHT)];
             widgets::text_field(
                 canvas,
                 view,
@@ -69,7 +107,7 @@ pub(super) fn draw(
             )?;
             y = field[3] + pad;
             y += canvas.text(
-                "Ask the Realm owner for an invite link or code.",
+                INVITE_HELP,
                 [left, y],
                 right - left,
                 CAPTION,
@@ -79,7 +117,7 @@ pub(super) fn draw(
             widgets::button(
                 canvas,
                 view,
-                [left, y, right, y + canvas.r(4.4)],
+                [left, y, right, y + canvas.r(BUTTON_HEIGHT)],
                 Variant::Primary,
                 "Join",
                 state.can_verify().then_some(action(Action::Verify)),

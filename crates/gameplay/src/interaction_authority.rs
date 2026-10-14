@@ -22,14 +22,11 @@ pub struct FrozenBlockObservation {
 impl FrozenBlockObservation {
     /// Distance from this ray's origin to its observed world-space block hit.
     pub fn hit_distance(&self) -> f64 {
-        (0..3)
-            .map(|axis| {
-                (f64::from(self.target.position[axis]) + f64::from(self.target.relative_hit[axis])
-                    - f64::from(self.ray.origin[axis]))
-                .powi(2)
-            })
-            .sum::<f64>()
-            .sqrt()
+        crate::melee::block_pick_distance(
+            self.ray.origin,
+            self.target.position,
+            self.target.relative_hit,
+        )
     }
 }
 

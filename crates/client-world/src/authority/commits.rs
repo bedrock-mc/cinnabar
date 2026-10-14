@@ -93,6 +93,7 @@ impl WorldAuthority {
                     sequence,
                     dimension: self.current_dimension,
                     dimension_epoch: self.form_dimension_epoch,
+                    client_generated: false,
                     actor_synchronization: None,
                     event,
                 };
@@ -112,8 +113,11 @@ impl WorldAuthority {
                 let sequence = sequence.expect("sequenced camera events commit through submit");
                 self.push_committed_camera(CommittedCameraEvent { sequence, event });
             }
-            WorldEvent::Actor(event) => {
+            WorldEvent::Actor(mut event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
+                if let ActorEvent::Move(movement) = &mut event {
+                    self.resolve_actor_teleport(movement);
+                }
                 let player_list_changed = matches!(&event, ActorEvent::PlayerList(_));
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
@@ -236,6 +240,7 @@ impl WorldAuthority {
                         sequence,
                         dimension: self.current_dimension,
                         dimension_epoch: self.form_dimension_epoch,
+                        client_generated: false,
                         actor_synchronization: None,
                         event: AudioEvent::Level(protocol::LevelAudioEvent {
                             sound_event: "pop".into(),

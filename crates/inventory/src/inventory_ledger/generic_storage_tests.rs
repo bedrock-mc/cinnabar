@@ -586,7 +586,7 @@ fn timed_out_closing_state_settles_on_the_server_close() {
     ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
         container: ContainerIdentity::window(1),
         window_type: 0,
-        server_initiated: false,
+        server_initiated: true,
     }));
     assert_eq!(ledger.storage_generation(), None);
     assert!(ledger.pending_request_id().is_none());

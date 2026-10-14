@@ -4,6 +4,7 @@ use launcher::menu::{MenuScreen, MenuView};
 use std::sync::Arc;
 use ui::DpiScale;
 
+use launcher::menu::settings_options::SettingId;
 #[test]
 fn retained_menu_publishes_requested_original_image_pixels() {
     use super::ServerUiPack;
@@ -39,7 +40,7 @@ fn retained_menu_publishes_requested_original_image_pixels() {
     view.screen = MenuScreen::Settings;
     let animations = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "screen_animations")
+        .position(|option| option.id == SettingId::ScreenAnimations)
         .unwrap();
     Arc::make_mut(&mut view.settings_options).set(animations, 0);
     presentation.set_menu_view(Some(view));
