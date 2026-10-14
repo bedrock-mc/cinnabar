@@ -32,7 +32,7 @@ thread_local! {
     static BYTES: Cell<u64> = const { Cell::new(0) };
 }
 
-/// Records one request without allocating; ignored once the thread's locals are torn down.
+/// Records a request without allocating; thread counters stop after their locals are torn down.
 fn record(bytes: usize) {
     let _ = CALLS.try_with(|calls| calls.set(calls.get().wrapping_add(1)));
     #[cfg(feature = "global-stats")]

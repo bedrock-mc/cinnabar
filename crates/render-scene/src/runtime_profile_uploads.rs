@@ -20,9 +20,9 @@ pub enum UploadPath {
 #[inline]
 #[track_caller]
 pub fn record(kind: UploadKind, path: UploadPath, bytes: u64) {
-    #[cfg(any(feature = "alloc-stats", feature = "tracy"))]
+    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
     record_at(std::panic::Location::caller(), kind, path, bytes);
-    #[cfg(not(any(feature = "alloc-stats", feature = "tracy")))]
+    #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
     let _ = (kind, path, bytes);
 }
 
@@ -34,27 +34,27 @@ pub fn record_at(
     path: UploadPath,
     bytes: u64,
 ) {
-    #[cfg(any(feature = "alloc-stats", feature = "tracy"))]
+    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
     enabled::record(site, kind, path, bytes);
-    #[cfg(not(any(feature = "alloc-stats", feature = "tracy")))]
+    #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
     let _ = (site, kind, path, bytes);
 }
 
 /// Closes the preceding upload interval and emits Tracy plots when available.
 pub(super) fn finish_frame() {
-    #[cfg(any(feature = "alloc-stats", feature = "tracy"))]
+    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
     enabled::finish_frame();
 }
 
 /// Appends the last completed interval only when a slow-frame line is emitted.
 pub(super) fn append_fields(line: &mut String) {
-    #[cfg(any(feature = "alloc-stats", feature = "tracy"))]
+    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
     enabled::append_fields(line);
-    #[cfg(not(any(feature = "alloc-stats", feature = "tracy")))]
+    #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
     let _ = line;
 }
 
-#[cfg(any(feature = "alloc-stats", feature = "tracy"))]
+#[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
 mod enabled {
     use super::{UploadKind, UploadPath};
     use std::{collections::BTreeMap, fmt::Write, panic::Location, sync::Mutex};

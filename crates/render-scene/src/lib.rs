@@ -25,7 +25,7 @@ pub mod particles;
 pub mod primitive_shapes;
 pub mod readiness;
 pub mod runtime_profile;
-#[cfg(feature = "alloc-stats")]
+#[cfg(any(test, feature = "alloc-stats"))]
 mod runtime_profile_alloc;
 pub mod runtime_profile_slow;
 pub mod runtime_profile_trace;
