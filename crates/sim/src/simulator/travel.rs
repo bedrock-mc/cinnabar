@@ -41,6 +41,14 @@ pub(super) fn tick_without_travel(
     jump_initiated: bool,
     world: &impl CollisionWorld,
 ) -> Result<ControlledTickResult, SimulationError> {
+    let controls = if input.mode == MovementMode::Flying {
+        controls::process(MovementInput {
+            sneaking: false,
+            ..input
+        })
+    } else {
+        controls
+    };
     next.movement = Vec3::ZERO;
     next.requested_movement = Vec3::ZERO;
     let mut identity = sampled.identity.clone();

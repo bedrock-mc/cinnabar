@@ -252,7 +252,7 @@ impl Simulator {
                 water::jump(&mut next.velocity.y);
             }
         }
-        if input.skip_travel {
+        if input.skip_travel && input.mode != MovementMode::Riding {
             if input.jumping
                 && !scaffold_jump
                 && !jump_suppressed
