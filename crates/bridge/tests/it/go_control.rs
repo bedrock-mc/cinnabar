@@ -86,8 +86,6 @@ fn build_core(core_dir: &Path, executable: &Path) -> Result<()> {
     let output = Command::new("go")
         .current_dir(core_dir)
         .arg("build")
-        .arg("-ldflags")
-        .arg(concat!("-X main.version=", env!("CARGO_PKG_VERSION")))
         .arg("-o")
         .arg(executable)
         .arg("./cmd/bedrock-core")

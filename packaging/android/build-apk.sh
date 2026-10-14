@@ -41,6 +41,9 @@ libs="$stage/lib/$abi"
 rm -rf "$stage" "$out/classes" "$out/dex"
 mkdir -p "$libs" "$stage/assets" "$out/classes" "$out/dex"
 
+# One commit identifies both the client library and the core, chosen as the Makefile does.
+export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
+
 # 16 KB pages: Android 15 devices may use them, and every LOAD segment must allow it.
 page_flags='-Wl,-z,max-page-size=16384'
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=$page_flags"

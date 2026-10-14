@@ -931,7 +931,7 @@ metadata.update({
     "duration_seconds": int(os.environ["CINNABAR_META_DURATION"]),
     "build_app_command": "cargo build --release -p cinnabar --locked",
     "build_profile": "release",
-    "build_core_command": 'go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o target/release/bedrock-core ./core/cmd/bedrock-core',
+    "build_core_command": 'go build -trimpath -ldflags "$(CINNABAR_BUILD_COMMIT="$repo_commit" bash packaging/common/core-ldflags.sh)" -o target/release/bedrock-core ./core/cmd/bedrock-core',
     "use_vsync": os.environ["CINNABAR_META_NO_VSYNC"] != "true",
     "no_vsync_ab": os.environ["CINNABAR_META_NO_VSYNC"] == "true",
     "requested_present_mode": "Immediate" if os.environ["CINNABAR_META_NO_VSYNC"] == "true" else "Fifo",

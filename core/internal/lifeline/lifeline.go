@@ -107,6 +107,8 @@ func (l *line) run(ctx context.Context, stdinEOF <-chan struct{}) {
 	}
 }
 
+// log is the configured logger, else the process default at the time of the call, so a default
+// installed after Start still receives shutdown records.
 func (l *line) log() *slog.Logger {
 	if l.cfg.Log != nil {
 		return l.cfg.Log
