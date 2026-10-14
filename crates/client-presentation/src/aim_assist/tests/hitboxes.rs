@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorDataKey;
 
 /// Adds unit hitboxes to the fixture actor in server order.
 fn add_hitboxes(world: &mut client_world::WorldAuthority, pivots: &[[f32; 3]]) {
@@ -28,7 +29,7 @@ fn add_hitboxes(world: &mut client_world::WorldAuthority, pivots: &[[f32; 3]]) {
                 dimension: 0,
                 runtime_id: 2,
                 metadata: Arc::from([ActorMetadata {
-                    key: client_world::HITBOX_METADATA_KEY,
+                    key: ActorDataKey::HitBox.wire_value(),
                     value: ActorMetadataValue::Compound(root.encode_root().unwrap().into()),
                 }]),
                 properties: Arc::from([]),

@@ -1,7 +1,8 @@
 //! Fixed-tick dragon flap phase and the yaw/height history supplied to its authored rig.
 use assets::facts::entity::NativeEntityClass;
+use protocol_ids::{ActorFlag, Attribute};
 
-use super::{ACTOR_FLAG_SITTING, ActorStore};
+use super::ActorStore;
 
 const HISTORY_LENGTH: usize = 64;
 pub(crate) const HISTORICAL_VARIABLES: usize = 24;
@@ -84,9 +85,9 @@ impl ActorStore {
             let dead = actor.status.dead
                 || actor
                     .attributes
-                    .get("minecraft:health")
+                    .get(Attribute::Health.wire_name())
                     .is_some_and(|health| health.current <= 0.0);
-            let sitting = actor.flag(ACTOR_FLAG_SITTING);
+            let sitting = actor.flag(ActorFlag::Sitting.wire_value());
             let delta = std::array::from_fn(|axis| {
                 actor.position[axis] - actor.previous_pose.position[axis]
             });

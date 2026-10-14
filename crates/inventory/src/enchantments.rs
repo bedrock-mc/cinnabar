@@ -1,6 +1,12 @@
 //! Enchantment facts by Bedrock id:
 //! language key, rarity (frequency), item slots, level cap and exclusivity group.
 
+use assets::{
+    facts::{ItemFact, ItemTraits},
+    item::armour::ItemArmourSlot,
+};
+use protocol_ids::Enchantment as EnchantmentId;
+
 /// Item slot bits used for enchantment applicability.
 pub mod slot {
     pub const HEAD: u32 = 0x1;
@@ -35,7 +41,7 @@ pub mod slot {
 #[derive(Clone, Copy, Debug)]
 pub struct Enchantment {
     pub id: i16,
-    /// The suffix of its `enchantment.<key>` language entry.
+    /// The complete language key used to display this enchantment.
     pub lang_key: &'static str,
     /// Rarity frequency: 30 common, 10 uncommon, 3 rare, 1 very rare.
     pub frequency: u8,
@@ -68,7 +74,7 @@ impl Enchantment {
 
 /// Builds one registry row.
 const fn e(
-    id: i16,
+    id: EnchantmentId,
     lang_key: &'static str,
     frequency: u8,
     primary_slots: u32,
@@ -77,7 +83,7 @@ const fn e(
     group: u8,
 ) -> Enchantment {
     Enchantment {
-        id,
+        id: id.wire_value() as i16,
         lang_key,
         frequency,
         primary_slots,
@@ -95,65 +101,385 @@ const DURABLE_PRIMARY: u32 = 0x81_1E7F;
 const DURABLE_SECONDARY: u32 = 0x72_E1C0;
 
 /// Every enchantment, indexed by id.
-pub const ENCHANTMENTS: [Enchantment; 42] = [
-    e(0, "protect.all", 30, ARMOR, 0, 4, 3),
-    e(1, "protect.fire", 10, ARMOR, 0, 4, 3),
-    e(2, "protect.fall", 10, FEET, 0, 4, 0),
-    e(3, "protect.explosion", 3, ARMOR, 0, 4, 3),
-    e(4, "protect.projectile", 10, ARMOR, 0, 4, 3),
-    e(5, "thorns", 1, TORSO, HEAD | FEET | LEGS, 3, 0),
-    e(6, "oxygen", 3, HEAD, 0, 3, 0),
-    e(7, "waterWalker", 3, FEET, 0, 3, 4),
-    e(8, "waterWorker", 3, HEAD, 0, 1, 0),
-    e(9, "damage.all", 30, SWORD | SPEAR, AXE, 5, 1),
-    e(10, "damage.undead", 10, SWORD | MACE | SPEAR, AXE, 5, 1),
-    e(11, "damage.arthropods", 10, SWORD | MACE | SPEAR, AXE, 5, 1),
-    e(12, "knockback", 10, SWORD | SPEAR, 0, 2, 0),
-    e(13, "fire", 3, SWORD | MACE | SPEAR, 0, 2, 0),
-    e(14, "lootBonus", 3, SWORD | SPEAR, 0, 3, 0),
-    e(15, "digging", 30, DIGGERS, SHEARS, 5, 0),
-    e(16, "untouching", 1, DIGGERS, SHEARS, 1, 2),
+pub const ENCHANTMENTS: [Enchantment; EnchantmentId::Numenchantments.wire_value() as usize] = [
     e(
-        17,
-        "durability",
+        EnchantmentId::Protection,
+        "enchantment.protect.all",
+        30,
+        ARMOR,
+        0,
+        4,
+        3,
+    ),
+    e(
+        EnchantmentId::Fireprotection,
+        "enchantment.protect.fire",
+        10,
+        ARMOR,
+        0,
+        4,
+        3,
+    ),
+    e(
+        EnchantmentId::Featherfalling,
+        "enchantment.protect.fall",
+        10,
+        FEET,
+        0,
+        4,
+        0,
+    ),
+    e(
+        EnchantmentId::Blastprotection,
+        "enchantment.protect.explosion",
+        3,
+        ARMOR,
+        0,
+        4,
+        3,
+    ),
+    e(
+        EnchantmentId::Projectileprotection,
+        "enchantment.protect.projectile",
+        10,
+        ARMOR,
+        0,
+        4,
+        3,
+    ),
+    e(
+        EnchantmentId::Thorns,
+        "enchantment.thorns",
+        1,
+        TORSO,
+        HEAD | FEET | LEGS,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Respiration,
+        "enchantment.oxygen",
+        3,
+        HEAD,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Depthstrider,
+        "enchantment.waterWalker",
+        3,
+        FEET,
+        0,
+        3,
+        4,
+    ),
+    e(
+        EnchantmentId::Aquaaffinity,
+        "enchantment.waterWorker",
+        3,
+        HEAD,
+        0,
+        1,
+        0,
+    ),
+    e(
+        EnchantmentId::Sharpness,
+        "enchantment.damage.all",
+        30,
+        SWORD | SPEAR,
+        AXE,
+        5,
+        1,
+    ),
+    e(
+        EnchantmentId::Smite,
+        "enchantment.damage.undead",
+        10,
+        SWORD | MACE | SPEAR,
+        AXE,
+        5,
+        1,
+    ),
+    e(
+        EnchantmentId::Baneofarthropods,
+        "enchantment.damage.arthropods",
+        10,
+        SWORD | MACE | SPEAR,
+        AXE,
+        5,
+        1,
+    ),
+    e(
+        EnchantmentId::Knockback,
+        "enchantment.knockback",
+        10,
+        SWORD | SPEAR,
+        0,
+        2,
+        0,
+    ),
+    e(
+        EnchantmentId::Fireaspect,
+        "enchantment.fire",
+        3,
+        SWORD | MACE | SPEAR,
+        0,
+        2,
+        0,
+    ),
+    e(
+        EnchantmentId::Looting,
+        "enchantment.lootBonus",
+        3,
+        SWORD | SPEAR,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Efficiency,
+        "enchantment.digging",
+        30,
+        DIGGERS,
+        SHEARS,
+        5,
+        0,
+    ),
+    e(
+        EnchantmentId::Silktouch,
+        "enchantment.untouching",
+        1,
+        DIGGERS,
+        SHEARS,
+        1,
+        2,
+    ),
+    e(
+        EnchantmentId::Unbreaking,
+        "enchantment.durability",
         10,
         DURABLE_PRIMARY,
         DURABLE_SECONDARY,
         3,
         0,
     ),
-    e(18, "lootBonusDigger", 3, DIGGERS, 0, 3, 2),
-    e(19, "arrowDamage", 30, BOW, 0, 5, 0),
-    e(20, "arrowKnockback", 3, BOW, 0, 2, 0),
-    e(21, "arrowFire", 3, BOW, 0, 1, 0),
-    e(22, "arrowInfinite", 1, BOW, 0, 1, 5),
-    e(23, "lootBonusFishing", 3, FISHING_ROD, 0, 3, 0),
-    e(24, "fishingSpeed", 3, FISHING_ROD, 0, 3, 0),
-    e(25, "frostwalker", 3, FEET, 0, 2, 4),
-    e(26, "mending", 3, DURABLE_PRIMARY, DURABLE_SECONDARY, 1, 5),
     e(
-        27,
-        "curse.binding",
+        EnchantmentId::Fortune,
+        "enchantment.lootBonusDigger",
+        3,
+        DIGGERS,
+        0,
+        3,
+        2,
+    ),
+    e(
+        EnchantmentId::Power,
+        "enchantment.arrowDamage",
+        30,
+        BOW,
+        0,
+        5,
+        0,
+    ),
+    e(
+        EnchantmentId::Punch,
+        "enchantment.arrowKnockback",
+        3,
+        BOW,
+        0,
+        2,
+        0,
+    ),
+    e(
+        EnchantmentId::Flame,
+        "enchantment.arrowFire",
+        3,
+        BOW,
+        0,
+        1,
+        0,
+    ),
+    e(
+        EnchantmentId::Infinity,
+        "enchantment.arrowInfinite",
+        1,
+        BOW,
+        0,
+        1,
+        5,
+    ),
+    e(
+        EnchantmentId::Luckofthesea,
+        "enchantment.lootBonusFishing",
+        3,
+        FISHING_ROD,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Lure,
+        "enchantment.fishingSpeed",
+        3,
+        FISHING_ROD,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Frostwalker,
+        "enchantment.frostwalker",
+        3,
+        FEET,
+        0,
+        2,
+        4,
+    ),
+    e(
+        EnchantmentId::Mending,
+        "enchantment.mending",
+        3,
+        DURABLE_PRIMARY,
+        DURABLE_SECONDARY,
+        1,
+        5,
+    ),
+    e(
+        EnchantmentId::Curseofbinding,
+        "enchantment.curse.binding",
         1,
         ARMOR | ELYTRA | COSMETIC_HEAD,
         0,
         1,
         0,
     ),
-    e(28, "curse.vanishing", 1, ALL, 0, 1, 0),
-    e(29, "tridentImpaling", 10, TRIDENT, 0, 5, 0),
-    e(30, "tridentRiptide", 3, TRIDENT, 0, 3, 6),
-    e(31, "tridentLoyalty", 30, TRIDENT, 0, 3, 6),
-    e(32, "tridentChanneling", 1, TRIDENT, 0, 1, 0),
-    e(33, "crossbowMultishot", 3, CROSSBOW, 0, 1, 0),
-    e(34, "crossbowPiercing", 30, CROSSBOW, 0, 4, 0),
-    e(35, "crossbowQuickCharge", 10, CROSSBOW, 0, 3, 0),
-    e(36, "soul_speed", 1, FEET, 0, 3, 0),
-    e(37, "swift_sneak", 1, LEGS, 0, 3, 0),
-    e(38, "heavy_weapon.windburst", 3, MACE, 0, 3, 0),
-    e(39, "heavy_weapon.density", 10, MACE, 0, 5, 1),
-    e(40, "heavy_weapon.breach", 3, MACE, 0, 4, 1),
-    e(41, "lunge", 10, SPEAR, 0, 3, 0),
+    e(
+        EnchantmentId::Curseofvanishing,
+        "enchantment.curse.vanishing",
+        1,
+        ALL,
+        0,
+        1,
+        0,
+    ),
+    e(
+        EnchantmentId::Impaling,
+        "enchantment.tridentImpaling",
+        10,
+        TRIDENT,
+        0,
+        5,
+        0,
+    ),
+    e(
+        EnchantmentId::Riptide,
+        "enchantment.tridentRiptide",
+        3,
+        TRIDENT,
+        0,
+        3,
+        6,
+    ),
+    e(
+        EnchantmentId::Loyalty,
+        "enchantment.tridentLoyalty",
+        30,
+        TRIDENT,
+        0,
+        3,
+        6,
+    ),
+    e(
+        EnchantmentId::Channeling,
+        "enchantment.tridentChanneling",
+        1,
+        TRIDENT,
+        0,
+        1,
+        0,
+    ),
+    e(
+        EnchantmentId::Multishot,
+        "enchantment.crossbowMultishot",
+        3,
+        CROSSBOW,
+        0,
+        1,
+        0,
+    ),
+    e(
+        EnchantmentId::Piercing,
+        "enchantment.crossbowPiercing",
+        30,
+        CROSSBOW,
+        0,
+        4,
+        0,
+    ),
+    e(
+        EnchantmentId::Quickcharge,
+        "enchantment.crossbowQuickCharge",
+        10,
+        CROSSBOW,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Soulspeed,
+        "enchantment.soul_speed",
+        1,
+        FEET,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Swiftsneak,
+        "enchantment.swift_sneak",
+        1,
+        LEGS,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Windburst,
+        "enchantment.heavy_weapon.windburst",
+        3,
+        MACE,
+        0,
+        3,
+        0,
+    ),
+    e(
+        EnchantmentId::Density,
+        "enchantment.heavy_weapon.density",
+        10,
+        MACE,
+        0,
+        5,
+        1,
+    ),
+    e(
+        EnchantmentId::Breach,
+        "enchantment.heavy_weapon.breach",
+        3,
+        MACE,
+        0,
+        4,
+        1,
+    ),
+    e(
+        EnchantmentId::Lunge,
+        "enchantment.lunge",
+        10,
+        SPEAR,
+        0,
+        3,
+        0,
+    ),
 ];
 
 /// The facts for enchantment `id`.
@@ -178,48 +504,79 @@ pub fn compatible(a: i16, b: i16) -> bool {
     if first.group != 0 && first.group == second.group {
         return false;
     }
-    !matches!((a.min(b), a.max(b)), (30, 32) | (33, 34))
+    !matches!(
+        (
+            u8::try_from(a).ok().and_then(EnchantmentId::from_wire),
+            u8::try_from(b).ok().and_then(EnchantmentId::from_wire)
+        ),
+        (
+            Some(EnchantmentId::Riptide),
+            Some(EnchantmentId::Channeling)
+        ) | (
+            Some(EnchantmentId::Channeling),
+            Some(EnchantmentId::Riptide)
+        ) | (
+            Some(EnchantmentId::Multishot),
+            Some(EnchantmentId::Piercing)
+        ) | (
+            Some(EnchantmentId::Piercing),
+            Some(EnchantmentId::Multishot)
+        )
+    )
 }
 
-/// The enchantment slot of the item `identifier`, or `0` when it takes no enchantments.
-///
-/// Provisional: derived from vanilla item names, not read from each item's native
-/// registration.
-#[must_use]
-pub fn item_slot(identifier: &str) -> u32 {
-    if assets::vanilla_skull_type(identifier).is_some() {
-        return slot::COSMETIC_HEAD;
+/// Special item classes take precedence over general tool and armor tags.
+const ITEM_SLOTS: &[(ItemTraits, u32)] = &[
+    (ItemTraits::BOOK, ALL),
+    (ItemTraits::ENCHANTED_BOOK, ALL),
+    (ItemTraits::COSMETIC_HEAD, COSMETIC_HEAD),
+    (ItemTraits::GLIDER, ELYTRA),
+    (ItemTraits::MACE, MACE),
+    (ItemTraits::BOW, BOW),
+    (ItemTraits::SHEARS, SHEARS),
+    (ItemTraits::FLINT_AND_STEEL, FLINT_AND_STEEL),
+    (ItemTraits::FISHING_ROD, FISHING_ROD),
+    (ItemTraits::CARROT_STICK, CARROT_STICK),
+    (ItemTraits::FUNGUS_STICK, FUNGUS_STICK),
+    (ItemTraits::TRIDENT, TRIDENT),
+    (ItemTraits::CROSSBOW, CROSSBOW),
+    (ItemTraits::SHIELD, SHIELD),
+    (ItemTraits::BRUSH, BRUSH),
+    (ItemTraits::COMPASS, COMPASS),
+    (ItemTraits::SWORD, SWORD),
+    (ItemTraits::SPEAR, SPEAR),
+    (ItemTraits::PICKAXE, PICKAXE),
+    (ItemTraits::AXE, AXE),
+    (ItemTraits::SHOVEL, SHOVEL),
+    (ItemTraits::HOE, HOE),
+];
+
+// New traits must explicitly choose an enchantment slot or stay outside this domain.
+const _: () = {
+    let mut covered = ItemTraits::POWDER_SNOW_WALKER.0 | ItemTraits::CREATIVE_NO_BREAK.0;
+    let mut index = 0;
+    while index < ITEM_SLOTS.len() {
+        covered |= ITEM_SLOTS[index].0.0;
+        index += 1;
     }
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    let suffix = |end: &str| name.ends_with(end);
-    match name {
-        "enchanted_book" | "book" => ALL,
-        "bow" => BOW,
-        "shears" => SHEARS,
-        "flint_and_steel" => FLINT_AND_STEEL,
-        "fishing_rod" => FISHING_ROD,
-        "carrot_on_a_stick" => CARROT_STICK,
-        "warped_fungus_on_a_stick" => FUNGUS_STICK,
-        "elytra" => ELYTRA,
-        "trident" => TRIDENT,
-        "crossbow" => CROSSBOW,
-        "shield" => SHIELD,
-        "brush" => BRUSH,
-        "mace" => MACE,
-        "compass" | "recovery_compass" | "lodestone_compass" => COMPASS,
-        "carved_pumpkin" | "skull" => COSMETIC_HEAD,
-        _ if suffix("_helmet") => HEAD,
-        _ if suffix("_chestplate") => TORSO,
-        _ if suffix("_leggings") => LEGS,
-        _ if suffix("_boots") => FEET,
-        _ if suffix("_sword") => SWORD,
-        _ if suffix("_spear") => SPEAR,
-        _ if suffix("_pickaxe") => PICKAXE,
-        _ if suffix("_axe") => AXE,
-        _ if suffix("_shovel") => SHOVEL,
-        _ if suffix("_hoe") => HOE,
-        _ if suffix("_head") => COSMETIC_HEAD,
-        _ => 0,
+    assert!(covered == ItemTraits::ALL.0);
+};
+
+/// Resolves enchantment applicability from admitted item classes and wearable slots.
+#[must_use]
+pub fn item_slot(fact: &ItemFact) -> u32 {
+    if let Some((_, slot)) = ITEM_SLOTS
+        .iter()
+        .find(|(trait_, _)| fact.traits.contains(*trait_))
+    {
+        return *slot;
+    }
+    match fact.armour_slot {
+        Some(ItemArmourSlot::Head) => HEAD,
+        Some(ItemArmourSlot::Chest) => TORSO,
+        Some(ItemArmourSlot::Legs) => LEGS,
+        Some(ItemArmourSlot::Feet) => FEET,
+        None => 0,
     }
 }
 
@@ -236,12 +593,30 @@ pub fn applies_to(id: i16, item_slot: u32) -> bool {
 mod tests {
     use super::*;
 
+    /// Reads a real pinned record for applicability fixtures.
+    fn facts(identifier: &str) -> &'static ItemFact {
+        assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)
+            .unwrap()
+    }
+
     #[test]
     fn rows_sit_at_their_id() {
         for (index, enchantment) in ENCHANTMENTS.iter().enumerate() {
             assert_eq!(usize::try_from(enchantment.id).unwrap(), index);
         }
-        assert!(enchantment(42).is_none() && enchantment(-1).is_none());
+        for id in EnchantmentId::ALL {
+            if id.wire_value() < EnchantmentId::Numenchantments.wire_value() {
+                assert_eq!(
+                    enchantment(i16::from(id.wire_value())).unwrap().id,
+                    i16::from(id.wire_value())
+                );
+            } else {
+                assert!(enchantment(i16::from(id.wire_value())).is_none());
+            }
+        }
+        assert!(enchantment(-1).is_none());
         assert!(
             ENCHANTMENTS
                 .iter()
@@ -259,12 +634,14 @@ mod tests {
             .filter(|entry| assets::vanilla_skull_type(&entry.identifier).is_some())
         {
             skulls += 1;
-            let slot = item_slot(&entry.identifier);
+            let slot = item_slot(facts(&entry.identifier));
             assert_eq!(slot, slot::COSMETIC_HEAD, "{}", entry.identifier);
-            for curse in ENCHANTMENTS
-                .iter()
-                .filter(|facts| matches!(facts.lang_key, "curse.binding" | "curse.vanishing"))
-            {
+            for curse in ENCHANTMENTS.iter().filter(|facts| {
+                matches!(
+                    facts.lang_key,
+                    "enchantment.curse.binding" | "enchantment.curse.vanishing"
+                )
+            }) {
                 assert!(
                     applies_to(curse.id, slot),
                     "{} {}",
@@ -305,16 +682,22 @@ mod tests {
     #[test]
     fn slots_include_secondary_reach() {
         assert!(
-            applies_to(5, item_slot("minecraft:diamond_helmet")),
+            applies_to(5, item_slot(facts("minecraft:diamond_helmet"))),
             "thorns"
         );
-        assert!(applies_to(9, item_slot("minecraft:iron_axe")), "sharpness");
         assert!(
-            !applies_to(12, item_slot("minecraft:iron_axe")),
+            applies_to(9, item_slot(facts("minecraft:iron_axe"))),
+            "sharpness"
+        );
+        assert!(
+            !applies_to(12, item_slot(facts("minecraft:iron_axe"))),
             "knockback"
         );
-        assert!(applies_to(17, item_slot("minecraft:shield")), "unbreaking");
-        assert!(!applies_to(0, item_slot("minecraft:stick")));
-        assert!(applies_to(41, item_slot("minecraft:enchanted_book")));
+        assert!(
+            applies_to(17, item_slot(facts("minecraft:shield"))),
+            "unbreaking"
+        );
+        assert!(!applies_to(0, item_slot(facts("minecraft:stick"))));
+        assert!(applies_to(41, item_slot(facts("minecraft:enchanted_book"))));
     }
 }

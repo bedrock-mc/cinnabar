@@ -402,11 +402,6 @@ pub fn skin_preparations_on_this_thread() -> usize {
 }
 
 pub const WOLF_IDENTIFIER: &str = super::query::wolf::WOLF_IDENTIFIER;
-/// The metadata key whose byte value selects a tamed wolf's dye colour.
-pub const WOLF_COLOR_METADATA_KEY: u32 = super::query::wolf::COLOR_METADATA_KEY;
-
-/// The metadata key whose short value selects a thrown potion's appearance.
-pub const POTION_AUX_VALUE_METADATA_KEY: u32 = super::query::potion::AUX_VALUE_METADATA_KEY;
 
 pub const MAX_SKIN_BATCHES_IN_FLIGHT: usize = super::skin::queue::MAX_SKIN_BATCHES_IN_FLIGHT;
 pub const MAX_SKIN_PREPARATIONS_PER_PASS: usize =

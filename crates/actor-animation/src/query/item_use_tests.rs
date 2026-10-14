@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 /// Evaluates item timing with an original player fixture and explicit use state.
 fn remaining(elapsed: u32, duration: u32, arguments: &[MolangValue]) -> f32 {
@@ -18,9 +19,10 @@ fn remaining_with_off_hand(
         username: "BugTest".into(),
     };
     if elapsed > 0 {
-        actor
-            .metadata
-            .insert(0, ActorMetadataValue::Flags(1 << FLAG_USING_ITEM));
+        actor.metadata.insert(
+            0,
+            ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+        );
     }
     let input = ActorTickInput {
         item_use_ticks: elapsed.saturating_add(1),
@@ -126,9 +128,10 @@ fn parent_pose(
         username: "BugTest".into(),
     };
     if elapsed > 0 {
-        actor
-            .metadata
-            .insert(0, ActorMetadataValue::Flags(1 << FLAG_USING_ITEM));
+        actor.metadata.insert(
+            0,
+            ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+        );
     }
     let mut store = ActorAnimationStore::with_assets(assets);
     store.insert(1, 0, &actor);

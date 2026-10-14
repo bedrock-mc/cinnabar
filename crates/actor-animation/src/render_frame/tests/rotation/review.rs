@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 mod cache;
 mod selected_geometry;
@@ -232,7 +233,7 @@ fn draw_only_refreshes_retain_rotation_history_after_perspective_changes_and_res
         actor.pitch = 40.0;
         actor.metadata.insert(
             0,
-            protocol::ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM),
+            protocol::ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
         );
         let mut context = ActorTickContext {
             is_local: true,
@@ -317,7 +318,7 @@ fn isolated_motion_completes_spear_inputs_before_channel_and_weight_sampling() {
         actors.get_mut(&1).unwrap().pitch = 40.0;
         actors.get_mut(&1).unwrap().metadata.insert(
             0,
-            protocol::ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM),
+            protocol::ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
         );
         store.sync_local_swing(
             1,
@@ -382,7 +383,7 @@ fn camera_sampling_completes_spear_posture_with_the_interpolated_pitch() {
     actor.pitch = 40.0;
     actor.metadata.insert(
         0,
-        protocol::ActorMetadataValue::Flags(1 << query::FLAG_SWIMMING),
+        protocol::ActorMetadataValue::Flags(1 << ActorFlag::Swimming.wire_value()),
     );
     store.advance_tick(&actors, None, None, true, true, |_| Default::default());
     let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;

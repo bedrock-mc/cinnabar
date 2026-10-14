@@ -629,12 +629,13 @@ fn camera_environment_context_exposes_palette_biome_and_effective_block_radius()
 fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
     let mut stream = block_entity_visual_stream();
     let routes = [
-        ("Barrel", 7_069),
-        ("BlastFurnace", 15_143),
-        ("Furnace", 15_688),
-        ("Smoker", 2_699),
-        ("Jukebox", 8_516),
-    ];
+        ("Barrel", "minecraft:barrel"),
+        ("BlastFurnace", "minecraft:blast_furnace"),
+        ("Furnace", "minecraft:lit_furnace"),
+        ("Smoker", "minecraft:smoker"),
+        ("Jukebox", "minecraft:jukebox"),
+    ]
+    .map(|(id, name)| (id, block_entity_runtime_id(name)));
     let mut sequence = 1;
     for (chunk_x, (id, runtime_id)) in routes.into_iter().enumerate() {
         let position = [chunk_x as i32 * 16 + 1, -63, 2];
@@ -657,7 +658,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
             sequence,
             inline_block_entity_event(
                 5,
-                1_936,
+                block_entity_runtime_id("minecraft:noteblock"),
                 idless_note_block_entity_nbt(note_position, 24, 1, 0),
             ),
         )
@@ -744,13 +745,14 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_live_updates() {
 fn block_entity_visual_diagnostics_preserve_zero_churn_inline_nbt_replacements() {
     let mut stream = block_entity_visual_stream();
     let mut cases = [
-        ("Barrel", 7_069, Vec::new(), Vec::new()),
-        ("BlastFurnace", 15_143, Vec::new(), Vec::new()),
-        ("Furnace", 15_688, Vec::new(), Vec::new()),
-        ("Smoker", 2_699, Vec::new(), Vec::new()),
-        ("Jukebox", 8_516, Vec::new(), Vec::new()),
-        ("", 1_936, Vec::new(), Vec::new()),
-    ];
+        ("Barrel", "minecraft:barrel"),
+        ("BlastFurnace", "minecraft:blast_furnace"),
+        ("Furnace", "minecraft:lit_furnace"),
+        ("Smoker", "minecraft:smoker"),
+        ("Jukebox", "minecraft:jukebox"),
+        ("", "minecraft:noteblock"),
+    ]
+    .map(|(id, name)| (id, block_entity_runtime_id(name), Vec::new(), Vec::new()));
     for (chunk_x, (id, _, initial, replacement)) in cases.iter_mut().enumerate() {
         let position = [chunk_x as i32 * 16 + 1, -63, 2];
         if id.is_empty() {
@@ -837,13 +839,14 @@ fn block_entity_visual_diagnostics_preserve_zero_churn_inline_nbt_replacements()
 fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replacements() {
     let mut stream = block_entity_visual_stream();
     let mut cases = [
-        ("Barrel", 7_069, Vec::new(), Vec::new()),
-        ("BlastFurnace", 15_143, Vec::new(), Vec::new()),
-        ("Furnace", 15_688, Vec::new(), Vec::new()),
-        ("Smoker", 2_699, Vec::new(), Vec::new()),
-        ("Jukebox", 8_516, Vec::new(), Vec::new()),
-        ("", 1_936, Vec::new(), Vec::new()),
-    ];
+        ("Barrel", "minecraft:barrel"),
+        ("BlastFurnace", "minecraft:blast_furnace"),
+        ("Furnace", "minecraft:lit_furnace"),
+        ("Smoker", "minecraft:smoker"),
+        ("Jukebox", "minecraft:jukebox"),
+        ("", "minecraft:noteblock"),
+    ]
+    .map(|(id, name)| (id, block_entity_runtime_id(name), Vec::new(), Vec::new()));
     for (chunk_x, (id, _, initial, replacement)) in cases.iter_mut().enumerate() {
         let position = [chunk_x as i32 * 16 + 1, -63, 2];
         if id.is_empty() {
@@ -931,7 +934,7 @@ fn block_entity_visual_diagnostics_preserve_zero_remesh_request_mode_nbt_replace
 }
 
 #[test]
-fn request_mode_changed_biome_keeps_destructive_column_replacement() {
+fn block_entity_request_mode_changed_biome_keeps_destructive_column_replacement() {
     let mut stream = block_entity_visual_stream();
     define_custom_biomes(&mut stream, [1, 2]);
     let position = [1, -63, 2];
@@ -943,7 +946,14 @@ fn request_mode_changed_biome_keeps_destructive_column_replacement() {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.take_requests().len(), 1);
     stream
-        .submit(2, requested_block_entity_sub_chunk_event(0, 8_516, initial))
+        .submit(
+            2,
+            requested_block_entity_sub_chunk_event(
+                0,
+                block_entity_runtime_id("minecraft:jukebox"),
+                initial,
+            ),
+        )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
     assert!(stream.authority.terrain().sub_chunk(key).is_some());
@@ -970,8 +980,16 @@ fn request_mode_changed_biome_keeps_destructive_column_replacement() {
 }
 
 #[test]
-fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
+fn block_entity_request_mode_changed_backing_dirties_and_replaces_preserved_column() {
     let mut stream = block_entity_visual_stream();
+    let initial_id = block_entity_runtime_id("minecraft:barrel");
+    let replacement_id = block_entity_visual_registry()
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:barrel" && record.sequential_id != initial_id
+        })
+        .expect("barrel has another pinned state")
+        .sequential_id;
     let position = [1, -63, 2];
     let key = SubChunkKey::new(0, 0, -4, 0);
     let initial = block_entity_nbt("Barrel", position);
@@ -981,7 +999,10 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.take_requests().len(), 1);
     stream
-        .submit(2, requested_block_entity_sub_chunk_event(0, 7_069, initial))
+        .submit(
+            2,
+            requested_block_entity_sub_chunk_event(0, initial_id, initial),
+        )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
     assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
@@ -998,7 +1019,7 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
     stream
         .submit(
             4,
-            requested_block_entity_sub_chunk_event(0, 7_070, replacement),
+            requested_block_entity_sub_chunk_event(0, replacement_id, replacement),
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
@@ -1012,7 +1033,7 @@ fn request_mode_changed_backing_dirties_and_replaces_preserved_column() {
             .terrain()
             .sub_chunk(key)
             .and_then(|sub_chunk| sub_chunk.runtime_id(0, 1, 1, 2)),
-        Some(7_070)
+        Some(replacement_id)
     );
     assert_eq!(stream.stats().adjudicated_static_block_entities, 1);
 }

@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 mod opacity;
 mod own_tag;
@@ -134,9 +135,10 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
     assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << ACTOR_FLAG_SNEAKING));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::Sneaking.wire_value()),
+    );
     actor.metadata.remove(&METADATA_HEIGHT);
     assert_eq!(
         tag_height(&actor),
@@ -188,7 +190,9 @@ fn java_head_clearance_and_sneaking_offsets_keep_the_label_world_scale() {
     assert!((tag_height(&actor) - 2.3).abs() < 1e-6);
     actor.metadata.insert(
         0,
-        ActorMetadataValue::Flags((1 << ACTOR_FLAG_SNEAKING) | (1 << ACTOR_FLAG_SHOW_NAME)),
+        ActorMetadataValue::Flags(
+            (1 << ActorFlag::Sneaking.wire_value()) | (1 << ActorFlag::ShowName.wire_value()),
+        ),
     );
     assert!((tag_height(&actor) - 2.175).abs() < 1e-6);
     let tag = extract_nametag(
@@ -230,9 +234,9 @@ fn sleeping_players_lower_the_label_with_the_body() {
 fn java_distance_cutoffs_are_strict_and_server_caps_can_only_shorten_them() {
     let mut actor = actor();
     for (sneaking, cutoff) in [(false, 64.0), (true, 32.0)] {
-        let flags = (1 << ACTOR_FLAG_SHOW_NAME)
+        let flags = (1 << ActorFlag::ShowName.wire_value())
             | if sneaking {
-                1 << ACTOR_FLAG_SNEAKING
+                1 << ActorFlag::Sneaking.wire_value()
             } else {
                 0
             };
@@ -263,11 +267,11 @@ fn player_visibility_honors_explicit_hides_and_always_show_overrides() {
     let mut actor = actor();
     assert!(visible(&actor, None));
     for (flags, expected) in [
-        (1 << ACTOR_FLAG_SHOW_NAME, true),
+        (1 << ActorFlag::ShowName.wire_value(), true),
         (0, false),
         (1 << ACTOR_FLAG_ALWAYS_SHOW_NAME, true),
         (
-            (1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_INVISIBLE),
+            (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
             false,
         ),
     ] {
@@ -489,18 +493,20 @@ fn visibility_uses_the_picked_actor_not_screen_distance() {
     actor.kind = ActorKind::Entity {
         identifier: "test:npc".into(),
     };
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << ACTOR_FLAG_SHOW_NAME));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::ShowName.wire_value()),
+    );
     assert!(!visible(&actor, None));
     assert!(visible(&actor, Some(actor.runtime_id)));
     actor
         .metadata
         .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
     assert!(visible(&actor, None));
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << ACTOR_FLAG_INVISIBLE));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::Invisible.wire_value()),
+    );
     assert!(!visible(&actor, Some(actor.runtime_id)));
 }
 
@@ -771,7 +777,9 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     actor.position[0] = 1.0;
     actor.metadata.insert(
         0,
-        ActorMetadataValue::Flags((1 << ACTOR_FLAG_SNEAKING) | (1 << ACTOR_FLAG_SHOW_NAME)),
+        ActorMetadataValue::Flags(
+            (1 << ActorFlag::Sneaking.wire_value()) | (1 << ActorFlag::ShowName.wire_value()),
+        ),
     );
     actor.metadata.insert(38, ActorMetadataValue::Float(2.0));
     let (moved, allocations) = test_alloc::count(|| {
@@ -788,9 +796,10 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     );
     assert!(moved.depth_tested);
     assert_eq!(moved.text_alpha, DIM_TEXT_ALPHA);
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << ACTOR_FLAG_INVISIBLE));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::Invisible.wire_value()),
+    );
     assert!(
         cache
             .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)

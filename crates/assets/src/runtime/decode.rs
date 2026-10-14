@@ -74,6 +74,8 @@ impl RuntimeAssets {
             provenance,
             missing: AtomicU64::new(0),
         };
+        // Prepare numeric block-entity routes before the carrier reaches the live world.
+        let _ = crate::facts::BlockEntityFacts::pinned();
         Ok((assets, identity))
     }
 }

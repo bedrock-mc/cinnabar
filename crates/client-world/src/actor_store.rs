@@ -1,4 +1,5 @@
 use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
+use protocol_ids::{ActorDataKey, ActorFlag, PlayerFlag};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
@@ -32,39 +33,8 @@ pub(crate) const MAX_TRACKED_PLAYERS: usize = 4_096;
 pub(crate) const MAX_TRACKED_ACTOR_LINKS: usize = MAX_TRACKED_ACTORS;
 pub(crate) const MAX_TRACKED_PLAYER_SKIN_BYTES: usize = MAX_PLAYER_LIST_SKIN_BYTES;
 
-// Metadata keys retained verbatim by ActorSnapshot.
-const PLAYER_FLAGS_METADATA_KEY: u32 = 26;
-/// Raw server actor scale, applied independently of the visual definition's scale.
-pub const SCALE_METADATA_KEY: u32 = 38;
-/// Packed RGB color supplied by the server for casting particles.
-pub const SPELL_COLOR_METADATA_KEY: u32 = 77;
-const NAMETAG_METADATA_KEY: u32 = 4;
-pub(crate) const VARIANT_METADATA_KEY: u32 = 2;
-/// Unscaled actor collision width supplied by the server.
-pub const BOUNDING_BOX_WIDTH_METADATA_KEY: u32 = 53;
-/// Unscaled actor collision height supplied by the server.
-pub const BOUNDING_BOX_HEIGHT_METADATA_KEY: u32 = 54;
 const DEFAULT_ACTOR_COLLISION_WIDTH: f32 = 0.6;
 const DEFAULT_ACTOR_COLLISION_HEIGHT: f32 = 1.8;
-pub(crate) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
-pub(crate) const FUSE_TIME_METADATA_KEY: u32 = 55;
-const PLAYER_FLAGS_SLEEPING: u8 = 1 << 1;
-/// Actor flag bits follow gophertunnel v1.61.0 `EntityDataFlag*` (iota from zero); bits from
-/// 64 live in the overflow flag word.
-pub(crate) const ACTOR_FLAG_SLEEPING: u32 = 76;
-const ACTOR_FLAG_SNEAKING: u32 = 1;
-const ACTOR_FLAG_INVISIBLE: u32 = 5;
-/// Primary actor flag that permits name-tag presentation.
-pub const ACTOR_FLAG_SHOW_NAME: u32 = 14;
-const ACTOR_FLAG_SWIMMING: u32 = 57;
-const ACTOR_FLAG_USING_ITEM: u32 = 4;
-const ACTOR_FLAG_SPRINTING: u32 = 3;
-pub(crate) const ACTOR_FLAG_IMMOBILE: u32 = 16;
-const ACTOR_FLAG_GLIDING: u32 = 32;
-pub(crate) const ACTOR_FLAG_CRAWLING: u32 = 114;
-pub(crate) const ACTOR_FLAG_SITTING: u32 = 24;
-const ACTOR_FLAG_HAS_GRAVITY: u32 = 49;
-const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 
 /// A sleeping player's offset from its feet to its native actor-state position (its eye).
 pub const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
@@ -166,7 +136,7 @@ pub struct ActorSnapshot {
     pub float_properties: HashMap<u32, f32>,
     pub status: ActorStatus,
     pub(crate) dragon_animation: Option<Box<dragon_animation::State>>,
-    /// Accumulated [`HITBOX_METADATA_KEY`] boxes; empty geometry uses the collision box.
+    /// Accumulated [`ActorDataKey::HitBox`] boxes; empty geometry uses the collision box.
     pub(crate) hitboxes: Option<std::sync::Arc<hitbox::State>>,
 }
 
@@ -174,7 +144,10 @@ impl ActorSnapshot {
     /// Reads the server's packed spell RGB color as an opaque particle tint.
     #[must_use]
     pub fn spell_color(&self) -> [f32; 4] {
-        let rgb = match self.metadata.get(&SPELL_COLOR_METADATA_KEY) {
+        let rgb = match self
+            .metadata
+            .get(&ActorDataKey::DataSpellCastingColor.wire_value())
+        {
             Some(ActorMetadataValue::Int(value)) => *value as u32,
             _ => 0,
         };
@@ -350,7 +323,7 @@ impl ActorSnapshot {
             hitboxes: None,
         };
         // Predicted flags must retain the visible-name default until the server replaces them.
-        snapshot.set_flag(ACTOR_FLAG_SHOW_NAME, true);
+        snapshot.set_flag(ActorFlag::ShowName.wire_value(), true);
         snapshot.apply_local_flags(feed);
         snapshot
     }
@@ -358,18 +331,18 @@ impl ActorSnapshot {
     /// Overwrites the primary-word flags the client predicts itself: sneak, sprint, swim, glide
     /// and predicted item use. Shield blocking stays server-owned.
     fn apply_local_flags(&mut self, feed: &LocalPlayerFeed) {
-        self.set_flag(ACTOR_FLAG_SNEAKING, feed.sneaking);
-        self.set_flag(ACTOR_FLAG_SPRINTING, feed.sprinting);
-        self.set_flag(ACTOR_FLAG_GLIDING, feed.gliding);
+        self.set_flag(ActorFlag::Sneaking.wire_value(), feed.sneaking);
+        self.set_flag(ActorFlag::Sprinting.wire_value(), feed.sprinting);
+        self.set_flag(ActorFlag::Gliding.wire_value(), feed.gliding);
         // Sprinting in water is swimming; the water sample lags one frame.
         let in_water = self.status.fluid.is_some_and(|(water, _)| water);
-        self.set_flag(ACTOR_FLAG_SWIMMING, feed.sprinting && in_water);
+        self.set_flag(ActorFlag::Swimming.wire_value(), feed.sprinting && in_water);
         match feed.item_use {
             LocalItemUse::Unpredicted => {}
-            LocalItemUse::Idle => self.set_flag(ACTOR_FLAG_USING_ITEM, false),
-            LocalItemUse::Using => self.set_flag(ACTOR_FLAG_USING_ITEM, true),
+            LocalItemUse::Idle => self.set_flag(ActorFlag::UsingItem.wire_value(), false),
+            LocalItemUse::Using => self.set_flag(ActorFlag::UsingItem.wire_value(), true),
             LocalItemUse::Predicted { elapsed_ticks, .. } => {
-                self.set_flag(ACTOR_FLAG_USING_ITEM, elapsed_ticks.is_some());
+                self.set_flag(ActorFlag::UsingItem.wire_value(), elapsed_ticks.is_some());
             }
         }
     }
@@ -377,10 +350,14 @@ impl ActorSnapshot {
     /// Sets one actor flag bit in the primary or overflow word, creating the word when absent.
     fn set_flag(&mut self, bit: u32, on: bool) {
         let (key, bit, empty) = if bit < 64 {
-            (0, bit, ActorMetadataValue::Flags(0))
+            (
+                ActorDataKey::Flags.wire_value(),
+                bit,
+                ActorMetadataValue::Flags(0),
+            )
         } else {
             (
-                EXTENDED_FLAGS_METADATA_KEY,
+                ActorDataKey::FlagsTwo.wire_value(),
                 bit - 64,
                 ActorMetadataValue::FlagsExtended(0),
             )
@@ -417,7 +394,7 @@ impl ActorSnapshot {
     /// absent, non-finite or negative value reads 1. Zero hides the body while retaining its actor.
     #[must_use]
     pub fn render_scale(&self) -> f32 {
-        match self.metadata.get(&SCALE_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Scale.wire_value()) {
             Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }
@@ -425,17 +402,17 @@ impl ActorSnapshot {
 
     #[must_use]
     pub fn is_invisible(&self) -> bool {
-        self.flag(ACTOR_FLAG_INVISIBLE)
+        self.flag(ActorFlag::Invisible.wire_value())
     }
 
     #[must_use]
     pub fn is_sneaking(&self) -> bool {
-        self.flag(ACTOR_FLAG_SNEAKING)
+        self.flag(ActorFlag::Sneaking.wire_value())
     }
 
     #[must_use]
     pub fn is_gliding(&self) -> bool {
-        self.flag(ACTOR_FLAG_GLIDING)
+        self.flag(ActorFlag::Gliding.wire_value())
     }
 
     #[must_use]
@@ -444,25 +421,25 @@ impl ActorSnapshot {
     }
 
     pub(crate) fn player_is_sleeping(&self) -> bool {
-        let player_flags = self.metadata.get(&PLAYER_FLAGS_METADATA_KEY).is_some_and(
-            |value| matches!(value, ActorMetadataValue::Byte(flags) if (*flags as u8) & PLAYER_FLAGS_SLEEPING != 0),
+        let player_flags = self.metadata.get(&ActorDataKey::PlayerFlags.wire_value()).is_some_and(
+            |value| matches!(value, ActorMetadataValue::Byte(flags) if (*flags as u8) & PlayerFlag::Sleeping.wire_value() != 0),
         );
-        player_flags || self.flag(ACTOR_FLAG_SLEEPING)
+        player_flags || self.flag(ActorFlag::Sleeping.wire_value())
     }
 
     /// Whether the using-item flag is set; for the local player's food and drink it is the
     /// server's admission of the use.
     #[must_use]
     pub fn is_using_item(&self) -> bool {
-        self.flag(ACTOR_FLAG_USING_ITEM)
+        self.flag(ActorFlag::UsingItem.wire_value())
     }
 
     /// Reads one actor flag bit from the primary or overflow flag word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         let (key, bit) = if bit < 64 {
-            (0, bit)
+            (ActorDataKey::Flags.wire_value(), bit)
         } else {
-            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+            (ActorDataKey::FlagsTwo.wire_value(), bit - 64)
         };
         match self.metadata.get(&key) {
             Some(ActorMetadataValue::Flags(flags) | ActorMetadataValue::FlagsExtended(flags)) => {
@@ -476,7 +453,7 @@ impl ActorSnapshot {
     /// block for the vanilla box, none for an empty box or a near-zero scale, so a text host
     /// built on a falling block stays at the position its server sends.
     fn falling_block_network_offset(&self) -> f32 {
-        let height = match self.metadata.get(&BOUNDING_BOX_HEIGHT_METADATA_KEY) {
+        let height = match self.metadata.get(&ActorDataKey::Height.wire_value()) {
             Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => {
                 *height
             }
@@ -493,7 +470,7 @@ impl ActorSnapshot {
 
     fn primed_tnt_network_offset(&self) -> f32 {
         self.metadata
-            .get(&BOUNDING_BOX_HEIGHT_METADATA_KEY)
+            .get(&ActorDataKey::Height.wire_value())
             .and_then(|value| match value {
                 ActorMetadataValue::Float(height) if height.is_finite() && *height > 0.0 => {
                     Some(*height * 0.5)
@@ -542,10 +519,10 @@ impl ActorSnapshot {
                 rejected = true;
                 continue;
             }
-            if metadata.key == FUSE_TIME_METADATA_KEY {
+            if metadata.key == ActorDataKey::FuseTime.wire_value() {
                 self.status.fuse_age_ticks = self.status.age_ticks;
             }
-            if metadata.key == HITBOX_METADATA_KEY {
+            if metadata.key == ActorDataKey::HitBox.wire_value() {
                 std::sync::Arc::make_mut(self.hitboxes.get_or_insert_with(Default::default))
                     .apply(&metadata.value);
             }
@@ -650,9 +627,9 @@ impl MovementFlagUpdate {
             })
         };
         let words = [
-            word(0),
-            word(EXTENDED_FLAGS_METADATA_KEY),
-            word(protocol::ACTOR_DATA_ID_FLAGS_THIRD),
+            word(ActorDataKey::Flags.wire_value()),
+            word(ActorDataKey::FlagsTwo.wire_value()),
+            word(ActorDataKey::FlagsThird.wire_value()),
         ];
         if words.iter().all(Option::is_none) {
             return None;
@@ -660,14 +637,14 @@ impl MovementFlagUpdate {
         let bit =
             |bit: u32| words[(bit / 64) as usize].map(|flags| flags & (1_u64 << (bit % 64)) != 0);
         Some(Self {
-            immobile: bit(ACTOR_FLAG_IMMOBILE),
-            sneaking: bit(ACTOR_FLAG_SNEAKING),
-            sprinting: bit(ACTOR_FLAG_SPRINTING),
-            gliding: bit(ACTOR_FLAG_GLIDING),
-            swimming: bit(ACTOR_FLAG_SWIMMING),
-            crawling: bit(ACTOR_FLAG_CRAWLING),
-            has_gravity: bit(ACTOR_FLAG_HAS_GRAVITY),
-            uniform_air_drag: bit(ACTOR_FLAG_USES_UNIFORM_AIR_DRAG),
+            immobile: bit(ActorFlag::NoAI.wire_value()),
+            sneaking: bit(ActorFlag::Sneaking.wire_value()),
+            sprinting: bit(ActorFlag::Sprinting.wire_value()),
+            gliding: bit(ActorFlag::Gliding.wire_value()),
+            swimming: bit(ActorFlag::Swimming.wire_value()),
+            crawling: bit(ActorFlag::Crawling.wire_value()),
+            has_gravity: bit(ActorFlag::HasGravity.wire_value()),
+            uniform_air_drag: bit(ActorFlag::UsesUniformAirDrag.wire_value()),
         })
     }
 }
@@ -874,13 +851,13 @@ pub use entities::{
     BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
 };
 pub use fire::FIRE_FADE_TICKS;
-pub use hitbox::{ActorHitBoxes, HITBOX_METADATA_KEY};
+pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
     HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-pub(crate) use placement::FLAG_BABY;
+
 pub use placement::{ActorFluidProbe, RideSeat};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;

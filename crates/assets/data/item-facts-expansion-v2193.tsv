@@ -1092,9 +1092,9 @@ minecraft:bow	4000	0	4000	0	bow
 minecraft:arrow	0	0	0	0	offhand
 minecraft:coal	0	0	0	0	-
 minecraft:charcoal	0	0	0	0	-
-minecraft:diamond	0	840	0	0	trim_materials,beacon-payment
-minecraft:iron_ingot	0	840	0	0	trim_materials,beacon-payment
-minecraft:gold_ingot	0	840	0	0	trim_materials,beacon-payment
+minecraft:diamond	0	840	0	0	trim_materials,beacon-payment-diamond
+minecraft:iron_ingot	0	840	0	0	trim_materials,beacon-payment-iron_ingot
+minecraft:gold_ingot	0	840	0	0	trim_materials,beacon-payment-gold_ingot
 minecraft:iron_sword	44	0	0	0	is_sword,is_sword-creative,iron_tier,iron_tier-repair
 minecraft:wooden_sword	44	0	0	0	is_sword,is_sword-creative,wooden_tier,wooden_tier-repair
 minecraft:wooden_shovel	200	0	0	0	is_shovel,wooden_tier,wooden_tier-repair
@@ -1302,7 +1302,7 @@ minecraft:raw_copper	0	0	0	0	-
 minecraft:experience_bottle	0	0	0	0	-
 minecraft:fire_charge	0	0	0	0	-
 minecraft:writable_book	0	0	0	0	-
-minecraft:emerald	0	840	0	0	trim_materials,beacon-payment
+minecraft:emerald	0	840	0	0	trim_materials,beacon-payment-emerald
 minecraft:frame	0	0	0	0	-
 minecraft:flower_pot	0	0	0	0	-
 minecraft:empty_map	0	0	0	0	offhand
@@ -1389,7 +1389,7 @@ minecraft:netherite_shovel	200	0	0	0	is_shovel,netherite_tier,netherite_tier-rep
 minecraft:netherite_pickaxe	100	0	0	0	is_pickaxe,netherite_tier,netherite_tier-repair
 minecraft:netherite_axe	80	0	0	0	is_axe,netherite_tier,netherite_tier-repair
 minecraft:netherite_hoe	400	0	0	0	is_hoe,netherite_tier,netherite_tier-repair
-minecraft:netherite_ingot	0	840	0	0	trim_materials,transform_materials,beacon-payment
+minecraft:netherite_ingot	0	840	0	0	trim_materials,transform_materials,beacon-payment-netherite_ingot
 minecraft:netherite_helmet	0	20	0	0	trimmable_armors,netherite_tier,netherite_tier-repair
 minecraft:netherite_chestplate	0	20	0	0	trimmable_armors,netherite_tier,netherite_tier-repair
 minecraft:netherite_leggings	0	20	0	0	trimmable_armors,netherite_tier,netherite_tier-repair

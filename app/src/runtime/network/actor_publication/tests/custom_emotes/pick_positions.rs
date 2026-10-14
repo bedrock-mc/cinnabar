@@ -1,5 +1,6 @@
 //! Interaction picks remote actors at this frame's tick positions without disturbing their
 //! per-tick animation or the actor clock.
+use protocol_ids::ActorDataKey;
 use {super::*, client_presentation::actor_publication::ActorFramePartialTick};
 
 #[derive(Resource, Default)]
@@ -131,7 +132,7 @@ fn stalled_frame_caps_live_ticks_and_custom_hitbox_prediction_together() {
                     dimension: 0,
                     runtime_id: 2,
                     metadata: Arc::from([protocol::ActorMetadata {
-                        key: client_world::HITBOX_METADATA_KEY,
+                        key: ActorDataKey::HitBox.wire_value(),
                         value: protocol::ActorMetadataValue::Compound(
                             root.encode_root().unwrap().into(),
                         ),
@@ -275,7 +276,7 @@ fn pick_prediction_reuses_its_buffer_across_frames() {
                 dimension: 0,
                 runtime_id: 2,
                 metadata: Arc::from([protocol::ActorMetadata {
-                    key: client_world::HITBOX_METADATA_KEY,
+                    key: ActorDataKey::HitBox.wire_value(),
                     value: protocol::ActorMetadataValue::Compound(
                         root.encode_root().unwrap().into(),
                     ),

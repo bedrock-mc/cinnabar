@@ -1,4 +1,5 @@
 use super::*;
+use assets::facts::TOTEM_IDENTIFIER;
 use protocol::{
     ContainerIdentity, InventoryContentEvent, InventoryEvent, ItemRegistryEvent, NetworkItemStack,
 };

@@ -1,3 +1,4 @@
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 use std::sync::Arc;
 
 use protocol::{ActorEvent, ActorKind, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin};
@@ -205,7 +206,7 @@ fn local_health_pending_a_pose_cannot_cross_sessions() {
     store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
     let actor = store.get(1).unwrap();
     assert!(!actor.status.dead);
-    assert!(!actor.attributes.contains_key("minecraft:health"));
+    assert!(!actor.attributes.contains_key(Attribute::Health.wire_name()));
 }
 
 #[test]
@@ -217,7 +218,7 @@ fn local_health_pending_a_pose_cannot_override_newer_spawn_health() {
         unreachable!();
     };
     spawn.attributes = Arc::from([protocol::ActorAttribute {
-        name: "minecraft:health".into(),
+        name: Attribute::Health.wire_name().into(),
         min: 0.0,
         max: crate::DEFAULT_PLAYER_HEALTH,
         current: 7.0,
@@ -248,7 +249,7 @@ fn spawn_health_initializes_death_time_and_replacement_clears_it() {
             unreachable!();
         };
         spawn.attributes = Arc::from([protocol::ActorAttribute {
-            name: "minecraft:health".into(),
+            name: Attribute::Health.wire_name().into(),
             min: 0.0,
             max: crate::DEFAULT_PLAYER_HEALTH,
             current: 0.0,
@@ -306,7 +307,7 @@ fn local_health_respects_retained_attribute_capacity_and_invalid_ranges() {
         .get_mut(&1)
         .unwrap()
         .attributes
-        .get_mut("minecraft:health")
+        .get_mut(Attribute::Health.wire_name())
         .unwrap()
         .max = f32::NAN;
     store.set_local_health(1, 0);
@@ -329,7 +330,7 @@ fn local_health_skips_values_rejected_by_the_hud_before_mutating_actor_or_pendin
         store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
         let actor = store.get(1).unwrap();
         assert!(!actor.status.dead);
-        assert_eq!(actor.attributes["minecraft:health"].current, 7.0);
+        assert_eq!(actor.attributes[Attribute::Health.wire_name()].current, 7.0);
         assert_eq!(store.local_health_skips(), 4);
     }
 }
@@ -343,14 +344,14 @@ fn local_health_survives_dimension_actor_recreation() {
     assert_eq!(store.reset_dimension(1, 1, 2), ActorApplyResult::Reset);
     store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
     assert_eq!(
-        store.get(1).unwrap().attributes["minecraft:health"].current,
+        store.get(1).unwrap().attributes[Attribute::Health.wire_name()].current,
         7.0
     );
     store.set_local_health(1, 0);
     assert!(store.get(1).unwrap().status.dead);
     store.set_local_health(1, i32::from(u16::MAX));
     assert_eq!(
-        store.get(1).unwrap().attributes["minecraft:health"].current,
+        store.get(1).unwrap().attributes[Attribute::Health.wire_name()].current,
         crate::DEFAULT_PLAYER_HEALTH
     );
     assert!(!store.get(1).unwrap().status.dead);
@@ -492,7 +493,7 @@ fn predicted_item_use_leaves_server_blocking_flag() {
                 dimension: 0,
                 runtime_id: 1,
                 metadata: Arc::from([protocol::ActorMetadata {
-                    key: super::EXTENDED_FLAGS_METADATA_KEY,
+                    key: ActorDataKey::FlagsTwo.wire_value(),
                     value: protocol::ActorMetadataValue::FlagsExtended(1 << (72 - 64)),
                 }]),
                 properties: Arc::from([]),
@@ -850,10 +851,10 @@ fn synthetic_show_name_default_survives_prediction_but_not_server_hides() {
     let mut feed = local_feed(0.0, 0.0);
     store.exclude_remote_state_for(1);
     store.sync_local_player(1, -100, &feed);
-    assert!(store.get(1).unwrap().flag(super::ACTOR_FLAG_SHOW_NAME));
+    assert!(store.get(1).unwrap().flag(ActorFlag::ShowName.wire_value()));
     feed.sneaking = true;
     store.sync_local_player(1, -100, &feed);
-    assert!(store.get(1).unwrap().flag(super::ACTOR_FLAG_SHOW_NAME));
+    assert!(store.get(1).unwrap().flag(ActorFlag::ShowName.wire_value()));
     assert_eq!(
         store.apply(
             1,
@@ -874,7 +875,7 @@ fn synthetic_show_name_default_survives_prediction_but_not_server_hides() {
     feed.sprinting = true;
     store.sync_local_player(1, -100, &feed);
     let actor = store.get(1).unwrap();
-    assert!(!actor.flag(super::ACTOR_FLAG_SHOW_NAME));
-    assert!(actor.flag(super::ACTOR_FLAG_SNEAKING));
-    assert!(actor.flag(super::ACTOR_FLAG_SPRINTING));
+    assert!(!actor.flag(ActorFlag::ShowName.wire_value()));
+    assert!(actor.flag(ActorFlag::Sneaking.wire_value()));
+    assert!(actor.flag(ActorFlag::Sprinting.wire_value()));
 }

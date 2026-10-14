@@ -11,6 +11,7 @@ enum Kind {
     Physics,
     Biomes,
     Items,
+    BlockEntities,
     All,
 }
 #[derive(Parser)]
@@ -44,6 +45,20 @@ struct Args {
 /// Dispatches a compiler pass or regenerates every carrier for an exact byte comparison.
 fn main() -> Result<()> {
     let args = Args::parse();
+    if matches!(args.kind, Kind::BlockEntities) {
+        registry_policy::block_entities::write(
+            &args.root,
+            required(&args.breg, "--breg")?,
+            &args.out,
+        )?;
+        if args.check {
+            compare(
+                &args.out,
+                &args.root.join(assets::facts::BLOCK_ENTITY_FACTS_PATH),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::Entities) {
         if let Some(archive) = &args.archive {
             let bytes = registry_policy::entities::components_from_archive(archive)?;
@@ -106,7 +121,7 @@ fn main() -> Result<()> {
             required(&args.manifest, "--manifest")?,
         )?,
         Kind::All => all(&args, &facts)?,
-        Kind::Items => unreachable!(),
+        Kind::Items | Kind::BlockEntities => unreachable!(),
     }
     Ok(())
 }
@@ -216,12 +231,20 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
                 .join("crates/asset-compiler/data/registry-policy.json"),
         )?,
     )?;
+    let entity_path = PathBuf::from(assets::facts::entity::SOURCE_PATH);
+    let entity_expansion = PathBuf::from(assets::facts::entity::EXPANSION_PATH);
     let item_path = PathBuf::from(assets::facts::ITEM_FACTS_SOURCE_PATH);
     let item_expansion = PathBuf::from(assets::facts::ITEM_FACTS_EXPANSION_PATH);
     registry_policy::items::write(
         &args.root,
         &args.out.join(&item_path),
         Some(&args.out.join(&item_expansion)),
+    )?;
+    let block_entities = PathBuf::from(assets::facts::BLOCK_ENTITY_FACTS_PATH);
+    registry_policy::block_entities::write(
+        &args.root,
+        &args.out.join(&block_path),
+        &args.out.join(&block_entities),
     )?;
     for (key, path) in [
         ("block_registry", &block_path),
@@ -239,20 +262,10 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
     )?;
     if args.check {
         for path in [
-            assets::facts::entity::SOURCE_PATH,
-            assets::facts::entity::EXPANSION_PATH,
-        ] {
-            if std::fs::read(args.out.join(path))? != std::fs::read(args.root.join(path))? {
-                return Err(format!("regeneration changed {path}").into());
-            }
-        }
-        let sha = Path::new(assets::facts::entity::SOURCE_PATH).with_extension("sha256");
-        if std::fs::read(args.out.join(&sha))? != std::fs::read(args.root.join(&sha))? {
-            return Err("entity facts checksum changed".into());
-        }
-
-        for path in [
             &target_path,
+            &entity_path,
+            &entity_expansion,
+            &block_entities,
             &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
             &PathBuf::from(assets::facts::BLOCK_PLACEMENT_SOURCE_PATH),
             &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
@@ -271,6 +284,7 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             }
         }
         for (path, filename) in [
+            (&entity_path, false),
             (&item_path, false),
             (&block_path, true),
             (&light_path, true),

@@ -178,3 +178,44 @@ fn item_facts_source_path_and_preparation_output_agree() {
     );
     assert_eq!(assets::carriers::ITEM_FACTS.output, ITEM_FACTS_FILENAME);
 }
+
+#[test]
+fn beacon_roles_and_renderer_keys_have_one_complete_validated_source() {
+    let (payload, _) = compile(&root()).unwrap();
+    let facts = ItemFacts::from_payload(payload.clone()).unwrap();
+    let payments: Vec<_> = facts
+        .payload()
+        .records
+        .iter()
+        .filter(|record| record.fact.roles.contains(ContainerRoles::BEACON_PAYMENT))
+        .collect();
+    assert!(!payments.is_empty());
+    assert!(
+        payments
+            .iter()
+            .all(|record| record.fact.beacon_payment_key.is_some())
+    );
+    assert!(
+        facts
+            .by_identifier(TOTEM_IDENTIFIER)
+            .unwrap()
+            .allow_off_hand
+            == Some(true)
+    );
+    let index = payload
+        .records
+        .iter()
+        .position(|record| record.fact.roles.contains(ContainerRoles::BEACON_PAYMENT))
+        .unwrap();
+    let mut incomplete = payload.clone();
+    incomplete.records[index].fact.beacon_payment_key = None;
+    assert!(ItemFacts::from_payload(incomplete).is_err());
+    let mut extra = payload;
+    let non_payment = extra
+        .records
+        .iter_mut()
+        .find(|record| !record.fact.roles.contains(ContainerRoles::BEACON_PAYMENT))
+        .unwrap();
+    non_payment.fact.beacon_payment_key = payments[0].fact.beacon_payment_key;
+    assert!(ItemFacts::from_payload(extra).is_err());
+}

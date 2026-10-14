@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::Attribute;
 
 impl WorldAuthority {
     /// Applies a non-terrain event at its current ordered commit position.
@@ -133,7 +134,9 @@ impl WorldAuthority {
                         .attributes
                         .iter()
                         .rev()
-                        .filter(|attribute| attribute.name.as_ref() == "minecraft:movement")
+                        .filter(|attribute| {
+                            attribute.name.as_ref() == Attribute::Movement.wire_name()
+                        })
                         .find_map(MovementSpeedAttribute::from_attribute);
                     let liquid = |name: &str| {
                         update
@@ -143,15 +146,14 @@ impl WorldAuthority {
                             .find(|attribute| attribute.name.as_ref() == name)
                             .map(|attribute| f64::from(attribute.current))
                     };
-                    let underwater = liquid("minecraft:underwater_movement");
-                    let lava = liquid("minecraft:lava_movement");
+                    let underwater = liquid(Attribute::UnderwaterMovement.wire_name());
+                    let lava = liquid(Attribute::LavaMovement.wire_name());
                     let air_drag_modifier = update
                         .attributes
                         .iter()
                         .rev()
                         .find(|attribute| {
-                            attribute.name.as_ref()
-                                == movement_attribute::AIR_DRAG_MODIFIER_ATTRIBUTE
+                            attribute.name.as_ref() == Attribute::AirDragModifier.wire_name()
                         })
                         .map(|attribute| attribute.current)
                         .filter(|current| current.is_finite());

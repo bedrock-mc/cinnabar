@@ -22,14 +22,6 @@ const BEACON_POWERS: [(&str, i32, bool); 6] = [
     ("strength", 5, false),
     ("regen", 10, true),
 ];
-/// The legacy `id << 16 | aux` values the beacon's payment row names.
-const BEACON_PAYMENTS: [(i64, &str); 5] = [
-    (742 << 16, "minecraft:netherite_ingot"),
-    (388 << 16, "minecraft:emerald"),
-    (264 << 16, "minecraft:diamond"),
-    (266 << 16, "minecraft:gold_ingot"),
-    (265 << 16, "minecraft:iron_ingot"),
-];
 /// The `#item_id_aux` key the crafter's previewed result draws under; stonecutter keys are negative.
 const CRAFTER_OUTPUT_KEY: i64 = i64::MAX;
 const CRAFTER_ARROW_POWERED: &str = "textures/ui/redstone_arrow_powered";
@@ -169,10 +161,7 @@ pub fn id_aux_icons(
     icon: impl Fn(&str) -> Option<IconRef>,
 ) -> Vec<(i64, IconRef)> {
     match source.player().inventory.ledger().window_kind() {
-        Some(WindowKind::Beacon) => BEACON_PAYMENTS
-            .iter()
-            .filter_map(|(key, id)| Some((*key, icon(id)?)))
-            .collect(),
+        Some(WindowKind::Beacon) => beacon_payment_icons(icon),
         Some(WindowKind::Crafter) => frame
             .recipe_output
             .and_then(|output| output.icon)
@@ -186,6 +175,17 @@ pub fn id_aux_icons(
             .collect(),
         _ => Vec::new(),
     }
+}
+
+/// Draws the payment roles using the renderer keys compiled with their membership.
+fn beacon_payment_icons(icon: impl Fn(&str) -> Option<IconRef>) -> Vec<(i64, IconRef)> {
+    let Ok(facts) = assets::facts::ItemFacts::builtin() else {
+        return Vec::new();
+    };
+    facts
+        .beacon_payments()
+        .filter_map(|(key, identifier)| Some((key, icon(identifier)?)))
+        .collect()
 }
 
 /// Shows predicted costs and invalid-result indicators only when no server output exists.
@@ -758,6 +758,99 @@ mod banner_tests {
                 book: None,
             },
         }
+    }
+
+    #[test]
+    fn beacon_renderer_keys_match_the_pinned_screen_fixture() {
+        let Some(path) = std::env::var_os("CINNABAR_BEACON_UI_FIXTURE") else {
+            eprintln!(
+                "skipping beacon_renderer_keys_match_the_pinned_screen_fixture: missing CINNABAR_BEACON_UI_FIXTURE"
+            );
+            return;
+        };
+        let mut catalog = json_ui::Catalog::default();
+        catalog.overlay_text(
+            "ui/beacon_screen.json",
+            &std::fs::read_to_string(path).unwrap(),
+        );
+        assert!(catalog.diagnostics().is_empty());
+        let mut keys = BTreeSet::new();
+        /// Collects authored item-renderer keys through the production JSON-UI parser.
+        fn renderer_keys(control: &json_ui::RawControl, keys: &mut BTreeSet<i64>) {
+            if let Some(key) = control
+                .props
+                .get("property_bag")
+                .and_then(|bag| bag.get("#item_id_aux"))
+                .and_then(serde_json::Value::as_i64)
+            {
+                keys.insert(key);
+            }
+            for child in &control.children {
+                renderer_keys(child, keys);
+            }
+        }
+        for control in catalog.controls() {
+            renderer_keys(control, &mut keys);
+        }
+        assert!(!keys.is_empty());
+        let facts = assets::facts::ItemFacts::builtin().unwrap();
+        assert_eq!(
+            facts
+                .beacon_payments()
+                .map(|(key, _)| key)
+                .collect::<BTreeSet<_>>(),
+            keys
+        );
+    }
+
+    #[test]
+    fn beacon_payment_icons_follow_the_compiled_payment_roles() {
+        let facts = assets::facts::ItemFacts::builtin().unwrap();
+        let icons = beacon_payment_icons(|identifier| {
+            let record = facts
+                .payload()
+                .records
+                .iter()
+                .find(|record| record.identifier.as_ref() == identifier)
+                .unwrap();
+            assert!(
+                record
+                    .fact
+                    .roles
+                    .contains(assets::facts::ContainerRoles::BEACON_PAYMENT)
+            );
+            Some(IconRef {
+                page: u16::try_from(record.network_id).unwrap(),
+                uv: [0, 0, 16, 16],
+                glint: false,
+            })
+        });
+        let expected: Vec<_> = facts
+            .payload()
+            .records
+            .iter()
+            .filter(|record| {
+                record
+                    .fact
+                    .roles
+                    .contains(assets::facts::ContainerRoles::BEACON_PAYMENT)
+            })
+            .map(|record| {
+                (
+                    record.fact.beacon_payment_key.unwrap(),
+                    record.network_id as u16,
+                )
+            })
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(
+            icons
+                .iter()
+                .map(|(key, icon)| (*key, icon.page))
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(beacon_payment_icons(|_| None).is_empty());
     }
 
     #[test]

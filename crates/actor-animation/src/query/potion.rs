@@ -1,7 +1,6 @@
 use super::*;
 use assets::facts::entity::NativeEntityClass;
-
-pub(crate) const AUX_VALUE_METADATA_KEY: u32 = 36;
+use protocol_ids::ActorDataKey;
 
 /// Potion projectiles expose the effect appearance of their own short auxiliary value.
 pub(super) fn variant(actor: &dyn AnimatedActor) -> Option<f32> {
@@ -11,7 +10,10 @@ pub(super) fn variant(actor: &dyn AnimatedActor) -> Option<f32> {
     ) {
         return None;
     }
-    let auxiliary = match actor.metadata().get(&AUX_VALUE_METADATA_KEY) {
+    let auxiliary = match actor
+        .metadata()
+        .get(&ActorDataKey::AuxValueData.wire_value())
+    {
         Some(ActorMetadataValue::Short(auxiliary)) => *auxiliary,
         _ => 0,
     };

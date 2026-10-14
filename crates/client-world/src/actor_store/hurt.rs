@@ -1,5 +1,6 @@
 use assets::facts::entity::NativeEntityClass;
 use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use protocol_ids::Attribute;
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -207,7 +208,7 @@ impl ActorSnapshot {
 
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
     pub(super) fn sync_status_from_health(&mut self) {
-        let Some(health) = self.attributes.get("minecraft:health") else {
+        let Some(health) = self.attributes.get(Attribute::Health.wire_name()) else {
             return;
         };
         if !health.current.is_finite() {

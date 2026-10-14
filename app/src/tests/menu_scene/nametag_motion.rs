@@ -15,6 +15,7 @@ use client_presentation::{
 };
 use launcher::menu::settings_options::SettingId;
 use protocol::identity::FifoSequence;
+use protocol_ids::ActorFlag;
 use semantic_input::PerspectiveMode;
 use simulation_clock::{PhysicsTick, identity::SessionGeneration};
 
@@ -96,6 +97,7 @@ fn local_feed(position: Vec3) -> client_world::LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -149,7 +151,7 @@ fn prepare_actor_motion(world: &mut World) {
                 metadata: Arc::from([protocol::ActorMetadata {
                     key: 0,
                     value: protocol::ActorMetadataValue::Flags(
-                        1 << client_world::ACTOR_FLAG_SHOW_NAME,
+                        1 << ActorFlag::ShowName.wire_value(),
                     ),
                 }]),
                 properties: Arc::from([]),
@@ -175,7 +177,7 @@ fn prepare_actor_motion(world: &mut World) {
     assert!(matches!(
         stream.authority().actor(1).unwrap().metadata.get(&0),
         Some(protocol::ActorMetadataValue::Flags(flags))
-            if flags & (1 << client_world::ACTOR_FLAG_SHOW_NAME) != 0
+            if flags & (1 << ActorFlag::ShowName.wire_value()) != 0
     ));
     assert!(
         stream

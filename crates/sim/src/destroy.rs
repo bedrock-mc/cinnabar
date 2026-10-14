@@ -9,39 +9,29 @@ use assets::compiled::block_destroy::{
     BlockDestroyFacts, HarvestRequirement, ProvisionalDestroy, ToolKind,
 };
 
-/// Tiered tool materials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolTier {
-    Wood,
-    Stone,
-    Copper,
-    Iron,
-    Gold,
-    Diamond,
-    Netherite,
+use assets::facts::{ItemFact, ItemTier, ItemTraits};
+
+/// Destroy speed of an admitted tool material.
+const fn tier_speed(tier: ItemTier) -> f32 {
+    match tier {
+        ItemTier::Wood => 2.0,
+        ItemTier::Stone => 4.0,
+        ItemTier::Copper => 5.0,
+        ItemTier::Iron => 6.0,
+        ItemTier::Diamond => 8.0,
+        ItemTier::Netherite => 9.0,
+        ItemTier::Gold => 12.0,
+    }
 }
 
-impl ToolTier {
-    const fn speed(self) -> f32 {
-        match self {
-            Self::Wood => 2.0,
-            Self::Stone => 4.0,
-            Self::Copper => 5.0,
-            Self::Iron => 6.0,
-            Self::Diamond => 8.0,
-            Self::Netherite => 9.0,
-            Self::Gold => 12.0,
-        }
-    }
-
-    const fn harvest_level(self) -> u8 {
-        match self {
-            Self::Wood | Self::Gold => 0,
-            Self::Stone | Self::Copper => 1,
-            Self::Iron => 2,
-            Self::Diamond => 3,
-            Self::Netherite => 4,
-        }
+/// Harvest level of an admitted tool material.
+const fn harvest_level(tier: ItemTier) -> u8 {
+    match tier {
+        ItemTier::Wood | ItemTier::Gold => 0,
+        ItemTier::Stone | ItemTier::Copper => 1,
+        ItemTier::Iron => 2,
+        ItemTier::Diamond => 3,
+        ItemTier::Netherite => 4,
     }
 }
 
@@ -50,35 +40,37 @@ impl ToolTier {
 pub struct HeldTool {
     pub kind: ToolKind,
     /// `None` for untiered tools such as shears.
-    pub tier: Option<ToolTier>,
+    pub tier: Option<ItemTier>,
 }
 
 impl HeldTool {
-    /// Classifies a vanilla tool identifier; `None` for every non-tool item.
+    /// Reads destroy-relevant traits and material from admitted numeric item facts.
     #[must_use]
-    pub fn from_identifier(identifier: &str) -> Option<Self> {
-        let name = identifier.strip_prefix("minecraft:")?;
-        if name == "shears" {
+    pub fn from_facts(fact: &ItemFact) -> Option<Self> {
+        if fact.traits.contains(ItemTraits::MACE) || fact.traits.contains(ItemTraits::SPEAR) {
+            return None;
+        }
+        let kind = if fact.traits.contains(ItemTraits::SHEARS) {
             return Some(Self {
                 kind: ToolKind::Shears,
                 tier: None,
             });
-        }
-        let (material, kind) = name.split_once('_')?;
-        let tier = match material {
-            "wooden" => ToolTier::Wood,
-            "stone" => ToolTier::Stone,
-            "copper" => ToolTier::Copper,
-            "iron" => ToolTier::Iron,
-            "golden" => ToolTier::Gold,
-            "diamond" => ToolTier::Diamond,
-            "netherite" => ToolTier::Netherite,
-            _ => return None,
+        } else if fact.traits.contains(ItemTraits::SWORD) {
+            ToolKind::Sword
+        } else if fact.traits.contains(ItemTraits::AXE) {
+            ToolKind::Axe
+        } else if fact.traits.contains(ItemTraits::PICKAXE) {
+            ToolKind::Pickaxe
+        } else if fact.traits.contains(ItemTraits::SHOVEL) {
+            ToolKind::Shovel
+        } else if fact.traits.contains(ItemTraits::HOE) {
+            ToolKind::Hoe
+        } else {
+            return None;
         };
-        let kind = ToolKind::parse(kind).filter(|kind| *kind != ToolKind::Shears)?;
         Some(Self {
             kind,
-            tier: Some(tier),
+            tier: Some(fact.tier?),
         })
     }
 }
@@ -132,8 +124,7 @@ impl BlockDestroyInfo {
             HarvestRequirement::Hand => true,
             HarvestRequirement::Unresolved => false,
             HarvestRequirement::Tool(required) => tool.is_some_and(|tool| {
-                self.harvests_with(tool.kind)
-                    && tool.tier.map_or(0, ToolTier::harvest_level) >= required
+                self.harvests_with(tool.kind) && tool.tier.map_or(0, harvest_level) >= required
             }),
         }
     }
@@ -244,7 +235,7 @@ fn tool_speed(block: &BlockDestroyInfo, tool: Option<HeldTool>) -> f32 {
         // table; the slowest effective rate never predicts early.
         (ToolKind::Sword, _) if effective => 1.5,
         (ToolKind::Shears, _) if effective => 5.0,
-        (_, Some(tier)) if effective => tier.speed(),
+        (_, Some(tier)) if effective => tier_speed(tier),
         _ => 1.0,
     }
 }

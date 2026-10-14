@@ -1,4 +1,5 @@
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ParticleEvent};
+use protocol_ids::ActorDataKey;
 
 use super::*;
 
@@ -11,19 +12,19 @@ fn cloud() -> ActorEvent {
     };
     actor.metadata = [
         ActorMetadata {
-            key: RADIUS_KEY,
+            key: ActorDataKey::DataRadius.wire_value(),
             value: ActorMetadataValue::Float(3.5),
         },
         ActorMetadata {
-            key: PARTICLE_KEY,
+            key: ActorDataKey::DataParticle.wire_value(),
             value: ActorMetadataValue::Int(DRAGON_BREATH_PARTICLE),
         },
         ActorMetadata {
-            key: DURATION_KEY,
+            key: ActorDataKey::DataDuration.wire_value(),
             value: ActorMetadataValue::Int(10),
         },
         ActorMetadata {
-            key: CHANGE_RATE_KEY,
+            key: ActorDataKey::DataChangeRate.wire_value(),
             value: ActorMetadataValue::Float(0.0),
         },
     ]
@@ -114,20 +115,36 @@ fn cloud_anchors_first_tick_then_emits_every_five_through_inclusive_expiry() {
 #[test]
 fn effective_radius_tracks_elapsed_ticks_and_synced_pickups() {
     let mut store = cloud_store();
-    update(&mut store, RADIUS_KEY, ActorMetadataValue::Float(2.0));
-    update(&mut store, CHANGE_RATE_KEY, ActorMetadataValue::Float(0.1));
     update(
         &mut store,
-        CHANGE_ON_PICKUP_KEY,
+        ActorDataKey::DataRadius.wire_value(),
+        ActorMetadataValue::Float(2.0),
+    );
+    update(
+        &mut store,
+        ActorDataKey::DataChangeRate.wire_value(),
+        ActorMetadataValue::Float(0.1),
+    );
+    update(
+        &mut store,
+        ActorDataKey::DataChangeOnPickup.wire_value(),
         ActorMetadataValue::Float(-0.25),
     );
-    update(&mut store, PICKUP_COUNT_KEY, ActorMetadataValue::Int(2));
+    update(
+        &mut store,
+        ActorDataKey::DataPickupCount.wire_value(),
+        ActorMetadataValue::Int(2),
+    );
     store.advance_interpolation_ticks(EMISSION_TICKS + 1);
     assert_eq!(
         variables(&effects(&mut store)[0])["variable.cloud_radius"],
         2.0
     );
-    update(&mut store, PICKUP_COUNT_KEY, ActorMetadataValue::Int(-3));
+    update(
+        &mut store,
+        ActorDataKey::DataPickupCount.wire_value(),
+        ActorMetadataValue::Int(-3),
+    );
     store.advance_interpolation_ticks(EMISSION_TICKS);
     assert_eq!(
         variables(&effects(&mut store)[0])["variable.cloud_radius"],
@@ -138,16 +155,24 @@ fn effective_radius_tracks_elapsed_ticks_and_synced_pickups() {
 #[test]
 fn radius_expiration_between_emissions_cannot_be_revived_by_late_metadata() {
     let mut store = cloud_store();
-    update(&mut store, RADIUS_KEY, ActorMetadataValue::Float(1.0));
     update(
         &mut store,
-        CHANGE_RATE_KEY,
+        ActorDataKey::DataRadius.wire_value(),
+        ActorMetadataValue::Float(1.0),
+    );
+    update(
+        &mut store,
+        ActorDataKey::DataChangeRate.wire_value(),
         ActorMetadataValue::Float(-0.25),
     );
     store.advance_interpolation_ticks(4);
     assert!(effects(&mut store).is_empty());
     assert!(store.actors[&7].status.cloud_particles_expired);
-    update(&mut store, CHANGE_RATE_KEY, ActorMetadataValue::Float(1.0));
+    update(
+        &mut store,
+        ActorDataKey::DataChangeRate.wire_value(),
+        ActorMetadataValue::Float(1.0),
+    );
     store.advance_interpolation_ticks(10);
     assert!(effects(&mut store).is_empty());
 }
@@ -157,10 +182,14 @@ fn minimum_radius_and_unlimited_duration_are_valid() {
     let mut store = cloud_store();
     update(
         &mut store,
-        RADIUS_KEY,
+        ActorDataKey::DataRadius.wire_value(),
         ActorMetadataValue::Float(MIN_RADIUS),
     );
-    update(&mut store, DURATION_KEY, ActorMetadataValue::Int(-1));
+    update(
+        &mut store,
+        ActorDataKey::DataDuration.wire_value(),
+        ActorMetadataValue::Int(-1),
+    );
     store.advance_interpolation_ticks(EMISSION_TICKS * 8 + 1);
     let effects = effects(&mut store);
     assert_eq!(effects.len(), 8);
@@ -174,25 +203,37 @@ fn minimum_radius_and_unlimited_duration_are_valid() {
 #[test]
 fn missing_wrong_typed_unknown_and_nonfinite_metadata_stay_quiet() {
     for (key, value) in [
-        (RADIUS_KEY, None),
-        (DURATION_KEY, None),
-        (PARTICLE_KEY, None),
-        (PARTICLE_KEY, Some(ActorMetadataValue::Int(i32::MAX))),
+        (ActorDataKey::DataRadius.wire_value(), None),
+        (ActorDataKey::DataDuration.wire_value(), None),
+        (ActorDataKey::DataParticle.wire_value(), None),
         (
-            PARTICLE_KEY,
+            ActorDataKey::DataParticle.wire_value(),
+            Some(ActorMetadataValue::Int(i32::MAX)),
+        ),
+        (
+            ActorDataKey::DataParticle.wire_value(),
             Some(ActorMetadataValue::Float(DRAGON_BREATH_PARTICLE as f32)),
         ),
-        (RADIUS_KEY, Some(ActorMetadataValue::Float(f32::NAN))),
         (
-            CHANGE_RATE_KEY,
+            ActorDataKey::DataRadius.wire_value(),
+            Some(ActorMetadataValue::Float(f32::NAN)),
+        ),
+        (
+            ActorDataKey::DataChangeRate.wire_value(),
             Some(ActorMetadataValue::Float(f32::INFINITY)),
         ),
         (
-            CHANGE_ON_PICKUP_KEY,
+            ActorDataKey::DataChangeOnPickup.wire_value(),
             Some(ActorMetadataValue::Float(f32::NEG_INFINITY)),
         ),
-        (DURATION_KEY, Some(ActorMetadataValue::Int(-2))),
-        (DURATION_KEY, Some(ActorMetadataValue::Long(10))),
+        (
+            ActorDataKey::DataDuration.wire_value(),
+            Some(ActorMetadataValue::Int(-2)),
+        ),
+        (
+            ActorDataKey::DataDuration.wire_value(),
+            Some(ActorMetadataValue::Long(10)),
+        ),
     ] {
         let mut store = cloud_store();
         match value {
@@ -222,8 +263,12 @@ fn omitted_optional_metadata_preserves_cloud_constructor_defaults() {
         .get_mut(&7)
         .unwrap()
         .metadata
-        .remove(&CHANGE_RATE_KEY);
-    update(&mut store, RADIUS_KEY, ActorMetadataValue::Float(10.0));
+        .remove(&ActorDataKey::DataChangeRate.wire_value());
+    update(
+        &mut store,
+        ActorDataKey::DataRadius.wire_value(),
+        ActorMetadataValue::Float(10.0),
+    );
     store.advance_interpolation_ticks(EMISSION_TICKS + 1);
     assert_eq!(
         variables(&effects(&mut store)[0])["variable.cloud_radius"],
@@ -232,7 +277,11 @@ fn omitted_optional_metadata_preserves_cloud_constructor_defaults() {
     store.advance_interpolation_ticks(EMISSION_TICKS);
     assert!(effects(&mut store).is_empty());
     let mut store = cloud_store();
-    update(&mut store, PICKUP_COUNT_KEY, ActorMetadataValue::Int(2));
+    update(
+        &mut store,
+        ActorDataKey::DataPickupCount.wire_value(),
+        ActorMetadataValue::Int(2),
+    );
     store.advance_interpolation_ticks(EMISSION_TICKS + 1);
     assert_eq!(
         variables(&effects(&mut store)[0])["variable.cloud_radius"],
