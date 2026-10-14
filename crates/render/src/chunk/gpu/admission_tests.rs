@@ -93,6 +93,33 @@ fn allocation_retries_reuse_model_validation() {
 }
 
 #[test]
+fn blocked_replacement_releases_obsolete_validation_allocations() {
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    app.insert_resource(ChunkUploadBudget::new(1, u64::MAX));
+    let mut instance = instance();
+    instance.model_refs = Arc::from([PackedModelRef::new(0, 0, 0, 1)]);
+    instance.model_lighting = Arc::from([PackedQuadLighting::new([0; 4])]);
+    let refs = Arc::clone(&instance.model_refs);
+    let entity = app.world_mut().spawn(instance).id();
+    assert_eq!(prepare(&mut app).model_streams_validated, 1);
+    assert_eq!(Arc::weak_count(&refs), 1);
+
+    // Replacing one stream drops its last owner; the other streams can stay shared.
+    app.world_mut()
+        .get_mut::<ChunkRenderInstance>(entity)
+        .unwrap()
+        .model_lighting = Arc::from([PackedQuadLighting::new([0; 4])]);
+    app.insert_resource(ChunkUploadBudget::new(0, 0));
+    let stats = prepare(&mut app);
+    assert_eq!(stats.model_streams_validated, 0);
+    assert_eq!(stats.chunk_updates, 0);
+    assert_eq!(Arc::weak_count(&refs), 0);
+}
+
+#[test]
 fn oversized_prefix_cannot_hide_a_smaller_upload() {
     let mut app = super::gpu_publication::noop_gpu_publication_app(
         ChunkUploadAcknowledgements::default(),

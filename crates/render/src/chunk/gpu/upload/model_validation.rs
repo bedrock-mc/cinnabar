@@ -19,6 +19,17 @@ struct ValidatedModelStreams {
     valid: bool,
 }
 
+impl ValidatedModelStreams {
+    /// Allows weak identities only while other owners still retain every input allocation.
+    fn has_owners(&self) -> bool {
+        self.assets.strong_count() > 0
+            && self.refs.strong_count() > 0
+            && self.lighting.strong_count() > 0
+            && self.opaque.strong_count() > 0
+            && self.blend.strong_count() > 0
+    }
+}
+
 impl ModelValidationCache {
     /// Returns validity and whether validation ran, invalidating on any stream or asset change.
     pub(in crate::chunk) fn validate(
@@ -66,14 +77,14 @@ impl ModelValidationCache {
         (valid, true)
     }
 
-    /// Drops cache entries once they no longer belong to a pending upload.
+    /// Drops completed entries and releases obsolete allocations even while uploads are blocked.
     pub(in crate::chunk) fn retain_waiters(&mut self, waiters: &HashMap<Entity, u32>) {
         self.entries
-            .retain(|entity, _| waiters.contains_key(entity));
+            .retain(|entity, entry| waiters.contains_key(entity) && entry.has_owners());
     }
 }
 
-/// Compares allocations without keeping payloads alive or allowing address reuse.
+/// Compares allocation identities while weak references prevent address reuse.
 fn same_allocation<T: ?Sized>(previous: &Weak<T>, current: &Arc<T>) -> bool {
     std::ptr::eq(previous.as_ptr(), Arc::as_ptr(current))
 }
