@@ -40,7 +40,7 @@ impl ActorStore {
         self.advance_interpolation(ticks, false);
     }
 
-    /// Advances all tick state and evaluates visuals once with the full elapsed interval.
+    /// Advances all tick state and evaluates visuals for the last two ticks of the interval.
     pub(crate) fn advance_interpolation_frame(&mut self, ticks: u32) {
         self.advance_interpolation(ticks, true);
     }
@@ -277,7 +277,12 @@ impl ActorStore {
                         actor, prepared, &self.players, &self.unlisted_players,
                     ),
                     frame_alpha: 0.0,
-                    animation_elapsed_ticks: frame.then_some(ticks),
+                    // The last two evaluations split the interval, so script time advances once.
+                    animation_elapsed_ticks: frame.then_some(if ticks == 0 || tick + 1 == ticks {
+                        ticks.min(1)
+                    } else {
+                        ticks - 1
+                    }),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
                     main_hand,
@@ -357,11 +362,12 @@ impl ActorStore {
                 self.animation
                     .prepare_frame(actors, view, local_runtime, refresh_view, context);
             } else {
+                // The last two ticks evaluate, so the drawn blend spans exactly one tick.
                 self.animation.advance_tick(
                     actors,
                     view,
                     local_runtime,
-                    !frame || tick + 1 == ticks,
+                    !frame || tick + 2 >= ticks,
                     !frame || tick == 0,
                     context,
                 );

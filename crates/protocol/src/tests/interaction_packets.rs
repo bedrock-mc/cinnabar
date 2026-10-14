@@ -13,6 +13,55 @@ use sha2::{Digest, Sha256};
 
 /// Dismount carries the vehicle identity and rider origin, including unsigned runtime IDs.
 #[test]
+fn item_attack_uses_zero_face_and_preserves_air_use_and_aim_fields() {
+    for on_cooldown in [false, true] {
+        let request = held_request();
+        let position = request.player_position;
+        let direction = [0.25, -0.5, 1.0];
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+            decoded_transaction(
+                protocol::use_item_as_attack_packet(request, direction, on_cooldown).unwrap(),
+            )
+        else {
+            panic!("expected item use");
+        };
+        assert_eq!(
+            transaction.action_type,
+            ItemUseInventoryTransactionActionType::UseAsAttack
+        );
+        assert_eq!(transaction.face.0, 0);
+        assert_eq!(transaction.position, Default::default());
+        assert_eq!(transaction.target_block_id.0, 0);
+        assert_eq!(
+            transaction.trigger_type,
+            ItemUseInventoryTransactionTriggerType::Unknown
+        );
+        assert_eq!(transaction.from_position.to_array(), position);
+        assert_eq!(
+            transaction.click_position.to_array(),
+            std::array::from_fn::<_, 3, _>(|axis| position[axis] + direction[axis])
+        );
+        assert_eq!(
+            transaction.client_cooldown_state,
+            if on_cooldown {
+                ItemUseInventoryTransactionClientCooldownState::On
+            } else {
+                ItemUseInventoryTransactionClientCooldownState::Off
+            }
+        );
+        assert_eq!(transaction.slot.0, i32::from(held_request().selected_slot));
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(air) =
+            decoded_transaction(click_air_packet(held_request(), None).unwrap())
+        else {
+            panic!("expected air use");
+        };
+        assert_eq!(air.face.0, u8::MAX);
+        assert_eq!(transaction.item, air.item);
+        assert!(transaction.actions.actions.is_empty());
+    }
+}
+
+#[test]
 fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
     use bedrock_protocol_1_26_51::enums::InteractAction;
     let position = [1.0, -2.0, 3.0];
