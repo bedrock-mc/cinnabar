@@ -78,6 +78,11 @@ impl DataSource {
         Self::default()
     }
 
+    /// Whether this controller supplies named factory instances or a screen factory role.
+    pub fn has_factory_inputs(&self) -> bool {
+        !self.factories.is_empty() || self.factory_id.is_some()
+    }
+
     /// Bind over what the screen's components wrote into their bags.
     pub fn set_components(&mut self, components: crate::component::Components) {
         self.components = components;
