@@ -14,7 +14,6 @@ pub(super) fn compile(source: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::super::{Command, run};
-    use super::*;
     use assets::facts::entity::SOURCE_BYTES;
 
     #[test]
