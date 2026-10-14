@@ -134,7 +134,7 @@ fn expensive_persona() -> Arc<render_api::SkinGeometrySource> {
             &format!(r#""bones":[{extra},{{"name":"rightitem","pivot":[0,2,0]"#),
         )
         .into();
-    let count = MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK / (assets::MAX_SKIN_GEOMETRY_BONES * 2) + 1;
+    let count = MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME / (assets::MAX_SKIN_GEOMETRY_BONES * 2) + 1;
     source.animations = vec![source.animations[0].clone(); count].into();
     Arc::new(source)
 }

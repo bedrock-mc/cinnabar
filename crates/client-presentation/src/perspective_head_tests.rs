@@ -37,6 +37,7 @@ fn stream() -> WorldStream {
 
 fn feed(first_person: bool) -> LocalPlayerFeed {
     LocalPlayerFeed {
+        held_variants: Default::default(),
         game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],

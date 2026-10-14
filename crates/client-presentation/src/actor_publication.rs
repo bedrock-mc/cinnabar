@@ -135,6 +135,7 @@ pub fn prepare_actor_render_frame(
         java_mode: state.java_mode,
         combat_visuals: state.combat_visuals,
         sampling_camera: state.captured_sampling_camera,
+        aspect: state.captured_aspect,
     };
     views::refresh_interpolation(
         client_world.stream.as_deref_mut(),

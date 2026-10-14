@@ -52,6 +52,7 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -341,6 +342,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     for modern in [FILLED_MAP, "minecraft:crossbow", "minecraft:shield"] {
         let sword = item("minecraft:iron_sword");
@@ -371,6 +373,7 @@ fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let owner = ActorEquipmentInput {
         main: Some(item("minecraft:apple")),
@@ -446,6 +449,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         kind: crate::presentation::equipment::HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     for (old, new) in [(ids[0], ids[1]), (ids[1], ids[0])] {
         let mut stream = head_stream();
@@ -516,6 +520,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                     artwork: &artwork,
                     motion: Mat4::IDENTITY,
                     sampling_camera: None,
+                    aspect: 1.0,
                 },
                 &mut equipment,
                 &mut cache,
@@ -562,6 +567,7 @@ fn partial_layers_skip_missing_parts() {
 /// Builds a sprite stack for the hand transition tests.
 fn worn(identifier: &str) -> WornItem {
     WornItem {
+        variant: Default::default(),
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -634,7 +640,7 @@ fn displayed_stack_keeps_its_data_value_through_the_dip() {
     assert_eq!(shown.map(|item| item.metadata), Some(0));
 }
 
-/// Java's body reaches its side during the fourteenth tick, while the native curve is still falling.
+/// Java's body reaches its side during the fourteenth tick without moving its feet.
 #[test]
 fn death_body_reaches_java_angle_without_moving_its_feet() {
     use crate::presentation::actors::death_tilted;

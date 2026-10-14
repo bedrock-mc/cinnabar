@@ -135,7 +135,7 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
         assert_eq!(state.history.back().unwrap().arm_height, 1.0);
-        assert_eq!(state.equipped_off, context.off_hand);
+        assert_eq!(state.equipped_off.0, context.off_hand);
     }
     context.main_hand = Some(Arc::from("minecraft:dirt"));
     advance_motion(&mut state, &owner, &context, false);
@@ -145,11 +145,11 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
     for expected in [0.6, 0.2] {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
-        assert_eq!(state.equipped_off.as_deref(), Some("minecraft:shield"));
+        assert_eq!(state.equipped_off.0.as_deref(), Some("minecraft:shield"));
     }
     advance_motion(&mut state, &owner, &context, false);
     assert_eq!(state.off_hand_animation[1].arm_height, 0.0);
-    assert_eq!(state.equipped_off, context.off_hand);
+    assert_eq!(state.equipped_off.0, context.off_hand);
     for expected in [0.4, 0.8, 1.0] {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
@@ -167,7 +167,7 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
     }
-    assert!(state.equipped_off.is_none());
+    assert!(state.equipped_off.0.is_none());
     assert!(
         state
             .off_hand_animation

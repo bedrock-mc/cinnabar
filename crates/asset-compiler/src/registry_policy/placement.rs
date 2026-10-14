@@ -118,7 +118,7 @@ pub(super) fn compile(
     let mut rows = BTreeMap::new();
     for record in records
         .iter()
-        .filter(|r| r.name.as_ref() != super::RESERVED)
+        .filter(|r| r.name.as_ref() != assets::facts::block::RESERVED_BLOCK_NAME)
     {
         let state = serde_json::from_str(&record.canonical_state)?;
         let support = policy

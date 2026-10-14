@@ -174,6 +174,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     store.exclude_remote_state_for(1);
     let mut feed = crate::LocalPlayerFeed {
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],

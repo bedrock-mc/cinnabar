@@ -11,6 +11,8 @@ pub enum BlockStateIdentity<'a> {
     Compiled(u32),
     Named(&'a str),
 }
+/// Placeholder identity for a block state the client has not admitted.
+pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
 /// Compiled facts for one admitted block state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

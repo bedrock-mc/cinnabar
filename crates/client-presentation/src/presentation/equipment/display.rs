@@ -40,6 +40,8 @@ pub struct FirstPersonHand {
     pub equip: f32,
     /// Ticks into an eat or drink use and its duration, while one runs.
     pub consume: Option<(f32, f32)>,
+    /// Viewport width over height; 1 adds no wide-screen eating offset.
+    pub aspect: f32,
 }
 
 impl From<actor_animation::ItemAnimationState> for FirstPersonHand {
@@ -48,6 +50,7 @@ impl From<actor_animation::ItemAnimationState> for FirstPersonHand {
             swing: state.attack_time,
             equip: state.arm_height,
             consume: None,
+            aspect: 1.0,
         }
     }
 }
@@ -82,19 +85,7 @@ pub(super) fn first_person_display_for_profile(
         let (sine, root_sine) = ((swing * PI).sin(), (swing.sqrt() * PI).sin());
         let lead = match hand.consume {
             Some((elapsed, duration)) if duration > 0.0 => {
-                let remaining = duration - elapsed + 1.0;
-                let progress = 1.0 - remaining / duration;
-                let bob = if progress > 0.2 {
-                    (remaining * 0.25 * PI).cos().abs() * 0.1
-                } else {
-                    0.0
-                };
-                let raise = 1.0 - (1.0 - progress).clamp(0.0, 1.0).powi(27);
-                Mat4::from_translation(Vec3::new(0.0, bob, 0.0))
-                    * Mat4::from_translation(Vec3::new(raise * 0.55, raise * -0.5, 0.0))
-                    * Mat4::from_rotation_y(degrees(raise * 90.0))
-                    * Mat4::from_rotation_x(degrees(raise * 10.0))
-                    * Mat4::from_rotation_z(degrees(raise * 30.0))
+                eating_lead(elapsed, duration, hand.aspect)
             }
             _ => Mat4::from_translation(Vec3::new(
                 root_sine * -0.4,
@@ -121,6 +112,26 @@ pub(super) fn first_person_display_for_profile(
         }
         FirstPersonShape::Block => held,
     })
+}
+
+/// The eat or drink raise and bob `elapsed` ticks into a `duration`-tick use: the food bobs from
+/// the first tick and wider viewports pull it back toward the centre.
+fn eating_lead(elapsed: f32, duration: f32, aspect: f32) -> Mat4 {
+    use std::f32::consts::PI;
+    let remaining = duration - elapsed + 1.0;
+    let progress = 1.0 - remaining / duration;
+    let bob = if progress > 0.0 {
+        (remaining * 0.25 * PI).cos().abs() * 0.1
+    } else {
+        0.0
+    };
+    let raise = 1.0 - (1.0 - progress).clamp(0.0, 1.0).powi(27);
+    let x = raise * 0.6 - 0.1 * raise * (aspect - 1.0);
+    Mat4::from_translation(Vec3::new(0.0, bob, 0.0))
+        * Mat4::from_translation(Vec3::new(x, raise * -0.5, 0.0))
+        * Mat4::from_rotation_y(degrees(raise * 90.0))
+        * Mat4::from_rotation_x(degrees(raise * 10.0))
+        * Mat4::from_rotation_z(degrees(raise * 30.0))
 }
 
 /// A camera-space item bone from `display`; `None` for a non-finite placement.
@@ -159,6 +170,7 @@ mod tests {
             swing: 0.37,
             equip: 0.8,
             consume: None,
+            aspect: 1.0,
         };
         let legacy =
             first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Legacy112);
@@ -186,6 +198,25 @@ mod tests {
             first_person_display_for_profile(shape, use_hand, render_api::CombatVisuals::Legacy112),
             first_person_display_for_profile(shape, use_hand, render_api::CombatVisuals::Modern)
         );
+    }
+
+    /// Eating bobs from its first tick and pulls the raised food centreward on wide viewports.
+    #[test]
+    fn eating_bobs_from_the_start_and_centres_on_wide_viewports() {
+        let raise = 1.0 - (31.0_f32 / 32.0).powi(27);
+        let bob = (31.0 * 0.25 * std::f32::consts::PI).cos().abs() * 0.1;
+        for aspect in [1.0, 16.0 / 9.0] {
+            let lead = eating_lead(2.0, 32.0, aspect).w_axis.truncate();
+            let expected = Vec3::new(
+                raise * 0.6 - 0.1 * raise * (aspect - 1.0),
+                bob - raise * 0.5,
+                0.0,
+            );
+            assert!(
+                lead.abs_diff_eq(expected, 1e-6),
+                "aspect {aspect}: {lead} vs {expected}"
+            );
+        }
     }
 
     #[test]

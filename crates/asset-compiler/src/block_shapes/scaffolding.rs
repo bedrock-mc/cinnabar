@@ -1,9 +1,10 @@
 use assets::RegistryRecord;
 use assets::block_shapes::ShapeBox;
+use assets::registry::BlockTraits;
 
 /// Supplies native scaffold support geometry; the movement context gates its solidity.
 pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<ShapeBox>> {
-    if record.name.as_ref() != "minecraft:scaffolding" {
+    if !record.traits.contains(BlockTraits::SCAFFOLDING) {
         return None;
     }
     let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
@@ -18,7 +19,7 @@ pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<ShapeBox>> {
 
 /// Compiles the scaffold platform and four posts, independently of movement admission.
 pub(super) fn selection(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if record.name.as_ref() != "minecraft:scaffolding" {
+    if !record.traits.contains(BlockTraits::SCAFFOLDING) {
         return None;
     }
     Some(Box::new([

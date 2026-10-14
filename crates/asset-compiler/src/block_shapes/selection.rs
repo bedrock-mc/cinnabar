@@ -5,15 +5,21 @@
 //! Classes without a visual override use the unit visual box.
 
 use assets::block_shapes::ShapeBox;
+use assets::facts::BlockProperty;
 use assets::{ModelFamily, ModelStateField, RegistryRecord, TOP_SNOW_LAYER_COUNT};
+use assets::{facts::shape::ShapeTraits, registry::BlockTraits};
 
 /// Visual bounds used by ray clipping and outlines, independently of movement collision.
-pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
-    let name = record.name.strip_prefix("minecraft:")?;
+pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<ShapeBox> {
     if record.model_family == ModelFamily::Pane {
         let state = super::state::State::read(record)?;
-        let links = ["west", "east", "north", "south"]
-            .map(|side| state.bit(&format!("minecraft:connection_{side}")));
+        let links = [
+            BlockProperty::MinecraftConnectionWest,
+            BlockProperty::MinecraftConnectionEast,
+            BlockProperty::MinecraftConnectionNorth,
+            BlockProperty::MinecraftConnectionSouth,
+        ]
+        .map(|key| state.bit(key));
         let [Some(west), Some(east), Some(north), Some(south)] = links else {
             return None;
         };
@@ -33,7 +39,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
     if record.model_family == ModelFamily::Wall {
         return wall_shape(record);
     }
-    if name.ends_with("_fence") {
+    if record.traits.contains(BlockTraits::CONNECTS_FENCE) {
         let boxes = super::connected::shapes(record)?;
         let first = boxes.first()?;
         let mut min = first.min;
@@ -49,22 +55,22 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
     }
     // EndGatewayBlock inherits the native unit visual AABB and mayPick=true,
     // independently of its empty End-dimension movement collision shapes.
-    if matches!(name, "web" | "end_gateway") {
+    if shapes.intersects(ShapeTraits::VISUAL_UNIT | ShapeTraits::END_GATEWAY) {
         return Some(bounds([0.0; 3], [1.0; 3]));
     }
-    if name.ends_with("standing_sign") {
+    if record.traits.contains(BlockTraits::STANDING_SIGN) {
         return Some(bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]));
     }
-    if name.ends_with("wall_sign") {
+    if record.traits.contains(BlockTraits::WALL_SIGN) {
         return wall_sign_shape(record);
     }
-    if name == "standing_banner" {
+    if record.traits.contains(BlockTraits::BANNER) && !shapes.contains(ShapeTraits::WALL_BANNER) {
         return Some(bounds([0.25, 0.0, 0.25], [0.75, 1.0, 0.75]));
     }
-    if name == "wall_banner" {
+    if shapes.contains(ShapeTraits::WALL_BANNER) {
         return wall_banner_shape(record);
     }
-    if name.ends_with("hanging_sign") {
+    if record.traits.contains(BlockTraits::HANGING_SIGN) {
         let state = serde_json::from_str::<serde_json::Value>(&record.canonical_state).ok()?;
         return match state["facing_direction"]["value"].as_u64()? {
             4 | 5 => Some(bounds([0.375, 0.0, 0.0], [0.625, 1.0, 1.0])),
@@ -72,7 +78,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
             _ => None,
         };
     }
-    if name == "snow_layer" {
+    if record.traits.contains(BlockTraits::SNOW_LAYER) {
         let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
         let height = state.get("height")?.get("value")?.as_u64()?;
         if height >= u64::from(TOP_SNOW_LAYER_COUNT) {
@@ -89,35 +95,30 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
             ],
         ));
     }
-    if matches!(
-        name,
-        "torch" | "copper_torch" | "soul_torch" | "redstone_torch" | "unlit_redstone_torch"
-    ) {
+    if record.traits.contains(BlockTraits::TORCH) {
         return torch_shape(record);
     }
-    let (inset, height, edge): (f32, f32, f32) = match name {
-        "short_grass" | "fern" => (0.1, 0.8, 0.9),
-        "short_dry_grass" => (0.125, 0.625, 0.875),
-        "brown_mushroom" | "red_mushroom" => (0.3, 0.4, 0.7),
-        "nether_sprouts" => (0.15, 0.3, 0.85),
-        "cactus_flower" => (0.0625, 0.875, 0.9375),
-        "reeds" => (0.125, 1.0, 0.875),
-        // Crops and nether wart span the cell width and are .25 blocks tall.
-        "wheat" | "carrots" | "potatoes" | "beetroot" | "nether_wart" => (0.0, 0.25, 1.0),
-        "dandelion" | "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip"
-        | "orange_tulip" | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower"
-        | "lily_of_the_valley" | "wither_rose" | "torchflower" => (0.15, 0.6, 0.7),
-        "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
-        | "acacia_sapling" | "dark_oak_sapling" | "cherry_sapling" | "pale_oak_sapling"
-        | "poplar_sapling" => (0.1, 0.8, 0.9),
-        // Dead bushes use grass-sized bounds rather than flower bounds,
-        // including maxY=.8.
-        "deadbush" => (0.1, 0.8, 0.9),
-        // Bushes span minXYZ=(0,0,0) to (1, .8, 1).
-        "bush" => (0.0, 0.8, 1.0),
-        "tall_grass" | "large_fern" | "sunflower" | "lilac" | "rose_bush" | "peony" => {
-            let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
-            let upper = state.get("upper_block_bit")?.get("value")?.as_i64()? != 0;
+    let (inset, height, edge): (f32, f32, f32) = match () {
+        _ if shapes.contains(ShapeTraits::GRASS) => (0.1, 0.8, 0.9),
+        _ if shapes.contains(ShapeTraits::SHORT_DRY_GRASS) => (0.125, 0.625, 0.875),
+        _ if shapes.contains(ShapeTraits::MUSHROOM) => (0.3, 0.4, 0.7),
+        _ if shapes.contains(ShapeTraits::NETHER_SPROUTS) => (0.15, 0.3, 0.85),
+        _ if shapes.contains(ShapeTraits::CACTUS_FLOWER) => (0.0625, 0.875, 0.9375),
+        _ if shapes.contains(ShapeTraits::REEDS) => (0.125, 1.0, 0.875),
+        _ if shapes.intersects(
+            ShapeTraits::WHEAT
+                | ShapeTraits::CARROTS
+                | ShapeTraits::ROOT_CROP
+                | ShapeTraits::NETHER_WART
+                | ShapeTraits::TORCHFLOWER_CROP,
+        ) =>
+        {
+            (0.0, 0.25, 1.0)
+        }
+        _ if shapes.contains(ShapeTraits::FLOWER) => (0.15, 0.6, 0.7),
+        _ if shapes.contains(ShapeTraits::BUSH) => (0.0, 0.8, 1.0),
+        _ if shapes.contains(ShapeTraits::DOUBLE_PLANT) => {
+            let upper = super::state::State::read(record)?.bit(BlockProperty::UpperBlockBit)?;
             (0.3, if upper { 0.6 } else { 1.0 }, 0.7)
         }
         _ => return None,

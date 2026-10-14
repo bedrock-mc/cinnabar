@@ -1,13 +1,10 @@
 use super::state::State;
+use assets::facts::BlockProperty;
 use assets::{RegistryRecord, block_shapes::ShapeFlags};
 
-/// Reads the shared compiled support facts, deriving only historical compiler inputs.
+/// Reads compiled support facts independently of movement geometry.
 pub(super) fn flags(record: &RegistryRecord) -> ShapeFlags {
-    let traits = if record.traits.is_empty() {
-        crate::registry_policy::block_support(record)
-    } else {
-        record.traits
-    };
+    let traits = record.traits;
     let mut flags = ShapeFlags::empty();
     flags.set(
         ShapeFlags::VINE_SUPPORT,
@@ -28,9 +25,10 @@ pub(super) fn selection(
     Box<[assets::block_shapes::ShapeBox]>,
 ) {
     use assets::block_shapes::{SelectionContext, ShapeBox};
-    match record.name.as_ref() {
-        "minecraft:vine"
-            if State::read(record).and_then(|state| state.number("vine_direction_bits"))
+    match () {
+        _ if record.model_family == assets::ModelFamily::Vine
+            && State::read(record)
+                .and_then(|state| state.number(BlockProperty::VineDirectionBits))
                 == Some(0) =>
         {
             (
@@ -42,7 +40,10 @@ pub(super) fn selection(
                 ]),
             )
         }
-        "minecraft:scaffolding" => {
+        _ if record
+            .traits
+            .contains(assets::registry::BlockTraits::SCAFFOLDING) =>
+        {
             let mut boxes = super::scaffolding::selection(record).unwrap().into_vec();
             boxes.extend([
                 ShapeBox::new([0.125, 0.0, 0.0], [0.875, 0.125, 0.125]),
@@ -52,10 +53,17 @@ pub(super) fn selection(
             ]);
             (SelectionContext::ScaffoldSupport, boxes.into_boxed_slice())
         }
-        "minecraft:portal"
-            if State::read(record)
-                .and_then(|state| state.text("portal_axis").map(|axis| axis == "unknown"))
-                == Some(true) =>
+        _ if record
+            .traits
+            .contains(assets::registry::BlockTraits::PORTAL)
+            && !record
+                .traits
+                .contains(assets::registry::BlockTraits::END_PORTAL)
+            && State::read(record).and_then(|state| {
+                state
+                    .text(BlockProperty::PortalAxis)
+                    .map(|axis| axis == "unknown")
+            }) == Some(true) =>
         {
             (
                 SelectionContext::PortalAxis,

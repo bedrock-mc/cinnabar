@@ -248,11 +248,7 @@ fn layer_only_swing_sampling_preserves_body_walking_interpolation() {
         let current = rig.current[0];
         assert_ne!(previous, current);
         let layers = store.render_frame(0.25).layers(1).unwrap().into_owned();
-        assert_eq!(
-            *layers[0].previous_pose.first().unwrap_or(&previous),
-            previous
-        );
-        assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
+        assert_drawn_root(&layers[0], [previous, current], 0.25);
         if selected {
             assert_rotation(
                 layers[1].pose[1].rotation,
@@ -317,8 +313,11 @@ fn expression_local_temporaries_preserve_walking_layer_interpolation() {
         for (layer, completed) in layers.iter().zip(&completed).skip(1) {
             assert_eq!(layer.color, [alpha; 4]);
             assert_ne!(completed.previous_pose, completed.pose);
-            assert_eq!(layer.previous_pose, completed.previous_pose);
-            assert_eq!(layer.pose, completed.pose);
+            assert_drawn(
+                [&layer.previous_pose, &layer.pose],
+                [&completed.previous_pose, &completed.pose],
+                alpha,
+            );
         }
     }
 }
@@ -384,8 +383,11 @@ fn render_controller_camera_write_updates_only_a_layer_that_reads_it() {
                     assert_rotation(layer.pose[0].rotation, expected);
                 } else {
                     assert_ne!(completed.previous_pose, completed.pose);
-                    assert_eq!(layer.previous_pose, completed.previous_pose);
-                    assert_eq!(layer.pose, completed.pose);
+                    assert_drawn(
+                        [&layer.previous_pose, &layer.pose],
+                        [&completed.previous_pose, &completed.pose],
+                        alpha,
+                    );
                 }
             }
         }
@@ -438,6 +440,9 @@ fn selected_camera_layer_retains_weight_and_clock_variable_writes() {
         let expected = rig.render[1].pose[1].rotation;
         assert!(expected[2].abs() > 1e-5);
         for alpha in [0.25, 0.75] {
+            // The written offset follows the frame's stride, which started from rest last tick.
+            let [x, y, z, w] = expected;
+            let expected = [x * alpha, y, z * alpha, w];
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
             for layer in &layers[1..] {
                 assert_rotation(layer.pose[1].rotation, expected);

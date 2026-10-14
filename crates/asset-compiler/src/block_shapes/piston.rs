@@ -1,12 +1,14 @@
 use super::state::State;
+use assets::facts::BlockProperty;
 use assets::{
     RegistryRecord,
     block_shapes::{SelectionContext, ShapeBox},
 };
+use assets::{facts::shape::ShapeTraits, registry::BlockTraits};
 
 /// Compiles the three arm pieces before the owning piston supplies its progress.
-pub(super) fn selection(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if context(record)? != SelectionContext::PistonArm {
+pub(super) fn selection(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Box<[ShapeBox]>> {
+    if context(shapes)? != SelectionContext::PistonArm {
         return Some(Box::new([]));
     }
     let facing = usize::from(facing(record)?);
@@ -37,48 +39,44 @@ pub(super) fn selection(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
 }
 
 /// Identifies the classes whose clipping depends on block-actor data.
-pub(super) fn context(record: &RegistryRecord) -> Option<SelectionContext> {
-    match record.name.as_ref() {
-        "minecraft:piston_arm_collision" | "minecraft:sticky_piston_arm_collision" => {
-            Some(SelectionContext::PistonArm)
-        }
-        "minecraft:moving_block" => Some(SelectionContext::MovingBlock),
-        _ => None,
+pub(super) fn context(shapes: ShapeTraits) -> Option<SelectionContext> {
+    if shapes.contains(ShapeTraits::PISTON_ARM) {
+        Some(SelectionContext::PistonArm)
+    } else if shapes.contains(ShapeTraits::MOVING_BLOCK) {
+        Some(SelectionContext::MovingBlock)
+    } else {
+        None
     }
 }
 
 /// Compiles the native piston orientation for arms and their owning piston blocks.
 pub(super) fn facing(record: &RegistryRecord) -> Option<u8> {
-    if !matches!(
-        record.name.as_ref(),
-        "minecraft:piston"
-            | "minecraft:sticky_piston"
-            | "minecraft:piston_arm_collision"
-            | "minecraft:sticky_piston_arm_collision"
-    ) {
+    if !record.traits.contains(BlockTraits::PISTON) {
         return None;
     }
     State::read(record)?
-        .number("facing_direction")
+        .number(BlockProperty::FacingDirection)
         .and_then(|face| u8::try_from(face).ok())
         .filter(|face| *face < 6)
 }
 
 /// Supplies the state-only visual box, independently of specialized world clipping.
-pub(super) fn visual(record: &RegistryRecord, selection: &[ShapeBox]) -> Option<ShapeBox> {
+pub(super) fn visual(
+    record: &RegistryRecord,
+    selection: &[ShapeBox],
+    shapes: ShapeTraits,
+) -> Option<ShapeBox> {
     use assets::ModelFamily;
-    if record.name.ends_with("_shelf") {
+    if shapes.contains(ShapeTraits::SHELF) {
         return Some(ShapeBox::new([0.0; 3], [0.3125, 1.0, 1.0]));
     }
-    if record.name.as_ref() == "minecraft:moving_block" {
+    if shapes.contains(ShapeTraits::MOVING_BLOCK) {
         return None;
     }
-    if record.name.as_ref() == "minecraft:air"
+    if record.traits.contains(BlockTraits::AIR)
         || (selection.is_empty()
-            && matches!(
-                record.name.as_ref(),
-                "minecraft:ladder" | "minecraft:wall_banner" | "minecraft:pale_moss_carpet"
-            ))
+            && (record.traits.contains(BlockTraits::LADDER)
+                || shapes.intersects(ShapeTraits::WALL_BANNER | ShapeTraits::PALE_MOSS)))
     {
         return None;
     }
@@ -89,21 +87,18 @@ pub(super) fn visual(record: &RegistryRecord, selection: &[ShapeBox]) -> Option<
             | ModelFamily::Wall
             | ModelFamily::Pane
             | ModelFamily::Door
-    ) || matches!(
-        record.name.as_ref(),
-        "minecraft:vine"
-            | "minecraft:scaffolding"
-            | "minecraft:chorus_plant"
-            | "minecraft:portal"
-            | "minecraft:glow_lichen"
-            | "minecraft:sculk_vein"
-            | "minecraft:resin_clump"
-            | "minecraft:hopper"
-            | "minecraft:cauldron"
-            | "minecraft:composter"
-            | "minecraft:piston_arm_collision"
-            | "minecraft:sticky_piston_arm_collision"
-    ) {
+    ) || (record.model_family == ModelFamily::Vine
+        || record.traits.intersects(
+            BlockTraits::SCAFFOLDING
+                | BlockTraits::MULTIFACE
+                | BlockTraits::HOPPER
+                | BlockTraits::CAULDRON
+                | BlockTraits::COMPOSTER,
+        )
+        || (record.traits.contains(BlockTraits::PORTAL)
+            && !record.traits.contains(BlockTraits::END_PORTAL))
+        || shapes.intersects(ShapeTraits::CHORUS_PLANT | ShapeTraits::PISTON_ARM))
+    {
         return Some(super::UNIT);
     }
     selection.first().copied().or(Some(super::UNIT))
