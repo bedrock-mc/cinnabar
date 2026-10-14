@@ -11,6 +11,7 @@ fn binding(identifier: &str) -> EquipmentBinding {
         category: EquipmentCategory::Held,
         geometry: reference("geometry.a"),
         texture: reference("textures/entity/a"),
+        resources: Default::default(),
         material: "entity".into(),
         color_mask: EquipmentColorMask::NoMask,
         render_controller: "controller.render.a".into(),

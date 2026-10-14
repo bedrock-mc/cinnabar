@@ -216,6 +216,7 @@ fn fixture_equipment() -> Arc<assets::RuntimeEquipmentCatalog> {
                 category: assets::EquipmentCategory::Held,
                 geometry: reference(EQUIPMENT_GEOMETRY),
                 texture: reference("textures/entity/example"),
+                resources: Default::default(),
                 material: "entity_alphatest".into(),
                 color_mask: assets::EquipmentColorMask::NoMask,
                 render_controller: "controller.render.example".into(),

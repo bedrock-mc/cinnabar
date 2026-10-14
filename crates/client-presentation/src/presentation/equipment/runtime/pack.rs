@@ -15,8 +15,9 @@ pub type PackEquipmentLayer = (
 /// A pack's entity catalog, which also owns the bodies of pack-rigged actors, and its attachables.
 pub struct PackEquipment {
     pub(super) assets: Arc<RuntimeEntityAssets>,
-    catalog: Option<Arc<RuntimeEquipmentCatalog>>,
-    texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
+    pub(super) catalog: Option<Arc<RuntimeEquipmentCatalog>>,
+    pub(super) native_items: BTreeMap<Box<str>, super::native::NativeItem>,
+    pub(super) texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     pub(super) attachables: actor_animation::AttachablesRuntime,
 }
@@ -101,6 +102,9 @@ impl EquipmentRuntime {
         self.free_meshes
             .extend(self.attachable_meshes.values().copied());
         self.attachable_meshes.clear();
+        self.free_meshes
+            .extend(self.native_meshes.values().copied());
+        self.native_meshes.clear();
         // Pack equipment ids name the replaced pack's geometry indices.
         self.pending.retain(|geometry| {
             !self.free_meshes.contains(&geometry.id)
@@ -113,6 +117,12 @@ impl EquipmentRuntime {
         });
         self.body_bones.retain(|body, _| !is_pack_body_key(*body));
         self.pack = layer.map(|(assets, catalog, locations)| PackEquipment {
+            native_items: super::native::recognize(
+                &assets,
+                catalog.as_deref(),
+                &self.assets,
+                self.catalog.as_deref(),
+            ),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             texture_locations: catalog
                 .iter()

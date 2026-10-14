@@ -176,6 +176,7 @@ fn source_for_use_and_swing(
     );
     let input = ActorEquipmentInput {
         main: identifier.map(|identifier| WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),

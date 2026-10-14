@@ -614,7 +614,21 @@ pub(super) fn hand_source(
                 )
             });
         let layer = attachable.flatten().or_else(|| {
-            equipment.first_person_java_item(&inputs.presentation.submission, item, hand)
+            equipment.first_person_java_item_with_use(
+                &inputs.presentation.submission,
+                item,
+                hand,
+                item_animation
+                    .map(|input| {
+                        super::hand::attachable_hand_input(
+                            equipment_input,
+                            owner_equipment,
+                            input,
+                            false,
+                        )
+                    })
+                    .unwrap_or_default(),
+            )
         })?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))

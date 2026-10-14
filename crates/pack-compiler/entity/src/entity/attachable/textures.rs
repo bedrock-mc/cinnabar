@@ -112,6 +112,11 @@ pub fn compile_textures_for_assets_with(
         .iter()
         .map(|binding| binding.texture.identifier.as_ref())
         .collect::<Vec<_>>();
+    identifiers.extend(
+        bindings
+            .iter()
+            .flat_map(|binding| binding.resources.textures.values().map(AsRef::as_ref)),
+    );
     for layer in &assets.render.layers {
         let rig = assets
             .rig_bindings

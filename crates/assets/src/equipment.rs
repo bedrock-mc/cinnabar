@@ -15,6 +15,8 @@ use crate::item::{ItemDisplayScalar, ItemDisplayTransform};
 use crate::{AssetError, EntityDependencyResolution};
 
 mod attack;
+mod resources;
+pub use resources::EquipmentResources;
 mod food;
 mod use_profiles;
 pub use attack::{
@@ -62,6 +64,9 @@ pub struct EquipmentBinding {
     pub category: EquipmentCategory,
     pub geometry: EquipmentReference,
     pub texture: EquipmentReference,
+    /// All authored geometry and texture aliases, retained independently of controllers.
+    #[serde(default)]
+    pub resources: EquipmentResources,
     pub material: Box<str>,
     /// Dye support resolved at compilation, with unknown material ancestry retained explicitly.
     pub color_mask: EquipmentColorMask,
@@ -548,6 +553,7 @@ fn validate(
         validate_identifier(&binding.identifier)?;
         validate_identifier(&binding.geometry.identifier)?;
         validate_identifier(&binding.texture.identifier)?;
+        binding.resources.validate()?;
         if previous.is_some_and(|previous| previous >= binding.identifier.as_ref())
             || binding.material.is_empty()
             || binding.material.len() > MAX_EQUIPMENT_IDENTIFIER_BYTES
@@ -763,6 +769,7 @@ mod tests {
                     identifier: "textures/models/armor/diamond_1".into(),
                     resolution: EntityDependencyResolution::Catalog,
                 },
+                resources: Default::default(),
                 material: "armor".into(),
                 color_mask: EquipmentColorMask::NoMask,
                 render_controller: "controller.render.armor".into(),
@@ -782,6 +789,7 @@ mod tests {
                     identifier: "textures/entity/trident".into(),
                     resolution: EntityDependencyResolution::Catalog,
                 },
+                resources: Default::default(),
                 material: "entity_alphatest".into(),
                 color_mask: EquipmentColorMask::NoMask,
                 render_controller: "controller.render.item_default".into(),

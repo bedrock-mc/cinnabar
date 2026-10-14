@@ -3346,7 +3346,13 @@ Compiles and artwork use the accepted stack's content identity and loaded startu
 digest, so rebuilding carriers under the same source pin refreshes changed artwork paths.
 Mixed packs reuse the compiler's decoded equipment rasters; startup-path artwork is decoded
 separately only when that compiler table lacks it, within the remaining pixel and count budgets.
-Authored pack attachables remain separate. Held pixel meshes and Java raster frames include
+Texture-only bow, crossbow, spear and trident attachables use native held sprite
+meshes and hand transforms when every resolved geometry matches the startup weapon
+or stock item sprite. Their texture aliases follow native use stages; custom models
+keep authored attachable animation. This is an accepted presentation choice.
+Provisional, incomplete: compilation, regression execution and rendered acceptance
+in both animation modes remain unverified. No parity gate is closed.
+Held pixel meshes and Java raster frames include
 the resolved artwork page and layer in their cache keys. Controller glint samplers do not
 replace startup primary artwork. Rendered acceptance remains incomplete.
 
