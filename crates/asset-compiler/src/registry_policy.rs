@@ -93,7 +93,7 @@ struct MovementCensus {
     /// Identifiers whose movement classification is not established.
     unresolved: Vec<String>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Scalar {
     #[serde(rename = "type")]

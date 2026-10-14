@@ -1,7 +1,7 @@
 //! Compile identifier selectors once against the pinned block palette.
 
 use super::{BlockFact, Result, Scalar, check};
-use assets::facts::shape::ShapeTraits;
+use assets::facts::{BlockProperty, shape::ShapeTraits};
 use assets::registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -53,6 +53,29 @@ fn enabled() -> bool {
     true
 }
 
+/// Treats namespaced and unnamespaced property spellings as the same selector key.
+fn bare_identifier(name: &str) -> &str {
+    name.split_once(':').map_or(name, |(_, bare)| bare)
+}
+
+/// Finds a state scalar using the selector's namespace-independent property name.
+fn property<'a>(state: &'a BTreeMap<String, Scalar>, key: &str) -> Option<&'a Scalar> {
+    state
+        .iter()
+        .find(|(name, _)| bare_identifier(name) == bare_identifier(key))
+        .map(|(_, scalar)| scalar)
+}
+
+/// Resolves selector domains with the same property-name contract as state matching.
+fn property_key(name: &str) -> Option<BlockProperty> {
+    BlockProperty::from_name(name).or_else(|| {
+        BlockProperty::ALL
+            .iter()
+            .copied()
+            .find(|key| bare_identifier(key.name()) == bare_identifier(name))
+    })
+}
+
 impl Rule {
     /// Evaluates selectors once during compilation, with exclusions and state values as filters.
     pub(super) fn matches(
@@ -67,23 +90,21 @@ impl Rule {
                 .as_ref()
                 .is_some_and(|s| name.contains(s))
             || self.state_minimum.iter().any(|(key, minimum)| {
-                state
-                    .get(key)
+                property(state, key)
                     .and_then(|s| s.value.as_i64())
                     .is_none_or(|value| value < *minimum)
             })
             || self.state_maximum.as_ref().is_some_and(|key| {
-                let maximum =
-                    assets::facts::BlockProperty::from_name(key).and_then(|p| match p.domain() {
-                        assets::facts::PropertyDomain::Int(values) => values.iter().max().copied(),
-                        _ => None,
-                    });
-                state.get(key).and_then(|s| s.value.as_i64()) != maximum.map(i64::from)
+                let maximum = property_key(key).and_then(|p| match p.domain() {
+                    assets::facts::PropertyDomain::Int(values) => values.iter().max().copied(),
+                    _ => None,
+                });
+                property(state, key).and_then(|s| s.value.as_i64()) != maximum.map(i64::from)
             })
             || self
                 .state_values
                 .iter()
-                .any(|(key, value)| state.get(key).is_none_or(|s| &s.value != value))
+                .any(|(key, value)| property(state, key).is_none_or(|s| &s.value != value))
         {
             return false;
         }
@@ -98,9 +119,12 @@ impl Rule {
             || self
                 .state_property
                 .as_ref()
-                .is_some_and(|s| state.contains_key(s))
+                .is_some_and(|s| property(state, s).is_some())
             || (!self.state_properties.is_empty()
-                && self.state_properties.iter().all(|s| state.contains_key(s))
+                && self
+                    .state_properties
+                    .iter()
+                    .all(|s| property(state, s).is_some())
                 && (!self.exact_properties || state.len() == self.state_properties.len()))
             || self
                 .model_family
@@ -148,7 +172,7 @@ impl Rule {
             .chain(self.state_minimum.keys())
         {
             check(
-                assets::facts::BlockProperty::from_name(key).is_some(),
+                property_key(key).is_some(),
                 format!("{} has unknown property {key}", self.id),
             )?;
         }
@@ -342,11 +366,11 @@ fn intrinsic(state: &BTreeMap<String, Scalar>, family: ModelFamily) -> BlockTrai
     let mut traits = BlockTraits::empty();
     traits.set(
         BlockTraits::TORCH,
-        state.contains_key("torch_facing_direction"),
+        property(state, "torch_facing_direction").is_some(),
     );
     traits.set(
         BlockTraits::MULTIFACE,
-        state.contains_key("multi_face_direction_bits"),
+        property(state, "multi_face_direction_bits").is_some(),
     );
     if state
         .keys()
@@ -360,11 +384,11 @@ fn intrinsic(state: &BTreeMap<String, Scalar>, family: ModelFamily) -> BlockTrai
     }
     traits.set(
         BlockTraits::DOOR,
-        state.contains_key("open_bit") && state.contains_key("upper_block_bit"),
+        property(state, "open_bit").is_some() && property(state, "upper_block_bit").is_some(),
     );
     traits.set(
         BlockTraits::LANTERN_LIKE,
-        state.len() == 1 && state.contains_key("hanging"),
+        state.len() == 1 && property(state, "hanging").is_some(),
     );
     traits
 }
@@ -556,6 +580,46 @@ mod tests {
                 ShapeTraits::from_name(name).is_some(),
                 "unknown shape trait {name}"
             );
+        }
+    }
+
+    #[test]
+    fn every_rule_property_selector_ignores_namespace_spelling() {
+        let policy: super::super::Policy = serde_json::from_slice(super::super::POLICY).unwrap();
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        for record in &records {
+            let original: BTreeMap<String, Scalar> =
+                serde_json::from_str(&record.canonical_state).unwrap();
+            let bare: BTreeMap<_, _> = original
+                .iter()
+                .map(|(name, scalar)| (bare_identifier(name).to_owned(), scalar.clone()))
+                .collect();
+            let namespaced: BTreeMap<_, _> = bare
+                .iter()
+                .map(|(name, scalar)| (format!("minecraft:{name}"), scalar.clone()))
+                .collect();
+            for rule in policy
+                .model_family_rules
+                .iter()
+                .chain(&policy.block_rules)
+                .chain(&policy.placement_rules)
+            {
+                let expected = rule.matches(&record.name, &original, record.model_family);
+                for state in [&bare, &namespaced] {
+                    assert_eq!(
+                        rule.matches(&record.name, state, record.model_family),
+                        expected,
+                        "{} {} {}",
+                        rule.id,
+                        record.name,
+                        record.canonical_state
+                    );
+                }
+            }
         }
     }
 }

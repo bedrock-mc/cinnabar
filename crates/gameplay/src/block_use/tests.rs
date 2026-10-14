@@ -11,6 +11,7 @@ use super::{
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
+mod classification;
 mod held_placement;
 mod respawn_anchor;
 

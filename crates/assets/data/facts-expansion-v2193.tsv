@@ -899,7 +899,7 @@ minecraft:oak_shelf	ORIENTATION_SENSITIVE,shape:SHELF	family-shelf,orientation_s
 minecraft:oak_slab	ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-slab-11,full_top_support-130,orientation-minecraft-vertical_half,survival:None	full_top_support-130
 minecraft:oak_stairs	FULL_TOP_SUPPORT,ORIENTATION_SENSITIVE,BUILD_INTENTION	build_intention-22,family-stair-10,full_top_support-126,full_top_support-127,orientation-upside_down_bit,orientation_sensitive-36,survival:None	full_top_support-126,full_top_support-127
 minecraft:oak_wood	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
-minecraft:observer		survival:None	-
+minecraft:observer	ORIENTATION_SENSITIVE	orientation_sensitive-3,survival:None	-
 minecraft:obsidian	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:ochre_froglight	VINE_SUPPORT,FULL_TOP_SUPPORT,BUILD_INTENTION	build_intention-22,full_top_support-131,survival:None,vine_support-119	full_top_support-131,vine_support-119
 minecraft:open_eyeblossom	SURVIVAL_RULE,shape:FLOWER	shape-flower,survival-unresolved-55,survival:Unresolved	shape-flower,survival-unresolved-55
