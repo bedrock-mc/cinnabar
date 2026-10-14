@@ -1,7 +1,7 @@
+use json_ui::vanilla::Reference;
 use json_ui::{
-    Catalog, Context, Draw, DrawNode, HUD_SCREEN, HudModel, HudSlot, LayoutEnv, ScreenRender,
-    Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, hud_context, hud_data_source,
-    render_screen,
+    Catalog, Context, Draw, DrawNode, HudModel, HudSlot, LayoutEnv, ScreenRender, Sidebar,
+    TextMeasure, TextureMeta, TextureSource, Timed, hud_context, hud_data_source, render_screen,
 };
 
 /// `layers` over `base` under every registered screen family's catalog policy.
@@ -87,7 +87,7 @@ fn render(catalog: &Catalog) -> ScreenRender {
 
 fn render_model(catalog: &Catalog, model: &HudModel, viewport: [f64; 2]) -> ScreenRender {
     render_screen(
-        HUD_SCREEN,
+        Reference::HudHudScreen.as_str(),
         catalog,
         &hud_context(&Context::desktop()),
         &hud_data_source(model),

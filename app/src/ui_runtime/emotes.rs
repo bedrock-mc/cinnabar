@@ -70,6 +70,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
     network: Option<Res<'w, NetworkHandle<PackApplication>>>,
+    movement: Option<ResMut<'w, client_interaction::movement::MovementTicker>>,
 }
 
 /// Runs before chat/menu adapters and before semantic gameplay is finalized.
@@ -330,6 +331,8 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             length_ticks,
         )) {
             bevy::log::warn!(?error, "emote start was not admitted to the session queue");
+        } else if let Some(movement) = input.movement.as_deref_mut() {
+            movement.start_emote(length_ticks);
         }
     }
     if let Some(preferences) = input.runtime.emotes_mut().take_preferences()
@@ -360,9 +363,15 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
 pub(crate) fn cancel_emote_from_gameplay(
     semantic: Res<SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntimeResource>,
+    movement: Option<ResMut<client_interaction::movement::MovementTicker>>,
 ) {
     if should_stop_emote(&semantic) {
         runtime.emotes_mut().stop();
+    }
+    if runtime.emotes().playback().is_none()
+        && let Some(mut movement) = movement
+    {
+        movement.stop_emote();
     }
 }
 

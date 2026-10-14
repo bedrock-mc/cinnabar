@@ -82,6 +82,19 @@ fn all_shader_material_variants_validate() {
         )
         .validate(&module)
         .unwrap();
+        let fragment = module
+            .entry_points
+            .iter()
+            .find(|entry| entry.name == "shape_fragment")
+            .expect("shape fragment exists");
+        for (_, expression) in fragment.function.expressions.iter() {
+            if let naga::Expression::ImageSample { level, .. } = expression {
+                assert!(
+                    matches!(level, naga::SampleLevel::Gradient { .. }),
+                    "textured shapes keep their sample footprint through material branches"
+                );
+            }
+        }
     }
 }
 

@@ -5,9 +5,6 @@ use std::collections::BTreeSet;
 
 use bridge::Person;
 
-/// The vanilla screen the pause menu's invite button opens.
-pub const SCREEN: &str = "invite.invite_screen";
-
 /// One Xbox friend; `picture_path` is the cached gamerpic, empty when it has none.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Friend {

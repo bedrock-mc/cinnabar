@@ -54,16 +54,17 @@ pub(super) struct MenuArtworkAtlas {
 }
 
 /// Decoded artwork: straight-alpha RGBA8, which the UI shader premultiplies, and its size.
-struct Artwork {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
+pub(super) struct Artwork {
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) pixels: Vec<u8>,
 }
 
 /// What an atlas is packed from: the service art at its sides, images held in memory, and the
 /// engine's oversized textures by key.
 #[derive(Clone, Default)]
 pub(super) struct ArtworkSet {
+    pub(super) logo: Option<Arc<Artwork>>,
     pub(super) paths: Vec<(String, u32)>,
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
@@ -75,7 +76,11 @@ pub(super) struct ArtworkSet {
 impl ArtworkSet {
     /// Equality without comparing texture bytes: engine textures by key and payload.
     pub(super) fn same(&self, other: &Self) -> bool {
-        self.paths == other.paths
+        (match (&self.logo, &other.logo) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }) && self.paths == other.paths
             && self.images.len() == other.images.len()
             && self
                 .images
@@ -414,7 +419,7 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 /// Straight-alpha RGBA8 (what the UI shader samples) of an image no larger
 /// than `max_side` on either axis; a downscale filters premultiplied so
 /// transparent texels never bleed into edges.
-fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
+pub(super) fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES || max_side == 0 {
         return None;
     }

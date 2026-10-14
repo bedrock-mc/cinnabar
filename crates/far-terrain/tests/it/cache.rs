@@ -575,3 +575,48 @@ fn a_new_visit_to_the_same_world_starts_empty() {
     assert!(cache.store().is_empty());
     assert_eq!(cache.namespace(), None, "resolved again from new probes");
 }
+
+/// When a visit turns out to be another map, what it already wrote moves to its fresh epoch,
+/// so its visited terrain stays cached for it and leaves the other map's epoch.
+#[test]
+fn a_diverged_visit_keeps_what_it_already_wrote() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    for x in 300..=305 {
+        first.admit(0, ColumnPos::new(x, 0), flat(70).encode(), now);
+    }
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    join(&mut second, 64, now);
+    let shared = second.namespace().unwrap();
+    assert_eq!(
+        reload(&mut second, ColumnPos::new(305, 0), now),
+        Some(flat(70))
+    );
+    let visited = ColumnPos::new(500, 0);
+    second.admit(0, visited, flat(33).encode(), now);
+    second.flush_all();
+    second.sync();
+    second.poll(now);
+    for x in 300..=303 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_ne!(second.namespace(), Some(shared));
+    leave(&mut second);
+    drop(second);
+
+    let mut later = self::cache(root.path());
+    join(&mut later, 64, now);
+    assert_ne!(
+        later.namespace(),
+        Some(shared),
+        "the fresh epoch matches first"
+    );
+    assert_eq!(reload(&mut later, visited, now), Some(flat(33)));
+}

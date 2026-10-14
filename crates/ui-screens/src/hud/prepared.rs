@@ -1,9 +1,10 @@
 //! HUD screens a pack worker resolves against a server catalog before its first frame, so the
 //! frame that installs the catalog binds them instead of resolving them.
 
+use json_ui::vanilla::Reference;
 use std::{collections::BTreeSet, sync::Arc};
 
-use json_ui::{CROSSHAIR_SCREEN, Catalog, Context, HUD_SCREEN, ResolvedControl};
+use json_ui::{Catalog, Context, ResolvedControl};
 
 /// Resolves the HUD and crosshair screens under each of `placements`, the HUD contexts of every
 /// chat placement, on the calling thread, and returns the textures their controls name.
@@ -14,7 +15,10 @@ pub fn prepare(
     let mut resolved = Vec::new();
     let mut textures = BTreeSet::new();
     for context in placements {
-        for reference in [HUD_SCREEN, CROSSHAIR_SCREEN] {
+        for reference in [
+            Reference::HudHudScreen.as_str(),
+            Reference::HudCrosshairHudCrosshairScreen.as_str(),
+        ] {
             let tree = json_ui::resolve(catalog, reference, &context)
                 .control
                 .map(Arc::new);

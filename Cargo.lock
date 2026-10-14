@@ -372,6 +372,7 @@ dependencies = [
 name = "architecture"
 version = "0.1.19"
 dependencies = [
+ "assets",
  "cfg-expr",
  "clap",
  "proc-macro2",
@@ -2178,6 +2179,7 @@ dependencies = [
  "ui-screens",
  "update-manifest",
  "url",
+ "wat",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -4661,6 +4663,7 @@ version = "0.1.19"
 dependencies = [
  "assets",
  "bridge",
+ "json-ui",
  "render-api",
  "resource-pack",
  "semantic-input",

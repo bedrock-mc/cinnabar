@@ -206,7 +206,7 @@ fn import(mods: &Path, source: &Path) -> Result<String, String> {
     if name.starts_with('.') {
         return Err("Mod file names must not start with a dot.".into());
     }
-    let bytes = mod_host::local_files::read(source, mod_host::MAX_COMPONENT_BYTES)
+    let bytes = mod_host::local_files::read(source, mod_host::MAX_COMPONENT_SOURCE_BYTES)
         .map_err(|error| format!("Could not read {name}: {error}"))?;
     ModHost::validate_component(&bytes)
         .map_err(|error| format!("{name} is not a valid mod: {error:#}"))?;

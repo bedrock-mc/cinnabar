@@ -26,42 +26,36 @@ enum Input {
     Local(Arc<dyn LocalPack>, String),
 }
 
+impl super::jobs::ImageJob for Job {
+    /// Reads one bounded source and publishes only while its pack still owns the request.
+    fn run(self) {
+        if self.cancelled.load(Ordering::Acquire) {
+            return;
+        }
+        let source = match &self.input {
+            Input::Archive(view, path) => super::read_source(view, &self.key, path, self.limit),
+            Input::Local(root, relative) => {
+                super::local_sources::read(root.as_ref(), relative, self.limit, false).0
+            }
+        };
+        if !self.cancelled.load(Ordering::Acquire) {
+            let _ = self.done.try_send((self.key, source));
+        }
+    }
+}
+
 /// One image read and one queued input bound file IO, inflation and decryption process-wide.
-fn worker() -> Option<&'static Sender<Job>> {
-    static WORKER: OnceLock<Option<Sender<Job>>> = OnceLock::new();
+fn worker() -> Option<&'static super::jobs::Worker<Job>> {
+    static WORKER: OnceLock<Option<super::jobs::Worker<Job>>> = OnceLock::new();
     WORKER
-        .get_or_init(|| {
-            let (sender, receiver) = crossbeam_channel::bounded::<Job>(1);
-            std::thread::Builder::new()
-                .name("ui-image-sources".into())
-                .spawn(move || {
-                    while let Ok(job) = receiver.recv() {
-                        if job.cancelled.load(Ordering::Acquire) {
-                            continue;
-                        }
-                        let source = match &job.input {
-                            Input::Archive(view, path) => {
-                                super::read_source(view, &job.key, path, job.limit)
-                            }
-                            Input::Local(root, relative) => {
-                                super::local_sources::read(
-                                    root.as_ref(),
-                                    relative,
-                                    job.limit,
-                                    false,
-                                )
-                                .0
-                            }
-                        };
-                        if !job.cancelled.load(Ordering::Acquire) {
-                            let _ = job.done.try_send((job.key, source));
-                        }
-                    }
-                })
-                .ok()?;
-            Some(sender)
-        })
+        .get_or_init(|| super::jobs::Worker::new("ui-image-sources"))
         .as_ref()
+}
+
+/// Drains a single browser source read without running a persistent receive loop.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn run_one() -> bool {
+    worker().is_some_and(super::jobs::Worker::run_one)
 }
 
 struct State {
@@ -154,12 +148,13 @@ impl SourceReads {
 
     /// Retains the request on backpressure and publishes a terminal failure if the worker stops.
     fn submit(state: &mut State, job: Job) {
-        Self::submit_to(state, job, worker());
+        Self::submit_to(state, job, worker().map(super::jobs::Worker::sender));
     }
 
     /// Applies queue backpressure without losing the pack's requested key.
     fn submit_to(state: &mut State, job: Job, worker: Option<&Sender<Job>>) {
         let Some(worker) = worker else {
+            state.pending = Some(job.key.clone());
             let _ = job.done.try_send((job.key, None));
             return;
         };
@@ -168,6 +163,7 @@ impl SourceReads {
             Ok(()) => state.pending = Some(key),
             Err(TrySendError::Full(job)) => state.retry = Some(job),
             Err(TrySendError::Disconnected(job)) => {
+                state.pending = Some(key);
                 let _ = job.done.try_send((job.key, None));
             }
         }
@@ -232,6 +228,50 @@ mod tests {
         let (key, source) = reads.collect().unwrap();
         assert_eq!(key, "failed");
         assert!(source.is_none());
+        assert!(reads.collect().is_none());
+    }
+    #[test]
+    fn completed_source_read_stays_pending_until_collected() {
+        use crate::atlas::jobs::ImageJob;
+        let reads = SourceReads::default();
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let first = job(&reads, "first");
+        SourceReads::submit_to(&mut reads.state.borrow_mut(), first, Some(&sender));
+        receiver.try_recv().unwrap().run();
+        reads.request_input(
+            "second",
+            Input::Local(Arc::new(NoFiles), "fixture".into()),
+            1,
+        );
+        let (key, source) = reads.collect().unwrap();
+        assert_eq!(key, "first");
+        assert!(source.is_none());
+        assert!(reads.state.borrow().pending.is_none());
+        assert!(receiver.try_recv().is_err());
+        assert!(reads.collect().is_none());
+    }
+
+    #[test]
+    fn failed_dispatch_stays_pending_until_collected() {
+        let reads = SourceReads::default();
+        let first = job(&reads, "first");
+        SourceReads::submit_to(&mut reads.state.borrow_mut(), first, None);
+        reads.request_input(
+            "second",
+            Input::Local(Arc::new(NoFiles), "fixture".into()),
+            1,
+        );
+        assert_eq!(reads.collect().unwrap().0, "first");
+        assert!(reads.collect().is_none());
+    }
+
+    #[test]
+    fn cancelled_source_job_does_not_publish() {
+        use crate::atlas::jobs::ImageJob;
+        let reads = SourceReads::default();
+        let cancelled = job(&reads, "cancelled");
+        reads.cancelled.store(true, Ordering::Release);
+        cancelled.run();
         assert!(reads.collect().is_none());
     }
 }
