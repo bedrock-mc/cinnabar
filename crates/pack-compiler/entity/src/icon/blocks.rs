@@ -33,19 +33,6 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::ResinClump,
 ];
 
-/// Registry-unclassified blocks whose vanilla items show a flat icon (lanterns, candles,
-/// chains, ladders, lily pads, end rods, sea pickles, spore blossoms, bamboo).
-fn is_reviewed_flat(name: &str) -> bool {
-    let name = name.strip_prefix("minecraft:").unwrap_or(name);
-    ["lantern", "candle", "chain"]
-        .iter()
-        .any(|suffix| name.ends_with(suffix))
-        || matches!(
-            name,
-            "ladder" | "waterlily" | "end_rod" | "sea_pickle" | "spore_blossom" | "bamboo" | "bell"
-        )
-}
-
 pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
     /// `None` when the pack lacks the block and terrain catalogs.
@@ -66,10 +53,16 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        if !self
-            .name(visual)
-            .is_some_and(|name| name == "minecraft:chest" || name.ends_with("_chest"))
-        {
+        let renderer = assets::facts::BlockEntityFacts::pinned()
+            .get(visual.0)
+            .map(|backing| backing.entity.renderer);
+        if !matches!(
+            renderer,
+            Some(
+                assets::facts::BlockEntityRenderer::Chest
+                    | assets::facts::BlockEntityRenderer::EnderChest
+            )
+        ) {
             return Ok(None);
         }
         self.tiles(root, visual, true)
@@ -92,7 +85,8 @@ impl IconBlocks {
         let kind = world.resolve(NetworkIdMode::Sequential, visual.0).kind();
         FLAT_FAMILIES.contains(&record.model_family)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown && is_reviewed_flat(&record.name))
+            || (record.model_family == ModelFamily::Unknown
+                && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
     /// The state an item draws: a wall item shows a post with east and west arms.

@@ -113,38 +113,6 @@ enum Op {
     Or,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Func {
-    Abs,
-    Acos,
-    Asin,
-    Atan,
-    Atan2,
-    Ceil,
-    Clamp,
-    Cos,
-    Exp,
-    Floor,
-    InverseLerp,
-    Lerp,
-    LerpRotate,
-    Ln,
-    Max,
-    Min,
-    Mod,
-    Pow,
-    Random,
-    RandomInteger,
-    DieRoll,
-    Round,
-    Sign,
-    Sin,
-    Sqrt,
-    Trunc,
-    HermiteBlend,
-    Zero,
-}
-
 #[derive(Clone, Debug)]
 enum Expr {
     Num(f32),
@@ -156,7 +124,7 @@ enum Expr {
     Bin(Op, Box<Expr>, Box<Expr>),
     Cond(Box<Expr>, Box<Expr>, Box<Expr>),
     Coalesce(Box<Expr>, Box<Expr>),
-    Call(Func, Vec<Expr>),
+    Call(Option<assets::entity::MolangFunction>, Vec<Expr>),
     AssignVar(u16, Box<Expr>),
     AssignTemp(u8, Box<Expr>),
     Return(Box<Expr>),
@@ -369,64 +337,70 @@ impl Env<'_> {
         }
     }
 
-    fn call(&mut self, func: Func, [a, b, c, _]: [f32; 4]) -> f32 {
+    /// Uses the shared vocabulary while retaining existing particle arithmetic and bounds.
+    fn call(&mut self, func: Option<assets::entity::MolangFunction>, values: [f32; 4]) -> f32 {
+        use assets::entity::MolangFunction as F;
+        let Some(func) = func else {
+            return 0.0;
+        };
+        let [a, b, c, _] = values;
         match func {
-            Func::Abs => a.abs(),
-            Func::Acos => a.clamp(-1.0, 1.0).acos().to_degrees(),
-            Func::Asin => a.clamp(-1.0, 1.0).asin().to_degrees(),
-            Func::Atan => a.atan().to_degrees(),
-            Func::Atan2 => a.atan2(b).to_degrees(),
-            Func::Ceil => a.ceil(),
-            Func::Clamp => a.max(b).min(c.max(b)),
-            Func::Cos => a.to_radians().cos(),
-            Func::Exp => a.exp(),
-            Func::Floor => a.floor(),
-            Func::InverseLerp => {
+            F::Abs => a.abs(),
+            F::Acos => a.clamp(-1.0, 1.0).acos().to_degrees(),
+            F::Asin => a.clamp(-1.0, 1.0).asin().to_degrees(),
+            F::Atan => a.atan().to_degrees(),
+            F::Atan2 => a.atan2(b).to_degrees(),
+            F::Ceil => a.ceil(),
+            F::Clamp => a.max(b).min(c.max(b)),
+            F::Cos => a.to_radians().cos(),
+            F::Exp => a.exp(),
+            F::Floor => a.floor(),
+            F::InverseLerp => {
                 if a == b {
                     0.0
                 } else {
                     (c - a) / (b - a)
                 }
             }
-            Func::Lerp => a + (b - a) * c,
-            Func::LerpRotate => {
+            F::Lerp => a + (b - a) * c,
+            F::LerpRotate => {
                 let mut delta = (b - a).rem_euclid(360.0);
                 if delta > 180.0 {
                     delta -= 360.0;
                 }
                 a + delta * c
             }
-            Func::Ln => {
+            F::Ln => {
                 if a > 0.0 {
                     a.ln()
                 } else {
                     0.0
                 }
             }
-            Func::Max => a.max(b),
-            Func::Min => a.min(b),
-            Func::Mod => {
+            F::Max => a.max(b),
+            F::Min => a.min(b),
+            F::Mod => {
                 if b == 0.0 {
                     0.0
                 } else {
                     a % b
                 }
             }
-            Func::Pow => a.powf(b),
-            Func::Random => self.rng.range(a, b),
-            Func::RandomInteger => {
+            F::Pow => a.powf(b),
+            F::Random => self.rng.range(a, b),
+            F::RandomInteger => {
                 let (low, high) = (a.min(b).ceil(), a.max(b).floor());
                 (low + (self.rng.unit() * (high - low + 1.0)).floor()).min(high)
             }
-            Func::DieRoll => {
+            F::DieRoll => {
                 let mut total = 0.0;
                 for _ in 0..(a.clamp(0.0, 64.0) as u32) {
                     total += self.rng.range(b, c);
                 }
                 total
             }
-            Func::Round => a.round(),
-            Func::Sign => {
+            F::Round => a.round(),
+            F::Sign => {
                 if a > 0.0 {
                     1.0
                 } else if a < 0.0 {
@@ -435,20 +409,20 @@ impl Env<'_> {
                     0.0
                 }
             }
-            Func::Sin => a.to_radians().sin(),
-            Func::Sqrt => {
+            F::Sin => a.to_radians().sin(),
+            F::Sqrt => {
                 if a >= 0.0 {
                     a.sqrt()
                 } else {
                     0.0
                 }
             }
-            Func::Trunc => a.trunc(),
-            Func::HermiteBlend => {
+            F::Trunc => a.trunc(),
+            F::HermiteBlend => {
                 let t = a.clamp(0.0, 1.0);
                 3.0 * t * t - 2.0 * t * t * t
             }
-            Func::Zero => 0.0,
+            _ => assets::entity::molang_call(func, &values, &mut || self.rng.unit()),
         }
     }
 }
@@ -823,7 +797,7 @@ impl Parser<'_> {
         Some(Expr::Num(0.0))
     }
 
-    fn fold_call(func: Func, args: Vec<Expr>) -> Expr {
+    fn fold_call(func: Option<assets::entity::MolangFunction>, args: Vec<Expr>) -> Expr {
         Expr::Call(func, args)
     }
 }
@@ -844,37 +818,10 @@ fn query(name: &str) -> Query {
     }
 }
 
-fn function(name: &str) -> Func {
-    match name.strip_prefix("math.").unwrap_or(name) {
-        "abs" => Func::Abs,
-        "acos" => Func::Acos,
-        "asin" => Func::Asin,
-        "atan" => Func::Atan,
-        "atan2" => Func::Atan2,
-        "ceil" => Func::Ceil,
-        "clamp" => Func::Clamp,
-        "cos" => Func::Cos,
-        "exp" => Func::Exp,
-        "floor" => Func::Floor,
-        "inverse_lerp" => Func::InverseLerp,
-        "lerp" => Func::Lerp,
-        "lerprotate" => Func::LerpRotate,
-        "ln" => Func::Ln,
-        "max" => Func::Max,
-        "min" => Func::Min,
-        "mod" => Func::Mod,
-        "pow" => Func::Pow,
-        "random" => Func::Random,
-        "random_integer" => Func::RandomInteger,
-        "die_roll" | "die_roll_integer" => Func::DieRoll,
-        "round" => Func::Round,
-        "sign" => Func::Sign,
-        "sin" => Func::Sin,
-        "sqrt" => Func::Sqrt,
-        "trunc" => Func::Trunc,
-        "hermite_blend" => Func::HermiteBlend,
-        _ => Func::Zero,
-    }
+/// Resolves math spellings through the shared function vocabulary.
+fn function(name: &str) -> Option<assets::entity::MolangFunction> {
+    assets::entity::MolangFunction::from_name(name)
+        .or_else(|| assets::entity::MolangFunction::from_name(&format!("math.{name}")))
 }
 
 #[cfg(test)]
@@ -886,6 +833,18 @@ mod tests {
         let program = Program::parse(source, &mut interner).expect("parses");
         let mut vars = vec![f32::NAN; interner.len()];
         program.eval(&mut vars, &mut Rng::new(1), &Queries::default())
+    }
+
+    #[test]
+    fn particle_math_uses_the_shared_vocabulary_and_integer_die_rolls() {
+        assert_eq!(run("math.copy_sign(2, -1)"), -2.0);
+        assert_eq!(run("math.min_angle(450)"), 90.0);
+        assert_eq!(run("math.ease_in_quad(0, 8, 0.5)"), 2.0);
+        for count in 1..=8 {
+            let value = run(&format!("math.die_roll_integer({count}, 1, 6)"));
+            assert_eq!(value.fract(), 0.0);
+            assert!((count as f32..=count as f32 * 6.0).contains(&value));
+        }
     }
 
     #[test]

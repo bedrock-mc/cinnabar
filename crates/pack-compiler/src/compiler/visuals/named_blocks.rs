@@ -4,6 +4,7 @@ use super::context::{
     intern_snow_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 const FULL: i16 = 256;
 /// One snow layer is two pixels tall.
@@ -36,41 +37,26 @@ pub(in crate::compiler) fn named_shape(record: &RegistryRecord) -> Option<NamedS
     {
         return None;
     }
-    let name = record.name.strip_prefix("minecraft:")?;
-    // Stateless literal cubes (redstone lamps, moss, sculk, nylium, ...) belong to `literal.rs`.
-    Some(match name {
-        "sculk_catalyst" | "chiseled_sulfur" | "polished_sulfur" | "sulfur_bricks"
-        | "chiseled_cinnabar" | "polished_cinnabar" | "cinnabar_bricks" => {
-            shape(FULL, false, false)
-        }
-        // The pack keys one texture per oxidation level; lit and powered art is state-keyed.
-        _ if name.ends_with("copper_bulb") => shape(FULL, false, true),
-        // Side art is opaque only from the second pixel row down.
-        "grass_path" => shape(15 * 16, true, false),
-        "snow_layer" => {
+    Some(match block_render_fact(&record.name).kind {
+        R::NamedCube => shape(FULL, false, false),
+        R::CopperBulb => shape(FULL, false, true),
+        R::GrassPath => shape(15 * 16, true, false),
+        R::SnowLayer => {
             let height = canonical_state_u32(&record.canonical_state, "height")?;
             if height >= u32::from(assets::TOP_SNOW_LAYER_COUNT) {
                 return None;
             }
             shape((height as i16 + 1) * SNOW_LAYER, false, false)
         }
-        // Base slab only; the facing rotation of the top and the torches are not modelled.
-        "unpowered_repeater"
-        | "powered_repeater"
-        | "unpowered_comparator"
-        | "powered_comparator" => shape(REDSTONE_BASE, false, true),
+        R::RedstoneBase => shape(REDSTONE_BASE, false, true),
         _ => return None,
     })
-}
-
-pub(in crate::compiler) fn is_named_block(record: &RegistryRecord) -> bool {
-    named_shape(record).is_some()
 }
 
 /// Atlas alpha flag for a named block's art; the enchanting table base is compiled by the
 /// entity-drawn rule but shares the cut-away side rows.
 pub(in crate::compiler) fn named_block_material_flags(record: &RegistryRecord) -> Option<u32> {
-    if record.name.as_ref() == "minecraft:enchanting_table" {
+    if block_render_fact(&record.name).kind == R::EnchantingTable {
         return Some(MATERIAL_FLAG_ALPHA_CUTOUT);
     }
     named_shape(record).map(|shape| {
@@ -99,7 +85,7 @@ pub(in crate::compiler) fn compile_rule(
             visual.kind = VisualKind::Cube;
         } else {
             let max = [FULL, shape.top, FULL];
-            let template = if record.name.as_ref() == "minecraft:snow_layer" {
+            let template = if block_render_fact(&record.name).kind == R::SnowLayer {
                 intern_snow_template(materials, max, templates, storage.templates, storage.quads)?
             } else {
                 intern_cuboid_template(
@@ -116,7 +102,7 @@ pub(in crate::compiler) fn compile_rule(
         if shape.provisional {
             visual.support = VisualSupport::VanillaFallback;
         }
-        if record.name.as_ref() == "minecraft:snow_layer" {
+        if block_render_fact(&record.name).kind == R::SnowLayer {
             visual.variant |= assets::BLOCK_VISUAL_VARIANT_TOP_SNOW;
         }
     }

@@ -9,8 +9,10 @@ use super::{
 const PORTAL_SURFACE_HEIGHT: f32 = 0.75;
 const PALETTE_SIDE: usize = 4;
 const STAR_LAYERS: usize = PALETTE_SIDE * PALETTE_SIDE;
-const STAR_TEXTURE: &str = "textures/entity/end_portal";
-const COLOR_TEXTURE: &str = "textures/environment/end_portal_colors";
+const STAR_TEXTURE: &str =
+    assets::block_entity_geometry::textures::AtlasTexture::EntityEndPortal.path();
+const COLOR_TEXTURE: &str =
+    assets::block_entity_geometry::textures::AtlasTexture::EnvironmentEndPortalColors.path();
 
 pub(super) fn star_rect(atlas: &BlockEntityAtlas) -> [f32; 4] {
     let Some(texture) = atlas.texture(STAR_TEXTURE, [256.0; 2]) else {

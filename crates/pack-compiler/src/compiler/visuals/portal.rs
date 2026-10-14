@@ -4,6 +4,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockProperty, PortalAxis};
 use {super::super::*, assets::BlockFace};
 
 // The native half-width is 1/8 about the block center: six through ten pixels.
@@ -11,7 +12,7 @@ const NEAR: i16 = 96;
 const FAR: i16 = 160;
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == assets::NETHER_PORTAL_IDENTIFIER
+    assets::facts::block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Portal
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -26,8 +27,10 @@ pub(in crate::compiler) fn compile_rule(
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);
-    let axis = canonical_state_str(&record.canonical_state, "portal_axis");
-    let Some(axis @ ("x" | "z" | "unknown")) = axis.as_deref() else {
+    let axis = canonical_state_str(&record.canonical_state, BlockProperty::PortalAxis.name())
+        .as_deref()
+        .and_then(PortalAxis::from_name);
+    let Some(axis) = axis else {
         return Ok(CompileRuleResult::Compiled(visual));
     };
     if let Some(materials) = inputs.materials(record) {
@@ -50,8 +53,12 @@ pub(in crate::compiler) fn compile_rule(
             templates.insert(materials, base);
             base
         };
-        set_model_visual(&mut visual, materials, base + u32::from(axis == "x"));
-        if axis == "unknown" {
+        set_model_visual(
+            &mut visual,
+            materials,
+            base + u32::from(axis == PortalAxis::X),
+        );
+        if axis == PortalAxis::Unspecified {
             visual.variant = assets::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN;
         }
     }

@@ -1,5 +1,6 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_resin_clump(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::ResinClump)
@@ -7,7 +8,7 @@ pub(in crate::compiler) fn is_resin_clump(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_resin_clump_name(name: &str) -> bool {
-    name == "minecraft:resin_clump"
+    block_render_fact(name).kind == R::ResinClump
 }
 
 pub(in crate::compiler) fn exact_resin_clump_state(record: &RegistryRecord) -> Option<u32> {

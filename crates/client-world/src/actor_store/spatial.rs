@@ -7,6 +7,23 @@ use protocol_ids::ActorDataKey;
 const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
+    /// Uses the synced collision flag when supplied, otherwise the default definition.
+    #[must_use]
+    pub fn is_collidable(&self) -> bool {
+        let bit = ActorFlag::Collidable.wire_value();
+        let key = if bit < 64 {
+            ActorDataKey::Flags
+        } else {
+            ActorDataKey::FlagsTwo
+        };
+        match self.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::Flags(_) | ActorMetadataValue::FlagsExtended(_)) => {
+                self.flag(bit)
+            }
+            _ => self.entity_fact.collidable,
+        }
+    }
+
     /// Feet-anchored `(min, max)` box with server scale applied once.
     /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
@@ -17,6 +34,21 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
+        self.bounding_box_with_defaults(
+            position,
+            [
+                DEFAULT_ACTOR_COLLISION_WIDTH,
+                DEFAULT_ACTOR_COLLISION_HEIGHT,
+            ],
+        )
+    }
+
+    /// Applies server dimensions and scale to a box, using caller-owned defaults for omitted size.
+    fn bounding_box_with_defaults(
+        &self,
+        position: [f32; 3],
+        defaults: [f32; 2],
+    ) -> Option<([f32; 3], [f32; 3])> {
         if let Some(painting) = &self.painting {
             use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
             use protocol::PaintingDirection;
@@ -46,14 +78,8 @@ impl ActorSnapshot {
             Some(ActorMetadataValue::Float(value)) => *value,
             _ => 1.0,
         };
-        let width = dimension(
-            ActorDataKey::Width.wire_value(),
-            DEFAULT_ACTOR_COLLISION_WIDTH,
-        )? * scale;
-        let height = dimension(
-            ActorDataKey::Height.wire_value(),
-            DEFAULT_ACTOR_COLLISION_HEIGHT,
-        )? * scale;
+        let width = dimension(ActorDataKey::Width.wire_value(), defaults[0])? * scale;
+        let height = dimension(ActorDataKey::Height.wire_value(), defaults[1])? * scale;
         if !width.is_finite() || !height.is_finite() {
             return None;
         }
@@ -141,6 +167,35 @@ impl ActorSnapshot {
     }
 }
 
+impl ActorStore {
+    /// Visits solid actor bounds in stable runtime order, excluding the mover and its mount.
+    pub(crate) fn movement_colliders(
+        &self,
+        mover: u64,
+        rider: i64,
+    ) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
+        let mount = self.ridden_unique_id(rider);
+        self.effect_members
+            .collidable
+            .iter()
+            .filter_map(|runtime| self.actors.get(runtime))
+            .filter(move |actor| actor.runtime_id != mover && Some(actor.unique_id) != mount)
+            .filter_map(|actor| {
+                actor.bounding_box_with_defaults(
+                    actor.position,
+                    actor.entity_fact.collision.unwrap_or([
+                        DEFAULT_ACTOR_COLLISION_WIDTH,
+                        DEFAULT_ACTOR_COLLISION_HEIGHT,
+                    ]),
+                )
+            })
+    }
+}
+
 #[cfg(test)]
 #[path = "spatial_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "collision_tests.rs"]
+mod collision_tests;

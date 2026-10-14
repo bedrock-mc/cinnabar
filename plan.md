@@ -7,6 +7,14 @@ Incomplete: remaining placeholder layout work still costs about 21 ms per scroll
 2,048-item Windows offline fixture, down from about 203 ms before this change. Live typing,
 icons and hardware frame pacing remain unverified; no high-refresh performance gate closes.
 
+## Repeated container delivery acknowledgements
+
+Repeated opens of the current non-dynamic chest retain its contents and send the warning
+acknowledgement used by server menu dispatchers before subsequent clicks. Compatibility
+tests cover transport pressure and a dispatcher timeout. Incomplete: version-matched
+vanilla capture of the warning's diagnostic text and live PMMP acceptance remain pending;
+these tests do not close a Bedrock parity gate.
+
 ## Browser portability
 
 Connection framing can prepare a bounded writer for a host executor, and deadlines accept a
@@ -72,7 +80,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -84,6 +92,17 @@ radius.
 Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
 for owner review. Enhanced rendering lights far terrain with the vanilla path,
 and block light, clouds and weather do not reach it. No parity gate closes here.
+
+## Local terrain reads
+
+Local mods with the `terrain` grant poll small bounded regions as palette-indexed
+layers with canonical states, resolved collision/selection geometry and physics facts
+([docs/mod-terrain-api.md](docs/mod-terrain-api.md)); unchanged samples return only a stamp.
+Unknown cells and unavailable contextual geometry remain explicit. Existing mods receive no
+new permission by default.
+
+Incomplete: live acceptance on Windows has not been completed. No movement or interaction
+parity gate closes here.
 
 ## Experimental Android client
 
@@ -6483,6 +6502,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   seat offsets follow the mount's actor origin and yaw for local and remote riders without
   multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
   vehicle-targeted dismount request; the server's removal link releases the rider.
+  Local movement includes solid actor bounds from compiled definition defaults and synced
+  collision flags, excluding the player's own mount. Prediction snapshots retain the actor
+  bounds used by each frame after later movement or removal. Landing, side contact, step-up,
+  size updates and retained support have deterministic coverage. Controlled live acceptance
+  of boat, chest-boat and shulker collisions remains incomplete. Shulker attachment and
+  lid-dependent bounds still need their specialized actor-shape implementation.
   Mounted prediction retains the seated posture while an exit request is pending, including
   during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
@@ -8978,6 +9003,29 @@ identities come from the pinned registry rather than numeric ranges.
 Incomplete: the additional renderers for brushable blocks, trial spawners and
 vaults remain unsupported. New logical routes are provisional, and the existing
 renderer, visual and performance acceptance gates remain open.
+
+## Runtime visual fact consumers
+
+Actor contexts retain numeric item facts for both hands and worn armour. Tag and
+material queries use those facts; engine variables and particle math share symbol
+owners. Native particle routes use typed handles and retain pack override precedence.
+Hardcore heart roles and fixed native atlas paths have one shared definition. Java
+held-item presentation reads the admitted upright grip.
+
+Incomplete: event routes remain provisional. Authored material metadata, predicted
+audio cues, dynamic texture associations, particle filters and biome ambience need
+further admission work. Rendered comparison and performance acceptance remain open.
+
+## Compiled pack render admission
+
+Pack compilation reads shared render identities, tint domains, routing and icon flags.
+Attachable categories use admitted armour slots and shield/glider facts; native held
+items use the item trait and tier owners. Atmosphere source specifications are shared.
+Existing state, collision and artwork checks still guard native model compilation.
+
+Incomplete: render rules remain provisional. Native artwork associations, texture
+aliases and broader custom content admission still need owning metadata and rendered
+verification; this migration does not close their parity or performance gates.
 
 ## Server form screen variables
 

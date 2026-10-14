@@ -20,7 +20,12 @@ pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignSta
             .ok()?;
     let orientation = record.model_state.get(ModelStateField::Orientation)?;
 
-    if record.name.ends_with("standing_sign") {
+    if record
+        .traits
+        .contains(assets::registry::BlockTraits::STANDING_SIGN)
+        || assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::StandingSign
+    {
         if record.model_state.mask() != ORIENTATION_MASK || state.len() != 1 {
             return None;
         }
@@ -29,7 +34,12 @@ pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignSta
         return (rotation <= 15 && orientation == u32::from(rotation))
             .then_some(SignState::Standing { rotation });
     }
-    if record.name.ends_with("wall_sign") {
+    if record
+        .traits
+        .contains(assets::registry::BlockTraits::WALL_SIGN)
+        || assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::WallSign
+    {
         if record.model_state.mask() != ORIENTATION_MASK || state.len() != 1 {
             return None;
         }
@@ -38,7 +48,11 @@ pub(in crate::compiler) fn sign_state(record: &RegistryRecord) -> Option<SignSta
         return (facing <= 5 && orientation == u32::from(facing))
             .then_some(SignState::Wall { facing });
     }
-    if !record.name.ends_with("hanging_sign")
+    if !(record
+        .traits
+        .contains(assets::registry::BlockTraits::HANGING_SIGN)
+        || assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::HangingSign)
         || record.model_state.mask() != ORIENTATION_MASK | FLAGS_MASK
         || state.len() != 4
     {

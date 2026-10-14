@@ -1,11 +1,12 @@
 //! Shared admission and charge selection for respawn-anchor block art.
 
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use assets::{BlockFlags, ContributorRole, RegistryRecord};
 use serde::Deserialize;
 
 /// Identifies terrain-owned respawn anchors before provisional fallback selection.
 pub fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:respawn_anchor"
+    block_render_fact(&record.name).kind == R::RespawnAnchor
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }

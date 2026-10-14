@@ -150,6 +150,7 @@ impl MenuRuntime {
             auth_process: None,
             auth_attempted: false,
             auth_restart_requested: false,
+            account_core: None,
             layout,
             player_skin,
             dressing_room: initial.dressing_room,

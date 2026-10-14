@@ -142,7 +142,11 @@ impl ParticleSystem {
     /// Starts an emitter; returns its id, or `None` when the effect is unknown, too far away,
     /// or the emitter table is full.
     pub fn spawn(&mut self, request: &SpawnRequest) -> Option<u64> {
-        let Some(def) = self.resolve(&request.effect).cloned() else {
+        let def = match request.native_effect {
+            Some(effect) => self.library.get_native(effect),
+            None => self.resolve(&request.effect),
+        };
+        let Some(def) = def.cloned() else {
             self.dropped_spawns += 1;
             return None;
         };

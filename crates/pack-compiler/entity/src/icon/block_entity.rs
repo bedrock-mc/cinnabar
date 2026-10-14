@@ -33,7 +33,14 @@ pub(super) fn metadata_variant(name: &str, metadata: u32) -> u32 {
 
 /// Identifies the standing inventory model shared by both placed banner forms.
 fn is_banner(name: &str) -> bool {
-    matches!(name, "minecraft:standing_banner" | "minecraft:wall_banner")
+    renderer(name) == Some(assets::facts::BlockEntityRenderer::Banner)
+}
+
+/// Uses the registry-owned block-entity route for cold inventory model selection.
+fn renderer(name: &str) -> Option<assets::facts::BlockEntityRenderer> {
+    assets::facts::BlockEntityFacts::pinned()
+        .by_block_identifier(name)
+        .map(|entry| entry.renderer)
 }
 
 /// Bakes an entity-drawn block inventory model, refusing missing optional textures.
@@ -66,8 +73,8 @@ pub(super) fn raster(
         };
         vec![part]
     } else {
-        match name {
-            "minecraft:conduit" => {
+        match renderer(name) {
+            Some(assets::facts::BlockEntityRenderer::Conduit) => {
                 projection = assets::gui_item::project_conduit;
                 vec![boxes(
                     geometry::CONDUIT_TEXTURE.0,
@@ -75,7 +82,7 @@ pub(super) fn raster(
                     &[geometry::CONDUIT_SHELL],
                 )]
             }
-            "minecraft:decorated_pot" => {
+            Some(assets::facts::BlockEntityRenderer::DecoratedPot) => {
                 projection = assets::gui_item::project_decorated_pot;
                 let mut base = boxes(
                     geometry::POT_BASE_TEXTURE.0,
@@ -114,8 +121,8 @@ pub(super) fn raster(
                     },
                 ]
             }
-            "minecraft:lectern" => lectern(),
-            _ if is_banner(name) => {
+            Some(assets::facts::BlockEntityRenderer::Lectern) => lectern(),
+            Some(assets::facts::BlockEntityRenderer::Banner) => {
                 projection = assets::gui_item::project_banner;
                 let frame = boxes(
                     geometry::BANNER_TEXTURE.0,

@@ -242,31 +242,30 @@ fn reference(identifier: Box<str>, catalog: &BTreeMap<&str, ()>) -> EquipmentRef
 }
 
 fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
-    if item_identifier == "minecraft:shield" || geometry == "geometry.shield" {
+    let fact = assets::facts::ItemFacts::builtin()
+        .ok()
+        .and_then(|facts| facts.by_identifier(item_identifier));
+    if fact.is_some_and(|fact| fact.traits.contains(assets::facts::ItemTraits::SHIELD))
+        || geometry == "geometry.shield"
+    {
         return EquipmentCategory::Shield;
     }
-    if item_identifier == "minecraft:elytra" || geometry == assets::ELYTRA_GEOMETRY_IDENTIFIER {
+    if fact.is_some_and(|fact| fact.traits.contains(assets::facts::ItemTraits::GLIDER))
+        || geometry == assets::ELYTRA_GEOMETRY_IDENTIFIER
+    {
         return EquipmentCategory::Elytra;
     }
-    let armor = |needle: &str| item_identifier.contains(needle) || geometry.contains(needle);
-    if armor("helmet") {
-        EquipmentCategory::Armor {
-            slot: ArmorSlot::Helmet,
-        }
-    } else if armor("chestplate") {
-        EquipmentCategory::Armor {
-            slot: ArmorSlot::Chestplate,
-        }
-    } else if armor("leggings") {
-        EquipmentCategory::Armor {
-            slot: ArmorSlot::Leggings,
-        }
-    } else if armor("boots") {
-        EquipmentCategory::Armor {
-            slot: ArmorSlot::Boots,
-        }
-    } else {
-        EquipmentCategory::Held
+    use assets::item::armour::ItemArmourSlot as S;
+    match fact.and_then(|fact| fact.armour_slot) {
+        Some(slot) => EquipmentCategory::Armor {
+            slot: match slot {
+                S::Head => ArmorSlot::Helmet,
+                S::Chest => ArmorSlot::Chestplate,
+                S::Legs => ArmorSlot::Leggings,
+                S::Feet => ArmorSlot::Boots,
+            },
+        },
+        None => EquipmentCategory::Held,
     }
 }
 

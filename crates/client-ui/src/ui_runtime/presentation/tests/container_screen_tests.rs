@@ -13,6 +13,7 @@ use ui_screens::container_actions::InventoryCellHit;
 
 mod furnace_fuel_tests;
 mod furnace_recipe_tests;
+mod hotbar_open_tests;
 mod inventory_layout_tests;
 mod prewarm_tests;
 
