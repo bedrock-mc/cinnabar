@@ -17,6 +17,7 @@ test-support = []
 [dependencies]
 anyhow.workspace = true
 bridge = { path = "../bridge" }
+crash-report = { path = "../crash-report" }
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
 launcher = { path = "../launcher" }

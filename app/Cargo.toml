@@ -74,6 +74,7 @@ block-transform = { path = "../crates/block-transform" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
 profiling = { version = "=1.0.18", default-features = false, features = ["profile-with-tracing"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
+crash-report = { path = "../crates/crash-report" }
 diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
 client-presentation = { path = "../crates/client-presentation" }

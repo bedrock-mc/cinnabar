@@ -4,6 +4,7 @@ pub mod console;
 pub mod markers;
 pub mod metrics;
 mod rotating_log;
+pub mod session;
 
 /// Writes one diagnostic marker and flushes it immediately.
 pub fn write_stdout_marker(stdout: &mut impl std::io::Write, marker: &str) {

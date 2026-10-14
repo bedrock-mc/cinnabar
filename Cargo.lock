@@ -2116,6 +2116,7 @@ dependencies = [
  "client-state",
  "client-ui",
  "client-world",
+ "crash-report",
  "crossbeam-channel",
  "developer-control",
  "diagnostics",
@@ -2971,6 +2972,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd76efe2edc25d9f062aaf0a16c7528a30c8ba5782afe6296237ed48d8d6127c"
 
 [[package]]
+name = "crash-report"
+version = "0.1.20"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3187,6 +3197,7 @@ dependencies = [
 name = "devtool"
 version = "0.1.20"
 dependencies = [
+ "crash-report",
  "csv",
  "ctrlc",
  "quick-xml",
@@ -4685,6 +4696,7 @@ dependencies = [
  "anyhow",
  "async-io",
  "bridge",
+ "crash-report",
  "crossbeam-channel",
  "ctrlc",
  "futures-lite",

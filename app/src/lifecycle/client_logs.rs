@@ -1,9 +1,6 @@
 //! Client diagnostics stay at the app boundary, outside engine-free launcher services.
 use launcher::install_layout::InstallLayout;
-use std::{
-    backtrace::Backtrace,
-    io::{IsTerminal, Write},
-};
+use std::io::Write;
 
 const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
 
@@ -32,19 +29,16 @@ pub(super) fn capture(layout: &InstallLayout) {
     );
 }
 
-/// Records terminal panics in the client log and flushes around the launcher panic hook.
+/// Writes a crash folder for each panic or native fault, flushing the client log around it.
 pub(super) fn install_panic_hook(layout: &InstallLayout) {
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        if std::io::stderr().is_terminal() {
-            diagnostics::console::console().write(
-                diagnostics::console::Stream::FileOnly,
-                format!("{info}\n{}\n", Backtrace::force_capture()).into_bytes(),
-            );
-        }
-        previous(info);
-    }));
-    launcher_host::lifecycle::crash::install_panic_hook(layout, || {
+    let identity = crash_report::report::Identity {
+        session_id: diagnostics::session::id().to_owned(),
+        started_at_ms: diagnostics::session::started_at_ms(),
+        release: env!("CARGO_PKG_VERSION").to_owned(),
+        commit: diagnostics::session::COMMIT.to_owned(),
+        build_profile: diagnostics::session::BUILD_PROFILE.to_owned(),
+    };
+    launcher_host::lifecycle::crash::install_panic_hook(layout, identity, || {
         diagnostics::console::flush_before_exit();
     });
 }

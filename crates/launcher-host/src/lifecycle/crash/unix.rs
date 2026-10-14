@@ -1,7 +1,9 @@
-//! Fatal Unix signals write prebuilt metadata with async-signal-safe calls, then restore handling.
+//! Fatal Unix signals write a prebuilt crash folder report with async-signal-safe calls, then
+//! restore handling.
 
+use super::Context;
 use crate::renderer_startup::Attempt;
-use launcher::install_layout::InstallLayout;
+use crash_report::{folder, report::Kind};
 use std::{
     ffi::CString,
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
@@ -14,42 +16,35 @@ pub(crate) const SIGNALS: [i32; 5] = [
     libc::SIGFPE,
     libc::SIGABRT,
 ];
+/// Report fields known only when the signal arrives; the handler appends them in this order.
+const DEFERRED: [&str; 3] = ["uptime_ms", "thread", "native"];
 static CAPTURE: AtomicPtr<Capture> = AtomicPtr::new(std::ptr::null_mut());
-static METADATA: AtomicPtr<Vec<u8>> = AtomicPtr::new(std::ptr::null_mut());
+static PENDING: AtomicPtr<Pending> = AtomicPtr::new(std::ptr::null_mut());
 static REPORTING: AtomicBool = AtomicBool::new(false);
 
 struct Capture {
-    path: CString,
     previous: [libc::sigaction; SIGNALS.len()],
 }
 
-/// Opens a private report destination and saves every previous handler before installing ours.
-pub(super) fn install(layout: &InstallLayout) {
-    use std::{
-        os::unix::ffi::OsStrExt,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+/// Everything the handler writes except the deferred fields, prepared outside the handler.
+struct Pending {
+    folder: CString,
+    report: CString,
+    /// `report.json` without its deferred fields or closing brace.
+    prefix: Vec<u8>,
+    started_at_ms: u64,
+}
+
+/// Saves every previous handler before installing ours, then prepares the first report.
+pub(super) fn install(context: &'static Context) {
     if !CAPTURE.load(Ordering::Acquire).is_null() {
         return;
     }
-    if std::fs::create_dir_all(layout.crash_dir()).is_err() {
+    if std::fs::create_dir_all(&context.crash_dir).is_err() {
         return;
     }
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |time| time.as_millis());
-    let Ok(path) = CString::new(
-        layout
-            .crash_dir()
-            .join(format!("crash-{millis}-{}-unix.json", std::process::id()))
-            .as_os_str()
-            .as_bytes(),
-    ) else {
-        return;
-    };
     // SAFETY: A zeroed sigaction is initialized fully before installation and query writes all fields.
     let mut capture = Box::new(Capture {
-        path,
         previous: unsafe { std::mem::zeroed() },
     });
     for (i, signal) in SIGNALS.iter().enumerate() {
@@ -58,7 +53,7 @@ pub(super) fn install(layout: &InstallLayout) {
             libc::sigaction(*signal, std::ptr::null(), &mut capture.previous[i]);
         }
     }
-    update(super::renderer_context(&layout.user_data_root).as_ref());
+    update(super::renderer_context(&context.data_root).as_ref());
     let previous = capture.previous;
     CAPTURE.store(Box::into_raw(capture), Ordering::Release);
     for (signal, saved) in SIGNALS.into_iter().zip(previous) {
@@ -74,16 +69,41 @@ pub(super) fn install(layout: &InstallLayout) {
     }
 }
 
-/// Publishes immutable metadata outside the handler; old snapshots stay valid until process exit.
+/// Prepares the folder path and report prefix outside the handler; the folder is named by the
+/// time of this update. Old snapshots stay valid until process exit.
 pub(crate) fn update(attempt: Option<&Attempt>) {
-    let Ok(mut bytes) = serde_json::to_vec(&serde_json::json!({
-        "source": "native", "release": env!("CARGO_PKG_VERSION"),
-        "os": std::env::consts::OS, "arch": std::env::consts::ARCH, "renderer": attempt,
-    })) else {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(context) = super::CONTEXT.get() else {
         return;
     };
-    bytes.pop(); // The signal callback appends its numeric fault fields and the closing brace.
-    METADATA.store(Box::into_raw(Box::new(bytes)), Ordering::Release);
+    let now_ms = super::now_ms();
+    let report = super::report(
+        context,
+        Kind::Native,
+        "Fatal signal".into(),
+        attempt,
+        now_ms,
+    );
+    let Ok(prefix) = report.open_json(&DEFERRED) else {
+        return;
+    };
+    let path = context.crash_dir.join(folder::name(
+        now_ms,
+        &format!("{}-signal", context.identity.session_id),
+    ));
+    let (Ok(folder), Ok(report)) = (
+        CString::new(path.as_os_str().as_bytes()),
+        CString::new(path.join(folder::REPORT_FILE).as_os_str().as_bytes()),
+    ) else {
+        return;
+    };
+    let pending = Pending {
+        folder,
+        report,
+        prefix,
+        started_at_ms: context.identity.started_at_ms,
+    };
+    PENDING.store(Box::into_raw(Box::new(pending)), Ordering::Release);
 }
 
 /// Writes without allocation or locks, then forwards the original fault to the saved handler.
@@ -98,28 +118,29 @@ unsafe extern "C" fn unhandled(
     }
     // SAFETY: Published snapshots are immutable and retained for the process lifetime.
     let capture = unsafe { &*capture };
-    if !REPORTING.swap(true, Ordering::AcqRel) {
-        let metadata = METADATA.load(Ordering::Acquire);
-        // SAFETY: The path is prebuilt and open/write/close are async-signal-safe.
+    let pending = PENDING.load(Ordering::Acquire);
+    if !REPORTING.swap(true, Ordering::AcqRel) && !pending.is_null() {
+        // SAFETY: Published snapshots are immutable and retained for the process lifetime.
+        let pending = unsafe { &*pending };
+        // SAFETY: The paths are prebuilt; mkdir, open, write and close are async-signal-safe.
         let fd = unsafe {
+            libc::mkdir(pending.folder.as_ptr(), 0o700);
             libc::open(
-                capture.path.as_ptr(),
+                pending.report.as_ptr(),
                 libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
                 0o600,
             )
         };
         if fd >= 0 {
-            if !metadata.is_null() {
-                let bytes = unsafe { &*metadata };
-                unsafe {
-                    write_all(fd, bytes);
-                }
-            }
             let mut buffer = Buffer {
-                bytes: [0; 160],
+                bytes: [0; BUFFER_BYTES],
                 len: 0,
             };
-            buffer.text(b",\"signal\":");
+            buffer.text(b",\"uptime_ms\":");
+            buffer.number(uptime_ms(pending.started_at_ms));
+            buffer.text(b",\"thread\":{\"name\":null,\"id\":\"");
+            buffer.number(thread_id());
+            buffer.text(b"\"},\"native\":{\"signal\":");
             buffer.number(signal as u64);
             buffer.text(b",\"signal_code\":");
             let code = if info.is_null() {
@@ -137,9 +158,11 @@ unsafe extern "C" fn unhandled(
             } else {
                 unsafe { (*info).si_addr() as u64 }
             });
-            buffer.text(b"}");
+            buffer.text(b"}}");
             unsafe {
+                write_all(fd, &pending.prefix);
                 write_all(fd, &buffer.bytes[..buffer.len]);
+                libc::fsync(fd);
                 libc::close(fd);
             }
         }
@@ -150,6 +173,44 @@ unsafe extern "C" fn unhandled(
             forward(signal, info, context, &capture.previous[index]);
         }
     }
+}
+
+/// Milliseconds since the session began, from the async-signal-safe `clock_gettime`.
+fn uptime_ms(started_at_ms: u64) -> u64 {
+    // SAFETY: clock_gettime only writes the supplied timespec.
+    let mut now: libc::timespec = unsafe { std::mem::zeroed() };
+    if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut now) } != 0 {
+        return 0;
+    }
+    (now.tv_sec as u64)
+        .saturating_mul(1000)
+        .saturating_add(now.tv_nsec as u64 / 1_000_000)
+        .saturating_sub(started_at_ms)
+}
+
+/// The kernel id of the faulting thread, read without locks.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn thread_id() -> u64 {
+    // SAFETY: gettid is a raw system call without side effects.
+    (unsafe { libc::gettid() }) as u64
+}
+
+/// The kernel id of the faulting thread, read without locks.
+#[cfg(target_vendor = "apple")]
+fn thread_id() -> u64 {
+    let mut id = 0_u64;
+    // SAFETY: A zero thread selects the caller; the id is written to owned storage.
+    unsafe {
+        libc::pthread_threadid_np(0, &mut id);
+    }
+    id
+}
+
+/// The faulting thread's pthread handle, read without locks.
+#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+fn thread_id() -> u64 {
+    // SAFETY: pthread_self reads the caller's thread pointer.
+    (unsafe { libc::pthread_self() }) as usize as u64
 }
 
 /// Calls a saved handler with the original fault, or lets a hardware instruction fault again.
@@ -223,8 +284,11 @@ unsafe fn write_all(fd: i32, mut bytes: &[u8]) {
     }
 }
 
+/// Fits the deferred fields' fixed text plus five 20-digit numbers and a sign.
+const BUFFER_BYTES: usize = 256;
+
 struct Buffer {
-    bytes: [u8; 160],
+    bytes: [u8; BUFFER_BYTES],
     len: usize,
 }
 impl Buffer {
@@ -256,6 +320,7 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crash_report::report::Identity;
     static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
 
     /// Checks that chaining retains the kernel's fault address, cause and machine context.
@@ -316,7 +381,14 @@ mod tests {
                 libc::signal(signal, libc::SIG_DFL);
             }
         }
-        install(&layout);
+        let identity = Identity {
+            session_id: "0123456789abcdef".into(),
+            started_at_ms: 0,
+            release: "1.2.3".into(),
+            commit: "abc123".into(),
+            build_profile: "debug".into(),
+        };
+        install(super::super::configure(&layout, identity));
         let attempt = crate::renderer_startup::Attempt {
             backend: launcher::graphics_backend::Backend::Metal,
             adapter: None,
@@ -396,24 +468,34 @@ mod tests {
             } else {
                 assert_eq!(status.signal(), Some(signal));
             }
-            let reports = super::super::reports(&directory.path().join("crashes"));
-            assert_eq!(reports.len(), 1);
-            let report: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&reports[0]).unwrap()).unwrap();
-            assert_eq!(report["signal"], signal);
+            let folders = folder::list(&directory.path().join("crashes"));
+            assert_eq!(folders.len(), 1);
+            assert!(
+                folders[0]
+                    .to_str()
+                    .unwrap()
+                    .ends_with("-0123456789abcdef-signal")
+            );
+            let report = folder::read(&folders[0]).unwrap();
+            assert_eq!(report.kind, Kind::Native);
+            assert_eq!(report.session_id, "0123456789abcdef");
+            assert!(report.uptime_ms > 0);
+            assert_eq!(report.thread.name, None);
+            assert!(report.thread.id.parse::<u64>().is_ok());
+            let native = report.native.unwrap();
+            assert_eq!(native["signal"], signal);
             if hardware {
-                assert!(report["signal_code"].as_i64().unwrap() > 0);
-                assert!(report["fault_address"].as_u64().unwrap() > 0);
+                assert!(native["signal_code"].as_i64().unwrap() > 0);
+                assert!(native["fault_address"].as_u64().unwrap() > 0);
             }
-            assert_eq!(report["renderer"]["stage"], "creating_device");
-            assert_eq!(report["source"], "native");
+            assert_eq!(report.renderer.unwrap()["stage"], "creating_device");
         }
     }
 
     #[test]
     fn fault_numbers_fit_without_allocating_or_truncating() {
         let mut buffer = Buffer {
-            bytes: [0; 160],
+            bytes: [0; BUFFER_BYTES],
             len: 0,
         };
         buffer.text(b"{");

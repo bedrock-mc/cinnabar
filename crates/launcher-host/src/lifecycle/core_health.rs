@@ -42,7 +42,8 @@ pub fn open_core_log(layout: &InstallLayout) -> Option<File> {
     use std::io::Write;
     let _ = writeln!(
         log,
-        "CORE_SESSION_START timestamp_ms={}",
+        "{} timestamp_ms={}",
+        crash_report::section::CORE_SESSION_START,
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

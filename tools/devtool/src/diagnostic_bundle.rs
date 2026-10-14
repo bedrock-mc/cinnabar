@@ -1,5 +1,6 @@
 //! Local, redacted diagnostics; raw account data is never added to an archive.
 use crate::DevtoolError;
+use crash_report::{folder, section};
 use regex::Regex;
 use std::{
     fs,
@@ -110,7 +111,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             client.push_str(&text);
         }
     }
-    let client = latest_session(&client, "CLIENT_SESSION_START");
+    let client = section::latest(&client, section::CLIENT_SESSION_START);
     entries.push(("client.log".to_owned(), client.to_owned()));
     let core = core_session_tail(&root.join("logs/core.log"), client).unwrap_or_default();
     let timeline = core
@@ -125,39 +126,27 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         .join("\n");
     entries.push(("core.log".into(), core));
     entries.push(("join-timeline.txt".into(), timeline));
-    let session_start = Regex::new(r"timestamp_ms=(\d+)")
-        .unwrap()
-        .captures(client)
-        .and_then(|capture| capture[1].parse::<u128>().ok());
-    let mut reports: Vec<_> = fs::read_dir(root.join("crashes"))
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.path().extension().is_some_and(|ext| ext == "json")
-                && session_start.is_none_or(|start| {
-                    entry
-                        .file_name()
-                        .to_str()
-                        .and_then(|name| name.strip_prefix("crash-"))
-                        .and_then(|name| name.split('-').next())
-                        .and_then(|stamp| stamp.parse::<u128>().ok())
-                        .is_some_and(|stamp| stamp >= start)
-                })
-        })
-        .collect();
-    reports.sort_by_key(|entry| entry.file_name());
-    for (index, entry) in reports.iter().rev().take(8).enumerate() {
-        if fs::metadata(entry.path()).is_ok_and(|meta| meta.len() <= LOG_LIMIT)
-            && let Ok(text) = fs::read_to_string(entry.path())
-        {
-            entries.push((format!("crashes/report-{index}.json"), text));
-        }
-    }
     let session_identity = client
         .lines()
-        .find(|line| line.contains("CLIENT_SESSION_START"))
-        .unwrap_or("session build identity unavailable");
+        .find(|line| line.contains(section::CLIENT_SESSION_START));
+    for crash in session_crashes(&root.join("crashes"), session_identity) {
+        let Some(name) = crash.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        for member in [
+            folder::REPORT_FILE,
+            folder::CLIENT_LOG_FILE,
+            folder::CORE_LOG_FILE,
+        ] {
+            let path = crash.join(member);
+            if fs::metadata(&path).is_ok_and(|meta| meta.len() <= LOG_LIMIT)
+                && let Ok(text) = fs::read_to_string(&path)
+            {
+                entries.push((format!("crashes/{name}/{member}"), text));
+            }
+        }
+    }
+    let session_identity = session_identity.unwrap_or("session build identity unavailable");
     entries.push((
         "build.txt".into(),
         format!(
@@ -179,9 +168,33 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     Ok(())
 }
 
-/// Starts at the latest session marker, preserving rotation tails when the marker was evicted.
-fn latest_session<'a>(text: &'a str, marker: &str) -> &'a str {
-    text.rfind(marker).map_or(text, |start| &text[start..])
+/// The newest crash folders of the session whose header is `header`, newest first.
+///
+/// A header with a `session=` id selects its reports; an older header without one selects
+/// folders created no earlier than its `timestamp_ms` second.
+fn session_crashes(crash_dir: &Path, header: Option<&str>) -> Vec<PathBuf> {
+    let id = header.and_then(|line| header_field(line, "session"));
+    let start = header
+        .and_then(|line| header_field(line, "timestamp_ms"))
+        .and_then(|value| value.parse::<u64>().ok());
+    let mut crashes: Vec<PathBuf> = folder::list(crash_dir)
+        .into_iter()
+        .filter(|crash| match id {
+            Some(id) => folder::read(crash).is_ok_and(|report| report.session_id == id),
+            None => start.is_none_or(|start| {
+                folder::created_at_ms(crash).is_some_and(|created| created + 1000 > start)
+            }),
+        })
+        .collect();
+    crashes.reverse();
+    crashes.truncate(folder::MAX_REPORTS);
+    crashes
+}
+
+/// The value of a whitespace-separated `key=value` field on a header line.
+fn header_field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    line.split_whitespace()
+        .find_map(|field| field.strip_prefix(key)?.strip_prefix('='))
 }
 
 /// Scans both core-log generations for the client boundary, then reads a bounded combined tail.
@@ -198,7 +211,11 @@ fn core_session_tail(path: &Path, client: &str) -> std::io::Result<String> {
         .unwrap()
         .captures(client)
         .and_then(|capture| capture[1].parse::<u128>().ok());
-    let marker = regex::bytes::Regex::new(r"CORE_SESSION_START timestamp_ms=(\d+)\r?\n").unwrap();
+    let marker = regex::bytes::Regex::new(&format!(
+        r"{} timestamp_ms=(\d+)\r?\n",
+        section::CORE_SESSION_START
+    ))
+    .unwrap();
     let mut buffer = [0u8; 64 << 10];
     let mut carry = Vec::new();
     let mut offset = 0u64;

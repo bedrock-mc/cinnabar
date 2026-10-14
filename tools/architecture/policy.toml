@@ -308,6 +308,14 @@ allowed_dependencies = ["assets", "chunk-pipeline", "libc", "meshing", "render-m
 forbidden_dependencies = ["bevy", "protocol"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 
+# Crash report schema, folder layout, log sections and retention; Bevy-free and offline.
+[[crates]]
+name = "crash-report"
+path = "crates/crash-report"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio", "hyper"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*", "reqwest", "tokio", "hyper*"]
+
 [[crates]]
 name = "acceptance"
 path = "crates/acceptance"
@@ -387,7 +395,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -534,7 +542,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["workspace-declarations"]
+allowed_dependencies = ["crash-report", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -1072,6 +1080,7 @@ dependency_free = true
 [timing]
 clock_free_crates = [
     "crates/block-transform",
+    "crates/crash-report",
     "crates/input",
     "crates/inventory",
     "crates/json-ui",
@@ -1245,7 +1254,7 @@ exports = [
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"
-allowed_dependencies = ["bridge", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
+allowed_dependencies = ["bridge", "crash-report", "launcher", "protocol", "resource-pack", "server-experience", "test-time", "update-manifest", "update-installer"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 

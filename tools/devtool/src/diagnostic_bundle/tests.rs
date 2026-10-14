@@ -446,13 +446,13 @@ fn newest_session_excludes_previous_launches() {
     };
     let text = "old\nCLIENT_SESSION_START timestamp_ms=1\nfirst\nCLIENT_SESSION_START timestamp_ms=2\nlast\n";
     assert_eq!(
-        latest_session(text, "CLIENT_SESSION_START"),
+        section::latest(text, section::CLIENT_SESSION_START),
         "CLIENT_SESSION_START timestamp_ms=2\nlast\n"
     );
     assert_eq!(
         recent_core_session(
             "CORE_SESSION_START timestamp_ms=1\nold\nCORE_SESSION_START timestamp_ms=3\nnew",
-            latest_session(text, "CLIENT_SESSION_START")
+            section::latest(text, section::CLIENT_SESSION_START)
         ),
         "CORE_SESSION_START timestamp_ms=3\nnew"
     );
@@ -469,5 +469,96 @@ fn newest_session_excludes_previous_launches() {
             "legacy client log"
         ),
         "CORE_SESSION_START timestamp_ms=1\nold"
+    );
+}
+
+fn crash(crash_dir: &Path, session_id: &str, message: &str, now_ms: u64) -> PathBuf {
+    let identity = crash_report::report::Identity {
+        session_id: session_id.into(),
+        started_at_ms: now_ms - 1_000,
+        release: "1.2.3".into(),
+        commit: "abc123".into(),
+        build_profile: "release".into(),
+    };
+    let report = crash_report::report::Report::new(
+        crash_report::report::Kind::Panic,
+        message.into(),
+        &identity,
+        now_ms,
+    );
+    let logs = folder::Logs {
+        client: format!("CLIENT_SESSION_START session={session_id}\n{message} client\n")
+            .into_bytes(),
+        core: format!("CORE_SESSION_START timestamp_ms=1\n{message} core\n").into_bytes(),
+    };
+    folder::write(crash_dir, &report, &logs, now_ms).unwrap()
+}
+
+fn archive_members(root: &Path) -> std::collections::BTreeMap<String, String> {
+    let path = fs::read_dir(root.join("diag"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    (0..zip.len())
+        .map(|index| {
+            let mut member = zip.by_index(index).unwrap();
+            let mut text = String::new();
+            member.read_to_string(&mut text).unwrap();
+            (member.name().to_owned(), text)
+        })
+        .collect()
+}
+
+#[test]
+fn bundles_only_the_crash_folders_of_the_latest_session() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("logs")).unwrap();
+    fs::write(
+        temp.path().join("logs/client.log"),
+        "CLIENT_SESSION_START session=00000000000000aa timestamp_ms=1000\nold\nCLIENT_SESSION_START version=1 session=00000000000000bb timestamp_ms=5000000\ncurrent\n",
+    )
+    .unwrap();
+    let crash_dir = temp.path().join("crashes");
+    let previous = crash(&crash_dir, "00000000000000aa", "earlier panic", 2_000_000);
+    let current = crash(&crash_dir, "00000000000000bb", "current panic", 6_000_000);
+    fs::write(
+        crash_dir.join("crash-1-00000000000000000000.json"),
+        r#"{"message":"legacy"}"#,
+    )
+    .unwrap();
+    run(&["--data-root".into(), temp.path().display().to_string()]).unwrap();
+    let members = archive_members(temp.path());
+    let name = current.file_name().unwrap().to_str().unwrap();
+    let report: serde_json::Value =
+        serde_json::from_str(&members[&format!("crashes/{name}/report.json")]).unwrap();
+    assert_eq!(report["message"], "current panic");
+    assert_eq!(report["kind"], "panic");
+    assert!(members[&format!("crashes/{name}/client.log")].contains("current panic client"));
+    assert!(members[&format!("crashes/{name}/core.log")].contains("current panic core"));
+    let previous = previous.file_name().unwrap().to_str().unwrap();
+    assert!(members.keys().all(|member| !member.contains(previous)));
+    let all: String = members.values().cloned().collect();
+    assert!(!all.contains("earlier panic"));
+    assert!(!all.contains("legacy"));
+}
+
+#[test]
+fn headers_without_a_session_id_select_crashes_by_time() {
+    let temp = tempfile::tempdir().unwrap();
+    let crash_dir = temp.path().join("crashes");
+    let before = crash(&crash_dir, "00000000000000aa", "before", 1_000_000);
+    let same_second = crash(&crash_dir, "00000000000000bb", "same second", 5_000_000);
+    let after = crash(&crash_dir, "00000000000000cc", "after", 9_000_000);
+    let header = "CLIENT_SESSION_START version=1 commit=abc timestamp_ms=5000400";
+    assert_eq!(
+        session_crashes(&crash_dir, Some(header)),
+        [after.clone(), same_second.clone()]
+    );
+    assert_eq!(
+        session_crashes(&crash_dir, None),
+        [after, same_second, before]
     );
 }

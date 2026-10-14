@@ -174,6 +174,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/diagnostics` | `diagnostics` | Runtime metrics, logging and shared diagnostic markers; use its bounded logs and observation contracts. | `acceptance` evaluates evidence; subsystem owners produce observations. |
+| `crates/crash-report` | `crash-report` | Crash report schema, `crashes/<UTC time>-<id>/` folder layout, session log sections and retention; write, read, list and prune reports through it with caller-supplied time. | `launcher-host` installs the crash handlers that write reports; `devtool` bundles them; `diagnostics` owns the session identity. |
 | `crates/acceptance` | `acceptance` | Optional acceptance evidence over committed runtime observations; use its control and witness adapters. | `diagnostics` owns marker contracts; world and render owners publish committed observations. |
 | `crates/developer-control` | `developer-control` | Authenticated loopback control protocol, client/server and recording primitives; use it to drive developer builds. | `app` applies commands; `cinnabar-mcp` exposes them as tools. |
 | `crates/test-time` | `test-time` | Test-only manual clocks and bounded eventual waits; use these instead of sleeping in tests. | Domain owners accept caller time; edge owners read real clocks. |

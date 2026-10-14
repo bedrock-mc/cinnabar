@@ -16,6 +16,7 @@ reads = [
 ]
 
 [dependencies]
+crash-report = { path = "../../crates/crash-report" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 csv = "1"

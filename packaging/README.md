@@ -129,8 +129,13 @@ The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri
 code and URL; no packaging-specific UI exists.
 
 ## Crash reports
-A panic hook writes `crashes/*.json` (message, backtrace, core log tail) for local debugging; the newest
-reports are kept and nothing is uploaded.
+Each panic or native fault writes one folder, `crashes/<UTC yyyymmdd-hhmmss>-<session id>/`, under
+the user data directory. It holds `report.json` (schema 1: kind, message, thread, backtrace, release,
+commit, build profile, OS, architecture, GPU and driver, uptime, session ID and renderer attempt;
+native faults add a `native` object), plus `client.log` and `core.log` with this session's part of each
+log, up to 1 MiB apiece. Folders from fatal Unix signals end in `-signal` and hold only `report.json`.
+The newest 8 folders are kept, pruned at startup and before each write. `devtool diag` bundles the
+latest session's folders after redaction. Nothing is uploaded.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and
