@@ -22,7 +22,11 @@ fn actors() -> Vec<Aabb> {
         .iter()
         .filter(|record| record.fact.collidable)
         .map(|record| {
-            let [width, height] = record.fact.collision.unwrap().map(f64::from);
+            let [width, height] = record
+                .fact
+                .collision
+                .map(|size| size.map(f64::from))
+                .unwrap_or([sim::PLAYER_WIDTH, sim::PLAYER_HEIGHT]);
             Aabb::new(
                 Vec3::new(8.0 - width / 2.0, 4.0, 8.0 - width / 2.0),
                 Vec3::new(8.0 + width / 2.0, 4.0 + height, 8.0 + width / 2.0),

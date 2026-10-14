@@ -27,7 +27,10 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
     let boxes: Vec<_> = store.movement_colliders(0, 0).collect();
     assert_eq!(boxes.len(), records.len());
     for (bounds, record) in boxes.iter().zip(&records) {
-        let [width, height] = record.fact.collision.unwrap();
+        let [width, height] = record.fact.collision.unwrap_or([
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        ]);
         assert!((bounds.1[0] - bounds.0[0] - width).abs() < 1e-6);
         assert!((bounds.1[1] - bounds.0[1] - height).abs() < 1e-6);
     }
@@ -35,6 +38,40 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
     assert_eq!(store.movement_colliders(1, 100).count(), records.len() - 2);
     store.rider_to_ridden.clear();
     assert_eq!(store.movement_colliders(1, 100).count(), records.len() - 1);
+}
+
+#[test]
+fn collidable_actors_without_definition_sizes_use_the_server_box() {
+    let mut store = ActorStore::new(1, 0);
+    let record = EntityFacts::pinned()
+        .records
+        .iter()
+        .find(|record| record.fact.collidable && record.fact.collision.is_none())
+        .unwrap();
+    let size = 1.0;
+    store.apply(
+        1,
+        1,
+        super::super::tests::entity_spawn(
+            1,
+            1,
+            &record.identifier,
+            [
+                ActorMetadata {
+                    key: ActorDataKey::Width.wire_value(),
+                    value: ActorMetadataValue::Float(size),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::Height.wire_value(),
+                    value: ActorMetadataValue::Float(size),
+                },
+            ]
+            .into(),
+        ),
+    );
+    let (min, max) = store.movement_colliders(0, 0).next().unwrap();
+    assert_eq!(max[0] - min[0], size);
+    assert_eq!(max[1] - min[1], size);
 }
 
 #[test]

@@ -6486,7 +6486,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   collision flags, excluding the player's own mount. Prediction snapshots retain the actor
   bounds used by each frame after later movement or removal. Landing, side contact, step-up,
   size updates and retained support have deterministic coverage. Controlled live acceptance
-  of boat, chest-boat and shulker collisions remains incomplete.
+  of boat, chest-boat and shulker collisions remains incomplete. Shulker attachment and
+  lid-dependent bounds still need their specialized actor-shape implementation.
   Mounted prediction retains the seated posture while an exit request is pending, including
   during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive
