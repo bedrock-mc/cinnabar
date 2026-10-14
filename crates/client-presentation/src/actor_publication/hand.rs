@@ -268,11 +268,16 @@ pub(super) fn vanilla_hand_source(
         });
         let layer = modern.or_else(|| {
             if index == 0 {
-                equipment.first_person_item_for_profile(
+                equipment.first_person_item_with_use(
                     &presentation.submission,
                     item,
                     hand,
                     profile,
+                    item_animation
+                        .map(|input| {
+                            attachable_hand_input(equipment_input, owner_equipment, input, false)
+                        })
+                        .unwrap_or_default(),
                 )
             } else {
                 equipment.first_person_offhand(&presentation.submission, item)

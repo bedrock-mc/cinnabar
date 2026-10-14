@@ -35,6 +35,7 @@ fn armor_pack(leather: bool) -> Vec<(Box<str>, Vec<u8>)> {
 /// Creates a stack with explicit rendering facts instead of installed item assets.
 fn stack(identifier: &str, leather: bool, enchanted: bool) -> WornItem {
     WornItem {
+        charged_projectile: None,
         use_facts: Default::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),

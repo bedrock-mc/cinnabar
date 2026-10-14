@@ -123,3 +123,66 @@ fn signed_pitch_keeps_already_signed_values_bit_for_bit() {
         assert_eq!(signed_pitch(pitch).to_bits(), pitch.to_bits());
     }
 }
+
+/// Moves actor 1 to a native origin height through the remote movement route.
+fn move_native_y(store: &mut ActorStore, sequence: u64, native_y: f32, ground: bool, snap: bool) {
+    let offset = store.get(1).unwrap().network_position_offset();
+    store.apply(
+        1,
+        sequence,
+        ActorEvent::Move(ActorMoveEvent {
+            dimension: 0,
+            runtime_id: 1,
+            position: [None, Some(native_y - offset), None],
+            position_origin: ActorPositionOrigin::Feet,
+            pitch: None,
+            yaw: None,
+            head_yaw: None,
+            on_ground: Some(ground),
+            teleported: snap,
+            player_mode: None,
+            source_tick: None,
+            interpolation: Default::default(),
+        }),
+    );
+}
+
+#[test]
+fn grounded_interpolation_lifts_onto_a_block_surface_except_minecarts_and_airborne_actors() {
+    for (kind, ground, lifted) in [
+        ("minecraft:zombie", true, true),
+        ("player", true, true),
+        ("minecraft:chest_minecart", true, false),
+        ("minecraft:zombie", false, false),
+    ] {
+        let mut store = ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut spawn) = crate::actor_store::tests::spawn(1, 1) else {
+            unreachable!();
+        };
+        spawn.kind = match kind {
+            "player" => ActorKind::Player {
+                uuid: [1; 16],
+                username: "Remote".into(),
+            },
+            identifier => ActorKind::Entity {
+                identifier: identifier.into(),
+            },
+        };
+        store.apply(1, 1, ActorEvent::Spawn(spawn));
+        move_native_y(&mut store, 2, 63.99, ground, true);
+        move_native_y(&mut store, 3, 63.995, ground, false);
+        store.advance_interpolation_ticks(1);
+        let native = store.get(1).unwrap().native_position()[1];
+        let expected = if lifted { 64.0 } else { 63.99 + 0.005 / 3.0 };
+        assert!(
+            (native - expected).abs() < 1.0e-4,
+            "{kind} {ground}: {native}"
+        );
+        store.advance_interpolation_ticks(2);
+        let native = store.get(1).unwrap().native_position()[1];
+        assert!(
+            (native - 63.995).abs() < 1.0e-4,
+            "final step lands on the target: {native}"
+        );
+    }
+}

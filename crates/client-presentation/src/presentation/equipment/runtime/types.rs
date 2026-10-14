@@ -19,6 +19,8 @@ pub(super) struct JavaRasterFrame {
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
+    /// Loaded projectile admitted for this stack, independent of display metadata.
+    pub charged_projectile: Option<assets::item_use::ItemProjectileRole>,
     /// Grip admitted by the numeric item registry, copied from the canonical stack.
     pub grip: assets::item::grip::ItemGrip,
     /// Use and animation facts from the numerical registry admission.

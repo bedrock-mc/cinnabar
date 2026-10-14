@@ -10,7 +10,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use std::sync::Arc;
 
 /// Builds a protocol-spawned skeleton with a distinct owner lifetime.
-fn owner() -> client_world::ActorSnapshot {
+pub(in crate::presentation::equipment) fn owner() -> client_world::ActorSnapshot {
     let mut world = WorldAuthority::new(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -54,7 +54,7 @@ fn owner() -> client_world::ActorSnapshot {
 }
 
 /// Supplies retained owner timing and named bones to equipment publication.
-fn owner_rig<'a>(
+pub(in crate::presentation::equipment) fn owner_rig<'a>(
     owner: &client_world::ActorSnapshot,
     names: &'a [Box<str>],
 ) -> ActorRigSnapshot<'a> {
@@ -99,6 +99,7 @@ fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            charged_projectile: None,
             use_facts: client_world::resolve_item_use(
                 &assets::item_use::diagnostic_profile(identifier),
                 None,
