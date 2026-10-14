@@ -1,5 +1,8 @@
 use crate::{Channel, CloseReason, RelayTransport};
-use bridge::contract::*;
+use bridge::contract::{
+    RELAY_CHANNEL_CONTROL, RELAY_CONTROL_BYTES, RELAY_CONTROL_PATH, RELAY_PLAY_MESSAGE_BYTES,
+    RELAY_PLAY_PATH, RELAY_SOCKET_PROTOCOL, RELAY_TRANSPORT_PATH,
+};
 use js_sys::{Promise, Uint8Array};
 use std::{
     future::Future,
