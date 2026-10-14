@@ -114,12 +114,14 @@ mod windows {
     }
 }
 
-/// The folder a fatal signal writes, prepared outside the handler; replaced snapshots stay
-/// allocated, since a handler may be reading one. Only startup and the periods without a
-/// monitor prepare new ones.
+/// The folder a fatal signal writes, prepared outside the handler. Only startup and the periods
+/// without a monitor prepare new ones.
 #[cfg(unix)]
 static PREPARED: std::sync::atomic::AtomicPtr<crash_report::prepared::Prepared> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+/// Set once a handler may be reading [`PREPARED`]; snapshots replaced after that stay allocated.
+#[cfg(unix)]
+static READING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// The section buffer, allocated once and used only by the first reporting handler.
 #[cfg(unix)]
 static SCRATCH: std::sync::atomic::AtomicPtr<u8> =
@@ -152,7 +154,12 @@ pub(super) fn prepare(context: &Context) {
         &context.log_sources(),
         now_ms,
     ) {
-        PREPARED.store(Box::into_raw(Box::new(prepared)), Ordering::Release);
+        let replaced = PREPARED.swap(Box::into_raw(Box::new(prepared)), Ordering::SeqCst);
+        if !replaced.is_null() && !READING.load(Ordering::SeqCst) {
+            // SAFETY: No handler has read `PREPARED` yet, and any that does from now on finds
+            // the new snapshot; each replaced pointer is freed by the one swap that took it.
+            drop(unsafe { Box::from_raw(replaced) });
+        }
     }
 }
 
@@ -161,13 +168,14 @@ pub(super) fn prepare(context: &Context) {
 pub(super) fn write_native(crash: &crash_handler::CrashContext) {
     use std::sync::atomic::Ordering;
 
-    let prepared = PREPARED.load(Ordering::Acquire);
+    READING.store(true, Ordering::SeqCst);
+    let prepared = PREPARED.load(Ordering::SeqCst);
     let scratch = SCRATCH.load(Ordering::Acquire);
     if prepared.is_null() || scratch.is_null() {
         return;
     }
-    // SAFETY: Published snapshots and the scratch buffer stay allocated for the process
-    // lifetime; the caller admits one reporting handler, the scratch buffer's only user.
+    // SAFETY: Snapshots stay allocated once `READING` is set, and the scratch buffer for the
+    // process lifetime; the caller admits one reporting handler, the scratch buffer's only user.
     unsafe {
         let scratch =
             std::slice::from_raw_parts_mut(scratch, crash_report::prepared::SCRATCH_BYTES);
