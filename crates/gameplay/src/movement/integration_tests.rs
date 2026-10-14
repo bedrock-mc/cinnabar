@@ -153,6 +153,7 @@ include!("integration_tests/dismount.rs");
 include!("integration_tests/immobile.rs");
 include!("integration_tests/connected_shapes.rs");
 include!("integration_tests/pre_tick.rs");
+include!("integration_tests/teleport.rs");
 
 /// Reads the checked-in protocol target used to stamp synthetic physics registries.
 fn active_content_registry_protocol() -> u32 {
