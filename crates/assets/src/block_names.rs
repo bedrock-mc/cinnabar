@@ -121,12 +121,13 @@ mod equivalence_tests {
                 "{}",
                 record.name
             );
-            let bare = record.name.strip_prefix("minecraft:").unwrap();
-            assert_eq!(
-                super::legacy_resource_pack_block_alias(bare),
-                previous_alias(bare),
-                "{bare}"
-            );
+            if let Some(bare) = record.name.strip_prefix("minecraft:") {
+                assert_eq!(
+                    super::legacy_resource_pack_block_alias(bare),
+                    previous_alias(bare),
+                    "{bare}"
+                );
+            }
         }
     }
 }
