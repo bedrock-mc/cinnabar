@@ -92,12 +92,10 @@ fn block_retry_selection_preserves_current_frame_priority_and_exact_tick() {
             .tick,
         103
     );
-    assert_eq!(
+    assert!(
         runtime
             .press_sample(Crosshair::Miss, &movement, 0, 2)
-            .unwrap()
-            .tick,
-        103
+            .is_none()
     );
 }
 
@@ -541,9 +539,42 @@ fn a_miss_deferred_through_many_frames_resolves_on_the_next_tick() {
         &mut runtime,
         &mut swings,
         Crosshair::Miss,
-        &press_at(sample.into()),
+        &press_at(sample),
         51,
         |_| Ok(()),
     );
     assert!(missed);
+}
+
+/// A frame with several ticks uses the preceding pose; an older queued tick must drain first.
+#[test]
+fn catchup_attack_selection_uses_the_pose_before_the_first_input() {
+    let mut movement = ticker_with_ticks(0);
+    let anchor = movement.build_action_state().unwrap().position;
+    for tick in 101..=103 {
+        let mut sample = crate::test_support::survival_mining::completed(tick);
+        sample.position[0] += (tick - 100) as f32;
+        movement.enqueue_completed_physics(sample).unwrap();
+    }
+    let mut runtime = MeleeRuntime::default();
+    runtime.observe_input(true, false);
+    for crosshair in [
+        Crosshair::Miss,
+        Crosshair::Actor(ActorHit {
+            runtime_id: 9,
+            distance: 2.0,
+            point: [0.0, 1.5, -2.0],
+        }),
+    ] {
+        let selected = runtime.press_sample(crosshair, &movement, 3, 1).unwrap();
+        assert_eq!(selected.tick, 101);
+        assert_eq!(selected.position, anchor);
+        assert!(runtime.press_sample(crosshair, &movement, 2, 1).is_none());
+    }
+    movement.pop_pending().unwrap();
+    let selected = runtime
+        .press_sample(Crosshair::Miss, &movement, 2, 2)
+        .unwrap();
+    assert_eq!(selected.tick, 102);
+    assert_eq!(selected.position[0], anchor[0] + 1.0);
 }
