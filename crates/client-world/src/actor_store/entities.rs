@@ -4,7 +4,8 @@ use protocol::ActorMetadataValue;
 
 use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
 
-const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
+/// Metadata key carrying a falling block's displayed block runtime ID.
+pub(super) const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
 const OWNER_METADATA_KEY: u32 = 5;
 pub(super) const LEASH_HOLDER_METADATA_KEY: u32 = 37;
 pub(super) const INVALID_LEASH_HOLDER_ID: i64 = -1;

@@ -9,6 +9,10 @@ pub(super) const FALLING_VISIBILITY_FALLBACK: Duration = Duration::from_millis(1
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum TerrainInterlock {
+    /// No terrain gate or explicit sync has been applied to this constructor yet.
+    InitialVisible {
+        attached_at: Instant,
+    },
     Pending {
         attached_at: Instant,
     },
@@ -22,7 +26,14 @@ impl TerrainInterlock {
         if class == NativeEntityClass::FallingBlock {
             Self::Pending { attached_at: now }
         } else {
-            Self::Visible
+            Self::InitialVisible { attached_at: now }
+        }
+    }
+
+    /// Adds a newly admitted constructor's gate while preserving received sync state.
+    pub(super) fn admit_class(&mut self, class: NativeEntityClass) {
+        if let Self::InitialVisible { attached_at } = *self {
+            *self = Self::attached(class, attached_at);
         }
     }
 
@@ -31,7 +42,7 @@ impl TerrainInterlock {
             Self::Pending { attached_at } => {
                 now.saturating_duration_since(attached_at) > FALLING_VISIBILITY_FALLBACK
             }
-            Self::Visible => true,
+            Self::InitialVisible { .. } | Self::Visible => true,
             Self::Hidden => false,
         }
     }

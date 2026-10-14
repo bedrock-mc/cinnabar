@@ -61,6 +61,10 @@ impl ActorStore {
             );
             self.effect_members.update(actor);
             if actor.entity_fact != previous_fact {
+                actor
+                    .status
+                    .terrain_interlock
+                    .admit_class(fact.native_class);
                 self.animation
                     .insert(self.session_id, self.dimension, actor);
             }

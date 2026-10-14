@@ -241,3 +241,75 @@ fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
         }
     }
 }
+
+#[test]
+fn late_falling_block_admission_preserves_sync_and_waits_for_initial_terrain() {
+    use super::super::terrain_interlock::{FALLING_VISIBILITY_FALLBACK, TerrainInterlock};
+    let base = "minecraft:falling_block";
+    let identifier = custom(base);
+    for message in [None, Some(1), Some(2), Some(99)] {
+        let mut early = ActorStore::new(1, 0);
+        let mut late = ActorStore::new(1, 0);
+        let mut frame_at = None;
+        admit_base(&mut early, &identifier, base);
+        for store in [&mut early, &mut late] {
+            let ActorEvent::Spawn(mut event) = spawn(&identifier, 1) else {
+                unreachable!()
+            };
+            let mut metadata = event.metadata.to_vec();
+            metadata.push(ActorMetadata {
+                key: super::super::entities::DISPLAY_BLOCK_METADATA_KEY,
+                value: ActorMetadataValue::Int(0),
+            });
+            event.metadata = metadata.into();
+            store.apply(1, 1, ActorEvent::Spawn(event));
+            if let TerrainInterlock::Pending { attached_at } =
+                store.actors[&1].status.terrain_interlock
+            {
+                frame_at.get_or_insert(attached_at);
+            }
+            if let Some(message) = message {
+                assert_eq!(
+                    store.apply_terrain_sync(protocol::ActorBlockSyncMessage {
+                        actor_unique_id: 1,
+                        message,
+                    }),
+                    matches!(message, 1 | 2)
+                );
+            }
+        }
+        let initial = late.actors[&1].status.terrain_interlock;
+        admit_base(&mut late, &identifier, base);
+        let state = late.actors[&1].status.terrain_interlock;
+        let at = match message {
+            Some(1) => {
+                assert_eq!(state, TerrainInterlock::Visible);
+                frame_at.unwrap()
+            }
+            Some(2) => {
+                assert_eq!(state, TerrainInterlock::Hidden);
+                frame_at.unwrap()
+            }
+            _ => {
+                let TerrainInterlock::Pending { attached_at } = state else {
+                    panic!("late falling-block admission must wait for terrain")
+                };
+                assert_eq!(initial, TerrainInterlock::InitialVisible { attached_at });
+                let deadline = attached_at + FALLING_VISIBILITY_FALLBACK;
+                assert!(late.block_entities_at(1.0, deadline).is_empty());
+                assert_eq!(
+                    late.block_entities_at(1.0, deadline + std::time::Duration::from_nanos(1))
+                        .len(),
+                    1
+                );
+                attached_at
+            }
+        };
+        let visible = message == Some(1);
+        assert_eq!(late.block_entity_candidates_at(1.0, at).len(), 1);
+        assert_eq!(late.block_entity_candidates_at(1.0, at)[0].visible, visible);
+        assert_eq!(late.block_entities_at(1.0, at).len(), usize::from(visible));
+        admit_base(&mut late, &identifier, base);
+        assert_eq!(late.actors[&1].status.terrain_interlock, state);
+    }
+}
