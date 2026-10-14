@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -385,6 +385,8 @@ impl StageSampleAccumulator {
 #[derive(Debug)]
 struct RuntimeStageProfileState {
     enabled: bool,
+    frame_id: AtomicU64,
+    diagnostic_sink: OnceLock<DiagnosticSink>,
     slow: Option<crate::runtime_profile_slow::SlowFrameRecorder>,
     trace: Option<crate::runtime_profile_trace::FrameTrace>,
     started: Instant,
@@ -393,9 +395,14 @@ struct RuntimeStageProfileState {
     latest_gpu: Mutex<Option<crate::GpuFrameTimes>>,
 }
 
+/// Queues an owned report for background formatting without adding a crate dependency.
+pub type DiagnosticSink = fn(Box<dyn std::fmt::Display + Send>);
+
 #[derive(Resource, Debug, Clone)]
 pub struct RuntimeStageProfiler {
     state: Arc<RuntimeStageProfileState>,
+    /// Render-world copies keep the input identity from their extraction.
+    frame_id: Option<u64>,
 }
 
 impl Default for RuntimeStageProfiler {
@@ -415,7 +422,7 @@ impl RuntimeStageProfiler {
         Self::build(enabled, path, false)
     }
 
-    /// Keeps cheap slow-frame attribution on during normal play; full traces remain opt-in.
+    /// Keeps bounded rolling attribution on during normal play; file exports remain opt-in.
     pub fn for_gameplay(enabled: bool, path: Option<std::path::PathBuf>) -> Self {
         Self::build(enabled, path, true)
     }
@@ -426,15 +433,45 @@ impl RuntimeStageProfiler {
         Self {
             state: Arc::new(RuntimeStageProfileState {
                 enabled,
+                frame_id: AtomicU64::new(0),
+                diagnostic_sink: OnceLock::new(),
                 slow: slow.then(crate::runtime_profile_slow::SlowFrameRecorder::default),
-                trace: path
-                    .filter(|_| enabled)
-                    .map(|path| crate::runtime_profile_trace::FrameTrace::new(path, started)),
+                trace: (slow || enabled && path.is_some()).then(|| {
+                    crate::runtime_profile_trace::FrameTrace::new(path.filter(|_| enabled), started)
+                }),
                 started,
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
                 latest_gpu: Mutex::new(None),
             }),
+            frame_id: None,
+        }
+    }
+
+    /// Installs the process diagnostics queue before the profiler is shared with rendering.
+    pub fn with_diagnostic_sink(self, sink: DiagnosticSink) -> Self {
+        let _ = self.state.diagnostic_sink.set(sink);
+        self
+    }
+
+    /// Current input identity, or the identity retained by an extracted render-world copy.
+    pub fn frame_id(&self) -> u64 {
+        self.frame_id
+            .unwrap_or_else(|| self.state.frame_id.load(Ordering::Relaxed))
+    }
+
+    /// Binds a shared recorder to this input frame before render-world work starts.
+    pub fn for_frame(&self) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+            frame_id: Some(self.frame_id()),
+        }
+    }
+
+    /// Hands an owned snapshot to the process queue after releasing recorder locks.
+    fn report(&self, report: impl std::fmt::Display + Send + 'static) {
+        if let Some(sink) = self.state.diagnostic_sink.get() {
+            sink(Box::new(report));
         }
     }
 
@@ -443,25 +480,29 @@ impl RuntimeStageProfiler {
         self.state.enabled
     }
 
-    /// Times a stage without allocation; normal play records only atomic nanosecond totals.
+    /// Times a stage without allocation, retaining its input identity until it closes.
     pub fn time(&self, stage: RuntimeStage) -> RuntimeStageTimer<'_> {
         RuntimeStageTimer {
             state: self.active().then_some(&*self.state),
             stage,
+            frame_id: self.frame_id(),
             started: self.active().then(Instant::now),
         }
     }
 
     /// Reports the preceding slow frame and starts a new attribution window.
     pub fn begin_frame(&self, focused: bool, occluded: bool) {
-        let Some(slow) = &self.state.slow else {
-            return;
-        };
-        if let (Some(event), Some(trace)) = (
-            slow.begin_frame(Instant::now(), focused, occluded),
-            &self.state.trace,
-        ) {
-            trace.slow_frame(event);
+        self.state.frame_id.fetch_add(1, Ordering::Relaxed);
+        if let Some(slow) = &self.state.slow {
+            let (event, report) = slow.begin_frame(Instant::now(), focused, occluded);
+            if let Some(event) = event
+                && let Some(trace) = &self.state.trace
+            {
+                trace.slow_frame(event);
+            }
+            if let Some(report) = report {
+                self.report(report);
+            }
         }
     }
 
@@ -532,7 +573,7 @@ impl RuntimeStageProfiler {
     /// Records a span measured outside a system, such as across the render handoff.
     pub fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
         if self.active() {
-            record_elapsed(&self.state, stage, started, elapsed);
+            record_elapsed(&self.state, self.frame_id(), stage, started, elapsed);
         }
     }
 
@@ -557,13 +598,18 @@ impl RuntimeStageProfiler {
     /// Marks the main update boundary and its current window focus.
     pub fn trace_frame(&self, focused: bool, occluded: bool, game_seconds: f64) {
         if let Some(trace) = &self.state.trace {
-            trace.frame(focused, occluded, game_seconds);
+            for report in trace.frame(self.frame_id(), focused, occluded, game_seconds) {
+                self.report(report);
+            }
         }
     }
 
     /// Saves the optional frame trace after the update loop has stopped.
     pub fn flush_trace(&self) {
         if let Some(trace) = &self.state.trace {
+            for report in trace.take_hitches(None) {
+                self.report(report);
+            }
             trace.flush();
         }
     }
@@ -597,7 +643,7 @@ impl RuntimeStageProfiler {
 /// Open spans timed across several systems, indexed by [`RuntimeStage`].
 #[derive(Resource, Debug)]
 pub struct RuntimeStageSpans {
-    open: [Option<Instant>; RuntimeStage::ALL.len()],
+    open: [Option<(Instant, u64)>; RuntimeStage::ALL.len()],
     /// Each stage's most recently closed span.
     last: [Duration; RuntimeStage::ALL.len()],
 }
@@ -620,9 +666,15 @@ impl Default for RuntimeStageSpans {
 }
 
 /// Opens the span of stage `S` (a `RuntimeStage as usize`); pair with [`end_stage_span`].
-pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {
+pub fn begin_stage_span<const S: usize>(
+    spans: Option<ResMut<RuntimeStageSpans>>,
+    profiler: Option<Res<RuntimeStageProfiler>>,
+) {
     if let Some(mut spans) = spans {
-        spans.open[S] = Some(Instant::now());
+        spans.open[S] = Some((
+            Instant::now(),
+            profiler.as_ref().map_or(0, |profiler| profiler.frame_id()),
+        ));
     }
 }
 
@@ -634,7 +686,7 @@ pub fn end_stage_span<const S: usize>(
     let Some(mut spans) = spans else {
         return;
     };
-    let Some(started) = spans.open[S].take() else {
+    let Some((started, frame_id)) = spans.open[S].take() else {
         return;
     };
     let elapsed = started.elapsed();
@@ -642,7 +694,13 @@ pub fn end_stage_span<const S: usize>(
     if let Some(profiler) = profiler
         && profiler.active()
     {
-        record_elapsed(&profiler.state, RuntimeStage::ALL[S], started, elapsed);
+        record_elapsed(
+            &profiler.state,
+            frame_id,
+            RuntimeStage::ALL[S],
+            started,
+            elapsed,
+        );
     }
 }
 
@@ -656,7 +714,7 @@ pub fn end_render_frame_span(
     let Some(mut spans) = spans else {
         return;
     };
-    let Some(started) = spans.open[FRAME].take() else {
+    let Some((started, _)) = spans.open[FRAME].take() else {
         return;
     };
     let wait = std::mem::take(&mut spans.last[SURFACE]);
@@ -665,7 +723,13 @@ pub fn end_render_frame_span(
     if let Some(profiler) = profiler
         && profiler.active()
     {
-        record_elapsed(&profiler.state, RuntimeStage::RenderFrame, started, elapsed);
+        record_elapsed(
+            &profiler.state,
+            profiler.frame_id(),
+            RuntimeStage::RenderFrame,
+            started,
+            elapsed,
+        );
     }
 }
 
@@ -673,13 +737,14 @@ pub fn end_render_frame_span(
 pub struct RuntimeStageTimer<'a> {
     state: Option<&'a RuntimeStageProfileState>,
     stage: RuntimeStage,
+    frame_id: u64,
     started: Option<Instant>,
 }
 
 impl Drop for RuntimeStageTimer<'_> {
     fn drop(&mut self) {
         if let (Some(state), Some(started)) = (self.state, self.started) {
-            record_stage(state, self.stage, started);
+            record_elapsed(state, self.frame_id, self.stage, started, started.elapsed());
         }
     }
 }
@@ -690,12 +755,10 @@ fn render_frame_elapsed(started: Instant, now: Instant, wait: Duration) -> Durat
     now.saturating_duration_since(started).saturating_sub(wait)
 }
 
-fn record_stage(state: &RuntimeStageProfileState, stage: RuntimeStage, started: Instant) {
-    record_elapsed(state, stage, started, started.elapsed());
-}
-
+/// Records a completed span in each enabled diagnostic consumer with its originating frame.
 fn record_elapsed(
     state: &RuntimeStageProfileState,
+    frame_id: u64,
     stage: RuntimeStage,
     started: Instant,
     elapsed: Duration,
@@ -707,7 +770,7 @@ fn record_elapsed(
         slow.record(stage, elapsed);
     }
     if let Some(trace) = &state.trace {
-        trace.record(stage, started, elapsed);
+        trace.record(frame_id, stage, started, elapsed);
     }
 }
 
@@ -716,155 +779,4 @@ fn duration_nanos(duration: Duration) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stage_table_indices_match_and_gpu_stages_form_the_tail() {
-        for (index, stage) in RuntimeStage::ALL.into_iter().enumerate() {
-            assert_eq!(stage as usize, index);
-        }
-        let tail = &RuntimeStage::ALL[RuntimeStage::ALL.len() - RuntimeStage::GPU.len()..];
-        assert_eq!(tail, RuntimeStage::GPU);
-        assert!(
-            RuntimeStage::GPU
-                .iter()
-                .all(|stage| stage.name().starts_with("gpu_"))
-        );
-        assert_eq!(RuntimeStage::RenderFrame.gpu_index(), None);
-    }
-
-    #[test]
-    fn gpu_frames_feed_aggregates_and_the_latest_snapshot() {
-        let profiler = RuntimeStageProfiler::for_gameplay(true, None);
-        assert_eq!(profiler.latest_pass_frame(), None);
-        let frame = crate::gpu_times::decode_spans([(RuntimeStage::GpuOpaque, 10, 30)], 1.0, true);
-        profiler.record_gpu_frame(&frame);
-        assert_eq!(profiler.latest_pass_frame(), Some(frame));
-        // A whole-frame span updates aggregates but keeps the last per-pass breakdown.
-        let whole = crate::gpu_times::decode_spans([(RuntimeStage::GpuFrame, 10, 50)], 1.0, true);
-        profiler.record_gpu_frame(&whole);
-        assert_eq!(profiler.latest_pass_frame(), Some(frame));
-        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
-        assert_eq!(snapshot.samples[RuntimeStage::GpuOpaque as usize].count, 1);
-        assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 2);
-    }
-
-    #[test]
-    fn every_gpu_overrun_is_marked_in_the_trace() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("trace.json");
-        let profiler = RuntimeStageProfiler::for_gameplay(true, Some(path.clone()));
-        profiler.set_frame_interval(Duration::from_secs_f64(1.0 / 120.0));
-        let over =
-            crate::gpu_times::decode_spans([(RuntimeStage::GpuOpaque, 1, 7_000_001)], 1.0, true);
-        profiler.record_gpu_frame(&over);
-        profiler.record_gpu_frame(&over);
-        profiler.flush_trace();
-        let saved: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        let markers = saved["traceEvents"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|event| event["name"] == "slow_frame")
-            .count();
-        assert_eq!(markers, 2);
-        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 2);
-    }
-
-    /// Summed worker polls remain available as diagnostics without becoming a fictitious
-    /// execution span on the frame thread that receives them.
-    #[test]
-    fn background_work_exports_a_counter_while_reclaim_stays_a_cpu_span() {
-        let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("background.json");
-        let profiler = RuntimeStageProfiler::for_gameplay(true, Some(path.clone()));
-        profiler.record_background_sample(RuntimeStage::WorldService, Duration::from_millis(3));
-        profiler.record(
-            RuntimeStage::WorldServiceReclaim,
-            Instant::now(),
-            Duration::from_millis(1),
-        );
-        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
-        let background_sample = snapshot.samples[RuntimeStage::WorldService as usize];
-        assert_eq!(background_sample.count, 1);
-        assert_eq!(background_sample.total, Duration::from_millis(3));
-        profiler.flush_trace();
-        let saved: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-        let events = saved["traceEvents"].as_array().unwrap();
-        assert_eq!(events.len(), 2);
-        let background = &events[0];
-        assert_eq!(background["name"], "world_service");
-        assert_eq!(background["ph"], "C");
-        assert_eq!(background["dur"], 0.0);
-        assert_eq!(background["cat"], "background_work");
-        assert_eq!(background["timestamp_kind"], "sample_received");
-        assert_eq!(background["args"]["duration_ns"], 3_000_000);
-        let reclaim = &events[1];
-        assert_eq!(reclaim["name"], "world_service_reclaim");
-        assert_eq!(reclaim["ph"], "X");
-        assert_eq!(reclaim["dur"], 1000.0);
-    }
-
-    #[test]
-    fn render_frame_excludes_only_the_acquisition_wait() {
-        let started = Instant::now();
-        let now = started + Duration::from_millis(80);
-        let elapsed = render_frame_elapsed(started, now, Duration::from_millis(50));
-        assert_eq!(elapsed, Duration::from_millis(30));
-        assert_eq!(
-            render_frame_elapsed(started, now, Duration::from_millis(90)),
-            Duration::ZERO
-        );
-    }
-
-    #[test]
-    fn disabled_profiler_records_nothing() {
-        let profiler = RuntimeStageProfiler::new(false);
-        drop(profiler.time(RuntimeStage::WorldStream));
-        assert_eq!(profiler.take_snapshot_if_due(Duration::ZERO), None);
-    }
-
-    #[test]
-    fn snapshot_drains_each_stage_interval() {
-        let profiler = RuntimeStageProfiler::new(true);
-        drop(profiler.time(RuntimeStage::WorldStream));
-        let first = profiler
-            .take_snapshot_if_due(Duration::ZERO)
-            .expect("enabled profiler emits a due snapshot");
-        assert_eq!(first.samples[RuntimeStage::WorldStream as usize].count, 1);
-
-        let second = profiler
-            .take_snapshot_if_due(Duration::ZERO)
-            .expect("zero interval permits another snapshot");
-        assert_eq!(second.samples[RuntimeStage::WorldStream as usize].count, 0);
-    }
-
-    #[test]
-    fn concurrent_records_are_drained_as_complete_samples() {
-        let profiler = RuntimeStageProfiler::new(true);
-        let workers = (0..4)
-            .map(|_| {
-                let profiler = profiler.clone();
-                std::thread::spawn(move || {
-                    for _ in 0..1_000 {
-                        drop(profiler.time(RuntimeStage::TransparentWorker));
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        for worker in workers {
-            worker.join().unwrap();
-        }
-
-        let snapshot = profiler
-            .take_snapshot_if_due(Duration::ZERO)
-            .expect("enabled profiler emits a due snapshot");
-        assert_eq!(
-            snapshot.samples[RuntimeStage::TransparentWorker as usize].count,
-            4_000
-        );
-    }
-}
+mod tests;

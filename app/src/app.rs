@@ -856,11 +856,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     {
         const MAIN_FRAME: usize = render_scene::RuntimeStage::MainFrame as usize;
-        app.insert_resource(RuntimeStageProfiler::for_gameplay(
-            stage_profile_enabled,
-            env_compat::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
-                .map(std::path::PathBuf::from),
-        ))
+        app.insert_resource(
+            RuntimeStageProfiler::for_gameplay(
+                stage_profile_enabled,
+                env_compat::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
+                    .map(std::path::PathBuf::from),
+            )
+            .with_diagnostic_sink(diagnostics::console::defer_stderr),
+        )
         .init_resource::<render_scene::RuntimeStageSpans>()
         .add_plugins(render::GpuTimingPlugin)
         .add_systems(

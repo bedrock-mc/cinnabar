@@ -8,7 +8,8 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
     const SUBMISSION: usize = RuntimeStage::RenderSubmission as usize;
     const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
     const FRAME: usize = RuntimeStage::RenderFrame as usize;
-    app.init_resource::<render_scene::RuntimeStageSpans>()
+    app.add_systems(bevy::render::ExtractSchedule, extract_frame_identity)
+        .init_resource::<render_scene::RuntimeStageSpans>()
         .add_systems(
             Render,
             (
@@ -35,10 +36,63 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
         );
 }
 
+/// Carries the input identity into the render world before its queued commands run.
+fn extract_frame_identity(
+    mut commands: bevy::prelude::Commands,
+    profiler: bevy::render::Extract<bevy::prelude::Res<render_scene::RuntimeStageProfiler>>,
+) {
+    commands.insert_resource(profiler.for_frame());
+}
+
 #[cfg(test)]
 mod tests {
     use render_scene::{RuntimeStage, RuntimeStageProfiler, RuntimeStageSpans};
     use std::time::Duration;
+
+    /// Extracted input identities reach submission, including the frame opened before commands apply.
+    #[test]
+    fn extraction_carries_each_input_identity_through_submission() {
+        use bevy::ecs::schedule::ScheduleLabel;
+        use bevy::prelude::*;
+        use bevy::render::{Render, RenderApp, RenderSystems, extract_plugin::ExtractPlugin};
+        /// Starts a distinct input frame before extracting its render data.
+        fn input_frame(profiler: Res<RuntimeStageProfiler>) {
+            profiler.begin_frame(true, false);
+            profiler.trace_frame(true, false, 0.0);
+        }
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("identity.json");
+        let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
+        let mut app = App::new();
+        app.insert_resource(profiler.clone())
+            .add_systems(First, input_frame)
+            .add_plugins(ExtractPlugin::<RenderApp>::new(
+                |_, _| {},
+                Render::base_schedule,
+                Render.intern(),
+                RenderSystems::ExtractCommands.intern(),
+                RenderSystems::PostCleanup.intern(),
+            ));
+        let render = app.sub_app_mut(RenderApp);
+        render.insert_resource(profiler.clone());
+        render.update_schedule = Some(Render.intern());
+        super::install_surface_trace(render);
+        app.update();
+        app.update();
+        profiler.flush_trace();
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        for name in ["render_submission", "render_frame"] {
+            let ids: Vec<_> = saved["traceEvents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|event| event["name"] == name)
+                .map(|event| event["args"]["frame_id"].as_u64().unwrap())
+                .collect();
+            assert_eq!(ids, [1, 2], "{name}");
+        }
+    }
     /// The render-frame span is open from asset preparation through rendering, closed by Cleanup.
     #[test]
     fn render_frame_span_covers_asset_preparation_through_cleanup() {
