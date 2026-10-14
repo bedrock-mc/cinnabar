@@ -55,6 +55,12 @@ allowed_dependencies = ["test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
+name = "web-client"
+path = "web/client"
+allowed_dependencies = ["assets", "bridge", "web-transport", "semantic-input"]
+forbidden_dependencies = ["cinnabar", "launcher-host", "bevy", "wgpu"]
+
+[[crates]]
 name = "web-transport"
 path = "web/transport"
 allowed_dependencies = ["bridge"]

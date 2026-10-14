@@ -13,8 +13,8 @@ Browser relay channels have a WebTransport adapter and a WebSocket fallback behi
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
 
-Incomplete: CI must compile the native changes and run the written regression tests. The
-browser entry, timer implementation and asset source remain pending. Relay integration
+The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
+Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
@@ -3394,15 +3394,18 @@ Mixed packs reuse the compiler's decoded equipment rasters; startup-path artwork
 separately only when that compiler table lacks it, within the remaining pixel and count budgets.
 Texture-only bow, crossbow, spear and trident attachables use native held sprite
 meshes and hand transforms when every resolved geometry matches the startup weapon
-or stock item sprite. Their texture aliases follow native use stages; custom models
-keep authored attachable animation. This is an accepted presentation choice.
+or stock item sprite, or is a single uninflated plane covering its full texture.
+Those planes use the same extruded contour and resolution-independent depth as
+held swords, including pull and charge stages. Partial atlas mappings and 3D
+models keep authored attachable animation. This is an accepted presentation choice.
 Older carriers without texture aliases also recognize overrides of a single stage.
 Missing bow and crossbow stage textures use startup animation icons, including the
 loaded crossbow's offhand image dimensions.
-Cube-based weapon textures are UV atlases, so those weapons use pack item icons,
+Other cube-based weapon textures are UV atlases, so those weapons use pack item icons,
 then startup item icons. Without an item icon, they retain model rendering.
-Provisional, incomplete: compilation, regression execution and rendered acceptance
-in both animation modes remain unverified. No parity gate is closed.
+Focused native equipment regressions cover extrusion, contour walls, stage artwork,
+and depth after first- and third-person placement. Rendered acceptance in both
+animation modes remains incomplete. No parity gate is closed.
 Held pixel meshes and Java raster frames include
 the resolved artwork page and layer in their cache keys. Controller glint samplers do not
 replace startup primary artwork. Rendered acceptance remains incomplete.

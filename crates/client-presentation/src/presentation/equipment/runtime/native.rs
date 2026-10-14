@@ -114,7 +114,7 @@ impl NativeItem {
     }
 }
 
-/// Compares every declared model with startup weapon or stock sprite geometry once per reload.
+/// Recognizes stock weapon models and full-texture planes once per reload.
 pub(super) fn recognize(
     pack: &RuntimeEntityAssets,
     catalog: Option<&RuntimeEquipmentCatalog>,
@@ -150,11 +150,12 @@ pub(super) fn recognize(
             let stock = startup.binding(&binding.identifier)?;
             let mut references = geometry_names(base, stock);
             let startup_texture_is_sprite = references.iter().all(|name| {
-                find_geometry_index(base, name)
-                    .and_then(|index| {
-                        render_model::resolve_geometry_bones(base, index as usize).ok()
+                find_geometry_index(base, name).is_some_and(|index| {
+                    render_model::resolve_geometry_bones(base, index as usize).is_ok_and(|bones| {
+                        sprite_artwork(&bones)
+                            || full_texture_plane(&base.geometries()[index as usize], &bones)
                     })
-                    .is_some_and(|bones| sprite_artwork(&bones))
+                })
             });
             references.retain(|name| match kind {
                 NativeItem::Bow => name.starts_with("geometry.bow_"),
@@ -188,12 +189,14 @@ pub(super) fn recognize(
                     else {
                         return false;
                     };
-                    texture_is_sprite &= sprite_artwork(&bones);
-                    stock_models.iter().any(|(width, height, stock_bones)| {
-                        *width == geometry.texture_width
-                            && *height == geometry.texture_height
-                            && *stock_bones == bones
-                    })
+                    let plane = full_texture_plane(geometry, &bones);
+                    texture_is_sprite &= sprite_artwork(&bones) || plane;
+                    plane
+                        || stock_models.iter().any(|(width, height, stock_bones)| {
+                            *width == geometry.texture_width
+                                && *height == geometry.texture_height
+                                && *stock_bones == bones
+                        })
                 });
             recognized.then(|| {
                 (
@@ -213,6 +216,37 @@ pub(super) fn recognize(
 fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
     bones.iter().all(|bone| bone.cubes.is_empty())
         && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
+}
+
+/// A single uninflated plane covering its complete texture is sprite artwork, not a UV atlas.
+fn full_texture_plane(
+    geometry: &assets::EntityGeometry,
+    bones: &[assets::EntityGeometryBone],
+) -> bool {
+    use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+
+    if bones.iter().any(|bone| {
+        !bone.texture_meshes.is_empty()
+            || bone.inflate.is_some_and(|inflate| inflate != Scalar::ZERO)
+            || bone.mirror == Some(true)
+            || bone.never_render == Some(true)
+    }) {
+        return false;
+    }
+    let mut cubes = bones.iter().flat_map(|bone| bone.cubes.iter());
+    let Some(cube) = cubes.next() else {
+        return false;
+    };
+    cubes.next().is_none()
+        && cube.size.map(Scalar::get)
+            == [
+                f32::from(geometry.texture_width),
+                f32::from(geometry.texture_height),
+                0.0,
+            ]
+        && cube.uv == EntityGeometryUv::Box([Scalar::ZERO; 2])
+        && cube.inflate == Scalar::ZERO
+        && !cube.mirror
 }
 
 /// Includes declared aliases and compiled candidates, including older startup carriers.

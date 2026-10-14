@@ -40,12 +40,13 @@ impl<P> NetworkHandle<P> {
         if pending.is_none() {
             return Ok(());
         }
-        let permit = match self.commands.try_reserve() {
-            Ok(permit) => permit,
-            Err(tokio::sync::mpsc::error::TrySendError::Full(())) => {
+        let mut frame = self.unflushed.lock().expect("outbound frame lock");
+        let permit = match frame.reserve(&self.commands, 1) {
+            Ok(mut permits) => permits.next().expect("one reserved command"),
+            Err(BatchSendError::Full) => {
                 return Err(BatchSendError::Full);
             }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(())) => {
+            Err(BatchSendError::Closed) => {
                 *pending = None;
                 return Err(BatchSendError::Closed);
             }
@@ -58,7 +59,6 @@ impl<P> NetworkHandle<P> {
             physics_reanchor: None,
             interaction: None,
         });
-        self.mark_unflushed(true);
         Ok(())
     }
 }
@@ -73,7 +73,7 @@ mod tests {
     /// Creates one observable outbound FIFO slot.
     fn handle() -> (NetworkHandle, mpsc::Receiver<NetworkCommand>) {
         let (mut handle, _) = NetworkHandle::stub();
-        let (commands, receiver) = mpsc::channel(1);
+        let (commands, receiver) = super::super::frame_flush::command_channel(1);
         handle.commands = commands;
         (handle, receiver)
     }
