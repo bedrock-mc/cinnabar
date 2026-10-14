@@ -351,6 +351,18 @@ mod membership_tests {
     }
     #[test]
     fn compiled_shulker_renderer_preserves_every_pinned_colour_suffix() {
+        for entry in crate::facts::BlockEntityFacts::pinned()
+            .entries()
+            .iter()
+            .filter(|entry| entry.renderer == crate::facts::BlockEntityRenderer::Shulker)
+        {
+            for name in &entry.backing_blocks {
+                assert!(
+                    super::shulker_color_from_block_name(name).is_some(),
+                    "{name}"
+                );
+            }
+        }
         for record in crate::read_registry_for_protocol(
             crate::pinned_block_registry_bytes(),
             crate::active_content_registry_protocol(),

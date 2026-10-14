@@ -338,6 +338,25 @@ mod tests {
     }
 
     #[test]
+    fn compiled_model_metadata_covers_every_typed_backing() {
+        use crate::facts::{BlockEntityFacts, BlockEntityRenderer as R, BlockModelVariant as V};
+        for entry in BlockEntityFacts::pinned().entries() {
+            for name in &entry.backing_blocks {
+                let variant = block_render_fact(name).variant;
+                assert!(
+                    match entry.renderer {
+                        R::Skull => matches!(variant, Some(V::Skull(_))),
+                        R::Chest => matches!(variant, Some(V::Chest(_))),
+                        R::Statue => matches!(variant, Some(V::Statue(_))),
+                        _ => true,
+                    },
+                    "{name}: missing model metadata"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn ordinary_blocks_do_not_inherit_a_dedicated_visual_route() {
         let fact = block_render_fact("minecraft:stone");
         assert_eq!(fact.kind, BlockRenderKind::Ordinary);
