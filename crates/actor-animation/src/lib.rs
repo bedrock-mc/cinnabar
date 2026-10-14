@@ -23,6 +23,13 @@ pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
 pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = MAX_MOLANG_OPS_PER_WORLD_TICK;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
+/// A frame sample replays pre-animation for both tick endpoints besides its own and render pass.
+const FRAME_PASSES_PER_ACTOR: usize = 4;
+/// One actor's frame sample fits any rig whose tick evaluation fits its tick budget.
+const MAX_MOLANG_OPS_PER_ACTOR_FRAME: usize =
+    FRAME_PASSES_PER_ACTOR * MAX_MOLANG_OPS_PER_ACTOR_TICK;
+const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
+    FRAME_PASSES_PER_ACTOR * MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
 mod actor;
