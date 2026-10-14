@@ -49,6 +49,19 @@ fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {
 
 /// Compiles original item bones and retains entity-only banner routes without cube sheets.
 fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
+    sprite_catalog(
+        "minecraft:banner",
+        ItemVisualDefinitionRoute::BlockItem {
+            block_visual: assets::BlockVisualId(1),
+        },
+    )
+}
+
+/// Compiles original hand bones and distinct sprite variants for one item route.
+pub(super) fn sprite_catalog(
+    identifier: &str,
+    route: ItemVisualDefinitionRoute,
+) -> (RuntimeEntityAssets, RuntimeIconCatalog) {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","geometry":{"default":"geometry.test_player"},"render_controllers":["controller.render.test_player"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test_player","texture_width":64,"texture_height":64},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-2],"size":[8,12,4],"uv":[0,0]}]},{"name":"rightItem","parent":"body","pivot":[-6,12,0]},{"name":"leftItem","parent":"body","pivot":[6,12,0]}]}]}"#;
     let render = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test_player":{"geometry":"Geometry.default"}}}"#;
@@ -69,13 +82,11 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
             durability: assets::item::durability::ItemDurability::Unresolved,
             armour: assets::item::armour::ItemArmour::Unresolved,
             key: ItemVisualKey {
-                identifier: "minecraft:banner".into(),
+                identifier: identifier.into(),
                 metadata,
             },
             source: 0,
-            route: ItemVisualDefinitionRoute::BlockItem {
-                block_visual: assets::BlockVisualId(1),
-            },
+            route,
             first_person: assets::ItemDisplayTransform::identity(),
             third_person: assets::ItemDisplayTransform::identity(),
             dropped: assets::ItemDisplayTransform::identity(),
@@ -109,7 +120,7 @@ fn banner_catalog() -> (RuntimeEntityAssets, RuntimeIconCatalog) {
         .collect::<Vec<_>>();
     let entries = (0..16)
         .map(|metadata| assets::IconEntry {
-            identifier: "minecraft:banner".into(),
+            identifier: identifier.into(),
             metadata,
             sprite: metadata,
         })

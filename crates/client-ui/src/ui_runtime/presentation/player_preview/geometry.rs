@@ -3,7 +3,9 @@
 
 use std::sync::Arc;
 
-use render_model::{ActorVertex, standard_biped_overlay_vertices, standard_biped_vertices};
+use render_model::ActorVertex;
+#[cfg(test)]
+use render_model::standard_biped_vertices;
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMesh, UiMeshBatch, UiMeshVertex};
 
 use {
@@ -17,7 +19,26 @@ use {
 mod fire;
 mod held;
 mod lighting;
+mod sources;
 pub use fire::PreviewFire;
+pub(in crate::ui_runtime::presentation) use sources::MeshSources;
+
+/// Takes this test thread's held vertex projection work since its previous observation.
+#[cfg(test)]
+pub(in crate::ui_runtime::presentation) fn take_held_projection_work() -> usize {
+    held::PROJECTED_VERTICES.with(|count| count.replace(0))
+}
+
+/// Takes this test thread's skin, cape and armor vertex projections since its last observation.
+#[cfg(test)]
+pub(in crate::ui_runtime::presentation) fn take_body_projection_work() -> usize {
+    BODY_PROJECTED_VERTICES.with(|count| count.replace(0))
+}
+
+#[cfg(test)]
+thread_local! {
+    static BODY_PROJECTED_VERTICES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
 
 /// The same native live-player/paper-doll projection as the retained frame,
 /// with the original skin and equipment texture regions. The frame's virtual
@@ -90,51 +111,65 @@ pub fn mesh_with_cape(
     overlay_color: [f32; 4],
     cape: Option<(&[ActorVertex], IconRef)>,
 ) -> Option<Arc<UiMesh>> {
+    let sources = MeshSources::new(body, skin, gear, armor, fire, cape);
+    mesh_from_sources(&sources, pose, view, bob, hands, fancy, overlay_color)
+}
+
+/// Projects prepared source layers once after the caller has admitted held geometry.
+pub(in crate::ui_runtime::presentation) fn mesh_from_sources(
+    sources: &MeshSources<'_>,
+    pose: PlayerPreviewPose,
+    view: PreviewView,
+    bob: f32,
+    hands: [Option<&PreviewHeldModel>; 2],
+    fancy: bool,
+    overlay_color: [f32; 4],
+) -> Option<Arc<UiMesh>> {
     let mut rig = Rig::new(pose, view, bob, hands.map(|model| model.is_some()));
-    if let Some((_, parts)) = body {
-        rig.parts = *parts;
-    }
+    rig.parts = sources.parts;
     let mut vertices = Vec::new();
     let mut batches = Vec::new();
-    let mut skin_vertices = standard_biped_vertices();
-    skin_vertices.extend(standard_biped_overlay_vertices());
-    append(
-        &mut vertices,
-        &mut batches,
-        &rig,
-        body.map_or(skin_vertices.as_slice(), |(vertices, _)| vertices),
-        skin,
-        None,
-        fancy,
-    )?;
-    if let Some((cape, icon)) = cape {
-        append(&mut vertices, &mut batches, &rig, cape, icon, None, fancy)?;
-    }
-    for (slot, icon) in armor.into_iter().enumerate() {
-        let (Some(icon), Some(texture)) = (icon, &gear.armor[slot]) else {
-            continue;
-        };
+    for layer in &sources.layers {
         append(
             &mut vertices,
             &mut batches,
             &rig,
-            &equipment::armor_vertices(slot),
-            icon,
-            texture.tint,
+            &layer.vertices,
+            layer.icon,
+            layer.tint,
             fancy,
         )?;
     }
     for vertex in &mut vertices {
         vertex.overlay_color = overlay_color;
     }
+    let (mut fire_vertices, mut fire_batches) = (Vec::new(), Vec::new());
+    if let Some(fire) = sources.fire {
+        fire::append(&mut fire_vertices, &mut fire_batches, fire)?;
+    }
     for (hand, model) in hands.into_iter().enumerate() {
         if let Some(model) = model {
+            let count = vertices
+                .len()
+                .checked_add(model.vertices.len())?
+                .checked_add(fire_vertices.len())?;
+            let batch_count = batches
+                .len()
+                .checked_add(1)?
+                .checked_add(fire_batches.len())?;
+            if UiMesh::check_size(count, count, batch_count).is_err() {
+                // One oversized held item must not hide the player's skin and other equipment.
+                continue;
+            }
             held::append(&mut vertices, &mut batches, &rig, model, hand, fancy)?;
         }
     }
-    if let Some(fire) = fire {
-        fire::append(&mut vertices, &mut batches, fire)?;
-    }
+    let offset = u32::try_from(vertices.len()).ok()?;
+    vertices.extend(fire_vertices);
+    batches.extend(fire_batches.into_iter().map(|mut batch| {
+        batch.index_range = batch.index_range.start + offset..batch.index_range.end + offset;
+        batch
+    }));
     normalize_depth(&mut vertices)?;
     let indices: Vec<_> = (0..u32::try_from(vertices.len()).ok()?).collect();
     UiMesh::new(vertices.into(), indices.into(), batches.into())
@@ -158,6 +193,8 @@ fn append(
     let start = u32::try_from(vertices.len()).ok()?;
     let [red, green, blue] = tint.unwrap_or([255; 3]);
     let centers = lighting::part_centers(source);
+    #[cfg(test)]
+    BODY_PROJECTED_VERTICES.with(|count| count.set(count.get() + source.len()));
     for triangle in source.as_chunks::<3>().0 {
         let projected = [0, 1, 2].map(|corner| rig.project(triangle[corner]));
         let model_light = lighting::triangle_light(
