@@ -118,3 +118,4 @@ fn every_pinned_lantern_samples_its_sprite_after_carrier_roundtrip() {
         );
     }
 }
+use crate::compiler::canonical_state_u32;
