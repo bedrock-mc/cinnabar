@@ -241,39 +241,81 @@ fn parallel_synthetic_crowd_matches_serial_through_world_budget_exhaustion() {
 
 mod refresh_tests;
 
-/// A rig whose first bone translates by one unit per tick of actor age.
-fn clock_assets() -> Arc<RuntimeEntityAssets> {
+/// A rig whose first bone's X translation is the negated keyframe value, after an optional
+/// pre-animation loop of `pre_animation` iterations.
+fn rig_assets(
+    symbols: &[(assets::MolangSymbolKind, &str)],
+    keyframe: Vec<assets::MolangOp>,
+    keyframe_stack: u8,
+    pre_animation: Option<f32>,
+) -> Arc<RuntimeEntityAssets> {
     use assets::{CompiledMolangExpression, MolangOp, MolangSymbol, MolangSymbolKind};
     let scalar = crate::test_support::scalar;
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
     compiled.rig_bindings[0].initialize = None;
     compiled.render.layers[0].color = None;
-    compiled.molang_symbols = [
-        (MolangSymbolKind::Name, "wield"),
-        (MolangSymbolKind::Query, "query.life_time"),
-    ]
-    .map(|(kind, identifier)| MolangSymbol {
-        kind,
-        identifier: identifier.into(),
-    })
-    .into();
-    compiled.molang_ops = vec![
-        MolangOp::Push(scalar(0.0)),
-        MolangOp::LoadQuery(1),
-        MolangOp::Push(scalar(20.0)),
-        MolangOp::Multiply,
-        MolangOp::Push(scalar(0.0)),
-        MolangOp::Push(scalar(0.0)),
-    ]
-    .into();
-    compiled.molang_expressions = [(0, 1, 1), (1, 3, 2), (4, 1, 1), (5, 1, 1)]
+    compiled.molang_symbols = std::iter::once((MolangSymbolKind::Name, "wield"))
+        .chain(symbols.iter().copied())
+        .map(|(kind, identifier)| MolangSymbol {
+            kind,
+            identifier: identifier.into(),
+        })
+        .collect();
+    let length = keyframe.len() as u32;
+    let mut ops = vec![MolangOp::Push(scalar(0.0))];
+    ops.extend(keyframe);
+    ops.extend([MolangOp::Push(scalar(0.0)), MolangOp::Push(scalar(0.0))]);
+    let mut expressions = vec![
+        (0, 1, 1),
+        (1, length, keyframe_stack),
+        (1 + length, 1, 1),
+        (2 + length, 1, 1),
+    ];
+    if let Some(iterations) = pre_animation {
+        ops.extend([
+            MolangOp::Push(scalar(iterations)),
+            MolangOp::LoopStart(3),
+            MolangOp::LoopNext(2),
+            MolangOp::Push(scalar(0.0)),
+        ]);
+        expressions.push((3 + length, 4, 1));
+        compiled.rig_bindings[0].pre_animation = Some(4);
+    }
+    compiled.molang_ops = ops.into();
+    compiled.molang_expressions = expressions
+        .into_iter()
         .map(|(first_op, op_count, max_stack)| CompiledMolangExpression {
             first_op,
-            op_count,
+            op_count: op_count as u16,
             max_stack,
         })
-        .into();
+        .collect();
     Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+}
+
+/// A rig whose first bone translates by one unit per tick of actor age.
+fn clock_assets(pre_animation: Option<f32>) -> Arc<RuntimeEntityAssets> {
+    use assets::MolangOp;
+    rig_assets(
+        &[(assets::MolangSymbolKind::Query, "query.life_time")],
+        vec![
+            MolangOp::LoadQuery(1),
+            MolangOp::Push(crate::test_support::scalar(20.0)),
+            MolangOp::Multiply,
+        ],
+        2,
+        pre_animation,
+    )
+}
+
+/// The view `x <= 10`, with generous distances.
+fn near_view() -> ActorAnimationView {
+    ActorAnimationView {
+        planes: [[-1.0, 0.0, 0.0, 10.0]; 6],
+        camera: [0.0; 3],
+        player_distance: 100.0,
+        entity_radius: 72.0,
+    }
 }
 
 /// A rig re-entering view blends from its previous tick's pose, as one that never left does.
@@ -288,8 +330,8 @@ fn a_rig_back_in_view_blends_from_its_previous_tick() {
         entity_radius: 72.0,
     };
     let (mut visible, mut returning) = (
-        ActorAnimationStore::with_assets(clock_assets()),
-        ActorAnimationStore::with_assets(clock_assets()),
+        ActorAnimationStore::with_assets(clock_assets(None)),
+        ActorAnimationStore::with_assets(clock_assets(None)),
     );
     for store in [&mut visible, &mut returning] {
         store.insert(1, 0, &actor);
@@ -314,4 +356,109 @@ fn a_rig_back_in_view_blends_from_its_previous_tick() {
         "the first visible tick blends"
     );
     assert_eq!(actual.previous, expected.previous);
+}
+
+/// Returning rigs' warm-ups cannot spend the world budget that visible rigs need.
+#[test]
+fn returning_rig_warm_ups_leave_visible_rigs_their_budget() {
+    let assets = clock_assets(Some(1_000.0));
+    let spawn = |runtime_id: u64, x: f32| {
+        let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
+        actor.runtime_id = runtime_id;
+        actor.unique_id = runtime_id as i64;
+        actor.position = [x, 0.0, 0.0];
+        actor.previous_position = actor.position;
+        actor
+    };
+    let cost = {
+        let actors = HashMap::from([(1, spawn(1, 0.0))]);
+        let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+        store.insert(1, 0, &actors[&1]);
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+        let before = store.stats().evaluated_molang_ops;
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+        (store.stats().evaluated_molang_ops - before) as usize
+    };
+    // The returning rigs' own evaluations fit the world budget, but not twice over.
+    let returning = (MAX_MOLANG_OPS_PER_WORLD_TICK * 3 / 5).div_ceil(cost) as u64;
+    let visible = returning + 1;
+    let actors: HashMap<u64, TestActor> = (1..=returning)
+        .map(|id| (id, spawn(id, 50.0)))
+        .chain([(visible, spawn(visible, 0.0))])
+        .collect();
+    let mut store = ActorAnimationStore::with_assets(assets);
+    for id in 1..=visible {
+        store.insert(1, 0, &actors[&id]);
+    }
+    let near = near_view();
+    let mut drawn = Vec::new();
+    for tick in 0..7 {
+        let view = (2..4).contains(&tick).then_some(&near);
+        store.advance_tick(&actors, view, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+        drawn.push(store.get(visible).unwrap().current[0].translation_scale[0]);
+    }
+    for (tick, pair) in drawn.windows(2).enumerate() {
+        assert_ne!(
+            pair[0],
+            pair[1],
+            "the visible rig starved on tick {}",
+            tick + 1
+        );
+    }
+}
+
+/// A returning rig's warm-up and tick evaluation advance script time by the frame's ticks once.
+#[test]
+fn a_returning_rig_accumulates_frame_time_once() {
+    use assets::{MolangOp, MolangSymbolKind};
+    let assets = rig_assets(
+        &[
+            (MolangSymbolKind::Query, "query.delta_time"),
+            (MolangSymbolKind::Variable, "variable.t"),
+        ],
+        vec![
+            MolangOp::LoadVariable(2),
+            MolangOp::LoadQuery(1),
+            MolangOp::Add,
+            MolangOp::StoreVariable(2),
+            MolangOp::LoadVariable(2),
+            MolangOp::Push(crate::test_support::scalar(20.0)),
+            MolangOp::Multiply,
+        ],
+        2,
+        None,
+    );
+    let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
+    actor.position = [50.0, 0.0, 0.0];
+    actor.previous_position = actor.position;
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    let near = near_view();
+    let mut before = 0.0;
+    for tick in 0..7 {
+        let view = (2..6).contains(&tick).then_some(&near);
+        let elapsed = (tick == 6).then_some(4);
+        store.advance_tick(&actors, view, None, true, true, |_| ActorTickContext {
+            animation_elapsed_ticks: elapsed,
+            ..Default::default()
+        });
+        if tick == 1 {
+            before = store.get(actor.runtime_id).unwrap().current[0].translation_scale[0];
+        }
+    }
+    let rig = store.get(actor.runtime_id).unwrap();
+    let [previous, current] =
+        [rig.previous[0], rig.current[0]].map(|bone| bone.translation_scale[0] - before);
+    assert!((current + 4.0).abs() < 1.0e-4, "advanced {current} ticks");
+    assert!(
+        (previous + 3.0).abs() < 1.0e-4,
+        "warm-up advanced {previous} ticks"
+    );
 }

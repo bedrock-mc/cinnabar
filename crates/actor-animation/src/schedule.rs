@@ -248,22 +248,47 @@ impl ActorAnimationStore {
             stats,
             starved: None,
         };
-        // A rig back in view first evaluates its previous tick, so its first frame blends.
+        // A rig back in view first evaluates its previous tick, so its first frame blends. These
+        // warm-ups share a capped slice of the world budget, and one that fails is not retried.
+        let mut warm_failed = Vec::new();
         if !refresh_view {
-            for job in jobs
-                .iter_mut()
-                .filter(|job| job.evaluates() && job.state.culled && job.state.history.len() > 1)
-            {
+            let mut warm_left = world_left / RESUME_WARMUP_SHARE;
+            for (index, job) in jobs.iter_mut().enumerate().filter(|(_, job)| {
+                job.evaluates() && job.state.culled && job.state.history.len() > 1
+            }) {
+                // The warm-up and the tick's evaluation split the elapsed interval between them.
+                let elapsed = job.context.animation_elapsed_ticks;
+                job.context.animation_elapsed_ticks = Some(elapsed.unwrap_or(1).saturating_sub(1));
                 let latest = job.state.history.pop_back();
-                if world_left > 0 {
-                    let previous = Catalogs {
-                        tick: completed_tick.saturating_sub(1),
-                        ..catalogs.view()
-                    };
-                    job.outcome = Some(evaluate_job(job, previous, &mut world_left));
-                }
+                let previous = Catalogs {
+                    tick: completed_tick.saturating_sub(1),
+                    ..catalogs.view()
+                };
+                let warm_up = (warm_left > 0).then(|| evaluate_job(job, previous, &mut warm_left));
                 job.state.history.extend(latest);
-                ledger.apply(job);
+                match warm_up {
+                    Some(Evaluation {
+                        result: Ok(evaluated),
+                        used,
+                    }) => {
+                        world_left = world_left.saturating_sub(used);
+                        job.outcome = Some(Evaluation {
+                            result: Ok(evaluated),
+                            used,
+                        });
+                        ledger.apply(job);
+                    }
+                    Some(Evaluation { used, .. }) => {
+                        world_left = world_left.saturating_sub(used);
+                        ledger.stats.evaluated_molang_ops = ledger
+                            .stats
+                            .evaluated_molang_ops
+                            .saturating_add(used as u64);
+                        warm_failed.push(index);
+                    }
+                    None => {}
+                }
+                job.context.animation_elapsed_ticks = elapsed.map(|ticks| ticks.min(1));
             }
         }
         let mut next = 0;
@@ -296,6 +321,9 @@ impl ActorAnimationStore {
                 ledger.apply(job);
             }
             next = end;
+        }
+        for index in warm_failed {
+            jobs[index].state.culled = false;
         }
         let starved = ledger.starved;
         if evaluate && !refresh_view {
@@ -393,6 +421,9 @@ fn culled(
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)
 }
+
+/// Returning rigs' warm-ups spend at most this fraction of the tick's remaining world budget.
+const RESUME_WARMUP_SHARE: usize = 4;
 
 /// Rigs each pool helper must have to itself to repay waking it.
 const RIGS_PER_HELPER: usize = 8;
