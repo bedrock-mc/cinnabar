@@ -115,6 +115,7 @@ mod tests {
             );
         }
         profiler.flush_trace();
+        profiler.wait_for_trace_export();
         let trace: serde_json::Value =
             serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         let phases = [

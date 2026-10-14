@@ -169,6 +169,7 @@ fn late_stage_survives_a_full_trace() {
         Duration::from_millis(40),
     );
     trace.flush();
+    trace.wait_for_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert!(
         saved["traceEvents"]
@@ -199,6 +200,7 @@ fn trace_preserves_thread_spans_and_focus_without_growing() {
         Duration::from_millis(2),
     );
     trace.flush();
+    trace.wait_for_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(saved["truncated"], false);
     assert_eq!(saved["traceEvents"][0]["args"]["game_seconds"], 1.5);
@@ -263,6 +265,7 @@ fn gpu_samples_share_receipt_time_without_growing_or_faking_cpu_spans() {
         assert_eq!(window.overwritten(), 3);
     }
     trace.flush();
+    trace.wait_for_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let samples = saved["traceEvents"].as_array().unwrap();
     for frame in samples.as_chunks::<3>().0 {
@@ -294,4 +297,70 @@ fn gpu_samples_share_receipt_time_without_growing_or_faking_cpu_spans() {
     assert_eq!(samples[2]["args"]["duration_ns"], 60);
     assert_eq!(samples[0]["args"]["sample_sequence"], 2);
     assert_eq!(samples[3]["args"]["sample_sequence"], 3);
+}
+
+/// Exporting a full ring cannot allocate a second event collection on the caller.
+#[test]
+fn full_export_does_not_allocate_per_event_on_the_caller() {
+    let root = tempfile::tempdir().unwrap();
+    let trace = FrameTrace::with_capacity(root.path().join("full.json"), Instant::now(), 4096);
+    for frame_id in 1..=4096 {
+        trace.frame(frame_id, true, false, 0.0);
+    }
+    let (_, allocations) = test_alloc::measure(|| trace.flush());
+    assert!(
+        allocations.bytes < 64 * 1024,
+        "export caller allocated {} bytes",
+        allocations.bytes
+    );
+    println!("export caller: {} bytes for 4096 events", allocations.bytes);
+    trace.record(
+        5000,
+        RuntimeStage::ChunkExtraction,
+        Instant::now(),
+        Duration::ZERO,
+    );
+    trace.flush();
+    trace.wait_for_export();
+    let saved: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(root.path().join("full.json")).unwrap()).unwrap();
+    assert_eq!(saved["retained_events"], 4096);
+    assert_eq!(saved["traceEvents"].as_array().unwrap().len(), 4096);
+    assert!(trace.events.lock().unwrap().events.is_empty());
+}
+
+/// A writer failure near the start must not serialize or allocate the remaining events.
+#[test]
+fn export_serializes_events_only_as_the_writer_consumes_them() {
+    /// Rejects output after a short prefix, like a full disk or closed pipe.
+    struct PrefixWriter(usize);
+    impl std::io::Write for PrefixWriter {
+        /// Writes only the permitted prefix before reporting an I/O failure.
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            let count = bytes.len().min(self.0);
+            if count == 0 {
+                return Err(std::io::ErrorKind::StorageFull.into());
+            }
+            self.0 -= count;
+            Ok(count)
+        }
+        /// Has no buffered bytes to commit.
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let trace = FrameTrace::build(None, Instant::now(), 4096);
+    for frame_id in 1..=4096 {
+        trace.frame(frame_id, true, false, 0.0);
+    }
+    let snapshot = trace.snapshot(&trace.events.lock().unwrap(), usize::MAX);
+    let (result, allocations) =
+        test_alloc::measure(|| serde_json::to_writer(PrefixWriter(1024), &snapshot));
+    assert!(result.is_err());
+    println!("stream prefix: {} bytes for 4096 events", allocations.bytes);
+    assert!(
+        allocations.bytes < 64 * 1024,
+        "stream prefix allocated {} bytes",
+        allocations.bytes
+    );
 }

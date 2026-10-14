@@ -6664,6 +6664,7 @@ dependencies = [
  "particles",
  "render-api",
  "render-model",
+ "serde",
  "serde_json",
  "sha2",
  "simulation-clock",

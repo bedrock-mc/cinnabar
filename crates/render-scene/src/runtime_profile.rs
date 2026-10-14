@@ -604,13 +604,20 @@ impl RuntimeStageProfiler {
         }
     }
 
-    /// Saves the optional frame trace after the update loop has stopped.
+    /// Starts optional trace export on a worker without blocking the update loop.
     pub fn flush_trace(&self) {
         if let Some(trace) = &self.state.trace {
             for report in trace.take_hitches(None) {
                 self.report(report);
             }
             trace.flush();
+        }
+    }
+
+    /// Waits for a requested export during teardown or before consuming the saved trace.
+    pub fn wait_for_trace_export(&self) {
+        if let Some(trace) = &self.state.trace {
+            trace.wait_for_export();
         }
     }
 

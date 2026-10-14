@@ -26,6 +26,7 @@ fn overlapping_main_and_render_spans_keep_their_input_identity() {
         Duration::from_millis(1),
     );
     profiler.flush_trace();
+    profiler.wait_for_trace_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     for (stage, frame_id) in [
         ("world_stream", 1),
@@ -83,6 +84,7 @@ fn every_gpu_overrun_is_marked_in_the_trace() {
     profiler.record_gpu_frame(&over);
     profiler.record_gpu_frame(&over);
     profiler.flush_trace();
+    profiler.wait_for_trace_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let markers = saved["traceEvents"]
         .as_array()
@@ -112,6 +114,7 @@ fn background_work_exports_a_counter_while_reclaim_stays_a_cpu_span() {
     assert_eq!(background_sample.count, 1);
     assert_eq!(background_sample.total, Duration::from_millis(3));
     profiler.flush_trace();
+    profiler.wait_for_trace_export();
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let events = saved["traceEvents"].as_array().unwrap();
     assert_eq!(events.len(), 2);

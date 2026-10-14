@@ -855,8 +855,9 @@ these changes do not close the movement, camera, or actor parity gates.
   headroom; regression tests cover resumption and zero steady-state drain allocations.
 - Rolling frame recordings retain recent completed spans and received counters, carry input
   identities into render submission, and queue every hard-hitch window with completeness
-  metadata. Slow reports format outside recorder locks on the console thread. Delayed GPU
-  samples still lack causal CPU identities and presentation feedback remains unavailable.
+  metadata. Slow reports format outside recorder locks on the console thread. Full exports move
+  ring storage to a worker and stream events individually. Delayed GPU samples still lack causal
+  CPU identities and presentation feedback remains unavailable.
 - Named schedule traces and bounded frame recordings separate main work, render
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.

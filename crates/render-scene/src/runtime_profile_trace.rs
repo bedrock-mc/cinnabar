@@ -2,6 +2,10 @@
 
 use crate::RuntimeStage;
 use crate::runtime_profile_slow::SlowFrameEvent;
+use serde::{
+    Serialize, Serializer,
+    ser::{SerializeMap, SerializeSeq},
+};
 use serde_json::json;
 use std::{
     collections::VecDeque,
@@ -10,7 +14,7 @@ use std::{
         Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    thread::ThreadId,
+    thread::{JoinHandle, ThreadId},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -82,6 +86,9 @@ impl TraceWindow {
 
     /// Evicts the oldest completed record without growing the ring.
     fn push(&mut self, event: TraceEvent) {
+        if self.events.capacity() == 0 {
+            return; // Export has taken ownership of this recording.
+        }
         if self.events.len() == self.events.capacity() {
             self.events.pop_front();
         }
@@ -98,6 +105,7 @@ pub struct FrameTrace {
     gpu_sequence: AtomicU64,
     flushed: AtomicBool,
     events: Mutex<TraceWindow>,
+    export: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl FrameTrace {
@@ -128,6 +136,7 @@ impl FrameTrace {
             epoch_unix_nanos: unix.saturating_sub(epoch.elapsed()).as_nanos(),
             gpu_sequence: AtomicU64::new(0),
             flushed: AtomicBool::new(false),
+            export: Mutex::new(None),
             events: Mutex::new(TraceWindow {
                 events: VecDeque::with_capacity(capacity),
                 next_sequence: 0,
@@ -297,29 +306,63 @@ impl FrameTrace {
         }
     }
 
-    /// Saves the recent recording once, outside the live recorder lock.
+    /// Hands the recording to a worker once, without copying events or waiting for file output.
     pub fn flush(&self) {
         let Some(path) = &self.path else {
             return;
         };
+        let mut export = self
+            .export
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if self.flushed.swap(true, Ordering::AcqRel) {
             return;
         }
-        let snapshot = self.snapshot(
-            &self
+        let snapshot = {
+            let mut window = self
                 .events
                 .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-            usize::MAX,
-        );
-        let result = std::fs::File::create(path).and_then(|file| {
-            use std::io::Write;
-            let mut writer = std::io::BufWriter::new(file);
-            serde_json::to_writer(&mut writer, &snapshot.json()).map_err(std::io::Error::other)?;
-            writer.flush()
-        });
-        if let Err(error) = result {
-            eprintln!("write stage frame trace {}: {error}", path.display());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let capacity = window.events.capacity();
+            let overwritten = window.overwritten();
+            TraceSnapshot {
+                capacity,
+                first_sequence: overwritten,
+                overwritten,
+                dropped_hitches: window.dropped_hitches,
+                next_sequence: window.next_sequence,
+                epoch_unix_nanos: self.epoch_unix_nanos,
+                events: std::mem::take(&mut window.events),
+            }
+        };
+        let path = path.clone();
+        match std::thread::Builder::new()
+            .name("frame-trace-export".into())
+            .spawn(move || {
+                let result = std::fs::File::create(&path).and_then(|file| {
+                    use std::io::Write;
+                    let mut writer = std::io::BufWriter::new(file);
+                    serde_json::to_writer(&mut writer, &snapshot).map_err(std::io::Error::other)?;
+                    writer.flush()
+                });
+                if let Err(error) = result {
+                    eprintln!("write stage frame trace {}: {error}", path.display());
+                }
+            }) {
+            Ok(worker) => *export = Some(worker),
+            Err(error) => eprintln!("start stage frame trace export: {error}"),
+        }
+    }
+
+    /// Waits for an already requested export during teardown or before reading its file.
+    pub fn wait_for_export(&self) {
+        if let Some(worker) = self
+            .export
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            let _ = worker.join();
         }
     }
 }
@@ -327,6 +370,7 @@ impl FrameTrace {
 impl Drop for FrameTrace {
     fn drop(&mut self) {
         self.flush();
+        self.wait_for_export();
     }
 }
 
@@ -364,50 +408,102 @@ struct TraceSnapshot {
     dropped_hitches: u64,
     next_sequence: u64,
     epoch_unix_nanos: u128,
-    events: Vec<TraceEvent>,
+    events: VecDeque<TraceEvent>,
 }
 
 impl TraceSnapshot {
-    /// Builds Chrome trace records with explicit receipt and frame-identity semantics.
+    /// Materializes only the small, independently bounded hitch-report document.
     fn json(&self) -> serde_json::Value {
+        serde_json::to_value(self).expect("trace values serialize")
+    }
+}
+
+impl Serialize for TraceSnapshot {
+    /// Streams metadata and the event sequence without building a document tree.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("capacity", &self.capacity)?;
+        map.serialize_entry("truncated", &(self.first_sequence != 0))?;
+        map.serialize_entry("dropped_events", &self.overwritten)?;
+        map.serialize_entry("overwritten_events", &self.overwritten)?;
+        map.serialize_entry("dropped_hitch_windows", &self.dropped_hitches)?;
+        map.serialize_entry("first_event_sequence", &self.first_sequence)?;
+        map.serialize_entry("omitted_events", &(self.first_sequence - self.overwritten))?;
+        map.serialize_entry("next_event_sequence", &self.next_sequence)?;
+        map.serialize_entry("retained_events", &self.events.len())?;
+        map.serialize_entry("epoch_unix_nanos", &self.epoch_unix_nanos)?;
+        map.serialize_entry("traceEvents", &TraceRecords(self))?;
+        map.end()
+    }
+}
+
+/// Borrows a snapshot while serializing one event at a time.
+struct TraceRecords<'a>(&'a TraceSnapshot);
+
+impl Serialize for TraceRecords<'_> {
+    /// Keeps only one event's JSON representation alive as the writer consumes it.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut sequence = serializer.serialize_seq(Some(self.0.events.len()))?;
         let mut threads = Vec::new();
-        let events: Vec<_> = self.events.iter().enumerate().map(|(index, event)| {
+        for (index, event) in self.0.events.iter().enumerate() {
             let tid = match threads.iter().position(|id| *id == event.thread) {
                 Some(index) => index,
-                None => { threads.push(event.thread); threads.len() - 1 }
+                None => {
+                    threads.push(event.thread);
+                    threads.len() - 1
+                }
             };
             let mut record = json!({"name": event.name, "ph": "X", "pid": std::process::id(),
                 "tid": tid, "ts": event.started.as_secs_f64() * 1e6, "dur": event.elapsed.as_secs_f64() * 1e6,
-                "frame_id": event.frame_id, "event_sequence": self.first_sequence + index as u64, "args": {}});
+                "frame_id": event.frame_id, "event_sequence": self.0.first_sequence + index as u64, "args": {}});
             let args = &mut record["args"];
             if let Some(frame_id) = event.frame_id {
                 args["frame_id"] = json!(frame_id);
             }
             match &event.args {
-                TraceArgs::None => {},
-                TraceArgs::Focus { focused, occluded, game_seconds } => {
-                    args["focused"] = json!(focused); args["occluded"] = json!(occluded); args["game_seconds"] = json!(game_seconds);
+                TraceArgs::None => {}
+                TraceArgs::Focus {
+                    focused,
+                    occluded,
+                    game_seconds,
+                } => {
+                    args["focused"] = json!(focused);
+                    args["occluded"] = json!(occluded);
+                    args["game_seconds"] = json!(game_seconds);
                 }
                 TraceArgs::SlowFrame(slow) => {
-                    args["violations"] = json!(slow.reasons()); args["frame_ms"] = json!(slow.frame.as_secs_f64() * 1e3);
+                    args["violations"] = json!(slow.reasons());
+                    args["frame_ms"] = json!(slow.frame.as_secs_f64() * 1e3);
                     args["hard_hitch"] = json!(slow.hard_hitch);
                 }
-                TraceArgs::BackgroundSample { nanos } => { args["duration_ns"] = json!(nanos); }
-                TraceArgs::GpuSample { sequence, nanos } => { args["sample_sequence"] = json!(sequence); args["duration_ns"] = json!(nanos); }
+                TraceArgs::BackgroundSample { nanos } => {
+                    args["duration_ns"] = json!(nanos);
+                }
+                TraceArgs::GpuSample { sequence, nanos } => {
+                    args["sample_sequence"] = json!(sequence);
+                    args["duration_ns"] = json!(nanos);
+                }
             }
             match event.args {
-                TraceArgs::GpuSample { .. } => { record["ph"] = json!("C"); record["cat"] = json!("gpu_readback"); record["timestamp_kind"] = json!("readback_received"); }
-                TraceArgs::BackgroundSample { .. } => { record["ph"] = json!("C"); record["cat"] = json!("background_work"); record["timestamp_kind"] = json!("sample_received"); }
-                TraceArgs::None => {},
-                _ => { record["ph"] = json!("i"); record["s"] = json!("t"); }
+                TraceArgs::GpuSample { .. } => {
+                    record["ph"] = json!("C");
+                    record["cat"] = json!("gpu_readback");
+                    record["timestamp_kind"] = json!("readback_received");
+                }
+                TraceArgs::BackgroundSample { .. } => {
+                    record["ph"] = json!("C");
+                    record["cat"] = json!("background_work");
+                    record["timestamp_kind"] = json!("sample_received");
+                }
+                TraceArgs::None => {}
+                _ => {
+                    record["ph"] = json!("i");
+                    record["s"] = json!("t");
+                }
             }
-            record
-        }).collect();
-        json!({"capacity": self.capacity, "truncated": self.first_sequence != 0,
-            "dropped_events": self.overwritten, "overwritten_events": self.overwritten,
-            "dropped_hitch_windows": self.dropped_hitches,
-            "first_event_sequence": self.first_sequence, "omitted_events": self.first_sequence - self.overwritten, "next_event_sequence": self.next_sequence,
-            "retained_events": events.len(), "epoch_unix_nanos": self.epoch_unix_nanos, "traceEvents": events})
+            sequence.serialize_element(&record)?;
+        }
+        sequence.end()
     }
 }
 
