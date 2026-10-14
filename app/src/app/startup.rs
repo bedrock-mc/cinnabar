@@ -288,15 +288,13 @@ mod carrier_tests {
     use super::*;
     use assets::carriers::startup::{
         AssetPathSource, actor_asset_path, atmosphere_asset_path, entity_asset_path,
-        test_carriers::{
-            synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_item_facts,
-        },
+        test_carriers::{synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_facts},
     };
     use std::path::PathBuf;
 
     struct Directory(PathBuf);
     impl Directory {
-        /// Creates an isolated carrier set with the required pinned item facts.
+        /// Creates an isolated carrier set with the required pinned content facts.
         fn new(label: &str) -> Self {
             let path = std::env::temp_dir().join(format!(
                 "startup-carriers-{label}-{}-{}",
@@ -307,7 +305,7 @@ mod carrier_tests {
                     .as_nanos()
             ));
             fs::create_dir_all(&path).unwrap();
-            write_pinned_item_facts(&path.join(assets::carriers::WORLD.output));
+            write_pinned_facts(&path.join(assets::carriers::WORLD.output));
             Self(path)
         }
         fn world(&self) -> PathBuf {
@@ -334,11 +332,6 @@ mod carrier_tests {
         let entity = synthetic_entity_blob(0);
         fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
         fs::write(entity_asset_path(&world), &entity).unwrap();
-        fs::write(
-            world.with_file_name(assets::carriers::ENTITY_FACTS.output),
-            assets::facts::entity::SOURCE_BYTES,
-        )
-        .unwrap();
         fs::write(
             actor_asset_path(&world),
             assets::encode_actor_catalog(&entity, &[], &[]).unwrap(),

@@ -252,7 +252,7 @@ fn runtime_metrics(
 mod tests {
     use super::*;
     use crate::carriers::startup::test_carriers::{
-        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_item_facts,
+        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_facts,
     };
 
     #[derive(Default)]
@@ -270,7 +270,7 @@ mod tests {
     fn diagnostic_startup_loads_every_required_sibling_once() {
         let directory = tempfile::tempdir().unwrap();
         let world = directory.path().join(crate::carriers::WORLD.output);
-        write_pinned_item_facts(&world);
+        write_pinned_facts(&world);
         std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
         std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
         let observer = Loads::default();
@@ -288,7 +288,14 @@ mod tests {
         loads.sort_unstable();
         assert_eq!(
             loads,
-            ["atmosphere", "entity", "font", "item-facts", "world"]
+            [
+                "atmosphere",
+                "entity",
+                "entity facts",
+                "font",
+                "item-facts",
+                "world"
+            ]
         );
     }
 }
