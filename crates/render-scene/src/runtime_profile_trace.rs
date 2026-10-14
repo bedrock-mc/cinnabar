@@ -369,8 +369,11 @@ impl TraceSnapshot {
             };
             let mut record = json!({"name": event.name, "ph": "X", "pid": std::process::id(),
                 "tid": tid, "ts": event.started.as_secs_f64() * 1e6, "dur": event.elapsed.as_secs_f64() * 1e6,
-                "args": {"frame_id": event.frame_id, "event_sequence": self.first_sequence + index as u64}});
+                "frame_id": event.frame_id, "event_sequence": self.first_sequence + index as u64, "args": {}});
             let args = &mut record["args"];
+            if let Some(frame_id) = event.frame_id {
+                args["frame_id"] = json!(frame_id);
+            }
             match &event.args {
                 TraceArgs::None => {},
                 TraceArgs::Focus { focused, occluded, game_seconds } => {

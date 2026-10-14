@@ -236,6 +236,19 @@ fn gpu_samples_share_receipt_time_without_growing_or_faking_cpu_spans() {
     for frame in samples.as_chunks::<3>().0 {
         assert!(frame.iter().all(|sample| sample["ts"] == frame[0]["ts"]));
         assert!(frame.iter().all(|sample| sample["ph"] == "C"));
+        assert!(frame.iter().all(|sample| {
+            sample["args"]
+                .as_object()
+                .unwrap()
+                .values()
+                .all(serde_json::Value::is_number)
+        }));
+        assert!(frame.iter().all(|sample| sample["frame_id"].is_null()));
+        assert!(
+            frame
+                .iter()
+                .all(|sample| sample["event_sequence"].as_u64().is_some())
+        );
         assert!(frame.iter().all(|sample| sample["dur"] == 0.0));
         assert!(
             frame
