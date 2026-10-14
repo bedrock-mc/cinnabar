@@ -31,6 +31,8 @@ const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+mod admission;
+mod environment_loader;
 mod hud_editor;
 mod library;
 mod registration;
@@ -87,6 +89,23 @@ impl ModRuntime {
     /// Maps a publishing host's runtime index to its stable panel catalog owner.
     fn panel_ui_owner(&self, host: usize) -> mod_ui::PanelUiOwner {
         self.metadata[host].owner
+    }
+
+    /// Existing mod order chooses one active, explicitly authorized local menu brand.
+    fn menu_branding(
+        &self,
+    ) -> Option<
+        std::sync::Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>,
+    > {
+        self.metadata
+            .iter()
+            .enumerate()
+            .find_map(|(index, metadata)| {
+                let host = self.hosts.host(index);
+                (host.is_active() && host.grants().environment)
+                    .then(|| metadata.branding.clone())
+                    .flatten()
+            })
     }
 }
 
@@ -202,6 +221,47 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
             eprintln!("Optional personal-panel catalog unavailable: {error}");
         }
     }
+    let override_font =
+        std::env::var_os(font::FONT_ENV).and_then(|path| match font::load(Path::new(&path)) {
+            Ok(font) => Some(std::sync::Arc::new(font)),
+            Err(error) => {
+                eprintln!("Optional personal-panel font unavailable: {error}");
+                None
+            }
+        });
+    let mut fonts = Vec::new();
+    let mut brands = Vec::new();
+    hosts.retain(|host| {
+        let result = if host.grants().controls {
+            if let Some(font) = &override_font {
+                Ok(Some(font.clone()))
+            } else {
+                host.panel_font_source()
+                    .map(font::rasterize)
+                    .transpose()
+                    .map(|font| font.map(std::sync::Arc::new))
+            }
+        } else {
+            Ok(None)
+        };
+        match result {
+            Ok(font) => match admission::prepare_branding(host) {
+                Ok(branding) => {
+                    fonts.push(font);
+                    brands.push(branding);
+                    true
+                }
+                Err(error) => {
+                    eprintln!("Embedded menu branding rejected; component disabled: {error}");
+                    false
+                }
+            },
+            Err(error) => {
+                eprintln!("Embedded personal-panel font rejected; component disabled: {error}");
+                false
+            }
+        }
+    });
     for (index, host) in hosts.iter().enumerate() {
         if let Some(bundle) = host.panel_bundle() {
             match mod_ui::PreparedPanelUi::prepare(bundle) {
@@ -219,18 +279,47 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
             }
         }
     }
+    let first_controls = hosts.iter().position(|host| host.grants().controls);
+    let sources = hosts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, host)| {
+            Some(environment_loader::Source {
+                owner: mod_ui::PanelUiOwner::Environment(index),
+                component: host.component_source()?.to_owned(),
+                grants: host.grants().clone(),
+                font: std::env::var_os(font::FONT_ENV).map(std::path::PathBuf::from),
+                ui: (Some(index) == first_controls)
+                    .then(|| std::env::var_os(client_extensions::modding::panel_ui::UI_ENV))
+                    .flatten()
+                    .map(std::path::PathBuf::from),
+            })
+        })
+        .collect::<Vec<_>>();
+    if !sources.is_empty() {
+        match environment_loader::Loader::start(sources) {
+            Ok(loader) => {
+                app.insert_resource(loader);
+            }
+            Err(error) => eprintln!("Environment component worker unavailable: {error}"),
+        }
+    }
     let mut hosts = hosts.into_iter();
     let Some(host) = hosts.next() else { return };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     let companions: Vec<_> = hosts.map(|host| multi::Companion { host }).collect();
-    let controls = host.grants().controls
-        || companions
-            .iter()
-            .any(|companion| companion.host.grants().controls);
     app.insert_resource(VisualTimeOverride(host.time_override()))
         .insert_resource(ModRuntime {
-            metadata: (0..1 + companions.len())
-                .map(registration::HostMetadata::environment)
+            metadata: fonts
+                .into_iter()
+                .zip(brands)
+                .enumerate()
+                .map(|(index, (font, branding))| {
+                    let mut metadata = registration::HostMetadata::environment(index);
+                    metadata.font = font;
+                    metadata.branding = branding;
+                    metadata
+                })
                 .collect(),
             hosts: ModHosts::new(host, companions),
             render_sources: Vec::new(),
@@ -242,31 +331,13 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
             screens: screens::ScreenState::default(),
         })
         .init_resource::<interaction::ModInteraction>();
-    if controls && let Some(path) = std::env::var_os(font::FONT_ENV) {
-        match font::load(Path::new(&path)).and_then(|font| {
-            let font = std::sync::Arc::new(font);
-            app.world_mut()
-                .get_resource_mut::<UiPresentationResource>()
-                .ok_or_else(|| "presentation is unavailable".to_owned())?
-                .set_mod_panel_font(Some(font.clone()))
-                .map_err(|error| error.to_string())?;
-            let font = Some(font);
-            app.world_mut()
-                .resource_mut::<ModRuntime>()
-                .metadata
-                .iter_mut()
-                .for_each(|metadata| metadata.font = font.clone());
-            Ok(())
-        }) {
-            Ok(()) => {}
-            Err(error) => eprintln!("Optional personal-panel font unavailable: {error}"),
-        }
-    }
+    registration::presentation::refresh_presentation(app.world_mut());
     configure_systems(app, false);
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
+    app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
     ghost::configure(app);
     block_highlights::configure(app);
     fullbright::configure(app);
@@ -324,6 +395,7 @@ type ModOutputs<'w> = (
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 struct ModObservation<'w, 's> {
+    environment_loader: Option<Res<'w, environment_loader::Loader>>,
     watcher: Option<Res<'w, registration::Watcher>>,
     render_scene: Option<ResMut<'w, render_scene::ModRenderScene>>,
     cameras: Query<
@@ -360,6 +432,7 @@ fn drive_mod(
     observation: ModObservation,
 ) {
     let ModObservation {
+        environment_loader,
         watcher,
         render_scene,
         cameras,
@@ -401,6 +474,11 @@ fn drive_mod(
         extension.last_reload = Instant::now();
         for index in 0..extension.hosts.host_count() {
             if extension.metadata[index].registration.is_some() {
+                continue;
+            }
+            if environment_loader.is_some()
+                && extension.hosts.host(index).component_source().is_some()
+            {
                 continue;
             }
             match extension.hosts.host_mut(index).reload_if_changed() {
@@ -590,6 +668,7 @@ fn drive_mod(
         eprintln!("Cinnabar extension crosshair rejected: {error}");
     }
     let owner = extension.hosts.panel_owner();
+    presentation.set_mod_menu_branding(extension.menu_branding());
     if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
         eprintln!("Cinnabar extension panel font rejected: {error}");
     }

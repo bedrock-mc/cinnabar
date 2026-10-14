@@ -1,6 +1,6 @@
 //! Optional permission declarations in the component's own bounded metadata section.
 
-use crate::{MAX_COMPONENT_BYTES, ModGrants, local_files};
+use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, local_files};
 use anyhow::{Result, ensure};
 use std::path::Path;
 use wasmparser::{Parser, Payload};
@@ -11,7 +11,7 @@ pub const REQUESTED_GRANTS_SECTION: &str = "cinnabar:grants";
 /// Reads a component's declared requests without instantiating or granting the component.
 /// Absence means undeclared, rather than a request for every supported capability.
 pub fn requested_grants(path: &Path) -> Result<Option<ModGrants>> {
-    let bytes = local_files::read(path, MAX_COMPONENT_BYTES)?;
+    let bytes = local_files::read(path, MAX_COMPONENT_SOURCE_BYTES)?;
     // Developer text fixtures do not contain binary custom sections.
     if !bytes.starts_with(b"\0asm") {
         return Ok(None);
