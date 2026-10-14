@@ -453,13 +453,17 @@ impl ActorAnimationStore {
         } else {
             (self.assets.as_deref()?, self.layout.as_ref())
         };
-        let swing = state
+        // Local swings follow the physics clock; remote swings blend their last two ticks.
+        let swing_source = state
             .local_swing
-            .map(|progress| progress.bedrock_progress(partial_tick));
+            .map(|progress| (progress.bedrock, progress.frame_alpha))
+            .or_else(|| state.remote_swing().map(|pair| (pair, None)));
+        let swing = swing_source.map(|(pair, alpha)| {
+            LocalSwingProgress::interpolate(pair, alpha.unwrap_or(partial_tick))
+        });
         let swing_changed = state.samples_swing_poses
-            && state.local_swing.is_some_and(|progress| {
-                progress.bedrock[0] != progress.bedrock[1]
-                    || progress.bedrock_progress(partial_tick) != frame.motion.input.attack_time
+            && swing_source.is_some_and(|(pair, _)| {
+                pair[0] != pair[1] || swing != Some(frame.motion.input.attack_time)
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();

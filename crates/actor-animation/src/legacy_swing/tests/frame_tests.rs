@@ -261,3 +261,79 @@ fn local_player_swing_samples_native_item_rotation_alias() {
     assert_eq!(unchanged.previous, committed.0);
     assert_eq!(unchanged.current, committed.1);
 }
+
+/// A remote attack samples its swing curve at the frame fraction on both drawn endpoints.
+#[test]
+fn remote_swing_samples_the_attack_at_every_frame_fraction() {
+    for combat_visuals in [CombatVisuals::Legacy112, CombatVisuals::Modern] {
+        let actor = player();
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut store = ActorAnimationStore::with_assets(assets());
+        store.insert(1, 0, &actor);
+        let context = ActorTickContext {
+            combat_visuals,
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            store.advance_tick(&actors, None, None, true, true, |_| context.clone());
+        }
+        store.start_swing(1, 6, 6);
+        for _ in 0..3 {
+            store.advance_tick(&actors, None, None, true, true, |_| context.clone());
+        }
+        let rig = store.get(1).unwrap();
+        let attack = rig.hand.map(|hand| hand.attack_time);
+        // Each committed arm composes its own tick's attack; remove it to recover the motion.
+        let ordinary = [
+            (rig.previous[2].rotation, attack[0]),
+            (rig.current[2].rotation, attack[1]),
+        ]
+        .map(|(rotation, attack)| {
+            let [x, y, z, w] = pose::quat_from_euler([-attack, 0.0, 0.0]);
+            pose::quat_multiply(rotation, [-x, -y, -z, w])
+        });
+        assert!(attack[1] > attack[0], "the swing is mid-curve: {attack:?}");
+        for alpha in [0.0, 0.25, 0.5, 0.75] {
+            let progress = LocalSwingProgress::interpolate(attack, alpha);
+            let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+            let sampled = store
+                .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+                .unwrap();
+            // Presentation draws a frame-sampled body, otherwise the committed tick pair.
+            let rig = store.get(1).unwrap();
+            let drawn = match &sampled.render {
+                std::borrow::Cow::Owned(layers) if !layers[0].pose.is_empty() => {
+                    [&*layers[0].previous_pose, &*layers[0].pose]
+                }
+                _ => [rig.previous, rig.current],
+            };
+            let yaw = match combat_visuals {
+                CombatVisuals::Legacy112 => {
+                    render_model::legacy_combat::legacy_swing_pose(progress, 0.0).body_yaw
+                }
+                CombatVisuals::Modern => 0.0,
+            };
+            let expected = pose::quat_from_euler([0.0, -yaw.to_degrees(), 0.0]);
+            for bones in drawn {
+                for (actual, expected) in bones[0].rotation.into_iter().zip(expected) {
+                    assert!(
+                        (actual - expected).abs() < 1.0e-5,
+                        "body {combat_visuals:?} at {alpha}: {actual} vs {expected}"
+                    );
+                }
+            }
+            if combat_visuals == CombatVisuals::Modern {
+                let attack = pose::quat_from_euler([-progress, 0.0, 0.0]);
+                for (bones, ordinary) in drawn.into_iter().zip(ordinary) {
+                    let expected = pose::quat_multiply(ordinary, attack);
+                    for (actual, expected) in bones[2].rotation.into_iter().zip(expected) {
+                        assert!(
+                            (actual - expected).abs() < 1.0e-5,
+                            "arm at {alpha}: {actual} vs {expected}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
