@@ -1538,7 +1538,7 @@ reason = "Extracts the artwork stem only after the compiled decorated-pot tag ad
 [[identifier_literal_exceptions]]
 path = "crates/render-model/src/java_animation.rs"
 literal = "_sword"
-reason = "Java animation policy; registry-wide equivalence to the compiled sword trait is tested."
+reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
 path = "crates/pack-compiler/entity/src/block_entity.rs"
