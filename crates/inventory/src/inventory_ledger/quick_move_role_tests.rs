@@ -86,7 +86,6 @@ fn assert_quick_move(
         }
         InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, slot),
         InventoryTarget::Offhand => (StackRequestContainer::Offhand, 1),
-        _ => panic!("unsupported quick-move fixture target"),
     };
     ledger
         .begin_quick_move(InventoryTarget::Player(SOURCE_SLOT))

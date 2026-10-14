@@ -175,23 +175,17 @@ Assert-Equal $expectedAxolotlStackRevision $protocolMetadata.pinned_axolotl_stac
 Assert-Equal $expectedProtocolgenRevision $protocolMetadata.pinned_protocolgen_commit 'protocolgen metadata drifted'
 Assert-Equal $expectedLicenseSha256 $protocolMetadata.pinned_jolyne_license_sha256 'retained license metadata drifted'
 
+# Copies every workspace member tree resolved by Cargo, including new parent directories.
 function Copy-ProtocolDependencyProvenanceFixture {
     param(
         [Parameter(Mandatory = $true)][string]$SourceRoot,
         [Parameter(Mandatory = $true)][string]$DestinationRoot
     )
 
-    New-Item -ItemType Directory -Path $DestinationRoot -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.toml') -Destination $DestinationRoot
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'Cargo.lock') -Destination $DestinationRoot
-    foreach ($workspaceDirectory in @('app', 'crates', 'tools', 'examples')) {
-        Copy-Item -LiteralPath (Join-Path $SourceRoot $workspaceDirectory) `
-            -Destination $DestinationRoot -Recurse
+    & python (Join-Path $SourceRoot 'scripts/tests/copy_workspace.py') $SourceRoot $DestinationRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw 'could not copy the workspace for protocol dependency provenance'
     }
-    $androidRoot = Join-Path $DestinationRoot 'packaging/android'
-    New-Item -ItemType Directory -Path $androidRoot -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $SourceRoot 'packaging/android/client') `
-        -Destination $androidRoot -Recurse
 }
 
 function Assert-TestProtocolDependencyProvenance {

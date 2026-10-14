@@ -46,8 +46,8 @@ impl QuadRanges {
                 _ => merged.push(range),
             }
         }
-        if merged.last().is_some_and(|last| last.end == self.end) {
-            self.end = merged.pop().expect("checked").start;
+        if let Some(last) = merged.pop_if(|last| last.end == self.end) {
+            self.end = last.start;
         }
         self.free = merged;
     }
