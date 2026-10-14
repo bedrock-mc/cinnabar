@@ -110,6 +110,15 @@ fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
 
 #[test]
 fn server_menu_default_zero_descriptor_draws_chest_cells() {
+    assert_rendered_chest(0, "server-chest-default-descriptor");
+}
+
+#[test]
+fn repeated_chest_open_keeps_the_rendered_chest_screen() {
+    assert_rendered_chest(20, "server-chest-retried-open");
+}
+
+fn assert_rendered_chest(retries: u64, snapshot_name: &str) {
     use crate::ui_runtime::presentation::{forms, inventory_pointer::InventoryScreen};
     let Some(mut presentation) =
         crate::test_support::engine_presentation_with(forms::pack_harness::font())
@@ -121,13 +130,14 @@ fn server_menu_default_zero_descriptor_draws_chest_cells() {
     };
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = crate::test_support::inventory_session(&mut player);
+    let open = ContainerOpenEvent {
+        container: ContainerIdentity::window(4),
+        window_type: protocol::WINDOW_TYPE_CONTAINER,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    };
     for (sequence, event) in [
-        InventoryEvent::Open(ContainerOpenEvent {
-            container: ContainerIdentity::window(4),
-            window_type: protocol::WINDOW_TYPE_CONTAINER,
-            position: [0, 64, 0],
-            runtime_entity_id: -1,
-        }),
+        InventoryEvent::Open(open),
         InventoryEvent::Content(InventoryContentEvent {
             container: ContainerIdentity {
                 window_id: Some(4),
@@ -147,6 +157,12 @@ fn server_menu_default_zero_descriptor_draws_chest_cells() {
     {
         runtime
             .enqueue_inventory_event(&mut player, 1, sequence as u64 + 1, event)
+            .unwrap();
+    }
+    runtime.drain_pending_inventory(&mut player);
+    for retry in 0..retries {
+        runtime
+            .enqueue_inventory_event(&mut player, 1, retry + 3, InventoryEvent::Open(open))
             .unwrap();
     }
     runtime.drain_pending_inventory(&mut player);
@@ -170,7 +186,7 @@ fn server_menu_default_zero_descriptor_draws_chest_cells() {
             ui::DpiScale::new(1.0).unwrap(),
         )
         .unwrap();
-    forms::snapshot::write(&input, "server-chest-default-descriptor");
+    forms::snapshot::write(&input, snapshot_name);
     let screen = InventoryScreen::of_runtime(&player, &runtime);
     assert_eq!(
         screen,

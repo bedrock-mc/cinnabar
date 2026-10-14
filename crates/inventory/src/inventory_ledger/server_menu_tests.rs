@@ -10,6 +10,8 @@ use protocol::{
 
 use super::*;
 
+mod repeated_open;
+
 const MENU_WINDOW: i32 = 1;
 const MENU_CELLS: usize = 45;
 
