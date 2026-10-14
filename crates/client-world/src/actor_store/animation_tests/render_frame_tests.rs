@@ -8,6 +8,7 @@ use actor_animation::{MAX_MOLANG_OPS_PER_RENDER_FRAME, test_support};
 
 mod camera_tests;
 mod first_presentation_tests;
+mod multi_tick_tests;
 mod orb_tests;
 mod wolf_color_tests;
 
