@@ -4,8 +4,10 @@ use super::*;
 fn block_occlusion_rounds_the_world_intercept_before_measuring() {
     let origin = [8192.0, 65.62, 4096.0];
     let block = [8194, 66, 4097];
-    let relative = [0.0, 0.084_676_59, 0.143_673_03];
-    let distance = block_pick_distance(origin, block, relative);
+    let relative: [f32; 3] = [0.0, 0.084_676_59, 0.143_673_03];
+    let point: [f64; 3] =
+        std::array::from_fn(|axis| f64::from(block[axis]) + f64::from(relative[axis]));
+    let distance = block_pick_distance(origin, point.map(|axis| axis as f32));
     assert_eq!(distance, f64::from(2.350_242_9_f32));
     let actor = Some(ActorHit {
         runtime_id: 1,
@@ -17,9 +19,7 @@ fn block_occlusion_rounds_the_world_intercept_before_measuring() {
         Crosshair::Block
     ));
     let unrounded = (0..3)
-        .map(|axis| {
-            (f64::from(block[axis]) + f64::from(relative[axis]) - f64::from(origin[axis])).powi(2)
-        })
+        .map(|axis| (point[axis] - f64::from(origin[axis])).powi(2))
         .sum::<f64>()
         .sqrt();
     assert!(matches!(
@@ -91,6 +91,11 @@ fn actor_use_occlusion_ignores_the_cached_double_distance() {
             f64::from(0.084_676_59_f32),
             f64::from(0.143_673_03_f32),
         ),
+        hit_world: sim::Vec3::new(
+            8194.0,
+            66.0 + f64::from(0.084_676_59_f32),
+            4097.0 + f64::from(0.143_673_03_f32),
+        ),
         runtime_id: 7,
         distance: 10.0,
         identity: sim::CollisionQuery::synthetic(()).identity,
@@ -108,4 +113,44 @@ fn actor_use_occlusion_ignores_the_cached_double_distance() {
         classify(actor, Some(block.distance), 3.0),
         Crosshair::Actor(_)
     ));
+}
+
+#[test]
+fn block_occlusion_uses_the_intercept_outside_the_block_cell() {
+    let origin = [3.0, 0.5, 0.5];
+    let block = sim::BlockHit {
+        block_pos: [0, 0, 0],
+        face: 5,
+        hit_local: sim::Vec3::new(1.0, 0.5, 0.5),
+        hit_world: sim::Vec3::new(1.5, 0.5, 0.5),
+        runtime_id: 7,
+        distance: 1.5,
+        identity: sim::CollisionQuery::synthetic(()).identity,
+    };
+    let actor = Some(ActorHit {
+        runtime_id: 1,
+        distance: 1.7,
+        point: [1.3, 0.5, 0.5],
+    });
+    assert_eq!(
+        classify_block_hit(actor, origin, Some(&block), 3.0),
+        Crosshair::Block
+    );
+
+    let stack = protocol::NetworkItemStack::empty();
+    let item =
+        protocol::VerifiedNetworkItemStack::try_new(stack.clone(), stack.nbt_digest).unwrap();
+    let mut observed = crate::interaction_authority::FrozenBlockObservation::fixture(
+        block.block_pos,
+        block.face,
+        item,
+    );
+    observed.ray.origin = origin;
+    observed.target.relative_hit = [1.0, 0.5, 0.5];
+    observed.target.hit_world = [1.5, 0.5, 0.5];
+    assert_eq!(observed.hit_distance(), 1.5);
+    assert_eq!(
+        classify(actor, Some(observed.hit_distance()), 3.0),
+        Crosshair::Block
+    );
 }

@@ -26,6 +26,8 @@ pub struct BlockHit {
     pub face: u8,
     /// Finite block-local intercept coordinates, each clamped to `[0, 1]`.
     pub hit_local: Vec3,
+    /// Unclamped world-space intercept, including selection geometry outside the block cell.
+    pub hit_world: Vec3,
     /// Runtime ID whose authoritative selection shape was intercepted.
     pub runtime_id: u32,
     /// Finite physical distance from the origin along the normalized ray.
@@ -39,6 +41,7 @@ struct Candidate {
     block_pos: [i32; 3],
     face: u8,
     hit_local: Vec3,
+    hit_world: Vec3,
     runtime_id: u32,
     distance: f64,
     fraction: f32,
@@ -145,6 +148,7 @@ impl PaletteWorld<'_> {
             block_pos: best.block_pos,
             face: best.face,
             hit_local: best.hit_local,
+            hit_world: best.hit_world,
             runtime_id: best.runtime_id,
             distance: best.distance,
             identity,
@@ -268,6 +272,7 @@ impl PaletteWorld<'_> {
                         local.y.clamp(0.0, 1.0),
                         local.z.clamp(0.0, 1.0),
                     ),
+                    hit_world: point,
                     runtime_id,
                     distance,
                     fraction,

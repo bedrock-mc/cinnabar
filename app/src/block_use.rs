@@ -304,9 +304,7 @@ pub(crate) fn produce_block_use(
                             .block_has_build_intention(stream.network_id_mode(), block)
                     }),
             state.sneaking,
-            std::array::from_fn(|axis| {
-                observed.target.position[axis] as f32 + observed.target.relative_hit[axis]
-            }),
+            observed.target.hit_world,
         );
     }
     if !runtime.admit(trigger, due, tick, local_use, clock, sent) {

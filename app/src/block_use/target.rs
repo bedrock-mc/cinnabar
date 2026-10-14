@@ -104,19 +104,7 @@ pub(super) fn observe_use_target(
                 block = None;
             }
             let endpoint = actor.map_or_else(
-                || {
-                    block.map_or(origin + direction * reach, |hit| {
-                        if indirect.is_some() {
-                            sim::Vec3::new(
-                                f64::from(hit.block_pos[0]) + hit.hit_local.x,
-                                f64::from(hit.block_pos[1]) + hit.hit_local.y,
-                                f64::from(hit.block_pos[2]) + hit.hit_local.z,
-                            )
-                        } else {
-                            origin + direction * hit.distance
-                        }
-                    })
-                },
+                || block.map_or(origin + direction * reach, |hit| hit.hit_world),
                 |actor| {
                     sim::Vec3::new(
                         f64::from(actor.point[0]),
@@ -144,7 +132,7 @@ pub(super) fn observe_use_target(
                 .primary_is_air(target.position)?
                 .ok_or(sim::WorldQueryError::InvalidRayOrigin)?;
             let runtime_id = world.primary_runtime_id(target.position)?;
-            // Miss continuation uses the support corner; a real pick retains its world intercept.
+            // Miss continuation uses the support corner; a real pick keeps its click coordinates.
             let click = orientation_hit
                 .map(|point| point.map(f64::from))
                 .unwrap_or_else(|| {
@@ -169,6 +157,7 @@ pub(super) fn observe_use_target(
                     click[1] - target.position[1] as f64,
                     click[2] - target.position[2] as f64,
                 ),
+                hit_world: endpoint,
                 runtime_id,
                 distance: actor.map_or_else(
                     || block.map_or(reach, |hit| hit.distance),

@@ -22,11 +22,7 @@ pub struct FrozenBlockObservation {
 impl FrozenBlockObservation {
     /// Distance from this ray's origin to its observed world-space block hit.
     pub fn hit_distance(&self) -> f64 {
-        crate::melee::block_pick_distance(
-            self.ray.origin,
-            self.target.position,
-            self.target.relative_hit,
-        )
+        crate::melee::block_pick_distance(self.ray.origin, self.target.hit_world)
     }
 }
 
@@ -64,6 +60,7 @@ impl FrozenBlockObservation {
     /// A top-face hit on `position` holding `item` in slot 2.
     pub fn fixture(position: [i32; 3], face: u8, item: protocol::VerifiedNetworkItemStack) -> Self {
         let identity = sim::CollisionQuery::synthetic(()).identity;
+        let relative_hit = [0.5, 1.0, 0.5];
         Self {
             frame: FrozenMiningFrame {
                 session_generation: simulation_clock::identity::SessionGeneration::new(7),
@@ -88,7 +85,8 @@ impl FrozenBlockObservation {
             target: FrozenMiningTarget {
                 position,
                 face,
-                relative_hit: [0.5, 1.0, 0.5],
+                relative_hit,
+                hit_world: std::array::from_fn(|axis| position[axis] as f32 + relative_hit[axis]),
                 runtime_id: 9,
                 identity,
             },

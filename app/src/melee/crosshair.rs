@@ -63,13 +63,7 @@ pub(super) fn resolve_crosshair(
             }
         }
     });
-    let block_distance = observed.map(|observed| {
-        gameplay::melee::block_pick_distance(
-            origin,
-            observed.target.position,
-            observed.target.relative_hit,
-        )
-    });
+    let block_distance = observed.map(|observed| observed.hit_distance());
     let authority = stream.authority();
     let actor = gameplay::melee::pick_actor_by(
         authority.remote_actors().filter(|actor| {
