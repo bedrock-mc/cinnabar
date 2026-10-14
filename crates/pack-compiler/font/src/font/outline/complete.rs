@@ -40,7 +40,16 @@ pub(super) fn compile(
             }
         }
     }
-    let mut charge = 0;
+    let add_bed =
+        config.include_original_symbols && !codepoints.contains_key(&symbols::BED_CODEPOINT);
+    if add_bed && codepoints.len() == assets::MAX_FONT_GLYPHS {
+        return Err(invalid("original symbols exceed the glyph bound"));
+    }
+    let mut charge = if add_bed {
+        providers::add_charge(0, symbols::bed_alpha_charge(config.pixel_height)?)?
+    } else {
+        0
+    };
     let mut selected = Vec::with_capacity(codepoints.len());
     for (codepoint, (provider, base, style)) in codepoints {
         let font = sources[provider].2;
@@ -87,6 +96,9 @@ pub(super) fn compile(
         }
         style.apply(&mut glyph)?;
         rasterized[provider].push(glyph);
+    }
+    if add_bed {
+        rasterized[0].push(symbols::bed(config.pixel_height)?);
     }
     let mut glyphs = Vec::new();
     let mut pages = Vec::new();
