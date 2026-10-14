@@ -10,10 +10,6 @@ use crate::Context;
 use crate::bind::{CollectionItem, DataSource, FactoryItem};
 use crate::predicate::Scalar;
 
-/// The HUD screen and the crosshair overlay the client stacks above it.
-pub const HUD_SCREEN: &str = "hud.hud_screen";
-pub const CROSSHAIR_SCREEN: &str = "hud_crosshair.hud_crosshair_screen";
-
 /// Everything the HUD templates bind, as plain values. Times are seconds on the
 /// caller's animation clock.
 #[derive(Clone, Debug, Default, PartialEq)]

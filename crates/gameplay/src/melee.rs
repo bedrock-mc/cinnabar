@@ -180,15 +180,15 @@ impl MeleeRuntime {
         }
     }
 
-    /// Prioritizes current-frame block ticks, then this authority's exact rejected tick.
-    /// Bounds a latched press while no eligible simulation sample exists.
+    /// Block presses retain their current-frame or rejected tick. Actor attacks and misses
+    /// precede the frame's first input and report the state before that tick simulated.
     pub fn press_sample(
         &mut self,
         crosshair: Crosshair,
         movement: &crate::movement::MovementTicker,
         recent_ticks: usize,
         now_millis: u64,
-    ) -> Option<crate::movement::UnsentSampleView> {
+    ) -> Option<crate::movement::InteractionSample> {
         let sample = if crosshair == Crosshair::Block {
             movement
                 .first_unsent_sample_in_frame(recent_ticks)
@@ -202,8 +202,11 @@ impl MeleeRuntime {
                         None
                     }
                 })
+                .map(Into::into)
         } else {
-            movement.newest_unsent_sample()
+            movement
+                .first_unsent_sample_in_frame(recent_ticks)
+                .and_then(|sample| movement.interaction_before_tick(sample.tick))
         };
         if sample.is_none() {
             self.defer(now_millis);

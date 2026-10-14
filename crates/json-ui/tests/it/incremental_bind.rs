@@ -2,16 +2,16 @@
 
 use crate::support;
 use crate::support::java_pack;
+use json_ui::vanilla::Reference;
 
 use std::sync::Arc;
 
 use json_ui::{
     BindState, BossBar, ButtonInput, CachedLibrary, Catalog, CatalogLibrary, CollectionItem,
-    Components, Context, DataSource, Dispatcher, FactoryItem, FormRender, HUD_SCREEN, HudModel,
-    HudSlot, HudTitle, InputMode, LayoutEnv, MeasureCache, ResolveCache, ResolvedControl, Scalar,
-    Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState, bind_incremental,
-    bind_stateful, hud_context, hud_data_source, rebind, render_bound, render_bound_cached,
-    resolve,
+    Components, Context, DataSource, Dispatcher, FactoryItem, FormRender, HudModel, HudSlot,
+    HudTitle, InputMode, LayoutEnv, MeasureCache, ResolveCache, ResolvedControl, Scalar, Sidebar,
+    TextMeasure, TextureMeta, TextureSource, Timed, ViewState, bind_incremental, bind_stateful,
+    hud_context, hud_data_source, rebind, render_bound, render_bound_cached, resolve,
 };
 use serde_json::Value;
 
@@ -342,7 +342,11 @@ fn random_hud_refreshes_match_full_rebinds() {
     let Some(catalog) = vanilla_hud() else {
         return;
     };
-    let mut pair = Pair::new(&catalog, HUD_SCREEN, hud_context(&Context::desktop()));
+    let mut pair = Pair::new(
+        &catalog,
+        Reference::HudHudScreen.as_str(),
+        hud_context(&Context::desktop()),
+    );
     let mut model = lobby();
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
     pair.refresh(hud_data_source(&model), "initial");
@@ -360,7 +364,11 @@ fn hud_changes_rebuild_only_their_subtree() {
     let Some(catalog) = vanilla_hud() else {
         return;
     };
-    let mut pair = Pair::new(&catalog, HUD_SCREEN, hud_context(&Context::desktop()));
+    let mut pair = Pair::new(
+        &catalog,
+        Reference::HudHudScreen.as_str(),
+        hud_context(&Context::desktop()),
+    );
     let mut model = lobby();
     for settle in 0..2 {
         model.chat.push(Timed {
@@ -377,9 +385,13 @@ fn hud_changes_rebuild_only_their_subtree() {
         "an unchanged refresh rebuilt {:?}",
         idle.rebuilt
     );
-    let total = Pair::new(&catalog, HUD_SCREEN, hud_context(&Context::desktop()))
-        .refresh(hud_data_source(&model), "cold")
-        .placed;
+    let total = Pair::new(
+        &catalog,
+        Reference::HudHudScreen.as_str(),
+        hud_context(&Context::desktop()),
+    )
+    .refresh(hud_data_source(&model), "cold")
+    .placed;
     let changes: [Change<HudModel>; 3] = [
         ("chat", "chat", |model| {
             model.chat.push(Timed {

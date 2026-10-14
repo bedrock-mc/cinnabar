@@ -5,6 +5,7 @@
 
 mod animation;
 mod atmosphere;
+#[cfg(not(target_arch = "wasm32"))]
 mod audio;
 mod audio_bank;
 mod audio_pcm;
@@ -25,6 +26,7 @@ pub use animation::AnimationInventory;
 pub use atmosphere::{
     AtmosphereCompileOptions, compile_atmosphere_assets, compile_atmosphere_assets_with_options,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use audio::{
     AUDIO_SOUND_DEFINITIONS_RELATIVE_PATH, AudioCompileError, AudioCompileReport,
     CompiledAudioCarrier, PINNED_SOUND_DEFINITIONS_SHA256, compile_audio_assets,

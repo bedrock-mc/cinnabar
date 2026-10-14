@@ -4,9 +4,17 @@ use std::{
 };
 
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
-use syn::{punctuated::Punctuated, spanned::Spanned, visit::Visit};
+use syn::{spanned::Spanned, visit::Visit};
 
-use crate::{ArchitectureError, paths::relative_slash, policy::Policy, read};
+use crate::{
+    ArchitectureError,
+    paths::relative_slash,
+    policy::Policy,
+    read,
+    rust_scope::{
+        ModulePaths, inherited_test_files, is_rust_test, item_attributes, marks_test_scope,
+    },
+};
 
 const SLEEP_HELP: &str = "tests wait with `test_time::eventually` (Rust) or `testwait` or `testing/synctest` (Go), never sleep";
 const CLOCK_HELP: &str = "domain code takes `now` from its caller; only edge code reads the clock";
@@ -64,22 +72,11 @@ pub(super) fn check_timing(
             }
         }
     }
-    // Propagate test scope through every out-of-line declaration, regardless of file order.
-    let mut test_files = BTreeSet::new();
-    loop {
-        let mut changed = false;
-        for (path, (_, scan)) in &scans {
-            let inherited = test_files.contains(path) || scan.file_test;
-            for (module, test) in &scan.modules {
-                if (inherited || *test) && test_files.insert(module.clone()) {
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
+    let test_files = inherited_test_files(
+        scans
+            .iter()
+            .map(|(path, (_, scan))| (path, scan.file_test, scan.modules.as_slice())),
+    );
     for (path, (relative, scan)) in scans {
         let file_test = scan.file_test || test_files.contains(&path);
         let clock_free = rules
@@ -121,77 +118,6 @@ fn report_sleep(
     {
         Some(index) => used[index] = true,
         None => diagnostics.push(format!("{relative}:{line}: {SLEEP_HELP}")),
-    }
-}
-
-/// Test files and test-only directories, including `foo_tests/` helper modules, by repository-relative path.
-fn is_rust_test(relative: &str) -> bool {
-    let name = relative.rsplit('/').next().unwrap_or("");
-    name == "tests.rs"
-        || name.ends_with("_tests.rs")
-        || relative
-            .split('/')
-            .rev()
-            .skip(1)
-            .any(|dir| dir == "tests" || dir.ends_with("_tests"))
-}
-
-/// Recognizes test entry attributes and cfg predicates that require `test` or a registered test-support feature.
-fn test_attributes(attributes: &[syn::Attribute], features: &BTreeSet<String>) -> bool {
-    attributes.iter().any(|attribute| {
-        attribute
-            .path()
-            .segments
-            .last()
-            .is_some_and(|part| part.ident == "test")
-            || (attribute.path().is_ident("cfg")
-                && attribute
-                    .parse_args::<syn::Meta>()
-                    .is_ok_and(|meta| requires_test(&meta, features)))
-    })
-}
-
-/// Recognizes `test` or a test-support feature, conjunctions containing one, and disjunctions of only those.
-fn requires_test(meta: &syn::Meta, features: &BTreeSet<String>) -> bool {
-    match meta {
-        syn::Meta::Path(path) => path.is_ident("test"),
-        syn::Meta::NameValue(pair) => {
-            pair.path.is_ident("feature")
-                && matches!(&pair.value, syn::Expr::Lit(syn::ExprLit { lit: syn::Lit::Str(name), .. })
-                    if features.contains(&name.value()))
-        }
-        syn::Meta::List(list) => {
-            let Ok(arms) =
-                list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
-            else {
-                return false;
-            };
-            let test = |arm: &syn::Meta| requires_test(arm, features);
-            (list.path.is_ident("all") && arms.iter().any(test))
-                || (list.path.is_ident("any") && !arms.is_empty() && arms.iter().all(test))
-        }
-    }
-}
-
-/// Attributes on Rust items, including functions, modules, and impl blocks.
-fn item_attributes(item: &syn::Item) -> &[syn::Attribute] {
-    match item {
-        syn::Item::Const(item) => &item.attrs,
-        syn::Item::Enum(item) => &item.attrs,
-        syn::Item::ExternCrate(item) => &item.attrs,
-        syn::Item::Fn(item) => &item.attrs,
-        syn::Item::ForeignMod(item) => &item.attrs,
-        syn::Item::Impl(item) => &item.attrs,
-        syn::Item::Macro(item) => &item.attrs,
-        syn::Item::Mod(item) => &item.attrs,
-        syn::Item::Static(item) => &item.attrs,
-        syn::Item::Struct(item) => &item.attrs,
-        syn::Item::Trait(item) => &item.attrs,
-        syn::Item::TraitAlias(item) => &item.attrs,
-        syn::Item::Type(item) => &item.attrs,
-        syn::Item::Union(item) => &item.attrs,
-        syn::Item::Use(item) => &item.attrs,
-        _ => &[],
     }
 }
 
@@ -243,8 +169,7 @@ struct RustScan {
     test_features: BTreeSet<String>,
     file_test: bool,
     in_test: bool,
-    module_dir: PathBuf,
-    path_dir: PathBuf,
+    module_paths: ModulePaths,
     imports: BTreeMap<String, Vec<String>>,
     calls: Vec<(usize, bool, bool)>,
     modules: Vec<(PathBuf, bool)>,
@@ -253,19 +178,11 @@ struct RustScan {
 impl RustScan {
     /// Starts a file scan using Rust's module directory rules.
     fn new(path: &Path, file_test: bool, test_features: &BTreeSet<String>) -> Self {
-        let parent = path.parent().unwrap_or(Path::new("."));
-        let stem = path.file_stem().unwrap_or_default();
-        let module_dir = if ["lib", "main", "mod"].iter().any(|name| stem == *name) {
-            parent.to_path_buf()
-        } else {
-            parent.join(stem)
-        };
         Self {
             test_features: test_features.clone(),
             file_test,
             in_test: file_test,
-            module_dir,
-            path_dir: parent.to_path_buf(),
+            module_paths: ModulePaths::new(path),
             imports: BTreeMap::new(),
             calls: Vec::new(),
             modules: Vec::new(),
@@ -338,7 +255,7 @@ impl RustScan {
 impl<'ast> Visit<'ast> for RustScan {
     /// Applies file-level test attributes before visiting its imports and items.
     fn visit_file(&mut self, file: &'ast syn::File) {
-        self.file_test |= test_attributes(&file.attrs, &self.test_features);
+        self.file_test |= marks_test_scope(&file.attrs, &self.test_features);
         self.in_test = self.file_test;
         self.collect_imports(file.items.iter());
         syn::visit::visit_file(self, file);
@@ -347,7 +264,7 @@ impl<'ast> Visit<'ast> for RustScan {
     /// Keeps cfg-based test scope inside the attributed item.
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let previous = self.in_test;
-        self.in_test |= test_attributes(item_attributes(item), &self.test_features);
+        self.in_test |= marks_test_scope(item_attributes(item), &self.test_features);
         syn::visit::visit_item(self, item);
         self.in_test = previous;
     }
@@ -362,7 +279,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, &self.test_features);
+        self.in_test |= marks_test_scope(attrs, &self.test_features);
         syn::visit::visit_impl_item(self, item);
         self.in_test = previous;
     }
@@ -377,7 +294,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, &self.test_features);
+        self.in_test |= marks_test_scope(attrs, &self.test_features);
         syn::visit::visit_trait_item(self, item);
         self.in_test = previous;
     }
@@ -385,40 +302,15 @@ impl<'ast> Visit<'ast> for RustScan {
     /// Scans inline modules and records resolved files for out-of-line declarations.
     fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
         if let Some((_, items)) = &module.content {
-            let old_dir = self.module_dir.clone();
-            let old_path_dir = self.path_dir.clone();
+            let old_paths = self.module_paths.clone();
             let old_imports = self.imports.clone();
-            self.module_dir.push(module.ident.to_string());
-            self.path_dir = self.module_dir.clone();
+            self.module_paths.push_inline(&module.ident.to_string());
             self.collect_imports(items.iter());
             syn::visit::visit_item_mod(self, module);
-            self.module_dir = old_dir;
-            self.path_dir = old_path_dir;
+            self.module_paths = old_paths;
             self.imports = old_imports;
-        } else {
-            let explicit = module.attrs.iter().find_map(|attribute| {
-                if attribute.path().is_ident("path")
-                    && let syn::Meta::NameValue(value) = &attribute.meta
-                    && let syn::Expr::Lit(literal) = &value.value
-                    && let syn::Lit::Str(path) = &literal.lit
-                {
-                    return Some(self.path_dir.join(path.value()));
-                }
-                None
-            });
-            let candidates = match explicit {
-                Some(path) => vec![path],
-                None => vec![
-                    self.module_dir.join(format!("{}.rs", module.ident)),
-                    self.module_dir
-                        .join(module.ident.to_string())
-                        .join("mod.rs"),
-                ],
-            };
-            if let Some(path) = candidates.into_iter().find(|path| path.is_file()) {
-                self.modules
-                    .push((path.canonicalize().unwrap_or(path), self.in_test));
-            }
+        } else if let Some(path) = self.module_paths.resolve(module) {
+            self.modules.push((path, self.in_test));
         }
     }
 

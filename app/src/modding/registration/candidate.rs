@@ -6,6 +6,8 @@ pub(super) struct Candidate {
     pub(super) host: ModHost,
     pub(super) font: Option<Arc<RuntimeFontCatalog>>,
     pub(super) panel_ui: Option<Arc<mod_ui::PreparedPanelUi>>,
+    pub(super) branding:
+        Option<Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>>,
     pub(super) identity: [u8; 32],
     pub(super) registration: Entry,
 }
@@ -28,36 +30,19 @@ pub(super) fn build_candidate_with_settings(
         font: font_bytes,
         ui,
     } = snapshot;
-    let grants = registration.grants.clone();
-    let font = if grants.controls {
-        font_bytes
-            .as_deref()
-            .map(font::rasterize)
-            .transpose()?
-            .map(Arc::new)
-    } else {
-        None
-    };
-    let mut host = ModHost::prepare_snapshot_with_grants(
+    let prepared = crate::modding::admission::prepare(
         &registration.component,
         &component,
-        grants,
+        registration.grants.clone(),
+        font_bytes.as_deref(),
+        ui.as_deref(),
         settings.map(|settings| (settings.path.as_path(), settings.json.as_str())),
-    )
-    .map_err(|error| format!("{error:#}"))?;
-    if let Some(ui) = ui {
-        let json = std::str::from_utf8(&ui).map_err(|error| error.to_string())?;
-        host.set_panel_bundle(json)
-            .map_err(|error| format!("{error:#}"))?;
-    }
-    let panel_ui = host
-        .panel_bundle()
-        .map(mod_ui::PreparedPanelUi::prepare)
-        .transpose()?;
+    )?;
     Ok(Candidate {
-        host,
-        font,
-        panel_ui,
+        host: prepared.host,
+        font: prepared.font,
+        panel_ui: prepared.panel_ui,
+        branding: prepared.branding,
         identity,
         registration,
     })

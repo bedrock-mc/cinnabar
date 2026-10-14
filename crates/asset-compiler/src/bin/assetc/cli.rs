@@ -31,6 +31,9 @@ pub(super) enum Command {
         out: PathBuf,
         #[arg(long)]
         actors_out: PathBuf,
+        /// Optional names-only JSON-UI vocabulary, including text keys.
+        #[arg(long)]
+        ui_out: Option<PathBuf>,
     },
     /// Compile final movement, selection and interaction facts for every block state.
     BlockPhysics {

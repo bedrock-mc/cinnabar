@@ -66,7 +66,7 @@ fn engine() -> FormEngine {
     )
     .unwrap();
     let registry = Box::leak(Box::new(ScreenRegistry::new(Context::desktop())));
-    registry.screen(json_ui::HUD_SCREEN);
+    registry.screen(json_ui::vanilla::Reference::HudHudScreen.as_str());
     FormEngine::new(
         carrier,
         catalog,
@@ -213,7 +213,7 @@ fn paint(
         None => {
             engine
                 .render_screen(
-                    json_ui::HUD_SCREEN,
+                    json_ui::vanilla::Reference::HudHudScreen.as_str(),
                     &DataSource::default(),
                     &context,
                     &json_ui::ViewState::default(),

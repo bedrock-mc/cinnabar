@@ -18,6 +18,7 @@ mod correction_shape;
 mod diagnostics;
 pub mod diagnostics_config;
 mod effects;
+mod emote;
 mod encoding;
 mod input_state;
 
@@ -162,6 +163,7 @@ pub struct MovementTicker {
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
     next_tick_flags: PlayerInputFlags,
+    emote_ticks: u32,
     /// Recent tick-end states, the single source of build actions' pre-tick state.
     tick_ends: outbox::TickEnds,
 }
@@ -210,6 +212,7 @@ impl MovementTicker {
             mining_epoch_publisher,
             held_release: None,
             next_tick_flags: PlayerInputFlags::NONE,
+            emote_ticks: 0,
             tick_ends: outbox::TickEnds::default(),
         }
     }
@@ -242,6 +245,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.stop_emote();
         self.anchor_tick_end(initial_position);
     }
 
@@ -257,6 +261,7 @@ impl MovementTicker {
         self.terminal_drain = false;
         self.pending_control_fence = false;
         self.pending_teleport_ack = None;
+        self.stop_emote();
         self.tick_ends.clear();
     }
 
@@ -432,7 +437,9 @@ impl MovementTicker {
             yaw: sample.yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
-            flags: input_flags(sample, self.previous_input) | self.take_next_tick_flags(),
+            flags: input_flags(sample, self.previous_input)
+                | self.take_next_tick_flags()
+                | self.advance_emote_input(),
             input_mode: sample.input_mode,
         };
         self.next_tick = self.next_tick.saturating_add(1);
@@ -876,6 +883,7 @@ impl MovementTicker {
                         PlayerInputFlags::HANDLED_TELEPORT,
                         PlayerInputFlags::MISSED_SWING,
                         PlayerInputFlags::START_USING_ITEM,
+                        PlayerInputFlags::EMOTING,
                     ]
                     .into_iter()
                     .fold(*flags, |flags, bit| {

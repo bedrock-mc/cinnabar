@@ -298,11 +298,16 @@ impl Instance {
         grants: ModGrants,
         settings: String,
         declared: Declared,
+        panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
     ) -> Result<Self> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         PlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
-        let state = State::new(grants, settings, declared);
+        let mut state = State::new(grants, settings, declared);
+        if let Some(bundle) = panel_bundle.filter(|_| state.grants.controls) {
+            state.controls.panel = Some(bundle.panel.clone());
+            state.controls.bundle = Some(bundle);
+        }
         let pre = linker.instantiate_pre(&component)?;
         exports::Exports::check(&pre)?;
         let mut store = Store::new(engine, state);
@@ -343,6 +348,7 @@ impl Instance {
         grants: ModGrants,
         settings: String,
         declared: Declared,
+        panel_bundle: Option<Arc<ui::mod_panel::PanelBundle>>,
     ) -> Result<Self> {
         let budget = self.callback_budget.clone();
         if let Some(budget) = &budget {
@@ -351,7 +357,7 @@ impl Instance {
                 "loading callback deferred"
             );
         }
-        let mut candidate = Self::new(engine, bytes, grants, settings, declared)?;
+        let mut candidate = Self::new(engine, bytes, grants, settings, declared, panel_bundle)?;
         candidate.callback_budget = budget;
         candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
         Ok(candidate)
@@ -942,6 +948,7 @@ mod epoch_tests {
             ModGrants::default(),
             String::new(),
             Declared::default(),
+            None,
         )
         .unwrap();
         let result = instance.run(u64::MAX, commit, |exports, store| {

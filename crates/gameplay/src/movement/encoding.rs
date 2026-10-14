@@ -149,11 +149,12 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     flags
 }
 
+/// Bounds a movement vector with separately rounded float products and component division.
 pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let length_squared = vector[0].mul_add(vector[0], vector[1] * vector[1]);
+    let length_squared = vector[0] * vector[0] + vector[1] * vector[1];
     if length_squared > 1.0 {
-        let inverse_length = length_squared.sqrt().recip();
-        [vector[0] * inverse_length, vector[1] * inverse_length]
+        let length = length_squared.sqrt();
+        [vector[0] / length, vector[1] / length]
     } else {
         vector
     }

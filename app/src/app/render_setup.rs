@@ -58,6 +58,18 @@ impl bevy::prelude::Plugin for RendererSetup {
 mod tests {
     use super::*;
 
+    #[cfg(target_arch = "wasm32")]
+    #[test]
+    fn browser_requests_portable_webgpu_device_settings() {
+        let mut settings = WgpuSettings::default();
+        device::configure_render_settings(&mut settings);
+        assert!(matches!(
+            settings.priority,
+            bevy::render::settings::WgpuSettingsPriority::WebGPU
+        ));
+        assert_eq!(settings.backends, Some(wgpu::Backends::BROWSER_WEBGPU));
+    }
+
     #[test]
     fn shader_compiler_does_not_inherit_a_launch_directory_dxc() {
         let mut settings = WgpuSettings {

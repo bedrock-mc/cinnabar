@@ -3,7 +3,7 @@
 use super::*;
 
 /// Restores retained surfaces from the remaining hosts after a registration transition.
-pub(super) fn refresh_presentation(world: &mut World) {
+pub(in crate::modding) fn refresh_presentation(world: &mut World) {
     if !world.contains_resource::<ModRuntime>() {
         return;
     }
@@ -11,6 +11,7 @@ pub(super) fn refresh_presentation(world: &mut World) {
         let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() else {
             return;
         };
+        presentation.set_mod_menu_branding(runtime.menu_branding());
         let owner = runtime.hosts.panel_owner();
         let _ = presentation.set_mod_panel_font(runtime.metadata[owner].font.clone());
         let _ = presentation.mod_ui_mut().set_mod_panel(
@@ -62,6 +63,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
+        presentation.set_mod_menu_branding(None);
         presentation.mod_ui_mut().clear_mod_panels();
         let _ = presentation.mod_ui_mut().set_mod_label(None);
         let _ = presentation.set_mod_hud(None);

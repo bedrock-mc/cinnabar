@@ -228,6 +228,11 @@ Sound engine, session, named playback, local cue and UI sound tests belong to
 `client-presentation`. App integration tests retain the composed frame-order and
 camera-listener coverage. This ownership change adds no new parity evidence.
 
+The `json_ui::vanilla` contract checks categorized names against the pinned UI
+vocabulary. Screen routing and core form/context consumers use those names;
+remaining controller migrations and stale-name corrections are incomplete.
+This adds no live visual evidence and leaves the UI acceptance gate open.
+
 ## P5.2-HUD
 
 | Field | Evidence |

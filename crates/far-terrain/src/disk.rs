@@ -66,6 +66,8 @@ enum Command {
     ResolveFresh {
         world: WorldKey,
         entry: u64,
+        from: NamespaceKey,
+        since: u64,
     },
     ResolveWrite {
         world: WorldKey,
@@ -140,9 +142,15 @@ impl DiskCache {
     }
 
     /// Gives visit `entry` to `world` a new epoch of its own, as when its cached columns turned
-    /// out to be another map's.
-    pub fn resolve_fresh(&self, world: WorldKey, entry: u64) {
-        self.send(Command::ResolveFresh { world, entry });
+    /// out to be another map's, and moves the columns that visit already wrote to `from`
+    /// (versions from `since` on) there.
+    pub fn resolve_fresh(&self, world: WorldKey, entry: u64, from: NamespaceKey, since: u64) {
+        self.send(Command::ResolveFresh {
+            world,
+            entry,
+            from,
+            since,
+        });
     }
 
     /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
@@ -255,10 +263,16 @@ impl Worker {
                     epoch,
                 });
             }
-            Command::ResolveFresh { world, entry } => {
+            Command::ResolveFresh {
+                world,
+                entry,
+                from,
+                since,
+            } => {
                 let epoch = self.fresh_epoch(world);
                 self.claim(world.namespace(epoch));
                 self.visits.insert((world, entry), epoch);
+                self.move_newer(from, world.namespace(epoch), since);
                 let _ = self.events.send(DiskEvent::Resolved {
                     world,
                     entry,
@@ -397,6 +411,42 @@ impl Worker {
             newest + 1
         } else {
             newest
+        }
+    }
+
+    /// Moves every column of `from` at version `since` or newer into `to`, so a visit that
+    /// turned out to be another map keeps what it wrote and leaves `from` as it was.
+    fn move_newer(&mut self, from: NamespaceKey, to: NamespaceKey, since: u64) {
+        let directory = self
+            .root
+            .join(from.server.to_string())
+            .join(from.directory());
+        for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
+            let Some(region) = entry.file_name().to_str().and_then(RegionPos::parse) else {
+                continue;
+            };
+            let path = entry.path();
+            let Some(columns) = read_region(&path) else {
+                continue;
+            };
+            let (moved, kept): (Vec<_>, Vec<_>) = columns
+                .into_iter()
+                .partition(|(_, column)| column.version >= since);
+            if moved.is_empty() {
+                continue;
+            }
+            if kept.is_empty() {
+                let _ = fs::remove_file(&path);
+                if let Some(index) = &mut self.index {
+                    index.files.remove(&path);
+                }
+            } else {
+                let bytes = encode_region(&kept);
+                if write_atomic(&path, &bytes).is_ok() {
+                    self.index().record(path, from.server, bytes.len() as u64);
+                }
+            }
+            self.write(to, region, moved);
         }
     }
 

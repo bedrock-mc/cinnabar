@@ -10,6 +10,7 @@ mod callbacks;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
 mod exclusive;
 pub use exclusive::HudClaims;
+mod component_assets;
 mod execution;
 mod load;
 pub mod local_files;
@@ -62,6 +63,14 @@ use {
 
 /// Maximum bytes accepted before compilation or allocation of a package buffer.
 pub const MAX_COMPONENT_BYTES: usize = 4 * 1024 * 1024;
+/// Maximum local component envelope; executable bytes retain their separate original ceiling.
+pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
+    + ui::mod_panel::MAX_PANEL_BUNDLE_BYTES
+    + mod_api::MAX_PANEL_FONT_BYTES
+    + mod_api::MAX_MENU_LOGO_BYTES
+    + mod_api::MAX_MENU_TITLE_BYTES
+    + mod_api::MAX_NOTICES_BYTES
+    + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
 pub(crate) const FRAME_FUEL: u64 = 100_000;
@@ -77,6 +86,11 @@ pub struct ModHost {
     engine: Engine,
     _ticker: execution::EpochTicker,
     instance: Instance,
+    embedded_font: Option<Arc<[u8]>>,
+    embedded_logo: Option<Arc<[u8]>>,
+    embedded_title: Option<Arc<str>>,
+    embedded_notices: Option<Arc<str>>,
+    panel_bundle_override: Option<Arc<ui::mod_panel::PanelBundle>>,
     source: Source,
     attempted: [u8; 32],
     grants: ModGrants,

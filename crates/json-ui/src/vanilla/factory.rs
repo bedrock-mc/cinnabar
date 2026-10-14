@@ -1,0 +1,35 @@
+//! Factory names used by UI consumers.
+
+names! {
+    Factory {
+        Button = "button",
+        ChatItem = "chat_item",
+        ChatScreenMessages = "chat_screen_messages",
+        ChatSettingPopup = "chat_setting_popup",
+        Creator = "creator",
+        CustomForm = "custom_form",
+        Divider = "divider",
+        Dropdown = "dropdown",
+        Fill = "fill",
+        Header = "header",
+        HudActionbarText = "hud_actionbar_text",
+        HudTitleText = "hud_title_text",
+        Input = "input",
+        ItemText = "item_text",
+        Label = "label",
+        Language = "language",
+        LongForm = "long_form",
+        Multiselect = "multiselect",
+        Popup = "popup",
+        Screenshots = "screenshots",
+        SkinPack = "skin_pack",
+        SkipButton = "skip_button",
+        Slider = "slider",
+        SocialButtonControl = "social_button_control",
+        StepSlider = "step_slider",
+        Tag = "tag",
+        Title = "title",
+        ToastMessage = "toast_message",
+        Toggle = "toggle",
+    }
+}

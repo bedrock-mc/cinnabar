@@ -1,3 +1,20 @@
+## Browser portability
+
+Connection framing can prepare a bounded writer for a host executor, and deadlines accept a
+host timer future. Native connections still spawn the writer on Tokio. Image work retains
+its bounded read/decode queues, pending completion and pack cancellation. A browser image
+driver runs one queued job after yielding. World jobs use the same urgent and ageing rules,
+with caller-supplied monotonic observations and retained light-solver scratch; native hosts
+keep their foreground/background threads and priority policy. Native cache-file reads and
+FreeType compilation are excluded from browser targets. Divergent fragment samples use
+explicit gradients computed before rejection.
+
+Incomplete: CI must compile the native changes and run the written regression tests. The
+browser entry, transport, timer implementation and asset source remain pending. Shared
+session/world/render clock migration and browser dependency composition still need a
+wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
+job costs remain unverified. No browser release or parity gate closes here.
+
 ## Far terrain (LOD)
 
 `far-terrain` summarises each column the server sent: the height of every cell's highest
@@ -7566,6 +7583,11 @@ references, PNG evidence and the limitations of the capture.
 
 ### JSON-UI review follow-up (incomplete live form acceptance)
 
+JSON-UI names have a categorized `json_ui::vanilla` contract checked against a
+names-only vocabulary from the pinned sample pack. Screen routing and core form
+and context consumers use it. Remaining controller migrations and corrections
+to stale names are incomplete; this contract closes no live visual gate.
+
 Review corrections cover untrusted animation graphs, expanded widget component
 bags, native form titles, screen cancellation, Drop remapping, recipe icons and
 perspective settings. An open form also remeasures when its session font changes.
@@ -8396,8 +8418,10 @@ rounds final unrotated glyph edges onto the device grid; face rasters are filter
 are available as roles; current screens still use Seven and Ten.
 
 Missing regular, bold, italic and monospace mathematical Latin letters and digits use
-original grid-based variants built from the shipped Latin artwork. Unrestricted Unicode,
-script shaping and native fallback rendering remain open. Owner visual acceptance and
+original grid-based variants built from the shipped Latin artwork.
+The Sans carrier also supplies original monochrome bed-symbol artwork when the source
+outline map lacks it, so MOTDs can display that symbol without a replacement box.
+Unrestricted Unicode, script shaping and native fallback rendering remain open. Owner visual acceptance and
 live text rendering across scales remain open gates.
 
 ## Device render-distance defaults

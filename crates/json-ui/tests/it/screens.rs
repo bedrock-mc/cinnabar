@@ -94,10 +94,19 @@ fn small_chest_exposes_every_slot_by_collection() {
     assert_eq!(slots("container_items"), 27);
     assert_eq!(slots("inventory_items"), 27);
     assert_eq!(slots("hotbar_items"), 9);
-    assert!(
-        render.root_panel.is_some(),
-        "the panel bounds outside clicks"
+    assert!(render.root_panel.is_some(), "the screen lays out its panel");
+    // Presses on the panel's border keep the held stack; presses off it drop.
+    let panel = render
+        .hits
+        .iter()
+        .find(|hit| hit.name == "root_panel")
+        .expect("the root panel takes presses");
+    let border = json_ui::press_region(&render.hits, [panel.rect.x + 1.0, panel.rect.y + 1.0]);
+    assert_eq!(
+        border.and_then(|hit| hit.pressed.as_deref()),
+        Some("button.container_reset_held")
     );
+    assert!(json_ui::press_region(&render.hits, [1.0, 1.0]).is_none());
     let renderers: Vec<&str> = render
         .nodes
         .iter()

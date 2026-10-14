@@ -256,29 +256,31 @@ struct Job {
     done: Sender<Completed>,
 }
 
+impl super::jobs::ImageJob for Job {
+    /// Decodes one bounded sheet and publishes only while its pack still owns it.
+    fn run(self) {
+        if self.cancelled.load(Ordering::Acquire) {
+            return;
+        }
+        let sheet = decode(&self.bytes, &self.plan, &self.cancelled);
+        if !self.cancelled.load(Ordering::Acquire) {
+            let _ = self.done.try_send((self.key, sheet));
+        }
+    }
+}
+
 /// One process-wide decode and one queued input bound memory even during rapid pack reloads.
-fn worker() -> Option<&'static Sender<Job>> {
-    static WORKER: OnceLock<Option<Sender<Job>>> = OnceLock::new();
+fn worker() -> Option<&'static super::jobs::Worker<Job>> {
+    static WORKER: OnceLock<Option<super::jobs::Worker<Job>>> = OnceLock::new();
     WORKER
-        .get_or_init(|| {
-            let (sender, receiver) = crossbeam_channel::bounded::<Job>(1);
-            std::thread::Builder::new()
-                .name("ui-native-sheets".into())
-                .spawn(move || {
-                    while let Ok(job) = receiver.recv() {
-                        if job.cancelled.load(Ordering::Acquire) {
-                            continue;
-                        }
-                        let sheet = decode(&job.bytes, &job.plan, &job.cancelled);
-                        if !job.cancelled.load(Ordering::Acquire) {
-                            let _ = job.done.try_send((job.key, sheet));
-                        }
-                    }
-                })
-                .ok()?;
-            Some(sender)
-        })
+        .get_or_init(|| super::jobs::Worker::new("ui-native-sheets"))
         .as_ref()
+}
+
+/// Drains one browser decode without blocking on an empty queue.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn run_one() -> bool {
+    worker().is_some_and(super::jobs::Worker::run_one)
 }
 
 /// Decodes on the worker or inline, releasing the temporary image once texels are tiled.
@@ -364,7 +366,7 @@ impl NativeSheets {
         }
         if let Some(job) = self.retry.take() {
             if let Some(worker) = worker() {
-                self.submit(worker, job);
+                self.submit(worker.sender(), job);
             } else {
                 self.fail(job.key);
                 completed = true;
@@ -410,7 +412,7 @@ impl NativeSheets {
             cancelled: Arc::clone(&self.cancelled),
             done: self.sender.clone(),
         };
-        self.submit(worker, job);
+        self.submit(worker.sender(), job);
     }
 
     /// Appends a decoded sheet's pages after those already published, or records its failure.

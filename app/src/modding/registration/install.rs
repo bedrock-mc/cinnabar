@@ -98,6 +98,7 @@ fn publish(world: &mut World, mut candidate: Candidate) -> Result<(), Box<Candid
     }
     let metadata = HostMetadata {
         font: candidate.font,
+        branding: candidate.branding,
         owner,
         registration: Some(RegisteredHost {
             entry: candidate.registration,
