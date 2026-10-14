@@ -165,15 +165,25 @@ debug = "line-tables-only"
 [profile.dev.package."*"]
 opt-level = 3
 
+# Shipped binaries carry no debug info; line tables go to a split file per binary (a PDB on
+# Windows, a `.dSYM` on macOS) that package.yml publishes as a release symbol archive. MSVC writes
+# the PDB whatever `strip` says; macOS runs dsymutil before stripping. Linux packaging overrides
+# split-debuginfo and strip and splits after linking (packaging/release-symbols.py), because the
+# linker's `--strip-debug` would also drop the line tables a packed `.dwp` depends on.
 [profile.release]
 codegen-units = 1
 lto = "thin"
+debug = "line-tables-only"
+split-debuginfo = "packed"
+strip = "debuginfo"
 
 # `make play`: release speed with parallel codegen and incremental rebuilds; shipped builds use release.
+# It skips release debug info, so local and Android CI builds pay no dsymutil, PDB or link cost.
 [profile.play]
 inherits = "release"
 codegen-units = 16
 lto = false
 incremental = true
+debug = false
 
 [workspace.lints.clippy]

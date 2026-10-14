@@ -32,10 +32,17 @@ def render_installer():
     return template
 
 
-def checksum(directory):
+def symbols_archive(config, version, platform, arch):
+    """The release asset holding one platform's split debug files for `version`."""
+    return config["symbols"]["archive"].format(version=version, platform=platform, arch=arch)
+
+
+def checksum(directory, version):
     config = manifest()
     expected = [name for arches in config["assets"].values() for name in arches.values()]
     expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
+    expected.extend(symbols_archive(config, version, platform, arch)
+                    for platform, arches in config["assets"].items() for arch in arches)
     expected.append(config["install_script"])
     missing = [name for name in expected if not (directory / name).is_file()]
     if missing:
@@ -79,12 +86,14 @@ def main():
     environment.add_argument("arch", nargs="?")
     environment.add_argument("--channel", help="also name this channel's signed manifest and its release")
     environment.add_argument("--tag", help="version tag for a tagged release channel")
+    environment.add_argument("--version", help="app version naming the platform's symbol archive")
     update = commands.add_parser("update-payloads")
     update.add_argument("base")
     update.add_argument("directory", type=Path)
     update.add_argument("out", type=Path)
     checksums = commands.add_parser("checksums")
     checksums.add_argument("directory", type=Path)
+    checksums.add_argument("--version", required=True, help="app version naming the symbol archives")
     args = parser.parse_args()
     if args.command == "asset":
         print(manifest()["assets"][args.platform][args.arch])
@@ -103,7 +112,10 @@ def main():
             print(f'UPDATE_MANIFEST={release["manifest"]}')
             print(f'UPDATE_MANIFEST_TAG={tag}')
         if args.platform:
+            if not args.version:
+                parser.error("a platform requires --version for its symbol archive")
             print(f'RELEASE_ASSET={config["assets"][args.platform][args.arch]}')
+            print(f"SYMBOLS_ASSET={symbols_archive(config, args.version, args.platform, args.arch)}")
             if args.platform == "windows":
                 print(f'AUXILIARY_ASSET={config["update_assets"][args.platform][args.arch]}')
     elif args.command == "update-payloads":
@@ -114,7 +126,7 @@ def main():
         args.output.write_text(render_installer())
         args.output.chmod(0o755)
     else:
-        checksum(args.directory)
+        checksum(args.directory, args.version)
 
 
 if __name__ == "__main__":

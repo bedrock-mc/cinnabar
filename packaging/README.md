@@ -100,8 +100,8 @@ it on other Macs until the recipient runs `xattr -dr com.apple.quarantine /Appli
 ## Release downloads and Linux installation
 
 `packaging/release-assets.json` is the canonical list of downloadable release artifacts and
-their repository. Publication requires every platform installer and the generated
-Linux install script before writing checksums for the native downloads. A new tagged Beta release
+their repository. Publication requires every platform installer, every platform's symbol archive
+and the generated Linux install script before writing checksums for the native downloads. A new tagged Beta release
 stays draft until its downloads, update payloads and signed manifest are uploaded. Reruns keep
 existing payload downloads public; the signature authenticates the update manifest.
 
@@ -123,6 +123,34 @@ launcher runs and `app/previous` the one it replaced; each install keeps only th
 
 Windows users download the self-contained setup EXE. macOS users choose the native Apple silicon
 or Intel DMG. The website is deployed separately and links directly to GitHub's latest release.
+
+## Release symbols
+
+Release builds (`[profile.release]`) keep line tables only in split debug files: a PDB per Windows
+executable, a `.dSYM` per macOS binary, and on Linux a `.debug` file that
+`packaging/release-symbols.py split` moves out of each binary after linking (the Linux job keeps
+debug info at link time, since the linker's `--strip-debug` would also drop what a `.dwp` needs).
+Installers ship only the stripped binaries: packagers stage binaries by name and `check-payload.sh`
+rejects any other file. Each package job zips its Rust binaries with their debug files and a
+`manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
+id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
+the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
+print symbolized tracebacks themselves and have no symbol files. Android APKs are CI artifacts built
+with the `play` profile, which has no release debug info, so they have no archive.
+
+To symbolicate a user's crash, ask for the crash folder (`crashes/<UTC time>-<id>/` under the
+user data directory, or the `devtool diag` bundle that includes it), download the symbol
+archive for the report's release, platform and architecture, and run offline:
+
+```sh
+cargo run -p devtool --locked -- symbolicate path/to/crash-folder --symbols cinnabar-symbols-1.2.3-windows-x86_64.zip
+```
+
+It prints the `report.json` summary, warns when the archive's version or commit differs from the
+report, and walks every thread of `crash.dmp`, giving function, file and line for frames in a binary
+whose build id matches the archive and module offsets elsewhere. A folder without a dump prints only
+the summary; a bare `.dmp` path works too, and `--symbols` also accepts an extracted directory.
+Nightly releases replace their symbol archives, so keep the archive for any nightly you need to debug.
 
 ## Sign-in
 The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the

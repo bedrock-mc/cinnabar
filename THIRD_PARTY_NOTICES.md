@@ -392,3 +392,12 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Crash symbolication tooling
+
+- Source: https://github.com/rust-minidump/rust-minidump and https://github.com/mstange/samply
+- Dependencies: `minidump`, `minidump-processor` and `minidump-unwind` (MIT) and `wholesym`
+  (MIT OR Apache-2.0) in `tools/devtool`, with the test-only `minidump-synth` and
+  `test-assembler` (MIT); pinned in `Cargo.lock`. Their transitive dependencies are permissive
+  (MIT, Apache-2.0 or BSD-3-Clause), except `option-ext` (MPL-2.0), used unmodified.
+- Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.

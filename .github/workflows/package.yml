@@ -117,7 +117,7 @@ jobs:
           path: release-tools
           persist-credentials: false
       - name: Resolve the downloadable artifact name
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" >> "$GITHUB_ENV"
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env macos "${{ matrix.arch }}" --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: |
           rustup toolchain install
@@ -191,6 +191,12 @@ jobs:
           version="${{ needs.prepare.outputs.version }}"
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
           bash "$tools/sign-notarize.sh" ".local/dist/macos-release/Cinnabar-$version.dmg"
+      - name: Collect release symbols
+        # Each binary's .dSYM; the DMG holds only the stripped binaries.
+        run: |
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect macos "${{ matrix.arch }}" \
+            --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
+            --binaries "target/$CARGO_BUILD_TARGET/release" --out "$RUNNER_TEMP/$SYMBOLS_ASSET"
       - name: Name the artifact by architecture
         run: mv .local/dist/macos-release/Cinnabar-*.dmg "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Check the DMG against the payload allowlist
@@ -235,6 +241,11 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: symbols-macos-${{ matrix.arch }}
+          path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
+          if-no-files-found: error
 
       - name: Upload Rust build timings
         if: ${{ !cancelled() }}
@@ -267,7 +278,7 @@ jobs:
           path: release-tools
           persist-credentials: false
       - name: Resolve the downloadable artifact name
-        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 >> "$GITHUB_ENV"
+        run: python "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env windows x86_64 --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Restore Rust release build cache
@@ -311,6 +322,12 @@ jobs:
           pwsh -NoProfile -File "$GITHUB_WORKSPACE/release-tools/packaging/windows/build-installer.ps1" -Root "$CINNABAR_SOURCE_ROOT"
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
+      - name: Collect release symbols
+        # Each executable's PDB; the MSI holds only the executables.
+        run: |
+          python "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect windows x86_64 \
+            --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
+            --binaries target/release --out "$RUNNER_TEMP/$SYMBOLS_ASSET"
       - name: Extract the MSI
         shell: pwsh
         run: |
@@ -369,6 +386,11 @@ jobs:
             ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: symbols-windows-x64
+          path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
+          if-no-files-found: error
 
       - name: Upload Rust build timings
         if: ${{ !cancelled() }}
@@ -392,6 +414,10 @@ jobs:
       APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
       APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
       APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+      # Keep debug info in the linked binaries; release-symbols.py split moves it to .debug files.
+      # The profile's strip would also drop the line tables and skeleton units a packed .dwp needs.
+      CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "off"
+      CARGO_PROFILE_RELEASE_STRIP: "none"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -404,7 +430,7 @@ jobs:
           path: release-tools
           persist-credentials: false
       - name: Resolve the downloadable artifact name
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux x86_64 >> "$GITHUB_ENV"
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env linux x86_64 --version "${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Restore Rust release build cache
@@ -442,8 +468,16 @@ jobs:
       - name: Package
         run: |
           make package-binaries PACKAGE_CARGO_FLAGS=--timings
-          bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
+          # The AppImage stages the stripped copies; their .debug files go only to the symbol archive.
+          shipped="$RUNNER_TEMP/release-binaries"
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" split target/release "$shipped"
+          BINARIES="$shipped" ASSETC="$shipped/assetc" bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
           mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
+      - name: Collect release symbols
+        run: |
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect linux x86_64 \
+            --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
+            --binaries "$RUNNER_TEMP/release-binaries" --out "$RUNNER_TEMP/$SYMBOLS_ASSET"
       - name: Check the AppImage against the payload allowlist
         run: |
           cd "$RUNNER_TEMP"
@@ -482,6 +516,11 @@ jobs:
         with:
           name: linux-x86_64
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: symbols-linux-x86_64
+          path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
           if-no-files-found: error
 
       - name: Upload Rust build timings
@@ -526,8 +565,8 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: source/dist
-          # Timing reports are CI diagnostics, never release downloads.
-          pattern: "{macos-*,windows-x64,linux-x86_64}"
+          # Timing reports are CI diagnostics, never release downloads; symbol archives are.
+          pattern: "{macos-*,windows-x64,linux-x86_64,symbols-*}"
           merge-multiple: true
       - name: Resolve release metadata names
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" env --channel "$RELEASE_CHANNEL" --tag "$RELEASE_TAG" >> "$GITHUB_ENV"
@@ -560,7 +599,7 @@ jobs:
             > "$RUNNER_TEMP/$UPDATE_MANIFEST.partial"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST.partial" "$RUNNER_TEMP/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the release
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist
+        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist --version "$RELEASE_VERSION"
       - name: Prepare the tagged release
         id: prepare_publish
         if: needs.prepare.outputs.track == 'tagged'
