@@ -140,8 +140,9 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
-    // Camera rigs keep tick endpoints so camera frames can blend motion.
+    // Camera and swing rigs keep tick endpoints so frame-sampled inputs still blend motion.
     let motion_sampling = (samples_camera_poses
+        || samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
@@ -576,6 +577,7 @@ fn reselect_geometry_with_checkpoint(
         &controllers,
     );
     state.motion_sampling = (state.samples_camera_poses
+        || state.samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {

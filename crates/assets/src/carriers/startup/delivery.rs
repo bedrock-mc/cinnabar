@@ -176,7 +176,7 @@ impl MemoryCarriers {
             let entities = RuntimeEntityAssets::decode(self.read(&carriers::ENTITY)?)?;
             let actors = RuntimeActorCatalog::decode(self.read(&ACTOR)?, &entities)?;
             let language = RuntimeLangCatalog::decode(self.read(&carriers::LANG)?)?;
-            let ui = RuntimeUiAssets::decode(self.read(&carriers::UI)?)?;
+            let (ui, item_glint) = self.decode_ui()?;
             let icons = RuntimeIconCatalog::decode(self.read(&carriers::ICON)?)?;
             let expected = canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes());
             if entities.source_manifest_sha256() != expected
@@ -209,12 +209,24 @@ impl MemoryCarriers {
                 actors,
                 language,
                 ui,
+                item_glint,
                 physics,
                 hud: RuntimeHudCatalog::decode(self.read(&carriers::HUD)?)?,
                 icons,
             })
         };
         decode().map_err(|error| DeliveryError(format!("invalid startup carriers: {error}")))
+    }
+
+    /// Validates the in-memory UI carrier before startup accepts its artwork.
+    fn decode_ui(&self) -> Result<(RuntimeUiAssets, UiAtlasPage), DeliveryError> {
+        let bytes = self.read(&carriers::UI)?;
+        let decode = || -> Result<_, AssetError> {
+            let ui = RuntimeUiAssets::decode(bytes)?;
+            let glint = ui.item_glint_raster()?;
+            Ok((ui, glint))
+        };
+        decode().map_err(|error| DeliveryError(format!("invalid {}: {error}", carriers::UI.output)))
     }
 }
 /// Validated domain data for client composition; no browser objects escape the web host.
@@ -226,6 +238,7 @@ pub struct StartupCarriers {
     pub actors: RuntimeActorCatalog,
     pub language: RuntimeLangCatalog,
     pub ui: RuntimeUiAssets,
+    pub item_glint: UiAtlasPage,
     pub physics: PhysicsRegistry,
     pub hud: RuntimeHudCatalog,
     pub icons: RuntimeIconCatalog,
@@ -292,5 +305,29 @@ mod tests {
             entities.source_manifest_sha256(),
             canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
         );
+    }
+
+    #[test]
+    fn memory_ui_rejects_missing_or_invalid_required_glint() {
+        for glint in [None, Some(b"invalid PNG".as_slice())] {
+            let files = glint.map(|bytes| UiFile {
+                path: format!("{}.png", entity::ITEM_GLINT_TEXTURE_IDENTIFIER).into(),
+                bytes: bytes.into(),
+            });
+            let bytes = encode_ui_catalog(
+                canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes()),
+                &[],
+                &[],
+                &[],
+                &files.into_iter().collect::<Vec<_>>(),
+            )
+            .unwrap();
+            let mut source = MemoryCarriers::new(manifest(&bytes)).unwrap();
+            source.insert(carriers::UI.name, bytes).unwrap();
+            let error = source.decode_ui().unwrap_err().to_string();
+            assert!(error.contains("item glint"));
+            assert!(error.contains(carriers::UI.output));
+            assert!(error.contains("make assets"));
+        }
     }
 }
