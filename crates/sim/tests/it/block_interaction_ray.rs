@@ -363,7 +363,7 @@ fn close_but_distinct_crossings_are_not_merged() {
     let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.9, 0.7, 0.5),
-            Vec3::new(f64::from_bits(0.1_f64.to_bits() + 64), 0.3, 0.0),
+            Vec3::new(f64::from(f32::from_bits(0.1_f32.to_bits() + 64)), 0.3, 0.0),
             2.0,
             &expected,
         )

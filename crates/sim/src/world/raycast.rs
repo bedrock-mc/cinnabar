@@ -517,8 +517,12 @@ fn ray_union_box(
     if distance == 0.0 && union_covers_parallel_neighbourhood(origin, Vec3::ZERO, pieces, offset) {
         return Some((0.0, 0.0, opposite_dominant_face(direction), origin));
     }
-    if parallel_face
-        && !union_covers_parallel_neighbourhood(geometric_point, direction, pieces, offset)
+    let delta = Vec3::new(
+        f64::from(ray.delta[0]),
+        f64::from(ray.delta[1]),
+        f64::from(ray.delta[2]),
+    );
+    if parallel_face && !union_covers_parallel_neighbourhood(geometric_point, delta, pieces, offset)
     {
         return None;
     }
@@ -668,7 +672,7 @@ pub(super) struct TraversalState {
     pub(super) cell: [i32; 3],
     step: [i32; 3],
     next: [f32; 3],
-    delta: [f32; 3],
+    ray: FloatRay,
 }
 
 impl TraversalState {
@@ -680,26 +684,46 @@ impl TraversalState {
             origin.y.floor() as i32,
             origin.z.floor() as i32,
         ];
-        let mut step = [0; 3];
-        let mut next = [f32::INFINITY; 3];
-        let mut delta = [f32::INFINITY; 3];
-        for axis in 0..3 {
-            if ray.delta[axis] > 0.0 {
-                step[axis] = 1;
-                next[axis] = ((cell[axis] + 1) as f32 - ray.origin[axis]) / ray.delta[axis];
-                delta[axis] = 1.0 / ray.delta[axis];
-            } else if ray.delta[axis] < 0.0 {
-                step[axis] = -1;
-                next[axis] = (ray.origin[axis] - cell[axis] as f32) / -ray.delta[axis];
-                delta[axis] = -1.0 / ray.delta[axis];
+        let step = ray.delta.map(|component| {
+            if component > 0.0 {
+                1
+            } else if component < 0.0 {
+                -1
+            } else {
+                0
             }
-        }
-        Ok(Self {
+        });
+        let mut state = Self {
             cell,
             step,
-            next,
-            delta,
-        })
+            next: [f32::INFINITY; 3],
+            ray,
+        };
+        for axis in 0..3 {
+            state.next[axis] = state.axis_crossing(axis)?;
+        }
+        Ok(state)
+    }
+
+    /// Computes a boundary fraction from its integer cell, without accumulating rounding error.
+    fn axis_crossing(&self, axis: usize) -> Result<f32, WorldQueryError> {
+        let boundary = match self.step[axis] {
+            1 => self.cell[axis]
+                .checked_add(1)
+                .ok_or(WorldQueryError::CoordinateOutOfRange)?,
+            -1 => self.cell[axis],
+            _ => return Ok(f32::INFINITY),
+        };
+        Ok((boundary as f32 - self.ray.origin[axis]) / self.ray.delta[axis])
+    }
+
+    /// Steps one axis and recomputes its next boundary on the original rounded segment.
+    fn advance_axis(&mut self, axis: usize) -> Result<(), WorldQueryError> {
+        self.cell[axis] = self.cell[axis]
+            .checked_add(self.step[axis])
+            .ok_or(WorldQueryError::CoordinateOutOfRange)?;
+        self.next[axis] = self.axis_crossing(axis)?;
+        Ok(())
     }
 
     /// Fraction of the next boundary along the rounded segment.
@@ -736,10 +760,7 @@ impl TraversalState {
             length += 1;
         }
         for &axis in &axes[..count] {
-            self.cell[axis] = self.cell[axis]
-                .checked_add(self.step[axis])
-                .ok_or(WorldQueryError::CoordinateOutOfRange)?;
-            self.next[axis] += self.delta[axis];
+            self.advance_axis(axis)?;
         }
         Ok(tied_cells.into_iter().take(length))
     }

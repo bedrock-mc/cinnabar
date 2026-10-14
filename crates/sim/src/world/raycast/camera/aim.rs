@@ -42,10 +42,7 @@ impl PaletteWorld<'_> {
             if state.next[axis] > 1.0 {
                 break;
             }
-            state.cell[axis] = state.cell[axis]
-                .checked_add(state.step[axis])
-                .ok_or(WorldQueryError::CoordinateOutOfRange)?;
-            state.next[axis] += state.delta[axis];
+            state.advance_axis(axis)?;
             if let Some(hit) = self.camera_aim_halo(&state, origin, direction, outlines, liquids)? {
                 return Ok(Some(hit));
             }
