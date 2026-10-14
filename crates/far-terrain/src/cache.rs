@@ -209,6 +209,9 @@ impl FarTerrainCache {
         ) = (&mut self.retired, &self.disk)
             && !columns.is_empty()
         {
+            // Late columns probe too, so a world left before its first summary is still
+            // compared against cached maps rather than reusing the newest blindly.
+            add_probes(probes, columns);
             disk.resolve_and_write(*world, *entry, probes.clone(), std::mem::take(columns));
         }
     }
@@ -390,16 +393,7 @@ impl FarTerrainCache {
         if let Some(disk) = &self.disk
             && !unresolved.is_empty()
         {
-            for (pos, column) in &unresolved {
-                if probes.len() >= WORLD_PROBE_COLUMNS {
-                    break;
-                }
-                if let Ok(decoded) = ColumnSummary::decode(&column.summary.bytes)
-                    && !decoded.is_empty()
-                {
-                    probes.push((*pos, decoded));
-                }
-            }
+            add_probes(&mut probes, &unresolved);
             disk.resolve_and_write(world, entry, probes, unresolved);
         }
     }
@@ -597,5 +591,19 @@ impl FarTerrainCache {
 impl Drop for FarTerrainCache {
     fn drop(&mut self) {
         self.end_entry();
+    }
+}
+
+/// Tops `probes` up to [`WORLD_PROBE_COLUMNS`] with the non-empty ones among `columns`.
+fn add_probes(probes: &mut Vec<(ColumnPos, ColumnSummary)>, columns: &[(ColumnPos, Versioned)]) {
+    for (pos, column) in columns {
+        if probes.len() >= WORLD_PROBE_COLUMNS {
+            return;
+        }
+        if let Ok(decoded) = ColumnSummary::decode(&column.summary.bytes)
+            && !decoded.is_empty()
+        {
+            probes.push((*pos, decoded));
+        }
     }
 }
