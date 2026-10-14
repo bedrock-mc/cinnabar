@@ -289,3 +289,72 @@ fn preview_rejects_invalid_duplicate_session_sprite_before_the_valid_source() {
         presentation.item_icon(ITEM, 0).unwrap().page
     );
 }
+
+#[test]
+fn review_regression_cpu_session_pixels_are_reused_between_preview_dress_updates() {
+    let mut presentation = presentation();
+    install(&mut presentation, vec![sword(0, [12, 38, 96])]);
+    presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+    let first = Arc::clone(&presentation.player_preview_gear.held.as_ref().unwrap().rgba);
+    presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+    assert!(Arc::ptr_eq(
+        &first,
+        &presentation.player_preview_gear.held.as_ref().unwrap().rgba
+    ));
+    install(&mut presentation, vec![sword(0, [220, 80, 12])]);
+    presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+    let changed = &presentation.player_preview_gear.held.as_ref().unwrap().rgba;
+    assert!(!Arc::ptr_eq(&first, changed));
+    assert_eq!(&changed[..3], [220, 80, 12]);
+}
+
+/// Original checkerboard alpha maximizes isolated extrusion edges at a bounded resolution.
+fn dense_sprite(side: u32) -> SessionIcon {
+    let rgba8 = (0..side * side)
+        .flat_map(|pixel| {
+            let alpha = if (pixel % side + pixel / side).is_multiple_of(2) {
+                255
+            } else {
+                0
+            };
+            [12, 38, 96, alpha]
+        })
+        .collect::<Vec<_>>()
+        .into();
+    SessionIcon {
+        identifier: ITEM.into(),
+        metadata: 0,
+        width: side,
+        height: side,
+        rgba8,
+    }
+}
+
+#[test]
+fn review_regression_dense_session_hands_preserve_the_player_within_ui_budgets() {
+    for side in [192, 128] {
+        let mut presentation = presentation();
+        install(&mut presentation, vec![dense_sprite(side)]);
+        presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+        presentation.player_preview_gear.hands[1] =
+            presentation.player_preview_gear.hands[0].clone();
+        let (_, held) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
+        if side == 192 {
+            assert!(held.len() > ui::UiLimits::MAX_UI_VERTICES);
+        } else {
+            assert!(
+                held.len() <= ui::UiLimits::MAX_UI_VERTICES
+                    && held.len() * 2 > ui::UiLimits::MAX_UI_VERTICES
+            );
+        }
+        let mesh = presentation
+            .gui_player_mesh()
+            .expect("an oversized held mesh must not hide the player");
+        assert!(mesh.vertices().len() <= ui::UiLimits::MAX_UI_VERTICES);
+        assert_eq!(mesh.batches().len(), if side == 192 { 1 } else { 2 });
+        assert_eq!(
+            mesh.batches()[0].texture_page,
+            (presentation.textures.dynamic_start() + ui_engine::pages::SKIN_PAGE) as u16
+        );
+    }
+}
