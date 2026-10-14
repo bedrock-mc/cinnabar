@@ -1,3 +1,4 @@
+use assets::facts::pack::PackTexture as T;
 use assets::material_keys::MaterialKeys;
 use pack_compile_input::image::{decode_static_texture, decode_texture, normalize_texture_tile};
 use pack_compile_input::{
@@ -651,7 +652,7 @@ fn flowerbed_material_descriptors(
 fn pale_moss_carpet_side_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 2]> {
-    let key: Box<str> = "pale_moss_carpet_side".into();
+    let key: Box<str> = T::PaleMossCarpetSide.key().into();
     let paths = pack.terrain.get_exact_pair(&key)?;
     Some(std::array::from_fn(|index| {
         let path = paths[index];
@@ -813,10 +814,7 @@ fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
             | MATERIAL_FLAG_OVERLAY_MASK
             | MATERIAL_FLAG_LIQUID_DEPTH_WRITE)
         != 0
-        || matches!(
-            descriptor.texture_key.as_ref(),
-            "bamboo_fence_gate" | "beacon_core" | "beacon_shell"
-        )
+        || assets::facts::pack::rules().supports_alpha(&descriptor.texture_key)
 }
 
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {

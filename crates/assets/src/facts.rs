@@ -53,3 +53,6 @@ pub mod presentation;
 
 mod presentation_generated;
 pub use presentation_generated::{UiItemIcon, dimension_fallback_biome, dimension_id};
+
+/// Pack texture selectors and native presentation contracts checked against pinned inputs.
+pub mod pack;

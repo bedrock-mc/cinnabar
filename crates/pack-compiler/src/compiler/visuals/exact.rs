@@ -1,4 +1,5 @@
 use super::context::{CuboidTemplateKey, intern_cuboid_template, push_model_template};
+use assets::facts::pack::PackBlock as B;
 use {super::super::*, assets::BlockFace};
 
 fn exact_family_admission(
@@ -112,7 +113,7 @@ pub(in crate::compiler) fn compile_exact_families(
                 BlockFace::North,
                 BlockFace::East,
             ][direction as usize] as usize;
-            let mut faces = if record.name.as_ref() == "minecraft:bee_nest" {
+            let mut faces = if record.name.as_ref() == B::BeeNest.identifier() {
                 [
                     nest_side,
                     nest_side,
@@ -126,12 +127,14 @@ pub(in crate::compiler) fn compile_exact_families(
                     hive_side, hive_side, hive_top, hive_top, hive_side, hive_side,
                 ]
             };
-            faces[front_face] = match (record.name.as_ref(), honey_level == 5) {
-                ("minecraft:bee_nest", false) => nest_front,
-                ("minecraft:bee_nest", true) => nest_front_honey,
-                ("minecraft:beehive", false) => hive_front,
-                ("minecraft:beehive", true) => hive_front_honey,
-                _ => unreachable!("exact bee housing name"),
+            faces[front_face] = match (
+                record.name.as_ref() == B::BeeNest.identifier(),
+                honey_level == 5,
+            ) {
+                (true, false) => nest_front,
+                (true, true) => nest_front_honey,
+                (false, false) => hive_front,
+                (false, true) => hive_front_honey,
             };
             visual.faces = faces;
             visual.kind = VisualKind::Cube;
