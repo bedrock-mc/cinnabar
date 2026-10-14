@@ -65,26 +65,15 @@ mod tests {
             assert!(table.windows(2).all(|pair| pair[0].0 < pair[1].0));
         }
     }
-}
 
-#[test]
-fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
-    for effect in ParticleEffect::ALL {
-        assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
-        assert_eq!(
-            ParticleEffect::from_name(effect.identifier()),
-            Some(*effect)
-        );
-    }
-}
-
-#[test]
-fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
-    for effect in ParticleEffect::ALL {
-        assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
-        assert_eq!(
-            ParticleEffect::from_name(effect.identifier()),
-            Some(*effect)
-        );
+    #[test]
+    fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
+        for effect in ParticleEffect::ALL {
+            assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
+            assert_eq!(
+                ParticleEffect::from_name(effect.identifier()),
+                Some(*effect)
+            );
+        }
     }
 }

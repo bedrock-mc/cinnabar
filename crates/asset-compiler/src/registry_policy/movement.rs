@@ -246,6 +246,7 @@ mod tests {
         let reviewed: String = names.iter().map(|name| format!("{name}\n")).collect();
         let owned = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
         Policy {
+            runtime_identifiers: BTreeMap::new(),
             placement_rules: Vec::new(),
             entity_compatibility: Vec::new(),
             entity_rules: Vec::new(),
