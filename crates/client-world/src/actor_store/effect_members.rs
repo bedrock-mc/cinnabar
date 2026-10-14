@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use protocol::ActorKind;
+use assets::facts::entity::NativeEntityClass;
 
 use super::{ActorSnapshot, entities};
 
@@ -18,35 +18,35 @@ pub(super) struct EffectMembers {
 impl EffectMembers {
     /// Refreshes candidate membership after the actor's kind or metadata changes.
     pub fn update(&mut self, actor: &ActorSnapshot) {
-        let identifier = match &actor.kind {
-            ActorKind::Entity { identifier } => identifier.as_ref(),
-            _ => "",
-        };
+        let class = actor.entity_fact.native_class;
         let runtime = actor.runtime_id;
         set(
             &mut self.paintings,
             runtime,
-            identifier == "minecraft:painting",
+            class == NativeEntityClass::Painting,
         );
         set(
             &mut self.blocks,
             runtime,
-            matches!(identifier, "minecraft:falling_block" | "minecraft:tnt"),
+            matches!(
+                class,
+                NativeEntityClass::FallingBlock | NativeEntityClass::Tnt
+            ),
         );
         set(
             &mut self.crystals,
             runtime,
-            identifier == "minecraft:ender_crystal",
+            class == NativeEntityClass::EnderCrystal,
         );
         set(
             &mut self.dragons,
             runtime,
-            identifier == "minecraft:ender_dragon",
+            class == NativeEntityClass::EnderDragon,
         );
         set(
             &mut self.ropes,
             runtime,
-            identifier == "minecraft:fishing_hook"
+            class == NativeEntityClass::FishingHook
                 || entities::metadata_i64(actor, entities::LEASH_HOLDER_METADATA_KEY)
                     .is_some_and(|holder| holder != entities::INVALID_LEASH_HOLDER_ID),
         );

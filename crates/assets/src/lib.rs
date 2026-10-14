@@ -184,8 +184,6 @@ pub use equipment::{
     encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
 };
 pub use error::AssetError;
-pub use fog_layers::resolve_fog_layers;
-pub use fog_transition::FogTransition;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
     FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS,
@@ -298,3 +296,4 @@ pub use ui::{
     UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
+pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};

@@ -36,6 +36,8 @@ mod block_entity_command;
 mod cli;
 #[path = "assetc/command_outputs.rs"]
 mod command_outputs;
+#[path = "assetc/entity_facts_command.rs"]
+mod entity_facts_command;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -188,6 +190,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::EntityFacts { source, out } => entity_facts_command::compile(&source, &out)?,
         Command::Vocabulary {
             archive,
             source_manifest,

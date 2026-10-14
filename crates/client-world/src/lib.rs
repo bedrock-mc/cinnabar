@@ -21,9 +21,9 @@ pub use actor_store::{
     DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, FIREWORK_ROCKET_IDENTIFIER,
     HITBOX_METADATA_KEY, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse,
     LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate,
-    PICKUP_DURATION_TICKS, PlayerProfile, PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind,
-    RopeView, SCALE_METADATA_KEY, SLEEPING_PLAYER_NETWORK_OFFSET, SPELL_COLOR_METADATA_KEY,
-    dropped_item_copy_count, tnt_presentation,
+    PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT,
+    RideSeat, RopeKind, RopeView, SCALE_METADATA_KEY, SLEEPING_PLAYER_NETWORK_OFFSET,
+    SPELL_COLOR_METADATA_KEY, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

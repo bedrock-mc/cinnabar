@@ -1,3 +1,4 @@
+use protocol::ActorKind;
 use protocol::{ActorEvent, ActorMoveEvent, ActorPositionOrigin, ActorRemoveEvent, ParticleEvent};
 
 use super::*;

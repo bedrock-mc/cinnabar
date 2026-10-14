@@ -93,7 +93,7 @@ impl ActorStore {
             player_game_mode_skips: 0,
             world_default_game_mode: None,
             entity_assets: None,
-            custom_actor_traits: HashMap::new(),
+            custom_actor_facts: HashMap::new(),
             actors: HashMap::new(),
             effect_members: Default::default(),
             unique_to_runtime: HashMap::new(),
@@ -216,6 +216,7 @@ impl ActorStore {
         self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
+            y_origin: Default::default(),
             position: feed.position,
             pitch: feed.pitch,
             yaw: feed.yaw,
@@ -350,7 +351,7 @@ impl ActorStore {
         self.picks_ahead = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
-        self.custom_actor_traits.clear();
+        self.custom_actor_facts.clear();
         self.actor_identifier_skips = 0;
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
@@ -517,6 +518,14 @@ impl ActorStore {
                             }
                         }),
                     );
+                }
+                if movement.position[1].is_some_and(f32::is_finite) {
+                    received.y_origin =
+                        if movement.position_origin == ActorPositionOrigin::NetworkOffset {
+                            PoseYOrigin::NETWORK
+                        } else {
+                            PoseYOrigin::default()
+                        };
                 }
                 merge(&mut received.pitch, movement.pitch);
                 merge(&mut received.yaw, movement.yaw);

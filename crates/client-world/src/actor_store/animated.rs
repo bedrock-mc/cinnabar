@@ -19,6 +19,10 @@ impl AnimatedActor for ActorSnapshot {
         &self.kind
     }
 
+    fn entity_fact(&self) -> assets::facts::entity::EntityFact {
+        self.entity_fact
+    }
+
     fn position(&self) -> [f32; 3] {
         self.position
     }

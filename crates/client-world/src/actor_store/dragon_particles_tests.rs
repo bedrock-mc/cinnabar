@@ -1,3 +1,4 @@
+use protocol::ActorKind;
 use protocol::{ActorEvent, ActorStatusEvent, ActorStatusKind};
 
 use super::*;
