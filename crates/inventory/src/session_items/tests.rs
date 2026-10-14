@@ -162,6 +162,30 @@ fn cached_offhand_facts_follow_equipment_admission_precedence() {
 }
 
 #[test]
+fn hand_flag_overrides_preserve_pinned_rod_artwork() {
+    let pinned_grip = pinned()
+        .by_identifier("minecraft:carrot_on_a_stick")
+        .unwrap()
+        .grip;
+    assert!(pinned_grip.mirrored_art());
+    for upright in [true, false] {
+        let mut rod = entry("minecraft:carrot_on_a_stick");
+        rod.components = Some(Arc::new(protocol::ItemComponents {
+            hand_equipped: Some(upright),
+            hand_equipped_declared: true,
+            ..Default::default()
+        }));
+        let facts = SessionItemFacts::from_registry(pinned(), &event(vec![rod.clone()])).unwrap();
+        let grip = facts.get(rod.network_id).grip;
+        assert_eq!(grip.upright(), Some(upright));
+        assert_eq!(grip.mirrored_art(), pinned_grip.mirrored_art());
+        rod.component_based = true;
+        let facts = SessionItemFacts::from_registry(pinned(), &event(vec![rod.clone()])).unwrap();
+        assert!(!facts.get(rod.network_id).grip.mirrored_art());
+    }
+}
+
+#[test]
 fn ledger_replacement_refreshes_facts_and_reconnect_retires_them() {
     let mut session = crate::InventorySession::new(1);
     let banner = entry("minecraft:banner");

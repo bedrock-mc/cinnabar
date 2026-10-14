@@ -7,7 +7,6 @@ use assets::{
         durability::ItemDurability,
         fuel::ItemFuel,
         glint::ItemGlint,
-        grip::ItemGrip,
     },
 };
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion};
@@ -168,14 +167,11 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
                 enabled,
             });
     }
-    if components.hand_equipped_declared {
-        fact.grip = components
-            .hand_equipped
-            .map_or(ItemGrip::Unresolved, |upright| ItemGrip::Session {
-                upright,
-                mirrored_art: false,
-            });
-    }
+    fact.grip = fact.grip.with_hand_equipped(
+        components.hand_equipped,
+        components.hand_equipped_declared,
+        component_item,
+    );
     fact.use_animation = components
         .use_animation
         .as_deref()
