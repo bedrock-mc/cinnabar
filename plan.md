@@ -707,6 +707,13 @@ these changes do not close the movement, camera, or actor parity gates.
   absence identities and replay snapshots. Missing sections in partially received
   columns still wait for authoritative data. Streaming-boundary server, input and
   rendered acceptance remain incomplete; this does not close creative-flight parity.
+- All movement modes sample block effects at body contact instead of the swept
+  volume; post-move effects use the inset destination body, and solid collision
+  still checks the full move. Query limits retain physics authority without
+  accumulating tick debt. High ability speeds, 500-block/s actor motion and
+  flight-to-walking transitions have regression coverage. CI and rendered
+  acceptance remain pending, and the existing collision-query extent limit still
+  applies. This does not close the creative-flight parity gate.
 - Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
   and 16 focused client tests pass. The touched-crate compile check includes
   tests and the client app. The architecture check passes. Regression tests
@@ -1519,6 +1526,15 @@ acceptance gate.
   matches flat water drawn from its records pixel-for-pixel against any sorted order.
 - Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
   draws unsorted; transparent models still sort only the visible set.
+
+## Held sprite edges
+
+- Held sprites exclude alpha 0 and 1 from their edge mask, preserving side faces next to
+  nearly transparent pack pixels. Dropped sprites share this mask without copying the raster.
+- Mesh and placement fixtures cover 16, 32, 64 and 128 pixel sprites, holes, partial alpha,
+  atlas texel centers, fixed thickness and both animation modes in first and third person.
+- Incomplete: matched in-game pack comparisons, authored sword display transforms and
+  first-person face-shading acceptance remain open.
 
 ## Held cube item consistency
 

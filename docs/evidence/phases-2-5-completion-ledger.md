@@ -82,6 +82,10 @@ Spectator regressions cover forced flight without MayFly, solid and unloaded
 terrain traversal, and embedded server anchors. The full native trajectory,
 platform, and performance gates remain open.
 
+Body-contact sampling and retryable query limits now cover fast flight exits.
+The added simulator and controller regressions await CI; live movement and
+performance acceptance remain open.
+
 Server-defined vehicle seats have deterministic coverage for actor-origin conversion,
 yaw, scale, link ordering, updates and removal. Dismount request coverage includes
 vehicle controls, queue retries and session/input boundaries. Authored seat fallbacks,
@@ -169,6 +173,10 @@ and exact native and platform comparison remain open.
 | Final status | Open |
 
 ## P4.4-LIVE-ACTOR
+
+Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
+matched pack frames, authored sword display transforms and first-person face shading
+remain open in `plan.md`.
 
 Stock wolf texture admission preserves controller-selected adult/baby variants
 and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
