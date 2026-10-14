@@ -477,3 +477,30 @@ fn late_batches_of_an_unresolved_world_share_one_epoch() {
         .count();
     assert_eq!(overworld, 1, "one overworld namespace");
 }
+
+/// A dimension left before its first summary still compares its late columns with the
+/// cached maps, so a different map under the same identity gets its own epoch.
+#[test]
+fn late_columns_probe_before_reusing_a_cached_epoch() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut earlier = cache(root.path());
+    join(&mut earlier, 64, now);
+    let cached = earlier.namespace().unwrap();
+    leave(&mut earlier);
+    drop(earlier);
+
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    cache.enter_world(SERVER, 42, -1);
+    for x in 0..=WORLD_PROBE_COLUMNS as i32 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    cache.poll(now);
+    leave(&mut cache);
+    drop(cache);
+
+    let mut later = self::cache(root.path());
+    join(&mut later, 64, now);
+    assert_eq!(later.namespace(), Some(cached), "the first map is intact");
+}

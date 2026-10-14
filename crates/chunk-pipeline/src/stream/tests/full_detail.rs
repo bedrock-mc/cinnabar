@@ -237,7 +237,8 @@ fn covered_columns_always_keep_a_drawer() {
                 }
             }
             2 => {
-                if let Some(&key) = stream.resident.column(column).next() {
+                let key = stream.resident.column(column).next().copied();
+                if let Some(key) = key {
                     stream.mark_changed_sources([key], Instant::now());
                 }
             }
