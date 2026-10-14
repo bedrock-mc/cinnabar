@@ -120,8 +120,9 @@ func TestCinnabarReleaseAppearsInEvents(t *testing.T) {
 	if store.Events().CinnabarRelease != nil {
 		t.Fatal("release before any announcement")
 	}
-	store.ObserveCinnabarRelease(CinnabarReleaseV1{Channel: "beta", Version: "0.1.19"})
-	if got := store.Events().CinnabarRelease; got == nil || *got != (CinnabarReleaseV1{Channel: "beta", Version: "0.1.19"}) {
+	release := CinnabarReleaseV1{Channel: "beta", Version: "0.1.19", PublishedAt: "2026-10-13T00:00:00.000Z"}
+	store.ObserveCinnabarRelease(release)
+	if got := store.Events().CinnabarRelease; got == nil || *got != release {
 		t.Fatalf("release = %+v", got)
 	}
 }

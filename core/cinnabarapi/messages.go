@@ -69,13 +69,14 @@ type lookupMessage struct {
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
-	Type     string   `json:"type"`
-	Nonce    string   `json:"nonce"`
-	Code     string   `json:"code"`
-	ID       *uint32  `json:"id"`
-	Cinnabar []string `json:"cinnabar"`
-	Channel  string   `json:"channel"`
-	Version  string   `json:"version"`
+	Type        string   `json:"type"`
+	Nonce       string   `json:"nonce"`
+	Code        string   `json:"code"`
+	ID          *uint32  `json:"id"`
+	Cinnabar    []string `json:"cinnabar"`
+	Channel     string   `json:"channel"`
+	Version     string   `json:"version"`
+	PublishedAt string   `json:"published_at"`
 }
 
 // sign returns the unpadded base64url raw r||s ES384 signature over the proof prefix and nonce.

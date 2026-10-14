@@ -86,7 +86,7 @@ func TestPinnedServerMessagesDecode(t *testing.T) {
 		{`{"type":"welcome","xuid":"2535400000000000","display_name":"Player"}`, inbound{Type: typeWelcome}},
 		{`{"type":"lookup_result","id":7,"cinnabar":["1"]}`, inbound{Type: typeLookupResult, ID: &id, Cinnabar: []string{"1"}}},
 		{`{"type":"error","code":"rate_limited","id":7}`, inbound{Type: typeError, Code: codeRateLimited, ID: &id}},
-		{`{"type":"release","channel":"beta","version":"0.2.0","published_at":"2026-10-13T00:00:00.000Z"}`, inbound{Type: typeRelease, Channel: "beta", Version: "0.2.0"}},
+		{`{"type":"release","channel":"beta","version":"0.2.0","published_at":"2026-10-13T00:00:00.000Z"}`, inbound{Type: typeRelease, Channel: "beta", Version: "0.2.0", PublishedAt: "2026-10-13T00:00:00.000Z"}},
 	} {
 		var value any
 		if err := json.Unmarshal([]byte(test.raw), &value); err != nil {

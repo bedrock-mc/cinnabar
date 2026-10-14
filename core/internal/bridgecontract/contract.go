@@ -305,6 +305,16 @@ const (
 	ConnectStageConnecting = "connecting"
 )
 
+// CinnabarRelease: A release the Cinnabar API announced on the client's channel.
+type CinnabarRelease struct {
+	// Channel: Release channel name.
+	Channel string `json:"channel"`
+	// Version: App version; rolling channels reuse one across builds.
+	Version string `json:"version"`
+	// PublishedAt: When the API recorded it, which tells successive builds of one version apart.
+	PublishedAt string `json:"published_at"`
+}
+
 // InboxCategories: Inbox category names in display order.
 var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 

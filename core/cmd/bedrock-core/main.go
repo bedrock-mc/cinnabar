@@ -356,7 +356,7 @@ func runWithResourcePackCacheFactory(
 		}
 		if opts.cinnabarAPI {
 			api := service.StartCinnabarAPI(ctx, func(release cinnabarapi.Release) {
-				statusStore.ObserveCinnabarRelease(control.CinnabarReleaseV1(release))
+				statusStore.ObserveCinnabarRelease(release)
 			})
 			defer api.Close()
 			controlServer.SetCinnabarAPI(api)

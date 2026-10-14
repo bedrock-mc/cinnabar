@@ -57,10 +57,7 @@ type Config struct {
 }
 
 // Release is a release recorded on the connection's channel.
-type Release struct {
-	Channel string `json:"channel"`
-	Version string `json:"version"`
-}
+type Release = bridgecontract.CinnabarRelease
 
 // Options configures a Client; a nil Token keeps it offline.
 type Options struct {
@@ -436,7 +433,7 @@ func (c *Client) release(msg inbound) {
 	channel := c.config.Channel
 	c.mu.Unlock()
 	if msg.Channel == channel && msg.Version != "" && c.onRelease != nil {
-		c.onRelease(Release{Channel: msg.Channel, Version: msg.Version})
+		c.onRelease(Release{Channel: msg.Channel, Version: msg.Version, PublishedAt: msg.PublishedAt})
 	}
 }
 

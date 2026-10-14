@@ -11,13 +11,6 @@ pub struct CinnabarApiConfig {
     pub visible: bool,
 }
 
-/// A release the API announced on the client's channel.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct CinnabarRelease {
-    pub channel: String,
-    pub version: String,
-}
-
 #[derive(Deserialize)]
 struct Accepted {}
 

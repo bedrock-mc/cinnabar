@@ -387,11 +387,9 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
         }
         let generation = auth_generation(shared);
         if let Ok(events) = runtime.block_on(bridge::poll_events(socket_dir)) {
-            if events.cinnabar_release != seen_release {
-                if let Some(release) = &events.cinnabar_release {
-                    crate::lifecycle::update::release_published(&release.channel, &release.version);
-                }
-                seen_release = events.cinnabar_release.clone();
+            if let Some(release) = new_release(&mut seen_release, events.cinnabar_release.as_ref())
+            {
+                crate::lifecycle::update::release_published(&release.channel, &release.version);
             }
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
@@ -434,6 +432,20 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
             publish(shared, |snapshot| snapshot.pings = Some(pings));
         }
     }
+}
+
+/// The announced release when it differs from the last one seen; `published_at` tells apart
+/// successive builds a rolling channel publishes under one version.
+fn new_release<'a>(
+    seen: &mut Option<bridge::CinnabarRelease>,
+    latest: Option<&'a bridge::CinnabarRelease>,
+) -> Option<&'a bridge::CinnabarRelease> {
+    let latest = latest?;
+    if seen.as_ref() == Some(latest) {
+        return None;
+    }
+    *seen = Some(latest.clone());
+    Some(latest)
 }
 
 fn poll_catalog(

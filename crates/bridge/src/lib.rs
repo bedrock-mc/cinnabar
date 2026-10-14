@@ -2,14 +2,13 @@
 
 mod account;
 mod cinnabar_api;
-pub use cinnabar_api::{
-    CinnabarApiConfig, CinnabarRelease, configure_cinnabar_api, lookup_cinnabar_players,
-};
+pub use cinnabar_api::{CinnabarApiConfig, configure_cinnabar_api, lookup_cinnabar_players};
 /// Shared values and wire enums for the Rust and Go bridge.
 pub mod contract;
 pub use contract::{
-    AuthState, Backend, ConnectStage, ConnectTarget, GameMode, Lifecycle, MAX_FRAME_LEN,
-    PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer, Transport, WorldState,
+    AuthState, Backend, CinnabarRelease, ConnectStage, ConnectTarget, GameMode, Lifecycle,
+    MAX_FRAME_LEN, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer, Transport,
+    WorldState,
 };
 mod endpoint;
 mod error;

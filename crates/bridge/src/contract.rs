@@ -498,3 +498,14 @@ pub enum ConnectStage {
     #[serde(other)]
     Connecting,
 }
+
+/// A release the Cinnabar API announced on the client's channel.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarRelease {
+    /// Release channel name.
+    pub channel: String,
+    /// App version; rolling channels reuse one across builds.
+    pub version: String,
+    /// When the API recorded it, which tells successive builds of one version apart.
+    pub published_at: String,
+}

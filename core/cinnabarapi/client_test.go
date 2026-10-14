@@ -239,8 +239,13 @@ func TestReleasesOnlyForTheConfiguredChannel(t *testing.T) {
 	session := receive(t, api.sessions)
 	session.send(t, map[string]string{"type": typeRelease, "channel": "nightly", "version": "0.1.19", "published_at": "2026-10-13T00:00:00.000Z"})
 	session.send(t, map[string]string{"type": typeRelease, "channel": "beta", "version": "0.1.19", "published_at": "2026-10-13T00:00:00.000Z"})
-	if got := receive(t, releases); got != (Release{Channel: "beta", Version: "0.1.19"}) {
+	if got := receive(t, releases); got != (Release{Channel: "beta", Version: "0.1.19", PublishedAt: "2026-10-13T00:00:00.000Z"}) {
 		t.Fatalf("release = %+v", got)
+	}
+	// A rolling channel republishes one version; each build is still announced.
+	session.send(t, map[string]string{"type": typeRelease, "channel": "beta", "version": "0.1.19", "published_at": "2026-10-14T00:00:00.000Z"})
+	if got := receive(t, releases); got.PublishedAt != "2026-10-14T00:00:00.000Z" {
+		t.Fatalf("second build of one version = %+v", got)
 	}
 }
 

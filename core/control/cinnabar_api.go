@@ -28,10 +28,7 @@ type CinnabarAPI interface {
 }
 
 // CinnabarReleaseV1 is a release the Cinnabar API announced.
-type CinnabarReleaseV1 struct {
-	Channel string `json:"channel"`
-	Version string `json:"version"`
-}
+type CinnabarReleaseV1 = bridgecontract.CinnabarRelease
 
 type cinnabarLookupResultV1 struct {
 	SchemaVersion uint32   `json:"schema_version"`
