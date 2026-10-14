@@ -48,7 +48,7 @@ impl ClientBlobCache {
             packet
                 .referenced_blob_hashes()
                 .into_iter()
-                .filter(|hash| !store.entries.contains_key(hash))
+                .filter(|hash| !store.entries.contains_key(hash) && !store.pins.contains_key(hash))
                 .take(MAX_CLIENT_BLOB_CACHE_ENTRIES)
                 .collect::<Vec<_>>()
         };
@@ -111,6 +111,7 @@ mod tests {
         body: Arc<[u8]>,
         deliver: AtomicBool,
         writes: Mutex<Vec<(u64, Arc<[u8]>)>>,
+        reads: Mutex<Vec<Vec<u64>>>,
     }
 
     impl BlobCacheStore for TestStore {
@@ -123,6 +124,7 @@ mod tests {
         /// Models either a verified completed read or an unavailable disk body.
         fn prefetch(&self, hashes: Vec<u64>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
             Box::pin(async move {
+                self.reads.lock().unwrap().push(hashes.clone());
                 if self.deliver.load(Ordering::Relaxed) {
                     for hash in hashes {
                         let _ = self.cache.admit(hash, self.body.clone());
@@ -142,6 +144,7 @@ mod tests {
             body,
             deliver: AtomicBool::new(deliver),
             writes: Mutex::new(Vec::new()),
+            reads: Mutex::new(Vec::new()),
         });
         (cache.with_store(store.clone()), store, hash)
     }
@@ -165,6 +168,29 @@ mod tests {
             })
             .unwrap();
         assert!(resolver.pop_ready().is_some());
+    }
+
+    /// Once server recovery owns a missing body, later packets only prefetch unpinned hashes.
+    #[tokio::test]
+    async fn blob_cache_prefetch_skips_pinned_misses() {
+        let (cache, store, hash) = fixture(false);
+        let packet = crate::Packet::new(super::super::tests::cached_level_chunk(1, vec![hash]));
+        cache.prefetch_packet(&packet).await;
+        let mut resolver = BlobCacheResolver::new(cache.clone());
+        let status = resolver.accept_cached_packet(packet.clone()).unwrap();
+        assert_eq!(status.missing(), [hash]);
+
+        cache.prefetch_packet(&packet).await;
+        assert_eq!(*store.reads.lock().unwrap(), [vec![hash]]);
+
+        let other = client_blob_hash(b"another disk body");
+        let mixed = crate::Packet::new(super::super::tests::cached_level_chunk(
+            1,
+            vec![hash, other],
+        ));
+        cache.prefetch_packet(&mixed).await;
+        assert_eq!(*store.reads.lock().unwrap(), [vec![hash], vec![other]]);
+        assert!(!cache.contains(hash));
     }
 
     /// A background-verified resident body is reported as found and reconstructs without a miss.
