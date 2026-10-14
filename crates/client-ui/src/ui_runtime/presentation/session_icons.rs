@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use assets::texture::policy::{TexturePolicy, device_policy};
@@ -22,6 +22,8 @@ const MIN_PAGE_SIDE: u32 = render_model::UI_DYNAMIC_PAGE_SIDE;
 type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
+
+mod held;
 
 /// Resolves session overrides before vanilla artwork, retaining the variant-zero fallback.
 pub(super) fn lookup_icon(
@@ -66,6 +68,7 @@ pub(super) struct SessionIconPage {
     refs: IconRefs,
     /// Only admitted sprites get meshes; replacing the page replaces this lazy cache.
     held_sprites: BTreeMap<IconKey, HeldSprite>,
+    held_meshes: Mutex<held::HeldMeshes>,
     /// GUI cubes of custom block items, keyed by their flat thumbnail as vanilla GUI models are.
     pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
     pub(super) page: Option<UiTexturePage>,
@@ -100,19 +103,27 @@ impl SessionIconPage {
     ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
         let source = self.icon(identifier, metadata)?;
         let held = self.held_sprites.get(&icon_key(source))?;
-        let vertices = held
-            .vertices
-            .get_or_init(|| {
-                let sprite = self.source.as_ref()?.icons.get(held.index)?;
-                render_model::held_sprite_vertices(
-                    sprite.width as usize,
-                    sprite.height as usize,
-                    &sprite.rgba8,
-                    [0.0, 0.0, 1.0, 1.0],
-                )
-                .map(Into::into)
-            })
-            .clone()?;
+        if held.rejected.get().is_some() {
+            return None;
+        }
+        let mut cache = self.held_meshes.lock().ok()?;
+        if let Some(vertices) = cache.get(icon_key(source)) {
+            return Some((source, vertices));
+        }
+        let sprite = self.source.as_ref()?.icons.get(held.index)?;
+        let vertices = render_model::held_sprite_vertices(
+            sprite.width as usize,
+            sprite.height as usize,
+            &sprite.rgba8,
+            [0.0, 0.0, 1.0, 1.0],
+        )
+        .filter(|vertices| UiMesh::check_size(vertices.len(), vertices.len(), 1).is_ok());
+        let Some(vertices) = vertices else {
+            let _ = held.rejected.set(());
+            return None;
+        };
+        let vertices: Arc<[render_model::ActorRigVertex]> = vertices.into();
+        cache.insert(icon_key(source), Arc::clone(&vertices))?;
         Some((source, vertices))
     }
 
@@ -129,7 +140,7 @@ impl SessionIconPage {
 struct HeldSprite {
     index: usize,
     pixels: OnceLock<Arc<[u8]>>,
-    vertices: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
+    rejected: OnceLock<()>,
 }
 
 /// An icon set packing off the frame, and where its page lands.
@@ -319,7 +330,7 @@ fn install(
                     .or_insert_with(|| HeldSprite {
                         index,
                         pixels: OnceLock::new(),
-                        vertices: OnceLock::new(),
+                        rejected: OnceLock::new(),
                     });
             }
         }
@@ -328,6 +339,7 @@ fn install(
         source: icons.cloned(),
         refs,
         held_sprites,
+        held_meshes: Mutex::default(),
         models,
         page,
         generation: runtime.session_icons.generation.wrapping_add(1),

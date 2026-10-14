@@ -338,10 +338,14 @@ fn session_preview_dense_hands_preserve_the_player_within_ui_budgets() {
         presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
         presentation.player_preview_gear.hands[1] =
             presentation.player_preview_gear.hands[0].clone();
-        let (_, held) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
         if side == 192 {
-            assert!(held.len() > ui::UiLimits::MAX_UI_VERTICES);
+            assert!(
+                presentation.session_icons.held_sprite(ITEM, 0).is_none(),
+                "impossible UI geometry is rejected before retention"
+            );
+            assert!(presentation.session_icons.held_sprite(ITEM, 0).is_none());
         } else {
+            let (_, held) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
             assert!(
                 held.len() <= ui::UiLimits::MAX_UI_VERTICES
                     && held.len() * 2 > ui::UiLimits::MAX_UI_VERTICES
