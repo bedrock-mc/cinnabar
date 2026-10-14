@@ -141,8 +141,7 @@ pub(crate) fn derive_profiled_atmosphere_frame(
         // Air fog profiles use the adjusted render distance in the
         // ordinary above-water route, not the raw packet.
         // The separate native submerged distance admission remains incomplete.
-        let render_distance =
-            render_scene::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
+        let render_distance = fog_render_distance(context, requested)?;
         let camera = [Some(camera_fog?)];
         let layer = samples.as_ref().map_or(&camera[..], |samples| &samples[..]);
         assets::resolve_fog_layers(
@@ -181,6 +180,19 @@ pub(crate) fn derive_profiled_atmosphere_frame(
                 )),
             }),
     )
+}
+
+/// The render distance fog of `medium` resolves against: the adjusted chunk render
+/// distance, or for air and weather fog the farther distant terrain distance while distant
+/// terrain is drawn (an opt-in Cinnabar extension). Water, lava and powder snow fog, cloud
+/// fade and liquid distance keep the chunk distance, and fixed-distance profiles ignore it.
+pub(crate) fn fog_render_distance(context: &EnvironmentContext, medium: FogMedium) -> Option<f32> {
+    let chunks =
+        render_scene::adjusted_player_render_distance_blocks(context.render_distance_blocks?)?;
+    Some(match (medium, context.distant_terrain_blocks) {
+        (FogMedium::Air | FogMedium::Weather, Some(distant)) => chunks.max(distant),
+        _ => chunks,
+    })
 }
 
 /// Menu options and optional sky settings consumed by atmosphere updates.
@@ -364,6 +376,61 @@ pub(crate) fn apply_boss_environment(
     match medium {
         CameraMedium::Air => frame.with_boss_environment(state.darken_sky, state.world_fog),
         CameraMedium::Water | CameraMedium::Lava => frame,
+    }
+}
+
+#[cfg(test)]
+mod distant_terrain_fog_tests {
+    use super::*;
+
+    #[test]
+    fn distant_terrain_extends_only_air_and_weather_fog() {
+        let mut context = EnvironmentContext {
+            render_distance_blocks: Some(256.0),
+            ..Default::default()
+        };
+        for medium in FogMedium::ALL {
+            assert_eq!(fog_render_distance(&context, medium), Some(256.0));
+        }
+        context.distant_terrain_blocks = Some(4096.0);
+        for medium in FogMedium::ALL {
+            let expected = match medium {
+                FogMedium::Air | FogMedium::Weather => 4096.0,
+                _ => 256.0,
+            };
+            assert_eq!(
+                fog_render_distance(&context, medium),
+                Some(expected),
+                "{medium:?}"
+            );
+        }
+        context.distant_terrain_blocks = Some(16.0);
+        assert_eq!(
+            fog_render_distance(&context, FogMedium::Air),
+            Some(256.0),
+            "a nearer distant terrain distance never pulls fog in"
+        );
+        // Cloud fade and liquid distance stay on the chunk distance.
+        let frame = derive_base_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            CameraMedium::Air,
+            &context,
+        );
+        let expected = derive_base_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            CameraMedium::Air,
+            &EnvironmentContext {
+                distant_terrain_blocks: None,
+                ..context.clone()
+            },
+        );
+        assert_eq!(frame, expected);
+        context.render_distance_blocks = None;
+        assert_eq!(fog_render_distance(&context, FogMedium::Air), None);
     }
 }
 

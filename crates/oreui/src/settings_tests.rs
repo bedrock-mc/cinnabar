@@ -677,6 +677,42 @@ fn native_video_settings_exposes_all_vrr_choices() {
 }
 
 #[test]
+fn native_video_settings_reach_distant_terrain_and_its_cache_clear() {
+    use launcher::menu::settings_options::DISTANT_TERRAIN_OPTION;
+    let view = settings_view("video_forced_index");
+    let index = SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == DISTANT_TERRAIN_OPTION.name)
+        .unwrap() as u16;
+    let toggle = MenuAction::SettingsOption(index, 1);
+    let clear = MenuAction::SettingsClearDistantTerrainCache;
+    let mut frame = paint(&view, [1280.0, 720.0], HashMap::new());
+    let mut scrolls = MenuScrolls::<MenuAction>::default();
+    let (mut seen_toggle, mut seen_clear) = (false, false);
+    for _ in 0..64 {
+        let viewport = panel(&frame, false).viewport;
+        let visible = |wanted: MenuAction| {
+            frame
+                .hits
+                .iter()
+                .any(|(action, bounds)| *action == wanted && contains(viewport, *bounds))
+        };
+        seen_toggle |= visible(toggle);
+        seen_clear |= visible(clear);
+        if seen_toggle && seen_clear {
+            return;
+        }
+        scrolls.set_areas(frame.areas.clone());
+        assert!(
+            scrolls.wheel(centre(viewport), -1.0, false),
+            "distant terrain rows must be reachable"
+        );
+        frame = paint(&view, [1280.0, 720.0], scrolls.offsets().clone());
+    }
+    panic!("the distant terrain toggle and cache clear were not both visible");
+}
+
+#[test]
 fn settings_native_font_keeps_css_line_boxes_and_pointer_caret_in_sync() {
     use launcher::menu::MenuField;
     use ui::oreui_theme::OreUiFont;

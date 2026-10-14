@@ -138,6 +138,8 @@ rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mimalloc = { version = "=0.1.52", default-features = false }
 sha2 = "=0.10.9"
+# Distant terrain geometry pool sub-allocation; the version Bevy already locks.
+offset-allocator = "=0.2.0"
 # Client blob ids and distant terrain chunk content hashes.
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 # Crates that generate random UUIDs add `v4`; wasm32-unknown-unknown has no source for it.

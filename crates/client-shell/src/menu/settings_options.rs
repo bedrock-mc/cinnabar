@@ -13,4 +13,7 @@ mod tests;
 mod macro_tests;
 
 #[cfg(test)]
+mod distant_terrain_tests;
+
+#[cfg(test)]
 mod preset_tests;

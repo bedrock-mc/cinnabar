@@ -1,5 +1,11 @@
 //! Classic RGB lightmap.
 
+/// Entries of the light table: one per pair of 4-bit block and sky light levels.
+pub const LIGHTMAP_ENTRIES: usize = 256;
+
+/// The light table, block light in the low nibble of the index and sky light in the high one.
+pub type LightmapTable = [[f32; 4]; LIGHTMAP_ENTRIES];
+
 /// Inputs to the classic light texture builder, before material color conversion.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightmapInputs {
@@ -36,7 +42,7 @@ impl Default for LightmapInputs {
 
 impl LightmapInputs {
     /// Builds all sky/block pairs once for every ordinary world material.
-    pub fn build(self) -> [[f32; 4]; 256] {
+    pub fn build(self) -> LightmapTable {
         std::array::from_fn(|index| {
             let rgb = self.colour(self.ramp[index & 15], self.ramp[index >> 4]);
             [rgb[0], rgb[1], rgb[2], 1.0]

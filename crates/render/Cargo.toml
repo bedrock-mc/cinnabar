@@ -33,6 +33,9 @@ mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
 bevy.workspace = true
 glam.workspace = true
+# Distant terrain records, layouts and translucent order.
+lod = { path = "../lod" }
+offset-allocator.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
@@ -56,6 +59,8 @@ libc = "0.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [dev-dependencies]
+# Fixture blocks for distant terrain test meshes.
+lod = { path = "../lod", features = ["test-support"] }
 test-alloc = { path = "../test-alloc" }
 render-model = { path = "../render-model", features = ["test-support"] }
 render-scene = { path = "../render-scene", features = ["publication-test-support"] }

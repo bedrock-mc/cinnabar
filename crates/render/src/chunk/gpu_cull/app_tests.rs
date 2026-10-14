@@ -21,7 +21,7 @@ use super::*;
 use render_scene::ChunkUploadPriority;
 
 /// A render plugin on the first adapter of `backends`; `None` when none is present.
-pub(super) fn render_plugin(
+pub(crate) fn render_plugin(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
 ) -> Option<RenderPlugin> {
@@ -87,7 +87,7 @@ pub(super) fn mesh() -> meshing::ChunkMesh {
     )
 }
 
-pub(in crate::chunk) fn frame(app: &mut App) {
+pub(crate) fn frame(app: &mut App) {
     app.update();
     app.sub_app(RenderApp)
         .world()
@@ -101,6 +101,16 @@ pub(in crate::chunk) fn chunk_app(
     render: RenderPlugin,
     msaa: Msaa,
     transform: Transform,
+) -> (App, Entity) {
+    chunk_app_with(render, msaa, transform, |_| {})
+}
+
+/// [`chunk_app`] with the plugins `plugins` adds after the chunk renderer.
+pub(crate) fn chunk_app_with(
+    render: RenderPlugin,
+    msaa: Msaa,
+    transform: Transform,
+    plugins: impl FnOnce(&mut App),
 ) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -117,6 +127,7 @@ pub(in crate::chunk) fn chunk_app(
             CorePipelinePlugin,
         ))
         .add_plugins(ChunkRenderPlugin::default());
+    plugins(&mut app);
     crate::render_test_support::fail_on_render_error(&mut app);
     let image = app
         .world_mut()

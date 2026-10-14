@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use chunk_pipeline::DistantTerrainStats;
 use lod_store::store::{Store, StoreOptions};
 use protocol::{ChangeDimensionEvent, WorldBootstrap, WorldEvent};
 use test_time::eventually;
@@ -9,7 +10,7 @@ use super::*;
 const NOW: Minute = Minute::new(1);
 const DESTINATION: &str = "remote:distant-terrain.example:19132";
 
-fn stream() -> WorldStream {
+pub(super) fn stream() -> WorldStream {
     WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,
@@ -21,12 +22,12 @@ fn stream() -> WorldStream {
     })
 }
 
-fn target(session_generation: u64) -> DistantTerrainTarget {
+pub(super) fn target(session_generation: u64) -> DistantTerrainTarget {
     DistantTerrainTarget::new(DESTINATION, "level", 7, session_generation)
 }
 
 /// Runs one frame for `stream` wanting `target`.
-fn update(
+pub(super) fn update(
     sessions: &mut DistantTerrainSessions,
     stream: &mut WorldStream,
     target: Option<DistantTerrainTarget>,
@@ -41,7 +42,7 @@ fn update(
 }
 
 /// Runs frames until `done` holds.
-fn update_until(
+pub(super) fn update_until(
     sessions: &mut DistantTerrainSessions,
     stream: &mut WorldStream,
     target: Option<DistantTerrainTarget>,
@@ -54,7 +55,7 @@ fn update_until(
     });
 }
 
-fn open_writer(sessions: &DistantTerrainSessions, _: &WorldStream) -> bool {
+pub(super) fn open_writer(sessions: &DistantTerrainSessions, _: &WorldStream) -> bool {
     sessions.report().state == StoreState::Open { read_only: false }
 }
 
@@ -385,6 +386,67 @@ fn quotas_run_on_their_minute_cadence() {
         !root.store_dir(&other).exists()
     });
     assert!(root.store_dir(&target(1).key).is_dir());
+}
+
+/// The quotas the open store's thread applies.
+fn applied_quotas(sessions: &DistantTerrainSessions) -> Quotas {
+    match &sessions.state {
+        State::Open(open) => open.quotas,
+        _ => panic!("the store is open"),
+    }
+}
+
+#[test]
+fn a_smaller_store_cap_applies_only_once_it_settles() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let root = StoreRoot::new(dir.path());
+    let other = StoreKey::new("remote:other.example:19132", "", 0);
+    Store::open(&root.store_dir(&other), NOW, StoreOptions::default())
+        .expect("open another store")
+        .close();
+    // The other store expires within a minute, so a quota pass shows by removing it.
+    let quotas = Quotas {
+        expiry_minutes: 1,
+        ..Quotas::default()
+    };
+    let mut sessions = DistantTerrainSessions::with_quotas(dir.path(), quotas);
+    let mut stream = stream();
+    update_until(
+        &mut sessions,
+        &mut stream,
+        Some(target(1)),
+        "the store to open",
+        open_writer,
+    );
+    let at = |sessions: &mut DistantTerrainSessions, stream: &mut WorldStream, minutes| {
+        sessions.update(DistantTerrainFrame {
+            target: Some(target(1)),
+            stream: Some(stream),
+            now: Minute::new(NOW.get() + minutes),
+            uptime: Duration::ZERO,
+            player_block: Some([0, 0]),
+        });
+    };
+    // A slider dragged down and back up within a minute never applies the small cap.
+    sessions.set_store_cap(256 << 20);
+    at(&mut sessions, &mut stream, 2);
+    assert_eq!(applied_quotas(&sessions), quotas);
+    sessions.set_store_cap(quotas.store_bytes);
+    at(&mut sessions, &mut stream, 2);
+    assert_eq!(applied_quotas(&sessions), quotas);
+    // A smaller cap that stays applies once settled, with a quota pass right away.
+    sessions.set_store_cap(256 << 20);
+    at(&mut sessions, &mut stream, 3);
+    assert_eq!(applied_quotas(&sessions), quotas);
+    at(&mut sessions, &mut stream, 3 + QUOTA_SETTLE_MINUTES);
+    assert_eq!(applied_quotas(&sessions).store_bytes, 256 << 20);
+    eventually("the quota pass to remove the expired store", || {
+        !root.store_dir(&other).exists()
+    });
+    // A larger cap applies at once.
+    sessions.set_store_cap(quotas.store_bytes);
+    at(&mut sessions, &mut stream, 3 + QUOTA_SETTLE_MINUTES);
+    assert_eq!(applied_quotas(&sessions), quotas);
 }
 
 #[test]

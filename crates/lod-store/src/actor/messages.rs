@@ -11,7 +11,7 @@ use crate::{
     error::StoreError,
     identity::Dimension,
     minute::Minute,
-    root::QuotaReport,
+    root::{QuotaReport, Quotas},
     store::{Focus, StoreEvent},
 };
 
@@ -79,6 +79,8 @@ pub enum Request {
     Sync { now: Minute },
     /// Flushes, then applies the quotas around `focus`.
     EnforceQuotas { now: Minute, focus: Option<Focus> },
+    /// Replaces the quotas later flushes, quota passes and the close apply.
+    SetQuotas(Quotas),
 }
 
 /// Why a request was not queued; it is handed back for a later retry.

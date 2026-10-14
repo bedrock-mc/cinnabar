@@ -409,6 +409,18 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   vanilla coverage parity. Matched hardware performance and native foliage comparison remain
   incomplete; no parity or performance gate closes from these changes.
 
+## Optional distant terrain
+
+- Video offers Distant Terrain, off by default, with its distance, quality, per-server
+  storage cap and cache clear (see "Distant terrain (LOD)"). This is an owner-authorized
+  visual extension; classic Bedrock draws nothing beyond the server's view distance.
+  Gameplay and network state do not change.
+- While it is drawn, air and weather fog end at its distance instead of the chunk render
+  distance; water, lava and powder-snow fog, cloud fade and liquid distance keep the chunk
+  distance, and fixed-distance fog profiles still hide far terrain.
+- Hardware frame, upload and GPU budgets remain unmeasured; no parity or performance gate
+  closes.
+
 ## Optional camera motion blur
 
 - Video offers Off (default), Low, Medium and High camera exposure. This is an owner-authorized
@@ -8793,7 +8805,7 @@ and the native comparison.
   `MAX_LOD_WRITERS`, centred on a corner of four writer regions (the upper bound) and inside
   one region, where one writer takes every column (see `docs/benchmarks.md`).
 - Sessions (`client-runtime`, driven by the app once a frame): while the Video setting
-  `distant_terrain` is on (off by default, no UI yet) and a session has its destination
+  `distant_terrain` is on (off by default) and a session has its destination
   identity and StartGame level id and seed, a thread opens the store under
   `InstallLayout::lod_cache_dir()` and starts its write-back thread, so the frame never
   waits for the disk; a store that cannot open is not retried for that session. The adapter
@@ -8832,18 +8844,18 @@ and the native comparison.
   see-through blocks; other see-through blocks draw in the opaque bucket and hide only their
   own material. Waterlogged see-through blocks hold water: water hides against them, and
   against air they show the water surface (translucent, coloured by the lowest water
-  material) instead of their own face. Unknown neighbours count as air lit by full sky, so explored terrain is
-  closed at its edge; the mesh lists them so the section can be meshed again when they
-  arrive, and `lod::mesh::input::dependents` names every mesh a stored section changes.
-  Quads are grouped by list (main, to-coarser, to-finer), bucket (opaque, translucent) and
-  face, translucent groups far to near, and cut into 64-quad single-direction clusters
-  carrying the section key, face, quad range, bounds in section-local voxel corners and, at
-  level 0, the chunk columns they cover (level-0 opaque groups are ordered by those
-  columns). Only level-0 sections, whose voxels are blocks, may be drawn over resident chunk
-  columns (`lod::mesh::overlaps_resident_columns`): coarser voxels would cover resident
-  terrain and the opaque pass never discards fragments, so selection must refine every
-  section that overlaps a resident column to level 0. Culling seeds and cluster column bits
-  follow that one rule, as a test checks at every level.
+  material) instead of their own face. Unknown neighbours count as air lit by full sky, so
+  explored terrain is closed at its edge; the mesh lists them so the section can be meshed
+  again when they arrive, and `lod::mesh::input::dependents` names every mesh a stored
+  section changes. Quads are grouped by list (main, to-coarser, to-finer), bucket (opaque,
+  translucent) and face, translucent groups far to near, and cut into 64-quad
+  single-direction clusters carrying the section key, face, quad range, bounds in
+  section-local voxel corners and, at level 0, the chunk columns they cover (level-0 opaque
+  groups are ordered by those columns). Only level-0 sections, whose voxels are blocks, may
+  be drawn over resident chunk columns (`lod::mesh::overlaps_resident_columns`): coarser
+  voxels would cover resident terrain and the opaque pass never discards fragments, so
+  selection must refine every section that overlaps a resident column to level 0. Culling
+  seeds and cluster column bits follow that one rule, as a test checks at every level.
 - Cracks: per face, a to-coarser and a to-finer list hold the faces the same-level neighbour
   hides but the neighbour region shows when it renders one level coarser or finer, so the
   renderer draws the main list plus the list matching the neighbour's level, without skirts.
@@ -8888,19 +8900,19 @@ and the native comparison.
   every section when a store session or an undecided session's leading epoch changes; every
   job posts exactly one result, and a result for an older version is dropped and the section
   meshed again. A section no record holds completes without a mesh. Finished meshes wait for
-  the renderer to take them and count against `LOD_MESH_CACHE_BYTES` until it has, handed-out
-  meshes the cache dropped or replaced meanwhile included, and no new job starts while they
-  fill it; taken meshes stay cached, least recently used dropped first beyond it, and are
-  meshed again when wanted again. Changing the wanted dimension drops every mesh, those not
-  yet taken included. When the store stops, meshing stops, reports it in its counters and
-  queues no more wants or releases. Pipeline tests
-  cover a hidden region meshing again only the sections overlapping or reading it, a session
-  change meshing every section again and a dimension change dropping every mesh.
-  `chunk_costs` times mesh jobs end to end, idle and while writers merge into the same store
-  (see `docs/benchmarks.md`).
+  the renderer to take them and count against `LOD_MESH_CACHE_BYTES` until it has,
+  handed-out meshes the cache dropped or replaced meanwhile included, and no new job starts
+  while they fill it; taken meshes stay cached, least recently used dropped first beyond it,
+  and are meshed again when wanted again. Changing the wanted dimension drops every mesh,
+  those not yet taken included. When the store stops, meshing stops, reports it in its
+  counters and queues no more wants or releases. Pipeline tests cover a hidden region
+  meshing again only the sections overlapping or reading it, a session change meshing every
+  section again and a dimension change dropping every mesh. `chunk_costs` times mesh jobs
+  end to end, idle and while writers merge into the same store (see `docs/benchmarks.md`).
 - CPU memory: the writers' section caches (`LOD_SECTION_CACHE_BYTES`, 32 MiB split between
   them), the mesher's snapshots (`LOD_MESH_SNAPSHOT_BYTES`, 24 MiB) and the CPU-side meshes
-  (`LOD_MESH_CACHE_BYTES`, 64 MiB) are bounded in bytes and checked at compile time to fit
+  (`LOD_MESH_CACHE_BYTES`, 64 MiB) are bounded in bytes, and selection's explored tree in
+  sections (`MAX_LOD_TREE_NODES`, at most about 4 MiB), all checked at compile time to fit
   `LOD_CPU_MEMORY_BYTES` (128 MiB). Sections held by jobs in flight, the column book, the
   inboxes and pending final captures are bounded by their own counts outside it.
 - Colour tables (`chunk-pipeline`, the lowest crate reading both the runtime assets and the
@@ -8918,28 +8930,215 @@ and the native comparison.
   fallback record. The mesher builds the tables once per change of the session's assets or
   identities and extends them as the registry grows; the material table is indexed by the
   voxel word's material field, whose width it shares with shaders.
+- Selection (`lod::select`, pure; a `lod-select` thread in `chunk-pipeline` runs it): a walk
+  starts from the level-4 sections (the coarsest level ingestion stores) whose footprint
+  lies within the drawing distance, at most `MAX_DISTANCE_CHUNKS` (512) until L5–L6 are
+  re-mipped, and refines a section into its non-empty children while its view-independent
+  projected area, `(f·s/d)²·(|dx|+|dy|+|dz|)/d` for edge `s` and centre offset `(dx, dy,
+  dz)` at distance `d`, exceeds the square of the quality's pixels per section edge (Low
+  256, provisional; Medium 128; High 64), with `f` from the viewport height and the current
+  vertical field of view. A refined section coarsens only below that area over 2.25. The
+  thresholds follow the Video setting's quality directly (`lod::select::edge_threshold_px`
+  of `render_api::DistantTerrainQuality`, one enum for the setting, the renderer and
+  selection). Within 1.5 edges of its centre a section always refines, which keeps the
+  measure monotone on every root-to-leaf path, as a test checks on random cameras together
+  with parents containing their children. Every section overlapping a resident chunk column
+  refines down to level 0, and nothing whose chunk columns are all resident is selected, as
+  every cluster there would be culled; resident columns are a summed-area table, so either
+  test is constant time. Then selected sections more than one level coarser than a selected
+  face neighbour split until none is. The walk knows the tree from record headers (child
+  masks) the thread reads in batches of at most 1,024, nearest first, up to eight rounds a
+  walk; sections the writers store or read-through shows differently stay in use while they
+  are read again, so drawn terrain never drops out meanwhile. The tree knows at most
+  `MAX_LOD_TREE_NODES` sections, a hard limit inside the CPU memory cap: reads past it are
+  refused and stay unknown, and once the next walk's reads might not fit it forgets the
+  sections beyond the distance, then the farthest others (coarser before finer at equal
+  distance, so ancestors of what stays stay), and counts refusals and trims. The frame
+  decides when to walk (`lod::select::policy`): when the camera moved 16 blocks since the
+  last walk, jumped 64 blocks between two frames (a teleport, which also forgets which
+  sections were refined), the projection scale changed by 5%, the quality, distance,
+  dimension or its height changed; changed resident columns, which change with every chunk
+  load while chunks stream in, call for one at most every 100 ms and newly stored sections
+  at most every 250 ms; never for rotation, and never more than 30 a second of the caller's
+  monotonic time. Only then does the frame list the resident columns, when they changed, and
+  the selection thread indexes them.
+- The shown set (`lod::select::shown`) turns selections and arriving meshes into what is
+  drawn without holes: a shown section the walk refined is replaced once every selected
+  section under it has a result, a coarsened region once its new section has, and a selected
+  section overlapping nothing shown as soon as it has; a section with no record or no quads
+  draws nothing. A replacement still waiting after 64 updates is applied with what arrived.
+  A shown section above level 0 that the walk refined because it overlaps resident chunk
+  columns goes at once with the children that arrived, the rest showing as they arrive
+  (counted as resident swaps): only level-0 sections may draw there. The thread wants the
+  selected and shown sections from the mesher, takes its finished meshes, and publishes one
+  update at a time, the next only once the frame took the last: removed keys, new or
+  replaced meshes nearest first up to `MAX_LOD_UPDATE_BYTES` (8 MiB) beyond the first unit,
+  sections whose neighbour levels changed, and the full shown set as an immutable `Arc`.
+  Each drawn section carries, per face, whether the region across it is drawn at the same
+  level, coarser, finer or not at all, which picks the crack list drawn with the main list.
+  A new selection releases what an earlier one wanted. A dimension change empties the shown
+  set: the next update removes every drawn section and nothing is kept under the new
+  dimension's target, and meshes the mesher finished for the old dimension are dropped, as
+  each batch it hands out names its dimension.
+- Render data (`lod::draw`): cluster records (first quad in the renderer's pool, then
+  section slot 20 bits, face 3, list 2, bucket 1, quads − 1 6; bounds minimum with the
+  chunk-column bits; bounds maximum, six bits a coordinate) and eight-word section records
+  (X, Y, Z at the section's level, then level 3 bits, neighbour levels 12 and a live bit,
+  then the pool unit of the packed biome grid; all zero is a dead slot), each word laid out
+  once with a compile-time coverage check for shader generation; each mesh's 32×32
+  surface-biome grid packed as 16-bit raw biome ids, which shaders map to tint records
+  through the session's biome table, so grids stay valid when tints change; and a
+  far-to-near counting sort of sections with translucent quads (1,024 distance buckets,
+  ties in key order).
+- Drawing (`client-runtime` `distant_terrain::drawing`, `render-scene` `distant_terrain`):
+  while the setting is on and the device can draw, an open store, read-only ones included,
+  meshes for the renderer and the frame runs selection on it, handing it the camera, the
+  projection scale of the current field of view and viewport height, the quality and the
+  distance, clamped to the tier the renderer reports for its device, each frame. Air fog
+  moves out to that distance only once the renderer is ready and draws sections, so the
+  chunk edge never shows before the distant terrain behind it. One `DistantTerrainLink`
+  carries the settings, one `DrawUpdate` at a time (the next only once the renderer
+  committed the last), the colour tables when the mesher rebuilt them, a resident
+  chunk-column mask when the resident columns changed (at most every 100 ms, the pace
+  selection follows them at) or the player moved 16 chunks from its centre, whose window
+  covers the largest server view around a player that far off, and the frame time; the
+  renderer's counters come back. Selection starts again from nothing drawn whenever drawing
+  turns on, the mesher restarts, or the renderer drops what it drew for a new pool or
+  target. The `CINNABAR_LOD_RENDER` line reports the renderer's counters, its tier's
+  distance, whether Hi-Z is on, the size bins, the degenerate-slot and pass-B shares and the
+  GPU pass times when they change, at most once per the app's `REPORT_INTERVAL`.
+- Renderer (`render` `distant_terrain`): one geometry pool storage buffer, sized from the
+  device tier, the quality and the distance (`render_api::DistantTerrainTier::pool_bytes`):
+  the tier's pool at its farthest distance (desktop Low 128 MiB provisional, Medium 256 MiB
+  and High 512 MiB at 512 chunks; low-end 64, 128 and 128 MiB at 256 chunks), scaled by the
+  level rings the distance reaches (one per doubling past 32 chunks plus two inner rings, in
+  whole MiB: Medium takes 86 MiB at 32 chunks and 214 MiB at 256), so only crossing a
+  doubling rebuilds it; capped by the adapter's storage binding and buffer limits. The
+  low-end tier is the experimental Android client's and a desktop build's on a software or
+  virtual adapter or one whose storage bindings cannot hold the desktop Medium pool; the
+  renderer reports its tier, which also caps the distance. The pool holds each drawn
+  section's packed biome grid and quads, sub-allocated per section with `offset-allocator`
+  (MIT). Cluster records (one slot per 32 pool quads), section records with the resident
+  mask after them, decision and visible-last-frame flags, draw lists and the water order
+  live in fixed buffers beside it. All of them and every pipeline are built on a
+  `lod-pipelines` thread when drawing turns on or the pool size, colour format or sample
+  count changes, and dropped when it turns off; nothing draws until they are ready, nothing
+  grows on the render thread. Uploads stage one frame's writes in one queue write and apply
+  them with one scatter dispatch of bounded copy and fill commands; the budget starts at 2
+  MiB a frame and grows by 512 KiB after fast frames up to 8 MiB, halving after slow ones.
+  An update uploads into free space under dead section slots over as many frames as it needs
+  and commits in one frame: removed and replaced sections' section records are zeroed, new
+  ones go live and relinked ones take their neighbour levels, so swaps show whole; a commit
+  with more record writes than one frame has commands for (a teleport or a dimension change
+  removing every drawn section) rewrites the whole section table in one copy instead. Dead
+  sections' cluster records are zeroed over the following frames as commands allow, their
+  slots held until then, and their space is reused only from the frame after, once culling
+  stopped listing it. Cluster slots come from a first-fit allocator indexed by free length
+  that keeps a running count of slots in use. Sections the pool, cluster or section slots
+  cannot hold are dropped and counted. The plugin makes the main view's depth target
+  sampleable itself, so Hi-Z does not depend on the near terrain's culling path; the
+  marker's `hiz=false` shows a view culled by the frustum alone.
+- Passes, after opaque terrain (and the late terrain cull) and before transparency, each one
+  `draw_indexed_indirect` over a static 384-entry u16 index buffer with vertices pulled from
+  the pool (no first instance, base vertex or count draws; quad slots past a cluster's
+  quads, dead sections and crack lists not drawn collapse to one point outside the clip
+  volume): the scatter; pass A draws last frame's visible clusters; a depth pyramid over the
+  near terrain and pass A, built and tested with the terrain cull's `hiz.wgsl` layout and
+  the shared `hiz_test.wgsl`; culling tests every section box against the frustum and
+  pyramid, hiding a section above level 0 whole when any chunk column under it is resident
+  (a row of the mask is a word per 32 columns), then every cluster slot by its section, the
+  crack list its neighbour level draws, its facing direction (hidden only when the eye is
+  behind the plane of its quads nearest to it, as a cluster's quads span several planes), at
+  level 0 the resident chunk columns it covers, the frustum and the pyramid, and compacts
+  with ordered count/scan/emit next frame's pass A list and this frame's pass B list from
+  both ends of one buffer, then the water order in its order; one render pass then draws the
+  newly visible clusters (pass B) and blends water over them. Each render pass loads and
+  stores the whole target, which tiled GPUs pay for in bandwidth, so there are two, and none
+  while no section slot is in use. Counts clamp to the lists and dropped entries are
+  counted. Culling also bins visible sections by the square root of their screen area (4 px
+  unit) and visible opaque clusters by their screen rectangle's longer side (1 px unit),
+  eight bins doubling from the unit, and counts the empty quad slots of visible opaque
+  clusters. Counters, bins and encoder-level timestamps between passes (compute timestamps
+  inside passes under-report on Honeykrisp) are read back without waiting. A visible-set
+  reset zeroes every slot, flag and list. Opaque draws write depth with a strict `Greater`
+  test in the same reverse-Z target, so coplanar resident terrain wins ties, and never
+  discard. Water sections go far to near by the counting sort; within a section, class
+  General orders its directions per view by their clusters' distance, the other classes as
+  meshed.
+- Shading: the face colour table by material and face, tinted per fragment by the
+  section's packed biome grid through the session's biome tint records, lit by the world
+  lightmap entry of the face's sky and block light, a fixed shade per direction (vanilla's
+  ordinary coefficients, from the one Rust source near terrain's `lighting.wesl` is
+  generated from too), no ambient occlusion, and faded toward the fog colour by the
+  air fog's start and end (a hard edge when they are equal). Water is 0.7 opaque,
+  provisionally. Every bit field and constant the shaders read is generated into a WGSL
+  prelude from its Rust source, and tests check the prelude's values and the uniform
+  layouts through naga. GPU fixture tests draw uploaded sections through the production
+  kernels and pipelines: first in pass B and then in pass A, culled over resident columns,
+  hidden behind a nearer wall from the frame after it drew, water blended over ground,
+  stepped ground whose top faces span several planes drawn with the eye between them, the
+  crack list only toward the neighbour level that needs it, each fragment tinted by the
+  biome under it, faces faded toward the fog with a hard edge when start and end are equal,
+  full lists clamped with their drops counted, a visible-set reset drawing everything as
+  new, a coarse section hidden by one resident column under it, and the size bins.
+- Video settings (JSON-UI after motion blur, and OreUI): Distant Terrain (off by default),
+  Distance in chunks (32 to the tier's cap, default 256), Quality Low/Medium/High (default
+  Medium), per-server storage in MiB (256 to 8192 in 256 steps, default 1024; a running
+  store applies a larger cap at once, and a smaller one with a quota pass once it stayed
+  unchanged for `QUOTA_SETTLE_MINUTES`, so dragging the slider through small values never
+  evicts) and "Clear distant terrain cache",
+  which clears on a thread of its own and reports what it removed and what a running game
+  kept. They persist with the other Video options and reset with them. Presets:
+  Performance off and Quality on at the tier's farthest distance at Medium; High is never
+  a preset. Open owner decision: the design turns Balanced on at 128 chunks, but Balanced is
+  the default preset and restores the defaults, which keep distant terrain off; Balanced
+  leaves it off until the owner signs off one of the two.
+- Owner-authorized visual extension, like optional camera motion blur: off by default, no
+  gameplay or network change. While distant terrain is drawn, air and weather fog resolve
+  against its distance instead of the chunk render distance when that is farther
+  (`fog_render_distance`); cloud fade, liquid distance and water, lava and powder-snow fog
+  keep the chunk distance, and fixed-distance profiles such as the Nether's still hide far
+  terrain. The far clip covers 1.5 times the distance (the projection is infinite
+  reverse-Z, so only the frustum's far plane moves).
 - Incomplete: dropping sections above a re-sent, shorter column; re-mipping L5–L6 and
   rebuilding a missing mip under a vouched chunk; the column book empties only when
-  ingestion is idle once it passes `MAX_LOD_BOOK_COLUMNS`; selection, which will name the
-  wanted meshes, and the app enabling meshing; seasonal leaf palettes and growth-stage tints
-  in the colour tables; rendering, fog, Video settings UI and persistence for the toggle,
-  the caps and the clear-cache action. Selection must refine every section overlapping a
-  resident column to level 0, the rule meshes assume. Level-0 meshing meets the 0.10 ms p50
-  target on the gentle fixture terrain but not on the dense one, and is unmeasured on real
-  terrain (see `docs/benchmarks.md`). Writers parallelise only across writer regions, the
-  512-block level-4 section columns: while every changed column lies inside one region, as
-  for a player well inside one, a single writer merges them all (about 510 columns a second
-  on an M1), however many writers run. Quitting the client while a store waits for final
-  captures drops them, and they are sampled on a later visit. A new dimension's session
-  request that waits for a full store queue can arrive after the first writes of that
-  dimension, which then fail and are sampled again later. The region index carries the chunk
-  content hashes but not the planned per-region node index (child mask, cluster count,
-  visibility history); adding it bumps the region format version, and writers then replace
-  older files as unusable, so the cache is sampled again. Flushes are bounded by rewritten
-  bytes only, not by time, since the store reads no clock. Surface biomes ignore vertical
-  biome changes within a column. Epoch rules are untested on proxied lobby recordings and
-  proxied networks. Storage is unmeasured on cold caches and on Windows, macOS and Android
-  devices; Android storage and Windows replacement of open files are untested.
+  ingestion is idle once it passes `MAX_LOD_BOOK_COLUMNS`; seasonal leaf palettes and
+  growth-stage tints in the colour tables. Rendering is unmeasured on hardware: no Metal,
+  DX12, Android or low-end capture, and no frame, upload or GPU budget acceptance against
+  its targets (at Medium and 256 chunks on an M1 at 1080p, distant terrain GPU time at most
+  2 ms on the ground, 4 ms at peaks and 6 ms at altitude; encoding at most 0.8 ms of CPU).
+  Low's pool and threshold, the pool's scaling with distance and the rule choosing the
+  low-end tier for a desktop adapter are provisional. Residency and eviction under GPU
+  memory pressure are not implemented (sections that do not fit are dropped), nor the
+  1,024-chunk distance, the distant shell, near-level textures, transition fades or the
+  water's vanilla look. The resident mask is the stream's resident columns, so a column
+  resident before its meshes are drawn shows neither for a few frames; when a column turns
+  resident under a coarse section, that section is hidden whole until its level-0
+  replacements arrive, leaving a hole beyond the resident columns meanwhile, and pass A
+  still draws it in the one frame before culling sees the column. Pass A always draws when
+  sections exist, even when last frame drew nothing. The size bins project every visible
+  section and opaque cluster once more, unmeasured. Selection is untimed: no benchmark
+  covers walks or the shown set's updates, which recompute every drawn section's neighbour
+  levels whenever the shown set changes. A column evicted under an all-resident section
+  shows distant terrain only after the next walk and its meshes. The explored tree reads
+  whole records for their headers, and with more sections within the distance than its limit
+  leaves room for, every walk forgets and reads again the farthest headers. Level-0 meshing
+  meets the 0.10 ms p50 target on the gentle fixture terrain but not on the dense one, and
+  is unmeasured on real terrain (see `docs/benchmarks.md`). Writers parallelise only across
+  writer regions, the 512-block level-4 section columns: while every changed column lies
+  inside one region, as for a player well inside one, a single writer merges them all (about
+  510 columns a second on an M1), however many writers run. Quitting the client while a
+  store waits for final captures drops them, and they are sampled on a later visit. A new
+  dimension's session request that waits for a full store queue can arrive after the first
+  writes of that dimension, which then fail and are sampled again later. The region index
+  carries the chunk content hashes but not the planned per-region node index (child mask,
+  cluster count, visibility history); adding it bumps the region format version, and writers
+  then replace older files as unusable, so the cache is sampled again. Flushes are bounded
+  by rewritten bytes only, not by time, since the store reads no clock. Surface biomes
+  ignore vertical biome changes within a column. Epoch rules are untested on proxied lobby
+  recordings and proxied networks. Storage is unmeasured on cold caches and on Windows,
+  macOS and Android devices; Android storage and Windows replacement of open files are
+  untested.
 - Provisional store behaviour: sessions on flat or void maps never vote, so after the
   first visit they show the stored terrain but their own new terrain is dropped each
   session; a returning player who explores only land the stored epochs never recorded,

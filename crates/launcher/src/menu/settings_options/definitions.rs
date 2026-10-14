@@ -97,6 +97,56 @@ pub const MOTION_BLUR_OPTION: SettingDefinition = dropdown(
     ui::MotionBlurQuality::Off.index(),
 );
 
+/// Opt-in distant terrain: keeps and draws terrain already seen beyond the server's view
+/// distance. Off by default; not vanilla behaviour.
+pub const DISTANT_TERRAIN_OPTION: SettingDefinition =
+    toggle("distant_terrain", "Distant Terrain", false);
+
+/// Distant terrain drawing distance in chunks, up to this device tier's cap.
+pub const DISTANT_TERRAIN_DISTANCE_OPTION: SettingDefinition = slider(
+    "distant_terrain_distance",
+    "Distant Terrain Distance",
+    render_api::distant_terrain::MIN_DISTANT_TERRAIN_CHUNKS as i32,
+    render_api::DistantTerrainTier::CURRENT.max_distance_chunks as i32,
+    render_api::distant_terrain::DEFAULT_DISTANT_TERRAIN_CHUNKS as i32,
+);
+
+pub const DISTANT_TERRAIN_QUALITY_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "distant_terrain_quality_radio_low",
+        label: render_api::DistantTerrainQuality::Low.label(),
+    },
+    SettingChoice {
+        name: "distant_terrain_quality_radio_medium",
+        label: render_api::DistantTerrainQuality::Medium.label(),
+    },
+    SettingChoice {
+        name: "distant_terrain_quality_radio_high",
+        label: render_api::DistantTerrainQuality::High.label(),
+    },
+];
+const _: () =
+    assert!(DISTANT_TERRAIN_QUALITY_CHOICES.len() == render_api::DistantTerrainQuality::ALL.len());
+
+/// Detail distant terrain keeps on screen, in [`render_api::DistantTerrainQuality`] order.
+pub const DISTANT_TERRAIN_QUALITY_OPTION: SettingDefinition = dropdown(
+    "distant_terrain_quality",
+    "Distant Terrain Quality",
+    DISTANT_TERRAIN_QUALITY_CHOICES,
+    render_api::DistantTerrainQuality::Medium.index(),
+);
+
+/// Per-server distant terrain cache cap in MiB.
+pub const DISTANT_TERRAIN_STORAGE_OPTION: SettingDefinition = SettingDefinition {
+    name: "distant_terrain_storage",
+    label: "Distant Terrain Storage (MiB)",
+    kind: SettingKind::Slider,
+    min: render_api::distant_terrain::MIN_DISTANT_TERRAIN_STORAGE_MIB as i32,
+    max: render_api::distant_terrain::MAX_DISTANT_TERRAIN_STORAGE_MIB as i32,
+    step: render_api::distant_terrain::DISTANT_TERRAIN_STORAGE_STEP_MIB as i32,
+    default: render_api::distant_terrain::DEFAULT_DISTANT_TERRAIN_STORAGE_MIB as i32,
+};
+
 /// Spatial edge smoothing uses the same choices in JSON-UI and OreUI.
 pub const SMAA_CHOICES: &[SettingChoice] = &[
     SettingChoice {
@@ -651,4 +701,8 @@ pub const SETTINGS_OPTIONS: &[SettingDefinition] = &[
     toggle(super::OREUI_DARK_MODE, "options.oreuiDarkMode", false),
     DISCORD_PRESENCE_OPTION,
     NATIVE_SKYBOX_OFFSET_OPTION,
+    DISTANT_TERRAIN_OPTION,
+    DISTANT_TERRAIN_DISTANCE_OPTION,
+    DISTANT_TERRAIN_QUALITY_OPTION,
+    DISTANT_TERRAIN_STORAGE_OPTION,
 ];

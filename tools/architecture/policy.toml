@@ -108,7 +108,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 name = "lod"
 path = "crates/lod"
 test_support_features = ["benchmark-mimalloc", "test-support"]
-allowed_dependencies = ["world"]
+allowed_dependencies = ["render-api", "world"]
 forbidden_dependencies = ["asset-compiler", "chunk-pipeline", "client-world", "protocol", "render", "render-scene", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu"]
 
@@ -239,7 +239,7 @@ contract_only = true
 [[crates]]
 name = "client-runtime"
 path = "crates/client-runtime"
-allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "lod-store", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock", "test-time"]
+allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "lod", "lod-store", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
 
@@ -355,7 +355,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "render-scene"
 path = "crates/render-scene"
-allowed_dependencies = ["env-compat", "simulation-clock", "assets", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
+allowed_dependencies = ["env-compat", "simulation-clock", "assets", "lod", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "world", "tracy-client", "test-time"]
 forbidden_transitive_dependencies = ["render", "app", "cinnabar", "client-world", "chunk-pipeline", "client-presentation", "protocol"]
 test_support_features = ["publication-test-support"]
 
@@ -363,7 +363,7 @@ test_support_features = ["publication-test-support"]
 name = "render"
 path = "crates/render"
 test_support_features = ["publication-test-support"]
-allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
+allowed_dependencies = ["env-compat", "render-scene", "assets", "block-transform", "lod", "meshing", "mod-api", "mod-render", "particles", "render-api", "render-model", "tracy-client", "world", "test-time"]
 forbidden_dependencies = ["asset-compiler"]
 # Also reject game-state edges hidden behind another local crate or test dependency.
 forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol"]
@@ -826,6 +826,11 @@ producer = "crates/diagnostics/src/markers.rs"
 
 [[markers]]
 literal = "CINNABAR_LOD_INGEST"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
+literal = "CINNABAR_LOD_RENDER"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 

@@ -196,3 +196,19 @@ fn residency_hash_reuses_unchanged_membership_and_preserves_legacy_key_order() {
         "a cached hash is not part of set equality"
     );
 }
+
+#[test]
+fn evicting_every_column_never_repeats_a_column_change_count() {
+    let mut stream = stream_with_unrelated_columns(3);
+    let before = stream.resident_column_changes();
+    let columns = stream.resident.columns().collect::<BTreeSet<_>>();
+    stream.evict_columns(columns);
+    assert!(stream.resident.is_empty());
+    let after_eviction = stream.resident_column_changes();
+    assert!(after_eviction > before, "{before} -> {after_eviction}");
+    // Refilling with as many columns as before must not land on the old count.
+    for z in 0..3 {
+        stream.resident.insert(SubChunkKey::new(0, 5, 0, z));
+    }
+    assert_ne!(stream.resident_column_changes(), before);
+}

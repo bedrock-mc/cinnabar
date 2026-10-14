@@ -1,6 +1,9 @@
 //! Video presets share one table with application and derived selection.
 
-use super::{FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions};
+use super::{
+    DISTANT_TERRAIN_DISTANCE_OPTION, DISTANT_TERRAIN_OPTION, DISTANT_TERRAIN_QUALITY_OPTION,
+    FRAME_RATE_UNLIMITED, SETTINGS_OPTIONS, SMAA_OPTION, SettingsOptions,
+};
 
 /// Named graphics choices; a selection is Custom when none matches.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -117,6 +120,28 @@ const PRESET_OPTIONS: &[PresetOption] = &[
     PresetOption {
         name: "bubble_particles",
         values: [Fixed(0), Default, Fixed(1)],
+    },
+    // Distant terrain: Balanced is the defaults, which keep it off; Quality draws the tier's
+    // farthest distance at Medium.
+    PresetOption {
+        name: DISTANT_TERRAIN_OPTION.name,
+        values: [Fixed(0), Default, Fixed(1)],
+    },
+    PresetOption {
+        name: DISTANT_TERRAIN_DISTANCE_OPTION.name,
+        values: [
+            Default,
+            Default,
+            Fixed(render_api::DistantTerrainTier::CURRENT.max_distance_chunks as i32),
+        ],
+    },
+    PresetOption {
+        name: DISTANT_TERRAIN_QUALITY_OPTION.name,
+        values: [
+            Default,
+            Default,
+            Fixed(render_api::DistantTerrainQuality::Medium.index()),
+        ],
     },
 ];
 

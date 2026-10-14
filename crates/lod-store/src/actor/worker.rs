@@ -280,6 +280,7 @@ impl Worker {
                 self.store().sync();
                 self.forward_store_events();
             }
+            Request::SetQuotas(quotas) => self.quotas = quotas,
             Request::EnforceQuotas { now, focus } => {
                 *last_now = Some(now);
                 self.apply(pending);

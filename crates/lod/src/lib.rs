@@ -22,12 +22,17 @@
 //! - [`mesh`]: section meshes of greedy quads in 64-quad clusters, with crack border lists,
 //!   and the bounded cache of meshes a renderer wants.
 //! - [`colour`]: flat face colours per material and biome tints per tint class.
+//! - [`select`]: which sections to draw for a view, and the swap from one selection to
+//!   the next without holes.
+//! - [`draw`]: what a renderer uploads: cluster and section records, packed biome grids,
+//!   crack-list choices and the translucent section order.
 
 pub mod biome_grid;
 pub mod bit_field;
 pub mod classify;
 pub mod codec;
 pub mod colour;
+pub mod draw;
 pub mod epoch;
 pub mod exposure;
 #[cfg(any(test, feature = "test-support"))]
@@ -40,5 +45,6 @@ pub mod mip_policy;
 pub mod registry;
 pub mod sampler;
 pub mod section;
+pub mod select;
 pub mod storage;
 pub mod voxel;

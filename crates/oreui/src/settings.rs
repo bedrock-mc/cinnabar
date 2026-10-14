@@ -3,6 +3,7 @@
 mod account_icon;
 mod button;
 mod controls;
+mod distant_terrain;
 mod gui_scale;
 mod layout;
 mod picker;
@@ -15,10 +16,9 @@ mod sidebar;
 #[cfg(test)]
 mod row_tests;
 
-use super::focus;
 use super::paint::{Bounds, Canvas};
 use super::theme::{self, BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
-use super::widgets;
+use super::{focus, widgets};
 use crate::images::CHEVRON_LEFT_IMAGE;
 use launcher::menu::settings_sections::SETTINGS_SECTIONS;
 use launcher::menu::{
@@ -446,7 +446,7 @@ impl Content<'_, '_> {
                         })
                     }
                     "msaa" => value.to_string(),
-                    _ => format!("{value}%"),
+                    name => self.slider_text(name, value),
                 };
                 let amount = self.canvas.measure(&shown, BODY)?;
                 let width = (right - left - amount - self.canvas.r(1.6)).max(1.0);

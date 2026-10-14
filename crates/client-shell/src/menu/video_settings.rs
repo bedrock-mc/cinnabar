@@ -1,7 +1,9 @@
-//! Persists video settings after their Bevy adapters publish applied values.
+//! Persists video settings after their Bevy adapters publish applied values, and hands the
+//! host the Video section's requests.
 use super::MenuRuntime;
 use bevy::prelude::ResMut;
 use launcher_host::video_settings::{SavedVideoSettings, save, writer};
+use ui::RenderMode;
 
 /// Run after the fullscreen and GUI adapters so the stored tuple is the applied
 /// mode plus the raw modifier. A viewport clamp never changes the saved value.
@@ -50,6 +52,38 @@ pub fn persist_video_settings(mut menu: ResMut<MenuRuntime>) {
     {
         menu.failed_video_settings_save = Some(settings);
         menu.message = Some(format!("Video settings could not be saved: {error}"));
+    }
+}
+
+impl MenuRuntime {
+    /// Mirrors the applied mode; a pending menu toggle wins until taken.
+    pub fn sync_render_mode(&mut self, applied: RenderMode) {
+        if self.render_mode_request.is_none() {
+            self.render_mode = applied;
+        }
+    }
+
+    /// Shows the VSync toggle locked to a launch-flag override.
+    #[must_use]
+    pub const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
+        self.vsync_override = vsync;
+        self
+    }
+
+    /// Consume the pending Video-section change.
+    pub fn take_render_mode_request(&mut self) -> Option<RenderMode> {
+        self.render_mode_request.take()
+    }
+
+    /// True once per press of "Clear distant terrain cache"; the host then clears the
+    /// cache off the frame and reports through [`Self::report_distant_terrain_clear`].
+    pub fn take_distant_terrain_clear_request(&mut self) -> bool {
+        std::mem::take(&mut self.distant_terrain_clear_request)
+    }
+
+    /// Shows the outcome of a distant terrain cache clear.
+    pub fn report_distant_terrain_clear(&mut self, message: String) {
+        self.message = Some(message);
     }
 }
 

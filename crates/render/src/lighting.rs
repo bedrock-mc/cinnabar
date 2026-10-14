@@ -29,6 +29,14 @@ pub(crate) struct LightmapGpu {
     atmosphere: Buffer,
 }
 
+impl LightmapGpu {
+    /// The [`render_model::LightmapTable`] buffer, for passes that bind it in their own
+    /// layout.
+    pub(crate) fn table(&self) -> &Buffer {
+        &self.buffer
+    }
+}
+
 /// Describes group one shared by every ordinary lit world pipeline.
 pub(crate) fn layout() -> BindGroupLayoutDescriptor {
     BindGroupLayoutDescriptor::new(
@@ -40,7 +48,9 @@ pub(crate) fn layout() -> BindGroupLayoutDescriptor {
                 ty: BindingType::Buffer {
                     ty: BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: BufferSize::new(std::mem::size_of::<[[f32; 4]; 256]>() as u64),
+                    min_binding_size: BufferSize::new(
+                        std::mem::size_of::<render_model::LightmapTable>() as u64,
+                    ),
                 },
                 count: None,
             },
@@ -148,8 +158,11 @@ fn prepare(
     });
 }
 
-fn light_table(inputs: Option<LightmapInputs>) -> [[f32; 4]; 256] {
-    inputs.map_or([[1.0; 4]; 256], LightmapInputs::build)
+fn light_table(inputs: Option<LightmapInputs>) -> render_model::LightmapTable {
+    inputs.map_or(
+        [[1.0; 4]; render_model::LIGHTMAP_ENTRIES],
+        LightmapInputs::build,
+    )
 }
 
 /// Binds the shared environment buffers for ordinary world passes.

@@ -1,5 +1,9 @@
-//! Drives the session's distant terrain store from the Video setting and the session's
-//! identity, and logs its counters.
+//! Drives distant terrain from the Video settings: the session's store and its identity,
+//! drawing through the renderer, the fog and far clip it needs, the cache clear action and
+//! the counters' log lines.
+
+mod clear;
+mod draw;
 
 use std::{
     path::Path,
@@ -19,11 +23,12 @@ use lod_store::minute::Minute;
 
 use super::{ClientWorld, drive_world_stream};
 use crate::session::SessionController;
+pub(crate) use draw::DistantTerrainFogDistance;
 
 #[cfg(test)]
 mod tests;
 
-/// Shortest time between two counter lines.
+/// Shortest time between two counter lines of one kind.
 const REPORT_INTERVAL: Duration = Duration::from_secs(5);
 
 /// The app's distant terrain adapter; the mutex is reached only through `get_mut`.
@@ -31,32 +36,60 @@ const REPORT_INTERVAL: Duration = Duration::from_secs(5);
 pub(crate) struct DistantTerrainResource(Mutex<DistantTerrainSessions>);
 
 /// Registers the adapter for stores under `lod_cache_dir`. It runs after the frame's
-/// stream poll, while the stream is on the frame thread.
+/// stream poll, while the stream is on the frame thread; drawing follows it.
 pub(crate) fn configure_distant_terrain(app: &mut App, lod_cache_dir: &Path) {
     app.insert_resource(DistantTerrainResource(Mutex::new(
         DistantTerrainSessions::new(lod_cache_dir),
     )))
-    .add_systems(Update, drive_distant_terrain.after(drive_world_stream));
+    .add_systems(
+        Update,
+        (
+            drive_distant_terrain,
+            draw::draw_distant_terrain,
+            draw::apply_far_clip,
+        )
+            .chain()
+            .after(drive_world_stream),
+    );
+    draw::configure(app);
+    clear::configure(app, lod_cache_dir);
 }
 
-/// The last report logged and when.
-#[derive(Default)]
-struct ReportedCounters {
-    last: DistantTerrainReport,
+/// The last line logged of one kind and when.
+struct Reported<T> {
+    last: T,
     at: Option<Instant>,
 }
 
+impl<T: Default> Default for Reported<T> {
+    fn default() -> Self {
+        Self {
+            last: T::default(),
+            at: None,
+        }
+    }
+}
+
+/// The last ingestion report logged.
+type ReportedCounters = Reported<DistantTerrainReport>;
+
+/// Drives the session's store from the Video settings and logs its counters.
+#[allow(clippy::too_many_arguments)]
 fn drive_distant_terrain(
     mut sessions: ResMut<DistantTerrainResource>,
     mut client_world: ResMut<ClientWorld>,
     controller: Option<Res<SessionController>>,
     settings: Res<client_state::RuntimeSettings>,
+    drawing: Res<draw::DistantTerrainDrawingResource>,
     view: Res<LocalViewPose>,
     real_time: Res<Time<Real>>,
     mut reported: Local<ReportedCounters>,
 ) {
-    let enabled = settings.user_settings_update().1.video.distant_terrain;
+    let video = settings.user_settings_update().1.video;
+    let enabled = video.distant_terrain;
     let sessions = sessions.0.get_mut().unwrap_or_else(PoisonError::into_inner);
+    sessions.set_drawing(enabled && !drawing.unsupported());
+    sessions.set_store_cap(video.distant_terrain_storage_bytes);
     // Off with nothing open or closing: no clock read and no work beyond this branch.
     if !enabled && sessions.is_idle() {
         return;
@@ -107,6 +140,16 @@ fn report_counters(
     reported: &mut ReportedCounters,
     clock: impl FnOnce() -> Instant,
 ) -> Option<String> {
+    report_changed(report, reported, clock, DistantTerrainReport::marker_line)
+}
+
+/// [`report_counters`] for any report kind, formatted by `line`.
+fn report_changed<T: PartialEq + Copy>(
+    report: T,
+    reported: &mut Reported<T>,
+    clock: impl FnOnce() -> Instant,
+    line: impl FnOnce(&T) -> String,
+) -> Option<String> {
     if report == reported.last {
         return None;
     }
@@ -119,5 +162,5 @@ fn report_counters(
     }
     reported.last = report;
     reported.at = Some(now);
-    Some(report.marker_line())
+    Some(line(&report))
 }

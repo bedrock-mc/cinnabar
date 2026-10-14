@@ -19,6 +19,8 @@ pub const FAST_TRANSFER_PACKET_TRACE: &str = "CINNABAR_FAST_TRANSFER_PACKET_TRAC
 pub const FORCED_FULL_VIEW_REMESH_SETTLED: &str = "CINNABAR_FORCED_FULL_VIEW_REMESH_SETTLED";
 /// Distant terrain ingestion counters, logged when they change.
 pub const LOD_INGEST: &str = "CINNABAR_LOD_INGEST";
+/// Distant terrain renderer counters and GPU pass times, logged when they change.
+pub const LOD_RENDER: &str = "CINNABAR_LOD_RENDER";
 pub const GALLERY_ANCHOR_READY: &str = "CINNABAR_GALLERY_ANCHOR_READY";
 pub const MODEL_WITNESS_COMPLETE: &str = "CINNABAR_MODEL_WITNESS_COMPLETE";
 pub const MOVEMENT_TRACE: &str = "CINNABAR_MOVEMENT_TRACE";
@@ -94,6 +96,7 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     ),
     (GALLERY_ANCHOR_READY, MarkerContract::ParsedEvidence),
     (LOD_INGEST, MarkerContract::LogOnlyDiagnostic),
+    (LOD_RENDER, MarkerContract::LogOnlyDiagnostic),
     (LOADING_MILESTONE, MarkerContract::LogOnlyDiagnostic),
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),

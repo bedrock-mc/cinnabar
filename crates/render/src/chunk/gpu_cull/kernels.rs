@@ -13,10 +13,16 @@ const RECORD_BYTES: u64 = std::mem::size_of::<super::model::CullRecord>() as u64
 const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 const PYRAMID_WORKGROUP: u32 = 8;
 
+/// The shared Hi-Z occlusion test; see `hiz_test.wgsl` for what the including shader declares.
+pub fn hiz_test_source() -> &'static str {
+    include_str!("hiz_test.wgsl")
+}
+
 /// The cull kernel source with its Rust-owned constants substituted.
 pub fn cull_shader_source() -> String {
     let float = |value: f32| format!("{value:?}f");
-    include_str!("cull.wgsl")
+    [include_str!("cull.wgsl"), hiz_test_source()]
+        .concat()
         .replace("CULL_WORKGROUP", &format!("{CULL_WORKGROUP}u"))
         .replace("CULL_SIDE", &format!("{}i", world::SUB_CHUNK_SIDE))
         .replace("CULL_HIZ_PADDING", &float(HIZ_PADDING))
@@ -280,14 +286,155 @@ pub struct PyramidBindings {
     reduce: Vec<wgpu::BindGroup>,
 }
 
+/// The kernels that build a [`HizPyramid`] from a depth view.
+pub struct PyramidKernels {
+    seed: wgpu::ComputePipeline,
+    seed_multisampled: wgpu::ComputePipeline,
+    reduce: wgpu::ComputePipeline,
+}
+
+/// Compiles `module`'s `entry` without a fixed layout and without zero-filling workgroup
+/// memory: every kernel writes its own workgroup slots before any barrier reads them, and
+/// zero-filling the scratch anyway kept FXC optimising for seconds per kernel at every DX12
+/// launch.
+fn kernel(
+    device: &wgpu::Device,
+    module: &wgpu::ShaderModule,
+    layout: Option<&wgpu::PipelineLayout>,
+    entry: &str,
+) -> wgpu::ComputePipeline {
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(entry),
+        layout,
+        module,
+        entry_point: Some(entry),
+        compilation_options: wgpu::PipelineCompilationOptions {
+            zero_initialize_workgroup_memory: false,
+            ..Default::default()
+        },
+        cache: None,
+    })
+}
+
+impl PyramidKernels {
+    /// Compiles the seed and reduce kernels on `device`; they bind each pyramid through
+    /// [`Self::bindings`].
+    pub fn new(device: &wgpu::Device) -> Self {
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("terrain hi-z"),
+            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(pyramid_shader_source())),
+        });
+        Self {
+            seed: kernel(device, &module, None, "hiz_seed"),
+            seed_multisampled: kernel(device, &module, None, "hiz_seed_multisampled"),
+            reduce: kernel(device, &module, None, "hiz_reduce"),
+        }
+    }
+
+    /// Bind groups that seed `pyramid` from `depth` and reduce its mips.
+    pub fn bindings(
+        &self,
+        device: &wgpu::Device,
+        depth: &wgpu::TextureView,
+        multisampled: bool,
+        pyramid: &HizPyramid,
+    ) -> PyramidBindings {
+        let group = |pipeline: &wgpu::ComputePipeline, entries: &[wgpu::BindGroupEntry]| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("terrain hi-z bindings"),
+                layout: &pipeline.get_bind_group_layout(0),
+                entries,
+            })
+        };
+        let seed_pipeline = if multisampled {
+            &self.seed_multisampled
+        } else {
+            &self.seed
+        };
+        let seed = group(
+            seed_pipeline,
+            &[
+                wgpu::BindGroupEntry {
+                    binding: if multisampled { 1 } else { 0 },
+                    resource: wgpu::BindingResource::TextureView(depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&pyramid.mips[0]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: pyramid.bounds[0].as_entire_binding(),
+                },
+            ],
+        );
+        let reduce = pyramid
+            .mips
+            .windows(2)
+            .zip(&pyramid.bounds[1..])
+            .map(|(pair, bounds)| {
+                group(
+                    &self.reduce,
+                    &[
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&pair[0]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&pair[1]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: bounds.as_entire_binding(),
+                        },
+                    ],
+                )
+            })
+            .collect();
+        PyramidBindings {
+            multisampled,
+            seed,
+            reduce,
+        }
+    }
+
+    /// Seeds and reduces every level of `pyramid` in one compute pass.
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        pyramid: &HizPyramid,
+        bindings: &PyramidBindings,
+    ) {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("terrain hi-z"),
+            timestamp_writes: None,
+        });
+        let seed = if bindings.multisampled {
+            &self.seed_multisampled
+        } else {
+            &self.seed
+        };
+        let levels = std::iter::once((seed, &bindings.seed))
+            .chain(bindings.reduce.iter().map(|group| (&self.reduce, group)));
+        for ((pipeline, group), extent) in levels.zip(&pyramid.extents) {
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, group, &[]);
+            pass.dispatch_workgroups(
+                extent[0].div_ceil(PYRAMID_WORKGROUP),
+                extent[1].div_ceil(PYRAMID_WORKGROUP),
+                1,
+            );
+        }
+    }
+}
+
 pub struct CullKernels {
     layout: wgpu::BindGroupLayout,
     count: wgpu::ComputePipeline,
     scan: wgpu::ComputePipeline,
     emit: wgpu::ComputePipeline,
-    seed: wgpu::ComputePipeline,
-    seed_multisampled: wgpu::ComputePipeline,
-    reduce: wgpu::ComputePipeline,
+    pyramid: PyramidKernels,
     occlusion: wgpu::ComputePipeline,
     blank_pyramid: wgpu::TextureView,
 }
@@ -351,22 +498,9 @@ impl CullKernels {
             })
         };
         let cull = module("terrain cull", cull_shader_source());
-        let pyramid = module("terrain hi-z", pyramid_shader_source().to_owned());
+        // The occlusion bits are cleared explicitly, so no kernel needs zero-filled scratch.
         let pipeline = |module, layout: Option<&wgpu::PipelineLayout>, entry: &str| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(entry),
-                layout,
-                module,
-                entry_point: Some(entry),
-                // Every kernel writes its own workgroup slots before any barrier reads them, and
-                // the occlusion bits are cleared explicitly. Zero-filling the 256-entry scratch
-                // anyway kept FXC optimising for seconds per kernel at every DX12 launch.
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    zero_initialize_workgroup_memory: false,
-                    ..Default::default()
-                },
-                cache: None,
-            })
+            kernel(device, module, layout, entry)
         };
         let blank = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("terrain hi-z placeholder"),
@@ -386,9 +520,7 @@ impl CullKernels {
             count: pipeline(&cull, Some(&pipeline_layout), "cull_count"),
             scan: pipeline(&cull, Some(&pipeline_layout), "cull_scan"),
             emit: pipeline(&cull, Some(&pipeline_layout), "cull_emit"),
-            seed: pipeline(&pyramid, None, "hiz_seed"),
-            seed_multisampled: pipeline(&pyramid, None, "hiz_seed_multisampled"),
-            reduce: pipeline(&pyramid, None, "hiz_reduce"),
+            pyramid: PyramidKernels::new(device),
             occlusion: pipeline(&cull, None, "cull_occlusion"),
             blank_pyramid: blank.create_view(&Default::default()),
             layout,
@@ -511,64 +643,7 @@ impl CullKernels {
         multisampled: bool,
         pyramid: &HizPyramid,
     ) -> PyramidBindings {
-        let group = |pipeline: &wgpu::ComputePipeline, entries: &[wgpu::BindGroupEntry]| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("terrain hi-z bindings"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries,
-            })
-        };
-        let seed_pipeline = if multisampled {
-            &self.seed_multisampled
-        } else {
-            &self.seed
-        };
-        let seed = group(
-            seed_pipeline,
-            &[
-                wgpu::BindGroupEntry {
-                    binding: if multisampled { 1 } else { 0 },
-                    resource: wgpu::BindingResource::TextureView(depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&pyramid.mips[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: pyramid.bounds[0].as_entire_binding(),
-                },
-            ],
-        );
-        let reduce = pyramid
-            .mips
-            .windows(2)
-            .zip(&pyramid.bounds[1..])
-            .map(|(pair, bounds)| {
-                group(
-                    &self.reduce,
-                    &[
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&pair[0]),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(&pair[1]),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
-                            resource: bounds.as_entire_binding(),
-                        },
-                    ],
-                )
-            })
-            .collect();
-        PyramidBindings {
-            multisampled,
-            seed,
-            reduce,
-        }
+        self.pyramid.bindings(device, depth, multisampled, pyramid)
     }
 
     pub fn encode_pyramid(
@@ -577,25 +652,6 @@ impl CullKernels {
         pyramid: &HizPyramid,
         bindings: &PyramidBindings,
     ) {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("terrain hi-z"),
-            timestamp_writes: None,
-        });
-        let seed = if bindings.multisampled {
-            &self.seed_multisampled
-        } else {
-            &self.seed
-        };
-        let levels = std::iter::once((seed, &bindings.seed))
-            .chain(bindings.reduce.iter().map(|group| (&self.reduce, group)));
-        for ((pipeline, group), extent) in levels.zip(&pyramid.extents) {
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, group, &[]);
-            pass.dispatch_workgroups(
-                extent[0].div_ceil(PYRAMID_WORKGROUP),
-                extent[1].div_ceil(PYRAMID_WORKGROUP),
-                1,
-            );
-        }
+        self.pyramid.encode(encoder, pyramid, bindings);
     }
 }

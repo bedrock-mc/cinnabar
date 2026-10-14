@@ -107,10 +107,7 @@ impl MesherState {
         let _zone = tracing::info_span!("stream.lod_mesher").entered();
         if inbox.dimension != self.dimension {
             self.dimension = inbox.dimension;
-            self.cache = MeshCache::new(LOD_MESH_CACHE_BYTES);
-            // Meshes of the old dimension not yet taken are neither wanted nor counted.
-            shared.lock_output().fresh.clear();
-            self.generation += 1;
+            self.drop_meshes(shared);
             self.sections.clear();
         }
         for result in inbox.results {
@@ -125,6 +122,7 @@ impl MesherState {
             match interest {
                 Interest::Want(pos) => self.cache.want(pos),
                 Interest::Release(key) => self.cache.release(key),
+                Interest::ReleaseAll => self.drop_meshes(shared),
             }
         }
         for (dimension, key) in inbox.written {
@@ -149,6 +147,14 @@ impl MesherState {
         }
         self.dispatch(shared);
         self.publish(shared);
+    }
+
+    /// Forgets every wanted section and mesh; results of jobs in flight are dropped, and
+    /// meshes not yet taken are neither wanted nor counted.
+    fn drop_meshes(&mut self, shared: &MeshShared) {
+        self.cache = MeshCache::new(LOD_MESH_CACHE_BYTES);
+        shared.lock_output().fresh.clear();
+        self.generation += 1;
     }
 
     /// Meshes again what read-through now shows differently: the sections overlapping
@@ -263,10 +269,17 @@ impl MesherState {
     /// against the cache's budget until then, and the counters.
     fn publish(&mut self, shared: &MeshShared) {
         let mut output = shared.lock_output();
+        let mut handed = false;
         if output.fresh.is_empty() {
             self.cache.received();
             self.cache.take_fresh(&mut output.fresh);
+            output.fresh_dimension = self.dimension;
+            handed = !output.fresh.is_empty();
         }
         output.cache = self.cache.stats();
+        drop(output);
+        if handed && let Some(observer) = shared.observer() {
+            observer.meshes_ready();
+        }
     }
 }

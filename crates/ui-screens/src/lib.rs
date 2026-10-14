@@ -22,6 +22,7 @@ pub mod crosshair_settings;
 pub mod death_screen;
 pub mod disconnect_retry;
 pub mod discord_presence_setting;
+pub mod distant_terrain_setting;
 pub mod emote_screen;
 pub mod enhanced_setting;
 pub mod furnace_book;

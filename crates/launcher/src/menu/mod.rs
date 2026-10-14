@@ -148,6 +148,8 @@ pub enum MenuAction {
     SettingsConfirmResetBindings(bool),
     SettingsConfirmResetGroup(settings_options::SettingsGroup),
     SettingsResetChat,
+    /// Removes every distant terrain cache no client holds open, off the frame.
+    SettingsClearDistantTerrainCache,
     SettingsAdvancedGraphics,
     ToggleRenderMode,
     PauseResume,

@@ -2,8 +2,9 @@
 use std::num::NonZeroU16;
 
 use super::{
-    ANIMATIONS_OPTION, FRAME_RATE_UNLIMITED, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
-    SMAA_OPTION, SettingsOptions,
+    ANIMATIONS_OPTION, DISTANT_TERRAIN_DISTANCE_OPTION, DISTANT_TERRAIN_OPTION,
+    DISTANT_TERRAIN_QUALITY_OPTION, DISTANT_TERRAIN_STORAGE_OPTION, FRAME_RATE_UNLIMITED,
+    MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, SMAA_OPTION, SettingsOptions,
 };
 use render_api::FrameRateLimit;
 use semantic_input::PerspectiveMode;
@@ -25,6 +26,22 @@ pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> Strin
     match frame_rate_limit(value) {
         FrameRateLimit::Unlimited => translate("options.framerateLimit.max"),
         FrameRateLimit::Fixed(fps) => fps.to_string(),
+    }
+}
+
+/// The caption of a distant terrain slider's value, shared by both Video settings hosts;
+/// `None` for every other option.
+pub fn distant_terrain_slider_label(
+    name: &str,
+    value: i32,
+    translate: &dyn Fn(&str) -> String,
+) -> Option<String> {
+    if name == DISTANT_TERRAIN_DISTANCE_OPTION.name {
+        Some(translate("options.renderDistanceFormat").replace("%s", &value.to_string()))
+    } else if name == DISTANT_TERRAIN_STORAGE_OPTION.name {
+        Some(format!("{value} MiB"))
+    } else {
+        None
     }
 }
 
@@ -57,6 +74,15 @@ impl SettingsOptions {
         settings.video.native_skybox_offset =
             self.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name) != 0;
         settings.video.outline_selection = self.value("classic_box_selection") != 0;
+        settings.video.distant_terrain = self.value(DISTANT_TERRAIN_OPTION.name) != 0;
+        settings.video.distant_terrain_chunks = render_api::DistantTerrainTier::CURRENT
+            .clamp_distance(self.value(DISTANT_TERRAIN_DISTANCE_OPTION.name).max(0) as u32);
+        settings.video.distant_terrain_quality = render_api::DistantTerrainQuality::from_index(
+            self.value(DISTANT_TERRAIN_QUALITY_OPTION.name),
+        );
+        settings.video.distant_terrain_storage_bytes =
+            u64::from(self.value(DISTANT_TERRAIN_STORAGE_OPTION.name).max(0) as u32)
+                * render_api::distant_terrain::MIB;
         settings.video.fov_effects_scale = self.value("field_of_view_toggle") as f32;
         settings.controls.mouse_sensitivity =
             self.value(MOUSE_SENSITIVITY_OPTION.name) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;

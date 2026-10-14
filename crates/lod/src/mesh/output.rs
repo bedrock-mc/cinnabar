@@ -6,6 +6,8 @@ use std::ops::Range;
 use world::SUB_CHUNK_SIDE;
 
 use crate::{
+    biome_grid::BiomeGrid,
+    draw::biomes::{PackedBiomeGrid, pack_biome_grid},
     geometry::{Face, SECTION_SIDE, SectionKey, SectionPos},
     mesh::{
         Bucket, GROUP_COUNT, MeshList, group_index,
@@ -64,6 +66,8 @@ pub struct SectionMesh {
     clusters: Box<[Cluster]>,
     translucent: TranslucentClass,
     waiting: WaitingSlabs,
+    /// The section's surface biomes packed for shaders; `None` when there are no quads.
+    biomes: Option<Box<PackedBiomeGrid>>,
 }
 
 impl SectionMesh {
@@ -110,16 +114,25 @@ impl SectionMesh {
         self.waiting
     }
 
+    /// The section's surface biome grid packed for shaders
+    /// ([`crate::draw::biomes`]); `None` when the mesh has no quads.
+    #[must_use]
+    pub fn biomes(&self) -> Option<&PackedBiomeGrid> {
+        self.biomes.as_deref()
+    }
+
     /// True when the mesh has no quads.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.quads.is_empty()
     }
 
-    /// Heap bytes held by the quads and clusters.
+    /// Heap bytes held by the quads, clusters and packed biomes.
     #[must_use]
     pub fn heap_bytes(&self) -> usize {
-        size_of_val(&*self.quads) + size_of_val(&*self.clusters)
+        size_of_val(&*self.quads)
+            + size_of_val(&*self.clusters)
+            + self.biomes.as_ref().map_or(0, |grid| size_of_val(&**grid))
     }
 }
 
@@ -148,11 +161,13 @@ impl BuildScratch {
 /// Chunk-column bit combinations a level-0 quad can have.
 const COLUMN_MASKS: usize = 1 << 4;
 
-/// Builds the mesh of `pos` from its quad groups. At levels drawn over resident columns,
-/// opaque groups are ordered by the chunk columns their quads cover, stably, so clusters
-/// cover few; translucent groups keep their far-to-near order.
+/// Builds the mesh of `pos`, whose surface biomes are `biomes`, from its quad groups. At
+/// levels drawn over resident columns, opaque groups are ordered by the chunk columns their
+/// quads cover, stably, so clusters cover few; translucent groups keep their far-to-near
+/// order.
 pub(super) fn build(
     pos: SectionPos,
+    biomes: &BiomeGrid,
     groups: &[Vec<Quad>; GROUP_COUNT],
     waiting: WaitingSlabs,
     scratch: &mut BuildScratch,
@@ -219,6 +234,7 @@ pub(super) fn build(
         clusters: clusters.into_boxed_slice(),
         translucent: translucent::classify(groups),
         waiting,
+        biomes: (total != 0).then(|| pack_biome_grid(biomes)),
     }
 }
 

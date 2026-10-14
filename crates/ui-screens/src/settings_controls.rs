@@ -144,7 +144,10 @@ fn display_value(
         "render_distance" => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
         }
-        _ => format!("{value}%"),
+        name => {
+            launcher::menu::settings_options::distant_terrain_slider_label(name, value, translate)
+                .unwrap_or_else(|| format!("{value}%"))
+        }
     }
 }
 
@@ -152,6 +155,9 @@ fn display_value(
 pub fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
     if region.pressed.as_deref() == Some("button.expand_advanced_graphics") {
         return Some(MenuAction::SettingsAdvancedGraphics);
+    }
+    if region.pressed.as_deref() == Some(super::distant_terrain_setting::CLEAR_BUTTON) {
+        return Some(MenuAction::SettingsClearDistantTerrainCache);
     }
     action_values(&view.settings_options, region)
 }

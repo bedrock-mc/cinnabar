@@ -27,6 +27,8 @@ mod chunk;
 
 mod cloud_render;
 mod device_poll;
+mod distant_terrain;
+pub use distant_terrain::{DistantTerrainPassLabel, DistantTerrainRenderPlugin};
 
 mod enhanced;
 mod entity_shadow_render;

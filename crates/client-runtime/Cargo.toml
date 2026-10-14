@@ -21,6 +21,8 @@ client-ui = { path = "../client-ui" }
 client-world = { path = "../client-world" }
 diagnostics = { path = "../diagnostics" }
 launcher-host = { path = "../launcher-host" }
+# Distant terrain selection qualities and the projection scale.
+lod = { path = "../lod" }
 lod-store = { path = "../lod-store" }
 meshing = { path = "../meshing" }
 pack-runtime = { path = "../pack-runtime" }

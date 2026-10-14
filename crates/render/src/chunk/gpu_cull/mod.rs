@@ -12,7 +12,7 @@ pub(super) mod app_tests;
 pub(in crate::chunk) mod direct;
 #[cfg(test)]
 mod direct_tests;
-pub(in crate::chunk) mod kernels;
+pub(crate) mod kernels;
 pub(in crate::chunk) mod model;
 mod node;
 pub(in crate::chunk) mod occlusion;
@@ -284,7 +284,7 @@ pub(in crate::chunk) fn select_gpu_cull_view<'a>(
 }
 
 /// Whether the view can host the GPU cull: it has a frustum and sees render layer 0.
-pub(in crate::chunk) fn gpu_cull_view_eligible(
+pub(crate) fn gpu_cull_view_eligible(
     frustum: Option<&Frustum>,
     layers: Option<&RenderLayers>,
 ) -> bool {

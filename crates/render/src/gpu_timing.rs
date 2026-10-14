@@ -241,8 +241,9 @@ pub(crate) fn timed<'w, R>(
     result
 }
 
-/// Writes one timestamp with an empty compute pass, valid between any two passes.
-fn mark(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, index: u32) {
+/// Writes timestamp `index` of `queries` between the encoder's passes, as an empty compute pass
+/// that marks its end, so it needs no timestamps inside encoders.
+pub(crate) fn mark(encoder: &mut wgpu::CommandEncoder, queries: &wgpu::QuerySet, index: u32) {
     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
         label: Some("gpu timestamp"),
         timestamp_writes: Some(wgpu::ComputePassTimestampWrites {

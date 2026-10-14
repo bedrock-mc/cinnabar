@@ -16,6 +16,10 @@ impl MenuRuntime {
     pub(in crate::menu) fn activate_settings(&mut self, action: MenuAction) {
         match action {
             MenuAction::SettingsResetChat => self.reset_chat_settings(),
+            MenuAction::SettingsClearDistantTerrainCache => {
+                self.distant_terrain_clear_request = true;
+                self.message = Some("Clearing the distant terrain cache…".to_owned());
+            }
             MenuAction::SettingsAdvancedGraphics => {
                 self.settings_advanced_graphics = !self.settings_advanced_graphics;
             }

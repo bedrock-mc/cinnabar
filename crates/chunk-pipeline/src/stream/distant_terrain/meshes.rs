@@ -17,7 +17,7 @@
 //! ([`super::colours`]) of the session's assets and store materials.
 
 use std::sync::{
-    Arc, Condvar, Mutex, MutexGuard, PoisonError,
+    Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak,
     atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
 };
 
@@ -72,11 +72,22 @@ pub struct DistantTerrainColours {
     pub biomes: Option<Arc<BiomeTints>>,
 }
 
+/// Told when finished meshes wait in the output and when writers store sections; the
+/// selection thread listens, so it never polls.
+pub(super) trait MeshObserver: Send + Sync {
+    /// Finished meshes wait to be taken.
+    fn meshes_ready(&self);
+    /// A writer stored `keys` in `dimension`.
+    fn written(&self, dimension: Dimension, keys: &[SectionKey]);
+}
+
 /// One change to which sections the renderer wants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Interest {
     Want(SectionPos),
     Release(SectionKey),
+    /// Releases every section, as when a new selection takes over.
+    ReleaseAll,
 }
 
 /// One finished job: the mesher generation it started in, the job, its mesh and the
@@ -107,6 +118,8 @@ pub(super) struct MeshInbox {
 #[derive(Default)]
 pub(super) struct MeshOutput {
     pub(super) fresh: Vec<FreshMesh>,
+    /// The dimension `fresh` was meshed in.
+    pub(super) fresh_dimension: Option<Dimension>,
     pub(super) colours: Option<Arc<MaterialColours>>,
     pub(super) biomes: Option<Arc<BiomeTints>>,
     pub(super) cache: MeshCacheStats,
@@ -125,6 +138,8 @@ pub(in crate::stream) struct MeshShared {
     pub(super) retry_due: AtomicBool,
     pub(super) section_reads: AtomicU64,
     pub(super) read_failures: AtomicU64,
+    /// Held weakly: the observer owns this state.
+    observer: Mutex<Option<Weak<dyn MeshObserver>>>,
 }
 
 impl MeshShared {
@@ -139,6 +154,78 @@ impl MeshShared {
             retry_due: AtomicBool::new(false),
             section_reads: AtomicU64::new(0),
             read_failures: AtomicU64::new(0),
+            observer: Mutex::new(None),
+        }
+    }
+
+    /// Makes `observer` the one told about meshes and writes, or none.
+    pub(super) fn set_observer(&self, observer: Option<Weak<dyn MeshObserver>>) {
+        *self.observer.lock().unwrap_or_else(PoisonError::into_inner) = observer;
+    }
+
+    /// The observer, while it lives.
+    pub(super) fn observer(&self) -> Option<Arc<dyn MeshObserver>> {
+        self.observer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    /// Wants `want` and releases `release`, in that order, in `dimension`, if `alive` holds
+    /// when the inbox is locked; wanting another dimension than before drops every mesh
+    /// and the interest not yet applied. A sender that stops before
+    /// [`Self::release_all`] sees `alive` fail, so its interest never follows that release.
+    pub(super) fn send_interest(
+        &self,
+        alive: impl FnOnce() -> bool,
+        dimension: Dimension,
+        want: impl IntoIterator<Item = SectionPos>,
+        release: impl IntoIterator<Item = SectionKey>,
+    ) {
+        self.send(|inbox| {
+            if !alive() {
+                return;
+            }
+            if inbox.dimension != Some(dimension) {
+                inbox.dimension = Some(dimension);
+                inbox.interest.clear();
+            }
+            inbox.interest.extend(want.into_iter().map(Interest::Want));
+            inbox
+                .interest
+                .extend(release.into_iter().map(Interest::Release));
+        });
+    }
+
+    /// Releases every wanted section and drops the meshes not yet taken.
+    pub(super) fn release_all(&self) {
+        self.send(|inbox| inbox.interest.push(Interest::ReleaseAll));
+    }
+
+    /// Moves the finished meshes of `dimension` into `out` and lets the thread hand out
+    /// more, if `alive` holds while the output is locked; meshes of another dimension,
+    /// finished before the mesher saw the change, are dropped. A taker that stops before
+    /// [`Self::release_all`] sees `alive` fail, so it never takes the meshes finished for
+    /// whoever wants sections after that release.
+    pub(in crate::stream) fn take_fresh(
+        &self,
+        alive: impl FnOnce() -> bool,
+        dimension: Dimension,
+        out: &mut Vec<FreshMesh>,
+    ) {
+        let mut output = self.lock_output();
+        if !alive() {
+            return;
+        }
+        let taken = std::mem::take(&mut output.fresh);
+        let current = output.fresh_dimension == Some(dimension);
+        drop(output);
+        if !taken.is_empty() {
+            if current {
+                out.extend(taken);
+            }
+            self.send(|_| {});
         }
     }
 
@@ -170,7 +257,7 @@ impl MeshShared {
     }
 
     /// False once meshing stopped.
-    fn enabled(&self) -> bool {
+    pub(super) fn enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
     }
 
@@ -190,6 +277,9 @@ impl MeshShared {
                 .written
                 .extend(keys.iter().map(|&key| (dimension, key)));
         });
+        if let Some(observer) = self.observer() {
+            observer.written(dimension, keys);
+        }
     }
 
     /// Posts a job's result; every job started posts exactly one.
@@ -279,6 +369,7 @@ impl WorldStream {
 
     /// Stops meshing and drops every mesh.
     pub fn disable_distant_terrain_meshes(&mut self) {
+        self.disable_distant_terrain_selection();
         if let Some(lod) = &self.lod {
             lod.shared.set_meshes(None);
         }
@@ -293,21 +384,16 @@ impl WorldStream {
     }
 
     /// Wants `sections` of the current dimension meshed and kept meshed as they and their
-    /// neighbours change; wanting another dimension's sections drops every mesh.
+    /// neighbours change; wanting another dimension's sections drops every mesh. While
+    /// selection runs ([`Self::enable_distant_terrain_selection`]) it decides what is
+    /// wanted, and this must not be called.
     pub fn want_distant_terrain_meshes(&mut self, sections: impl IntoIterator<Item = SectionPos>) {
         let dimension = Dimension(self.current_dimension());
-        let Some(meshes) = &self.lod_meshes else {
-            return;
-        };
-        meshes.shared.send(|inbox| {
-            if inbox.dimension != Some(dimension) {
-                inbox.dimension = Some(dimension);
-                inbox.interest.clear();
-            }
-            inbox
-                .interest
-                .extend(sections.into_iter().map(Interest::Want));
-        });
+        if let Some(meshes) = &self.lod_meshes {
+            meshes
+                .shared
+                .send_interest(|| true, dimension, sections, []);
+        }
     }
 
     /// Stops wanting `keys`, dropping their meshes.
@@ -322,15 +408,12 @@ impl WorldStream {
     }
 
     /// Moves the meshes finished since the last call into `out`: `None` for a section no
-    /// store record holds. The mesher holds new jobs back while meshes wait here.
+    /// store record holds. The mesher holds new jobs back while meshes wait here. While
+    /// selection runs it takes them instead, and this finds none.
     pub fn take_distant_terrain_meshes(&mut self, out: &mut Vec<FreshMesh>) {
-        let Some(meshes) = &self.lod_meshes else {
-            return;
-        };
-        let taken = std::mem::take(&mut meshes.shared.lock_output().fresh);
-        if !taken.is_empty() {
-            out.extend(taken);
-            meshes.shared.send(|_| {});
+        let dimension = Dimension(self.current_dimension());
+        if let Some(meshes) = &self.lod_meshes {
+            meshes.shared.take_fresh(|| true, dimension, out);
         }
     }
 

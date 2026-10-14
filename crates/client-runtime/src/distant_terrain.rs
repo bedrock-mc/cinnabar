@@ -9,14 +9,19 @@
 //! and the monotonic uptime.
 
 mod dimensions;
+pub mod drawing;
+#[cfg(test)]
+mod drawing_tests;
 mod lifecycle;
+mod report;
 #[cfg(test)]
 mod tests;
 
 use std::{collections::VecDeque, path::Path, sync::mpsc::Receiver, time::Duration};
 
-use chunk_pipeline::{DistantTerrainLink, DistantTerrainStats, WorldStream};
+use chunk_pipeline::{DistantTerrainLink, WorldStream};
 
+pub use self::report::{DistantTerrainReport, StoreState};
 use self::{dimensions::DimensionSessions, lifecycle::Finishing};
 use lod_store::{
     actor::{Closing, Request, StoreActor},
@@ -29,6 +34,9 @@ use lod_store::{
 pub const FLUSH_INTERVAL_MINUTES: u32 = 1;
 /// Minutes between quota passes, which walk every store directory.
 pub const QUOTA_INTERVAL_MINUTES: u32 = 10;
+/// Minutes a smaller cap must stay unchanged before an open store applies it, so passing
+/// through small values on the way to another never evicts.
+pub const QUOTA_SETTLE_MINUTES: u32 = 1;
 /// How long a closing store waits for the stream's final captures before it closes anyway.
 pub const FINISH_LIMIT: Duration = Duration::from_secs(60);
 
@@ -67,78 +75,6 @@ pub struct DistantTerrainFrame<'a> {
     pub player_block: Option<[i64; 2]>,
 }
 
-/// Where the store stands.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum StoreState {
-    /// No store is wanted.
-    #[default]
-    Off,
-    /// The store is being opened, or waits for an earlier one to close.
-    Opening,
-    /// The store is open; a read-only store, held by another client, ingests nothing.
-    Open { read_only: bool },
-    /// The store is open, but its ingestion writer thread could not start, so it ingests
-    /// nothing.
-    WriterUnavailable,
-    /// The store could not be opened for this target.
-    Failed,
-}
-
-/// The adapter's view of ingestion, for diagnostics.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DistantTerrainReport {
-    pub state: StoreState,
-    /// The stream's counters while it ingests.
-    pub ingest: Option<DistantTerrainStats>,
-    /// Store sessions whose epoch changed: began, merged or split.
-    pub epoch_changes: u64,
-    /// Failed opens, failed requests and store IO errors.
-    pub store_errors: u64,
-    /// Store events lost to a full event queue.
-    pub dropped_events: u64,
-}
-
-impl DistantTerrainReport {
-    /// The [`diagnostics::markers::LOD_INGEST`] line of this report: the store's state,
-    /// then each counter as `name=value`, ingestion's zero while it is off.
-    #[must_use]
-    pub fn marker_line(&self) -> String {
-        let ingest = self.ingest.unwrap_or_default();
-        let state = match self.state {
-            StoreState::Off => "off",
-            StoreState::Opening => "opening",
-            StoreState::Open { read_only: false } => "open",
-            StoreState::Open { read_only: true } => "read_only",
-            StoreState::WriterUnavailable => "writer_unavailable",
-            StoreState::Failed => "failed",
-        };
-        format!(
-            "{marker} state={state} jobs_queued={} sampled={} skipped_unchanged={} superseded={} dropped={} dropped_final_captures={} merged_columns={} sections_written={} store_queue_full={} stale_writes={} handed_slabs={} unkeyed_columns={} unknown_ids={} unkeyed_ids={} registry_full={} worker_ms={} ingest_store_errors={} store_errors={} epoch_changes={} dropped_events={}",
-            ingest.jobs_queued,
-            ingest.sampled,
-            ingest.skipped_unchanged,
-            ingest.superseded,
-            ingest.dropped,
-            ingest.dropped_final_captures,
-            ingest.merged_columns,
-            ingest.sections_written,
-            ingest.store_queue_full,
-            ingest.stale_writes,
-            ingest.handed_slabs,
-            ingest.unkeyed_columns,
-            ingest.unknown_ids,
-            ingest.unkeyed_ids,
-            ingest.registry_full,
-            ingest.worker_time.as_millis(),
-            ingest.store_errors,
-            self.store_errors,
-            self.epoch_changes,
-            self.dropped_events,
-            marker = diagnostics::markers::LOD_INGEST,
-        )
-    }
-}
-
 /// The distant terrain store of the running session. It holds channel receivers, so a
 /// Bevy owner keeps it behind a `Mutex` and reaches it with `Mutex::get_mut`.
 pub struct DistantTerrainSessions {
@@ -152,6 +88,8 @@ pub struct DistantTerrainSessions {
     /// Events closed stores dropped for a full event queue.
     dropped_closed: u64,
     report: DistantTerrainReport,
+    /// Distant terrain is drawn: an open store meshes for the renderer.
+    drawing: bool,
 }
 
 /// The adapter's store, from none to open.
@@ -160,6 +98,8 @@ enum State {
     Opening {
         target: DistantTerrainTarget,
         opened: Receiver<Result<StoreActor, String>>,
+        /// The quotas the store's thread starts with.
+        quotas: Quotas,
     },
     Failed(DistantTerrainTarget),
     Open(Box<OpenStore>),
@@ -193,6 +133,12 @@ struct OpenStore {
     synced_sections: u64,
     /// A store request failed since the stream's cached sections were last dropped.
     invalidate_due: bool,
+    /// The quotas the store's thread applies.
+    quotas: Quotas,
+    /// Smaller quotas waiting to settle, and the minute they were first asked for.
+    settling: Option<(Quotas, Minute)>,
+    /// Smaller quotas were applied: a quota pass runs now rather than at the next interval.
+    quota_pass_due: bool,
 }
 
 impl DistantTerrainSessions {
@@ -214,7 +160,31 @@ impl DistantTerrainSessions {
             closing: Vec::new(),
             dropped_closed: 0,
             report: DistantTerrainReport::default(),
+            drawing: false,
         }
+    }
+
+    /// Meshes an open store's sections for the renderer while `drawing`, and stops meshing
+    /// otherwise; the owner sets it every frame.
+    pub fn set_drawing(&mut self, drawing: bool) {
+        self.drawing = drawing;
+    }
+
+    /// Caps each store at `bytes`, within the cache's total cap. An open store applies a
+    /// larger cap at once, and a smaller one with a quota pass once it stayed unchanged
+    /// for [`QUOTA_SETTLE_MINUTES`]; later stores open with it.
+    pub fn set_store_cap(&mut self, bytes: u64) {
+        let bytes = bytes.min(self.quotas.global_bytes);
+        if self.quotas.store_bytes == bytes {
+            return;
+        }
+        self.quotas.store_bytes = bytes;
+    }
+
+    /// The quotas stores open with.
+    #[must_use]
+    pub fn quotas(&self) -> Quotas {
+        self.quotas
     }
 
     /// The latest report; [`Self::update`] refreshes it.
@@ -257,7 +227,7 @@ impl DistantTerrainSessions {
         self.reconcile(&mut frame);
         let mut dropped = self.dropped_closed;
         if let State::Open(open) = &mut self.state {
-            open.drive(&mut frame, &mut self.report);
+            open.drive(&mut frame, &mut self.report, self.drawing, self.quotas);
             dropped += open.actor.dropped_events();
         }
         self.report.dropped_events = dropped;
@@ -284,6 +254,7 @@ impl DistantTerrainSessions {
     pub fn close(&mut self, stream: Option<&mut WorldStream>, uptime: Duration) {
         if let Some(stream) = stream {
             stream.finish_distant_terrain();
+            stream.disable_distant_terrain_meshes();
         }
         match std::mem::replace(&mut self.state, State::Off) {
             State::Open(open) => self.finishing.push(open.finish(uptime)),

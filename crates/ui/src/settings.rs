@@ -201,6 +201,12 @@ pub struct VideoSettings {
     /// Keeps and draws terrain already seen beyond the server's view distance: an opt-in
     /// Cinnabar extension, off by default.
     pub distant_terrain: bool,
+    /// Distant terrain drawing distance in chunks, within
+    /// [`render_api::DistantTerrainTier::clamp_distance`].
+    pub distant_terrain_chunks: u32,
+    pub distant_terrain_quality: render_api::DistantTerrainQuality,
+    /// Bytes one server's distant terrain cache may hold before its far regions go.
+    pub distant_terrain_storage_bytes: u64,
 }
 
 impl Default for VideoSettings {
@@ -228,6 +234,11 @@ impl Default for VideoSettings {
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             distant_terrain: false,
+            distant_terrain_chunks: render_api::distant_terrain::DEFAULT_DISTANT_TERRAIN_CHUNKS,
+            distant_terrain_quality: render_api::DistantTerrainQuality::Medium,
+            distant_terrain_storage_bytes: u64::from(
+                render_api::distant_terrain::DEFAULT_DISTANT_TERRAIN_STORAGE_MIB,
+            ) * render_api::distant_terrain::MIB,
         }
     }
 }
@@ -340,8 +351,18 @@ mod distant_terrain_tests {
     use super::*;
 
     #[test]
-    fn distant_terrain_defaults_off() {
-        assert!(!UserSettings::default().video.distant_terrain);
+    fn distant_terrain_defaults_off_at_medium_quality_and_shared_caps() {
+        let video = UserSettings::default().video;
+        assert!(!video.distant_terrain);
+        assert_eq!(
+            video.distant_terrain_quality,
+            render_api::DistantTerrainQuality::Medium
+        );
+        assert_eq!(
+            render_api::DistantTerrainTier::CURRENT.clamp_distance(video.distant_terrain_chunks),
+            video.distant_terrain_chunks
+        );
+        assert_eq!(video.distant_terrain_storage_bytes, 1 << 30);
     }
 }
 

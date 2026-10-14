@@ -100,8 +100,10 @@ mod extract;
 mod gpu;
 mod gpu_cull;
 #[cfg(test)]
-pub(crate) use gpu_cull::app_tests::noop_render_plugin;
-pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
+pub(crate) use gpu_cull::app_tests::{chunk_app_with, frame, noop_render_plugin, render_plugin};
+pub(crate) use gpu_cull::kernels::{HizPyramid, PyramidBindings, PyramidKernels, hiz_test_source};
+pub(crate) use gpu_cull::model::HIZ_PADDING;
+pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling, gpu_cull_view_eligible};
 
 pub(crate) mod pipeline;
 pub use pipeline::layouts::required_vertex_storage_buffers;

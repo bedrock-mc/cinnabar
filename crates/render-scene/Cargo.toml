@@ -17,6 +17,8 @@ assets = { path = "../assets" }
 bevy.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 glam.workspace = true
+# Distant terrain draw updates and colour tables handed to the renderer.
+lod = { path = "../lod" }
 meshing = { path = "../meshing" }
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }

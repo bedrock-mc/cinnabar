@@ -106,8 +106,56 @@ fn stem_colours_source() -> String {
     )
 }
 
-pub(crate) fn source(source: &str) -> String {
+/// Brightness of a face by direction, the single source for every terrain shader.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FaceShade {
+    pub(crate) bottom: f32,
+    pub(crate) x: f32,
+    pub(crate) z: f32,
+    pub(crate) top: f32,
+}
+
+/// Vanilla's coefficients for ordinary faces.
+pub(crate) const ORDINARY_FACE_SHADE: FaceShade = FaceShade {
+    bottom: 0.5,
+    x: 0.6,
+    z: 0.8,
+    top: 1.0,
+};
+
+/// Vanilla's coefficients for faces of light-emitting blocks.
+pub(crate) const EMITTING_FACE_SHADE: FaceShade = FaceShade {
+    bottom: 0.875,
+    x: 0.9,
+    z: 0.95,
+    top: 1.0,
+};
+
+/// Replaces the `{ORDINARY,EMITTING}_FACE_SHADE_{BOTTOM,X,Z,TOP}` tokens of a shader with
+/// [`ORDINARY_FACE_SHADE`] and [`EMITTING_FACE_SHADE`].
+pub(crate) fn face_shade_source(source: &str) -> String {
+    let mut source = source.to_owned();
+    for (prefix, shade) in [
+        ("ORDINARY", ORDINARY_FACE_SHADE),
+        ("EMITTING", EMITTING_FACE_SHADE),
+    ] {
+        for (axis, value) in [
+            ("BOTTOM", shade.bottom),
+            ("X", shade.x),
+            ("Z", shade.z),
+            ("TOP", shade.top),
+        ] {
+            source = source.replace(
+                &format!("{prefix}_FACE_SHADE_{axis}"),
+                &format!("{value:?}"),
+            );
+        }
+    }
     source
+}
+
+pub(crate) fn source(source: &str) -> String {
+    face_shade_source(source)
         .replace("// STEM_COLOURS", &stem_colours_source())
         .replace("MATERIAL_STEM_FLAG", &format!("{}u", assets::stem::MATERIAL_FLAG))
         .replace("ITEM_GLINT_UV_SCALE", &format!("{:?}", render_model::ITEM_GLINT_UV_SCALE))

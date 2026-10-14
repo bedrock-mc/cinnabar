@@ -16,6 +16,8 @@ benchmark-mimalloc = []
 flate2.workspace = true
 # Palette lookup while packing sections.
 foldhash.workspace = true
+# The distant terrain quality setting, which selection thresholds follow.
+render-api = { path = "../render-api" }
 thiserror.workspace = true
 world = { path = "../world" }
 

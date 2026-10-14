@@ -18,7 +18,7 @@ use lod_store::{
 use super::{
     DimensionSessions, DistantTerrainFrame, DistantTerrainReport, DistantTerrainSessions,
     DistantTerrainTarget, FINISH_LIMIT, FLUSH_INTERVAL_MINUTES, Ingest, OpenStore,
-    QUOTA_INTERVAL_MINUTES, State,
+    QUOTA_INTERVAL_MINUTES, QUOTA_SETTLE_MINUTES, State,
 };
 
 /// A store waiting for the final captures of the streams that wrote into it.
@@ -67,7 +67,13 @@ impl DistantTerrainSessions {
     /// it takes the writer lock again.
     pub(super) fn reconcile(&mut self, frame: &mut DistantTerrainFrame<'_>) {
         let wanted = frame.target.as_ref();
-        if let State::Opening { target, opened } = &self.state {
+        if let State::Opening {
+            target,
+            opened,
+            quotas,
+        } = &self.state
+        {
+            let quotas = *quotas;
             let result = match opened.try_recv() {
                 Ok(result) => result,
                 Err(TryRecvError::Empty) => return,
@@ -76,7 +82,7 @@ impl DistantTerrainSessions {
             let target = target.clone();
             self.state = match result {
                 Ok(actor) if wanted == Some(&target) => {
-                    State::Open(Box::new(OpenStore::new(target, actor, frame.now)))
+                    State::Open(Box::new(OpenStore::new(target, actor, frame.now, quotas)))
                 }
                 Ok(actor) => {
                     self.closing.push(actor.close(frame.now));
@@ -102,6 +108,7 @@ impl DistantTerrainSessions {
         {
             self.state = State::Opening {
                 target: target.clone(),
+                quotas: self.quotas,
                 opened: spawn_open(
                     self.root.clone(),
                     self.quotas,
@@ -143,7 +150,7 @@ fn spawn_open(
 }
 
 impl OpenStore {
-    fn new(target: DistantTerrainTarget, actor: StoreActor, now: Minute) -> Self {
+    fn new(target: DistantTerrainTarget, actor: StoreActor, now: Minute, quotas: Quotas) -> Self {
         Self {
             target,
             actor,
@@ -155,6 +162,9 @@ impl OpenStore {
             last_quotas: now,
             synced_sections: 0,
             invalidate_due: false,
+            quotas,
+            settling: None,
+            quota_pass_due: false,
         }
     }
 
@@ -176,6 +186,8 @@ impl OpenStore {
         &mut self,
         frame: &mut DistantTerrainFrame<'_>,
         report: &mut DistantTerrainReport,
+        drawing: bool,
+        quotas: Quotas,
     ) {
         let mut events = Vec::new();
         self.actor.poll_events(&mut events);
@@ -213,8 +225,46 @@ impl OpenStore {
             }
         }
         stream.set_distant_terrain_minute(now);
+        let meshing = stream.distant_terrain_mesh_stats().is_some();
+        if drawing && !meshing {
+            if let Err(error) = stream.enable_distant_terrain_meshes(self.actor.client(), now) {
+                warn!(%error, "distant terrain meshing unavailable");
+                report.store_errors += 1;
+            }
+        } else if !drawing && meshing {
+            stream.disable_distant_terrain_meshes();
+        }
+        self.follow_quotas(quotas, now, report);
         if self.ingest == Ingest::Writable {
             self.pace(now, stats, frame.player_block, report);
+        }
+    }
+
+    /// Applies `quotas` when they differ from the store's: at once when no cap shrinks,
+    /// otherwise once they stayed the same for [`QUOTA_SETTLE_MINUTES`], with a quota pass
+    /// right away rather than at the next interval.
+    fn follow_quotas(&mut self, quotas: Quotas, now: Minute, report: &mut DistantTerrainReport) {
+        if self.quotas == quotas {
+            self.settling = None;
+            return;
+        }
+        let shrinks = quotas.store_bytes < self.quotas.store_bytes
+            || quotas.global_bytes < self.quotas.global_bytes
+            || quotas.expiry_minutes < self.quotas.expiry_minutes;
+        if shrinks {
+            let since = match self.settling {
+                Some((settling, since)) if settling == quotas => since,
+                _ => now,
+            };
+            self.settling = Some((quotas, since));
+            if now.minutes_since(since) < QUOTA_SETTLE_MINUTES {
+                return;
+            }
+        }
+        if self.submit(Request::SetQuotas(quotas), report) {
+            self.quotas = quotas;
+            self.settling = None;
+            self.quota_pass_due |= shrinks;
         }
     }
 
@@ -248,7 +298,7 @@ impl OpenStore {
         {
             self.last_flush = now;
         }
-        if now.minutes_since(self.last_quotas) >= QUOTA_INTERVAL_MINUTES {
+        if self.quota_pass_due || now.minutes_since(self.last_quotas) >= QUOTA_INTERVAL_MINUTES {
             let focus = self
                 .sessions
                 .current()
@@ -260,6 +310,7 @@ impl OpenStore {
                 });
             if self.submit(Request::EnforceQuotas { now, focus }, report) {
                 self.last_quotas = now;
+                self.quota_pass_due = false;
             }
         }
         if let Some(stats) = stats

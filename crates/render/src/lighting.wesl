@@ -163,12 +163,13 @@ fn lit_colour(colour: vec3<f32>, lighting: vec3<f32>) -> vec3<f32> {
     return colour * lighting;
 }
 
-// Vanilla ordinary and emitting face coefficients.
+// Vanilla ordinary and emitting face coefficients, from `material_shader::ORDINARY_FACE_SHADE`
+// and `material_shader::EMITTING_FACE_SHADE`.
 fn face_shade(normal: vec3<f32>, emitting: bool) -> f32 {
-    if normal.y < -0.5 { return select(0.5, 0.875, emitting); }
-    if abs(normal.x) > 0.5 { return select(0.6, 0.9, emitting); }
-    if abs(normal.z) > 0.5 { return select(0.8, 0.95, emitting); }
-    return 1.0;
+    if normal.y < -0.5 { return select(ORDINARY_FACE_SHADE_BOTTOM, EMITTING_FACE_SHADE_BOTTOM, emitting); }
+    if abs(normal.x) > 0.5 { return select(ORDINARY_FACE_SHADE_X, EMITTING_FACE_SHADE_X, emitting); }
+    if abs(normal.z) > 0.5 { return select(ORDINARY_FACE_SHADE_Z, EMITTING_FACE_SHADE_Z, emitting); }
+    return select(ORDINARY_FACE_SHADE_TOP, EMITTING_FACE_SHADE_TOP, emitting);
 }
 
 fn material_ambient_occlusion(ao: f32, flags: u32) -> f32 {

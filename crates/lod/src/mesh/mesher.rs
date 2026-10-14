@@ -118,7 +118,13 @@ impl Mesher {
             self.main_faces::<4>(classes, cull);
             self.main_faces::<5>(classes, cull);
         }
-        output::build(section.pos(), &self.groups, waiting, &mut self.build)
+        output::build(
+            section.pos(),
+            section.biomes(),
+            &self.groups,
+            waiting,
+            &mut self.build,
+        )
     }
 
     /// Emits the main list of face [`Face::ALL`]`[FACE]`, layer by layer from the far side

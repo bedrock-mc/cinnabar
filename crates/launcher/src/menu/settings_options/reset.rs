@@ -24,6 +24,10 @@ impl SettingsGroup {
                 SMAA_OPTION,
                 super::VRR_OPTION,
                 super::NATIVE_SKYBOX_OFFSET_OPTION,
+                super::DISTANT_TERRAIN_OPTION,
+                super::DISTANT_TERRAIN_DISTANCE_OPTION,
+                super::DISTANT_TERRAIN_QUALITY_OPTION,
+                super::DISTANT_TERRAIN_STORAGE_OPTION,
             ]
             .iter()
             .any(|option| option.name == name)

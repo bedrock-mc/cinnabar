@@ -4,6 +4,7 @@
 //! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
+pub mod distant_terrain;
 mod frame_rate_limit;
 mod legacy_combat;
 mod pose_generation;
@@ -19,6 +20,7 @@ pub use ui_coverage_paint::{UI_STYLE_COVERAGE_PAINT, UiCoveragePaint};
 pub use actor_lighting::{
     ACTOR_LIGHT_DIRECTIONAL, ACTOR_LIGHT_WORLD, ACTOR_SHADE_COEFFICIENTS, fancy_actor_shade,
 };
+pub use distant_terrain::{DistantTerrainQuality, DistantTerrainTier};
 pub use frame_rate_limit::FrameRateLimit;
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{

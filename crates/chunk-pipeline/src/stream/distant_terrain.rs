@@ -45,6 +45,7 @@ mod link;
 mod mesher;
 pub(in crate::stream) mod meshes;
 mod sections;
+pub(in crate::stream) mod selection;
 pub(in crate::stream) mod shared;
 mod snapshots;
 mod stats;
@@ -67,6 +68,7 @@ pub use self::{
     meshes::{
         DistantTerrainColours, DistantTerrainMeshStats, LOD_MESH_CACHE_BYTES, MAX_LOD_MESH_JOBS,
     },
+    selection::{DistantTerrainSelectionStats, DistantTerrainView, MAX_LOD_UPDATE_BYTES},
     stats::DistantTerrainStats,
 };
 use super::{WorldStream, workers::WORKERS};
@@ -101,9 +103,13 @@ pub const MAX_LOD_WRITERS: usize = 4;
 
 // Dispatch keeps changed columns from overflowing the inbox.
 const _: () = assert!(MAX_LOD_BACKLOG <= MAX_LOD_INBOX_COLUMNS);
-// The writers' caches, the mesher's snapshots and the meshes share the CPU memory cap.
+// The writers' caches, the mesher's snapshots, the meshes and the selection's explored tree
+// share the CPU memory cap.
 const _: () = assert!(
-    LOD_SECTION_CACHE_BYTES + meshes::LOD_MESH_SNAPSHOT_BYTES + LOD_MESH_CACHE_BYTES
+    LOD_SECTION_CACHE_BYTES
+        + meshes::LOD_MESH_SNAPSHOT_BYTES
+        + LOD_MESH_CACHE_BYTES
+        + selection::worker::MAX_LOD_TREE_NODES * lod::select::tree::NODE_BYTES
         <= LOD_CPU_MEMORY_BYTES
 );
 

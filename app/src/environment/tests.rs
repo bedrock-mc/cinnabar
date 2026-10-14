@@ -516,6 +516,7 @@ fn end_dimension_fallback_applies_exact_profile_and_exposes_provisional_lighting
         camera_biome_identifier: None,
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: None,
     };
     let biomes = profiles();
     let fogs = fog_profiles();
@@ -564,6 +565,7 @@ fn known_camera_biome_takes_precedence_over_dimension_fallback() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: None,
     };
     let (frame, route) = derive_profiled_atmosphere_frame(
         WorldClock::default(),
@@ -594,6 +596,7 @@ fn pinned_shape_plains_air_falls_back_to_the_exact_default_fog_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: None,
     };
     let (frame, _) = derive_profiled_atmosphere_frame(
         WorldClock::default(),
@@ -624,6 +627,7 @@ fn biome_specific_medium_takes_precedence_over_the_default_fog_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: None,
     };
     let mut fogs = fog_profiles();
     let default_water = fogs
@@ -672,6 +676,7 @@ fn active_rain_uses_the_exact_weather_fog_endpoint_from_the_default_layer() {
         camera_biome_identifier: Some("minecraft:plains".into()),
         camera_biome_temperature: None,
         render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: None,
     };
     let (frame, _) = derive_profiled_atmosphere_frame(
         clock,
@@ -816,4 +821,48 @@ fn fog_distance(
         end_bits: end.to_bits(),
         rgb8,
     }
+}
+
+#[test]
+fn distant_terrain_moves_render_relative_air_fog_but_never_a_fixed_profile() {
+    let context = |biome: &str, dimension| EnvironmentContext {
+        dimension,
+        fog_biomes: None,
+        fog_registry_generation: None,
+        camera_profile: None,
+        camera_fog: None,
+        profile_route: None,
+        default_fog: None,
+        precipitation_sample_count: None,
+        camera_biome_identifier: Some(biome.into()),
+        camera_biome_temperature: None,
+        render_distance_blocks: Some(256.0),
+        distant_terrain_blocks: Some(8192.0),
+    };
+    let fog_end = |context: &EnvironmentContext| {
+        derive_profiled_atmosphere_frame(
+            WorldClock::default(),
+            WeatherState::default(),
+            0.0,
+            meshing::CameraMedium::Air,
+            context,
+            &profiles(),
+            &fog_profiles(),
+            Default::default(),
+            None,
+            0.0,
+        )
+        .0
+        .fog_end()
+    };
+    assert_eq!(
+        fog_end(&context("minecraft:plains", 0)),
+        8192.0,
+        "render-relative air fog ends at the distant terrain distance"
+    );
+    assert_eq!(
+        fog_end(&context("minecraft:hell", 1)),
+        96.0,
+        "the Nether's fixed fog still hides far terrain"
+    );
 }

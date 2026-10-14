@@ -123,6 +123,8 @@ pub struct MenuRuntime {
     failed_video_settings_save: Option<launcher_host::video_settings::SavedVideoSettings>,
     render_mode: RenderMode,
     render_mode_request: Option<RenderMode>,
+    /// "Clear distant terrain cache" was pressed; the host clears it off the frame.
+    distant_terrain_clear_request: bool,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -229,25 +231,6 @@ struct SessionIntents {
 }
 
 impl MenuRuntime {
-    /// Mirrors the applied mode; a pending menu toggle wins until taken.
-    pub fn sync_render_mode(&mut self, applied: RenderMode) {
-        if self.render_mode_request.is_none() {
-            self.render_mode = applied;
-        }
-    }
-
-    /// Shows the VSync toggle locked to a launch-flag override.
-    #[must_use]
-    pub const fn with_vsync_override(mut self, vsync: Option<bool>) -> Self {
-        self.vsync_override = vsync;
-        self
-    }
-
-    /// Consume the pending Video-section change.
-    pub fn take_render_mode_request(&mut self) -> Option<RenderMode> {
-        self.render_mode_request.take()
-    }
-
     /// Return the extension settings file alongside the other user settings.
     pub fn graphics_file(&self) -> PathBuf {
         self.layout.graphics_file()
@@ -762,6 +745,7 @@ impl MenuRuntime {
             | MenuAction::SettingsResetKey(_)
             | MenuAction::SettingsMacroCommand(_)
             | MenuAction::SettingsResetChat
+            | MenuAction::SettingsClearDistantTerrainCache
             | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
             MenuAction::Respawn => {
                 if self.death_controls_ready() {

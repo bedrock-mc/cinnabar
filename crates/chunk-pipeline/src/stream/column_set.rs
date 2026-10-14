@@ -10,6 +10,8 @@ pub(super) struct ColumnSubChunkSet {
     /// Never holds an empty column.
     columns: HashMap<ChunkKey, Vec<SubChunkKey>>,
     len: usize,
+    /// Columns added or removed so far.
+    column_changes: u64,
     hash: OnceLock<u64>,
 }
 
@@ -36,6 +38,9 @@ impl ColumnSubChunkSet {
         let Err(at) = column.binary_search_by_key(&key.y, |key| key.y) else {
             return false;
         };
+        if column.is_empty() {
+            self.column_changes += 1;
+        }
         column.insert(at, key);
         self.len += 1;
         self.hash.take();
@@ -54,6 +59,7 @@ impl ColumnSubChunkSet {
         column.remove(at);
         if column.is_empty() {
             self.columns.remove(&chunk);
+            self.column_changes += 1;
         }
         self.len -= 1;
         self.hash.take();
@@ -86,6 +92,20 @@ impl ColumnSubChunkSet {
             .map(|keys| visited_key(&keys[0]).chunk())
     }
 
+    /// Counts columns added and removed so far; equal counts mean the same columns.
+    pub(super) fn column_changes(&self) -> u64 {
+        self.column_changes
+    }
+
+    /// Moves every key into the returned set, leaving this one empty with its column change
+    /// count advanced past the removed columns, so the count never repeats for other columns.
+    pub(super) fn take_all(&mut self) -> Self {
+        let column_changes = self.column_changes + self.columns.len() as u64;
+        let taken = std::mem::take(self);
+        self.column_changes = column_changes;
+        taken
+    }
+
     /// Caches the legacy key-order witness until membership actually changes.
     pub(super) fn deterministic_hash(&self) -> u64 {
         *self.hash.get_or_init(|| {
@@ -110,6 +130,7 @@ impl ColumnSubChunkSet {
     #[cfg(test)]
     pub(super) fn clear(&mut self) {
         if self.len != 0 {
+            self.column_changes += self.columns.len() as u64;
             self.columns.clear();
             self.len = 0;
             self.hash.take();

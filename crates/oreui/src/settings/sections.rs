@@ -32,7 +32,7 @@ pub(super) fn draw(content: &mut Content<'_, '_>, section: &str) -> Result<(), P
     }
 }
 
-fn options(content: &mut Content<'_, '_>, names: &[&str]) -> Result<(), PaintError> {
+pub(super) fn options(content: &mut Content<'_, '_>, names: &[&str]) -> Result<(), PaintError> {
     for name in names {
         content.option(name)?;
     }
@@ -142,6 +142,7 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content,
         &["render_clouds", "transparent_leaves", "bubble_particles"],
     )?;
+    super::distant_terrain::draw(content)?;
     content.heading(
         "menu.video.group.customization",
         "menu.video.group.customization.description",

@@ -69,6 +69,22 @@ fn wait_for_event(actor: &mut StoreActor, what: &str, matches: impl Fn(&ActorEve
     });
 }
 
+/// Polls events until a quota report arrives; its evicted region bytes.
+fn quota_eviction(actor: &mut StoreActor, what: &str) -> u64 {
+    let mut evicted = None;
+    eventually(what, || {
+        let mut events = Vec::new();
+        actor.poll_events(&mut events);
+        for event in events {
+            if let ActorEvent::Quota(report) = event {
+                evicted = Some(report.evicted_region_bytes);
+            }
+        }
+        evicted.is_some()
+    });
+    evicted.expect("found above")
+}
+
 #[test]
 fn reads_see_earlier_writes_and_the_last_write_per_key_wins() {
     let dir = tempfile::tempdir().expect("temp dir");
@@ -201,6 +217,41 @@ fn corrupt_records_read_as_corrupt_and_flushes_report_quotas() {
         .try_read(OVERWORLD, target, Minute::new(1))
         .expect("read");
     assert_eq!(result_of(&mut actor, ticket), ReadOutcome::Corrupt);
+    actor.shutdown(Minute::new(2));
+}
+
+#[test]
+fn changed_quotas_apply_to_the_next_quota_pass() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(1),
+        },
+    );
+    submit(&mut actor, put(OVERWORLD, record(key(0, 0, 0, 0), 1, 3)));
+    let enforce = Request::EnforceQuotas {
+        now: Minute::new(1),
+        focus: None,
+    };
+    submit(&mut actor, enforce.clone());
+    assert_eq!(
+        quota_eviction(&mut actor, "the default quota report"),
+        0,
+        "the default cap keeps a small store"
+    );
+    submit(
+        &mut actor,
+        Request::SetQuotas(Quotas {
+            store_bytes: 0,
+            ..Quotas::default()
+        }),
+    );
+    submit(&mut actor, enforce);
+    let evicted = quota_eviction(&mut actor, "the reduced quota report");
+    assert!(evicted > 0, "the reduced cap evicts the store's regions");
     actor.shutdown(Minute::new(2));
 }
 

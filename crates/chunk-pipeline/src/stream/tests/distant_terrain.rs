@@ -5,6 +5,7 @@ mod backlog;
 mod finals;
 mod meshes;
 mod relight;
+mod selection;
 mod sessions;
 
 use lod::{
@@ -25,7 +26,7 @@ use test_time::eventually;
 use super::{light_scheduler::install_current_light, *};
 use crate::stream::{
     distant_terrain::{
-        DistantTerrainLink, LOD_SETTLE_POLLS,
+        DistantTerrainLink, DistantTerrainStats, LOD_SETTLE_POLLS,
         book::Verdict,
         hooks::session_blocks,
         jobs,

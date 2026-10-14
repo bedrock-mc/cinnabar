@@ -84,6 +84,71 @@ fn the_video_setting_and_session_identity_open_the_store_and_leaving_closes_it()
 }
 
 #[test]
+fn the_video_setting_meshes_selects_and_hands_settings_to_the_renderer() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut app = app(dir.path(), true);
+    eventually("selection to run on the open store", || {
+        app.update();
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .is_some_and(|stream| stream.distant_terrain_selection_stats().is_some())
+    });
+    let link = app
+        .world()
+        .resource::<render_scene::distant_terrain::DistantTerrainLink>()
+        .clone();
+    let inbox = link.take();
+    let settings = inbox.settings.expect("drawing is on");
+    assert_eq!(
+        settings.distance_chunks,
+        render_api::distant_terrain::DEFAULT_DISTANT_TERRAIN_CHUNKS
+    );
+    assert!(
+        inbox.generation > 0,
+        "the renderer starts from nothing drawn"
+    );
+    let fog = |app: &App| app.world().resource::<draw::DistantTerrainFogDistance>().0;
+    assert_eq!(fog(&app), None, "no fog change before the renderer draws");
+    link.publish(render_scene::distant_terrain::DistantTerrainRenderStats {
+        ready: true,
+        ..Default::default()
+    });
+    app.update();
+    assert_eq!(
+        fog(&app),
+        None,
+        "a ready renderer drawing nothing changes no fog"
+    );
+    link.publish(render_scene::distant_terrain::DistantTerrainRenderStats {
+        ready: true,
+        sections: 1,
+        ..Default::default()
+    });
+    app.update();
+    assert_eq!(
+        fog(&app),
+        Some((settings.distance_chunks * world::SUB_CHUNK_SIDE as u32) as f32),
+        "air fog follows the drawn distance"
+    );
+
+    // Turning the setting off stops drawing and restores the chunk fog.
+    let mut settings = app
+        .world_mut()
+        .resource_mut::<client_state::RuntimeSettings>();
+    let mut user = settings.user_settings_update().1.clone();
+    user.video.distant_terrain = false;
+    settings.replace_user_settings(user);
+    app.update();
+    assert_eq!(link.take().settings, None);
+    assert_eq!(
+        app.world().resource::<draw::DistantTerrainFogDistance>().0,
+        None
+    );
+}
+
+#[test]
 fn the_store_stays_closed_while_the_setting_is_off() {
     let dir = tempfile::tempdir().expect("temp dir");
     let mut app = app(dir.path(), false);

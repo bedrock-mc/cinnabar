@@ -98,6 +98,30 @@ fn a_section_without_a_record_completes_without_a_mesh() {
 }
 
 #[test]
+fn a_stopped_taker_leaves_finished_meshes_for_the_next() {
+    let store = TestStore::new();
+    let mut stream = stream();
+    enable_meshes(&mut stream, &store);
+    let empty = SectionPos::new(0, 40, 0, 40).expect("pos");
+    stream.want_distant_terrain_meshes([empty]);
+    eventually("a finished mesh", || {
+        stream.sync_distant_terrain_meshes();
+        stream
+            .distant_terrain_mesh_stats()
+            .is_some_and(|stats| stats.ready != 0)
+    });
+    let shared = stream.lod_mesh_shared().expect("meshing on");
+    let dimension = lod_store::identity::Dimension(stream.current_dimension());
+    let mut stolen = Vec::new();
+    shared.take_fresh(|| false, dimension, &mut stolen);
+    assert!(stolen.is_empty(), "a stopped selection takes nothing");
+    assert!(
+        next_mesh(&mut stream, empty).is_none(),
+        "the mesh is still handed out"
+    );
+}
+
+#[test]
 fn colour_tables_cover_the_stores_materials() {
     let store = TestStore::new();
     let mut stream = stream();
@@ -404,4 +428,32 @@ fn wanting_another_dimension_drops_every_mesh() {
     let stats = stream.distant_terrain_mesh_stats().expect("meshing on");
     assert_eq!(stats.cache.wanted, 1, "the overworld's wants are gone");
     assert_eq!(stats.cache.held_bytes, 0, "and so are their meshes");
+}
+
+#[test]
+fn meshes_finished_before_a_dimension_change_are_not_handed_out_after_it() {
+    let sections = hidden_fixture();
+    let store = stored_world(&sections);
+    let mut stream = stream();
+    enable_meshes(&mut stream, &store);
+    stream.want_distant_terrain_meshes(sections);
+    eventually("overworld meshes waiting to be taken", || {
+        stream.sync_distant_terrain_meshes();
+        stream
+            .distant_terrain_mesh_stats()
+            .is_some_and(|stats| stats.ready > 0)
+    });
+    stream
+        .submit(
+            1,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0, 64.0, 0.0],
+                ..Default::default()
+            }),
+        )
+        .expect("change dimension");
+    let mut fresh = Vec::new();
+    stream.take_distant_terrain_meshes(&mut fresh);
+    assert!(fresh.is_empty(), "{} overworld meshes leaked", fresh.len());
 }
