@@ -240,3 +240,78 @@ fn parallel_synthetic_crowd_matches_serial_through_world_budget_exhaustion() {
 }
 
 mod refresh_tests;
+
+/// A rig whose first bone translates by one unit per tick of actor age.
+fn clock_assets() -> Arc<RuntimeEntityAssets> {
+    use assets::{CompiledMolangExpression, MolangOp, MolangSymbol, MolangSymbolKind};
+    let scalar = crate::test_support::scalar;
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    compiled.rig_bindings[0].initialize = None;
+    compiled.render.layers[0].color = None;
+    compiled.molang_symbols = [
+        (MolangSymbolKind::Name, "wield"),
+        (MolangSymbolKind::Query, "query.life_time"),
+    ]
+    .map(|(kind, identifier)| MolangSymbol {
+        kind,
+        identifier: identifier.into(),
+    })
+    .into();
+    compiled.molang_ops = vec![
+        MolangOp::Push(scalar(0.0)),
+        MolangOp::LoadQuery(1),
+        MolangOp::Push(scalar(20.0)),
+        MolangOp::Multiply,
+        MolangOp::Push(scalar(0.0)),
+        MolangOp::Push(scalar(0.0)),
+    ]
+    .into();
+    compiled.molang_expressions = [(0, 1, 1), (1, 3, 2), (4, 1, 1), (5, 1, 1)]
+        .map(|(first_op, op_count, max_stack)| CompiledMolangExpression {
+            first_op,
+            op_count,
+            max_stack,
+        })
+        .into();
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+}
+
+/// A rig re-entering view blends from its previous tick's pose, as one that never left does.
+#[test]
+fn a_rig_back_in_view_blends_from_its_previous_tick() {
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let away = ActorAnimationView {
+        planes: [[-1.0, 0.0, 0.0, -100.0]; 6],
+        camera: [0.0; 3],
+        player_distance: 100.0,
+        entity_radius: 72.0,
+    };
+    let (mut visible, mut returning) = (
+        ActorAnimationStore::with_assets(clock_assets()),
+        ActorAnimationStore::with_assets(clock_assets()),
+    );
+    for store in [&mut visible, &mut returning] {
+        store.insert(1, 0, &actor);
+    }
+    // Ticks 2 to 5 are out of view; tick 6 is the first visible one again.
+    for tick in 0..7 {
+        let view = (2..6).contains(&tick).then_some(&away);
+        visible.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+        returning.advance_tick(&actors, view, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let (expected, actual) = (
+        visible.get(actor.runtime_id).unwrap(),
+        returning.get(actor.runtime_id).unwrap(),
+    );
+    assert_eq!(actual.current, expected.current);
+    assert_ne!(
+        actual.previous, actual.current,
+        "the first visible tick blends"
+    );
+    assert_eq!(actual.previous, expected.previous);
+}

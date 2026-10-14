@@ -248,6 +248,24 @@ impl ActorAnimationStore {
             stats,
             starved: None,
         };
+        // A rig back in view first evaluates its previous tick, so its first frame blends.
+        if !refresh_view {
+            for job in jobs
+                .iter_mut()
+                .filter(|job| job.evaluates() && job.state.culled && job.state.history.len() > 1)
+            {
+                let latest = job.state.history.pop_back();
+                if world_left > 0 {
+                    let previous = Catalogs {
+                        tick: completed_tick.saturating_sub(1),
+                        ..catalogs.view()
+                    };
+                    job.outcome = Some(evaluate_job(job, previous, &mut world_left));
+                }
+                job.state.history.extend(latest);
+                ledger.apply(job);
+            }
+        }
         let mut next = 0;
         while next < jobs.len() {
             // Each rig spends at most its actor budget, so this many fit before the world runs out.
