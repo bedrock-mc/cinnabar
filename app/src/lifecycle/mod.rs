@@ -86,10 +86,7 @@ pub fn show_startup_failure(error: &anyhow::Error) {
     let text = format!("{error:#}");
     if !crash::report_startup_failure(&text) {
         use launcher_host::native_dialog::{NativePrompter, Prompter};
-        NativePrompter.alert(
-            &format!("{} couldn't start", launcher::PRODUCT_NAME),
-            &text,
-        );
+        NativePrompter.alert(&format!("{} couldn't start", launcher::PRODUCT_NAME), &text);
     }
 }
 

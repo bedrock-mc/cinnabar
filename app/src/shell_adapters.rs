@@ -128,7 +128,9 @@ pub(crate) fn publish_crash_state(
 }
 
 /// The kind of a join destination, without its address.
-fn server_kind(target: &rich_presence::Target) -> launcher_host::lifecycle::crash::state::ServerKind {
+fn server_kind(
+    target: &rich_presence::Target,
+) -> launcher_host::lifecycle::crash::state::ServerKind {
     use launcher_host::lifecycle::crash::state::ServerKind;
     use rich_presence::Destination;
     match target.destination {

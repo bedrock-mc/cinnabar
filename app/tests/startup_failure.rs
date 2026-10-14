@@ -25,8 +25,14 @@ mod fixture_client {
         pub fn run_first_run_setup() -> i32 {
             unreachable!()
         }
+        /// Keeps the crash monitor subprocess outside this startup-error fixture.
+        pub fn run_crash_monitor() -> i32 {
+            unreachable!()
+        }
+        /// The fixture runs with a console, where failures need no window.
+        pub fn show_startup_failure(_: &anyhow::Error) {}
         /// Starts file logging, then reproduces a preparation failure before the client runs.
-        pub fn before_run(_: bool) -> std::io::Result<bool> {
+        pub fn before_run(_: bool) -> anyhow::Result<bool> {
             let dir = std::path::PathBuf::from(std::env::var_os("STARTUP_FAILURE_LOG").unwrap());
             diagnostics::console::initialize_log(&diagnostics::console::SessionFiles {
                 dir: &dir,
@@ -39,11 +45,11 @@ mod fixture_client {
                 },
             })
             .unwrap();
-            Err(std::io::Error::other("first-time setup fixture failed"))
+            Err(anyhow::anyhow!("first-time setup fixture failed"))
         }
     }
     /// A startup failure must exit before opening the game window.
-    pub fn run(_: args::ClientArgs) -> std::io::Result<()> {
+    pub fn run(_: args::ClientArgs) -> anyhow::Result<()> {
         unreachable!()
     }
 }

@@ -19,7 +19,10 @@ pub(crate) fn dispatch() {
         );
         return;
     }
-    if mode.as_ref().is_some_and(|arg| arg == first_run::SETUP_FLAG) {
+    if mode
+        .as_ref()
+        .is_some_and(|arg| arg == first_run::SETUP_FLAG)
+    {
         std::process::exit(lifecycle::run_first_run_setup());
     }
     if mode.as_ref().is_some_and(|arg| arg == crash::MONITOR_FLAG) {
