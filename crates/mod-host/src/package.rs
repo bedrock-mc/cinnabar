@@ -2,7 +2,7 @@
 //! textures. Every file is read bounded and checked against the manifest's SHA-256 before
 //! anything compiles.
 
-use crate::{MAX_COMPONENT_BYTES, local_files::Directory};
+use crate::{MAX_COMPONENT_BYTES, component_assets::ComponentAssets, local_files::Directory};
 use anyhow::{Context, Result, ensure};
 use experience_sdk::mod_manifest::{COMPONENT, ModManifest};
 use server_experience::{
@@ -61,6 +61,7 @@ impl Package {
             Ok(bytes)
         };
         let component = read(COMPONENT, MAX_COMPONENT_BYTES)?;
+        ComponentAssets::read_package(&component)?;
         let namespace = manifest.namespace();
         let mut files = screen::Files {
             namespace: namespace.clone(),

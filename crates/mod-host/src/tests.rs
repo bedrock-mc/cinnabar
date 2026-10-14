@@ -2,6 +2,7 @@
 mod camera;
 use super::*;
 mod block_highlights;
+mod embedded_assets;
 mod fullbright;
 mod gameplay;
 mod hud;

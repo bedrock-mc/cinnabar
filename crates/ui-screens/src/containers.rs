@@ -9,6 +9,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use json_ui::{
     CollectionItem, DataSource, Draw, DrawNode, RectOut, Scalar, TextAlign, ViewState, hit_test,
+    press_region,
 };
 use protocol::NetworkItemStack;
 use serde_json::Value;
@@ -545,12 +546,23 @@ impl ScreenCache {
     }
 }
 
-/// Whether a point lies on the engine-drawn container's `root_panel`.
-pub fn engine_panel_contains(frame: &EngineFrame, gui: [f32; 2]) -> bool {
-    let (x, y) = (f64::from(gui[0]), f64::from(gui[1]));
-    frame
-        .panel
-        .is_some_and(|[px, py, pw, ph]| x >= px && x < px + pw && y >= py && y < py + ph)
+/// The press targets that drop the held stack, as vanilla's `drop_item_panel`
+/// routes them.
+const CURSOR_DROPS: [&str; 2] = ["button.cursor_drop_all", "button.cursor_drop_one"];
+
+/// Whether a press at `gui` on the engine-drawn container drops the held stack.
+/// The press drops when it reaches no control, since the screen itself maps it
+/// to a cursor drop, or reaches a drop panel. Every `common.root_panel` section,
+/// such as the inventory, recipe book or creative hotbar, claims presses
+/// anywhere on its background, as do its buttons.
+pub fn engine_press_drops(frame: &EngineFrame, gui: [f32; 2]) -> bool {
+    let point = [f64::from(gui[0]), f64::from(gui[1])];
+    press_region(&frame.hits, point).is_none_or(|region| {
+        region
+            .pressed
+            .as_deref()
+            .is_some_and(|target| CURSOR_DROPS.contains(&target))
+    })
 }
 
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
@@ -754,6 +766,8 @@ pub fn screen_data(
 mod anvil_output_tests;
 #[cfg(test)]
 mod empty_cells_tests;
+#[cfg(test)]
+mod press_drop_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(

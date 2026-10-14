@@ -205,12 +205,28 @@ fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseReque
     assert_eq!(encoded.as_ref(), fixture);
 }
 
-fn assert_destroy_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
+/// Destroy keeps the fixture's stack and pose, but clears fields used only for placement.
+fn assert_destroy_builder_clears_placement_fields(
+    fixture: &'static [u8],
+    request: BlockUseRequest,
+) {
+    let mut expected = decode_one(fixture, PacketId::InventoryTransaction);
+    let packets::Packet::InventoryTransaction(packet) = &mut *expected.data else {
+        panic!("expected inventory transaction");
+    };
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+        &mut packet.transaction
+    else {
+        panic!("expected item-use transaction");
+    };
+    transaction.trigger_type = ItemUseInventoryTransactionTriggerType::Unknown;
+    transaction.click_position = [0.0; 3].into();
+    transaction.target_block_id = wire::VarUInt(0);
     let mut built = destroy_block_packet(request).expect("valid destroy-block request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     let encoded = encode(&built).expect("encode builder packet");
-    assert_eq!(encoded.as_ref(), fixture);
+    assert_eq!(encoded, encode(&expected).expect("encode expected destroy"));
 }
 
 #[test]
@@ -251,10 +267,10 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
 }
 
 #[test]
-fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
+fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     let filled = decode_one(DESTROY_BLOCK, PacketId::InventoryTransaction);
     assert_block_use_constants(&filled, ItemUseInventoryTransactionActionType::Destroy);
-    assert_destroy_builder_matches_fixture(
+    assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK,
         BlockUseRequest {
             block_position: [24, 68, -41],
@@ -269,7 +285,7 @@ fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
 
     let empty = decode_one(DESTROY_BLOCK_EMPTY_HAND, PacketId::InventoryTransaction);
     assert_block_use_constants(&empty, ItemUseInventoryTransactionActionType::Destroy);
-    assert_destroy_builder_matches_fixture(
+    assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
             block_position: [-17, 92, 6],

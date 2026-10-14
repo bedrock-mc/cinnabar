@@ -50,7 +50,7 @@ impl UiPresentationRuntime {
             self.menu_seconds,
         );
         let title_artwork = if screen == MenuScreen::Home && !progress {
-            self.menu_artwork.refs.get(TITLE_KEY).copied()
+            self.home_title_icon()
         } else if progress || screen == MenuScreen::Pause {
             if self.engine.is_some() {
                 self.title_icon(&self.menu_artwork.refs)

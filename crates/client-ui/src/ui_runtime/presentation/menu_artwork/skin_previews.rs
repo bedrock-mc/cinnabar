@@ -140,6 +140,7 @@ impl UiPresentationRuntime {
             );
         }
         self.sync_artwork_set(ArtworkSet {
+            logo: self.menu_artwork_set.logo.clone(),
             paths: super::view_paths(view),
             images: super::view_images(view, &self.menu_hit_targets),
             oversized: self.oversized_ui_textures(),

@@ -22,7 +22,10 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
         &presentation,
         ui_screens::chat_screen::CHAT_SCREEN,
     );
-    let hud = client_ui::test_support::screen_settings(&presentation, json_ui::HUD_SCREEN);
+    let hud = client_ui::test_support::screen_settings(
+        &presentation,
+        json_ui::vanilla::Reference::HudHudScreen.as_str(),
+    );
     assert!(chat.absorbs_input && chat.render_game_behind);
     assert!(!hud.absorbs_input && hud.renders(false));
     assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
@@ -35,8 +38,11 @@ fn java_chat_keeps_the_world_and_hud_but_absorbs_gameplay() {
         ..Default::default()
     });
     assert!(
-        !client_ui::test_support::screen_settings(&presentation, json_ui::HUD_SCREEN)
-            .renders(false)
+        !client_ui::test_support::screen_settings(
+            &presentation,
+            json_ui::vanilla::Reference::HudHudScreen.as_str()
+        )
+        .renders(false)
     );
 }
 
@@ -62,7 +68,10 @@ fn retail_menu_defaults_and_server_visibility_override_share_the_resolved_root()
     assert!(settings.absorbs_input && settings.render_game_behind);
     assert!(presentation.renders_game_behind(&player_runtime, &runtime, &menu));
     assert!(presentation.absorbs_gameplay_input(&player_runtime, &runtime, &menu));
-    let (namespace, control) = launcher::menu::SETTINGS_SCREEN.split_once('.').unwrap();
+    let (namespace, control) = json_ui::vanilla::Reference::SettingsScreenControlsAndSettings
+        .as_str()
+        .split_once('.')
+        .unwrap();
     let mut opaque_settings = serde_json::json!({"namespace": namespace});
     opaque_settings[control] = serde_json::json!({"render_game_behind": false});
     presentation.set_server_ui_pack(&ServerUiPack {

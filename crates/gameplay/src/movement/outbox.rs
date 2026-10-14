@@ -402,6 +402,19 @@ impl MovementTicker {
             .map(UnsentSampleView::from_queued)
     }
 
+    /// Pairs an attack with the state before the first input it precedes.
+    /// Older unsent inputs must drain before an attack can use a later state.
+    pub fn interaction_before_tick(&self, tick: u64) -> Option<InteractionSample> {
+        if self.outbox.front()?.snapshot.tick != tick {
+            return None;
+        }
+        let previous = self.tick_ends.get(tick.checked_sub(1)?)?;
+        Some(InteractionSample {
+            tick,
+            position: previous.position,
+        })
+    }
+
     /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
     /// with, is written; later inputs wait behind it and an authority change first drops it.
     pub fn hold_release_after_tick(&mut self, tick: u64, packets: Vec<Packet>) {

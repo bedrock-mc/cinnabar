@@ -5,7 +5,7 @@ use {
     ui::IconRef,
     ui_engine::{
         pages::{ART_PAGE_GUTTER as GUTTER, WHOLE_ART_PAGE},
-        textures::TITLE_KEY,
+        textures::{MOD_MENU_TITLE_KEY, TITLE_KEY},
     },
 };
 
@@ -38,6 +38,11 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     let decoded: Vec<(String, &Artwork)> = title()
         .map(|art| (TITLE_KEY.to_owned(), art))
         .into_iter()
+        .chain(
+            set.logo
+                .as_ref()
+                .map(|logo| (MOD_MENU_TITLE_KEY.to_owned(), logo.as_ref())),
+        )
         .chain(rest)
         .collect();
     let page_bytes = side as usize * side as usize * 4;

@@ -15,6 +15,7 @@ mod mathematical;
 mod native;
 mod providers;
 mod source;
+mod symbols;
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::{NATIVE_SDF_EM_PIXELS, NATIVE_SDF_MIN_PIXELS, compile_native_outline_rasters};
 pub use providers::compile_outline_font_with_fallback;
@@ -57,6 +58,8 @@ pub struct OutlineFontConfig {
     pub ascii_bearing: Option<assets::carriers::AsciiBearing>,
     /// Derives missing regular, bold and italic Latin mathematical glyphs from source artwork.
     pub synthesize_mathematical_letters: bool,
+    /// Adds original symbol artwork when none of the outline providers map it.
+    pub include_original_symbols: bool,
 }
 
 impl OutlineFontConfig {
@@ -81,6 +84,7 @@ impl Default for OutlineFontConfig {
             space_advance_64: None,
             ascii_bearing: None,
             synthesize_mathematical_letters: false,
+            include_original_symbols: false,
         }
     }
 }
