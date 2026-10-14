@@ -369,21 +369,54 @@ impl UiPresentationRuntime {
         if !nodes.iter().any(|node| is_preview(node.visual())) {
             return;
         }
-        let fits = |mesh: &Arc<UiMesh>| {
-            let visual = UiVisual::Mesh(Arc::clone(mesh));
-            ui::UiTree::check_visual_budget(nodes.iter().map(|node| {
-                if is_preview(node.visual()) {
-                    &visual
-                } else {
-                    node.visual()
-                }
-            }))
-            .is_ok()
+        let Some(body) = self.gui_player_mesh_with_models([None; 2]) else {
+            return;
         };
-        let player = self.gui_player_mesh().filter(&fits).or_else(|| {
-            [[false, true], [true, false], [false; 2]]
-                .into_iter()
-                .find_map(|hands| self.gui_player_mesh_with_held(hands).filter(&fits))
+        let held = self.preview_held_models([true; 2]);
+        let instances = nodes
+            .iter()
+            .filter(|node| is_preview(node.visual()))
+            .count();
+        let admitted = [[true; 2], [true, false], [false, true], [false; 2]]
+            .into_iter()
+            .find(|mask| {
+                let mut indices = body.indices().len();
+                let mut batches = body.batches().len();
+                for (index, model) in held.iter().enumerate() {
+                    if mask[index]
+                        && let Some(model) = model
+                    {
+                        let Some(next) = indices.checked_add(model.vertices.len()) else {
+                            return false;
+                        };
+                        indices = next;
+                        batches += 1;
+                    }
+                }
+                UiMesh::check_size(indices, indices, batches).is_ok()
+                    && ui::UiTree::check_visual_budget_with_mesh(
+                        nodes
+                            .iter()
+                            .filter(|node| !is_preview(node.visual()))
+                            .map(UiNode::visual),
+                        indices,
+                        batches,
+                        instances,
+                    )
+                    .is_ok()
+            });
+        let player = admitted.map(|mask| {
+            if mask == [false; 2] {
+                return Arc::clone(&body);
+            }
+            let models =
+                std::array::from_fn(|index| mask[index].then(|| held[index].clone()).flatten());
+            if models.iter().all(Option::is_none) {
+                Arc::clone(&body)
+            } else {
+                self.gui_player_mesh_with_models(models)
+                    .unwrap_or_else(|| Arc::clone(&body))
+            }
         });
         replace_model_icons(
             nodes,
@@ -400,25 +433,15 @@ impl UiPresentationRuntime {
 
     /// Omits held geometry when it would exhaust the surrounding inventory or HUD frame.
     fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
-        let skin = self.gui_models.skin.as_ref()?;
-        let [width, height] = skin.dimensions();
-        let skin = IconRef {
-            page: (self.textures.dynamic_start() + SKIN_PAGE) as u16,
-            uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
-            glint: false,
-        };
-        let armor = std::array::from_fn(|slot| {
-            let texture = self.player_preview_gear.armor[slot].as_ref()?;
-            self.gui_models
-                .pack_equipment
-                .region(slot)
-                .or_else(|| {
-                    let key = atlas::key([texture.width, texture.height], &texture.rgba);
-                    self.gui_models.textures.get(&key).copied()
-                })
-                .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
-        });
-        let held = std::array::from_fn(|index| {
+        self.gui_player_mesh_with_models(self.preview_held_models(include_held))
+    }
+
+    /// Resolves cached source geometry without projecting or allocating UI vertices.
+    fn preview_held_models(
+        &self,
+        include_held: [bool; 2],
+    ) -> [Option<player_preview::PreviewHeldModel>; 2] {
+        std::array::from_fn(|index| {
             let hand = &self.player_preview_gear.hands[index];
             if !include_held[index] {
                 return None;
@@ -457,6 +480,31 @@ impl UiPresentationRuntime {
                 base?.model(self.icon_catalog.as_deref()?)?
             };
             Some(model.with_grip(hand.grip).with_glint(hand.glint))
+        })
+    }
+
+    /// Projects only the hand models admitted for this frame's available storage.
+    fn gui_player_mesh_with_models(
+        &self,
+        held: [Option<player_preview::PreviewHeldModel>; 2],
+    ) -> Option<Arc<UiMesh>> {
+        let skin = self.gui_models.skin.as_ref()?;
+        let [width, height] = skin.dimensions();
+        let skin = IconRef {
+            page: (self.textures.dynamic_start() + SKIN_PAGE) as u16,
+            uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
+            glint: false,
+        };
+        let armor = std::array::from_fn(|slot| {
+            let texture = self.player_preview_gear.armor[slot].as_ref()?;
+            self.gui_models
+                .pack_equipment
+                .region(slot)
+                .or_else(|| {
+                    let key = atlas::key([texture.width, texture.height], &texture.rgba);
+                    self.gui_models.textures.get(&key).copied()
+                })
+                .map(|icon| icon.with_glint(self.player_preview_gear.armor_glint[slot]))
         });
         let unposed = [None; 6];
         let body = if self.player_preview_view == player_preview::PreviewView::Hud {
