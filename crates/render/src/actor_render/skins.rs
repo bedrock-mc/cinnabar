@@ -1,5 +1,4 @@
 //! Player skin arrays mirroring the main world's slot residency; only changed layers upload.
-use crate::queue_writes::ProfiledQueue as _;
 use std::sync::Arc;
 
 use super::*;

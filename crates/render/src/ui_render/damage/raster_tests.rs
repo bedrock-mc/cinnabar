@@ -1,6 +1,5 @@
 //! Exact pixel comparisons for damage replay through the production UI shader.
 
-use crate::queue_writes::ProfiledQueue as _;
 #[path = "raster_fixture.rs"]
 mod fixture;
 
@@ -667,7 +666,7 @@ fn item_glint_tints_grayscale_purple_and_restores_pack_pixels_without_changing_a
         [100, 100, 100, 255],
         [255, 255, 255, 0],
     ] {
-        raster.gpu.queue.profiled_write_texture(
+        raster.gpu.queue.write_texture(
             raster.item_glint.as_image_copy(),
             &color,
             wgpu::TexelCopyBufferLayout {

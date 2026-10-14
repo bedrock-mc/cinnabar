@@ -4,7 +4,6 @@ use super::super::*;
 use crate::depth_smaa::tests::raster_tests::{
     FixturePipelines, SIDE, app_with_effects, fixture_pipeline, frame, read_pixels, ready, renderer,
 };
-use crate::queue_writes::ProfiledQueue as _;
 use bevy::{
     anti_alias::smaa::Smaa,
     render::{Render, RenderApp, RenderSystems},
@@ -30,7 +29,7 @@ fn stationary_motion_bindings(
             continue;
         };
         uniform.strength.z = if coverage.enabled { 1.0 } else { 0.0 };
-        queue.profiled_write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
+        queue.write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
         state.last_uniform = Some(uniform);
         let Some(footprint) = &state.footprint else {
             continue;
@@ -115,7 +114,7 @@ fn camera_followed_diagonal_actor_keeps_smaa_edges_sharp_with_exposure() {
             texels.extend_from_slice(&[0.0, 0.0, covered, covered]);
         }
     }
-    queue.profiled_write_texture(
+    queue.write_texture(
         coverage.as_image_copy(),
         bytemuck::cast_slice(&texels),
         wgpu::TexelCopyBufferLayout {

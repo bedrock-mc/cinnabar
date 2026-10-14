@@ -5,7 +5,6 @@ use crate::motion_blur::{
     actor_history::{ActorHistory, MotionInstance},
     history::CameraHistory,
 };
-use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{renderer::RenderContext, view::ViewDepthStencilTexture};
 
 mod buffer;

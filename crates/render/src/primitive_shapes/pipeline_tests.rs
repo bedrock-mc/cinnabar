@@ -1,5 +1,4 @@
 use super::*;
-use crate::queue_writes::ProfiledQueue as _;
 use render_api::primitive_shapes::PrimitiveShapeKind;
 use render_model::primitive_shapes::PrimitiveState;
 
@@ -52,7 +51,7 @@ fn primitive_text_material_modes_keep_depth_background_and_facing() {
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    gpu.queue.profiled_write_texture(
+    gpu.queue.write_texture(
         atlas.as_image_copy(),
         &[255; 4],
         wgpu::TexelCopyBufferLayout {
