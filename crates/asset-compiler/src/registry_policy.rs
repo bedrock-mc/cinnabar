@@ -13,6 +13,7 @@ use std::{
 mod biomes;
 mod carriers;
 mod format_generated;
+pub mod items;
 mod light;
 mod manifest;
 mod movement;
@@ -53,6 +54,7 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,

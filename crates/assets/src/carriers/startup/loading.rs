@@ -55,12 +55,13 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     load_runtime_assets_observed(selection, &())
 }
 
-/// [`load_runtime_assets`], loading its four carriers in parallel through `observer`.
-/// Errors keep the serial order: world, atmosphere, entity, then font.
+/// Loads item facts, then the artwork carriers in parallel through `observer`.
+/// World decoding errors retain priority over the remaining carrier errors.
 pub fn load_runtime_assets_observed(
     selection: AssetSelection,
     observer: &impl CarrierLoadObserver,
 ) -> Result<LoadedAssets, AssetStartupError> {
+    let item_facts = observer.observe("item-facts", || super::require_item_facts(&selection.path));
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let path = selection.path.as_path();
     let (world, atmosphere, entities, fonts) = std::thread::scope(|scope| {
@@ -78,11 +79,13 @@ pub fn load_runtime_assets_observed(
             atmosphere?,
             entities?,
             fonts?,
+            item_facts?,
         ));
     };
     let metrics = runtime_metrics(&world.runtime, source, world.blob_sha256);
     Ok(LoadedAssets {
         runtime: world.runtime,
+        item_facts: item_facts?,
         material_keys: world.material_keys,
         vanilla_entity_refs: world.vanilla_entity_refs,
         atmosphere: atmosphere?,
@@ -189,6 +192,7 @@ fn diagnostic_assets(
     atmosphere: LoadedAtmosphereAssets,
     entities: LoadedEntityAssets,
     fonts: LoadedFontAssets,
+    item_facts: Arc<crate::facts::ItemFacts>,
 ) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
@@ -200,6 +204,7 @@ fn diagnostic_assets(
     );
     LoadedAssets {
         runtime,
+        item_facts,
         material_keys: None,
         vanilla_entity_refs: None,
         atmosphere,

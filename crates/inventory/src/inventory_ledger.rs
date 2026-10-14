@@ -51,7 +51,7 @@ mod queue;
 mod quick_move;
 #[cfg(test)]
 mod quick_move_role_tests;
-mod registry;
+pub(crate) mod registry;
 #[cfg(test)]
 mod request_tests;
 mod response;
@@ -178,6 +178,7 @@ pub struct PlayerInventoryLedger {
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
     item_registry: Option<std::sync::Arc<BTreeMap<i32, ItemRegistryEntry>>>,
+    item_facts: std::sync::Arc<crate::SessionItemFacts>,
     fuel_catalog: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
     fuel_facts: BTreeMap<i32, assets::item::fuel::ItemFuel>,
     furnace_inputs: furnace_inputs::FurnaceInputs,
@@ -225,6 +226,7 @@ impl Default for PlayerInventoryLedger {
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
             item_registry: None,
+            item_facts: Default::default(),
             fuel_catalog: None,
             fuel_facts: BTreeMap::new(),
             furnace_inputs: Default::default(),

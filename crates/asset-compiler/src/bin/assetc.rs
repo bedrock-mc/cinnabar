@@ -196,6 +196,9 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
         } => {
             vocabulary_command::compile(&archive, &source_manifest, &out, &actors_out)?;
         }
+        Command::ItemFacts { root, out } => {
+            asset_compiler::registry_policy::items::write(&root, &out, None)?;
+        }
         Command::BlockPhysics {
             registry,
             seed,

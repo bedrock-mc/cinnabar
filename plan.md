@@ -8857,3 +8857,13 @@ labels retain fractional positions, including the origin read by caret metadata.
 cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
 Incomplete: matched rendered title size and vertical alignment still require
 verification in the reported server form; these CPU fixtures do not close that gate.
+
+## Compiled item facts
+
+A hash-checked item-facts carrier joins the pinned retail IDs, tags, capacities,
+armour, durability, fuel, glint, grips and use profiles. Startup requires its exact
+fingerprint; `make assets` rebuilds it. Registry admission caches server component
+facts by negotiated numeric ID and retires them on replacement or reconnect.
+The consumer migration remains incomplete. Native compatibility rules retain their
+provisional status, and identities absent from the retail table remain unresolved.
+This infrastructure does not close a gameplay or rendering parity gate.

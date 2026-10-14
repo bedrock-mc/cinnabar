@@ -88,3 +88,23 @@ fn pinned_pack_vocabularies_regenerate_byte_for_byte() {
         include_bytes!("../../../protocol/data/retail_actors_1_26_50.txt")
     );
 }
+
+#[test]
+fn item_only_regeneration_does_not_need_a_block_export_or_fetched_pack() {
+    let root = root();
+    let scratch = tempfile::tempdir().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_registryc"))
+        .arg("--root")
+        .arg(&root)
+        .args(["--kind", "items", "--check", "--out"])
+        .arg(scratch.path().join(assets::facts::ITEM_FACTS_FILENAME))
+        .arg("--manifest")
+        .arg(scratch.path().join("expansion.tsv"))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

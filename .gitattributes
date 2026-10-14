@@ -31,3 +31,5 @@ tools/localserver/extension/testdata/* -text
 tools/localserver/extension/testdata/go/* -text
 crates/assets/data/entity-placement-frame.json text eol=lf
 packaging/common/prep-kit-files.txt text eol=lf
+crates/assets/data/item-facts-expansion-*.tsv text eol=lf
+crates/assets/data/item-facts-*.bin binary
