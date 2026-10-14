@@ -3,6 +3,72 @@
 use super::*;
 
 #[test]
+fn open_chat_backgrounds_follow_opacity_on_rebind() {
+    use json_ui::{BindState, Catalog, EmptyLibrary, bind_stateful};
+    use launcher::menu::settings_options::SettingsOptions;
+
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/chat_base.json",
+        r#"{
+        "namespace": "chat",
+        "messages_scrolling_panel": { "type": "panel" },
+        "commands_panel": { "type": "panel" },
+        "messages_text": { "type": "panel" },
+        "auto_complete_panel_contents_with_item": { "type": "panel" }
+    }"#,
+    );
+    let (path, _, bytes) = crate::hud::JAVA_HUD_PACK
+        .iter()
+        .find(|(_, namespace, _)| *namespace == "chat")
+        .unwrap();
+    catalog.overlay_text(path, std::str::from_utf8(bytes).unwrap());
+    let context = crate::menu_screens::retail_context();
+    let editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES).unwrap();
+    let messages = VecDeque::new();
+    let clocks = BTreeMap::new();
+    let input = ChatInput {
+        editor: &editor,
+        messages: &messages,
+        suggestions: &[],
+        usage: None,
+        selected_suggestion: None,
+        annotations: &[],
+        clocks: &clocks,
+        now_millis: 0,
+    };
+    for (reference, panel) in [
+        ("chat.java_chat_content", Some("input_line")),
+        ("chat.messages_text", None),
+        ("chat.auto_complete_panel_contents_with_item", None),
+    ] {
+        let root = Arc::new(
+            json_ui::resolve(&catalog, reference, &context)
+                .control
+                .unwrap(),
+        );
+        let mut state = BindState::new();
+        for percent in [0, 25, 100, 50, 0] {
+            let mut options = SettingsOptions::default();
+            options.set(SettingId::ChatBackgroundOpacity.index(), percent);
+            let mut settings = ChatSettings::default();
+            settings.set_snapshot((Arc::new(options), None));
+            let data = chat_data(&input, &settings, &|_| None);
+            let (bound, _) = bind_stateful(&root, &data, &EmptyLibrary, &mut state);
+            let panel = panel.map_or(&bound, |name| {
+                bound.find(&|control| control.name == name).unwrap()
+            });
+            let background = panel.find(&|control| control.name == "background").unwrap();
+            assert_eq!(
+                background.properties["alpha"].as_f64(),
+                Some(f64::from(percent) / 100.0),
+                "{reference} at {percent}%"
+            );
+        }
+    }
+}
+
+#[test]
 fn review_chat_settings_own_wheel_input() {
     let mut chat = ChatScreen {
         scroll: Some((

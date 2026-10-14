@@ -150,7 +150,8 @@ fn draw_sections(
     Ok(())
 }
 
-/// Draws identity-scoped controls, reload outcomes and generated permission toggles.
+/// Draws declared metadata, identity-scoped controls, reload outcomes and generated permission
+/// toggles.
 fn mod_card(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
@@ -169,27 +170,43 @@ fn mod_card(
         Status::Failed(message) | Status::ReloadFailed(message) => Some(message.as_str()),
         _ => None,
     });
-    let subtitle = match (active, status) {
+    let state = match (active, status) {
         (false, _) => "Ready to enable",
         (true, Some(Status::Running)) => "Running",
         (true, Some(Status::ReloadFailed(_))) => "Reload failed · previous instance running",
         (true, Some(Status::Failed(_))) => "Failed",
         (true, Some(Status::Starting) | None) => "Starting…",
     };
+    let metadata = &item.metadata;
+    let subtitle = match &metadata.version {
+        Some(version) => {
+            let version = version.strip_prefix(['v', 'V']).unwrap_or(version);
+            format!("{state} · v{version}")
+        }
+        None => state.to_owned(),
+    };
+    let icon = item.icon_key();
     let face = Face {
-        icon: None,
-        title: &item.name,
-        subtitle,
+        icon: icon.as_deref(),
+        title: item.name(),
+        subtitle: &subtitle,
         expanded: snapshot.details_expanded == Some(item.id),
         toggle: command(Action::ReadMore(item.id)),
         details,
         interactive,
     };
     card(content, face, |content| {
-        caption(
-            content,
-            &format!("{} · {}", item.file, file_size(item.bytes)),
-        )?;
+        if let Some(description) = &metadata.description {
+            caption(content, description)?;
+        }
+        if let Some(authors) = &metadata.authors {
+            caption(content, &format!("By {authors}"))?;
+        }
+        let mut source = format!("{} · {}", item.file, file_size(item.bytes));
+        if let Some(licenses) = &metadata.licenses {
+            source = format!("{source} · {licenses}");
+        }
+        caption(content, &source)?;
         if let Some(message) = failure {
             caption(content, message)?;
         }

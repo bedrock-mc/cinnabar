@@ -38,10 +38,28 @@ pub struct Permission {
 pub struct InstalledMod {
     /// Identifies the file revision, or the registration path while its source is unavailable.
     pub id: u64,
-    pub name: String,
     pub file: String,
     pub bytes: u64,
     pub permissions: Vec<Permission>,
+    pub metadata: ui::mod_metadata::ModMetadata,
+}
+impl InstalledMod {
+    /// The component's declared name, else its file name without the extension.
+    pub fn name(&self) -> &str {
+        self.metadata.name.as_deref().unwrap_or_else(|| {
+            std::path::Path::new(&self.file)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or(&self.file)
+        })
+    }
+    /// The menu artwork key its icon draws under; a new file revision gets a new key.
+    pub fn icon_key(&self) -> Option<String> {
+        self.metadata
+            .icon
+            .as_ref()
+            .map(|_| format!("mod-icon:{}", self.id))
+    }
 }
 
 /// The host's recorded outcome, including a reload which kept a running instance.
@@ -142,11 +160,21 @@ mod tests {
     fn installed(id: u64) -> InstalledMod {
         InstalledMod {
             id,
-            name: format!("mod-{id}"),
             file: format!("mod-{id}.wasm"),
             bytes: 1,
             permissions: Vec::new(),
+            metadata: Default::default(),
         }
+    }
+    #[test]
+    fn declared_names_override_the_file_stem() {
+        let mut item = installed(7);
+        assert_eq!(item.name(), "mod-7");
+        assert_eq!(item.icon_key(), None);
+        item.metadata.name = Some("Zoom".into());
+        item.metadata.icon = Some(std::sync::Arc::from([1u8].as_slice()));
+        assert_eq!(item.name(), "Zoom");
+        assert!(item.icon_key().is_some());
     }
     #[test]
     fn active_groups_keep_precedence_and_disclosures_stay_local() {

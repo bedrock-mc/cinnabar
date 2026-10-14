@@ -66,6 +66,7 @@ impl<'a> ComponentAssets<'a> {
         let mut depth = 0usize;
         let mut component = false;
         let mut removed = BTreeSet::new();
+        let mut icon = false;
         for payload in Parser::new(0).parse_all(bytes) {
             match payload? {
                 Payload::Version { encoding, .. } if depth == 0 => {
@@ -130,6 +131,12 @@ impl<'a> ComponentAssets<'a> {
                             "embedded menu title must be a nonempty line"
                         );
                         assets.title = Some(Arc::from(title));
+                    } else if name == mod_api::ICON_SECTION {
+                        // Library-only metadata: its content never fails a load.
+                        ensure!(
+                            !std::mem::replace(&mut icon, true),
+                            "duplicate embedded icon"
+                        );
                     } else {
                         ensure!(assets.notices.is_none(), "duplicate embedded notices");
                         ensure!(

@@ -454,6 +454,10 @@ fn chat_data(
     let settings = &*settings.options;
     let mut data = DataSource::new();
     data.set_strict(true);
+    data.set_global(
+        "#chat_background_opacity",
+        Scalar::Num(crate::settings_chat::background_opacity(settings)),
+    );
     let text = |key: &str, fallback: &str| {
         Scalar::Text(translate(key).map_or_else(|| fallback.to_owned(), |text| text.to_string()))
     };

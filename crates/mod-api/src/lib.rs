@@ -44,13 +44,19 @@ pub const MAX_MENU_LOGO_PIXELS: u64 = 4 * 1024 * 1024;
 pub const MAX_MENU_TITLE_BYTES: usize = 64;
 /// Retained license text has its own static source budget.
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
+/// Optional top-level PNG shown beside the component in the Mods library.
+pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
+pub const MAX_ICON_BYTES: usize = 256 * 1024;
+pub const MAX_ICON_SIDE: u32 = 256;
 /// Every versioned static section recognized by the local component loader.
-pub const COMPONENT_ASSET_SECTIONS: [&str; 5] = [
+pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
     MENU_LOGO_SECTION,
     MENU_TITLE_SECTION,
     NOTICES_SECTION,
+    ICON_SECTION,
 ];
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.
