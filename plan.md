@@ -63,7 +63,7 @@ saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
-summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Full-Detail Distance
 (16–64), capped at the render distance, so large render distances cost far tiles rather than
 meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
 it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
@@ -8972,3 +8972,13 @@ identities come from the pinned registry rather than numeric ranges.
 Incomplete: the additional renderers for brushable blocks, trial spawners and
 vaults remain unsupported. New logical routes are provisional, and the existing
 renderer, visual and performance acceptance gates remain open.
+
+## Server form screen variables
+
+Action and custom forms resolve their content reference in the form screen's
+variable scope, including defaults and selected conditional variables. An original
+resource-pack fixture checks title-selected panels through indexed pack overlays.
+
+Incomplete: the reported server form flash-close needs the affected pack and an
+ordered packet/input trace. The separate data-driven screen packet family remains
+unsupported. Live visual parity and performance acceptance remain open.
