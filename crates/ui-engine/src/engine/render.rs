@@ -99,14 +99,16 @@ fn prepare_with<R: Borrow<FormRender>>(
             paths.extend(banner_renderer::texture_paths(data));
         }
     }
-    let drawn = Textures {
-        assets: textures.assets,
-        set: textures.set,
-        atlas: &atlas,
-        images: art.images,
+    {
+        let drawn = Textures {
+            assets: textures.assets,
+            set: textures.set,
+            atlas: &atlas,
+            images: art.images,
+        }
+        .atlas_keys(paths.into_iter());
+        atlas.require(drawn.iter().map(std::ops::Deref::deref));
     }
-    .atlas_keys(paths.into_iter());
-    atlas.require(drawn.iter().map(String::as_str));
     Some(render)
 }
 

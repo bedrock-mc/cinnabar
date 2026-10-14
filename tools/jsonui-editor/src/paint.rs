@@ -225,7 +225,7 @@ impl Painter<'_, '_> {
                     align: *align,
                     scale: *scale,
                     localize: *localize,
-                    options: options.clone(),
+                    options,
                 };
                 self.text(text, dest, clip, &style);
             }

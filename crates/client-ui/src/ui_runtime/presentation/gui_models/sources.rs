@@ -1,6 +1,6 @@
 //! Texture face addresses and modulation preserve original GUI mesh geometry.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use assets::{BlockFace, BlockVisualId, IconSprite, NetworkIdMode, RuntimeAssets};
 use ui::UiMesh;
@@ -133,9 +133,109 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
     .map(Arc::new)
 }
 
+/// Tinted and glinting copies of model meshes, reused while frames keep drawing them.
+#[derive(Default)]
+pub(super) struct ModulatedMeshes {
+    /// By source mesh address, tint and glint.
+    entries: HashMap<(usize, [u8; 4], bool), ModulatedMesh>,
+}
+
+struct ModulatedMesh {
+    /// Keeps the source allocation alive, so its address keys no other mesh.
+    source: Arc<UiMesh>,
+    mesh: Option<Arc<UiMesh>>,
+    drawn: bool,
+}
+
+impl ModulatedMeshes {
+    /// [`modulated`] for `mesh`, sharing the copy made for the same source, tint and glint.
+    pub(super) fn get(
+        &mut self,
+        mesh: &Arc<UiMesh>,
+        color: [u8; 4],
+        glint: bool,
+    ) -> Option<Arc<UiMesh>> {
+        if color == [255; 4] && !glint {
+            return modulated(mesh, color, glint);
+        }
+        let entry = self
+            .entries
+            .entry((Arc::as_ptr(mesh).addr(), color, glint))
+            .and_modify(|entry| {
+                if !Arc::ptr_eq(&entry.source, mesh) {
+                    *entry = ModulatedMesh::new(mesh, color, glint);
+                }
+            })
+            .or_insert_with(|| ModulatedMesh::new(mesh, color, glint));
+        entry.drawn = true;
+        entry.mesh.clone()
+    }
+
+    /// Forgets the copies no frame drew since the last call.
+    pub(super) fn retain_drawn(&mut self) {
+        self.entries
+            .retain(|_, entry| std::mem::replace(&mut entry.drawn, false));
+    }
+}
+
+impl ModulatedMesh {
+    fn new(source: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Self {
+        Self {
+            source: Arc::clone(source),
+            mesh: modulated(source, color, glint),
+            drawn: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{SheetCoverage, normalize_sheet_alpha, sheet_coverage};
+    use std::sync::Arc;
+
+    use super::{ModulatedMeshes, SheetCoverage, modulated, normalize_sheet_alpha, sheet_coverage};
+
+    #[test]
+    fn modulated_meshes_share_copies_until_source_tint_or_glint_changes() {
+        let icon = ui::IconRef {
+            page: 3,
+            uv: [0, 0, 16, 16],
+            glint: false,
+        };
+        let source = super::super::item_gui::cube([icon; 6]).unwrap();
+        let other = super::super::item_gui::cube([icon; 6]).unwrap();
+        let faded = [255, 255, 255, 128];
+        let mut meshes = ModulatedMeshes::default();
+        let first = meshes.get(&source, faded, false).unwrap();
+        assert_eq!(first, modulated(&source, faded, false).unwrap());
+        assert!(Arc::ptr_eq(
+            &first,
+            &meshes.get(&source, faded, false).unwrap()
+        ));
+        let glinting = meshes.get(&source, faded, true).unwrap();
+        assert!(!Arc::ptr_eq(&first, &glinting));
+        assert_eq!(glinting, modulated(&source, faded, true).unwrap());
+        let tinted = meshes.get(&source, [255, 0, 0, 255], false).unwrap();
+        assert_eq!(tinted, modulated(&source, [255, 0, 0, 255], false).unwrap());
+        assert!(
+            !Arc::ptr_eq(&first, &meshes.get(&other, faded, false).unwrap()),
+            "each source mesh has its own copy"
+        );
+        assert!(Arc::ptr_eq(
+            &meshes.get(&source, [255; 4], false).unwrap(),
+            &source
+        ));
+        meshes.retain_drawn();
+        assert!(Arc::ptr_eq(
+            &first,
+            &meshes.get(&source, faded, false).unwrap()
+        ));
+        meshes.retain_drawn();
+        meshes.retain_drawn();
+        assert!(
+            !Arc::ptr_eq(&first, &meshes.get(&source, faded, false).unwrap()),
+            "a copy no frame drew is made again"
+        );
+    }
 
     #[test]
     fn coverage_separates_opaque_cut_out_and_translucent_sheets() {

@@ -790,7 +790,7 @@ impl Canvas<'_> {
                 align: *align,
                 scale: *scale,
                 localize: *localize,
-                options: options.clone(),
+                options,
             };
             return self.text(text, dest, clip, style);
         }

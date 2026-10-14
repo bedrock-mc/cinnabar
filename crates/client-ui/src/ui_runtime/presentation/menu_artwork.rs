@@ -91,13 +91,20 @@ impl ArtworkSet {
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
             && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
-            && self.oversized.len() == other.oversized.len()
-            && self
-                .oversized
-                .iter()
-                .zip(&other.oversized)
-                .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+            && same_engine_textures(&self.oversized, &other.oversized)
     }
+}
+
+/// Whether two lists name the same engine textures, by key and payload, in order.
+pub(super) fn same_engine_textures(
+    left: &[(String, Arc<[u8]>)],
+    right: &[(String, Arc<[u8]>)],
+) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
 }
 
 struct Request {

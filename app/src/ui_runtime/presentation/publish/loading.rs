@@ -23,6 +23,7 @@ pub(super) struct LoadingObservation {
 
 pub(super) fn prepare_loading(
     client_world: &mut ClientWorld,
+    fatal_error: &mut Option<String>,
     presentation: &mut UiPresentationRuntime,
     runtime: &UiRuntime,
     diagnostics: &mut VisibilityDiagnosticsInput,
@@ -122,7 +123,7 @@ pub(super) fn prepare_loading(
             match client_world.dimension_transfer.finish_presentation(network) {
                 Ok(queued) => queued,
                 Err(error) => {
-                    record_transfer_send_error(client_world, error);
+                    record_transfer_send_error(fatal_error, error);
                     false
                 }
             }
@@ -146,12 +147,9 @@ pub(super) fn prepare_loading(
     });
 }
 
-fn record_transfer_send_error(client_world: &mut ClientWorld, error: PacketSendError) {
+fn record_transfer_send_error(fatal_error: &mut Option<String>, error: PacketSendError) {
     if error.is_closed() {
-        record_fatal_error(
-            &mut client_world.fatal_error,
-            format!("dimension transfer: {error}"),
-        );
+        record_fatal_error(fatal_error, format!("dimension transfer: {error}"));
     }
 }
 
