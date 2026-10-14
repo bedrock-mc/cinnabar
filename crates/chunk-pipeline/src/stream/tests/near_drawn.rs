@@ -105,7 +105,7 @@ fn near_drawn_columns_always_have_published_meshes() {
                     .unwrap();
                 complete_pending_decode_jobs(&mut stream);
             }
-            1 | 2 => {
+            action @ (1 | 2) => {
                 let column = ChunkKey::new(0, x, 0);
                 let dirty: Vec<(SubChunkKey, u64, Instant)> = stream
                     .resident
@@ -118,9 +118,15 @@ fn near_drawn_columns_always_have_published_meshes() {
                             .map(|dirty| (*key, dirty.revision, dirty.since))
                     })
                     .collect();
-                if let Some(&(key, revision, since)) =
-                    dirty.get(next(dirty.len().max(1) as u64) as usize)
-                {
+                // A column holds dozens of sections, so single uploads alone never finish one
+                // between resends and evictions; whole-column uploads let some complete.
+                let uploads = if action == 1 {
+                    let pick = next(dirty.len().max(1) as u64) as usize;
+                    dirty.get(pick..=pick).unwrap_or_default()
+                } else {
+                    &dirty[..]
+                };
+                for &(key, revision, since) in uploads {
                     stream.acknowledge_mesh_upload(key, revision, since, Instant::now());
                 }
             }

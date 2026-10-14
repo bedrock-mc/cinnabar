@@ -3,6 +3,7 @@ use crate::shader_source;
 // Every shader validates, not just parses: naga's parser accepts colliding varying locations
 // and reserved identifiers that fail pipeline creation at runtime and silently skip the pass.
 
+use crate::motion_blur_shader;
 use crate::nametag_shader;
 use crate::ui_shader;
 
@@ -159,6 +160,9 @@ fn every_shader_parses_and_validates() {
                 panic!("UI shader constructor must produce WGSL");
             };
             standalone(&source)
+        } else if name == "motion_blur.wgsl" {
+            // The production constructor injects the shared motion tile size.
+            standalone(&motion_blur_shader::source(&raw, false))
         } else if name == "transparent_terrain.wesl" {
             // Composes the liquid and model modules, whose shared names only the composer resolves.
             shader_source::composed(&raw, &[])

@@ -102,6 +102,12 @@ impl ContainerIdentity {
             dynamic_id: None,
         }
     }
+
+    /// An omitted or zero-filled descriptor; its owning legacy window must disambiguate it.
+    #[must_use]
+    pub const fn has_legacy_default_descriptor(self) -> bool {
+        matches!(self.slot_type, None | Some(0)) && matches!(self.dynamic_id, None | Some(0))
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

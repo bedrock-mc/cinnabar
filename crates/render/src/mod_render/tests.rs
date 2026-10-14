@@ -116,6 +116,23 @@ fn frame_uniform_packs_view_and_params() {
     );
 }
 
+/// Pass and Bevy pipelines compile on several pool threads at once, each inside its own error
+/// scope; a scope left open on another thread must not reorder this thread's pops.
+#[test]
+fn compile_error_scopes_are_isolated_per_thread() {
+    let (app, _) = fixture::app();
+    let device = app
+        .world()
+        .resource::<bevy::render::renderer::RenderDevice>()
+        .wgpu_device()
+        .clone();
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    std::thread::scope(|threads| {
+        threads.spawn(|| std::mem::forget(device.push_error_scope(wgpu::ErrorFilter::Validation)));
+    });
+    assert!(bevy::tasks::block_on(scope.pop()).is_none());
+}
+
 #[test]
 fn pass_pipelines_compile_for_each_view_format_without_blending() {
     let (mut app, _) = fixture::app();

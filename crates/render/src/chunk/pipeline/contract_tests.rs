@@ -220,6 +220,11 @@ fn solid_cube_pipeline_culls_back_faces_without_fragment_discards() {
             expected.primitive.cull_mode = solid.primitive.cull_mode;
             expected.fragment.as_mut().unwrap().entry_point = fragment.entry_point.clone();
             expected.multisample.alpha_to_coverage_enabled = false;
+            // Coverage specializes both stages, so solid drops the definition from each.
+            expected
+                .vertex
+                .shader_defs
+                .retain(|definition| definition != &crate::alpha_coverage::SHADER_DEF.into());
             expected
                 .fragment
                 .as_mut()
