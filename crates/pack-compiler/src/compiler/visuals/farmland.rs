@@ -1,4 +1,5 @@
 use super::super::*;
+use assets::facts::pack::PackTexture as T;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_farmland_name(name: &str) -> bool {
@@ -93,8 +94,12 @@ pub(in crate::compiler) fn farmland_inventory_is_exact(records: &[RegistryRecord
 pub(in crate::compiler) fn farmland_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 3]> {
-    if pack.blocks.get_exact_side_caps("farmland")?
-        != ["farmland_side", "farmland_side", "farmland"]
+    if pack.blocks.get_exact_side_caps(T::Farmland.key())?
+        != [
+            T::FarmlandSide.key(),
+            T::FarmlandSide.key(),
+            T::Farmland.key(),
+        ]
         || pack.terrain.get_exact_farmland_side()? != "textures/blocks/dirt"
     {
         return None;
@@ -104,8 +109,8 @@ pub(in crate::compiler) fn farmland_material_descriptors(
     if dry != ("textures/blocks/farmland_dry", 1)
         || wet != ("textures/blocks/farmland_wet", 0)
         || pack.flipbooks.iter().any(|flipbook| {
-            flipbook.atlas_tile.as_ref() == "farmland"
-                || flipbook.atlas_tile.as_ref() == "farmland_side"
+            flipbook.atlas_tile.as_ref() == T::Farmland.key()
+                || flipbook.atlas_tile.as_ref() == T::FarmlandSide.key()
                 || matches!(
                     flipbook.texture_path.as_ref(),
                     "textures/blocks/dirt"
@@ -118,9 +123,9 @@ pub(in crate::compiler) fn farmland_material_descriptors(
     }
     Some(
         [
-            ("farmland_side", "textures/blocks/dirt", 0),
-            ("farmland", "textures/blocks/farmland_wet", 0),
-            ("farmland", "textures/blocks/farmland_dry", 1),
+            (T::FarmlandSide.key(), "textures/blocks/dirt", 0),
+            (T::Farmland.key(), "textures/blocks/farmland_wet", 0),
+            (T::Farmland.key(), "textures/blocks/farmland_dry", 1),
         ]
         .map(|(key, path, state_variant)| {
             (
@@ -142,9 +147,9 @@ pub(in crate::compiler) fn farmland_source_alpha_is_exact(root: &Path, pack: &Pa
         return false;
     }
     [
-        ("farmland_side", "textures/blocks/dirt"),
-        ("farmland", "textures/blocks/farmland_wet"),
-        ("farmland", "textures/blocks/farmland_dry"),
+        (T::FarmlandSide.key(), "textures/blocks/dirt"),
+        (T::Farmland.key(), "textures/blocks/farmland_wet"),
+        (T::Farmland.key(), "textures/blocks/farmland_dry"),
     ]
     .into_iter()
     .all(|(key, source)| {

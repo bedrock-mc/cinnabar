@@ -48,3 +48,6 @@ pub use render::{
     BlockRenderFact, BlockRenderKind, BlockRenderRoute, BlockRenderTint, PortalAxis,
     block_render_fact,
 };
+
+/// Pack texture selectors and native presentation contracts checked against pinned inputs.
+pub mod pack;

@@ -22,9 +22,18 @@ fn pose(record: &RegistryRecord) -> Option<(u8, bool, bool)> {
         return None;
     }
     Some((
-        super::state::exact_tagged_int(state.get("direction")?, 3)? as u8,
-        super::state::exact_tagged_byte(state.get("attached_bit")?, 1)? != 0,
-        super::state::exact_tagged_byte(state.get("powered_bit")?, 1)? != 0,
+        super::state::exact_tagged_int(
+            state.get(assets::facts::BlockProperty::Direction.name())?,
+            3,
+        )? as u8,
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::AttachedBit.name())?,
+            1,
+        )? != 0,
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::PoweredBit.name())?,
+            1,
+        )? != 0,
     ))
 }
 

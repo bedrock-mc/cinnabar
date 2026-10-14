@@ -1,5 +1,6 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_cactus_name(name: &str) -> bool {
@@ -13,7 +14,7 @@ pub(in crate::compiler) fn exact_cactus_age(record: &RegistryRecord) -> Option<u
     if state.len() != 1 {
         return None;
     }
-    let age = exact_tagged_int(state.get("age")?, 15)?;
+    let age = exact_tagged_int(state.get(assets::facts::BlockProperty::Age.name())?, 15)?;
     let mask = 1 << (ModelStateField::Growth as u8 - 1);
     if record.model_state.mask() != mask
         || record.model_state.get(ModelStateField::Growth) != Some(age)
@@ -69,14 +70,19 @@ pub(in crate::compiler) fn cactus_inventory_is_exact(records: &[RegistryRecord])
 pub(in crate::compiler) fn cactus_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 3]> {
-    if pack.blocks.get_exact_side_caps("cactus")? != ["cactus_side", "cactus_bottom", "cactus_top"]
+    if pack.blocks.get_exact_side_caps(B::Cactus.bare())?
+        != [
+            T::CactusSide.key(),
+            T::CactusBottom.key(),
+            T::CactusTop.key(),
+        ]
     {
         return None;
     }
     let routes = [
-        ("cactus_side", "textures/blocks/cactus_side"),
-        ("cactus_bottom", "textures/blocks/cactus_bottom"),
-        ("cactus_top", "textures/blocks/cactus_top"),
+        (T::CactusSide.key(), "textures/blocks/cactus_side"),
+        (T::CactusBottom.key(), "textures/blocks/cactus_bottom"),
+        (T::CactusTop.key(), "textures/blocks/cactus_top"),
     ];
     let mut descriptors = Vec::with_capacity(3);
     for (key, expected_path) in routes {

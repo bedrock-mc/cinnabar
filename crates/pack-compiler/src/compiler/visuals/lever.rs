@@ -4,6 +4,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::pack::PackBlock as B;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
@@ -29,7 +30,9 @@ fn pose(record: &RegistryRecord) -> Option<(u8, bool)> {
     if state.len() != 2 {
         return None;
     }
-    let direction = match super::state::exact_tagged_string(state.get("lever_direction")?)? {
+    let direction = match super::state::exact_tagged_string(
+        state.get(assets::facts::BlockProperty::LeverDirection.name())?,
+    )? {
         "down_east_west" => 0,
         "east" => 1,
         "west" => 2,
@@ -42,7 +45,10 @@ fn pose(record: &RegistryRecord) -> Option<(u8, bool)> {
     };
     Some((
         direction,
-        super::state::exact_tagged_byte(state.get("open_bit")?, 1)? != 0,
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::OpenBit.name())?,
+            1,
+        )? != 0,
     ))
 }
 
@@ -52,7 +58,7 @@ pub(in crate::compiler) fn base_descriptor(
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
     let mut base = record.clone();
-    base.name = "minecraft:cobblestone_wall".into();
+    base.name = B::CobblestoneWall.identifier().into();
     base.canonical_state = "{}".into();
     let key = resolve_texture_key(&pack.blocks, &base, BlockFace::Up).key?;
     let path = pack.terrain.get(&key)?;

@@ -317,7 +317,7 @@ pub(in crate::compiler) fn neutral_material(
     }
     records
         .iter()
-        .find(|record| record.name.as_ref() == "minecraft:stone")
+        .find(|record| record.name.as_ref() == assets::facts::pack::PackBlock::Stone.identifier())
         .and_then(|record| descriptor_for(fallback, pack, record, BlockFace::Up))
         .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
         .ok_or_else(|| AssetError::InvalidCompiledAssets {
