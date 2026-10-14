@@ -87,25 +87,78 @@ fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage(
 #[test]
 fn production_motion_fragment_fits_default_device_interface_limits() {
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
-    for (defines, samples) in [
-        (&["ACTOR_MOTION"][..], 1),
-        (&["ACTOR_MOTION", "ALPHA_TO_COVERAGE"][..], 4),
-    ] {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("production actor motion interface"),
-            source: wgpu::ShaderSource::Wgsl(shader_source(defines).into()),
+    let layouts: Vec<_> = [
+        actor_bind_group_layout(),
+        crate::lighting::layout(),
+        layout(),
+    ]
+    .into_iter()
+    .map(|descriptor| {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("production actor motion binding contract"),
+            entries: &descriptor.entries,
+        })
+    })
+    .collect();
+    let slots: Vec<_> = layouts.iter().map(Some).collect();
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("production actor motion pipeline layout"),
+        bind_group_layouts: &slots,
+        ..Default::default()
+    });
+    for msaa in [Msaa::Off, Msaa::Sample4] {
+        let material =
+            assets::EntityRenderMaterial::Default.word(Some(assets::EntityRenderMaterialState {
+                alpha_test: true,
+                ..Default::default()
+            }));
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        MotionSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa,
+                    hdr: false,
+                    enhanced: false,
+                    material,
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        let names = |values: &[bevy::shader::ShaderDefVal]| {
+            values
+                .iter()
+                .filter_map(|value| {
+                    if let bevy::shader::ShaderDefVal::Bool(name, true) = value {
+                        Some(name.as_str())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let vertex = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("production actor motion vertex specialization"),
+            source: wgpu::ShaderSource::Wgsl(
+                shader_source(&names(&descriptor.vertex.shader_defs)).into(),
+            ),
+        });
+        let fragment = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("production actor motion fragment specialization"),
+            source: wgpu::ShaderSource::Wgsl(
+                shader_source(&names(&descriptor.fragment.as_ref().unwrap().shader_defs)).into(),
+            ),
         });
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("default actor motion limits"),
-            layout: None,
+            layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &vertex,
                 entry_point: Some("actor_vertex"),
                 compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &fragment,
                 entry_point: Some("actor_motion_fragment"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
@@ -117,8 +170,8 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
             primitive: Default::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
-                count: samples,
-                alpha_to_coverage_enabled: samples > 1,
+                count: msaa.samples(),
+                alpha_to_coverage_enabled: msaa.samples() > 1,
                 ..Default::default()
             },
             multiview_mask: None,
