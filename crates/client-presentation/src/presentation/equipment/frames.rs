@@ -21,6 +21,7 @@ const REST: FirstPersonHand = FirstPersonHand {
     swing: 0.0,
     equip: 1.0,
     consume: None,
+    aspect: 1.0,
 };
 
 enum Held {

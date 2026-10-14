@@ -833,6 +833,7 @@ const REST: FirstPersonHand = FirstPersonHand {
     swing: 0.0,
     equip: 1.0,
     consume: None,
+    aspect: 1.0,
 };
 
 /// Camera-space position of texel corner `(column, row)` of a 16-texel held sprite.

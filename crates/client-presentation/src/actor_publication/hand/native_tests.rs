@@ -295,6 +295,7 @@ pub(super) fn hand_source_for_mode(
             artwork,
             motion: Mat4::IDENTITY,
             sampling_camera: Some(([0.0; 2], [0.0; 3])),
+            aspect: 1.0,
         },
         java_mode,
         equipment,
@@ -870,6 +871,7 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
             artwork: &artwork,
             motion: Mat4::IDENTITY,
             sampling_camera: Some(([0.0; 2], [0.0; 3])),
+            aspect: 1.0,
         };
         let hand = hand_progress(rig.hand, None, alpha);
         let allocations = test_alloc::thread_allocations();

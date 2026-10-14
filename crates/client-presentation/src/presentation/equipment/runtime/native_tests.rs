@@ -186,6 +186,7 @@ fn texture_only_bow_uses_native_mesh_and_pack_stages_over_the_use_duration() {
         swing: 0.3,
         equip: 0.8,
         consume: None,
+        aspect: 1.0,
     };
     for (elapsed, color) in [
         (None, 80),
@@ -263,6 +264,7 @@ fn missing_bow_stage_uses_the_matching_startup_stage() {
                 swing: 0.0,
                 equip: 1.0,
                 consume: None,
+                aspect: 1.0,
             },
             render_api::DEFAULT_COMBAT_VISUALS,
             AttachableAnimationInput {
@@ -543,6 +545,7 @@ fn spears_and_tridents_keep_native_hands_in_both_views_and_reload_cleanly() {
                     swing: 0.0,
                     equip: 1.0,
                     consume: None,
+                    aspect: 1.0,
                 },
                 render_api::DEFAULT_COMBAT_VISUALS,
                 AttachableAnimationInput {
@@ -759,6 +762,7 @@ fn cube_backed_weapons_use_item_sprites_in_both_views_and_hands() {
                     swing: 0.0,
                     equip: 1.0,
                     consume: None,
+                    aspect: 1.0,
                 };
                 let native = runtime
                     .first_person_item_with_use(
@@ -890,6 +894,7 @@ fn inherited_cube_geometry_uses_the_item_icon_for_a_texture_only_overlay() {
                 swing: 0.0,
                 equip: 1.0,
                 consume: None,
+                aspect: 1.0,
             },
         )
         .unwrap();
@@ -949,6 +954,7 @@ fn missing_pack_sprite_never_falls_back_to_a_startup_cube_uv_atlas() {
                 swing: 0.0,
                 equip: 1.0,
                 consume: None,
+                aspect: 1.0,
             },
         )
         .unwrap();
@@ -1045,6 +1051,7 @@ fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
                         swing: 0.0,
                         equip: 1.0,
                         consume: None,
+                        aspect: 1.0,
                     },
                     render_api::DEFAULT_COMBAT_VISUALS,
                     AttachableAnimationInput {

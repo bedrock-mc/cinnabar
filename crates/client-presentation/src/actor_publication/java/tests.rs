@@ -516,6 +516,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                     artwork: &artwork,
                     motion: Mat4::IDENTITY,
                     sampling_camera: None,
+                    aspect: 1.0,
                 },
                 &mut equipment,
                 &mut cache,
