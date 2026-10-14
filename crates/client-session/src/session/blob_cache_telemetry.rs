@@ -37,12 +37,12 @@ pub(super) async fn send_final_blob_cache_telemetry<S: NetworkSession, P>(
     let stats = session.blob_cache_stats();
     emit_blob_cache_telemetry(stats);
     matches!(
-        tokio::time::timeout(
-            FINAL_CONTROL_FLUSH_TIMEOUT,
+        bridge::tasks::until(
             control_event_tx.send(NetworkControlEvent::BlobCacheTelemetry {
                 enabled: true,
                 stats,
             }),
+            tokio::time::sleep(FINAL_CONTROL_FLUSH_TIMEOUT),
         )
         .await,
         Ok(Ok(()))

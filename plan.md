@@ -1,3 +1,20 @@
+## Browser portability
+
+Connection framing can prepare a bounded writer for a host executor, and deadlines accept a
+host timer future. Native connections still spawn the writer on Tokio. Image work retains
+its bounded read/decode queues, pending completion and pack cancellation. A browser image
+driver runs one queued job after yielding. World jobs use the same urgent and ageing rules,
+with caller-supplied monotonic observations and retained light-solver scratch; native hosts
+keep their foreground/background threads and priority policy. Native cache-file reads and
+FreeType compilation are excluded from browser targets. Divergent fragment samples use
+explicit gradients computed before rejection.
+
+Incomplete: CI must compile the native changes and run the written regression tests. The
+browser entry, transport, timer implementation and asset source remain pending. Shared
+session/world/render clock migration and browser dependency composition still need a
+wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
+job costs remain unverified. No browser release or parity gate closes here.
+
 ## Far terrain (LOD)
 
 `far-terrain` summarises each column the server sent: the height of every cell's highest

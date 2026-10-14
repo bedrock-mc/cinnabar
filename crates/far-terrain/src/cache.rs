@@ -515,18 +515,17 @@ impl FarTerrainCache {
             if dirty.columns.is_empty() {
                 self.dirty.remove(&key);
             }
-            for (pos, column) in live {
-                if self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
-                    self.unresolved.push((pos, column));
-                }
-            }
+            // Every one moves, uncapped: they are this visit's terrain.
+            self.unresolved.extend(live);
         }
         self.entry += 1;
         self.resolving = true;
         self.requested.clear();
         self.reread.clear();
         self.compared = WORLD_VERIFY_COLUMNS;
-        disk.resolve_fresh(world, self.entry);
+        // Columns of this visit already written, or in flight before this, move on the IO
+        // thread, which handles commands in order.
+        disk.resolve_fresh(world, self.entry, namespace, self.visit_start);
     }
 
     fn stamp(&mut self) -> u64 {

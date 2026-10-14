@@ -946,6 +946,23 @@ path = "crates/launcher/src"
 forbidden_modules = ["cinnabar", "client_ui", "UiRuntime", "PlayerRuntime", "PlayerState", "NetworkHandle"]
 forbidden_crate_modules = ["ui_runtime", "presentation", "runtime", "movement", "acceptance"]
 
+# Hosts supply time and drive tasks; these owners cannot acquire browser policy or game state.
+[[module_boundaries]]
+path = "crates/simulation-clock/src/lib.rs"
+forbidden_modules = ["bevy", "tokio", "rayon", "web_sys", "wasm_bindgen"]
+
+[[module_boundaries]]
+path = "crates/bridge/src/tasks.rs"
+forbidden_modules = ["bevy", "render", "client_session", "web_sys", "wasm_bindgen"]
+
+[[module_boundaries]]
+path = "crates/ui-engine/src/atlas/jobs.rs"
+forbidden_modules = ["bevy", "wgpu", "tokio", "web_sys", "wasm_bindgen"]
+
+[[module_boundaries]]
+path = "crates/chunk-pipeline/src/jobs.rs"
+forbidden_owned_types = ["ChunkStore", "ActorStore", "WorldAuthority"]
+
 # Fixtures can be shared by tests without becoming callable from production adapters.
 [[module_boundaries]]
 path = "app/src"
@@ -1043,6 +1060,7 @@ clock_free_crates = [
     "crates/render-api",
     "crates/resource-pack",
     "crates/sim",
+    "crates/simulation-clock",
     "crates/ui",
     "crates/ui-engine",
     "crates/ui-screens",

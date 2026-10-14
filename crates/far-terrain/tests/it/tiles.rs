@@ -509,7 +509,11 @@ fn warm_joins_draw_nothing_far_inside_the_near_radius() {
         }
         let mask = NearMask::around(centre, horizon, near_radius, drawn.iter().copied());
         tiles.set_view(TileView::around(centre, &mask, near_radius, horizon));
-        tiles.update(&mut store, now);
+        // Builds finish on workers; wait until this view's far terrain is drawn.
+        test_time::eventually("this frame's far tiles build", || {
+            tiles.update(&mut store, now);
+            tiles.ready(ColumnPos::new(20, 0))
+        });
         for mesh in tiles.drawn() {
             far_tiles_seen = true;
             for column in mesh.key.columns() {
