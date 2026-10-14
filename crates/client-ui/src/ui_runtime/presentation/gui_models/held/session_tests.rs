@@ -240,7 +240,7 @@ fn preview_session_thumbnail_does_not_replace_block_or_authored_held_geometry() 
         changed
             .vertices()
             .iter()
-            .any(|vertex| vertex.style & ui::UI_STYLE_GLINT != 0)
+            .any(|vertex| vertex.style_flags & u16::from(ui::UI_STYLE_GLINT) != 0)
     );
 }
 
