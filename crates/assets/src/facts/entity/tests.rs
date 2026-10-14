@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
+    for (class, expected) in [
+        (NativeEntityClass::Player, "minecraft:player"),
+        (NativeEntityClass::Tnt, "minecraft:tnt"),
+        (
+            NativeEntityClass::FireworksRocket,
+            "minecraft:fireworks_rocket",
+        ),
+    ] {
+        assert_eq!(class.identifier(), Some(expected));
+    }
+    assert_eq!(NativeEntityClass::Ordinary.identifier(), None);
+    assert_eq!(NativeEntityClass::Unresolved.identifier(), None);
+    for record in &EntityFacts::pinned().records {
+        assert_eq!(
+            record.fact.native_class == NativeEntityClass::AreaEffectCloud,
+            record.identifier.as_ref() == "minecraft:area_effect_cloud",
+            "{}",
+            record.identifier,
+        );
+    }
+}
+
+#[test]
 fn pinned_facts_preserve_classes_components_and_equipment() {
     let facts = EntityFacts::pinned();
     for actor in include_str!("../../../../protocol/data/retail_actors_1_26_50.txt").lines() {

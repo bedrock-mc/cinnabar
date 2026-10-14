@@ -166,7 +166,11 @@ impl ActorStore {
                 Some(BlockEntityView {
                     runtime_id: actor.runtime_id,
                     kind: BlockEntityKind::PrimedTnt {
-                        visual: self.items.visual_for_identifier("minecraft:tnt"),
+                        visual: self.items.visual_for_identifier(
+                            NativeEntityClass::Tnt
+                                .identifier()
+                                .expect("pinned TNT identity"),
+                        ),
                     },
                     center,
                     scale,

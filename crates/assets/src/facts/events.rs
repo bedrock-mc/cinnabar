@@ -41,6 +41,14 @@ mod tests {
     use protocol_ids::LevelEvent;
 
     #[test]
+    fn facts_migration_qualified_particle_identifiers_round_trip() {
+        for &effect in ParticleEffect::ALL {
+            assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
+            assert_eq!(ParticleEffect::from_name(effect.identifier()), Some(effect));
+        }
+    }
+
+    #[test]
     fn generated_routes_preserve_wire_selectors_and_unknown_refusals() {
         assert_eq!(
             legacy_particle_effect(1),
@@ -63,17 +71,6 @@ mod tests {
         }
         for table in [LEGACY_PARTICLES, LEVEL_PARTICLES] {
             assert!(table.windows(2).all(|pair| pair[0].0 < pair[1].0));
-        }
-    }
-
-    #[test]
-    fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
-        for effect in ParticleEffect::ALL {
-            assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
-            assert_eq!(
-                ParticleEffect::from_name(effect.identifier()),
-                Some(*effect)
-            );
         }
     }
 }

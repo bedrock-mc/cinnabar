@@ -365,7 +365,12 @@ impl ModuleObserver {
                     session: world.session,
                     dimension: world.dimension,
                     identifier: match &actor.kind {
-                        protocol::ActorKind::Player { .. } => "minecraft:player".into(),
+                        protocol::ActorKind::Player { .. } => {
+                            assets::facts::entity::NativeEntityClass::Player
+                                .identifier()
+                                .expect("pinned player identity")
+                                .into()
+                        }
                         protocol::ActorKind::Entity { identifier } => bounded_text(identifier),
                     },
                     yaw: actor.yaw,

@@ -226,6 +226,10 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     }
                     "twin" if file == "registry-policy.json" => "legacy_block",
                     "item_rules" if file == "registry-policy.json" => "retail_item",
+                    "item_icons" if file == "registry-policy.json" && path == "/presentation" => {
+                        "retail_item"
+                    }
+
                     "tag" if file == "registry-policy.json" && path.starts_with("/item_rules/") => {
                         "item_tag"
                     }
@@ -295,6 +299,14 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
         Value::Array(values) => {
             for (index, value) in values.iter().enumerate() {
                 let child = format!("{path}/{index}");
+                if file == "registry-policy.json" && path.starts_with("/presentation/dimensions/") {
+                    // Dimension names are wire-schema tokens; their fallback values are biome identities.
+                    if index == 1 {
+                        add(refs, file, &child, "biome", value.as_str().unwrap());
+                    }
+                    continue;
+                }
+
                 if (file == "registry-policy.json"
                     && path.starts_with("/item_rules/")
                     && path.ends_with("/members"))
@@ -681,6 +693,33 @@ fn an_unqualified_actor_member_cannot_disappear_from_validation() {
         refs.iter()
             .any(|reference| reference.identifier == bare && !vocabulary.contains(reference))
     );
+}
+
+#[test]
+fn facts_migration_presentation_references_use_item_block_and_biome_domains() {
+    let root = root();
+    let mut vocabulary = Vocabulary::load(&root);
+    vocabulary.domains.insert(
+        "biome".into(),
+        include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+    );
+    let document = json(&root.join("crates/asset-compiler/data/registry-policy.json"));
+    let mut collected = BTreeSet::new();
+    walk(
+        &mut collected,
+        "registry-policy.json",
+        &document["presentation"],
+        "/presentation",
+        "block",
+    );
+    for domain in ["retail_item", "block", "biome"] {
+        assert!(collected.iter().any(|reference| reference.domain == domain));
+    }
+    let errors = failures(&vocabulary, &collected, &[]);
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
 }
 
 #[test]

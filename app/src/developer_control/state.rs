@@ -165,9 +165,13 @@ fn actors(world: &World) -> Vec<Value> {
         .map(|actor| {
             let distance = Vec3::from_array(actor.position).distance(eye);
             let (kind, name) = match &actor.kind {
-                protocol::ActorKind::Player { username, .. } => {
-                    ("minecraft:player".to_owned(), Some(username.to_string()))
-                }
+                protocol::ActorKind::Player { username, .. } => (
+                    assets::facts::entity::NativeEntityClass::Player
+                        .identifier()
+                        .expect("pinned player identity")
+                        .to_owned(),
+                    Some(username.to_string()),
+                ),
                 protocol::ActorKind::Entity { identifier } => (
                     identifier.to_string(),
                     authority

@@ -1,5 +1,6 @@
 //! Item tooltip text: name, potion effects, enchantments and lore.
 
+use assets::facts::PotionForm;
 use protocol::NetworkItemStack;
 
 use super::UiRuntime;
@@ -11,25 +12,12 @@ const LORE_COLOR: [u8; 4] = [170, 0, 170, 255];
 const BENEFICIAL_EFFECT_COLOR: [u8; 4] = [85, 85, 255, 255];
 const HARMFUL_EFFECT_COLOR: [u8; 4] = [255, 85, 85, 255];
 
-/// One potion item form: its name key suffix and effect duration divisor.
-struct PotionForm {
-    name_suffix: &'static str,
-    duration_divisor: u32,
-}
-
 /// The potion form of a vanilla potion item identifier.
 fn potion_form(identifier: &str) -> Option<PotionForm> {
-    let (name_suffix, duration_divisor) = match identifier {
-        "minecraft:potion" => (".name", 1),
-        "minecraft:splash_potion" => (".splash.name", 1),
-        // Lingering clouds apply a quarter of the drinkable duration.
-        "minecraft:lingering_potion" => (".linger.name", 4),
-        _ => return None,
-    };
-    Some(PotionForm {
-        name_suffix,
-        duration_divisor,
-    })
+    assets::facts::ItemFacts::builtin()
+        .ok()?
+        .by_identifier(identifier)?
+        .potion_form
 }
 
 /// The vanilla potion type and form of a potion item stack.
@@ -73,7 +61,7 @@ fn potion_effect_lines(
         if let Some(ticks) = effect.duration_ticks {
             text.push_str(&format!(
                 " ({})",
-                duration_text(ticks / form.duration_divisor)
+                duration_text(ticks / form.duration_divisor())
             ));
         }
         let harmful = facts.is_some_and(|facts| facts.harmful);
@@ -115,7 +103,8 @@ pub(crate) fn default_name(runtime: &UiRuntime, identifier: &str, metadata: u32)
         .and_then(|(descriptor, form)| {
             runtime.translation(&format!(
                 "potion.{}{}",
-                descriptor.name_key, form.name_suffix
+                descriptor.name_key,
+                form.name_suffix()
             ))
         })
         .map_or_else(

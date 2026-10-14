@@ -4953,6 +4953,46 @@
       "traits": [
         "spyglass"
       ]
+    },
+    {
+      "id": "ui-form-writable_book",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:writable_book"
+        ]
+      },
+      "book_editable": true
+    },
+    {
+      "id": "ui-form-potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:potion"
+        ]
+      },
+      "potion_form": "drinkable"
+    },
+    {
+      "id": "ui-form-splash_potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:splash_potion"
+        ]
+      },
+      "potion_form": "splash"
+    },
+    {
+      "id": "ui-form-lingering_potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:lingering_potion"
+        ]
+      },
+      "potion_form": "lingering"
     }
   ],
   "placement_rules": [
@@ -5775,6 +5815,16 @@
       "facts": {
         "fish_animation": true
       }
+    },
+    {
+      "id": "class-AreaEffectCloud",
+      "status": "provisional",
+      "members": [
+        "minecraft:area_effect_cloud"
+      ],
+      "facts": {
+        "native_class": "AreaEffectCloud"
+      }
     }
   ],
   "block_entity_rules": [
@@ -6586,6 +6636,68 @@
     "VanillaEntity": {
       "Player": "minecraft:player"
     }
+  },
+  "presentation": {
+    "status": "provisional",
+    "item_icons": {
+      "Featured": "minecraft:compass",
+      "Realm": "minecraft:ender_pearl",
+      "Friend": "minecraft:heart_of_the_sea",
+      "Book": "minecraft:book",
+      "Construction": "minecraft:brick",
+      "Nature": "minecraft:oak_sapling",
+      "Equipment": "minecraft:iron_sword",
+      "Items": "minecraft:stick",
+      "Search": "minecraft:compass",
+      "Overworld": "minecraft:grass_block",
+      "Nether": "minecraft:netherrack",
+      "End": "minecraft:end_stone"
+    },
+    "dimensions": {
+      "0": [
+        "minecraft:overworld",
+        "minecraft:plains"
+      ],
+      "1": [
+        "minecraft:nether",
+        "minecraft:hell"
+      ],
+      "2": [
+        "minecraft:the_end",
+        "minecraft:the_end"
+      ]
+    },
+    "ambient_blocks": {
+      "Fire": [
+        "minecraft:fire"
+      ],
+      "Portal": [
+        "minecraft:portal"
+      ]
+    },
+    "sign_suffixes": [
+      "_hanging_sign",
+      "hanging_sign",
+      "_standing_sign",
+      "standing_sign",
+      "_wall_sign",
+      "wall_sign",
+      "_sign"
+    ],
+    "sign_wood_aliases": {
+      "": "",
+      "oak": "",
+      "sign": "",
+      "dark_oak": "darkoak",
+      "darkoak": "darkoak"
+    },
+    "sign_wood_first": [
+      "mangrove",
+      "bamboo",
+      "cherry",
+      "pale_oak",
+      "poplar"
+    ]
   },
   "pack_rules": {
     "textures": {
