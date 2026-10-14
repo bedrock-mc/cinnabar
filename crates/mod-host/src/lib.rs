@@ -1,8 +1,8 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+mod declarations;
 mod grants;
-mod requested_grants;
-pub use requested_grants::{REQUESTED_GRANTS_SECTION, requested_grants};
+pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod callback_budget;
@@ -70,6 +70,7 @@ pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
     + mod_api::MAX_MENU_LOGO_BYTES
     + mod_api::MAX_MENU_TITLE_BYTES
     + mod_api::MAX_NOTICES_BYTES
+    + mod_api::MAX_ICON_BYTES
     + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;

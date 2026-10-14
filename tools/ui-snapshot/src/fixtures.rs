@@ -1,6 +1,7 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod minecraft_import;
+mod mods;
 
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ pub enum Fixture {
 const SIZE: [u32; 2] = [1280, 720];
 const GUI_SCALE: u8 = 2;
 const SMALL_SIZE: [u32; 2] = [360, 240];
+/// Fits an expanded card above two collapsed ones.
+const TALL_SIZE: [u32; 2] = [1280, 900];
 
 pub const STATES: &[State] = &[
     State {
@@ -95,6 +98,18 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_keyboard,
+    },
+    State {
+        name: "settings-mods",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::declared,
+    },
+    State {
+        name: "settings-mods-undeclared",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::undeclared,
     },
 ];
 

@@ -398,3 +398,37 @@ fn world_thumbnails_are_packed_from_memory_on_the_worlds_tab() {
         "other screens leave atlas room to theirs"
     );
 }
+
+/// Mods-tab icons pack from their validated source under the key each card draws.
+#[test]
+fn mod_icons_are_packed_from_memory_on_the_mods_tab() {
+    use launcher::menu::{MenuScreen, settings_sections::SettingSection};
+    use launcher::mods::{InstalledMod, Library, Snapshot};
+    let icon = |id| InstalledMod {
+        id,
+        file: format!("{id}.wasm"),
+        bytes: 1,
+        permissions: Vec::new(),
+        metadata: ui::mod_metadata::ModMetadata {
+            icon: (id == 1).then(|| Arc::from(&b"png"[..])),
+            ..Default::default()
+        },
+    };
+    let mut view = launcher::menu::MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Settings;
+    view.settings_section = SettingSection::Mods.definition().index;
+    view.mods = Arc::new(Snapshot {
+        library: Library {
+            installed: vec![icon(1), icon(2)],
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let keys: Vec<_> = view_images(&view, &[])
+        .into_iter()
+        .map(|(key, _)| key)
+        .collect();
+    assert_eq!(keys, [icon(1).icon_key().unwrap()]);
+    view.settings_section = SettingSection::Video.definition().index;
+    assert!(view_images(&view, &[]).is_empty());
+}

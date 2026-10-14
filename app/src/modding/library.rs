@@ -275,7 +275,6 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
         .filter_map(|entry| {
             let path = entry.path();
             let file = path.file_name()?.to_str()?.to_owned();
-            let name = path.file_stem()?.to_str()?.to_owned();
             let metadata = fs::symlink_metadata(&path)
                 .ok()
                 .filter(fs::Metadata::is_file)?;
@@ -301,10 +300,10 @@ fn installed(mods: &Path) -> Vec<(InstalledMod, PathBuf)> {
                 let id = u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"));
                 let item = InstalledMod {
                     id,
-                    name,
                     file,
                     bytes: metadata.len(),
                     permissions: Vec::new(),
+                    metadata: Default::default(),
                 };
                 (item, path)
             })
@@ -327,11 +326,6 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
         entries.push((
             InstalledMod {
                 id: selection::component_id(path),
-                name: path
-                    .file_stem()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned(),
                 file: path
                     .file_name()
                     .unwrap_or_default()
@@ -339,13 +333,15 @@ fn include_active(entries: &mut Vec<(InstalledMod, PathBuf)>, current: &[selecti
                     .into_owned(),
                 bytes: 0,
                 permissions: Vec::new(),
+                metadata: Default::default(),
             },
             path.clone(),
         ));
     }
 }
 
-/// Builds all card permissions and statuses from the host's canonical registration and grants.
+/// Builds card metadata, permissions and statuses from each component's declarations and the
+/// host's canonical registration and grants.
 fn scan(mods: &Path, registration: &Path, message: String) -> Library {
     let mut installed = installed(mods);
     let current = registered(registration);
@@ -368,7 +364,11 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
             .iter()
             .find(|current| same_path(path, &current.entry.component))
             .map(|current| &current.entry.grants);
-        let requested = mod_host::requested_grants(path).ok().flatten();
+        let (requested, metadata) = match mod_host::declarations(path) {
+            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
+            Err(_) => (None, Default::default()),
+        };
+        item.metadata = metadata;
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {

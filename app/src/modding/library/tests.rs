@@ -750,7 +750,7 @@ fn active_cards_remain_actionable_after_their_source_disappears() {
         let (active, available) = library.groups();
         assert_eq!(active.len(), 1);
         assert!(available.is_empty());
-        assert_eq!(active[0].name, "zoom");
+        assert_eq!(active[0].name(), "zoom");
         assert_eq!(active[0].file, "zoom.wasm");
         let id = active[0].id;
         assert_ne!(id, original_id);
@@ -833,4 +833,31 @@ fn a_missing_sources_card_cannot_retarget_a_replacement_file() {
     }
     assert!(registered(&registration)[0].entry.enabled);
     assert_eq!(fs::read(component).unwrap(), b"replacement");
+}
+
+/// Cards carry declared metadata and fall back to the file stem when it is absent.
+#[test]
+fn scanned_cards_show_declared_metadata_or_the_file_stem() {
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    let registration = directory.path().join("config");
+    fs::create_dir_all(&mods).unwrap();
+    let mut declared = wat::parse_str("(component)").unwrap();
+    let section = [&[7u8][..], b"version", b"1.2.0"].concat();
+    declared.extend([0, section.len() as u8]);
+    declared.extend(section);
+    fs::write(
+        mods.join("plain.wasm"),
+        wat::parse_str("(component)").unwrap(),
+    )
+    .unwrap();
+    fs::write(mods.join("zoom.wasm"), declared).unwrap();
+    let library = scan(&mods, &registration, String::new());
+    let [plain, zoom] = library.installed.as_slice() else {
+        panic!("two installed cards");
+    };
+    assert_eq!(plain.name(), "plain");
+    assert_eq!(plain.metadata, Default::default());
+    assert_eq!(zoom.name(), "zoom");
+    assert_eq!(zoom.metadata.version.as_deref(), Some("1.2.0"));
 }
