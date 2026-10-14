@@ -291,12 +291,24 @@ async fn blob_cache_demand_read_promotes_body_without_growing_memory() {
         store.flush(batch(old, 1), HashMap::new()).unwrap();
         store.flush(batch(recent, 2), HashMap::new()).unwrap();
     }
+    {
+        let store = Store::open(&path, CLIENT_BLOB_DISK_CAP_BYTES).unwrap();
+        assert_eq!(store.index[&recent_hash].stamp, 2);
+        assert_eq!(store.read(recent_hash).unwrap().unwrap().as_ref(), recent);
+    }
     let limits = BlobCacheLimits {
         trim_trigger_bytes: recent.len(),
         trim_floor_bytes: recent.len(),
     };
     let (cache, shared) = cache_at(&path, CLIENT_BLOB_DISK_CAP_BYTES, limits);
-    test_time::eventually("most recent body warmed", || cache.contains(recent_hash));
+    ready(&shared);
+    test_time::eventually("most recent body warmed", || {
+        let mailbox = shared.mailbox.lock().unwrap();
+        assert!(!mailbox.failed, "warming failed: {mailbox:?}");
+        assert!(mailbox.keys.contains(&recent_hash), "warm body was removed");
+        drop(mailbox);
+        cache.contains(recent_hash)
+    });
     assert!(!cache.contains(old_hash));
     let (done, receiver) = oneshot::channel();
     {

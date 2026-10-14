@@ -142,14 +142,21 @@ fn service_reads(store: &mut Store, cache: &WeakClientBlobCache, shared: &Shared
     };
     let serviced = !requests.is_empty();
     for request in requests {
-        if !request.done.is_closed() {
-            for hash in request.hashes {
-                load(store, cache, shared, hash)?;
-            }
-            let _ = request.done.send(());
-        }
+        service_request(request, |hash| load(store, cache, shared, hash))?;
     }
     Ok(serviced)
+}
+
+/// Stops a request between loads when its caller no longer waits for the prefetched bodies.
+fn service_request(request: ReadRequest, mut load: impl FnMut(u64) -> Result<bool>) -> Result<()> {
+    for hash in request.hashes {
+        if request.done.is_closed() {
+            break;
+        }
+        load(hash)?;
+    }
+    let _ = request.done.send(());
+    Ok(())
 }
 
 /// Validates before admitting a disk body and removes corrupt records without session errors.
@@ -182,5 +189,29 @@ fn load(
             Ok(false)
         }
         Err(_) => Ok(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Expiration during the first load prevents all remaining reads without relying on timing.
+    #[test]
+    fn blob_cache_prefetch_stops_when_request_expires_during_load() {
+        let (done, receiver) = oneshot::channel();
+        let request = ReadRequest {
+            hashes: vec![1, 2, 3],
+            done,
+        };
+        let mut receiver = Some(receiver);
+        let mut loaded = Vec::new();
+        service_request(request, |hash| {
+            loaded.push(hash);
+            drop(receiver.take());
+            Ok(true)
+        })
+        .unwrap();
+        assert_eq!(loaded, [1]);
     }
 }
