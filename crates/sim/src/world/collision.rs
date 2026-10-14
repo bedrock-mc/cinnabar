@@ -126,6 +126,19 @@ impl<'a> PaletteWorld<'a> {
                 }
             }
         }
+        if let Some(colliders) = &self.actor_colliders {
+            instances.extend(
+                colliders
+                    .iter()
+                    .copied()
+                    .filter(|shape| shape.intersects(query))
+                    .map(|shape| CollisionInstance {
+                        shape,
+                        block: None,
+                        runtime_id: None,
+                    }),
+            );
+        }
         Ok(CollisionQuery {
             value: instances,
             identity,

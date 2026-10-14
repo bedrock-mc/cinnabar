@@ -310,7 +310,34 @@ impl SettingsOptions {
     }
 }
 
-/// Displays USB controls in the keyboard layout's common desktop notation.
+impl SettingsOptions {
+    /// Uses the most recently observed layout label, falling back to the physical name.
+    pub fn key_name(&self, control: PhysicalControl) -> String {
+        if let PhysicalControl::KeyboardUsage(usage) = control
+            && let Some(label) = self.key_labels.get(&usage)
+        {
+            return label.clone();
+        }
+        key_name(control)
+    }
+
+    /// Records a printable layout character without changing any saved binding.
+    pub fn set_key_label(&mut self, usage: u16, text: &str) {
+        if !matches!(usage, 0x04..=0x27 | 0x2d..=0x38 | 0x64) {
+            return;
+        }
+        let mut chars = text.chars();
+        let Some(character) = chars.next() else {
+            return;
+        };
+        if chars.next().is_some() || character.is_control() || character.is_whitespace() {
+            return;
+        }
+        self.key_labels.insert(usage, text.to_uppercase());
+    }
+}
+
+/// Displays the physical USB control when no layout label is available.
 pub fn key_name(control: PhysicalControl) -> String {
     match control {
         PhysicalControl::KeyboardUsage(code @ 0x04..=0x1d) => {
@@ -358,6 +385,71 @@ mod unbound_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fake_azerty_layout_labels_preserve_saved_bindings() {
+        let mut settings = SettingsOptions::default();
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == semantic_input::Action::Hotbar1)
+            .unwrap();
+        assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x14)));
+        let saved = serde_json::to_value(&settings).unwrap();
+        for (usage, character, expected) in [
+            (0x14, "a", "A"),
+            (0x04, "q", "Q"),
+            (0x1a, "z", "Z"),
+            (0x1d, "w", "W"),
+            (0x1f, "é", "É"),
+            (0x1e, "&", "&"),
+            (0x33, "m", "M"),
+        ] {
+            settings.set_key_label(usage, character);
+            assert_eq!(
+                settings.key_name(PhysicalControl::KeyboardUsage(usage)),
+                expected
+            );
+        }
+        assert_eq!(serde_json::to_value(&settings).unwrap(), saved);
+        let loaded: SettingsOptions = serde_json::from_value(saved).unwrap();
+        assert_eq!(loaded.key_control(row), settings.key_control(row));
+        assert_eq!(loaded.controls().unwrap(), settings.controls().unwrap());
+        assert_eq!(loaded.key_name(PhysicalControl::KeyboardUsage(0x14)), "Q");
+    }
+
+    #[test]
+    fn layout_labels_update_and_leave_named_controls_unchanged() {
+        let mut settings = SettingsOptions::default();
+        let q = PhysicalControl::KeyboardUsage(0x14);
+        assert_eq!(settings.key_name(q), "Q");
+        settings.set_key_label(0x14, "a");
+        assert_eq!(settings.key_name(q), "A");
+        settings.set_key_label(0x14, "q");
+        assert_eq!(settings.key_name(q), "Q");
+        for text in ["", "\n", " ", "ab"] {
+            settings.set_key_label(0x14, text);
+            assert_eq!(settings.key_name(q), "Q");
+        }
+        for (usage, text, expected) in [
+            (0x2c, " ", "Space"),
+            (0x59, "1", "Numpad 1"),
+            (0xe1, "a", "Left Shift"),
+        ] {
+            settings.set_key_label(usage, text);
+            assert_eq!(
+                settings.key_name(PhysicalControl::KeyboardUsage(usage)),
+                expected
+            );
+        }
+        assert_eq!(
+            settings.key_name(PhysicalControl::MouseButton(1)),
+            "Mouse 1"
+        );
+        assert_eq!(
+            settings.key_name(PhysicalControl::KeyboardUsage(0xff)),
+            "Key FF"
+        );
+    }
 
     #[test]
     fn additional_keyboard_usages_have_readable_names() {
