@@ -295,8 +295,6 @@ pub enum InventoryPacketError {
     TooManyResponseSlots { count: usize, max: usize },
     #[error("stack response name has {bytes} bytes, exceeding {max}")]
     ResponseNameTooLong { bytes: usize, max: usize },
-    #[error("accepted stack response has no content")]
-    MissingResponseContent,
     #[error("rejected stack response unexpectedly has content")]
     UnexpectedResponseContent,
     #[error("item network ID {0} is invalid")]
@@ -557,9 +555,7 @@ pub(crate) fn normalize_response(
                 }
                 (StackResponseStatus::Accepted, containers)
             }
-            (ItemStackNetResult::Success, None) => {
-                return Err(InventoryPacketError::MissingResponseContent);
-            }
+            (ItemStackNetResult::Success, None) => (StackResponseStatus::Accepted, Vec::new()),
             (ItemStackNetResult::Error, None) => (StackResponseStatus::Rejected, Vec::new()),
             (other, None) => (StackResponseStatus::Unknown(other.to_raw()), Vec::new()),
             (_, Some(_)) => return Err(InventoryPacketError::UnexpectedResponseContent),

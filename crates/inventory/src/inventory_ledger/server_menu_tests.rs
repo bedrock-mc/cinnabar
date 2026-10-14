@@ -10,6 +10,8 @@ use protocol::{
 
 use super::*;
 
+mod repeated_open;
+
 const MENU_WINDOW: i32 = 1;
 const MENU_CELLS: usize = 45;
 
@@ -276,4 +278,86 @@ fn server_menu_zero_response_descriptor_does_not_lock_repeat_clicks() {
     assert!(!ledger.resync_required());
     assert!(ledger.cursor_stack().is_none());
     assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u8).is_ok());
+}
+
+#[test]
+fn empty_success_ack_allows_repeated_purchases_and_reopening() {
+    for list_present in [false, true] {
+        let mut ledger = PlayerInventoryLedger::default();
+        ledger.begin_session(1);
+        ledger.apply(&InventoryEvent::Authority(InventoryAuthority::Server));
+        let mut now = 0;
+        for window in 1..=3 {
+            let menu = ContainerIdentity {
+                window_id: Some(window),
+                ..descriptor(Some(0), None)
+            };
+            ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(window),
+                window_type: GENERIC_STORAGE_WINDOW_TYPE,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }));
+            ledger.apply(&content(menu));
+            for sync_first in [false, true, false] {
+                let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+                let Some(StackRequestAction::Take {
+                    source,
+                    destination,
+                    ..
+                }) = ledger.newest_action()
+                else {
+                    panic!("every purchase starts with an empty cursor");
+                };
+                assert!(source.stack_network_id > 0);
+                assert_eq!(destination.stack_network_id, 0);
+                assert!(ledger.mark_transport_enqueued(now));
+                let sync = |ledger: &mut PlayerInventoryLedger| {
+                    ledger.apply(&slot(menu, (MENU_CELLS - 1) as u16, 100));
+                    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+                        container: ContainerIdentity {
+                            window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                            slot_type: Some(0),
+                            dynamic_id: None,
+                        },
+                        slots: vec![NetworkItemStack::empty(); protocol::UI_SLOT_COUNT].into(),
+                        storage_item: NetworkItemStack::empty(),
+                    }));
+                };
+                if sync_first {
+                    sync(&mut ledger);
+                }
+                let packet =
+                    protocol::test_support::packets::empty_stack_response(request, list_present);
+                let decoded = protocol::decode_batch(protocol::encode(&packet).unwrap())
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+                let Some(protocol::WorldEvent::Inventory(event)) =
+                    protocol::into_world_event(decoded, 0).unwrap()
+                else {
+                    panic!("decoded shop acknowledgement");
+                };
+                ledger.apply(&event);
+                if !sync_first {
+                    sync(&mut ledger);
+                }
+                now += INVENTORY_REQUEST_TIMEOUT_MILLIS + 1;
+                ledger.poll_timeout(now);
+                assert_eq!(ledger.pending_request_count(), 0);
+                assert!(ledger.cursor_stack().is_none());
+                assert!(!ledger.resync_required());
+            }
+            ledger.request_storage_close();
+            assert!(ledger.pending_control_packet().unwrap().is_some());
+            assert!(ledger.mark_transport_enqueued(now));
+            ledger.apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
+                container: ContainerIdentity::window(window),
+                window_type: GENERIC_STORAGE_WINDOW_TYPE,
+                server_initiated: false,
+            }));
+            assert!(ledger.storage_generation().is_none());
+            assert!(!ledger.resync_required());
+        }
+    }
 }
