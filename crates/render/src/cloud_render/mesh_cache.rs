@@ -145,9 +145,9 @@ impl CloudMeshCache {
                         .expect("validated cloud texture satisfies the finite window contract")
                         .into_boxed_slice();
                     span.record("quads", records.len());
-                    span.record("bytes", size_of_val(records.as_ref()));
+                    span.record("bytes", std::mem::size_of_val(records.as_ref()));
                     let diagnostic = diagnostics.then(|| {
-                        let diagnostic = CloudGeometryDiagnostic::from_viewport_layout(
+                        CloudGeometryDiagnostic::from_viewport_layout(
                             CloudRenderConfig::legacy_fancy(),
                             identity,
                             texture,
@@ -156,8 +156,7 @@ impl CloudMeshCache {
                             (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
                             (CLOUD_TOP_Y * 1_000.0) as i32,
                         )
-                        .expect("validated cloud geometry satisfies the diagnostic contract");
-                        diagnostic
+                        .expect("validated cloud geometry satisfies the diagnostic contract")
                     });
                     Arc::new(CloudMesh {
                         records,

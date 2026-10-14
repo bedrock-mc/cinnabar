@@ -40,7 +40,7 @@ fn runtime_with_cloud_mask(seed: u8, patterned: bool) -> Arc<RuntimeAtmosphereAs
             for (index, texel) in rgba8.chunks_exact_mut(4).enumerate() {
                 let x = index % width as usize;
                 let z = index / width as usize;
-                if (x / 4 + z / 4) % 2 == 0 {
+                if (x / 4 + z / 4).is_multiple_of(2) {
                     texel[3] = 0;
                 }
             }
