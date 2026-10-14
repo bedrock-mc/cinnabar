@@ -20,7 +20,7 @@ pub(super) struct LightingDiagnostics {
     start_dimension: i32,
     column_evidence_truncated: bool,
     modes: [Option<LevelChunkMode>; 3],
-    pub(super) columns: HashMap<ChunkKey, ColumnArrival>,
+    pub(super) columns: BTreeMap<ChunkKey, ColumnArrival>,
     pub(super) heights: Vec<DimensionHeightDiagnostic>,
 }
 

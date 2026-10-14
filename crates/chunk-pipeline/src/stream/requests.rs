@@ -5,8 +5,8 @@ use super::*;
 #[derive(Default)]
 pub(super) struct SubChunkRequests {
     pub(super) queue: RequestQueue,
-    pub(super) requested: HashMap<ChunkKey, PendingSubChunkColumn>,
-    pub(super) collision_failures: HashSet<ChunkKey>,
+    pub(super) requested: BTreeMap<ChunkKey, PendingSubChunkColumn>,
+    pub(super) collision_failures: BTreeSet<ChunkKey>,
     pub(super) deadlines: BTreeSet<(Instant, SubChunkKey)>,
     pub(super) correlated_attempts: HashMap<SubChunkKey, CorrelatedSubChunkAttempts>,
     pub(super) admitted_replies: HashMap<SubChunkKey, u8>,

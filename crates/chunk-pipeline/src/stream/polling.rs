@@ -72,9 +72,19 @@ impl WorldStream {
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.poll").entered();
         let mesh_changes_queued = self.stats.publication_stages.mesh_changes_queued;
-        // Before any commit, as the request preceded every commit still to come.
+        let commit_steps = self.commit_steps;
+        let maintenance_items = self.maintenance_items;
+        self.service_item_max = Duration::ZERO;
+        let frame_deadline = self.begin_poll_work(Instant::now());
+        let mut report = WorldStreamPoll::default();
+        // Retention preceded every commit still to come, and shares their deadline.
         self.apply_due_chunk_retention();
-        self.reevaluate_full_detail();
+        if !self.retention_due && !self.service_yield_requested() {
+            self.reevaluate_full_detail();
+        }
+        if self.retention_due || self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         if camera_position.iter().all(|value| value.is_finite()) {
             self.last_camera_position = camera_position;
             self.requests.last_player_chunk = Some(ChunkKey::new(
@@ -83,47 +93,82 @@ impl WorldStream {
                 floor_to_i32(camera_position[2]).div_euclid(16),
             ));
         }
-        let frame_deadline = self.begin_poll_work(Instant::now());
-        let commit_steps = self.commit_steps;
-        let mut report = WorldStreamPoll::default();
-        while report.decoded_results == 0 || !self.poll_budget_exhausted() {
+        while !self.service_yield_requested()
+            && (report.decoded_results == 0 || !self.poll_budget_exhausted())
+        {
             let Ok(completion) = self.decode_rx.try_recv() else {
                 break;
             };
             report.decoded_results += 1;
-            self.accept_decode_completion(completion);
+            self.service_item("decode_result", |stream| {
+                stream.accept_decode_completion(completion)
+            });
         }
         self.apply_ready();
+        if self.retention_due || self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.promote_deferred_ingress();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.expire_sub_chunk_deadlines(Instant::now());
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.request_due_sub_chunk_recoveries(Instant::now());
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.pump_deferred_retries();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.dispatch_decode_jobs();
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.dispatch_far_summaries();
 
         let now = Instant::now();
         let remaining = frame_deadline.saturating_duration_since(now);
         self.poll_deadline = Some(now + remaining - remaining / commit_budget::WORLD_MESH_SHARE);
-        while report.light_results == 0 || !self.poll_budget_exhausted() {
+        while !self.service_yield_requested()
+            && (report.light_results == 0 || !self.poll_budget_exhausted())
+        {
             let Ok(completion) = self.lighting.rx.try_recv() else {
                 break;
             };
             report.light_results += 1;
-            self.accept_light_completion(completion);
+            self.service_item("light_result", |stream| {
+                stream.accept_light_completion(completion)
+            });
+        }
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
         }
         report.light_jobs_dispatched =
             self.dispatch_light_jobs(camera_position, LIGHT_DISPATCH_BUDGET_PER_POLL);
 
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
+        }
         self.poll_deadline = Some(frame_deadline);
         self.retry_staged_mesh_completions();
-        while self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
+        while !self.service_yield_requested()
+            && self.mesh_changes.len() < MAX_PENDING_MESH_CHANGES
             && (report.mesh_results == 0 || !self.poll_budget_exhausted())
         {
             let Ok(completion) = self.mesh_rx.try_recv() else {
                 break;
             };
             report.mesh_results += 1;
-            self.accept_mesh_completion(completion);
+            self.service_item("mesh_result", |stream| {
+                stream.accept_mesh_completion(completion)
+            });
+        }
+        if self.service_yield_requested() {
+            return self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items);
         }
         let live_publication_items = self
             .publication_allowance
@@ -159,10 +204,23 @@ impl WorldStream {
             .max(dispatch_budget);
         report.mesh_jobs_dispatched =
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
+        self.finish_poll(report, commit_steps, mesh_changes_queued, maintenance_items)
+    }
+
+    /// Releases this poll's allocation and records progress, including resumable maintenance.
+    fn finish_poll(
+        &mut self,
+        mut report: WorldStreamPoll,
+        commit_steps: u64,
+        mesh_changes_queued: u64,
+        maintenance_items: u64,
+    ) -> WorldStreamPoll {
         self.poll_deadline = None;
         self.polling = false;
         self.chunk_data_offloaded = false;
         report.commit_steps = self.commit_steps.wrapping_sub(commit_steps) as usize;
+        report.maintenance_items = self.maintenance_items.wrapping_sub(maintenance_items) as usize;
+        report.service_item_max = self.service_item_max;
         report.mesh_changes_queued = self
             .stats
             .publication_stages

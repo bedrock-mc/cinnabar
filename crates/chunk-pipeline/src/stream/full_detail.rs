@@ -20,8 +20,22 @@ pub(super) struct FullDetail {
     centre: Option<ChunkKey>,
     /// Columns within the radius, plus those not yet past the hysteresis band.
     columns: HashSet<ChunkKey>,
+    /// Derived from membership by `insert_column` and `remove_column` only.
+    ordered_columns: BTreeSet<ChunkKey>,
     /// Near-drawn columns past the band, still meshed until far terrain covers them.
     handoffs: HashMap<ChunkKey, Handoff>,
+    scan: Option<DetailScan>,
+    /// The first limit must also visit columns that were drawn without one.
+    scan_residents: bool,
+    /// Columns drawn without a limit remain active until the scan reaches them.
+    initial_generation: Option<u64>,
+    initial_cursor: Option<ChunkKey>,
+}
+
+struct DetailScan {
+    demotion_cursor: Option<ChunkKey>,
+    demoting: bool,
+    entering: Option<column_scan::EnteringColumns>,
 }
 
 #[derive(Clone, Copy)]
@@ -33,27 +47,46 @@ struct Handoff {
 }
 
 impl FullDetail {
+    /// Adds membership and its resumable scan index together.
+    fn insert_column(&mut self, column: ChunkKey) {
+        if self.columns.insert(column) {
+            self.ordered_columns.insert(column);
+        }
+    }
+
+    /// Removes membership and its resumable scan index together.
+    fn remove_column(&mut self, column: ChunkKey) {
+        if self.columns.remove(&column) {
+            self.ordered_columns.remove(&column);
+        }
+    }
+
     /// True when `column` is meshed and uploaded; every column is without a radius.
-    pub(super) fn wants_mesh(&self, column: ChunkKey) -> bool {
+    pub(super) fn wants_mesh(&self, column: ChunkKey, resident: &ColumnSubChunkSet) -> bool {
         self.radius.is_none()
-            || self.columns.contains(&column)
+            || self.contains_column(column, resident)
             || self.handoffs.contains_key(&column)
     }
 
-    fn within(&self, column: ChunkKey, extra: i32) -> bool {
-        let (Some(radius), Some(centre)) = (self.radius, self.centre) else {
-            return false;
-        };
-        let (dx, dz) = (
-            i64::from(column.x) - i64::from(centre.x),
-            i64::from(column.z) - i64::from(centre.z),
-        );
-        let reach = i64::from(radius + extra);
-        column.dimension == centre.dimension && dx * dx + dz * dz <= reach * reach
+    /// Includes unvisited columns that were full detail when the first limit was requested.
+    fn contains_column(&self, column: ChunkKey, resident: &ColumnSubChunkSet) -> bool {
+        self.columns.contains(&column)
+            || (self.initial_cursor.is_none_or(|cursor| column > cursor)
+                && self
+                    .initial_generation
+                    .is_some_and(|generation| resident.existed_at(column, generation)))
     }
 }
 
 impl WorldStream {
+    /// Reports maintenance that needs another slice even without worker completions.
+    pub(super) fn has_pending_full_detail(&self) -> bool {
+        self.full_detail.scan.is_some()
+            || self.full_detail.scan_residents
+            || (self.full_detail.radius.is_some()
+                && self.full_detail.centre != Some(self.player_chunk()))
+    }
+
     /// Limits lighting, meshing and uploads to columns within `radius` chunks of the player;
     /// `None` restores full detail everywhere.
     pub fn set_full_detail_radius(&mut self, radius: Option<i32>) {
@@ -61,31 +94,20 @@ impl WorldStream {
         if self.full_detail.radius == radius {
             return;
         }
-        let was_limited = self.full_detail.radius.is_some();
-        if radius.is_none() {
-            // Everything is full detail again: relight and remesh what was left out, including
-            // columns still arriving. Collected while the old radius still says what that is.
-            let left_out: Vec<ChunkKey> = self
-                .resident
-                .columns()
-                .filter(|column| {
-                    !self.wants_mesh(*column) || self.full_detail.handoffs.contains_key(column)
-                })
-                .collect();
-            self.full_detail = FullDetail::default();
-            for column in left_out {
-                self.refresh_full_detail_column(column);
-            }
-            return;
+        if self.full_detail.radius.is_none() {
+            self.full_detail.initial_generation = Some(self.resident.column_generation());
         }
+        if radius.is_none() {
+            self.full_detail.initial_generation = None;
+        }
+        self.full_detail.initial_cursor = None;
+        self.full_detail.scan_residents |= radius.is_none() || self.full_detail.radius.is_none();
         self.full_detail.radius = radius;
         self.full_detail.centre = None;
-        if !was_limited {
-            // Every column was full detail; those past the new radius are demoted below.
-            let columns: Vec<ChunkKey> = self.resident.columns().collect();
-            self.full_detail.columns.extend(columns);
+        self.full_detail.scan = None;
+        if !self.between_frames_service {
+            self.reevaluate_full_detail();
         }
-        self.reevaluate_full_detail();
     }
 
     /// The full-detail radius in effect, if any.
@@ -96,7 +118,7 @@ impl WorldStream {
 
     /// True when `column` is meshed and uploaded; every column is without a radius.
     pub(super) fn wants_mesh(&self, column: ChunkKey) -> bool {
-        self.full_detail.wants_mesh(column)
+        self.full_detail.wants_mesh(column, &self.resident)
     }
 
     /// Light is solved one column past full detail, so edge meshes sample current light.
@@ -104,76 +126,141 @@ impl WorldStream {
         self.full_detail.radius.is_none()
             || (-1..=1).any(|dx| {
                 (-1..=1).any(|dz| {
-                    self.full_detail.columns.contains(&ChunkKey::new(
-                        column.dimension,
-                        column.x.saturating_add(dx),
-                        column.z.saturating_add(dz),
-                    ))
+                    self.full_detail.contains_column(
+                        ChunkKey::new(
+                            column.dimension,
+                            column.x.saturating_add(dx),
+                            column.z.saturating_add(dz),
+                        ),
+                        &self.resident,
+                    )
                 })
             })
     }
 
     /// Promotes and demotes columns when the player's column or the radius changes.
     pub(super) fn reevaluate_full_detail(&mut self) {
-        let Some(radius) = self.full_detail.radius else {
+        if self.full_detail.radius.is_none()
+            && !self.full_detail.scan_residents
+            && self.full_detail.scan.is_none()
+        {
+            return;
+        }
+        let centre = self.player_chunk();
+        if self.full_detail.centre.is_none()
+            || (self.full_detail.radius.is_some() && self.full_detail.centre != Some(centre))
+        {
+            let previous = self
+                .full_detail
+                .scan
+                .is_none()
+                .then(|| {
+                    self.full_detail
+                        .centre
+                        .zip(self.full_detail.radius)
+                        .map(|(centre, radius)| column_scan::Disk { centre, radius })
+                })
+                .flatten();
+            self.full_detail.centre = Some(centre);
+            self.full_detail.initial_cursor = None;
+            self.full_detail.scan = Some(DetailScan {
+                demotion_cursor: None,
+                demoting: true,
+                entering: self.full_detail.radius.map(|radius| {
+                    column_scan::EnteringColumns::new(
+                        column_scan::Disk { centre, radius },
+                        previous,
+                    )
+                }),
+            });
+        }
+        let Some(mut scan) = self.full_detail.scan.take() else {
             return;
         };
-        let centre = self.player_chunk();
-        if self.full_detail.centre == Some(centre) {
-            return;
-        }
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.full_detail").entered();
-        self.full_detail.centre = Some(centre);
-        let demoted: Vec<ChunkKey> = self
-            .full_detail
-            .columns
-            .iter()
-            .copied()
-            .filter(|column| {
-                !self
-                    .full_detail
-                    .within(*column, FULL_DETAIL_HYSTERESIS_CHUNKS)
-            })
-            .collect();
-        for column in &demoted {
-            self.full_detail.columns.remove(column);
-        }
-        let mut promoted = Vec::new();
-        for dz in -radius..=radius {
-            for dx in -radius..=radius {
-                let column = ChunkKey::new(centre.dimension, centre.x + dx, centre.z + dz);
-                if !self.full_detail.within(column, 0) || self.full_detail.columns.contains(&column)
+        let mut items = 0;
+        while !self.maintenance_should_yield(items) {
+            let started = Instant::now();
+            #[cfg(feature = "tracy")]
+            let _item =
+                tracing::info_span!("stream.service_item_max", kind = "full_detail").entered();
+            if scan.demoting {
+                let column = if self.full_detail.scan_residents || self.full_detail.radius.is_none()
                 {
+                    self.resident.next_column(scan.demotion_cursor)
+                } else {
+                    self.full_detail
+                        .ordered_columns
+                        .range(column_scan::after(scan.demotion_cursor))
+                        .next()
+                        .copied()
+                };
+                let Some(column) = column else {
+                    scan.demoting = false;
+                    self.full_detail.scan_residents = false;
+                    self.full_detail.initial_generation = None;
+                    self.full_detail.initial_cursor = None;
                     continue;
+                };
+                scan.demotion_cursor = Some(column);
+                self.full_detail.initial_cursor = Some(column);
+                if let Some(radius) = self.full_detail.radius {
+                    let disk = column_scan::Disk {
+                        centre,
+                        radius: radius.saturating_add(FULL_DETAIL_HYSTERESIS_CHUNKS),
+                    };
+                    let initial_member = self
+                        .full_detail
+                        .initial_generation
+                        .is_none_or(|generation| self.resident.existed_at(column, generation));
+                    if initial_member && disk.contains(column) {
+                        if self.full_detail.scan_residents {
+                            self.full_detail.insert_column(column);
+                        } else {
+                            let (_, last) = disk.row(column.x).expect("a kept column has a row");
+                            scan.demotion_cursor =
+                                Some(ChunkKey::new(column.dimension, column.x, last));
+                        }
+                    } else if initial_member {
+                        self.full_detail.remove_column(column);
+                        self.demote_full_detail_column(column);
+                    }
+                } else if !self.full_detail.columns.contains(&column)
+                    || self.full_detail.handoffs.contains_key(&column)
+                {
+                    self.refresh_full_detail_column(column);
                 }
-                // A column still handing over keeps its meshes on screen, but is relit and
-                // remeshed like any other, as its light may have moved on meanwhile.
-                self.full_detail.handoffs.remove(&column);
-                promoted.push(column);
-            }
-        }
-        let unlit_before: HashSet<ChunkKey> = promoted
-            .iter()
-            .flat_map(|column| neighbourhood(*column))
-            .filter(|column| !self.wants_light(*column))
-            .collect();
-        self.full_detail.columns.extend(promoted.iter().copied());
-        for column in demoted {
-            self.demote_full_detail_column(column);
-        }
-        for column in promoted {
-            self.refresh_full_detail_column(column);
-        }
-        // Halo columns now beside full detail need light for their neighbours' meshes.
-        for column in unlit_before {
-            if self.wants_light(column) && !self.wants_mesh(column) {
-                let keys: Vec<SubChunkKey> = self.resident.column(column).copied().collect();
-                for key in keys {
-                    self.mark_light_dirty_exact_with_priority(key, false);
+            } else if let Some(column) = scan.entering.as_mut().and_then(Iterator::next) {
+                if !self.full_detail.columns.contains(&column) {
+                    let unlit: Vec<_> = neighbourhood(column)
+                        .filter(|neighbour| !self.wants_light(*neighbour))
+                        .collect();
+                    self.full_detail.insert_column(column);
+                    self.full_detail.handoffs.remove(&column);
+                    self.refresh_full_detail_column(column);
+                    for neighbour in unlit {
+                        if !self.wants_mesh(neighbour) {
+                            let keys: Vec<_> = self.resident.column(neighbour).copied().collect();
+                            for key in keys {
+                                self.mark_light_dirty_exact_with_priority(key, false);
+                            }
+                        }
+                    }
                 }
+            } else {
+                if self.full_detail.radius.is_none() {
+                    self.full_detail = FullDetail::default();
+                    self.full_detail.centre = Some(centre);
+                }
+                return;
             }
+            self.record_service_item(started);
+            self.maintenance_guarantee = false;
+            self.maintenance_items += 1;
+            items += 1;
         }
+        self.full_detail.scan = Some(scan);
     }
 
     /// Relights and remeshes every section a column already holds.
@@ -210,6 +297,7 @@ impl WorldStream {
         }
     }
 
+    /// Queues removal of the column's near meshes after its far coverage is ready.
     fn withdraw_full_detail_column(&mut self, column: ChunkKey) {
         self.forget_near_drawn([&column]);
         let keys: Vec<SubChunkKey> = self
@@ -299,9 +387,9 @@ impl WorldStream {
 
     /// Drops evicted columns from any hand-over.
     pub(super) fn forget_full_detail_handoffs(&mut self, columns: &BTreeSet<ChunkKey>) {
-        self.full_detail
-            .handoffs
-            .retain(|column, _| !columns.contains(column));
+        for column in columns {
+            self.full_detail.handoffs.remove(column);
+        }
     }
 }
 

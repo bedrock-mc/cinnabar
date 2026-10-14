@@ -901,7 +901,7 @@ fn requires_geometry(
     classifier: BlockClassifier,
     key: SubChunkKey,
 ) -> bool {
-    full_detail.wants_mesh(key.chunk())
+    full_detail.wants_mesh(key.chunk(), resident)
         && resident.contains(&key)
         && !known_air.contains(&key)
         && terrain

@@ -180,6 +180,124 @@ fn lifting_the_limit_meshes_partial_columns() {
     assert!(meshing(&stream, 7));
 }
 
+/// Detail maintenance yields at the deadline and a changed destination replaces its cursor.
+#[test]
+fn interrupted_detail_scan_converges_on_the_latest_player_grid() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(16));
+    stream.between_frames_service = true;
+    stream.local_player_chunk = Some(ChunkKey::new(0, 100, 0));
+    stream.frame_deadline = Some(Instant::now());
+    let first = stream.poll([1600.0, 0.0, 0.0], 0);
+    assert!(first.maintenance_items > 0);
+    assert!(
+        stream.has_pending_full_detail(),
+        "a teleport resumes across polls"
+    );
+
+    stream.local_player_chunk = Some(ChunkKey::new(0, -100, 0));
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    let before = stream.maintenance_items;
+    stream.poll([-1600.0, 0.0, 0.0], 0);
+    assert_eq!(
+        stream.maintenance_items, before,
+        "reclaim runs no new maintenance"
+    );
+    stream.service_yield = None;
+    test_time::eventually("the replacement detail grid", || {
+        stream.poll([-1600.0, 0.0, 0.0], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(ChunkKey::new(0, -100, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 100, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 0, 0)));
+}
+
+/// A paused radius change preserves drawn columns until their far summaries take over.
+#[test]
+fn serviced_radius_changes_preserve_the_far_handoff() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    assert!(
+        drawn(&stream, 5),
+        "near coverage survives a paused demotion"
+    );
+    test_time::eventually("the detail limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(drawn(&stream, 5));
+    let five = ChunkKey::new(0, 5, 0);
+    test_time::eventually("the delivered far summary", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut Vec::new());
+        stream.far_handoffs().any(|column| column == five)
+    });
+    stream.finish_far_handoff(five);
+    assert!(!drawn(&stream, 5));
+    assert!(!stream.wants_mesh(five));
+    stream.set_full_detail_radius(None);
+    test_time::eventually("restoring full detail", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(five));
+    assert!(meshing(&stream, 5));
+}
+
+/// An initial limit preserves old membership while paused, including resends and live edits.
+#[test]
+fn paused_initial_limit_keeps_existing_columns_active() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    assert!(stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    stream
+        .submit(2, inline_block_entity_event(3, 7, Vec::new()))
+        .unwrap();
+    stream
+        .submit(3, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(
+        stream.wants_mesh(ChunkKey::new(0, 2, 0)),
+        "resends keep old membership"
+    );
+    assert!(
+        !stream.wants_mesh(ChunkKey::new(0, 3, 0)),
+        "new arrivals use the base radius"
+    );
+    stream.mesh_jobs.pending.clear();
+    let keys: Vec<_> = stream
+        .resident
+        .column(ChunkKey::new(0, 2, 0))
+        .copied()
+        .collect();
+    stream.mark_changed_sources(keys, Instant::now());
+    assert!(
+        meshing(&stream, 2),
+        "an edit still invalidates the near mesh"
+    );
+    test_time::eventually("the initial detail limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 3, 0)));
+}
+
 /// Radius changes, mode and render-distance changes (Auto crossing its threshold), block
 /// changes, uploads, resends and evictions in a scrambled order never leave a column that had
 /// a drawer without one: near terrain draws it once its meshes are published, and far terrain

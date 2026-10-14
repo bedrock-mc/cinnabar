@@ -293,3 +293,51 @@ fn serviced_retention_evicts_before_a_later_commit() {
         );
     }
 }
+
+/// Discovering a moved boundary skips the unchanged interior and keeps the exact grid.
+#[test]
+fn large_grid_crossings_visit_rows_and_leaving_columns() {
+    for radius in [16, 64] {
+        let mut stream = stream();
+        stream.chunk_radius = Some(radius);
+        stream.reevaluate_chunk_retention();
+        populate_view(&mut stream, [0, 0]);
+        let before = stream.maintenance_items;
+        assert!(stream.retain_local([16.5, 70.0, 0.5]));
+        let items = stream.maintenance_items - before;
+        assert!(
+            items <= (8 * (radius + world::CHUNK_VIEW_SLACK)) as u64,
+            "{items} items at radius {radius}"
+        );
+        assert!(
+            stream
+                .tracked_columns()
+                .into_iter()
+                .all(|key| chunk_in_view(radius, [key.x, key.z], [1, 0]))
+        );
+    }
+}
+
+/// Outlying arrivals and metadata are retired too, including columns never inside the old grid.
+#[test]
+fn boundary_retention_also_retires_outliers() {
+    let mut stream = stream();
+    populate_view(&mut stream, [0, 0]);
+    let outlier = ChunkKey::new(0, 100, -100);
+    stream.record_known_air(SubChunkKey::from_chunk(outlier, 0));
+    stream.publisher.required_columns.insert(outlier);
+    stream
+        .unsent_column_deadlines
+        .insert(outlier, Instant::now());
+    let wrong_dimension = ChunkKey::new(1, 0, 0);
+    stream.loaded_columns.insert(wrong_dimension);
+    assert!(stream.retain_local([16.5, 70.0, 0.5]));
+    assert!(
+        !stream
+            .resident
+            .contains(&SubChunkKey::from_chunk(outlier, 0))
+    );
+    assert!(!stream.publisher.required_columns.contains(&outlier));
+    assert!(!stream.unsent_column_deadlines.contains_key(&outlier));
+    assert!(!stream.loaded_columns.contains(&wrong_dimension));
+}

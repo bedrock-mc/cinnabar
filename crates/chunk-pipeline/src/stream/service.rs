@@ -41,7 +41,9 @@ impl WorldStream {
             total.accumulate(report);
             // Commits, worker activity and queued publications all count as progress.
             // Only a slice that made none sleeps until a worker result can change that.
-            if report == WorldStreamPoll::default()
+            if !self.retention_due
+                && !self.has_pending_full_detail()
+                && report == WorldStreamPoll::default()
                 && self.decode_rx.is_empty()
                 && self.lighting.rx.is_empty()
             {
@@ -70,6 +72,8 @@ impl WorldStream {
 impl WorldStreamPoll {
     /// Adds another poll's work, e.g. a frame's poll to its between-frames service work.
     pub fn accumulate(&mut self, other: Self) {
+        self.maintenance_items += other.maintenance_items;
+        self.service_item_max = self.service_item_max.max(other.service_item_max);
         self.commit_steps += other.commit_steps;
         self.decoded_results += other.decoded_results;
         self.light_results += other.light_results;
@@ -189,8 +193,27 @@ impl WorldStreamService {
         self.servicing = false;
         self.yield_request.store(true, Ordering::Release);
         let _ = self.wake.try_send(());
+        #[cfg(feature = "tracy")]
+        let zone = tracing::info_span!(
+            "stream.service_reclaim",
+            service_item_max_ms = tracing::field::Empty,
+            maintenance_items = tracing::field::Empty,
+            commit_steps = tracing::field::Empty,
+        )
+        .entered();
         match self.results.recv() {
-            Ok(ServiceResult::Done(serviced)) => Some(serviced),
+            Ok(ServiceResult::Done(serviced)) => {
+                #[cfg(feature = "tracy")]
+                {
+                    zone.record(
+                        "service_item_max_ms",
+                        serviced.report.service_item_max.as_secs_f64() * 1000.0,
+                    );
+                    zone.record("maintenance_items", serviced.report.maintenance_items);
+                    zone.record("commit_steps", serviced.report.commit_steps);
+                }
+                Some(serviced)
+            }
             Ok(ServiceResult::Panicked(payload)) => resume_unwind(payload),
             Err(_) => panic!("stream service thread exited while servicing"),
         }

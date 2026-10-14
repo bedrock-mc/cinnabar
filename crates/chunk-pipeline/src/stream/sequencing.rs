@@ -146,9 +146,7 @@ impl WorldStream {
                 self.loaded_columns.insert(key);
                 self.note_far_column_complete(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
-                for old in &old_keys {
-                    self.resident.remove(old);
-                }
+                self.resident.replace_column(key, new_keys.iter().copied());
                 for old in &old_air {
                     self.known_air.remove(old);
                 }
@@ -158,7 +156,6 @@ impl WorldStream {
                 for no_longer_air in old_air.difference(&air_keys) {
                     self.set_connectivity(*no_longer_air, None);
                 }
-                self.resident.extend(new_keys.iter().copied());
                 for air in air_keys {
                     self.record_known_air(air);
                 }

@@ -55,6 +55,7 @@ mod block_entities;
 mod block_events;
 mod cave_visibility;
 mod cohort;
+mod column_scan;
 mod column_set;
 mod commit_budget;
 mod connectivity;
@@ -403,7 +404,7 @@ pub struct WorldStream {
     connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,
     requests: requests::SubChunkRequests,
-    unsent_column_deadlines: HashMap<ChunkKey, Instant>,
+    unsent_column_deadlines: BTreeMap<ChunkKey, Instant>,
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     /// Test allocation for exercising an expired urgent pass without timing assertions.
@@ -429,6 +430,14 @@ pub struct WorldStream {
     service_window: Duration,
     /// A deferred retention re-evaluation awaits the next poll.
     retention_due: bool,
+    /// Last column visited by the current retention change.
+    retention_cursor: Option<ChunkKey>,
+    /// Maintenance items completed since construction, including interior row skips.
+    maintenance_items: u64,
+    /// Maximum elapsed time of a maintenance item, commit or worker-result acceptance.
+    service_item_max: Duration,
+    /// One maintenance item may progress past the active allocation's deadline.
+    maintenance_guarantee: bool,
     /// This frame poll leaves chunk-data commits to the service.
     chunk_data_offloaded: bool,
     /// Ordered commit steps applied so far, so a poll can report commit progress.

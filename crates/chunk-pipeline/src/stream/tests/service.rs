@@ -16,10 +16,9 @@ fn stream_with_decoded_columns(count: u64) -> WorldStream {
     stream
 }
 
-/// A reclaim request stops a poll after its one guaranteed heavy commit even with every
-/// decode accepted and a whole slice left, which bounds the frame's wait for its stream.
+/// A reclaim request stops a poll before its next heavy commit even with a whole slice left.
 #[test]
-fn raised_service_yield_limits_a_poll_to_its_guaranteed_heavy_commit() {
+fn raised_service_yield_stops_before_the_next_heavy_commit() {
     let mut stream = stream_with_decoded_columns(8);
     while let Ok(completion) = stream.decode_rx.try_recv() {
         stream.accept_decode_completion(completion);
@@ -27,7 +26,7 @@ fn raised_service_yield_limits_a_poll_to_its_guaranteed_heavy_commit() {
     stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
     stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
     stream.poll([0.0; 3], 0);
-    assert_eq!(stream.committed_sequence(), 1);
+    assert_eq!(stream.committed_sequence(), 0);
 
     stream.service_yield = Some(Arc::new(AtomicBool::new(false)));
     stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
@@ -37,7 +36,7 @@ fn raised_service_yield_limits_a_poll_to_its_guaranteed_heavy_commit() {
         8,
         "an unraised flag leaves the slice intact"
     );
-    assert_eq!(report.commit_steps, 7, "the report counts the progress");
+    assert_eq!(report.commit_steps, 8, "the report counts the progress");
 }
 
 /// After a service window as long as the frame's allocation, the frame's poll accepts decode
@@ -148,4 +147,132 @@ fn service_poll_reports_removal_progress_with_more_removals_ready() {
     assert!(stream.mesh_jobs.in_flight.is_empty());
     assert_eq!(report.mesh_changes_queued, 1);
     assert_ne!(report, WorldStreamPoll::default());
+}
+
+/// Reclaim stops independent control commits as well as terrain commits.
+#[test]
+fn raised_service_yield_stops_light_commits() {
+    let mut stream = block_entity_visual_stream();
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    stream.commit(1).unwrap();
+    assert_eq!(stream.committed_sequence(), 0);
+    stream.service_yield = None;
+    stream.apply_ready();
+    assert_eq!(stream.committed_sequence(), 1);
+}
+
+/// An expired poll cannot retire an entire teleported view before checking its budget.
+#[test]
+fn expired_poll_resumes_retention_before_later_commits() {
+    let mut stream = block_entity_visual_stream();
+    stream
+        .submit(1, WorldEvent::ChunkRadiusUpdated(16))
+        .unwrap();
+    for x in -16..=16 {
+        let column = ChunkKey::new(0, x, 0);
+        stream.loaded_columns.insert(column);
+        stream.record_known_air(SubChunkKey::from_chunk(column, 0));
+    }
+    stream.between_frames_service = true;
+    stream.retain_local([3200.0, 0.0, 0.0]);
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([3200.0, 0.0, 0.0], 0);
+    assert!(
+        stream.loaded_column_count() > 0,
+        "retention yields between columns"
+    );
+    assert!(
+        stream.loaded_column_count() < 33,
+        "retention makes progress"
+    );
+
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    stream.commit(2).unwrap();
+    assert_eq!(
+        stream.committed_sequence(),
+        1,
+        "retention precedes the later commit"
+    );
+    let remaining = stream.loaded_column_count();
+    stream.poll([3200.0, 0.0, 0.0], 0);
+    assert_eq!(
+        stream.loaded_column_count(),
+        remaining,
+        "reclaim performs no new item"
+    );
+
+    stream.service_yield = None;
+    test_time::eventually("retention and its following commit", || {
+        stream.poll([3200.0, 0.0, 0.0], 0);
+        stream.committed_sequence() == 2
+    });
+    assert_eq!(stream.loaded_column_count(), 0);
+}
+
+/// Repeated ingress calls share one maintenance guarantee and cannot drain a paused view.
+#[test]
+fn expired_frame_ingress_keeps_retention_bounded() {
+    let mut stream = block_entity_visual_stream();
+    stream
+        .submit(1, WorldEvent::ChunkRadiusUpdated(16))
+        .unwrap();
+    for x in -16..=16 {
+        let column = ChunkKey::new(0, x, 0);
+        stream.loaded_columns.insert(column);
+        stream.record_known_air(SubChunkKey::from_chunk(column, 0));
+    }
+    stream.between_frames_service = true;
+    stream.retain_local([3200.0, 0.0, 0.0]);
+    stream.begin_frame_work();
+    stream.poll_deadline = Some(Instant::now());
+    stream.commit(2).unwrap();
+    assert_eq!(stream.loaded_column_count(), 32);
+    for _ in 0..16 {
+        stream.apply_ready();
+    }
+    assert_eq!(stream.loaded_column_count(), 32, "one shared progress item");
+    assert_eq!(
+        stream.committed_sequence(),
+        1,
+        "later ingress remains fenced"
+    );
+}
+
+/// A server teleport does not retire the whole source view inside its control commit.
+#[test]
+fn server_teleport_retirement_shares_the_frame_allocation() {
+    for confirmed in [false, true] {
+        let mut stream = block_entity_visual_stream();
+        if confirmed {
+            stream.chunk_radius = Some(16);
+            stream.reevaluate_chunk_retention();
+        }
+        for x in -16..=16 {
+            let column = ChunkKey::new(0, x, 0);
+            stream.loaded_columns.insert(column);
+            stream.record_known_air(SubChunkKey::from_chunk(column, 0));
+        }
+        stream.between_frames_service = true;
+        stream.begin_frame_work();
+        stream.poll_deadline = Some(Instant::now());
+        stream
+            .submit(
+                1,
+                WorldEvent::MovePlayer(MovePlayerEvent {
+                    runtime_id: stream.authority.local_player_runtime_id(),
+                    position: [3200.0, 0.0, 0.0],
+                    mode: MovePlayerMode::Teleport,
+                    ..Default::default()
+                }),
+            )
+            .unwrap();
+        assert_eq!(stream.loaded_column_count(), 32, "confirmed: {confirmed}");
+        stream.commit(2).unwrap();
+        assert_eq!(stream.committed_sequence(), 1);
+        test_time::eventually("server teleport retirement", || {
+            stream.poll([3200.0, 0.0, 0.0], 0);
+            stream.committed_sequence() == 2
+        });
+        assert_eq!(stream.loaded_column_count(), 0);
+    }
 }
