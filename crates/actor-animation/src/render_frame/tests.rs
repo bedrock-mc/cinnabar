@@ -1,5 +1,6 @@
 use super::*;
 
+mod camera_endpoints;
 mod continuity;
 mod first_presentation;
 mod rotation;

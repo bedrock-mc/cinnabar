@@ -1,5 +1,9 @@
 # Phases 2-5 Completion Ledger
 
+Verified chunk blobs now persist through a bounded background store. Restart, corruption,
+miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
+this storage change advances no rendered, live-join or broader parity completion gate.
+
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;

@@ -11,14 +11,9 @@ fn renamed_item_descriptions_resolve_through_serialization_identities() {
         ("minecraft:apple", "item.apple.name"),
         ("minecraft:grass_block", "tile.grass.name"),
     ];
-    let items = protocol::vanilla_item_registry();
     let mut entries = Vec::new();
     for (identifier, key) in cases {
-        assert!(
-            items
-                .iter()
-                .any(|item| item.identifier.as_ref() == identifier)
-        );
+        // The full pinned item table; the creative-only registry omits filled maps.
         assert!(assets::item::names::serialization_ids(identifier).is_some());
         entries.push(assets::LangEntry {
             key: key.into(),

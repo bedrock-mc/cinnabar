@@ -2,7 +2,7 @@
 
 use crate::{
     ColumnPos,
-    config::{LEVEL_COUNT, LEVEL_SPLIT_DISTANCE, TILE_CELLS},
+    config::{EDGE_MARGIN_BLOCKS, LEVEL_COUNT, LEVEL_SPLIT_DISTANCE, TILE_CELLS},
 };
 
 const COLUMN_BLOCKS: i32 = 16;
@@ -86,6 +86,30 @@ pub struct TileView {
     pub far_blocks: f32,
 }
 
+impl TileView {
+    /// The view around the `centre` column for `near`, built by [`NearMask::around`] with
+    /// `near_radius`: finest tiles only out to [`EDGE_MARGIN_BLOCKS`] past every masked
+    /// column, so nothing coarse is drawn close to the player; tiles wholly inside the masked
+    /// disc short of that margin, and never past the near radius, left out; far terrain out to
+    /// `horizon_chunks`.
+    #[must_use]
+    pub fn around(
+        centre: [i32; 2],
+        near: &NearMask,
+        near_radius: i32,
+        horizon_chunks: i32,
+    ) -> Self {
+        let near_blocks = near.outer_blocks() + EDGE_MARGIN_BLOCKS;
+        let skip = near.inner_blocks().min((near_radius.max(0) * 16) as f32);
+        Self {
+            centre: [centre[0] as f32 * 16.0 + 8.0, centre[1] as f32 * 16.0 + 8.0],
+            near_blocks,
+            skip_blocks: (skip - EDGE_MARGIN_BLOCKS).max(0.0),
+            far_blocks: ((horizon_chunks * 16) as f32 - near_blocks).max(0.0),
+        }
+    }
+}
+
 /// Tiles covering the ring between the near edge and the far reach, finer toward the camera:
 /// a tile splits while it is within [`LEVEL_SPLIT_DISTANCE`] widths of the near edge, so only
 /// the finest level ever borders near terrain.
@@ -139,6 +163,28 @@ pub struct NearMask {
 const HALF_COLUMN_DIAGONAL_BLOCKS: f32 = 12.0;
 
 impl NearMask {
+    /// Every column within `near_radius` of the `centre` column, plus the `drawn` columns past
+    /// it, all within `limit`. Near terrain owns that disc however far its meshes have loaded,
+    /// so far terrain never stands in there; past it far terrain hides only under columns
+    /// near terrain draws, such as those handing over to it.
+    #[must_use]
+    pub fn around(
+        centre: [i32; 2],
+        limit: i32,
+        near_radius: i32,
+        drawn: impl IntoIterator<Item = ColumnPos>,
+    ) -> Self {
+        let radius = near_radius.clamp(0, limit.max(0));
+        let reach = i64::from(radius).pow(2);
+        let disc = (-radius..=radius).flat_map(move |dz| {
+            (-radius..=radius).filter_map(move |dx| {
+                (i64::from(dx).pow(2) + i64::from(dz).pow(2) <= reach)
+                    .then(|| ColumnPos::new(centre[0] + dx, centre[1] + dz))
+            })
+        });
+        Self::from_columns(centre, limit, disc.chain(drawn))
+    }
+
     /// Exactly the `columns` within `limit` columns of the `centre` column; farther ones, such
     /// as those left behind by a teleport and not yet evicted, are left out.
     #[must_use]

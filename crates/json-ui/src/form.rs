@@ -148,8 +148,7 @@ pub struct FormRender {
     pub report: LayoutReport,
     /// Where `button.menu_cancel` (Escape/back) routes on this screen.
     pub cancel_target: Option<String>,
-    /// The container screens' `root_panel` rect, the panel a click outside of
-    /// drops the held stack from.
+    /// The container screens' first visible `root_panel` rect.
     pub root_panel: Option<RectOut>,
 }
 

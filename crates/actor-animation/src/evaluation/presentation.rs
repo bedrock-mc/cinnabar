@@ -86,8 +86,8 @@ impl VariableLayout {
     }
 }
 
-/// Inputs reaching each variable a program writes, following its stack values and the
-/// conditions of the branches, loops and arrows that enclose the write.
+/// Inputs reaching each variable a program writes, following its stack values, the random
+/// stream, and the conditions of the branches, loops and arrows that enclose or precede the write.
 fn store_inputs(
     ops: &[MolangOp],
     symbol: impl Fn(u32) -> PresentationReads,
@@ -98,7 +98,8 @@ fn store_inputs(
         let mut stacks: Vec<Option<Vec<PresentationReads>>> = vec![None; end + 1];
         let mut stores = Vec::new();
         let mut regions = Vec::new();
-        let mut pending = vec![(0_usize, Vec::new())];
+        // The bottom slot threads the random stream: a guarded draw shifts every later draw.
+        let mut pending = vec![(0_usize, vec![PresentationReads::default()])];
         while let Some((at, stack)) = pending.pop() {
             let joined = match &stacks[at] {
                 Some(existing) if existing.len() != stack.len() => {
@@ -186,8 +187,12 @@ fn store_inputs(
                     push_to(next, stack);
                 }
                 MolangOp::Call(function) => {
-                    let value = pop(&mut stack, function.arity());
-                    stack.push(guard.union(value));
+                    let mut value = guard.union(pop(&mut stack, function.arity()));
+                    if function.is_random() {
+                        stack[0] = stack[0].union(guard);
+                        value = value.union(stack[0]);
+                    }
+                    stack.push(value);
                     push_to(next, stack);
                 }
                 MolangOp::Jump(target) | MolangOp::LoopBreak(target) => {
@@ -232,6 +237,15 @@ fn store_inputs(
         }
         let mut guarded = vec![PresentationReads::default(); end + 1];
         for (from, until, condition) in regions {
+            // A guarded early exit decides whether every later write runs at all.
+            let until = if ops[from.min(end)..until.min(end)]
+                .iter()
+                .any(|op| leaves(op, from, until))
+            {
+                end
+            } else {
+                until
+            };
             for guard in &mut guarded[from.min(end)..until.min(end)] {
                 *guard = guard.union(condition);
             }
@@ -265,6 +279,26 @@ fn conservative_stores(
             _ => None,
         })
         .collect()
+}
+
+/// Whether `op` inside `from..until` returns or transfers control outside that region.
+fn leaves(op: &MolangOp, from: usize, until: usize) -> bool {
+    let target = match *op {
+        MolangOp::Return => return true,
+        MolangOp::Jump(target)
+        | MolangOp::JumpIfFalse(target)
+        | MolangOp::JumpIfTrue(target)
+        | MolangOp::LoopStart(target)
+        | MolangOp::LoopNext(target)
+        | MolangOp::LoopBreak(target)
+        | MolangOp::Arrow(target) => target,
+        MolangOp::Coalesce(branch)
+        | MolangOp::ForEachStart(branch)
+        | MolangOp::ForEachNext(branch) => branch.target,
+        _ => return false,
+    };
+    let target = usize::from(target);
+    target < from || target > until
 }
 
 #[cfg(test)]
@@ -322,5 +356,46 @@ mod tests {
             zero,
         ];
         assert!(written(&ternary, 14));
+    }
+
+    /// A camera-guarded early return decides whether later writes run.
+    #[test]
+    fn guarded_exits_taint_every_later_write() {
+        let zero = MolangOp::Push(crate::test_support::scalar(0.0));
+        let thirty = MolangOp::Push(crate::test_support::scalar(30.0));
+        let early = [
+            MolangOp::LoadVariable(CAMERA),
+            MolangOp::JumpIfFalse(4),
+            zero,
+            MolangOp::Return,
+            thirty,
+            MolangOp::StoreVariable(15),
+            zero,
+        ];
+        assert!(written(&early, 15));
+    }
+
+    /// A camera-guarded draw shifts the random stream for every later draw.
+    #[test]
+    fn guarded_random_draws_taint_later_draws() {
+        let zero = MolangOp::Push(crate::test_support::scalar(0.0));
+        let one = MolangOp::Push(crate::test_support::scalar(1.0));
+        let random = MolangOp::Call(assets::MolangFunction::Random);
+        let draws = [
+            MolangOp::LoadVariable(CAMERA),
+            MolangOp::JumpIfFalse(6),
+            zero,
+            one,
+            random,
+            MolangOp::Pop,
+            zero,
+            one,
+            random,
+            MolangOp::StoreVariable(16),
+            zero,
+        ];
+        assert!(written(&draws, 16));
+        let unguarded = [zero, one, random, MolangOp::StoreVariable(17), zero];
+        assert!(!written(&unguarded, 17));
     }
 }

@@ -82,8 +82,8 @@ pub use hud::{
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
-    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target,
+    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, press_region,
+    region_rect, scroll_target,
 };
 pub use input::{
     CustomRoute, FOCUS_OVERRIDE_STOP, FocusContainer, FocusDirection, FocusMeta, FocusMove,

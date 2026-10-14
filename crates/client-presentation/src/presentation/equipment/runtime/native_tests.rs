@@ -17,6 +17,33 @@ fn selected_pixel(
     page.pixels()[start..start + 4].try_into().unwrap()
 }
 
+/// Samples the center of a generated mesh's artwork region, including atlas sprites.
+fn mesh_pixel(
+    pages: &render_model::ActorArtworkPages,
+    location: render_model::ActorArtworkLocation,
+    mesh: &render_model::ActorRigGeometry,
+) -> [u8; 4] {
+    let page = &pages.pages()[usize::from(location.page() - 1)];
+    let (width, height) = page.dimensions();
+    let bounds = mesh.vertices.iter().fold(
+        ([f32::INFINITY; 2], [f32::NEG_INFINITY; 2]),
+        |(mut min, mut max), vertex| {
+            for axis in 0..2 {
+                min[axis] = min[axis].min(vertex.uv[axis]);
+                max[axis] = max[axis].max(vertex.uv[axis]);
+            }
+            (min, max)
+        },
+    );
+    let x = ((bounds.0[0] + bounds.1[0]) * 0.5 * f32::from(width)) as usize;
+    let y = ((bounds.0[1] + bounds.1[1]) * 0.5 * f32::from(height)) as usize;
+    let start = (location.layer() as usize * usize::from(width) * usize::from(height)
+        + y * usize::from(width)
+        + x)
+        * 4;
+    page.pixels()[start..start + 4].try_into().unwrap()
+}
+
 /// Builds original sprite geometry, deliberately displaced animation, and colored stage images.
 fn fixture(identifier: &str, geometry: &str, color: u8, stages: bool) -> Vec<(Box<str>, Vec<u8>)> {
     let mut textures = serde_json::Map::new();
@@ -244,6 +271,133 @@ fn missing_bow_stage_uses_the_matching_startup_stage() {
         )
         .unwrap();
     assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 13);
+}
+
+#[test]
+fn missing_weapon_stage_textures_use_animation_icons_and_loaded_offhand_dimensions() {
+    for (identifier, geometry, animation, last_frame) in [
+        (
+            "minecraft:bow",
+            "geometry.bow_standby",
+            "minecraft:bow_pulling",
+            3_u32,
+        ),
+        (
+            "minecraft:crossbow",
+            "geometry.crossbow_standby",
+            "minecraft:crossbow_pulling",
+            5_u32,
+        ),
+    ] {
+        let (entities, catalog) = pack_catalog(fixture(identifier, geometry, 10, false));
+        let sprites = (0..=last_frame)
+            .map(|frame| {
+                let width = 16 + frame as u16;
+                let height = 24 + 2 * frame as u16;
+                assets::IconSprite {
+                    width,
+                    height,
+                    rgba8: [60 + frame as u8, 40, 60, 255]
+                        .repeat(usize::from(width) * usize::from(height))
+                        .into(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let entries = (0..=last_frame)
+            .map(|frame| assets::IconEntry {
+                identifier: if frame == 0 { identifier } else { animation }.into(),
+                metadata: frame.saturating_sub(1),
+                sprite: frame,
+            })
+            .collect::<Vec<_>>();
+        let icons = Arc::new(
+            assets::RuntimeIconCatalog::decode(
+                &assets::encode_icon_catalog([0; 32], &sprites, &entries).unwrap(),
+            )
+            .unwrap(),
+        );
+        let (mut runtime, pages, _) = EquipmentRuntime::build(
+            entities,
+            Some(catalog),
+            icons,
+            None,
+            None,
+            render_model::ActorArtworkPages::default(),
+        );
+        let pages = install(
+            &mut runtime,
+            pages,
+            fixture(identifier, geometry, 80, false),
+        );
+        assert!(runtime.uses_native_item_mesh(identifier));
+        let mut item = item(identifier);
+        for frame in 1..=last_frame {
+            let (rig, location, _, span) = runtime
+                .held_mesh_with_use(
+                    &item,
+                    AttachableAnimationInput {
+                        first_person: true,
+                        animation_frame: frame,
+                        use_elapsed_ticks: match frame {
+                            1 => Some(0),
+                            2 => Some(9),
+                            3 => Some(15),
+                            _ => None,
+                        },
+                        max_use_ticks: 100,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let mesh = runtime
+                .take_pending_geometries()
+                .into_iter()
+                .find(|mesh| mesh.id == rig)
+                .unwrap();
+            assert_eq!(mesh_pixel(&pages, location, &mesh)[0], 60 + frame as u8);
+            let page = &pages.pages()[usize::from(location.page() - 1)];
+            let (width, height) = page.dimensions();
+            assert_eq!(
+                span,
+                [
+                    f32::from(sprites[frame as usize].width) / f32::from(width),
+                    f32::from(sprites[frame as usize].height) / f32::from(height),
+                ]
+            );
+        }
+        if identifier == "minecraft:crossbow" {
+            for (projectile, frame) in [
+                (assets::item_use::ItemProjectileRole::Arrow, 4),
+                (assets::item_use::ItemProjectileRole::Firework, 5),
+            ] {
+                item.charged_projectile = Some(projectile);
+                assert_eq!(
+                    runtime.native_sprite_dimensions(&item),
+                    Some([sprites[frame].width, sprites[frame].height])
+                );
+                let (rig, location, _, _) = runtime
+                    .held_mesh_with_use(
+                        &item,
+                        AttachableAnimationInput {
+                            off_hand: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                let main = runtime
+                    .held_mesh_with_use(
+                        &item,
+                        AttachableAnimationInput {
+                            first_person: true,
+                            animation_frame: frame as u32,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                assert_eq!((rig, location), (main.0, main.1));
+            }
+        }
+    }
 }
 
 #[test]
@@ -798,6 +952,25 @@ fn missing_pack_sprite_never_falls_back_to_a_startup_cube_uv_atlas() {
     assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 30);
 }
 
+/// Round-trips a startup carrier in the older format that omits resource aliases.
+fn version_five_catalog(
+    catalog: &assets::RuntimeEquipmentCatalog,
+) -> Arc<assets::RuntimeEquipmentCatalog> {
+    let mut bindings = catalog.bindings().to_vec();
+    for binding in &mut bindings {
+        binding.resources = Default::default();
+    }
+    let bytes = assets::encode_equipment_catalog_with_textures(
+        catalog.source_manifest_sha256(),
+        catalog.entity_blob_sha256(),
+        &bindings,
+        catalog.textures(),
+    )
+    .unwrap();
+    assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 5);
+    Arc::new(assets::RuntimeEquipmentCatalog::decode(&bytes).unwrap())
+}
+
 #[test]
 fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
     for (identifier, geometry, last_frame) in [
@@ -805,19 +978,7 @@ fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
         ("minecraft:crossbow", "geometry.crossbow_standby", 5),
     ] {
         let (entities, catalog) = pack_catalog(fixture(identifier, geometry, 10, true));
-        let mut bindings = catalog.bindings().to_vec();
-        for binding in &mut bindings {
-            binding.resources = Default::default();
-        }
-        let bytes = assets::encode_equipment_catalog_with_textures(
-            catalog.source_manifest_sha256(),
-            catalog.entity_blob_sha256(),
-            &bindings,
-            catalog.textures(),
-        )
-        .unwrap();
-        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 5);
-        let legacy = Arc::new(assets::RuntimeEquipmentCatalog::decode(&bytes).unwrap());
+        let legacy = version_five_catalog(&catalog);
         assert!(
             legacy
                 .binding(identifier)
@@ -901,6 +1062,72 @@ fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
                 selected_pixel(&pages, &draw.presentation)[0],
                 80 + frame as u8
             );
+        }
+    }
+}
+
+#[test]
+fn version_five_carriers_recognize_single_stage_texture_overrides() {
+    for (identifier, geometry, stem, last_frame) in [
+        ("minecraft:bow", "geometry.bow_standby", "bow", 3),
+        (
+            "minecraft:crossbow",
+            "geometry.crossbow_standby",
+            "crossbow",
+            5,
+        ),
+    ] {
+        for frame in 1..=last_frame {
+            let (mut runtime, pages) = startup_runtime(fixture(identifier, geometry, 10, false));
+            runtime.catalog = Some(version_five_catalog(runtime.catalog.as_ref().unwrap()));
+            let path = match (stem, frame) {
+                ("crossbow", 4) => "textures/items/crossbow_arrow".into(),
+                ("crossbow", 5) => "textures/items/crossbow_firework".into(),
+                _ => format!("textures/items/{stem}_pulling_{}", frame - 1).into_boxed_str(),
+            };
+            let texture = assets::EquipmentTexture {
+                identifier: path,
+                width: 8,
+                height: 16,
+                rgba8: [80, 40, 60, 255].repeat(8 * 16).into(),
+            };
+            let overlay = Arc::new(
+                assets::RuntimeEquipmentCatalog::from_parts([2; 32], vec![], vec![texture])
+                    .unwrap(),
+            );
+            let (pages, locations) =
+                pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&overlay));
+            runtime.set_pack_layer(Some((
+                Arc::clone(&runtime.assets),
+                Some(overlay),
+                locations,
+            )));
+            assert!(runtime.uses_native_item_mesh(identifier));
+            assert!(!runtime.is_vanilla_attachable(identifier));
+            let (rig, location, _, span) = runtime
+                .held_mesh_with_use(
+                    &item(identifier),
+                    AttachableAnimationInput {
+                        first_person: true,
+                        animation_frame: frame,
+                        use_elapsed_ticks: match frame {
+                            1 => Some(0),
+                            2 => Some(9),
+                            3 => Some(15),
+                            _ => None,
+                        },
+                        max_use_ticks: 100,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            let mesh = runtime
+                .take_pending_geometries()
+                .into_iter()
+                .find(|mesh| mesh.id == rig)
+                .unwrap();
+            assert_eq!(mesh_pixel(&pages, location, &mesh)[0], 80);
+            assert_eq!(span, [1.0; 2]);
         }
     }
 }

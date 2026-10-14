@@ -9,6 +9,7 @@ mod completion_plan;
 mod conditions;
 mod contracts;
 mod dependencies;
+mod identifiers;
 mod markers;
 mod modules;
 mod paths;
@@ -16,6 +17,7 @@ mod platforms;
 mod policy;
 mod reads;
 mod reexports;
+mod rust_scope;
 mod sources;
 mod timing;
 mod workspace_docs;
@@ -78,6 +80,7 @@ pub fn check_repository(root: &Path, policy_path: &Path) -> Result<Vec<String>, 
     platforms::check_platforms(root, &policy, &files, &mut diagnostics)?;
     reads::check_reads(root, &policy, &files, &mut diagnostics)?;
     check_timing(root, &policy, &files, &mut diagnostics)?;
+    identifiers::check_identifiers(root, &policy, &files, &mut diagnostics)?;
     diagnostics.sort();
     diagnostics.dedup();
     Ok(diagnostics)

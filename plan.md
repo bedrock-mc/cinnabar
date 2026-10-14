@@ -1,3 +1,20 @@
+## Browser portability
+
+Connection framing can prepare a bounded writer for a host executor, and deadlines accept a
+host timer future. Native connections still spawn the writer on Tokio. Image work retains
+its bounded read/decode queues, pending completion and pack cancellation. A browser image
+driver runs one queued job after yielding. World jobs use the same urgent and ageing rules,
+with caller-supplied monotonic observations and retained light-solver scratch; native hosts
+keep their foreground/background threads and priority policy. Native cache-file reads and
+FreeType compilation are excluded from browser targets. Divergent fragment samples use
+explicit gradients computed before rejection.
+
+Incomplete: CI must compile the native changes and run the written regression tests. The
+browser entry, transport, timer implementation and asset source remain pending. Shared
+session/world/render clock migration and browser dependency composition still need a
+wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
+job costs remain unverified. No browser release or parity gate closes here.
+
 ## Far terrain (LOD)
 
 `far-terrain` summarises each column the server sent: the height of every cell's highest
@@ -12,16 +29,20 @@ Summaries persist under the user data root in 32×32-column region files, namesp
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
 Before reusing a namespace, the first non-empty columns received are compared with it (or
 whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
-reuse coordinates for different maps keep them apart. Columns show from memory before that, a
-disk read never replaces a newer column, and a retired session's late summaries never replace
-a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+reuse coordinates for different maps keep them apart. Only live columns show before that.
+Afterwards the first cached columns replaced by live ones are compared too: when enough
+differ, as for another lobby instance under the same identity, the visit drops the cached map
+and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
+summaries never replace a later visit's. Every session, including a transfer to the same
+address, and every dimension change starts a fresh visit. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
 The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
-1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
-near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
-ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+1 to 16 blocks wide, finer toward the near edge. It never draws within the full-detail radius
+(or, without one, what the server sends), which loads in as without far terrain; past it, far
+terrain hides over the columns near terrain has drawn, such as those handing over to it:
+finest quads whole, coarser ones per fragment. Only finest tiles reach the near edge. Tile
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
@@ -3366,6 +3387,9 @@ Texture-only bow, crossbow, spear and trident attachables use native held sprite
 meshes and hand transforms when every resolved geometry matches the startup weapon
 or stock item sprite. Their texture aliases follow native use stages; custom models
 keep authored attachable animation. This is an accepted presentation choice.
+Older carriers without texture aliases also recognize overrides of a single stage.
+Missing bow and crossbow stage textures use startup animation icons, including the
+loaded crossbow's offhand image dimensions.
 Cube-based weapon textures are UV atlases, so those weapons use pack item icons,
 then startup item icons. Without an item icon, they retain model rendering.
 Provisional, incomplete: compilation, regression execution and rendered acceptance
@@ -4213,7 +4237,9 @@ Current implementation state:
    capability (default off, byte-identical wire when unset) that flips the outbound upstream
    `ClientCacheStatus` enabled byte through an observe-then-flip dialer hook, and both production
    app spawn paths enable it exactly when the Rust session owns its process-lifetime verified
-   blob cache; live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
+   blob cache. Verified chunk blobs now persist across launches in a bounded, background redb
+   store; disk reads recheck content hashes before hit reporting, and unavailable entries follow
+   normal misses. Live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
    read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
    and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
   pack-content semantic validation and parsing, archive extraction, application,

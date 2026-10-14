@@ -34,14 +34,21 @@ fn drawn_pose(previous: &[BoneTransform], current: &[BoneTransform], alpha: f32)
                 .map(|(a, b)| a * b)
                 .sum();
             let sign = if dot < 0.0 { -1.0 } else { 1.0 };
+            let mix = |from: f32, to: f32| from + (to - from) * alpha;
             let mut out = [0.0; 7];
-            for axis in 0..4 {
-                out[axis] = previous.rotation[axis]
-                    + (current.rotation[axis] * sign - previous.rotation[axis]) * alpha;
+            for (slot, (from, to)) in out[..4]
+                .iter_mut()
+                .zip(previous.rotation.iter().zip(current.rotation))
+            {
+                *slot = mix(*from, to * sign);
             }
-            for axis in 0..3 {
-                out[4 + axis] = previous.translation_scale[axis]
-                    + (current.translation_scale[axis] - previous.translation_scale[axis]) * alpha;
+            for (slot, (from, to)) in out[4..].iter_mut().zip(
+                previous
+                    .translation_scale
+                    .iter()
+                    .zip(current.translation_scale),
+            ) {
+                *slot = mix(*from, to);
             }
             out
         })
@@ -149,6 +156,30 @@ fn installed_player_poses_change_every_frame_without_tick_steps() {
 /// walk clip tick-interpolated while the camera moves.
 #[test]
 fn camera_reads_beside_a_walk_variable_keep_walking_smooth() {
+    assert_smooth_walk(walk_catalog(false));
+}
+
+/// A walk clip that genuinely reads the camera still interpolates its motion between ticks.
+#[test]
+fn camera_dependent_walk_clips_keep_walking_smooth() {
+    assert_smooth_walk(walk_catalog(true));
+}
+
+fn assert_smooth_walk(assets: Arc<RuntimeEntityAssets>) {
+    for players in [1, 9] {
+        for look in [0.0, 1.0] {
+            let steps = tick_steps(&assets, players, look);
+            assert!(
+                steps.is_empty(),
+                "{players} players, look {look}: tick steps (player, bone) {steps:?}"
+            );
+        }
+    }
+}
+
+/// A walk clip driven by `variable.tcos0`, which another entity's script writes beside a camera
+/// read; `camera_walk` also makes the walk clip itself read a camera input.
+fn walk_catalog(camera_walk: bool) -> Arc<RuntimeEntityAssets> {
     let mut compiled = crate::test_support::counting_random_compiled("minecraft:player");
     compiled.rig_bindings[0].initialize = None;
     compiled.render.layers[0].color = None;
@@ -210,7 +241,7 @@ fn camera_reads_beside_a_walk_variable_keep_walking_smooth() {
         .into();
     compiled.rig_bindings[0].pre_animation = Some(0);
     compiled.animation_channels[0].property = EntityAnimationProperty::Rotation;
-    compiled.animation_keyframes[0].expressions = [Some(1), None, None];
+    compiled.animation_keyframes[0].expressions = [Some(1), camera_walk.then_some(2), None];
     let mut channels = compiled.animation_channels.into_vec();
     let mut spear = channels[0].clone();
     spear.first_keyframe = 1;
@@ -236,16 +267,5 @@ fn camera_reads_beside_a_walk_variable_keep_walking_smooth() {
     bindings.push(spear);
     compiled.rig_animations = bindings.into();
     compiled.rig_geometries[0].animation_count += 1;
-    let assets = Arc::new(
-        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
-    );
-    for players in [1, 9] {
-        for look in [0.0, 1.0] {
-            let steps = tick_steps(&assets, players, look);
-            assert!(
-                steps.is_empty(),
-                "{players} players, look {look}: tick steps (player, bone) {steps:?}"
-            );
-        }
-    }
+    Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
 }

@@ -245,27 +245,18 @@ fn modern_and_special_postures_keep_the_authored_attack() {
 
 #[test]
 fn registered_maps_keep_the_authored_attack_in_either_hand() {
-    let items = protocol::vanilla_item_registry();
-    let maps = items
-        .iter()
-        .filter(|item| {
-            matches!(
-                item.identifier.as_ref(),
-                "minecraft:empty_map" | "minecraft:filled_map"
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(maps.len(), 2);
-    for item in maps {
+    for identifier in ["minecraft:empty_map", "minecraft:filled_map"] {
+        // The full pinned item table, since the creative-only registry omits filled maps.
+        assert!(assets::item::names::serialization_ids(identifier).is_some());
         for off_hand in [false, true] {
             let mut context = ActorTickContext {
                 combat_visuals: CombatVisuals::Legacy112,
                 ..Default::default()
             };
             if off_hand {
-                context.off_hand = Some(item.identifier.clone());
+                context.off_hand = Some(identifier.into());
             } else {
-                context.main_hand = Some(item.identifier.clone());
+                context.main_hand = Some(identifier.into());
             }
             assert_eq!(
                 sample(context, &player(), 0.5, None)[2].rotation,
