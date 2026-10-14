@@ -283,7 +283,7 @@ impl LocomotionState {
             if authority_fault.is_none()
                 && let Some(blocker) = blocker.as_deref()
             {
-                debug!(%blocker, "local physics is waiting for authoritative collision data");
+                debug!(%blocker, "local physics is waiting for collision data or a bounded query");
             }
             self.previous_blocker = blocker;
         }

@@ -104,7 +104,7 @@ fn support_only_cobweb_does_not_slow_motion() {
 }
 
 #[test]
-fn swept_only_cobweb_does_not_slow_motion_until_next_tick() {
+fn entering_cobweb_slows_motion_on_the_next_tick() {
     let world = CobwebWorld::at([1, 1, 0]);
     let mut state = moving_state(Vec3::new(0.5, 1.0, 0.5), Vec3::new(0.4, 0.0, 0.0));
     let first = Simulator::default()
@@ -150,7 +150,7 @@ fn translated_noncollidable_cobweb_senses_both_primary_and_secondary_layers() {
 }
 
 #[test]
-fn nonoverlapping_cobweb_samples_still_fail_transactionally_on_bad_authority() {
+fn destination_cobweb_samples_fail_transactionally_on_bad_authority() {
     for conflicting_identity in [false, true] {
         let mut world = CobwebWorld::at([1, 1, 0]);
         world.conflicting_identity = conflicting_identity;
@@ -177,7 +177,7 @@ fn nonoverlapping_cobweb_samples_still_fail_transactionally_on_bad_authority() {
 }
 
 #[test]
-fn swept_only_cobweb_chunk_still_contributes_to_tick_identity() {
+fn destination_cobweb_chunk_contributes_to_tick_identity() {
     let mut world = CobwebWorld::at([16, 1, 0]);
     world.track_chunks = true;
     let mut state = moving_state(Vec3::new(15.5, 1.0, 0.5), Vec3::new(0.4, 0.0, 0.0));
@@ -196,14 +196,42 @@ fn swept_only_cobweb_chunk_still_contributes_to_tick_identity() {
 }
 
 #[test]
-fn wide_cobweb_query_retains_the_existing_sample_budget() {
+fn fast_motion_in_cobweb_stays_within_the_sample_budget() {
     let world = CobwebWorld::at([0, 1, 0]);
     let mut state = moving_state(Vec3::new(0.5, 1.0, 0.5), Vec3::new(40.0, 0.0, 0.0));
-    let before = state.clone();
-    assert_eq!(
-        Simulator::default().tick(&mut state, MovementInput::default(), &world),
-        Err(SimulationError::World(WorldQueryError::QueryExtentExceeded))
-    );
-    assert_eq!(state, before);
-    assert!(world.queried.borrow().is_empty());
+    let tick = Simulator::default()
+        .tick(&mut state, MovementInput::default(), &world)
+        .unwrap();
+    assert!(tick.environment.in_cobweb);
+    assert_close(tick.movement, Vec3::new(10.0, 0.0, 0.0));
+    assert_eq!(tick.velocity.x, 0.0);
+    assert!(world.queried.borrow().len() <= MAX_BLOCK_SAMPLES_PER_TICK);
+}
+
+#[test]
+fn cobweb_contact_uses_the_inset_body_in_every_pose() {
+    for mode in [
+        sim::MovementMode::Walking,
+        sim::MovementMode::Swimming,
+        sim::MovementMode::Crawling,
+        sim::MovementMode::Gliding,
+        sim::MovementMode::Flying,
+        sim::MovementMode::Riding,
+    ] {
+        for (x, touching) in [(0.7005, false), (0.702, true)] {
+            let world = CobwebWorld::at([1, 1, 0]);
+            let mut state = PlayerState::new(Vec3::new(x, 1.0, 0.5));
+            let tick = Simulator::default()
+                .tick(
+                    &mut state,
+                    MovementInput {
+                        mode,
+                        ..MovementInput::default()
+                    },
+                    &world,
+                )
+                .unwrap();
+            assert_eq!(tick.environment.in_cobweb, touching, "{mode:?}, x={x}");
+        }
+    }
 }

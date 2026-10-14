@@ -673,9 +673,11 @@ these changes do not close the movement, camera, or actor parity gates.
   absence identities and replay snapshots. Missing sections in partially received
   columns still wait for authoritative data. Streaming-boundary server, input and
   rendered acceptance remain incomplete; this does not close creative-flight parity.
-- Fast flight samples block effects at the current body contact instead of the
-  swept volume; solid collision still checks the full move. High ability speeds
-  and 500-block/s actor motion have regression coverage. CI and rendered
+- All movement modes sample block effects at body contact instead of the swept
+  volume; post-move effects use the inset destination body, and solid collision
+  still checks the full move. Query limits retain physics authority without
+  accumulating tick debt. High ability speeds, 500-block/s actor motion and
+  flight-to-walking transitions have regression coverage. CI and rendered
   acceptance remain pending, and the existing collision-query extent limit still
   applies. This does not close the creative-flight parity gate.
 - Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests

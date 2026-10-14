@@ -108,7 +108,7 @@ impl Simulator {
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
-        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        let mut sampled = sample(world, position, height, None)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
@@ -182,18 +182,9 @@ impl Simulator {
         }
         let grounded_at_start = next.on_ground;
         let retained_collisions = next.collisions;
-        // Flight block effects read the current contact pose. The collision
-        // resolver still queries the full move, without spending the body-effect
-        // sample budget on cells the flying player never occupies.
-        let environment_velocity = if input.mode == MovementMode::Flying {
-            Vec3::ZERO
-        } else {
-            next.velocity
-        };
         let mut sampled = sample(
             world,
             next.position,
-            environment_velocity,
             input.mode.hitbox_height(input.sneaking),
             input.liquid_contact_height,
         )?;
