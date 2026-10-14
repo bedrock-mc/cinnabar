@@ -10,6 +10,7 @@ use super::{
 use launcher::menu::{MenuView, dialogs::Popup};
 use ui_engine::{
     engine::screen::{PaintError, PaintFrame, ScreenOutput},
+    menu_scroll::MenuScrolls,
     scroll::ScrollArea,
 };
 
@@ -20,6 +21,7 @@ impl OreUiScreen {
         view: &MenuView,
         popup: &Popup,
         size: [f32; 2],
+        scrolls: &MenuScrolls<launcher::menu::MenuAction>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<(ScreenOutput<launcher::menu::MenuAction>, Vec<ScrollArea>), PaintError> {
         self.configure_accessibility(&view.settings_options);
@@ -38,6 +40,7 @@ impl OreUiScreen {
         );
         canvas.appearance = theme::Appearance::from_dark(view.settings_options.oreui_dark_mode());
         canvas.capture_focus = true;
+        canvas.offsets = scrolls.offsets().clone();
         canvas.seconds = frame.now;
         canvas.transitions = Some(&mut self.transitions);
         let mut buttons = vec![(

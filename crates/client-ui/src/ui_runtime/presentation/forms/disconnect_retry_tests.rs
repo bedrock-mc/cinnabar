@@ -141,3 +141,62 @@ fn launcher_questions_draw_without_a_json_ui_carrier() {
         ]
     );
 }
+
+/// Finds the long question's body without depending on layout-node identities.
+fn question_body_top(nodes: &[ui::UiNode]) -> f32 {
+    nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. }
+                if layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>()
+                    .starts_with("Long") =>
+            {
+                Some(node.bounds().min().y())
+            }
+            _ => None,
+        })
+        .expect("the question displays its body")
+}
+
+#[test]
+fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
+    use launcher::menu::settings_options::SettingId;
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.dialog = Some(launcher::menu::MenuDialog::StorageError);
+    std::sync::Arc::make_mut(&mut view.storage).error =
+        Some("Long notice: Please read this paragraph before continuing.\n".repeat(80));
+    std::sync::Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::ScreenAnimations.index(), 0);
+    presentation.set_menu_view(Some(view));
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let runtime = UiRuntime::new(1);
+    let mut nodes = Vec::new();
+    let hits = presentation
+        .append_menu(&runtime, &mut nodes, &mut 1, metrics, 1280.0, 720.0)
+        .unwrap();
+    let before = question_body_top(&nodes);
+    assert!(
+        presentation
+            .menu_scrolls
+            .wheel(ui::UiPoint::new(640.0, 360.0).unwrap(), -120.0, true)
+    );
+    nodes.clear();
+    let after_hits = presentation
+        .append_menu(&runtime, &mut nodes, &mut 1, metrics, 1280.0, 720.0)
+        .unwrap();
+    assert!(question_body_top(&nodes) < before);
+    assert_eq!(
+        after_hits, hits,
+        "the acknowledgement remains pinned while the text scrolls"
+    );
+}

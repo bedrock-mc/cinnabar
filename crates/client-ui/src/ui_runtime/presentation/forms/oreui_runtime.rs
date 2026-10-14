@@ -203,10 +203,10 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        let (output, scrolls) = self
-            .screens
-            .oreui
-            .paint_popup(view, popup, size, &mut frame)?;
+        let (output, scrolls) =
+            self.screens
+                .oreui
+                .paint_popup(view, popup, size, &self.menu_scrolls, &mut frame)?;
         self.projections.menu_focus = output.focus.unwrap_or_default();
         self.menu_scrolls.set_areas(scrolls);
         self.screens.menu_sounds.clear();

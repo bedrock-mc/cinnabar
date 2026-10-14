@@ -170,7 +170,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 };
                 if let Some(popup) = popup {
                     screen
-                        .paint_popup(&view, &popup, size, &mut frame)
+                        .paint_popup(&view, &popup, size, &scrolls, &mut frame)
                         .map_err(|error| error.to_string())?;
                 }
                 if view.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
