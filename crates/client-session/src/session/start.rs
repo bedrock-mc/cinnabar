@@ -16,7 +16,7 @@ pub fn spawn_network<P: Send + 'static>(
     let session_generation = config.session_generation;
     let (control_event_tx, control_events) = mpsc::channel(CONTROL_EVENT_CAPACITY);
     let (world_event_tx, world_events) = mpsc::channel(WORLD_EVENT_CAPACITY);
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
     let (physics_reanchor, _physics_reanchor_rx) =
         watch::channel(PositionAuthorityGeneration::default());
     let (shutdown, mut shutdown_rx) = watch::channel(false);
@@ -186,7 +186,7 @@ pub fn spawn_network<P: Send + 'static>(
         thread: Some(thread),
         readiness_ingress,
         experience_gate,
-        unflushed: AtomicBool::new(false),
+        unflushed: Default::default(),
     })
 }
 

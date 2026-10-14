@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -343,36 +343,28 @@ pub struct NetworkHandle<P = ()> {
     thread: Option<JoinHandle<()>>,
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
-    unflushed: AtomicBool, // a packet was queued since the last frame flush
+    unflushed: Mutex<frame_flush::FrameFlush>,
 }
 
 impl<P> NetworkHandle<P> {
     /// Queues the readiness boundary after the loading screen can close.
     pub fn finish_loading(&self) -> bool {
-        let queued = self
-            .commands
-            .try_send(NetworkCommand::FinishLoading)
-            .is_ok();
-        self.mark_unflushed(queued);
-        queued
+        let mut frame = self.unflushed.lock().expect("outbound frame lock");
+        let Ok(mut permits) = frame.reserve(&self.commands, 1) else {
+            return false;
+        };
+        permits
+            .next()
+            .expect("one reserved command")
+            .send(NetworkCommand::FinishLoading);
+        true
     }
 
-    /// Ends the frame's batch, as vanilla does once per update; a frame that queued nothing
-    /// sends nothing. A full queue keeps the batch open for the next frame.
+    /// Ends the frame's batch without waiting for capacity or another frame.
+    /// A frame that accepted no commands sends nothing.
     pub fn flush_frame(&self) {
         let _ = self.flush_latency_reply();
-        if self.unflushed.swap(false, Ordering::AcqRel)
-            && let Err(mpsc::error::TrySendError::Full(_)) =
-                self.commands.try_send(NetworkCommand::FlushFrame)
-        {
-            self.unflushed.store(true, Ordering::Release);
-        }
-    }
-
-    fn mark_unflushed(&self, queued: bool) {
-        if queued {
-            self.unflushed.store(true, Ordering::Release);
-        }
+        self.unflushed.lock().expect("outbound frame lock").flush();
     }
 
     /// A live Bevy app still owns a network resource while it is sitting at
@@ -387,11 +379,11 @@ impl<P> NetworkHandle<P> {
     pub fn stub() -> (Self, watch::Receiver<PositionAuthorityGeneration>) {
         empty_network_channels()
     }
-    /// A handle whose command queue holds `capacity` commands; the guard keeps it open.
+    /// A test handle with `capacity` payload slots plus its frame delimiter; the guard keeps it open.
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_command_capacity(capacity: usize) -> (Self, Box<dyn std::any::Any>) {
         let (mut handle, _) = empty_network_channels();
-        let (commands, receiver) = mpsc::channel::<NetworkCommand>(capacity);
+        let (commands, receiver) = frame_flush::command_channel(capacity);
         handle.commands = commands;
         (handle, Box::new(receiver))
     }
@@ -422,15 +414,18 @@ impl<P> NetworkHandle<P> {
 
     #[must_use]
     pub fn pending_command_count(&self) -> usize {
+        let pending_reply = usize::from(
+            self.pending_latency_reply
+                .lock()
+                .expect("latency reply lock")
+                .is_some(),
+        );
+        let frame = self.unflushed.lock().expect("outbound frame lock");
         self.commands
             .max_capacity()
             .saturating_sub(self.commands.capacity())
-            .saturating_add(usize::from(
-                self.pending_latency_reply
-                    .lock()
-                    .expect("latency reply lock")
-                    .is_some(),
-            ))
+            .saturating_sub(frame.reserved_slots())
+            .saturating_add(pending_reply)
     }
 
     #[must_use]
@@ -495,13 +490,8 @@ impl<P> NetworkHandle<P> {
             return Ok(());
         }
         self.flush_latency_reply()?;
-        let permits =
-            self.commands
-                .try_reserve_many(packets.len())
-                .map_err(|error| match error {
-                    mpsc::error::TrySendError::Full(()) => BatchSendError::Full,
-                    mpsc::error::TrySendError::Closed(()) => BatchSendError::Closed,
-                })?;
+        let mut frame = self.unflushed.lock().expect("outbound frame lock");
+        let permits = frame.reserve(&self.commands, packets.len())?;
         for (permit, packet) in permits.zip(packets) {
             permit.send(NetworkCommand::Send {
                 packet,
@@ -512,7 +502,6 @@ impl<P> NetworkHandle<P> {
                 interaction: None,
             });
         }
-        self.mark_unflushed(true);
         Ok(())
     }
 
@@ -573,7 +562,13 @@ impl<P> NetworkHandle<P> {
                 BatchSendError::Closed => PacketSendError::Closed(packet),
             });
         }
-        let queued = self.commands.try_send(NetworkCommand::Send {
+        let mut frame = self.unflushed.lock().expect("outbound frame lock");
+        let permit = match frame.reserve(&self.commands, 1) {
+            Ok(mut permits) => permits.next().expect("one reserved command"),
+            Err(BatchSendError::Full) => return Err(PacketSendError::Full(packet)),
+            Err(BatchSendError::Closed) => return Err(PacketSendError::Closed(packet)),
+        };
+        permit.send(NetworkCommand::Send {
             packet,
             sub_chunk,
             chat,
@@ -581,23 +576,7 @@ impl<P> NetworkHandle<P> {
             physics_reanchor,
             interaction,
         });
-        self.mark_unflushed(queued.is_ok());
-        queued.map_err(|error| match error {
-            mpsc::error::TrySendError::Full(NetworkCommand::Send { packet, .. }) => {
-                PacketSendError::Full(packet)
-            }
-            mpsc::error::TrySendError::Closed(NetworkCommand::Send { packet, .. }) => {
-                PacketSendError::Closed(packet)
-            }
-            mpsc::error::TrySendError::Full(
-                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame,
-            )
-            | mpsc::error::TrySendError::Closed(
-                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame,
-            ) => {
-                unreachable!("only packet commands are submitted here")
-            }
-        })
+        Ok(())
     }
 
     pub fn shutdown(&mut self) {
@@ -649,7 +628,7 @@ fn empty_network_channels<P>() -> (
             thread: None,
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
-            unflushed: AtomicBool::new(false),
+            unflushed: Default::default(),
         },
         physics_reanchor_rx,
     )
@@ -888,6 +867,7 @@ use blob_cache_telemetry::{
 mod bootstrap;
 mod experience;
 mod forms;
+mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;

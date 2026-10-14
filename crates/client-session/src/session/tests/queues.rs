@@ -9,7 +9,7 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 fn network_pending_counts_include_ingress_and_outbound_queues() {
     let (control_event_tx, control_events) = mpsc::channel(2);
     let (world_event_tx, world_events) = mpsc::channel(2);
-    let (commands, mut command_rx) = mpsc::channel(2);
+    let (commands, mut command_rx) = super::super::frame_flush::command_channel(2);
     let (shutdown, _shutdown_rx) = watch::channel(false);
     let (physics_reanchor, _physics_reanchor_rx) =
         watch::channel(PositionAuthorityGeneration::default());
