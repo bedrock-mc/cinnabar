@@ -1007,6 +1007,7 @@ mod lenient_decode;
 mod local_abilities;
 mod near_drawn;
 mod prediction;
+mod remote_motion_replay;
 mod render_distance;
 mod service;
 mod streaming_harness;
