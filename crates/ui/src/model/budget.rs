@@ -8,10 +8,10 @@ use super::{TextShadow, UiDrawBatch, UiError, UiLimits, UiVertex, UiVisual};
 /// batches.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(super) struct DrawCounts {
-    quads: usize,
-    mesh_vertices: usize,
-    mesh_indices: usize,
-    mesh_batches: usize,
+    pub(super) quads: usize,
+    pub(super) mesh_vertices: usize,
+    pub(super) mesh_indices: usize,
+    pub(super) mesh_batches: usize,
 }
 
 impl DrawCounts {
