@@ -158,3 +158,122 @@ fn server_menu_alias_leaves_real_anvil_zero_name_as_ui_input() {
     );
     assert!(ledger.storage_stack(1).is_none());
 }
+
+#[test]
+fn server_menu_zero_default_descriptor_admits_its_window_contents() {
+    let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
+    let container = descriptor(Some(0), Some(0));
+    ledger.apply(&content(container));
+    assert_eq!(ledger.storage_slot_count(), Some(MENU_CELLS));
+    ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 105));
+    ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
+        panic!("taking the server menu item");
+    };
+    assert_eq!(
+        source.container,
+        StackRequestContainer::LevelEntity { dynamic_id: None }
+    );
+    assert_eq!(source.stack_network_id, 105);
+}
+
+#[test]
+fn server_menu_accepts_another_click_after_an_unnamed_cursor_reset() {
+    for name in [None, Some(0)] {
+        let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
+        let menu = descriptor(Some(0), None);
+        ledger.apply(&content(menu));
+        for id in 110..113 {
+            let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+            assert!(matches!(
+                ledger.newest_action(),
+                Some(StackRequestAction::Take { .. })
+            ));
+            assert!(ledger.mark_transport_enqueued(10));
+            ledger.apply(&InventoryEvent::Response(
+                protocol::ItemStackResponseEvent {
+                    responses: vec![protocol::StackResponse {
+                        status: protocol::StackResponseStatus::Accepted,
+                        request_id: request,
+                        containers: vec![protocol::StackResponseContainer {
+                            container: ContainerIdentity {
+                                window_id: None,
+                                slot_type: Some(protocol::CONTAINER_NAME_CURSOR),
+                                dynamic_id: None,
+                            },
+                            slots: vec![protocol::StackResponseSlot {
+                                slot: 0,
+                                hotbar_slot: 0,
+                                count: 1,
+                                item_stack_id: id,
+                                custom_name: Arc::from(""),
+                                filtered_custom_name: Arc::from(""),
+                                durability_correction: -1,
+                            }]
+                            .into(),
+                        }]
+                        .into(),
+                    }]
+                    .into(),
+                },
+            ));
+            assert!(ledger.cursor_stack().is_some());
+            ledger.apply(&slot(menu, (MENU_CELLS - 1) as u16, id + 10));
+            ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity {
+                        window_id: Some(protocol::UI_INVENTORY_WINDOW_ID),
+                        slot_type: name,
+                        dynamic_id: None,
+                    },
+                    slot: 0,
+                },
+                stack: NetworkItemStack::empty(),
+                storage_item: None,
+            }));
+            assert!(
+                ledger.cursor_stack().is_none(),
+                "cursor descriptor {name:?}"
+            );
+            assert!(!ledger.resync_required());
+        }
+    }
+}
+
+#[test]
+fn server_menu_zero_response_descriptor_does_not_lock_repeat_clicks() {
+    let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
+    ledger.apply(&content(descriptor(Some(0), None)));
+    let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: vec![protocol::StackResponse {
+                status: protocol::StackResponseStatus::Accepted,
+                request_id: request,
+                containers: vec![protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+                        dynamic_id: Some(0),
+                    },
+                    slots: vec![protocol::StackResponseSlot {
+                        slot: (MENU_CELLS - 1) as u8,
+                        hotbar_slot: (MENU_CELLS - 1) as u8,
+                        count: 1,
+                        item_stack_id: 100,
+                        custom_name: Arc::from(""),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: -1,
+                    }]
+                    .into(),
+                }]
+                .into(),
+            }]
+            .into(),
+        },
+    ));
+    assert!(!ledger.resync_required());
+    assert!(ledger.cursor_stack().is_none());
+    assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u8).is_ok());
+}
