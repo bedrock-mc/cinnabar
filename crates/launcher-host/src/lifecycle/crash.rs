@@ -1,9 +1,9 @@
 //! Crash capture for the client; nothing is uploaded.
 //!
 //! The client starts an out-of-process monitor (`<client> --crash-monitor`) first. Faults and
-//! panics only ask it for a minidump; it writes the crash folder once this process is gone and
-//! tells the player. Until it is connected, or without one, the process writes the folder
-//! itself.
+//! panics only ask it for a minidump; it writes a panic's folder at once and a fault's once this
+//! process is gone, and tells the player when the client died. Until it is connected, or
+//! without one, the process writes the folder itself.
 
 mod fallback;
 mod handler;
@@ -29,13 +29,13 @@ use launcher::{graphics_backend::Adapter, install_layout::InstallLayout};
 
 use crate::renderer_startup::Attempt;
 
-/// Runs the executable as the crash monitor: `<client> --crash-monitor <ipc name> <parent pid>
-/// <crash dir>`.
+/// Runs the executable as the crash monitor: `<client> --crash-monitor <socket> <parent pid>
+/// <crash dir>`, with a [`protocol::Launch`] line on its stdin.
 pub const MONITOR_FLAG: &str = "--crash-monitor";
 /// `1` makes dumps hold all process memory, for developers; Windows only.
 pub const FULL_DUMP_ENV: &str = "CINNABAR_FULL_DUMP";
 /// How long a failing `main` waits for the monitor to show its error.
-const STARTUP_FAILURE_WAIT: Duration = Duration::from_secs(5);
+const FAILURE_WAIT: Duration = Duration::from_secs(5);
 
 /// The caller's logging, which crash capture flushes so the crash's log section is complete.
 #[derive(Clone, Copy)]
@@ -69,16 +69,17 @@ impl Context {
 }
 
 static CONTEXT: OnceLock<Context> = OnceLock::new();
-/// One report per process: the first panic or fault claims it.
+/// Set while a panic or fault is being reported, and for good once one was written in-process.
+/// A panic the monitor took clears it again, so a later fault still gets its own report.
 static REPORTED: AtomicBool = AtomicBool::new(false);
 
 /// Captures every panic and native fault of this process.
 ///
 /// Starts the monitor from `monitor` when given, attaches the native crash handler and wraps the
 /// panic hook. Each panic captures one backtrace, hands `hooks.log_panic` the message and that
-/// backtrace and flushes; the first panic or fault then asks the monitor for a dump, or writes
-/// its folder in-process without one. `identity` names the process in every report. Later calls
-/// change nothing.
+/// backtrace and flushes; a panic or fault then asks the monitor for a dump, or writes its folder
+/// in-process without one. `identity` names the process in every report. Later calls change
+/// nothing.
 pub fn install(
     layout: &InstallLayout,
     identity: Identity,
@@ -100,7 +101,7 @@ pub fn install(
         announce_exit_on_return();
     }
     if let Some(command) = monitor {
-        monitor::start(command, &context.crash_dir, hello(context));
+        monitor::start(command, &context.crash_dir, &hello(context), restart());
     }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -112,7 +113,9 @@ pub fn install(
         if !REPORTED.swap(true, Ordering::AcqRel) {
             let thread = Thread::current();
             let now_ms = now_ms();
-            if !report_panic(context, &message, &thread, &backtrace, now_ms) {
+            if report_panic(context, &message, &thread, &backtrace, now_ms) {
+                REPORTED.store(false, Ordering::Release);
+            } else {
                 let _ = fallback::write_panic(context, message, thread, backtrace, now_ms);
             }
         }
@@ -121,7 +124,8 @@ pub fn install(
     }));
 }
 
-/// Hands a panic to the monitor and dumps the panicking thread; false without a monitor.
+/// Hands a panic to the monitor, dumps the panicking thread and connects again for whatever
+/// comes next; false when the panic must be written in-process.
 fn report_panic(
     context: &Context,
     message: &str,
@@ -129,17 +133,24 @@ fn report_panic(
     backtrace: &str,
     now_ms: u64,
 ) -> bool {
+    let Some(client) = monitor::route() else {
+        return false;
+    };
     let panic = protocol::Panic {
         message: message.to_owned(),
         thread: thread.clone(),
         backtrace: backtrace.to_owned(),
         uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
     };
-    let sent = serde_json::to_vec(&panic).is_ok_and(|panic| monitor::send(protocol::PANIC, &panic));
-    if sent {
-        handler::dump_this_thread();
+    let sent = serde_json::to_vec(&panic)
+        .is_ok_and(|panic| monitor::send_on(client, protocol::PANIC, &panic));
+    if !sent {
+        return false;
     }
-    sent
+    if handler::dump_this_thread() && !monitor::reconnect() {
+        tracing::warn!("crash monitor connection lost after a panic dump");
+    }
+    true
 }
 
 /// Tells the monitor this process is about to exit with `code` on purpose, so it reports
@@ -148,11 +159,10 @@ pub fn announce_exit(code: i32) {
     monitor::send(protocol::EXIT, &code.to_le_bytes());
 }
 
-/// Hands the error `main` failed with to the monitor, which shows it once this process exits;
-/// false when no monitor is connected, so the caller must show it itself.
-pub fn report_startup_failure(error: &str) -> bool {
-    monitor::wait_for_connection(STARTUP_FAILURE_WAIT)
-        && monitor::send(protocol::STARTUP_FAILURE, error.as_bytes())
+/// Hands the error `main` failed with at `stage` to the monitor, which shows it once this
+/// process exits; false when no monitor is connected, so the caller must show it itself.
+pub fn report_failure(stage: protocol::Stage, error: &str) -> bool {
+    monitor::wait_for_connection(FAILURE_WAIT) && monitor::send(stage.message(), error.as_bytes())
 }
 
 /// Any other `exit()` or return from `main` is deliberate too; only signals and aborts bypass
@@ -160,7 +170,7 @@ pub fn report_startup_failure(error: &str) -> bool {
 #[cfg(unix)]
 fn announce_exit_on_return() {
     extern "C" fn announce() {
-        announce_exit(i32::MIN);
+        announce_exit(protocol::AT_EXIT);
     }
     // SAFETY: `announce` has the C ABI and only sends on an established socket.
     unsafe {
@@ -190,12 +200,35 @@ fn hello(context: &Context) -> protocol::Hello {
         identity: context.identity.clone(),
         client_log: context.client_log.clone(),
         core_log: context.core_log.clone(),
-        restart: protocol::Restart {
-            program: std::env::current_exe().unwrap_or_default(),
-            args: std::env::args_os().skip(1).collect(),
-            env_remove: vec![update_installer::startup::STARTUP_ENV.to_owned()],
-        },
         full_dump: context.full_dump,
+    }
+}
+
+/// How the monitor starts this client again: with the arguments it was started with, without
+/// this launch's updater handoff, and, from an AppImage, without the variables its runtime set.
+fn restart() -> protocol::Restart {
+    let mut env_remove = vec![update_installer::startup::STARTUP_ENV.to_owned()];
+    if cfg!(target_os = "linux") && std::env::var_os(update_installer::startup::APPIMAGE).is_some()
+    {
+        env_remove.extend(
+            update_installer::startup::APPIMAGE_RUNTIME_ENV
+                .iter()
+                .map(|name| (*name).to_owned()),
+        );
+    }
+    protocol::Restart {
+        args: std::env::args_os().skip(1).collect(),
+        env_remove,
+    }
+}
+
+/// The program the monitor runs to start the client again: the AppImage the client was started
+/// from, since its runtime deletes the extracted executable on exit, else the monitor's own
+/// executable, which is the client's.
+pub fn restart_program() -> std::io::Result<PathBuf> {
+    match std::env::var_os(update_installer::startup::APPIMAGE) {
+        Some(image) if cfg!(target_os = "linux") => Ok(image.into()),
+        _ => std::env::current_exe(),
     }
 }
 

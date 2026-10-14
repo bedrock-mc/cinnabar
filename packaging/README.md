@@ -132,24 +132,32 @@ code and URL; no packaging-specific UI exists.
 
 ## Crash reports
 The client starts a crash monitor first: the same executable re-run as `cinnabar --crash-monitor
-<ipc name> <parent pid> <crash dir>`, which logs to `logs/crash-monitor.log` and exits with the
-client. A panic or native fault only asks it for a minidump; once the client is gone the monitor
-writes one folder, `crashes/<UTC yyyymmdd-hhmmss>-<session id>/`, under the user data directory and
-opens the crash window (Restart, Copy report, Open folder, Close, Join our Discord). The folder
-holds `crash.dmp` (thread stacks, thread and module lists), `report.json` (schema 1: kind, message,
-thread, backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session
-ID, renderer attempt and game state — session phase, server kind without its address, dimension,
-server pack count; native faults add a `native` object), plus `client.log` and `core.log` with this
-session's part of each log, up to 1 MiB apiece, read after the client died so the panic text and
-drained stderr are included. A client that dies without a dump (a fail-fast abort such as
+<socket> <parent pid> <crash dir>`, which logs to `logs/crash-monitor.log` and exits with the
+client. Its socket sits in a directory only the player can enter (`$XDG_RUNTIME_DIR/cinnabar` or
+`cinnabar-<uid>` under the temporary directory; the user's temporary directory on Windows), and it
+keeps only messages that carry the random token the client handed it on its stdin, along with
+the client's arguments for Restart, which reruns the monitor's own executable (or the AppImage).
+A panic or native fault only asks it for a minidump. A panic's folder is written as soon as its
+dump arrives; if the client lives on, nothing is shown and a later crash gets its own folder.
+A native fault's folder is written once the client is gone. Each folder,
+`crashes/<UTC yyyymmdd-hhmmss>-<session id>/` under the user data directory, holds `crash.dmp`
+(thread stacks, thread and module lists), `report.json` (schema 1: kind, message, thread,
+backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session ID,
+renderer attempt and game state — session phase, server kind without its address, dimension,
+server pack count; native faults add a `native` object), plus `client.log` and `core.log` with
+this session's part of each log, up to 1 MiB apiece. When the client dies, the monitor opens the
+crash window (Restart, Copy report, Open folder, Close, Join our Discord) for the fault, or for
+the panic that ended it. A client that dies without a dump (a fail-fast abort such as
 `0xC0000409`, an out-of-memory or external kill) gets a `kind: abort` report from its exit status;
 a clean exit (code 0, or 130 after Ctrl+C) gets none. When `main` fails in a Windows GUI build,
-such as on a missing carrier, the window shows the error as `Cinnabar couldn't start`
-(`kind: startup`). Without a GPU for the window the monitor uses a native dialog with the same
-actions. Until the monitor is connected, or where it cannot run (Android), the client writes the
-folder itself; folders from fatal Unix signals then end in `-signal`. The newest 8 folders are kept.
-`CINNABAR_CRASH_UI=0` suppresses the window and `CINNABAR_FULL_DUMP=1` writes full-memory dumps
-(Windows). `devtool diag` bundles the latest session's folders after redaction. Nothing is
+the window shows the error: as `Cinnabar couldn't start` (`kind: startup`) before the game showed
+its first frames, such as on a missing carrier, and as `Cinnabar stopped` (`kind: runtime`) after.
+Without a GPU for the window the monitor uses a native dialog with the same actions. Until the
+monitor is connected, or where it cannot run (Android), the client writes the folder itself, and
+a monitor that connects later reports nothing more; folders from fatal Unix signals then end in
+`-signal`. The newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
+`CINNABAR_FULL_DUMP=1` writes full-memory dumps (Windows). `devtool diag` bundles the latest
+session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
 uploaded.
 
 ## Update channel

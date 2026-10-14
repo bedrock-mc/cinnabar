@@ -10,16 +10,21 @@ use std::{
 
 use crash_report::{
     folder,
-    report::{Identity, Kind},
+    report::{Identity, Kind, Thread},
 };
-use launcher_host::lifecycle::crash::{self, LogHooks, monitor};
+use launcher_host::lifecycle::crash::{
+    self, LogHooks, monitor,
+    protocol::{self, Stage},
+};
 
 const ROOT_ENV: &str = "CINNABAR_CRASH_FIXTURE";
 const KIND_ENV: &str = "CINNABAR_CRASH_FIXTURE_KIND";
-/// Written by the monitor fixture once it has finished, so the test knows it exited.
+/// When set, the monitor fixture starts listening only once this file exists.
+const GO_ENV: &str = "CINNABAR_CRASH_FIXTURE_GO";
+/// Written by the monitor fixture once it has finished, holding the folder it showed.
 const MONITOR_DONE: &str = "monitor-done";
-/// Printed by the client fixture once its monitor is connected.
-const CONNECTED: &str = "CRASH_FIXTURE_CONNECTED";
+/// Printed by the client fixture once its monitor connection attempt settled.
+const SETTLED: &str = "CRASH_FIXTURE_SETTLED";
 
 fn layout(root: &Path) -> launcher::install_layout::InstallLayout {
     let mut layout = launcher::test_support::checkout();
@@ -27,18 +32,23 @@ fn layout(root: &Path) -> launcher::install_layout::InstallLayout {
     layout
 }
 
-/// The monitor half: serves the client fixture, then marks that it has finished.
+/// The monitor half: serves the client fixture, then records the folder it showed.
 #[test]
 fn monitor_fixture() {
     let Some(root) = std::env::var_os(ROOT_ENV) else {
         return;
     };
     let root = PathBuf::from(root);
+    if let Some(go) = std::env::var_os(GO_ENV) {
+        let go = PathBuf::from(go);
+        assert!(test_time::wait_until(test_time::DEFAULT_TIMEOUT, || go.exists()));
+    }
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let args = crash_monitor::Args::parse(&args).expect("monitor arguments");
     // A real layout: its own log, and the crash window when the UI is not suppressed.
-    crash_monitor::run(&args, Some(&layout(&root)));
-    fs::write(root.join(MONITOR_DONE), b"").unwrap();
+    let shown = crash_monitor::run(&args, Some(&layout(&root))).expect("the monitor runs");
+    let shown = shown.map(|folder| folder.to_string_lossy().into_owned());
+    fs::write(root.join(MONITOR_DONE), shown.unwrap_or_default()).unwrap();
 }
 
 /// The client half: installs crash capture with the monitor fixture, waits for the connection,
@@ -70,8 +80,18 @@ fn client_fixture() {
             .collect(),
     };
     crash::install(&layout(&root), identity, hooks, Some(&command));
+    if kind == "early_panic" {
+        // The monitor listens only after this panic, so it is written in-process.
+        panic_on_a_thread();
+        if let Some(go) = std::env::var_os(GO_ENV) {
+            fs::write(go, b"").unwrap();
+        }
+        monitor::wait_for_connection(test_time::DEFAULT_TIMEOUT);
+        println!("{SETTLED}");
+        std::process::abort();
+    }
     assert!(monitor::wait_for_connection(test_time::DEFAULT_TIMEOUT));
-    println!("{CONNECTED}");
+    println!("{SETTLED}");
     // SAFETY: Each fault ends this disposable process, which is what the fixture is for.
     unsafe {
         match kind.as_str() {
@@ -83,14 +103,90 @@ fn client_fixture() {
                 let _ = std::io::stdin().read_line(&mut String::new());
             }
             "clean" => {}
+            "thread_panic_then_clean" => {
+                panic_on_a_thread();
+                crash::announce_exit(0);
+            }
+            "thread_panic_then_segfault" => {
+                panic_on_a_thread();
+                sadness_generator::raise_segfault();
+            }
+            "intruder" => intrude(),
+            "startup_failure" | "runtime_failure" => {
+                let stage = if kind == "startup_failure" {
+                    Stage::Startup
+                } else {
+                    Stage::Runtime
+                };
+                assert!(crash::report_failure(stage, "fixture failure"));
+                crash::announce_exit(1);
+                std::process::exit(1);
+            }
             other => panic!("unknown fixture kind {other}"),
         }
     }
 }
 
+/// A panic the process survives.
+fn panic_on_a_thread() {
+    let panicked = std::thread::Builder::new()
+        .name("fixture-worker".into())
+        .spawn(|| panic!("fixture thread panic"))
+        .unwrap()
+        .join();
+    assert!(panicked.is_err());
+}
+
+/// Another process connects to the monitor beside the client and claims a panic, a failure
+/// and the client's identity, with a wrong token and with none.
+fn intrude() {
+    let socket = monitor::socket().expect("the monitor's socket");
+    let intruder = minidumper::Client::with_name(protocol::socket_name(socket)).unwrap();
+    let hello = serde_json::to_vec(&protocol::Hello {
+        identity: Identity {
+            session_id: "fedcba9876543210".into(),
+            started_at_ms: 0,
+            release: "6.6.6".into(),
+            commit: "forged".into(),
+            build_profile: "release".into(),
+        },
+        client_log: PathBuf::from("forged.log"),
+        core_log: PathBuf::from("forged.log"),
+        full_dump: false,
+    })
+    .unwrap();
+    let panic = serde_json::to_vec(&protocol::Panic {
+        message: "forged panic".into(),
+        thread: Thread::default(),
+        backtrace: String::new(),
+        uptime_ms: 0,
+    })
+    .unwrap();
+    let wrong = [0x5a_u8; protocol::TOKEN_BYTES];
+    for (kind, payload) in [
+        (protocol::HELLO, hello.as_slice()),
+        (protocol::PANIC, panic.as_slice()),
+        (protocol::RUNTIME_FAILURE, b"forged failure".as_slice()),
+    ] {
+        intruder.send_message(kind, payload).unwrap();
+        intruder
+            .send_message(kind, [wrong.as_slice(), payload].concat())
+            .unwrap();
+    }
+    crash::announce_exit(0);
+}
+
+/// What one fixture run left behind.
+struct Run {
+    _root: tempfile::TempDir,
+    folders: Vec<PathBuf>,
+    /// The folder the monitor showed, if any.
+    shown: Option<PathBuf>,
+}
+
 /// Runs the client fixture for `kind` until its monitor finishes; `kill` kills the client once
-/// it is connected. Returns the crash folders.
-fn crash(kind: &str) -> (tempfile::TempDir, Vec<PathBuf>) {
+/// it is connected.
+fn crash(kind: &str) -> Run {
     let root = tempfile::tempdir().unwrap();
     let logs = root.path().join("logs");
     fs::create_dir_all(&logs).unwrap();
@@ -99,21 +195,24 @@ fn crash(kind: &str) -> (tempfile::TempDir, Vec<PathBuf>) {
         "CLIENT_SESSION_START session=0123456789abcdef\nfixture client line\n",
     )
     .unwrap();
-    let mut client: Child = Command::new(std::env::current_exe().unwrap())
+    let mut client = Command::new(std::env::current_exe().unwrap());
+    client
         .args(["--exact", "client_fixture", "--nocapture"])
         .env(ROOT_ENV, root.path())
         .env(KIND_ENV, kind)
         .env(crash_monitor::CRASH_UI_ENV, "0")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(Stdio::null());
+    if kind == "early_panic" {
+        client.env(GO_ENV, root.path().join("go"));
+    }
+    let mut client: Child = client.spawn().unwrap();
     let mut lines = BufReader::new(client.stdout.take().unwrap()).lines();
-    let connected = lines
+    let settled = lines
         .by_ref()
-        .any(|line| line.is_ok_and(|line| line.contains(CONNECTED)));
-    assert!(connected, "{kind}: the client fixture never connected");
+        .any(|line| line.is_ok_and(|line| line.contains(SETTLED)));
+    assert!(settled, "{kind}: the client fixture never settled");
     // The harness keeps printing; a closed pipe would fail it after the fixture returns.
     let draining = std::thread::spawn(move || lines.for_each(drop));
     if kind == "kill" {
@@ -127,27 +226,38 @@ fn crash(kind: &str) -> (tempfile::TempDir, Vec<PathBuf>) {
         test_time::wait_until(test_time::DEFAULT_TIMEOUT, || done.exists()),
         "{kind}: the monitor did not exit with its client"
     );
-    let folders = folder::list(&root.path().join("crashes"));
-    (root, folders)
+    let shown = fs::read_to_string(&done).unwrap();
+    Run {
+        folders: folder::list(&root.path().join("crashes")),
+        shown: (!shown.is_empty()).then(|| PathBuf::from(shown)),
+        _root: root,
+    }
 }
 
-/// Exactly one folder of `kind`, with a dump when `dumped`, holding the client's log section.
-fn assert_one(kind: &str, expected: Kind, dumped: bool) {
-    let (_root, folders) = crash(kind);
-    assert_eq!(folders.len(), 1, "{kind}: {folders:?}");
-    let report = folder::read(&folders[0]).unwrap();
-    assert_eq!(report.kind, expected, "{kind}: {}", report.message);
+/// Asserts `folder` holds a `kind` report, with a dump when `dumped`, and the client's log
+/// section.
+fn assert_report(folder: &Path, kind: Kind, dumped: bool) {
+    let report = folder::read(folder).unwrap();
+    assert_eq!(report.kind, kind, "{}", report.message);
     assert_eq!(report.session_id, "0123456789abcdef");
     assert_eq!(
-        folders[0].join(folder::DUMP_FILE).is_file(),
+        folder.join(folder::DUMP_FILE).is_file(),
         dumped,
-        "{kind}: crash.dmp"
+        "{kind:?}: crash.dmp"
     );
     assert!(
-        fs::read_to_string(folders[0].join(folder::CLIENT_LOG_FILE))
+        fs::read_to_string(folder.join(folder::CLIENT_LOG_FILE))
             .unwrap()
             .contains("fixture client line")
     );
+}
+
+/// Exactly one folder of `kind`, with a dump when `dumped`, which the monitor showed.
+fn assert_one(fixture: &str, kind: Kind, dumped: bool) {
+    let run = crash(fixture);
+    assert_eq!(run.folders.len(), 1, "{fixture}: {:?}", run.folders);
+    assert_report(&run.folders[0], kind, dumped);
+    assert_eq!(run.shown.as_ref(), Some(&run.folders[0]), "{fixture}");
 }
 
 #[test]
@@ -182,6 +292,61 @@ fn an_external_kill_is_reported_as_an_abort() {
 
 #[test]
 fn a_clean_exit_reports_nothing_and_the_monitor_exits_with_it() {
-    let (_root, folders) = crash("clean");
-    assert!(folders.is_empty(), "{folders:?}");
+    let run = crash("clean");
+    assert!(run.folders.is_empty(), "{:?}", run.folders);
+    assert_eq!(run.shown, None);
+}
+
+#[test]
+fn a_panic_the_client_survives_is_saved_without_a_window() {
+    let run = crash("thread_panic_then_clean");
+    assert_eq!(run.folders.len(), 1, "{:?}", run.folders);
+    assert_report(&run.folders[0], Kind::Panic, true);
+    assert_eq!(run.shown, None);
+}
+
+#[test]
+fn a_fault_after_a_survived_panic_gets_its_own_report() {
+    let run = crash("thread_panic_then_segfault");
+    assert_eq!(run.folders.len(), 2, "{:?}", run.folders);
+    let kinds: Vec<Kind> = run
+        .folders
+        .iter()
+        .map(|folder| folder::read(folder).unwrap().kind)
+        .collect();
+    let panic = kinds.iter().position(|kind| *kind == Kind::Panic).unwrap();
+    let native = kinds.iter().position(|kind| *kind == Kind::Native).unwrap();
+    assert_report(&run.folders[panic], Kind::Panic, true);
+    assert_report(&run.folders[native], Kind::Native, true);
+    assert_eq!(run.shown.as_ref(), Some(&run.folders[native]));
+}
+
+#[test]
+fn a_crash_before_the_monitor_connects_is_reported_once() {
+    let run = crash("early_panic");
+    assert_eq!(run.folders.len(), 1, "{:?}", run.folders);
+    assert_eq!(folder::read(&run.folders[0]).unwrap().kind, Kind::Panic);
+    assert_eq!(run.shown, None);
+}
+
+#[test]
+fn messages_from_another_connection_or_with_a_wrong_token_are_ignored() {
+    let run = crash("intruder");
+    assert!(run.folders.is_empty(), "{:?}", run.folders);
+    assert_eq!(run.shown, None);
+}
+
+#[test]
+fn failures_before_and_after_startup_are_reported_by_stage() {
+    for (fixture, kind) in [
+        ("startup_failure", Kind::Startup),
+        ("runtime_failure", Kind::Runtime),
+    ] {
+        let run = crash(fixture);
+        assert_eq!(run.folders.len(), 1, "{fixture}: {:?}", run.folders);
+        let report = folder::read(&run.folders[0]).unwrap();
+        assert_eq!(report.kind, kind);
+        assert_eq!(report.message, "fixture failure");
+        assert_eq!(run.shown.as_ref(), Some(&run.folders[0]));
+    }
 }

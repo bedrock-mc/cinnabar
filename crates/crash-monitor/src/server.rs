@@ -1,13 +1,21 @@
 //! The monitor's side of the `minidumper` connection: it writes requested dumps and records
-//! everything the client tells it.
+//! everything the client tells it. Only messages that start with the launch token count, since
+//! `minidumper` cannot say which connection sent one.
 
 use std::{
     fs::File,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        mpsc::Sender,
+    },
 };
 
-use launcher_host::lifecycle::crash::protocol::{self, DumpContext, Hello, Panic, State};
+use crash_report::report::Kind;
+#[cfg(windows)]
+use launcher_host::lifecycle::crash::protocol::DumpContext;
+use launcher_host::lifecycle::crash::protocol::{self, Hello, Panic, State, Token};
 use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
 
 /// A dump the client asked for.
@@ -19,18 +27,76 @@ pub(crate) struct Dump {
     pub at_ms: u64,
 }
 
+/// A panic whose dump arrived while the client lived on, with the state it had then.
+#[derive(Clone, Debug)]
+pub(crate) struct DumpedPanic {
+    pub panic: Panic,
+    pub dump: Dump,
+    pub state: State,
+}
+
+/// The error `main` failed with, and whether the game had started.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Failure {
+    /// [`Kind::Startup`] or [`Kind::Runtime`].
+    pub kind: Kind,
+    pub error: String,
+}
+
 /// What the client told the monitor before it went away.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Observed {
     pub hello: Option<Hello>,
     pub state: State,
+    /// The panic the next dump belongs to; one without its dump when that never came.
     pub panic: Option<Panic>,
+    /// Dumped panics waiting for their folders.
+    pub dumped_panics: Vec<DumpedPanic>,
+    /// A native fault's dump.
     pub dump: Option<Dump>,
-    /// The code of an announced, deliberate exit.
+    /// The code of an announced exit.
     pub exit: Option<i32>,
-    pub startup_failure: Option<String>,
-    /// The faulting context of the next dump, for full-memory dumps on Windows.
+    pub failure: Option<Failure>,
+    /// The client announced the dump being written now.
+    pub dump_requested: bool,
+    /// The faulting context of the next dump, for full-memory dumps.
+    #[cfg(windows)]
     pub dump_context: Option<DumpContext>,
+}
+
+/// Something the monitor's main thread acts on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Event {
+    /// A panic's dump arrived; its folder can be written now.
+    PanicDumped,
+    /// The client closed the monitor's stdin: it is gone.
+    ClientGone,
+}
+
+/// Whether the client is gone and how many connections are open, shared with the main thread
+/// so the server stops once both say nothing more can arrive.
+#[derive(Debug, Default)]
+pub(crate) struct Liveness {
+    gone: AtomicBool,
+    open: AtomicUsize,
+}
+
+impl Liveness {
+    /// Records that the client is gone; true when no connection is open, so nothing more can
+    /// arrive. Otherwise the server stops itself when the last one closes.
+    pub(crate) fn client_gone(&self) -> bool {
+        self.gone.store(true, Ordering::SeqCst);
+        self.open.load(Ordering::SeqCst) == 0
+    }
+
+    fn closed(&self, open: usize) -> LoopAction {
+        self.open.store(open, Ordering::SeqCst);
+        if open == 0 && self.gone.load(Ordering::SeqCst) {
+            LoopAction::Exit
+        } else {
+            LoopAction::Continue
+        }
+    }
 }
 
 /// Records messages into shared [`Observed`] and writes dumps beside the crash folders.
@@ -38,6 +104,13 @@ pub(crate) struct Handler {
     observed: Arc<Mutex<Observed>>,
     crash_dir: PathBuf,
     now_ms: fn() -> u64,
+    token: Token,
+    events: Sender<Event>,
+    liveness: Arc<Liveness>,
+    /// Numbers pending dump files, so a dump never overwrites one not yet moved.
+    dumps: AtomicU32,
+    /// The pending file of the dump being written.
+    writing: Mutex<Option<PathBuf>>,
 }
 
 impl Handler {
@@ -45,11 +118,19 @@ impl Handler {
         observed: Arc<Mutex<Observed>>,
         crash_dir: PathBuf,
         now_ms: fn() -> u64,
+        token: Token,
+        events: Sender<Event>,
+        liveness: Arc<Liveness>,
     ) -> Self {
         Self {
             observed,
             crash_dir,
             now_ms,
+            token,
+            events,
+            liveness,
+            dumps: AtomicU32::new(0),
+            writing: Mutex::new(None),
         }
     }
 
@@ -58,80 +139,265 @@ impl Handler {
     }
 }
 
-/// The file a dump is written to before its crash folder exists; folder listing and pruning
+/// A file a dump is written to before its crash folder exists; folder listing and pruning
 /// ignore it.
-pub(crate) fn pending_dump(crash_dir: &Path) -> PathBuf {
-    crash_dir.join(format!(".pending-{}.dmp", std::process::id()))
+fn pending_dump(crash_dir: &Path, number: u32) -> PathBuf {
+    crash_dir.join(format!(".pending-{}-{number}.dmp", std::process::id()))
 }
 
 impl ServerHandler for Handler {
     fn create_minidump_file(&self) -> Result<(File, PathBuf), std::io::Error> {
         std::fs::create_dir_all(&self.crash_dir)?;
-        let path = pending_dump(&self.crash_dir);
-        Ok((File::create(&path)?, path))
+        let path = pending_dump(&self.crash_dir, self.dumps.fetch_add(1, Ordering::Relaxed));
+        let file = File::create(&path)?;
+        *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
+        Ok((file, path))
     }
 
     fn on_minidump_created(&self, result: Result<MinidumpBinary, minidumper::Error>) -> LoopAction {
         let at_ms = (self.now_ms)();
+        let pending = self
+            .writing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let mut observed = self.observed();
+        if !std::mem::take(&mut observed.dump_requested) {
+            drop(observed);
+            drop(result);
+            tracing::warn!("ignored a dump the client did not request");
+            if let Some(pending) = pending {
+                let _ = std::fs::remove_file(pending);
+            }
+            return LoopAction::Continue;
+        }
+        #[cfg(windows)]
+        let full_memory = observed
+            .dump_context
+            .take()
+            .filter(|_| observed.hello.as_ref().is_some_and(|hello| hello.full_dump));
+        drop(observed);
         let path = match result {
-            Ok(mut binary) => {
+            Ok(binary) => {
                 #[cfg(windows)]
-                {
-                    let observed = self.observed();
-                    let full = observed.hello.as_ref().is_some_and(|hello| hello.full_dump);
-                    if let (true, Some(context)) = (full, observed.dump_context) {
-                        drop(observed);
+                let binary = match full_memory {
+                    Some(context) => {
+                        let mut binary = binary;
                         crate::dump::rewrite_with_full_memory(&mut binary.file, context);
+                        binary
                     }
-                }
+                    None => binary,
+                };
                 drop(binary.file);
                 tracing::info!("minidump written");
                 Some(binary.path)
             }
             Err(error) => {
                 tracing::error!("minidump failed: {error}");
-                let _ = std::fs::remove_file(pending_dump(&self.crash_dir));
+                if let Some(pending) = pending {
+                    let _ = std::fs::remove_file(pending);
+                }
                 None
             }
         };
-        self.observed().dump = Some(Dump { path, at_ms });
+        let dump = Dump { path, at_ms };
+        let mut observed = self.observed();
+        match observed.panic.take() {
+            Some(panic) => {
+                let state = observed.state.clone();
+                observed
+                    .dumped_panics
+                    .push(DumpedPanic { panic, dump, state });
+                drop(observed);
+                let _ = self.events.send(Event::PanicDumped);
+            }
+            None => observed.dump = Some(dump),
+        }
         LoopAction::Continue
     }
 
     fn on_message(&self, kind: u32, buffer: Vec<u8>) {
+        let Some(payload) = protocol::open(&self.token, &buffer) else {
+            tracing::warn!("ignored message {kind} without this launch's token");
+            return;
+        };
         let mut observed = self.observed();
         match kind {
-            protocol::HELLO => match serde_json::from_slice(&buffer) {
-                Ok(hello) => observed.hello = Some(hello),
+            protocol::HELLO => match serde_json::from_slice(payload) {
+                Ok(hello) => {
+                    observed.hello.get_or_insert(hello);
+                }
                 Err(error) => tracing::warn!("unreadable client hello: {error}"),
             },
-            protocol::STATE => match serde_json::from_slice(&buffer) {
+            protocol::STATE => match serde_json::from_slice(payload) {
                 Ok(state) => observed.state = state,
                 Err(error) => tracing::warn!("unreadable client state: {error}"),
             },
-            protocol::PANIC => match serde_json::from_slice(&buffer) {
+            protocol::PANIC => match serde_json::from_slice(payload) {
                 Ok(panic) => observed.panic = Some(panic),
                 Err(error) => tracing::warn!("unreadable panic: {error}"),
             },
             protocol::EXIT => {
-                if let Ok(code) = <[u8; 4]>::try_from(buffer.as_slice()) {
+                if let Ok(code) = <[u8; 4]>::try_from(payload) {
                     observed.exit.get_or_insert(i32::from_le_bytes(code));
                 }
             }
-            protocol::STARTUP_FAILURE => {
-                observed.startup_failure = Some(String::from_utf8_lossy(&buffer).into_owned());
+            protocol::STARTUP_FAILURE | protocol::RUNTIME_FAILURE => {
+                observed.failure = Some(Failure {
+                    kind: if kind == protocol::STARTUP_FAILURE {
+                        Kind::Startup
+                    } else {
+                        Kind::Runtime
+                    },
+                    error: String::from_utf8_lossy(payload).into_owned(),
+                });
             }
-            protocol::DUMP_CONTEXT => observed.dump_context = DumpContext::from_bytes(&buffer),
+            protocol::DUMP_REQUEST => {
+                observed.dump_requested = true;
+                #[cfg(windows)]
+                {
+                    observed.dump_context = DumpContext::from_bytes(payload);
+                }
+            }
             other => tracing::warn!("unknown client message {other}"),
         }
     }
 
-    /// The client is the only one: once it is gone, so is everything it could still say.
-    fn on_client_disconnected(&self, clients: usize) -> LoopAction {
-        if clients == 0 {
-            LoopAction::Exit
-        } else {
-            LoopAction::Continue
+    fn on_client_connected(&self, open: usize) -> LoopAction {
+        self.liveness.open.store(open, Ordering::SeqCst);
+        if open > 1 {
+            tracing::warn!("another process connected to the crash monitor");
         }
+        LoopAction::Continue
+    }
+
+    /// A dump ends its connection while the client may live on and connect again, so the
+    /// server stops only once the client is gone and every connection is closed.
+    fn on_client_disconnected(&self, open: usize) -> LoopAction {
+        self.liveness.closed(open)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use crash_report::report::Identity;
+
+    use super::*;
+
+    const TOKEN: Token = [3; protocol::TOKEN_BYTES];
+
+    fn handler() -> (Handler, Arc<Mutex<Observed>>, mpsc::Receiver<Event>) {
+        let observed = Arc::new(Mutex::new(Observed::default()));
+        let (events, received) = mpsc::channel();
+        let handler = Handler::new(
+            Arc::clone(&observed),
+            std::env::temp_dir(),
+            || 5_000,
+            TOKEN,
+            events,
+            Arc::default(),
+        );
+        (handler, observed, received)
+    }
+
+    fn signed(token: &Token, payload: &[u8]) -> Vec<u8> {
+        [token.as_slice(), payload].concat()
+    }
+
+    fn hello() -> Vec<u8> {
+        serde_json::to_vec(&Hello {
+            identity: Identity {
+                session_id: "0123456789abcdef".into(),
+                started_at_ms: 1_000,
+                release: "1.2.3".into(),
+                commit: "abc123".into(),
+                build_profile: "release".into(),
+            },
+            client_log: PathBuf::from("client.log"),
+            core_log: PathBuf::from("core.log"),
+            full_dump: false,
+        })
+        .unwrap()
+    }
+
+    fn panic() -> Vec<u8> {
+        serde_json::to_vec(&Panic {
+            message: "forged".into(),
+            thread: crash_report::report::Thread::default(),
+            backtrace: String::new(),
+            uptime_ms: 0,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn messages_without_the_launch_token_are_ignored() {
+        let (handler, observed, _) = handler();
+        let forged = [9; protocol::TOKEN_BYTES];
+        handler.on_message(protocol::HELLO, signed(&forged, &hello()));
+        handler.on_message(protocol::HELLO, hello());
+        handler.on_message(protocol::PANIC, signed(&forged, &panic()));
+        handler.on_message(protocol::STARTUP_FAILURE, b"forged".to_vec());
+        handler.on_message(protocol::DUMP_REQUEST, Vec::new());
+        {
+            let observed = observed.lock().unwrap();
+            assert!(observed.hello.is_none());
+            assert!(observed.panic.is_none());
+            assert!(observed.failure.is_none());
+            assert!(!observed.dump_requested);
+        }
+        handler.on_message(protocol::HELLO, signed(&TOKEN, &hello()));
+        handler.on_message(
+            protocol::RUNTIME_FAILURE,
+            signed(&TOKEN, b"network session stopped"),
+        );
+        let observed = observed.lock().unwrap();
+        assert!(observed.hello.is_some());
+        assert_eq!(
+            observed.failure,
+            Some(Failure {
+                kind: Kind::Runtime,
+                error: "network session stopped".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn only_requested_dumps_count() {
+        let (handler, observed, received) = handler();
+        let error = || Err(minidumper::Error::ProtocolError("test dump"));
+        handler.on_minidump_created(error());
+        assert!(observed.lock().unwrap().dump.is_none());
+        handler.on_message(protocol::DUMP_REQUEST, signed(&TOKEN, &[]));
+        handler.on_minidump_created(error());
+        assert_eq!(
+            observed.lock().unwrap().dump,
+            Some(Dump {
+                path: None,
+                at_ms: 5_000,
+            })
+        );
+        assert!(received.try_recv().is_err());
+        handler.on_message(protocol::PANIC, signed(&TOKEN, &panic()));
+        handler.on_message(protocol::DUMP_REQUEST, signed(&TOKEN, &[]));
+        handler.on_minidump_created(error());
+        assert_eq!(received.try_recv(), Ok(Event::PanicDumped));
+        let observed = observed.lock().unwrap();
+        assert_eq!(observed.dumped_panics.len(), 1);
+        assert!(observed.panic.is_none());
+    }
+
+    #[test]
+    fn the_server_stops_once_the_client_is_gone_and_its_connections_closed() {
+        let liveness = Liveness::default();
+        liveness.open.store(1, Ordering::SeqCst);
+        // A dump closes the connection of a client that lives on.
+        assert!(liveness.closed(0) == LoopAction::Continue);
+        liveness.open.store(1, Ordering::SeqCst);
+        assert!(!liveness.client_gone());
+        assert!(liveness.closed(0) == LoopAction::Exit);
+        assert!(Liveness::default().client_gone());
     }
 }

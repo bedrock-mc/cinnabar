@@ -1,11 +1,22 @@
 //! Messages between a client and its crash monitor, over the `minidumper` connection.
 //!
-//! The monitor prints [`READY`] on stdout once it listens; the client then connects, sends
-//! [`HELLO`] and its current [`STATE`], and later [`STATE`] on every change. Before a dump
-//! request the client sends [`PANIC`] when a panic caused it. A client exiting on purpose
-//! sends [`EXIT`], after [`STARTUP_FAILURE`] when `main` failed before the game started.
+//! The client starts the monitor with one [`Launch`] line on its stdin, which only the client
+//! holds: the token every message starts with, and how to start the client again. The monitor
+//! prints [`READY`] on stdout once it listens; the client then connects, sends [`HELLO`] and its
+//! current [`STATE`], and later [`STATE`] on every change. Every dump request follows a
+//! [`DUMP_REQUEST`], and a [`PANIC`] before that when a panic caused it. The server drops a
+//! connection once it has dumped it, so a client that survives its panic connects again and
+//! repeats its [`HELLO`]. A client exiting on purpose sends [`EXIT`], after [`STARTUP_FAILURE`] or
+//! [`RUNTIME_FAILURE`] when `main` failed.
+//!
+//! `minidumper` does not say which connection a message came from, so the token is what tells
+//! the client's messages from anyone else's.
 
-use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    ffi::OsString,
+    path::{Path, PathBuf},
+};
 
 use crash_report::report::{Identity, Report, Thread};
 use serde::{Deserialize, Serialize};
@@ -13,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// The line the monitor prints once its server listens.
 pub const READY: &str = "CINNABAR_CRASH_MONITOR_READY";
 
-/// [`Hello`], once after connecting.
+/// [`Hello`], after each connection.
 pub const HELLO: u32 = 1;
 /// [`State`], whenever it changes.
 pub const STATE: u32 = 2;
@@ -24,28 +35,73 @@ pub const PANIC: u32 = 3;
 pub const EXIT: u32 = 4;
 /// UTF-8 text of the error `main` failed with before the game started.
 pub const STARTUP_FAILURE: u32 = 5;
-/// [`DumpContext`], before a native dump request when [`Hello::full_dump`] is set.
-pub const DUMP_CONTEXT: u32 = 6;
+/// Before every dump request: a [`DumpContext`] when [`Hello::full_dump`] is set on Windows,
+/// else empty. The monitor keeps only dumps announced this way.
+pub const DUMP_REQUEST: u32 = 6;
+/// UTF-8 text of the error `main` failed with after the game started.
+pub const RUNTIME_FAILURE: u32 = 7;
 
-/// Who the client is, how to start it again and where its logs are.
+/// The [`EXIT`] code the `atexit` hook announces: `main` returned or something called `exit`
+/// without announcing a code of its own, as the runtime does after a panic on the main thread.
+pub const AT_EXIT: i32 = i32::MIN;
+/// The [`EXIT`] code of a client that wrote its crash folder itself before the monitor
+/// connected, so the monitor must not add another.
+pub const SELF_REPORTED: i32 = i32::MIN + 1;
+
+/// Bytes of the per-launch secret every message starts with.
+pub const TOKEN_BYTES: usize = 16;
+/// The per-launch secret every message starts with.
+pub type Token = [u8; TOKEN_BYTES];
+
+/// The payload of a `message` that starts with `token`; `None` for anyone else's.
+pub fn open<'a>(token: &Token, message: &'a [u8]) -> Option<&'a [u8]> {
+    message.strip_prefix(token.as_slice())
+}
+
+/// What the client tells the monitor on its stdin before anything else, as one JSON line.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Launch {
+    pub token: Token,
+    /// Relaunches the client as the player started it.
+    pub restart: Restart,
+}
+
+/// Who the client is and where its logs are.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub identity: Identity,
     pub client_log: PathBuf,
     pub core_log: PathBuf,
-    /// Relaunches the client as the player started it.
-    pub restart: Restart,
     /// Dumps should hold all process memory.
     pub full_dump: bool,
 }
 
-/// A command line that starts the client again.
+/// How to start the client again; the monitor runs its own executable, the client's.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Restart {
-    pub program: PathBuf,
+    /// The client's arguments, without the program.
     pub args: Vec<OsString>,
     /// Variables for this launch only, removed from the restarted client's environment.
     pub env_remove: Vec<String>,
+}
+
+/// Why `main` failed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Stage {
+    /// Before the game showed its first frames.
+    Startup,
+    /// While the game was running.
+    Runtime,
+}
+
+impl Stage {
+    /// The message that carries a failure at this stage.
+    pub const fn message(self) -> u32 {
+        match self {
+            Self::Startup => STARTUP_FAILURE,
+            Self::Runtime => RUNTIME_FAILURE,
+        }
+    }
 }
 
 /// What the client was doing; see [`super::state`].
@@ -111,33 +167,9 @@ impl DumpContext {
     }
 }
 
-/// The socket name for an IPC name passed on the monitor's command line: an abstract socket on
-/// Linux and Android, a socket file elsewhere.
-pub fn socket_name(name: &str) -> minidumper::SocketName<'_> {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        minidumper::SocketName::Abstract(name)
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
-        minidumper::SocketName::Path(std::path::Path::new(name))
-    }
-}
-
-/// A fresh IPC name for a client with `pid`, unique per launch.
-pub fn ipc_name(pid: u32, nonce: u64) -> String {
-    let name = format!("cinnabar-crash-{pid}-{nonce:016x}");
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        name
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
-        std::env::temp_dir()
-            .join(format!("{name}.sock"))
-            .to_string_lossy()
-            .into_owned()
-    }
+/// The `minidumper` name of the socket file at `path`, which the monitor's command line names.
+pub fn socket_name(path: &Path) -> minidumper::SocketName<'_> {
+    minidumper::SocketName::Path(path)
 }
 
 #[cfg(test)]
@@ -157,8 +189,13 @@ mod tests {
     }
 
     #[test]
-    fn ipc_names_are_unique_per_launch() {
-        assert_ne!(ipc_name(1, 1), ipc_name(1, 2));
-        assert!(ipc_name(1, 1).contains("cinnabar-crash-1-"));
+    fn only_messages_that_start_with_the_token_open() {
+        let token = [7; TOKEN_BYTES];
+        let mut message = token.to_vec();
+        message.extend_from_slice(b"payload");
+        assert_eq!(open(&token, &message), Some(b"payload".as_slice()));
+        assert_eq!(open(&token, &token), Some([].as_slice()));
+        assert_eq!(open(&[8; TOKEN_BYTES], &message), None);
+        assert_eq!(open(&token, b"payload"), None);
     }
 }

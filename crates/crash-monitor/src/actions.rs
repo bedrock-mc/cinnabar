@@ -3,15 +3,16 @@
 use std::process::{Command, Stdio};
 
 use launcher_host::{
-    lifecycle::crash::protocol::Restart,
+    lifecycle::crash::{self, protocol::Restart},
     native_dialog::{self, CrashChoice},
 };
 
 use crate::window::CrashSummary;
 
-/// Starts the client again as the player first started it, detached from this process.
+/// Starts the client again as the player first started it, detached from this process: this
+/// executable, which is the client's, with the arguments the client handed over at launch.
 pub(crate) fn restart(restart: &Restart) -> std::io::Result<()> {
-    let mut command = Command::new(&restart.program);
+    let mut command = Command::new(crash::restart_program()?);
     command
         .args(&restart.args)
         .stdin(Stdio::null())

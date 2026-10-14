@@ -1,6 +1,6 @@
 //! Native fault capture through `crash-handler`. The callback runs on the faulting thread (in
-//! a signal handler on Linux), so it only asks the monitor for a dump, falling back to the
-//! prepared in-process report when no monitor is connected.
+//! a signal handler on Linux), so it asks the monitor for a dump before anything else, falling
+//! back to the prepared in-process report when no monitor is connected.
 
 use std::sync::{
     OnceLock,
@@ -23,8 +23,8 @@ pub(super) fn install(context: &'static Context, hooks: LogHooks) {
     if HANDLER.get().is_some() {
         return;
     }
-    // SAFETY: The callback only reads immutable statics, drains or flushes logs, sends the dump
-    // request and writes the prepared fallback report.
+    // SAFETY: The callback only reads immutable statics and atomics, sends the dump request,
+    // drains or flushes logs and writes the prepared fallback report.
     let event = unsafe {
         crash_handler::make_crash_event(move |crash: &CrashContext| on_crash(context, hooks, crash))
     };
@@ -43,7 +43,10 @@ fn on_crash(context: &Context, hooks: LogHooks, crash: &CrashContext) -> CrashEv
     if super::REPORTED.swap(true, Ordering::AcqRel) {
         return CrashEventResult::Handled(false);
     }
-    // Output buffered for the client log must land before the monitor copies its section.
+    // The dump comes first: flushing may wait on a lock the faulting thread holds.
+    let dumped = request_dump(context, crash);
+    // Output buffered for the client log must land before its section is copied: by the
+    // monitor once this process is gone, or by the in-process report below.
     #[cfg(unix)]
     (hooks.drain_on_signal)();
     #[cfg(windows)]
@@ -51,7 +54,7 @@ fn on_crash(context: &Context, hooks: LogHooks, crash: &CrashContext) -> CrashEv
         (hooks.flush)();
     }
     let _ = hooks;
-    if request_dump(context, crash) {
+    if dumped {
         // The monitor reports it; on Windows that ends the process without the system's crash
         // dialog, elsewhere the previous handlers and the default action still run.
         return CrashEventResult::Handled(cfg!(windows));
@@ -63,23 +66,27 @@ fn on_crash(context: &Context, hooks: LogHooks, crash: &CrashContext) -> CrashEv
     CrashEventResult::Handled(false)
 }
 
-/// Asks the connected monitor to dump this process for `crash`; false without one.
+/// Asks the monitor to dump this process for `crash`, announcing the request first; false
+/// when the crash must be reported in-process.
 fn request_dump(context: &Context, crash: &CrashContext) -> bool {
-    let Some(client) = monitor::connection() else {
+    let Some(client) = monitor::route() else {
         return false;
     };
     #[cfg(windows)]
-    if context.full_dump {
-        let request = super::protocol::DumpContext {
-            exception_pointers: crash.exception_pointers as u64,
-            process_id: crash.process_id,
-            thread_id: crash.thread_id,
-            exception_code: crash.exception_code,
-        };
-        let _ = client.send_message(super::protocol::DUMP_CONTEXT, request.to_bytes());
+    let request = super::protocol::DumpContext {
+        exception_pointers: crash.exception_pointers as u64,
+        process_id: crash.process_id,
+        thread_id: crash.thread_id,
+        exception_code: crash.exception_code,
     }
+    .to_bytes();
+    #[cfg(windows)]
+    let request: &[u8] = if context.full_dump { &request } else { &[] };
+    #[cfg(not(windows))]
+    let request: &[u8] = &[];
     let _ = context;
-    client.request_dump(crash).is_ok()
+    monitor::send_on(client, super::protocol::DUMP_REQUEST, request)
+        && client.request_dump(crash).is_ok()
 }
 
 /// Dumps the calling thread through the monitor, for a panic; false without a monitor.

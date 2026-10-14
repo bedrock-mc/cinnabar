@@ -13,14 +13,15 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crash_report::{folder::Logs, report::Report};
 use launcher::install_layout::InstallLayout;
-use launcher_host::lifecycle::crash::protocol;
+use launcher_host::lifecycle::crash::protocol::{self, Launch, Restart};
 
 use crate::{
     actions, describe,
     outcome::{self, Ending},
     parent::Parent,
-    server::{Handler, Observed},
+    server::{Event, Handler, Liveness, Observed},
     window::{self, Choice, CrashSummary},
 };
 
@@ -33,10 +34,10 @@ const LOG_STEM: &str = "crash-monitor";
 /// The first line of each monitor session file.
 const SESSION_START: &str = "CRASH_MONITOR_SESSION_START";
 
-/// The monitor's command line after the flag: `<ipc name> <parent pid> <crash dir>`.
+/// The monitor's command line after the flag: `<socket> <parent pid> <crash dir>`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Args {
-    pub ipc_name: String,
+    pub socket: PathBuf,
     pub parent: u32,
     pub crash_dir: PathBuf,
 }
@@ -45,33 +46,46 @@ impl Args {
     /// Parses the three arguments; extra leading arguments, such as a test harness's, are
     /// ignored.
     pub fn parse(args: &[OsString]) -> Option<Self> {
-        let [name, parent, crash_dir] = args.get(args.len().checked_sub(3)?..)? else {
+        let [socket, parent, crash_dir] = args.get(args.len().checked_sub(3)?..)? else {
             return None;
         };
         Some(Self {
-            ipc_name: name.to_str()?.to_owned(),
+            socket: PathBuf::from(socket),
             parent: parent.to_str()?.parse().ok()?,
             crash_dir: PathBuf::from(crash_dir),
         })
     }
 }
 
+/// A report folder written this run, with what the window shows of it.
+struct Written {
+    report: Report,
+    logs: Logs,
+    folder: PathBuf,
+}
+
 /// Runs the monitor for `args`, logging to and reading preferences and the UI font from
-/// `layout`; returns the process exit code.
-pub fn run(args: &Args, layout: Option<&InstallLayout>) -> i32 {
+/// `layout`. Returns the report folder the crash window showed, or would have shown with
+/// [`CRASH_UI_ENV`] `0`; `None` when the client ended without one to show.
+pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf>, String> {
     if let Some(layout) = layout {
         start_log(layout, args);
     }
+    let launch = read_launch()?;
     let parent = Parent::open(args.parent);
-    let mut server = match minidumper::Server::with_name(protocol::socket_name(&args.ipc_name)) {
-        Ok(server) => server,
-        Err(error) => {
-            tracing::error!("crash monitor could not listen: {error}");
-            return 1;
-        }
-    };
+    let mut server = minidumper::Server::with_name(protocol::socket_name(&args.socket))
+        .map_err(|error| format!("crash monitor could not listen: {error}"))?;
     let observed = Arc::new(Mutex::new(Observed::default()));
-    let handler = Handler::new(Arc::clone(&observed), args.crash_dir.clone(), now_ms);
+    let liveness = Arc::new(Liveness::default());
+    let (events, received) = mpsc::channel();
+    let handler = Handler::new(
+        Arc::clone(&observed),
+        args.crash_dir.clone(),
+        now_ms,
+        launch.token,
+        events.clone(),
+        Arc::clone(&liveness),
+    );
     let shutdown = Arc::new(AtomicBool::new(false));
     let (finished, server_finished) = mpsc::channel();
     let serving = {
@@ -84,9 +98,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> i32 {
                 }
                 let _ = finished.send(());
             })
-    };
-    let Ok(serving) = serving else {
-        return 1;
+            .map_err(|error| error.to_string())?
     };
     let mut stdout = std::io::stdout();
     if writeln!(stdout, "{}", protocol::READY)
@@ -96,20 +108,52 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> i32 {
         tracing::error!("crash monitor could not signal readiness");
     }
     // Only the client holds our stdin open: its end means the client is gone.
-    let _ = std::io::stdin().read_to_end(&mut Vec::new());
+    std::thread::Builder::new()
+        .name("crash-lifeline".into())
+        .spawn(move || {
+            let _ = std::io::stdin().read_to_end(&mut Vec::new());
+            let _ = events.send(Event::ClientGone);
+        })
+        .map_err(|error| error.to_string())?;
+    let mut panics = Vec::new();
+    for event in &received {
+        match event {
+            Event::PanicDumped => panics.extend(write_panics(args, &observed)),
+            Event::ClientGone => break,
+        }
+    }
     let exit_code = parent.exit_code();
-    if server_finished.recv_timeout(DRAIN).is_err() {
+    if liveness.client_gone() || server_finished.recv_timeout(DRAIN).is_err() {
         shutdown.store(true, Ordering::Relaxed);
     }
     let _ = serving.join();
+    panics.extend(write_panics(args, &observed));
     let observed = observed
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone();
-    let ending = outcome::ending(&observed, exit_code);
+    let ending = outcome::ending(&observed, !panics.is_empty(), exit_code);
     tracing::info!("client ended: {ending:?} (exit code {exit_code:?})");
-    report(args, layout, &observed, &ending);
-    0
+    let shown = match ending {
+        Ending::Panicked => {
+            let uptimes: Vec<u64> = panics.iter().map(|panic| panic.report.uptime_ms).collect();
+            outcome::fatal_panic(&uptimes).map(|fatal| panics.swap_remove(fatal))
+        }
+        _ => report(args, &observed, &ending),
+    };
+    Ok(shown.map(|written| {
+        show(layout, &launch.restart, &written);
+        written.folder
+    }))
+}
+
+/// Reads the client's [`Launch`] line from stdin.
+fn read_launch() -> Result<Launch, String> {
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|error| format!("crash monitor could not read its launch: {error}"))?;
+    serde_json::from_str(&line).map_err(|error| format!("unreadable crash monitor launch: {error}"))
 }
 
 /// Starts this session's `crash-monitor.log`, archiving the previous one.
@@ -133,41 +177,82 @@ fn start_log(layout: &InstallLayout, args: &Args) {
     }
 }
 
-/// Writes the report for `ending`, then shows it unless [`CRASH_UI_ENV`] is `0`.
-fn report(args: &Args, layout: Option<&InstallLayout>, observed: &Observed, ending: &Ending) {
-    let now_ms = now_ms();
-    let Some(report) = outcome::report(observed, ending, now_ms) else {
-        return;
+/// Writes the folders of panics dumped since the last call, while the client may live on.
+fn write_panics(args: &Args, observed: &Mutex<Observed>) -> Vec<Written> {
+    let (hello, dumped) = {
+        let mut observed = observed.lock().unwrap_or_else(PoisonError::into_inner);
+        (
+            observed.hello.clone(),
+            std::mem::take(&mut observed.dumped_panics),
+        )
     };
-    let (folder, logs) = match outcome::write(&args.crash_dir, observed, &report, now_ms) {
-        Ok(written) => written,
+    let Some(hello) = hello else {
+        return Vec::new();
+    };
+    dumped
+        .iter()
+        .filter_map(|dumped| {
+            let now_ms = now_ms();
+            let report = outcome::dumped_panic_report(&hello, dumped, now_ms);
+            let dump = dumped.dump.path.as_deref();
+            match outcome::write(&args.crash_dir, &hello, &report, dump, now_ms) {
+                Ok((folder, logs)) => {
+                    tracing::info!("panic report saved to {}", folder.display());
+                    Some(Written {
+                        report,
+                        logs,
+                        folder,
+                    })
+                }
+                Err(error) => {
+                    tracing::error!("panic report could not be written: {error}");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Writes the report for `ending`, when it needs a new one.
+fn report(args: &Args, observed: &Observed, ending: &Ending) -> Option<Written> {
+    let now_ms = now_ms();
+    let report = outcome::report(observed, ending, now_ms)?;
+    let hello = observed.hello.as_ref()?;
+    let dump = observed.dump.as_ref().and_then(|dump| dump.path.as_deref());
+    match outcome::write(&args.crash_dir, hello, &report, dump, now_ms) {
+        Ok((folder, logs)) => {
+            tracing::info!("crash report saved to {}", folder.display());
+            Some(Written {
+                report,
+                logs,
+                folder,
+            })
+        }
         Err(error) => {
             tracing::error!("crash report could not be written: {error}");
-            return;
+            None
         }
-    };
-    tracing::info!("crash report saved to {}", folder.display());
+    }
+}
+
+/// Shows `written` in the crash window, or the native dialog when it cannot open, unless
+/// [`CRASH_UI_ENV`] is `0`, and restarts the client when the player asks.
+fn show(layout: Option<&InstallLayout>, restart: &Restart, written: &Written) {
     if std::env::var_os(CRASH_UI_ENV).is_some_and(|value| value == "0") {
         return;
     }
-    show(layout, observed, describe::summary(&report, &logs, folder));
-}
-
-/// Shows the crash window, or the native dialog when it cannot open, and restarts the client
-/// when the player asks.
-fn show(layout: Option<&InstallLayout>, observed: &Observed, summary: CrashSummary) {
+    let summary: CrashSummary =
+        describe::summary(&written.report, &written.logs, written.folder.clone());
     let choice = match layout {
         Some(layout) => window::show(summary.clone(), layout),
         None => Choice::Unavailable,
     };
-    let restart = match choice {
+    let restarting = match choice {
         Choice::Restart => true,
         Choice::Close => false,
         Choice::Unavailable => actions::native_dialog(&summary),
     };
-    if let (true, Some(hello)) = (restart, &observed.hello)
-        && let Err(error) = actions::restart(&hello.restart)
-    {
+    if restarting && let Err(error) = actions::restart(restart) {
         tracing::error!("restart failed: {error}");
     }
 }
@@ -187,20 +272,20 @@ mod tests {
 
     #[test]
     fn arguments_are_the_last_three() {
-        let args: Vec<OsString> = ["--exact", "monitor", "name", "42", "crashes"]
+        let args: Vec<OsString> = ["--exact", "monitor", "socket", "42", "crashes"]
             .into_iter()
             .map(OsString::from)
             .collect();
         assert_eq!(
             Args::parse(&args),
             Some(Args {
-                ipc_name: "name".into(),
+                socket: PathBuf::from("socket"),
                 parent: 42,
                 crash_dir: PathBuf::from("crashes"),
             })
         );
         assert_eq!(Args::parse(&args[3..]), None);
-        let bad_pid: Vec<OsString> = ["name", "pid", "crashes"]
+        let bad_pid: Vec<OsString> = ["socket", "pid", "crashes"]
             .into_iter()
             .map(OsString::from)
             .collect();
