@@ -73,6 +73,7 @@ pub fn compile_block_entity_assets(
         .iter()
         .map(|role| role.path())
         .chain([
+            assets::CRYSTAL_BEAM_TEXTURE,
             assets::block_entity_geometry::CONDUIT_TEXTURE.0,
             assets::block_entity_geometry::POT_BASE_TEXTURE.0,
             assets::block_entity_geometry::POT_SIDE_TEXTURE.0,

@@ -313,7 +313,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0) != 0.0),
+        Q::IsCarryingBlock => truth(
+            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
+                != 0.0,
+        ),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
         Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
