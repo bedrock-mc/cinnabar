@@ -118,6 +118,8 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
     if component_item {
         pinned.apply_tags(&mut fact, entry.item_tags.iter().map(AsRef::as_ref));
     }
+    (fact.allow_off_hand, fact.offhand_provisional) =
+        super::inventory_ledger::equipment::offhand_admission(Some(entry));
     let Some(components) = entry.components.as_deref() else {
         return SessionItemRecord { fact, retail_id };
     };
@@ -173,10 +175,6 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
                 upright,
                 mirrored_art: false,
             });
-    }
-    if components.allow_off_hand_declared {
-        fact.allow_off_hand = components.allow_off_hand;
-        fact.offhand_provisional = false;
     }
     fact.use_animation = components
         .use_animation

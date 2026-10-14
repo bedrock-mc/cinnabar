@@ -133,6 +133,35 @@ fn malformed_and_unknown_components_leave_facts_unresolved() {
 }
 
 #[test]
+fn cached_offhand_facts_follow_equipment_admission_precedence() {
+    for component_based in [false, true] {
+        for (wearable, permission, declared, expected) in [
+            (Some("slot.weapon.offhand"), Some(false), true, Some(true)),
+            (Some("slot.weapon.offhand"), None, true, Some(true)),
+            (Some("slot.armor.head"), Some(false), true, Some(false)),
+            (None, Some(true), true, Some(true)),
+            (None, Some(false), true, Some(false)),
+            (None, None, true, None),
+        ] {
+            let mut item = entry("minecraft:shield");
+            item.component_based = component_based;
+            item.components = Some(Arc::new(protocol::ItemComponents {
+                wearable_declared: wearable.is_some(),
+                wearable_slot: wearable.map(Arc::from),
+                allow_off_hand: permission,
+                allow_off_hand_declared: declared,
+                ..Default::default()
+            }));
+            let facts =
+                SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+            let fact = facts.get(item.network_id);
+            assert_eq!(fact.allow_off_hand, expected);
+            assert!(!fact.offhand_provisional);
+        }
+    }
+}
+
+#[test]
 fn ledger_replacement_refreshes_facts_and_reconnect_retires_them() {
     let mut session = crate::InventorySession::new(1);
     let banner = entry("minecraft:banner");

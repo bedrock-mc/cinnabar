@@ -36,18 +36,31 @@ pub(super) fn equipment_admission(entry: Option<&ItemRegistryEntry>) -> Equipmen
         }
         None => None,
     };
-    let offhand = if wearable == Some("slot.weapon.offhand") {
-        Some(true)
+    let (offhand, _) = offhand_admission(Some(entry));
+    EquipmentAdmission { armor, offhand }
+}
+
+/// Resolves offhand precedence and whether permission came from stock compatibility.
+pub(crate) fn offhand_admission(entry: Option<&ItemRegistryEntry>) -> (Option<bool>, bool) {
+    let Some(entry) =
+        entry.filter(|entry| !matches!(entry.version, ItemRegistryVersion::Unknown(_)))
+    else {
+        return (None, false);
+    };
+    let components = entry.components.as_deref();
+    if components.and_then(|components| components.wearable_slot.as_deref())
+        == Some("slot.weapon.offhand")
+    {
+        (Some(true), false)
     } else if let Some(components) =
         components.filter(|components| components.allow_off_hand_declared)
     {
-        components.allow_off_hand
+        (components.allow_off_hand, false)
     } else if !entry.component_based && item_roles::stock_offhand(&entry.identifier) {
-        Some(true)
+        (Some(true), true)
     } else {
-        None
-    };
-    EquipmentAdmission { armor, offhand }
+        (None, false)
+    }
 }
 
 impl PlayerInventoryLedger {

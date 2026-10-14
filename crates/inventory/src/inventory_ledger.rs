@@ -19,7 +19,7 @@ mod crafting_close;
 #[cfg(test)]
 mod crafting_tests;
 mod distribute;
-mod equipment;
+pub(crate) mod equipment;
 #[cfg(test)]
 mod fixed_window_tests;
 mod fuel;

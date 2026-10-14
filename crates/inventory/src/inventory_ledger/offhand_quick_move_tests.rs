@@ -293,6 +293,9 @@ fn offhand_wearable_admission_precedes_an_explicit_denial() {
         },
         true,
     );
+    let facts = ledger.item_facts().get(6);
+    assert_eq!(facts.allow_off_hand, Some(true));
+    assert!(!facts.offhand_provisional);
     ledger
         .begin_quick_move(InventoryTarget::Player(20))
         .unwrap();
