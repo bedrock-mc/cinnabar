@@ -18,7 +18,7 @@ pub(super) fn validate(
         (rule.compatibility_members.is_empty() && rule.compatibility_exclude_members.is_empty())
             || rule.fact.starts_with("family:")
             || rule.fact.starts_with("render:"),
-        "compatibility selectors require a model family rule",
+        "compatibility selectors require a model family or render rule",
     )?;
     for member in rule
         .members
@@ -165,16 +165,16 @@ pub(super) fn compile(
             if matches!(rule.status, Status::Provisional) {
                 provisional.insert(rule.id.clone());
             }
-            if let Some(kind) = rule.fact.strip_prefix("render:") {
-                if kinds_decided.insert(block.name.clone()) {
-                    render_facts.entry(block.name.clone()).or_default().kind =
-                        serde_json::from_value(serde_json::Value::String(kind.into()))?;
-                }
-            } else if let Some(tint) = rule.fact.strip_prefix("render_tint:") {
-                if tints_decided.insert(block.name.clone()) {
-                    render_facts.entry(block.name.clone()).or_default().tint =
-                        serde_json::from_value(serde_json::Value::String(tint.into()))?;
-                }
+            if let Some(kind) = rule.fact.strip_prefix("render:")
+                && kinds_decided.insert(block.name.clone())
+            {
+                render_facts.entry(block.name.clone()).or_default().kind =
+                    serde_json::from_value(serde_json::Value::String(kind.into()))?;
+            } else if let Some(tint) = rule.fact.strip_prefix("render_tint:")
+                && tints_decided.insert(block.name.clone())
+            {
+                render_facts.entry(block.name.clone()).or_default().tint =
+                    serde_json::from_value(serde_json::Value::String(tint.into()))?;
             } else if let Some(flag) = rule.fact.strip_prefix("render_flag:") {
                 let render = render_facts.entry(block.name.clone()).or_default();
                 match flag {
@@ -215,16 +215,15 @@ pub(super) fn compile(
         let state = serde_json::from_str(&record.canonical_state)?;
         let mut render = assets::facts::BlockRenderFact::default();
         for rule in &policy.block_rules {
-            if let Some(kind) = rule.fact.strip_prefix("render:") {
-                if rule.matches(&record.name, &state, record.model_family)
+            if let Some(kind) = rule.fact.strip_prefix("render:")
+                && (rule.matches(&record.name, &state, record.model_family)
                     || rule
                         .compatibility_members
                         .iter()
-                        .any(|name| name == record.name.as_ref())
-                {
-                    render.kind = serde_json::from_value(serde_json::Value::String(kind.into()))?;
-                    break;
-                }
+                        .any(|name| name == record.name.as_ref()))
+            {
+                render.kind = serde_json::from_value(serde_json::Value::String(kind.into()))?;
+                break;
             }
         }
         if render.kind == assets::facts::BlockRenderKind::Ordinary
