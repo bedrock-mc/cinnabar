@@ -31,6 +31,8 @@ const GUI_SCALE: u8 = 2;
 const SMALL_SIZE: [u32; 2] = [360, 240];
 /// Fits an expanded card above two collapsed ones.
 const TALL_SIZE: [u32; 2] = [1280, 900];
+/// Keeps the first hotbar rows visible below the keyboard options.
+const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
     State {
@@ -101,13 +103,13 @@ pub const STATES: &[State] = &[
     },
     State {
         name: "settings-keyboard-physical-label",
-        size: [1280, 2000],
+        size: KEYBOARD_SIZE,
         gui_scale: GUI_SCALE,
         fixture: || settings_keyboard_layout(false),
     },
     State {
         name: "settings-keyboard-azerty",
-        size: [1280, 2000],
+        size: KEYBOARD_SIZE,
         gui_scale: GUI_SCALE,
         fixture: || settings_keyboard_layout(true),
     },
