@@ -2674,6 +2674,12 @@ The reported flat held-thumbnail and plain-tooltip regressions passed fresh
 macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
 first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
+2026-10-14 inventory player previews resolve admitted session sprite replacements in both
+hands, sharing inventory-cell texture regions and caching extrusion and compatibility pixels
+for the installed page. Block and authored models keep their geometry. Incomplete: held
+meshes that exceed the UI storage budget are omitted while the player and other equipment
+remain visible; native behavior for that resource limit is unverified. Full pack-authored
+and multi-bone preview parity remains open.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
 state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces

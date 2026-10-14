@@ -332,13 +332,13 @@ impl UiPresentationRuntime {
             // Every screen has painted: retire animation state nothing touched.
             self.append_oreui_motion(&mut nodes, &mut next_id, content)?;
             self.end_animation_frame();
-            self.apply_gui_models(&mut nodes);
             let palette = self.formatting_palette().copied();
             let effects = TextEffects {
                 palette: palette.as_ref(),
                 obfuscation_seed: now_millis,
                 obfuscation: Some(&self.obfuscation),
             };
+            self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects);
             let render_viewport = UiRenderViewport {
                 physical_size,
                 dpi_scale,
