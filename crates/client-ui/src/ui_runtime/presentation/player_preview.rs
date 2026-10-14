@@ -181,6 +181,14 @@ impl UiPresentationRuntime {
             None,
         ];
         let held = held.and_then(|(identifier, metadata)| {
+            if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {
+                return Some(PreviewTexture {
+                    rgba: Arc::from(&*sprite.rgba8),
+                    width: sprite.width.try_into().ok()?,
+                    height: sprite.height.try_into().ok()?,
+                    tint: None,
+                });
+            }
             let sprite = self.icon_catalog.as_ref()?.lookup(identifier, metadata)?;
             Some(PreviewTexture {
                 rgba: Arc::clone(&sprite.rgba8),

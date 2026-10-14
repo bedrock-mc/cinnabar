@@ -97,6 +97,7 @@ pub(super) struct GuiModels {
     required_pages: usize,
     textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
+    hand_pivots: Option<[[f32; 3]; 2]>,
     fire: fire::FireAtlas,
 }
 
@@ -305,6 +306,7 @@ impl UiPresentationRuntime {
         self.gui_models.required_pages = required_pages;
         self.gui_models.textures = textures;
         self.gui_models.held = held;
+        self.gui_models.hand_pivots = held::player_hands(entities);
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
         self.gui_models.enabled = true;
@@ -385,19 +387,32 @@ impl UiPresentationRuntime {
                 hand.charged_projectile,
                 None,
             );
-            let icons = self.icon_catalog.as_deref()?;
             let held = |metadata| {
-                self.gui_models
-                    .held
-                    .get(&assets::ItemVisualKey {
-                        identifier: identifier.into(),
-                        metadata,
-                    })?
-                    .model(icons)
+                self.gui_models.held.get(&assets::ItemVisualKey {
+                    identifier: identifier.into(),
+                    metadata,
+                })
             };
-            held(metadata)
-                .or_else(|| held(0))
-                .map(|model| model.with_grip(hand.grip).with_glint(hand.glint))
+            let base = held(metadata).or_else(|| held(0));
+            let model = if base.is_none_or(held::HeldModel::is_sprite)
+                && self.session_item_icon(identifier, metadata).is_some()
+            {
+                let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;
+                match base {
+                    Some(base) => base.with_sprite(source, vertices),
+                    None => player_preview::PreviewHeldModel {
+                        source,
+                        vertices,
+                        hand_pivots: self.gui_models.hand_pivots?,
+                        placements: [player_preview::PreviewHeldPlacement::Sprite {
+                            hand_equipped: false,
+                        }; 2],
+                    },
+                }
+            } else {
+                base?.model(self.icon_catalog.as_deref()?)?
+            };
+            Some(model.with_grip(hand.grip).with_glint(hand.glint))
         });
         let unposed = [None; 6];
         let body = if self.player_preview_view == player_preview::PreviewView::Hud {
