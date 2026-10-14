@@ -12,7 +12,7 @@ use crate::{
     policy::Policy,
     read,
     rust_scope::{
-        ModulePaths, inherited_test_files, is_rust_test, item_attributes, test_attributes,
+        ModulePaths, inherited_test_files, is_rust_test, item_attributes, marks_test_scope,
     },
 };
 
@@ -255,7 +255,7 @@ impl RustScan {
 impl<'ast> Visit<'ast> for RustScan {
     /// Applies file-level test attributes before visiting its imports and items.
     fn visit_file(&mut self, file: &'ast syn::File) {
-        self.file_test |= test_attributes(&file.attrs, &self.test_features);
+        self.file_test |= marks_test_scope(&file.attrs, &self.test_features);
         self.in_test = self.file_test;
         self.collect_imports(file.items.iter());
         syn::visit::visit_file(self, file);
@@ -264,7 +264,7 @@ impl<'ast> Visit<'ast> for RustScan {
     /// Keeps cfg-based test scope inside the attributed item.
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let previous = self.in_test;
-        self.in_test |= test_attributes(item_attributes(item), &self.test_features);
+        self.in_test |= marks_test_scope(item_attributes(item), &self.test_features);
         syn::visit::visit_item(self, item);
         self.in_test = previous;
     }
@@ -279,7 +279,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, &self.test_features);
+        self.in_test |= marks_test_scope(attrs, &self.test_features);
         syn::visit::visit_impl_item(self, item);
         self.in_test = previous;
     }
@@ -294,7 +294,7 @@ impl<'ast> Visit<'ast> for RustScan {
             _ => &[],
         };
         let previous = self.in_test;
-        self.in_test |= test_attributes(attrs, &self.test_features);
+        self.in_test |= marks_test_scope(attrs, &self.test_features);
         syn::visit::visit_trait_item(self, item);
         self.in_test = previous;
     }

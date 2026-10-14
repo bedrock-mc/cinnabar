@@ -12,7 +12,7 @@ use syn::{
 
 use super::Vocabulary;
 use super::scopes::attribute_scopes;
-use crate::rust_scope::{ModulePaths, test_attributes};
+use crate::rust_scope::{ModulePaths, marks_test_scope};
 
 /// One source occurrence; overlapping rejection shapes count only once.
 pub(super) struct Violation {
@@ -60,7 +60,7 @@ impl<'a> RustScan<'a> {
     /// Applies a node's test attributes for exactly the duration of its traversal.
     fn with_attributes(&mut self, attributes: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
         let previous = self.in_test;
-        self.in_test |= test_attributes(attributes, self.features);
+        self.in_test |= marks_test_scope(attributes, self.features);
         visit(self);
         self.in_test = previous;
     }

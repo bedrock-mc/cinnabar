@@ -18,7 +18,7 @@ pub(super) fn is_rust_test(relative: &str) -> bool {
 }
 
 /// Recognizes test entry attributes and cfg predicates that require `test` or a registered test-support feature.
-pub(super) fn test_attributes(attributes: &[syn::Attribute], features: &BTreeSet<String>) -> bool {
+pub(super) fn marks_test_scope(attributes: &[syn::Attribute], features: &BTreeSet<String>) -> bool {
     attributes.iter().any(|attribute| {
         attribute
             .path()
