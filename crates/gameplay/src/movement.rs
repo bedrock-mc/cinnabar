@@ -53,7 +53,7 @@ pub use diagnostics::{
     CorrectionPacket, note_correction, note_motion,
 };
 pub use effects::{BoostSpan, LocalMovementEffectTimeline, MiningEffects, MovementBoost};
-use encoding::{HeldInput, input_flags, normalize_move_vector};
+use encoding::{HeldInput, input_flags};
 use evidence::PhysicsTickSampleEvidence;
 pub use evidence::{PhysicsTickEvidence, PhysicsTickEvidenceContext};
 pub use locomotion::{ModeIntent, RideKind};
@@ -421,7 +421,9 @@ impl MovementTicker {
         let move_vector = encoding::wire_move_vector(sample.move_vector);
         let analogue_move_vector = wire(sample.analogue_move_vector);
         let raw_move_vector = if analogue_move_vector == [0.0; 2] {
-            wire(normalize_move_vector(sample.raw_move_vector))
+            wire(semantic_input::clamp_movement_vector(
+                sample.raw_move_vector,
+            ))
         } else {
             analogue_move_vector
         };
