@@ -49,6 +49,39 @@ impl NativeItem {
         }
     }
 
+    /// Resolves declared artwork or the built-in stage path omitted by older carriers.
+    fn texture_path(self, binding: &EquipmentBinding, alias: &str) -> Option<Box<str>> {
+        binding
+            .resources
+            .textures
+            .get(alias)
+            .cloned()
+            .or_else(|| (alias == "default").then(|| binding.texture.identifier.clone()))
+            .or_else(|| {
+                (binding.resources.textures.is_empty()
+                    && alias != "default"
+                    && matches!(self, Self::Bow | Self::Crossbow))
+                .then(|| {
+                    let texture = if alias == "crossbow_rocket" {
+                        "crossbow_firework"
+                    } else {
+                        alias
+                    };
+                    format!("textures/items/{texture}").into_boxed_str()
+                })
+            })
+    }
+
+    /// Selects startup animation icons when the matching stage texture is unavailable.
+    fn icon_key(self, item: &WornItem, frame: u32) -> (&str, u32) {
+        match (self, frame) {
+            (Self::Bow, 1..) => ("minecraft:bow_pulling", frame - 1),
+            (Self::Crossbow, 1..) => ("minecraft:crossbow_pulling", frame - 1),
+            (Self::Spear, _) => (&item.identifier, item.metadata),
+            _ => (&item.identifier, 0),
+        }
+    }
+
     /// Offhand sprites stay idle; main-hand art follows admitted use timing and loaded state.
     fn frame(self, item: &WornItem, input: AttachableAnimationInput<'_>) -> u32 {
         if input.off_hand {
@@ -98,13 +131,8 @@ pub(super) fn recognize(
         catalog.binding(&binding.identifier).is_none()
             && NativeItem::from_identifier(&binding.identifier).is_some_and(|kind| {
                 (0..=5).any(|frame| {
-                    let alias = kind.alias(frame);
-                    binding
-                        .resources
-                        .textures
-                        .get(alias)
-                        .or_else(|| (alias == "default").then_some(&binding.texture.identifier))
-                        .is_some_and(|path| catalog.texture(path).is_some())
+                    kind.texture_path(binding, kind.alias(frame))
+                        .is_some_and(|path| catalog.texture(&path).is_some())
                 })
             })
     });
@@ -279,15 +307,9 @@ impl EquipmentRuntime {
             };
             return Some((mesh, location, false, [1.0; 2]));
         }
-        let mut fallback = item.clone();
-        fallback.metadata = if kind == NativeItem::Spear {
-            item.metadata
-        } else {
-            frame
-        };
         // Missing stages use startup icons; a session's default icon must not hide that stage.
-        fallback.kind = HeldKind::Sprite;
-        let index = self.held_icon_index(&fallback)?;
+        let (identifier, metadata) = kind.icon_key(item, frame);
+        let index = self.icons.lookup_index(identifier, metadata)?;
         let placement = self.placements.get(index).copied().flatten()?;
         let location = self
             .atlas_locations
@@ -319,31 +341,10 @@ impl EquipmentRuntime {
             .as_ref()?
             .binding(&item.identifier)
             .or(startup)?;
-        let path = |binding: &EquipmentBinding| {
-            binding
-                .resources
-                .textures
-                .get(alias)
-                .cloned()
-                .or_else(|| (alias == "default").then(|| binding.texture.identifier.clone()))
-                .or_else(|| {
-                    (binding.resources.textures.is_empty()
-                        && alias != "default"
-                        && matches!(artwork.kind, NativeItem::Bow | NativeItem::Crossbow))
-                    .then(|| {
-                        let texture = if alias == "crossbow_rocket" {
-                            "crossbow_firework"
-                        } else {
-                            alias
-                        };
-                        format!("textures/items/{texture}").into_boxed_str()
-                    })
-                })
-        };
-        for identifier in path(binding).into_iter().chain(
+        for identifier in artwork.kind.texture_path(binding, alias).into_iter().chain(
             startup
                 .filter(|_| artwork.startup_texture_is_sprite)
-                .and_then(path),
+                .and_then(|binding| artwork.kind.texture_path(binding, alias)),
         ) {
             if let Some(texture) = pack.catalog.as_ref()?.texture(&identifier)
                 && let Some(location) = pack.texture_locations.get(&identifier)
@@ -391,13 +392,8 @@ impl EquipmentRuntime {
         if let Some((texture, _)) = self.native_texture(item, kind.alias(frame)) {
             return Some([texture.width, texture.height]);
         }
-        let mut fallback = item.clone();
-        fallback.metadata = if kind == NativeItem::Spear {
-            item.metadata
-        } else {
-            frame
-        };
-        let sprite = self.icons.sprites().get(self.held_icon_index(&fallback)?)?;
+        let (identifier, metadata) = kind.icon_key(item, frame);
+        let sprite = self.icons.lookup(identifier, metadata)?;
         Some([sprite.width, sprite.height])
     }
 
