@@ -253,10 +253,17 @@ impl FrameTrace {
                     event.name == "frame_start"
                         && event.frame_id == Some(hitch.frame_id - HITCH_PRE_FRAMES)
                 });
+            let post_complete = boundary.is_some()
+                && (1..=HITCH_POST_FRAMES).all(|offset| {
+                    snapshot.events.iter().any(|event| {
+                        event.name == "frame_start"
+                            && event.frame_id == Some(hitch.frame_id + offset)
+                    })
+                });
             reports.push(HitchReport {
                 frame_id: hitch.frame_id,
                 pre_complete,
-                post_complete: boundary.is_some(),
+                post_complete,
                 hitch_retained: hitch.sequence >= snapshot.first_sequence,
                 snapshot,
             });
@@ -384,7 +391,7 @@ impl TraceSnapshot {
             }
             record
         }).collect();
-        json!({"capacity": self.capacity, "truncated": self.overwritten != 0,
+        json!({"capacity": self.capacity, "truncated": self.first_sequence != 0,
             "dropped_events": self.overwritten, "overwritten_events": self.overwritten,
             "first_event_sequence": self.first_sequence, "omitted_events": self.first_sequence - self.overwritten, "next_event_sequence": self.next_sequence,
             "retained_events": events.len(), "epoch_unix_nanos": self.epoch_unix_nanos, "traceEvents": events})

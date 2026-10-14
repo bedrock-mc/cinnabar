@@ -96,6 +96,31 @@ fn incomplete_hitch_windows_explain_missing_context() {
     assert!(!report.hitch_retained);
 }
 
+/// A large explicit trace cannot enlarge each queued hitch report or hide omitted history.
+#[test]
+fn hitch_reports_bound_snapshots_separately_from_export_capacity() {
+    let trace = FrameTrace::build(None, Instant::now(), GAMEPLAY_CAPACITY * 2);
+    for id in 1..=5000 {
+        trace.frame(id, true, false, 0.0);
+    }
+    trace.slow_frame(SlowFrameEvent {
+        frame_id: 5000,
+        hard_hitch: true,
+        reasons: 1,
+        frame: Duration::from_millis(40),
+    });
+    trace.frame(5001, true, false, 0.0);
+    trace.frame(5002, true, false, 0.0);
+    let reports = trace.frame(5003, true, false, 0.0);
+    assert_eq!(reports.len(), 1);
+    let snapshot = reports[0].snapshot.json();
+    assert_eq!(snapshot["retained_events"], GAMEPLAY_CAPACITY);
+    assert_eq!(snapshot["overwritten_events"], 0);
+    assert!(snapshot["omitted_events"].as_u64().unwrap() > 0);
+    assert_eq!(snapshot["truncated"], true);
+    assert!(reports[0].pre_complete && reports[0].post_complete);
+}
+
 /// A late-session stage must survive after the recording budget has been filled.
 #[test]
 fn late_stage_survives_a_full_trace() {
