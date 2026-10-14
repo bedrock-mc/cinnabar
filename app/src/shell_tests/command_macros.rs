@@ -14,6 +14,7 @@ use client_shell::ui_resources::UiRuntimeResource;
 use client_state::SemanticInputSnapshot;
 use semantic_input::{Action, PhysicalControl};
 
+mod modifiers;
 mod regression;
 
 /// Arms one command without changing the ordinary gameplay bindings.

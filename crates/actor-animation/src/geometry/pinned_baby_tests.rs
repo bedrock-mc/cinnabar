@@ -1,5 +1,6 @@
 //! Runtime selection and animation gates of the pinned native baby polar bear.
 use super::super::*;
+use protocol_ids::ActorFlag;
 
 #[test]
 #[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the pinned compiled entity carrier"]
@@ -8,7 +9,7 @@ fn pinned_baby_polar_bear_selects_its_own_model_and_never_plays_the_adult_body_c
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let mut actor = tests::actor_with_metadata(HashMap::from([(
         0,
-        ActorMetadataValue::Flags(1 << query::FLAG_BABY),
+        ActorMetadataValue::Flags(1 << ActorFlag::Baby.wire_value()),
     )]));
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:polar_bear".into(),

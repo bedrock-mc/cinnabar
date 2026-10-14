@@ -2,9 +2,6 @@
 use protocol::ActorMetadataValue;
 use world::{BlockEntityNbt, NbtCompound, NbtValue};
 
-/// Actor data id of the hitbox compound.
-pub const HITBOX_METADATA_KEY: u32 = 118;
-
 /// One axis-aligned interaction box relative to the actor's native position.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct HitBox {

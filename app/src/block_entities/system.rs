@@ -896,7 +896,7 @@ fn resolve(
             }
             let id = context.collisions.block_state_runtime_id(
                 assets::NetworkIdMode::Sequential,
-                &plant.identifier,
+                assets::facts::BlockStateIdentity::Named(&plant.identifier),
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {

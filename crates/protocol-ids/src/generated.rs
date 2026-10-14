@@ -487,6 +487,7 @@ wire_ids!(Effect, i32, {
     Strength => 5,
     WaterBreathing => 13,
     Weakness => 18,
+    Weaving => 33,
     Wither => 20,
 });
 
@@ -672,6 +673,15 @@ wire_ids!(WindowType, i8, {
     Workbench => 1,
 });
 
+wire_ids!(HorseFlag, u32, {
+    Grazing => 5,
+    MouthOpen => 7,
+});
+
+wire_ids!(PlayerFlag, u8, {
+    Sleeping => 2,
+});
+
 wire_ids!(Enchantment, u8, {
     Protection => 0,
     Fireprotection => 1,
@@ -718,6 +728,51 @@ wire_ids!(Enchantment, u8, {
     Numenchantments => 42,
     Invalidenchantment => 43,
 });
+
+/// Named movement and health attribute contract.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Attribute {
+    AirDragModifier,
+    Bounciness,
+    FrictionModifier,
+    Health,
+    HorseJumpStrength,
+    LavaMovement,
+    Movement,
+    PlayerHunger,
+    UnderwaterMovement,
+}
+impl Attribute {
+    /// Every attribute named by the movement contract.
+    pub const ALL: &'static [Self] = &[
+        Self::AirDragModifier,
+        Self::Bounciness,
+        Self::FrictionModifier,
+        Self::Health,
+        Self::HorseJumpStrength,
+        Self::LavaMovement,
+        Self::Movement,
+        Self::PlayerHunger,
+        Self::UnderwaterMovement,
+    ];
+    /// Returns the server attribute name without allocating.
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::AirDragModifier => "minecraft:air_drag_modifier",
+            Self::Bounciness => "minecraft:bounciness",
+            Self::FrictionModifier => "minecraft:friction_modifier",
+            Self::Health => "minecraft:health",
+            Self::HorseJumpStrength => "minecraft:horse.jump_strength",
+            Self::LavaMovement => "minecraft:lava_movement",
+            Self::Movement => "minecraft:movement",
+            Self::PlayerHunger => "minecraft:player.hunger",
+            Self::UnderwaterMovement => "minecraft:underwater_movement",
+        }
+    }
+}
+
+/// Identity of the sprint speed modifier.
+pub const SPRINT_SPEED_MODIFIER_ID: &str = "d208fc00-42aa-4aad-9276-d5446530de43";
 
 /// Sequential air identity derived from the active block registry.
 pub const SEQUENTIAL_AIR_NETWORK_ID: u32 = 17025;

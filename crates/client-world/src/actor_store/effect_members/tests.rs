@@ -1,3 +1,4 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use protocol::{
@@ -79,7 +80,7 @@ fn membership_follows_replacement_removal_metadata_and_reset() {
                 dimension: 0,
                 runtime_id: 5,
                 metadata: Arc::from([ActorMetadata {
-                    key: super::entities::LEASH_HOLDER_METADATA_KEY,
+                    key: ActorDataKey::LeashHolder.wire_value(),
                     value,
                 }]),
                 properties: Arc::from([]),

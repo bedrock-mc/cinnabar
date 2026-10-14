@@ -10,7 +10,7 @@ use client_shell::menu::MenuRuntime;
 pub(super) fn dispatch(
     menu: Option<&MenuRuntime>,
     runtime: &mut UiRuntime,
-    alt: bool,
+    modifiers: semantic_input::ModifierChord,
     control: Option<PhysicalControl>,
     now_millis: u64,
     semantic: Option<&mut SemanticInputRuntime>,
@@ -18,7 +18,7 @@ pub(super) fn dispatch(
     let Some(control) = control else {
         return false;
     };
-    let Some(command) = command(menu, runtime, alt, Some(control)) else {
+    let Some(command) = command(menu, runtime, modifiers, Some(control)) else {
         return false;
     };
     let _ = runtime.queue_chat_message(&command, now_millis);
@@ -32,11 +32,10 @@ pub(super) fn dispatch(
 pub(in crate::ui_runtime) fn command(
     menu: Option<&MenuRuntime>,
     runtime: &UiRuntime,
-    alt: bool,
+    modifiers: semantic_input::ModifierChord,
     control: Option<PhysicalControl>,
 ) -> Option<String> {
-    if !alt
-        || menu.is_some_and(MenuRuntime::is_visible)
+    if menu.is_some_and(MenuRuntime::is_visible)
         || runtime.chat_focused()
         || runtime.inventory_open()
         || runtime.local_sleeping()
@@ -47,14 +46,16 @@ pub(in crate::ui_runtime) fn command(
     {
         return None;
     }
-    client_shell::menu::settings_options::control_bindings::binding_macro_command(menu, control?)
+    client_shell::menu::settings_options::control_bindings::binding_macro_command(
+        menu, control?, modifiers,
+    )
 }
 
 /// Matches pointer presses using the same binding codes as capture and gameplay.
 pub(super) fn dispatch_mouse(
     menu: Option<&MenuRuntime>,
     runtime: &mut UiRuntime,
-    alt: bool,
+    modifiers: semantic_input::ModifierChord,
     button: MouseButton,
     now_millis: u64,
     semantic: Option<&mut SemanticInputRuntime>,
@@ -62,7 +63,7 @@ pub(super) fn dispatch_mouse(
     dispatch(
         menu,
         runtime,
-        alt,
+        modifiers,
         client_shell::physical_input::mouse_button_code(button).map(PhysicalControl::MouseButton),
         now_millis,
         semantic,

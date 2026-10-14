@@ -1,11 +1,9 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue};
 
-use super::{
-    ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-    SCALE_METADATA_KEY, tests::spawn,
-};
+use super::{ActorStore, tests::spawn};
 
 fn custom_actor(metadata: Vec<ActorMetadata>) -> ActorStore {
     let ActorEvent::Spawn(mut event) = spawn(8, 80) else {
@@ -37,7 +35,7 @@ fn custom_actor_keeps_default_bounds_when_size_metadata_is_omitted() {
 
 #[test]
 fn custom_actor_defaults_each_omitted_dimension_independently() {
-    let store = custom_actor(vec![dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, 2.0)]);
+    let store = custom_actor(vec![dimension(ActorDataKey::Height.wire_value(), 2.0)]);
     let (min, max) = store.get(8).unwrap().bounding_box().expect("default width");
     assert_eq!((min, max), ([-0.3, 0.0, -0.3], [0.3, 2.0, 0.3]));
 }
@@ -45,9 +43,9 @@ fn custom_actor_defaults_each_omitted_dimension_independently() {
 #[test]
 fn server_scale_changes_effective_bounds_without_changing_raw_dimensions() {
     let store = custom_actor(vec![
-        dimension(BOUNDING_BOX_WIDTH_METADATA_KEY, 0.8),
-        dimension(BOUNDING_BOX_HEIGHT_METADATA_KEY, 2.0),
-        dimension(SCALE_METADATA_KEY, 2.0),
+        dimension(ActorDataKey::Width.wire_value(), 0.8),
+        dimension(ActorDataKey::Height.wire_value(), 2.0),
+        dimension(ActorDataKey::Scale.wire_value(), 2.0),
     ]);
     let actor = store.get(8).unwrap();
     assert_eq!(
@@ -55,14 +53,14 @@ fn server_scale_changes_effective_bounds_without_changing_raw_dimensions() {
         Some(([-0.8, 0.0, -0.8], [0.8, 4.0, 0.8]))
     );
     assert_eq!(
-        actor.metadata.get(&BOUNDING_BOX_WIDTH_METADATA_KEY),
+        actor.metadata.get(&ActorDataKey::Width.wire_value()),
         Some(&ActorMetadataValue::Float(0.8))
     );
 }
 
 #[test]
 fn zero_scale_text_host_does_not_get_an_unscaled_humanoid_hitbox() {
-    let store = custom_actor(vec![dimension(SCALE_METADATA_KEY, 0.0)]);
+    let store = custom_actor(vec![dimension(ActorDataKey::Scale.wire_value(), 0.0)]);
     if let Some((min, max)) = store.get(8).unwrap().bounding_box() {
         assert!((0..3).all(|axis| max[axis] - min[axis] < 0.1));
     }

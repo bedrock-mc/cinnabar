@@ -1,150 +1,60 @@
 //! Compile identifier selectors once against the pinned block palette.
 
 use super::{BlockFact, Result, Scalar, check};
+use assets::facts::rules::{self, Rule, Status, property_key};
 use assets::facts::shape::ShapeTraits;
 use assets::registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule};
-use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) enum Status {
-    Verified,
-    Provisional,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Rule {
-    id: String,
-    fact: String,
-    status: Status,
-    #[serde(default = "enabled")]
-    value: bool,
-    #[serde(default)]
-    members: Vec<String>,
-    suffix: Option<String>,
-    prefix: Option<String>,
-    contains: Option<String>,
-    state_property: Option<String>,
-    #[serde(default)]
-    state_properties: Vec<String>,
-    #[serde(default)]
-    exact_properties: bool,
-    #[serde(default)]
-    state_values: BTreeMap<String, serde_json::Value>,
-    state_maximum: Option<String>,
-    #[serde(default)]
-    model_family: Vec<String>,
-    #[serde(default)]
-    exclude_members: Vec<String>,
-    exclude_contains: Option<String>,
-    /// Name-only compatibility selectors are used by the historical Go generator.
-    #[serde(default)]
-    compatibility_members: Vec<String>,
-    #[serde(default)]
-    compatibility_exclude_members: Vec<String>,
-}
-
-/// Rules add their fact unless an explicit exclusion declares otherwise.
-fn enabled() -> bool {
-    true
-}
-
-impl Rule {
-    /// Evaluates selectors once during compilation, with exclusions and state values as filters.
-    fn matches(&self, name: &str, state: &BTreeMap<String, Scalar>, family: ModelFamily) -> bool {
-        if self.exclude_members.iter().any(|m| m == name)
-            || self
-                .exclude_contains
-                .as_ref()
-                .is_some_and(|s| name.contains(s))
-            || self.state_maximum.as_ref().is_some_and(|key| {
-                let maximum =
-                    assets::facts::BlockProperty::from_name(key).and_then(|p| match p.domain() {
-                        assets::facts::PropertyDomain::Int(values) => values.iter().max().copied(),
-                        _ => None,
-                    });
-                state.get(key).and_then(|s| s.value.as_i64()) != maximum.map(i64::from)
-            })
-            || self
-                .state_values
-                .iter()
-                .any(|(key, value)| state.get(key).is_none_or(|s| &s.value != value))
-        {
-            return false;
-        }
-        self.members.iter().any(|m| m == name)
-            || self.suffix.as_ref().is_some_and(|s| name.ends_with(s))
-            || self.prefix.as_ref().is_some_and(|s| {
-                name.strip_prefix("minecraft:")
-                    .unwrap_or(name)
-                    .starts_with(s)
-            })
-            || self.contains.as_ref().is_some_and(|s| name.contains(s))
-            || self
-                .state_property
-                .as_ref()
-                .is_some_and(|s| state.contains_key(s))
-            || (!self.state_properties.is_empty()
-                && self.state_properties.iter().all(|s| state.contains_key(s))
-                && (!self.exact_properties || state.len() == self.state_properties.len()))
-            || self
-                .model_family
-                .iter()
-                .any(|s| ModelFamily::from_name(s) == Some(family))
-    }
-
-    /// Rejects misspelled members, unknown domains and selectors that silently match nothing.
-    fn validate(
-        &self,
-        source: &[BlockFact],
-        families: &[ModelFamily],
-        states: &[BTreeMap<String, Scalar>],
-    ) -> Result<()> {
-        let names: BTreeSet<_> = source.iter().map(|b| b.name.as_str()).collect();
+/// Rejects misspelled members, unknown domains and selectors that silently match nothing.
+pub(super) fn validate(
+    rule: &Rule,
+    source: &[BlockFact],
+    families: &[ModelFamily],
+    states: &[BTreeMap<String, Scalar>],
+) -> Result<()> {
+    let names: BTreeSet<_> = source.iter().map(|b| b.name.as_str()).collect();
+    check(
+        (rule.compatibility_members.is_empty() && rule.compatibility_exclude_members.is_empty())
+            || rule.fact.starts_with("family:"),
+        "compatibility selectors require a model family rule",
+    )?;
+    for member in rule
+        .members
+        .iter()
+        .chain(&rule.exclude_members)
+        .chain(&rule.compatibility_exclude_members)
+    {
         check(
-            (self.compatibility_members.is_empty()
-                && self.compatibility_exclude_members.is_empty())
-                || self.fact.starts_with("family:"),
-            "compatibility selectors require a model family rule",
+            names.contains(member.as_str()),
+            format!("{} has unknown block {member}", rule.id),
         )?;
-        for member in self
-            .members
-            .iter()
-            .chain(&self.exclude_members)
-            .chain(&self.compatibility_exclude_members)
-        {
-            check(
-                names.contains(member.as_str()),
-                format!("{} has unknown block {member}", self.id),
-            )?;
-        }
-        for family in &self.model_family {
-            check(
-                ModelFamily::from_name(family).is_some(),
-                format!("{} has unknown family {family}", self.id),
-            )?;
-        }
-        for key in self
-            .state_property
-            .iter()
-            .chain(&self.state_properties)
-            .chain(self.state_values.keys())
-            .chain(&self.state_maximum)
-        {
-            check(
-                assets::facts::BlockProperty::from_name(key).is_some(),
-                format!("{} has unknown property {key}", self.id),
-            )?;
-        }
-        let matched = source
-            .iter()
-            .zip(families)
-            .zip(states)
-            .any(|((block, family), state)| self.matches(&block.name, state, *family));
-        check(matched, format!("{} matches no pinned blocks", self.id))
     }
+    for family in &rule.model_family {
+        check(
+            ModelFamily::from_name(family).is_some(),
+            format!("{} has unknown family {family}", rule.id),
+        )?;
+    }
+    for key in rule
+        .state_property
+        .iter()
+        .chain(&rule.state_properties)
+        .chain(rule.state_values.keys())
+        .chain(&rule.state_maximum)
+        .chain(rule.state_minimum.keys())
+    {
+        check(
+            property_key(key).is_some(),
+            format!("{} has unknown property {key}", rule.id),
+        )?;
+    }
+    let matched = source
+        .iter()
+        .zip(families)
+        .zip(states)
+        .any(|((block, family), state)| rule.matches(&block.name, state, *family));
+    check(matched, format!("{} matches no pinned blocks", rule.id))
 }
 
 /// Resolves the first matching family rule, retaining admitted geometry for unlisted classes.
@@ -177,7 +87,7 @@ pub(super) fn compile(
     let mut ids = BTreeSet::new();
     for rule in policy.model_family_rules.iter().chain(&policy.block_rules) {
         check(ids.insert(&rule.id), "duplicate block rule id")?;
-        rule.validate(source, &families, &states)?;
+        validate(rule, source, &families, &states)?;
         if let Some(value) = rule.fact.strip_prefix("shape:") {
             check(
                 ShapeTraits::from_name(value).is_some(),
@@ -196,16 +106,19 @@ pub(super) fn compile(
         }
     }
     let components = components(source)?;
-    let backings = backings();
+    let backings = rules::backings();
     let mut expansion =
         BTreeMap::<String, (BlockTraits, ShapeTraits, BTreeSet<String>, BTreeSet<String>)>::new();
     for ((block, record), state) in source.iter().zip(records).zip(&states) {
-        let mut traits = intrinsic(state, record.model_family);
-        let mut shapes = ShapeTraits::empty();
-        let mut survival = None;
+        let (traits, survival, shapes) = rules::evaluate(
+            &block.name,
+            state,
+            record.model_family,
+            record.flags,
+            &policy.block_rules,
+        );
         let mut applied = BTreeSet::new();
         let mut provisional = BTreeSet::new();
-        let mut decided = BlockTraits::empty();
         if let Some(rule) = policy
             .model_family_rules
             .iter()
@@ -213,46 +126,20 @@ pub(super) fn compile(
         {
             applied.insert(rule.id.clone());
         }
-        if let Some(flags) = components.get(&block.name) {
-            traits |= *flags;
+        if components.contains_key(&block.name) {
             applied.insert("pinned-components".into());
         }
         if backings.contains(block.name.as_str()) {
-            traits |= BlockTraits::BLOCK_ENTITY_BACKING;
             applied.insert("block-entity-backings".into());
         }
-        decided |= traits;
-        if record.flags.contains(assets::BlockFlags::FIRE_TOP_SUPPORT) {
-            traits |= BlockTraits::FULL_TOP_SUPPORT;
-            decided |= BlockTraits::FULL_TOP_SUPPORT;
-        }
         for rule in &policy.block_rules {
-            if !rule.matches(&block.name, &state, record.model_family) {
-                continue;
-            }
-            applied.insert(rule.id.clone());
-            if matches!(rule.status, Status::Provisional) {
-                provisional.insert(rule.id.clone());
-            }
-            if let Some(value) = rule.fact.strip_prefix("shape:") {
-                shapes.set(
-                    ShapeTraits::from_name(value).ok_or("unknown shape trait")?,
-                    rule.value,
-                );
-            } else if let Some(value) = rule.fact.strip_prefix("survival:") {
-                if survival.is_none() {
-                    survival = SurvivalRule::from_name(value);
-                }
-            } else {
-                let fact = BlockTraits::from_name(&rule.fact).ok_or("unknown block trait")?;
-                if !decided.contains(fact) {
-                    traits.set(fact, rule.value);
-                    decided |= fact;
+            if rule.matches(&block.name, state, record.model_family) {
+                applied.insert(rule.id.clone());
+                if matches!(rule.status, Status::Provisional) {
+                    provisional.insert(rule.id.clone());
                 }
             }
         }
-        let survival = survival.unwrap_or(SurvivalRule::None);
-        traits.set(BlockTraits::SURVIVAL_RULE, survival != SurvivalRule::None);
         let entry = expansion.entry(block.name.clone()).or_default();
         entry.0 |= traits;
         entry.1 |= shapes;
@@ -288,115 +175,30 @@ pub(super) fn compile(
     Ok(text.into_bytes())
 }
 
-/// Resolves compiler-only shape classes and derives traits for older carriers.
+/// Resolves compiler-only shape classes from the same selectors as registry admission.
 pub(super) fn for_record(record: &RegistryRecord, rules: &[Rule]) -> (BlockTraits, ShapeTraits) {
-    let state = serde_json::from_str(&record.canonical_state).unwrap_or_default();
-    let historical = record.traits.is_empty();
-    let mut traits = if historical {
-        intrinsic(&state, record.model_family)
-    } else {
-        record.traits
-    };
-    if historical && record.flags.contains(assets::BlockFlags::FIRE_TOP_SUPPORT) {
-        traits |= BlockTraits::FULL_TOP_SUPPORT;
-    }
-    let mut decided = traits;
-    let mut shapes = ShapeTraits::empty();
-    for rule in rules {
-        if let Some(name) = rule.fact.strip_prefix("shape:") {
-            if rule.matches(&record.name, &state, record.model_family) {
-                shapes.set(
-                    ShapeTraits::from_name(name).expect("validated shape rule"),
-                    rule.value,
-                );
-            }
-        } else if historical {
-            let Some(fact) = BlockTraits::from_name(&rule.fact) else {
-                continue;
-            };
-            if !decided.contains(fact) && rule.matches(&record.name, &state, record.model_family) {
-                traits.set(fact, rule.value);
-                decided |= fact;
-            }
-        }
-    }
-    (traits, shapes)
+    let state = serde_json::from_str(&record.canonical_state).expect("decoded canonical state");
+    let (_, _, shapes) = rules::evaluate(
+        &record.name,
+        &state,
+        record.model_family,
+        record.flags,
+        rules,
+    );
+    (record.traits, shapes)
 }
 
-/// Gives state-derived memberships priority over lower-order identifier rules.
-fn intrinsic(state: &BTreeMap<String, Scalar>, family: ModelFamily) -> BlockTraits {
-    let mut traits = BlockTraits::empty();
-    traits.set(
-        BlockTraits::TORCH,
-        state.contains_key("torch_facing_direction"),
-    );
-    traits.set(
-        BlockTraits::MULTIFACE,
-        state.contains_key("multi_face_direction_bits"),
-    );
-    if state
-        .keys()
-        .any(|key| key.starts_with("minecraft:connection_"))
-    {
-        traits |= if family == ModelFamily::Fence {
-            BlockTraits::CONNECTS_FENCE
-        } else {
-            BlockTraits::CONNECTS_THIN
-        };
-    }
-    traits.set(
-        BlockTraits::DOOR,
-        state.contains_key("open_bit") && state.contains_key("upper_block_bit"),
-    );
-    traits.set(
-        BlockTraits::LANTERN_LIKE,
-        state.len() == 1 && state.contains_key("hanging"),
-    );
-    traits
-}
-
-/// Validates the pinned component derivative against the source palette.
-fn components(source: &[BlockFact]) -> Result<BTreeMap<String, BlockTraits>> {
+/// Rejects component entries that do not belong to the source palette.
+fn components(source: &[BlockFact]) -> Result<&'static BTreeMap<String, BlockTraits>> {
     let names: BTreeSet<_> = source.iter().map(|b| b.name.as_str()).collect();
-    let mut facts = BTreeMap::new();
-    for row in include_str!("../../../assets/data/block-components-v2193.tsv")
-        .lines()
-        .skip(1)
-    {
-        let (name, components) = row.split_once('\t').ok_or("invalid block component row")?;
+    let components = rules::components();
+    for name in components.keys() {
         check(
-            names.contains(name),
+            names.contains(name.as_str()),
             format!("unknown component block {name}"),
         )?;
-        let mut traits = BlockTraits::empty();
-        for component in components.split(',').filter(|s| !s.is_empty() && *s != "-") {
-            traits |= match component {
-                "minecraft:replaceable" => BlockTraits::REPLACEABLE,
-                "minecraft:flammable" => BlockTraits::FIRE_FLAMMABLE,
-                _ => return Err("unknown pinned block component".into()),
-            };
-        }
-        check(
-            facts.insert(name.into(), traits).is_none(),
-            "duplicate component block",
-        )?;
     }
-    Ok(facts)
-}
-
-/// Reads backing membership from the existing block-entity carrier without duplicating its names.
-fn backings() -> BTreeSet<String> {
-    let document: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../assets/data/block-entities-v1001.json"
-    ))
-    .expect("pinned block entities");
-    document["entries"]
-        .as_array()
-        .expect("block entity entries")
-        .iter()
-        .flat_map(|e| e["backing_blocks"].as_array().expect("backing blocks"))
-        .map(|b| b["name"].as_str().expect("backing identifier").to_owned())
-        .collect()
+    Ok(components)
 }
 
 /// Combines all pinned name domains into one sorted vocabulary for compiler guards.
@@ -471,27 +273,16 @@ mod tests {
         let rule: Rule = serde_json::from_value(serde_json::json!({
             "id":"torch", "fact":"TORCH", "status":"verified", "state_property":"torch_facing_direction"
         })).unwrap();
-        assert!(
-            rule.validate(&source, &[ModelFamily::Torch], &states)
-                .is_ok()
-        );
+        assert!(validate(&rule, &source, &[ModelFamily::Torch], &states).is_ok());
         let empty: Rule = serde_json::from_value(serde_json::json!({
             "id":"lantern", "fact":"LANTERN_LIKE", "status":"verified", "state_property":"hanging"
         }))
         .unwrap();
-        assert!(
-            empty
-                .validate(&source, &[ModelFamily::Torch], &states)
-                .is_err()
-        );
+        assert!(validate(&empty, &source, &[ModelFamily::Torch], &states).is_err());
         let stale: Rule = serde_json::from_value(serde_json::json!({
             "id":"lantern", "fact":"LANTERN_LIKE", "status":"verified", "state_property":"hanging_bit"
         })).unwrap();
-        assert!(
-            stale
-                .validate(&source, &[ModelFamily::Torch], &states)
-                .is_err()
-        );
+        assert!(validate(&stale, &source, &[ModelFamily::Torch], &states).is_err());
     }
 
     #[test]
@@ -542,6 +333,53 @@ mod tests {
                 ShapeTraits::from_name(name).is_some(),
                 "unknown shape trait {name}"
             );
+        }
+    }
+
+    #[test]
+    fn every_rule_property_selector_ignores_namespace_spelling() {
+        let policy: super::super::Policy = serde_json::from_slice(super::super::POLICY).unwrap();
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        for record in &records {
+            let original: BTreeMap<String, Scalar> =
+                serde_json::from_str(&record.canonical_state).unwrap();
+            let bare: BTreeMap<_, _> = original
+                .iter()
+                .map(|(name, scalar)| {
+                    (
+                        name.split_once(':')
+                            .map_or(name.as_str(), |(_, bare)| bare)
+                            .to_owned(),
+                        scalar.clone(),
+                    )
+                })
+                .collect();
+            let namespaced: BTreeMap<_, _> = bare
+                .iter()
+                .map(|(name, scalar)| (format!("minecraft:{name}"), scalar.clone()))
+                .collect();
+            for rule in policy
+                .model_family_rules
+                .iter()
+                .chain(&policy.block_rules)
+                .chain(&policy.placement_rules)
+            {
+                let expected = rule.matches(&record.name, &original, record.model_family);
+                for state in [&bare, &namespaced] {
+                    assert_eq!(
+                        rule.matches(&record.name, state, record.model_family),
+                        expected,
+                        "{} {} {}",
+                        rule.id,
+                        record.name,
+                        record.canonical_state
+                    );
+                }
+            }
         }
     }
 }

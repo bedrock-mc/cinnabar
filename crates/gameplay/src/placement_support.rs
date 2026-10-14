@@ -1,6 +1,10 @@
 //! Attachment state and support requirements for local block placement.
 
 use crate::placement_state::PlacementInput;
+use assets::{
+    facts::{BlockFact, BlockProperty as P, PlacementRule as R, SupportKind},
+    registry::{BlockTraits as T, ModelFamily as F, SurvivalRule as S},
+};
 use serde_json::{Map, Value};
 
 /// A support face is the offset from the destination toward its supporting block.
@@ -13,30 +17,26 @@ pub(crate) enum SupportRequirement {
 
 /// Chooses attachment states only when every support consulted by vanilla is known.
 pub(crate) fn attachment_states(
-    identifier: &str,
+    fact: BlockFact,
     canonical: &Map<String, Value>,
     input: PlacementInput,
     supports: [Option<bool>; 6],
 ) -> Option<Map<String, Value>> {
-    if input.face > 5 || !identifier.starts_with("minecraft:") {
+    if input.face > 5 || fact.placement == R::Unresolved {
         return None;
     }
     let mut states = canonical.clone();
-    if identifier == "minecraft:vine" {
+    if fact.placement == R::Vine {
         return crate::placement_vines::attachment_states(canonical, input.face, supports);
     }
-    if crate::placement_multiface::is_multiface(canonical) {
+    if fact.traits.contains(T::MULTIFACE) {
         return crate::placement_multiface::attachment_states(canonical, input.face, supports);
     }
-    if canonical.contains_key("torch_facing_direction") {
-        if !known_keys(canonical, &["torch_facing_direction"]) {
+    if fact.traits.contains(T::TORCH) {
+        if !known_keys(canonical, &[P::TorchFacingDirection.name()]) {
             return None;
         }
-        if !["unknown", "top", "north", "south", "west", "east"]
-            .contains(&state_value(canonical, "torch_facing_direction")?.as_str()?)
-        {
-            return None;
-        }
+        crate::placement_state::valid_property(canonical, P::TorchFacingDirection)?;
         let clicked_support = input.face ^ 1;
         let support = if input.face != 0 && supports[usize::from(clicked_support)]? {
             clicked_support
@@ -58,21 +58,15 @@ pub(crate) fn attachment_states(
             5 => "east",
             _ => return None,
         };
-        set_state(&mut states, "torch_facing_direction", Value::from(name))?;
-    } else if identifier == "minecraft:lever" {
-        if !known_keys(canonical, &["lever_direction", "open_bit"])
-            || state_bit(canonical, "open_bit").is_none()
-            || ![
-                "down_east_west",
-                "east",
-                "west",
-                "south",
-                "north",
-                "up_north_south",
-                "up_east_west",
-                "down_north_south",
-            ]
-            .contains(&state_value(canonical, "lever_direction")?.as_str()?)
+        set_state(
+            &mut states,
+            P::TorchFacingDirection.name(),
+            Value::from(name),
+        )?;
+    } else if fact.family == F::Lever {
+        if !known_keys(canonical, &[P::LeverDirection.name(), P::OpenBit.name()])
+            || state_bit(canonical, P::OpenBit.name()).is_none()
+            || crate::placement_state::valid_property(canonical, P::LeverDirection).is_none()
             || !supports[usize::from(input.face ^ 1)]?
         {
             return None;
@@ -98,27 +92,41 @@ pub(crate) fn attachment_states(
             5 => "east",
             _ => return None,
         };
-        crate::placement_state::set_value(&mut states, "lever_direction", Value::from(direction))?;
-    } else if identifier.ends_with("_button") {
-        if !known_keys(canonical, &["facing_direction", "button_pressed_bit"])
-            || state_value(canonical, "facing_direction")?.as_u64()? > 5
-            || state_bit(canonical, "button_pressed_bit").is_none()
+        crate::placement_state::set_value(
+            &mut states,
+            P::LeverDirection.name(),
+            Value::from(direction),
+        )?;
+    } else if fact.family == F::Button {
+        if !known_keys(
+            canonical,
+            &[P::FacingDirection.name(), P::ButtonPressedBit.name()],
+        ) || state_value(canonical, P::FacingDirection.name())?.as_u64()? > 5
+            || state_bit(canonical, P::ButtonPressedBit.name()).is_none()
         {
             return None;
         }
         if !supports[usize::from(input.face ^ 1)]? {
             return None;
         }
-        set_state(&mut states, "facing_direction", Value::from(input.face))?;
-        set_state(&mut states, "button_pressed_bit", Value::from(0))?;
-    } else if known_keys(canonical, &["hanging"]) {
-        state_bit(canonical, "hanging")?;
+        set_state(
+            &mut states,
+            P::FacingDirection.name(),
+            Value::from(input.face),
+        )?;
+        set_state(&mut states, P::ButtonPressedBit.name(), Value::from(0))?;
+    } else if known_keys(canonical, &[P::Hanging.name()]) {
+        state_bit(canonical, P::Hanging.name())?;
         let below = supports[0]?;
         let hanging = !below || (input.face == 0 && supports[1]?);
         if hanging && !supports[1]? {
             return None;
         }
-        set_state(&mut states, "hanging", Value::from(u8::from(hanging)))?;
+        set_state(
+            &mut states,
+            P::Hanging.name(),
+            Value::from(u8::from(hanging)),
+        )?;
     } else {
         return None;
     }
@@ -130,129 +138,110 @@ fn known_keys(states: &Map<String, Value>, allowed: &[&str]) -> bool {
     states.len() == allowed.len() && states.keys().all(|key| allowed.contains(&key.as_str()))
 }
 
-/// Identifies the support needed by a resolved state; unimplemented survival rules fail closed.
+/// Reads compiled survival admission and resolves state-dependent support faces.
 pub(crate) fn support_requirement(
-    identifier: &str,
+    fact: BlockFact,
     states: &Map<String, Value>,
 ) -> SupportRequirement {
-    if !identifier.starts_with("minecraft:") {
-        return SupportRequirement::Unsupported;
-    }
-    if identifier == "minecraft:vine" {
-        return crate::placement_vines::support_face(states)
-            .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
-    }
-    if crate::placement_multiface::is_multiface(states) {
-        return crate::placement_multiface::support_face(states)
-            .map_or(SupportRequirement::Unsupported, SupportRequirement::Face);
-    }
-    if let Some(face) = crate::placement_signs::support_face(identifier, states) {
-        return SupportRequirement::Face(face);
-    }
-    if states.contains_key("torch_facing_direction") {
-        return match state_value(states, "torch_facing_direction").and_then(Value::as_str) {
-            Some("top") => SupportRequirement::Face(0),
-            Some("north") => SupportRequirement::Face(2),
-            Some("south") => SupportRequirement::Face(3),
-            Some("west") => SupportRequirement::Face(4),
-            Some("east") => SupportRequirement::Face(5),
-            _ => SupportRequirement::Unsupported,
-        };
-    }
-    if identifier.ends_with("_button") {
-        return match state_value(states, "facing_direction").and_then(Value::as_u64) {
-            Some(face @ 0..=5) => SupportRequirement::Face((face as u8) ^ 1),
-            _ => SupportRequirement::Unsupported,
-        };
-    }
-    if identifier == "minecraft:lever" {
-        return match state_value(states, "lever_direction").and_then(Value::as_str) {
-            Some("down_east_west" | "down_north_south") => SupportRequirement::Face(1),
-            Some("up_east_west" | "up_north_south") => SupportRequirement::Face(0),
-            Some("north") => SupportRequirement::Face(3),
-            Some("south") => SupportRequirement::Face(2),
-            Some("west") => SupportRequirement::Face(5),
-            Some("east") => SupportRequirement::Face(4),
-            _ => SupportRequirement::Unsupported,
-        };
-    }
-    if known_keys(states, &["hanging"]) {
-        return match state_bit(states, "hanging") {
-            Some(false) => SupportRequirement::Face(0),
-            Some(true) => SupportRequirement::Face(1),
-            None => SupportRequirement::Unsupported,
-        };
-    }
-    if is_carpet(identifier) {
-        return SupportRequirement::Face(0);
-    }
-    if crate::placement_doors::is_door(identifier) {
-        return SupportRequirement::Face(0);
-    }
-    if is_candle(identifier)
-        || matches!(identifier, "minecraft:sea_pickle" | "minecraft:snow_layer")
-    {
-        return SupportRequirement::Face(0);
-    }
-    if survival_is_unresolved(identifier) {
-        SupportRequirement::Unsupported
-    } else {
-        SupportRequirement::Independent
-    }
+    let face = match fact.placement {
+        R::Vine => crate::placement_vines::support_face(states),
+        R::Multiface => crate::placement_multiface::support_face(states),
+        R::StandingSign | R::WallSign => crate::placement_signs::support_face(fact, states),
+        R::Torch => {
+            match state_value(states, P::TorchFacingDirection.name()).and_then(Value::as_str) {
+                Some("top") => Some(0),
+                Some("north") => Some(2),
+                Some("south") => Some(3),
+                Some("west") => Some(4),
+                Some("east") => Some(5),
+                _ => None,
+            }
+        }
+        R::Button => state_value(states, P::FacingDirection.name())
+            .and_then(Value::as_u64)
+            .filter(|face| *face <= 5)
+            .map(|face| face as u8 ^ 1),
+        R::Lever => match state_value(states, P::LeverDirection.name()).and_then(Value::as_str) {
+            Some("down_east_west" | "down_north_south") => Some(1),
+            Some("up_east_west" | "up_north_south") => Some(0),
+            Some("north") => Some(3),
+            Some("south") => Some(2),
+            Some("west") => Some(5),
+            Some("east") => Some(4),
+            _ => None,
+        },
+        R::Lantern => state_bit(states, P::Hanging.name()).map(u8::from),
+        _ => {
+            return match fact.survival {
+                S::Carpet | S::Door | S::Candle | S::SeaPickle | S::SnowLayer => {
+                    SupportRequirement::Face(0)
+                }
+                S::None => SupportRequirement::Independent,
+                _ => SupportRequirement::Unsupported,
+            };
+        }
+    };
+    face.map_or(SupportRequirement::Unsupported, SupportRequirement::Face)
 }
 
-/// Accepts proven full support and carpet's non-air support, without guessing partial shapes.
-pub(crate) fn accepts_support(identifier: &str, support_identifier: &str, full_cube: bool) -> bool {
-    if is_carpet(identifier) {
-        return support_identifier != "minecraft:air";
+/// Accepts full attachment support and carpet's non-air support using compiled facts.
+pub(crate) fn accepts_support(fact: BlockFact, support: BlockFact, full_cube: bool) -> bool {
+    if !support.readable {
+        return false;
+    }
+    if fact.survival == S::Carpet {
+        return support.support != SupportKind::Air;
     }
     full_cube
-        && support_identifier.starts_with("minecraft:")
-        && !is_leaves(support_identifier)
-        && support_identifier != "minecraft:powder_snow"
+        && !matches!(
+            support.support,
+            SupportKind::Unresolved | SupportKind::Leaves | SupportKind::PowderSnow
+        )
 }
 
-/// Distinguishes a rejected support from a shape whose attachment behavior is not implemented.
+/// Preserves unresolved partial-shape support while removing identifier membership tests.
 pub(crate) fn support_acceptance(
-    identifier: &str,
-    support_identifier: &str,
+    fact: BlockFact,
+    support: BlockFact,
     full_cube: bool,
 ) -> Option<bool> {
-    if identifier == "minecraft:vine" {
-        return match support_identifier {
-            "minecraft:stone" => Some(true),
-            "minecraft:air" => Some(false),
+    if !support.readable {
+        return None;
+    }
+    if fact.placement == R::Vine {
+        return match support.support {
+            SupportKind::Stone => Some(true),
+            SupportKind::Air => Some(false),
             _ => None,
         };
     }
-    if identifier == "minecraft:snow_layer" {
-        return match support_identifier {
-            "minecraft:stone" => Some(true),
-            name if is_leaves(name) => Some(true),
-            "minecraft:snow_layer" if full_cube => Some(true),
-            "minecraft:air"
-            | "minecraft:water"
-            | "minecraft:flowing_water"
-            | "minecraft:lava"
-            | "minecraft:flowing_lava" => Some(false),
-            _ => None,
+    if fact.placement == R::Snow {
+        return if support.support == SupportKind::Stone
+            || support.support == SupportKind::Leaves
+            || (support.support == SupportKind::SnowLayer && full_cube)
+        {
+            Some(true)
+        } else if matches!(
+            support.support,
+            SupportKind::Air | SupportKind::Water | SupportKind::Lava
+        ) {
+            Some(false)
+        } else {
+            None
         };
     }
-    if accepts_support(identifier, support_identifier, full_cube) {
+    if accepts_support(fact, support, full_cube) {
         return Some(true);
     }
-    if is_carpet(identifier)
-        || is_leaves(support_identifier)
+    if fact.survival == S::Carpet
         || matches!(
-            support_identifier,
-            "minecraft:air"
-                | "minecraft:water"
-                | "minecraft:flowing_water"
-                | "minecraft:lava"
-                | "minecraft:flowing_lava"
-                | "minecraft:powder_snow"
-                | "minecraft:fire"
-                | "minecraft:soul_fire"
+            support.support,
+            SupportKind::Leaves
+                | SupportKind::PowderSnow
+                | SupportKind::Air
+                | SupportKind::Water
+                | SupportKind::Lava
+                | SupportKind::Fire
         )
     {
         Some(false)
@@ -283,159 +272,35 @@ fn state_bit(states: &Map<String, Value>, key: &str) -> Option<bool> {
     })
 }
 
-/// Ordinary candles share count and support rules; candle cakes use another placement path.
-pub(crate) fn is_candle(identifier: &str) -> bool {
-    identifier == "minecraft:candle"
-        || (identifier.starts_with("minecraft:") && identifier.ends_with("_candle"))
-}
-
-/// Moss carpets have additional growth rules and are not ordinary colored carpet.
-fn is_carpet(identifier: &str) -> bool {
-    (identifier == "minecraft:carpet" || identifier.ends_with("_carpet"))
-        && !matches!(
-            identifier,
-            "minecraft:moss_carpet" | "minecraft:pale_moss_carpet"
-        )
-}
-
-/// Leaves explicitly reject attachment support despite their full collision box.
-fn is_leaves(identifier: &str) -> bool {
-    matches!(identifier, "minecraft:leaves" | "minecraft:leaves2")
-        || identifier.ends_with("_leaves")
-}
-
-const UNRESOLVED_SURVIVAL_SUFFIXES: &[&str] = &[
-    "_shrub",
-    "_grass",
-    "_shulker_box",
-    "_flower",
-    "_tulip",
-    "_sapling",
-    "_mushroom",
-    "_roots",
-    "_fungus",
-    "_rail",
-    "_pressure_plate",
-    "_sign",
-    "_wall_sign",
-    "_hanging_sign",
-    "_coral",
-    "_coral_fan",
-    "_coral_wall_fan",
-    "_candle",
-    "_candle_cake",
-    "_door",
-    "_bush",
-    "_skull",
-    "_head",
-    "_chain",
-];
-const UNRESOLVED_SURVIVAL_IDENTIFIERS: &[&str] = &[
-    "minecraft:bush",
-    "minecraft:unlit_redstone_torch",
-    "minecraft:lever",
-    "minecraft:rail",
-    "minecraft:redstone_wire",
-    "minecraft:unpowered_repeater",
-    "minecraft:powered_repeater",
-    "minecraft:unpowered_comparator",
-    "minecraft:powered_comparator",
-    "minecraft:snow_layer",
-    "minecraft:candle",
-    "minecraft:sea_pickle",
-    "minecraft:vine",
-    "minecraft:glow_lichen",
-    "minecraft:sculk_vein",
-    "minecraft:standing_sign",
-    "minecraft:wall_sign",
-    "minecraft:bed",
-    "minecraft:wooden_door",
-    "minecraft:iron_door",
-    "minecraft:cactus",
-    "minecraft:chorus_plant",
-    "minecraft:chorus_flower",
-    "minecraft:scaffolding",
-    "minecraft:short_grass",
-    "minecraft:tall_grass",
-    "minecraft:fern",
-    "minecraft:large_fern",
-    "minecraft:deadbush",
-    "minecraft:seagrass",
-    "minecraft:kelp",
-    "minecraft:reeds",
-    "minecraft:bamboo",
-    "minecraft:bamboo_sapling",
-    "minecraft:azalea",
-    "minecraft:flowering_azalea",
-    "minecraft:dandelion",
-    "minecraft:golden_dandelion",
-    "minecraft:poppy",
-    "minecraft:blue_orchid",
-    "minecraft:allium",
-    "minecraft:azure_bluet",
-    "minecraft:oxeye_daisy",
-    "minecraft:cornflower",
-    "minecraft:lily_of_the_valley",
-    "minecraft:closed_eyeblossom",
-    "minecraft:open_eyeblossom",
-    "minecraft:wither_rose",
-    "minecraft:torchflower",
-    "minecraft:sunflower",
-    "minecraft:lilac",
-    "minecraft:rose_bush",
-    "minecraft:peony",
-    "minecraft:pitcher_plant",
-    "minecraft:pitcher_crop",
-    "minecraft:brown_mushroom",
-    "minecraft:red_mushroom",
-    "minecraft:wheat",
-    "minecraft:carrots",
-    "minecraft:potatoes",
-    "minecraft:beetroot",
-    "minecraft:melon_stem",
-    "minecraft:pumpkin_stem",
-    "minecraft:nether_wart",
-    "minecraft:cocoa",
-    "minecraft:waterlily",
-    "minecraft:moss_carpet",
-    "minecraft:pale_moss_carpet",
-    "minecraft:hanging_roots",
-    "minecraft:nether_sprouts",
-    "minecraft:weeping_vines",
-    "minecraft:twisting_vines",
-    "minecraft:pointed_dripstone",
-    "minecraft:small_dripleaf_block",
-    "minecraft:big_dripleaf",
-    "minecraft:turtle_egg",
-    "minecraft:sniffer_egg",
-    "minecraft:frog_spawn",
-    "minecraft:spore_blossom",
-    "minecraft:pink_petals",
-    "minecraft:wildflowers",
-    "minecraft:leaf_litter",
-    "minecraft:fire",
-    "minecraft:soul_fire",
-    "minecraft:ladder",
-    "minecraft:bell",
-    "minecraft:tripwire_hook",
-    "minecraft:trip_wire",
-    "minecraft:flower_pot",
-    "minecraft:lantern",
-    "minecraft:grindstone",
-    "minecraft:brewing_stand",
-];
-
-/// Substrate, fluid, growth and multi-cell rules require additional verified world facts.
-fn survival_is_unresolved(identifier: &str) -> bool {
-    UNRESOLVED_SURVIVAL_IDENTIFIERS.contains(&identifier)
-        || UNRESOLVED_SURVIVAL_SUFFIXES
-            .iter()
-            .any(|suffix| identifier.ends_with(suffix))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::block_fact;
+
+    /// Supplies compiled facts to the existing attachment behavior cases.
+    fn attachment_states(
+        name: &str,
+        states: &Map<String, Value>,
+        input: PlacementInput,
+        support: [Option<bool>; 6],
+    ) -> Option<Map<String, Value>> {
+        super::attachment_states(block_fact(name), states, input, support)
+    }
+
+    /// Reads survival facts for the pinned identity tested by each case.
+    fn support_requirement(name: &str, states: &Map<String, Value>) -> SupportRequirement {
+        super::support_requirement(block_fact(name), states)
+    }
+
+    /// Resolves both ends of a support test from the pinned palette.
+    fn support_acceptance(name: &str, support: &str, full: bool) -> Option<bool> {
+        super::support_acceptance(block_fact(name), block_fact(support), full)
+    }
+
+    /// Uses numeric support classifications for the acceptance cases.
+    fn accepts_support(name: &str, support: &str, full: bool) -> bool {
+        super::accepts_support(block_fact(name), block_fact(support), full)
+    }
     use serde_json::json;
     use std::{collections::HashSet, sync::OnceLock};
 
@@ -722,26 +587,6 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_survival_entries_exist_in_the_pinned_registry() {
-        let names: HashSet<_> = registry()
-            .iter()
-            .map(|record| record.name.as_ref())
-            .collect();
-        for &identifier in UNRESOLVED_SURVIVAL_IDENTIFIERS {
-            assert!(
-                names.contains(identifier),
-                "unregistered survival identifier: {identifier}"
-            );
-        }
-        for &suffix in UNRESOLVED_SURVIVAL_SUFFIXES {
-            assert!(
-                names.iter().any(|name| name.ends_with(suffix)),
-                "unmatched survival suffix: {suffix}"
-            );
-        }
-    }
-
-    #[test]
     fn current_heads_chains_and_golden_dandelion_wait_for_survival_rules() {
         for name in [
             "minecraft:skeleton_skull",
@@ -800,6 +645,54 @@ mod tests {
             support_acceptance("minecraft:torch", "minecraft:stone", true),
             Some(true)
         );
+    }
+
+    #[test]
+    fn carpet_support_preserves_every_admitted_non_air_state() {
+        let facts = assets::facts::BlockFacts::new(registry()).unwrap();
+        let carpet = block_fact("minecraft:white_carpet");
+        for record in registry()
+            .iter()
+            .filter(|r| r.name.as_ref() != assets::facts::block::RESERVED_BLOCK_NAME)
+        {
+            let support = facts.get(record.sequential_id);
+            let expected = record.name.as_ref() != "minecraft:air";
+            for full_cube in [false, true] {
+                assert_eq!(
+                    super::support_acceptance(carpet, support, full_cube),
+                    Some(expected),
+                    "{} {} full_cube={full_cube}",
+                    record.name,
+                    record.canonical_state
+                );
+            }
+        }
+        for name in [
+            "minecraft:ice",
+            "minecraft:hopper",
+            "minecraft:redstone_lamp",
+        ] {
+            let support = block_fact(name);
+            assert_eq!(support.family, F::Unknown);
+            assert!(support.identity.is_some());
+            assert_eq!(
+                super::support_acceptance(carpet, support, false),
+                Some(true)
+            );
+        }
+        assert_eq!(
+            super::support_acceptance(carpet, facts.get(u32::MAX), true),
+            None
+        );
+        for record in registry()
+            .iter()
+            .filter(|r| r.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME)
+        {
+            assert_eq!(
+                super::support_acceptance(carpet, facts.get(record.sequential_id), true),
+                Some(true)
+            );
+        }
     }
 
     #[test]

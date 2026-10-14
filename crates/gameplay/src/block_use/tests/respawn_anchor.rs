@@ -1,3 +1,4 @@
+use crate::test_support::block_fact;
 use protocol::test_support::transactions::{ItemUseAction, observe_transaction};
 
 use super::{
@@ -12,7 +13,11 @@ fn anchor(charge: i32, glowstone: bool) -> UseSurroundings {
         clicked_canonical_state: Some(format!(
             r#"{{"respawn_anchor_charge":{{"type":"int","value":{charge}}}}}"#
         )),
-        held_block_identifier: glowstone.then(|| "minecraft:glowstone".to_owned()),
+        held: if glowstone {
+            block_fact("minecraft:glowstone")
+        } else {
+            Default::default()
+        },
         ..surroundings("minecraft:respawn_anchor", "minecraft:air")
     }
 }
@@ -31,7 +36,7 @@ fn glowstone_uses_anchor_at_every_charge_without_a_dimension_gate() {
         );
         assert_eq!(
             toggled_states(
-                around.clicked_identifier.as_deref().unwrap(),
+                around.clicked,
                 around.clicked_canonical_state.as_deref().unwrap(),
             ),
             None,
@@ -55,7 +60,7 @@ fn uncharged_anchor_does_not_consume_other_block_items() {
     let block = verified(network_item(3, 78));
     let caps = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
     let around = UseSurroundings {
-        held_block_identifier: Some("minecraft:stone".to_owned()),
+        held: block_fact("minecraft:stone"),
         ..anchor(0, false)
     };
     assert_eq!(

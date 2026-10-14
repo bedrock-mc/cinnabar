@@ -1,5 +1,6 @@
 //! Neighbor-derived fence and pane states used by placement collision checks.
 
+use assets::facts::BlockProperty as P;
 use assets::{ContributorRole, ModelFamily, NetworkIdMode};
 use serde_json::{Map, Value};
 use sim::PaletteWorld;
@@ -7,10 +8,10 @@ use sim::PaletteWorld;
 use crate::{block_use::placement_cell, movement::PhysicsCollisionRegistries};
 
 pub(crate) const CONNECTION_STATES: &[(&str, u8)] = &[
-    ("minecraft:connection_west", 4),
-    ("minecraft:connection_east", 5),
-    ("minecraft:connection_north", 2),
-    ("minecraft:connection_south", 3),
+    (P::MinecraftConnectionWest.name(), 4),
+    (P::MinecraftConnectionEast.name(), 5),
+    (P::MinecraftConnectionNorth.name(), 2),
+    (P::MinecraftConnectionSouth.name(), 3),
 ];
 
 /// Resolves the same connections as rendering before selecting a registered collision shape.
@@ -19,10 +20,14 @@ pub(crate) fn states_for_neighbours(
     mode: NetworkIdMode,
     world: &PaletteWorld<'_>,
     position: [i32; 3],
-    identifier: &str,
+    identity: u32,
     states: &mut Map<String, Value>,
 ) -> Option<()> {
-    let block = collisions.block_state_runtime_id(mode, identifier, states)?;
+    let block = collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(identity),
+        states,
+    )?;
     let center = connection_facts(collisions, mode, block)?;
     connected_states(states, center, |face| {
         let neighbor = world
@@ -55,7 +60,10 @@ fn connection_facts(
         role,
         occludes_full_face,
         orientation,
-        nether_fence: collisions.block_identifier(mode, block)? == "minecraft:nether_brick_fence",
+        nether_fence: collisions
+            .block_facts(mode, block)
+            .traits
+            .contains(assets::registry::BlockTraits::NETHER_BRICK_FENCE),
     })
 }
 

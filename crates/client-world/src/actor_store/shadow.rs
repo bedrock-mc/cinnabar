@@ -1,11 +1,9 @@
 //! Vanilla entity-shadow casters: who casts one, its radius and where it hangs.
 //! Class dispositions come from the compiled entity facts carrier.
 use protocol::{ActorKind, ActorMetadataValue};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 
-use super::{
-    ActorSnapshot, ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-    DEFAULT_ACTOR_COLLISION_WIDTH, FLAG_BABY, VARIANT_METADATA_KEY,
-};
+use super::{ActorSnapshot, ActorStore, DEFAULT_ACTOR_COLLISION_WIDTH};
 
 /// One caster: interpolated feet, lowered by any authored offset, and its radius.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -21,7 +19,7 @@ impl ActorSnapshot {
     pub fn shadow_radius(&self, riding: bool) -> f32 {
         self.entity_fact.shadow.radius(
             self.collision_width(),
-            self.flag(FLAG_BABY),
+            self.flag(ActorFlag::Baby.wire_value()),
             self.variant(),
             riding,
         )
@@ -34,7 +32,7 @@ impl ActorSnapshot {
         let dead = self.status.dead
             || self
                 .attributes
-                .get("minecraft:health")
+                .get(Attribute::Health.wire_name())
                 .is_some_and(|health| health.current <= 0.0);
         projectile
             || dead
@@ -46,7 +44,7 @@ impl ActorSnapshot {
     /// Height the shadow hangs below the feet; ghasts carry authored relative offsets.
     fn shadow_drop(&self) -> f32 {
         let relative = self.entity_fact.shadow_drop;
-        let height = match self.metadata.get(&BOUNDING_BOX_HEIGHT_METADATA_KEY) {
+        let height = match self.metadata.get(&ActorDataKey::Height.wire_value()) {
             Some(ActorMetadataValue::Float(height)) if height.is_finite() => *height,
             _ => 0.0,
         };
@@ -54,7 +52,7 @@ impl ActorSnapshot {
     }
 
     fn collision_width(&self) -> f32 {
-        match self.metadata.get(&BOUNDING_BOX_WIDTH_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Width.wire_value()) {
             Some(ActorMetadataValue::Float(width)) if width.is_finite() && *width > 0.0 => *width,
             _ if matches!(self.kind, ActorKind::Player { .. }) => DEFAULT_ACTOR_COLLISION_WIDTH,
             _ => 0.0,
@@ -62,7 +60,7 @@ impl ActorSnapshot {
     }
 
     fn variant(&self) -> i32 {
-        match self.metadata.get(&VARIANT_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Variant.wire_value()) {
             Some(ActorMetadataValue::Int(variant)) => (*variant).max(0),
             _ => 0,
         }

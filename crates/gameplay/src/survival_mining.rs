@@ -8,7 +8,7 @@ use protocol::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, BlockUseRequest,
     PlayerAuthInputInteractions,
 };
-use sim::{BlockDestroyInfo, DestroyConditions, HeldTool, PaletteWorld};
+use sim::{BlockDestroyInfo, DestroyConditions, PaletteWorld};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 /// Local effects emitted after a destroy was attached to its movement tick.
@@ -621,12 +621,11 @@ pub fn blocked_mining_reason(
     }
 }
 
-pub fn destroys_in_creative(identifier: Option<&str>) -> bool {
-    identifier.is_none_or(|identifier| {
-        identifier != "minecraft:trident"
-            && HeldTool::from_identifier(identifier)
-                .is_none_or(|tool| tool.kind != assets::compiled::block_destroy::ToolKind::Sword)
-    })
+/// Admitted items carrying the creative no-break trait block local destroy prediction.
+pub fn destroys_in_creative(fact: &assets::facts::ItemFact) -> bool {
+    !fact
+        .traits
+        .contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
 }
 
 /// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).

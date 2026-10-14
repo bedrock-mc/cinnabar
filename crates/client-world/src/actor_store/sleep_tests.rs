@@ -1,8 +1,9 @@
+use protocol_ids::{ActorDataKey, PlayerFlag};
 use std::sync::Arc;
 
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataValue};
 
-use super::{ActorStore, PLAYER_FLAGS_METADATA_KEY, PLAYER_FLAGS_SLEEPING, tests::spawn};
+use super::{ActorStore, tests::spawn};
 
 /// A store holding player 8 with `metadata`.
 fn sleeper(metadata: Vec<ActorMetadata>) -> ActorStore {
@@ -18,15 +19,15 @@ fn sleeper(metadata: Vec<ActorMetadata>) -> ActorStore {
 /// The sleeping player flag.
 fn sleeping() -> ActorMetadata {
     ActorMetadata {
-        key: PLAYER_FLAGS_METADATA_KEY,
-        value: ActorMetadataValue::Byte(PLAYER_FLAGS_SLEEPING as i8),
+        key: ActorDataKey::PlayerFlags.wire_value(),
+        value: ActorMetadataValue::Byte(PlayerFlag::Sleeping.wire_value() as i8),
     }
 }
 
 /// The streamed bed position.
 fn bed(block: [i32; 3]) -> ActorMetadata {
     ActorMetadata {
-        key: super::placement::KEY_BED_POSITION,
+        key: ActorDataKey::BedPosition.wire_value(),
         value: ActorMetadataValue::BlockPosition(block),
     }
 }

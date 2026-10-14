@@ -1,8 +1,8 @@
-//! Bedrock command macros run a stored command when Alt and the bound key meet.
+//! Command macros run a stored command with the selected modifier and bound control.
 //!
 //! Macros live below the other keyboard bindings in Keyboard & Mouse settings.
 //! Each of the ten slots pairs one keyboard or mouse control with a command
-//! string; pressing Alt with the bound control while playing sends the command.
+//! string; pressing the bound control with the selected modifier sends the command.
 
 use semantic_input::PhysicalControl;
 
@@ -91,7 +91,7 @@ impl SettingsOptions {
             .filter(|control| !is_gamepad(*control))
     }
 
-    /// Saves one macro slot's binding; Alt supplies the modifier at runtime.
+    /// Saves one macro slot's binding; the shared modifier is applied at runtime.
     ///
     /// Macros hold their own persisted rows rather than the gameplay action table,
     /// so the shared remap path never has to know about them.

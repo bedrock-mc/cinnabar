@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 /// A synthetic player carrier exercises publication without installed assets.
@@ -33,11 +34,10 @@ fn fixture() -> (HashMap<u64, TestActor>, ActorAnimationStore) {
 #[test]
 fn predicted_use_starts_the_existing_hand_animation_on_the_first_tick() {
     let (mut actors, mut store) = fixture();
-    actors
-        .get_mut(&1)
-        .unwrap()
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM));
+    actors.get_mut(&1).unwrap().metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+    );
     let context = ActorTickContext {
         is_local: true,
         main_hand: Some("minecraft:bow".into()),
@@ -63,11 +63,10 @@ fn predicted_use_starts_the_existing_hand_animation_on_the_first_tick() {
 #[test]
 fn predicted_item_use_keeps_gameplay_ticks_across_actor_catchup_and_interruptions() {
     let (mut actors, mut store) = fixture();
-    actors
-        .get_mut(&1)
-        .unwrap()
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM));
+    actors.get_mut(&1).unwrap().metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+    );
     let context = ActorTickContext {
         is_local: true,
         local_item_use_ticks: Some(7),

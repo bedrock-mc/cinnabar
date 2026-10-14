@@ -206,11 +206,12 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
                 [Aabb::new(Vec3::ZERO, Vec3::ONE)]
             );
             for position in [[-1, 8, -1], [i32::MIN, 0, i32::MAX], [16, 100, -32]] {
+                // Displaced shapes add the offset to the owner cell in single precision.
                 let offset = component.offset(position);
                 let expected = Vec3::new(
-                    position[0] as f64 + f64::from(offset[0]),
-                    position[1] as f64 + f64::from(offset[1]),
-                    position[2] as f64 + f64::from(offset[2]),
+                    f64::from(position[0] as f32 + offset[0]),
+                    f64::from(position[1] as f32 + offset[1]),
+                    f64::from(position[2] as f32 + offset[2]),
                 );
                 assert_eq!(registry.block_shape_offset(id, position), Some(expected));
             }
@@ -263,7 +264,10 @@ fn random_offset_state_overrides_reach_selection_and_collision_in_both_id_spaces
             let (camera, _) = world
                 .camera_segment_entry(origin, Vec3::new(0.0, 0.0, -3.0))
                 .unwrap();
-            assert!((camera.unwrap() - (origin.z - shape.max.z) / 3.0).abs() < 1e-12);
+            // Camera segment fractions are computed in single precision.
+            assert!(
+                (camera.unwrap() - (origin.z - shape.max.z) / 3.0).abs() <= f64::from(f32::EPSILON)
+            );
         }
     }
 }

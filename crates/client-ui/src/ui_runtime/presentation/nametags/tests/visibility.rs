@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 #[test]
 fn always_show_nametags_do_not_require_show_name_flag() {
@@ -15,9 +16,9 @@ fn always_show_nametags_do_not_require_show_name_flag() {
                 let show = combination & 1 != 0;
                 let always_flag = combination & 2 != 0;
                 let invisible = combination & 4 != 0;
-                let flags = (u64::from(show) << ACTOR_FLAG_SHOW_NAME)
+                let flags = (u64::from(show) << ActorFlag::ShowName.wire_value())
                     | (u64::from(always_flag) << ACTOR_FLAG_ALWAYS_SHOW_NAME)
-                    | (u64::from(invisible) << ACTOR_FLAG_INVISIBLE);
+                    | (u64::from(invisible) << ActorFlag::Invisible.wire_value());
                 actor.metadata.insert(
                     0,
                     if extended {
@@ -92,7 +93,7 @@ fn projected_player_tags_follow_always_show_metadata_updates() {
                             protocol::ActorMetadata {
                                 key: 0,
                                 value: ActorMetadataValue::Flags(
-                                    u64::from(invisible) << ACTOR_FLAG_INVISIBLE,
+                                    u64::from(invisible) << ActorFlag::Invisible.wire_value(),
                                 ),
                             },
                             protocol::ActorMetadata {

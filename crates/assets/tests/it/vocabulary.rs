@@ -351,7 +351,8 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         "server-defined-blocks-v2193.tsv"
         | "block-destroy-v2193.tsv"
         | "block-components-v2193.tsv"
-        | "facts-expansion-v2193.tsv" => "block",
+        | "facts-expansion-v2193.tsv"
+        | "block-placement-v2193.tsv" => "block",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
@@ -363,6 +364,9 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
     {
         let fields: Vec<_> = line.split('\t').collect();
         add(refs, file, &format!("/{i}/0"), domain, fields[0]);
+        if file == "block-placement-v2193.tsv" && fields[3] != "-" {
+            add(refs, file, &format!("/{i}/3"), "block", fields[3]);
+        }
         if file == "legacy-icon-routes-26.30.tsv" {
             add(refs, file, &format!("/{i}/2"), "item_texture", fields[2]);
         }

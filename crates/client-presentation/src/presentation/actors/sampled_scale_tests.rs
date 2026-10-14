@@ -1,6 +1,7 @@
 use super::*;
 use bevy::math::{Mat4, Vec3};
 use image::ImageEncoder;
+use protocol_ids::ActorDataKey;
 
 use protocol::{
     ActorEvent, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, WorldBootstrap, WorldEvent,
@@ -540,20 +541,18 @@ fn camera_overlap_tracks_interpolated_feet_and_resumes_sampling_after_exit() {
 
 #[test]
 fn camera_overlap_uses_scaled_body_dimensions_instead_of_visibility_bounds() {
-    use client_world::{
-        BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY, SCALE_METADATA_KEY,
-    };
     let mut actor = super::glide_tests::player([0.0; 3], 0);
     for scale in [1.0, 2.0] {
-        actor
-            .metadata
-            .insert(SCALE_METADATA_KEY, ActorMetadataValue::Float(scale));
         actor.metadata.insert(
-            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorDataKey::Scale.wire_value(),
+            ActorMetadataValue::Float(scale),
+        );
+        actor.metadata.insert(
+            ActorDataKey::Width.wire_value(),
             ActorMetadataValue::Float(0.4),
         );
         actor.metadata.insert(
-            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorDataKey::Height.wire_value(),
             ActorMetadataValue::Float(1.2),
         );
         let (low, high) = actor.bounding_box().unwrap();

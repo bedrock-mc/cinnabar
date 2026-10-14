@@ -10,7 +10,7 @@ use crate::actor_store::ActorStore;
 use actor_animation::{AttachableAnimationInput, AttachablesRuntime, test_support};
 
 const WOLF_IDENTIFIER: &str = test_support::WOLF_IDENTIFIER;
-const COLOR_KEY: u32 = test_support::WOLF_COLOR_METADATA_KEY;
+const COLOR_KEY: u32 = protocol_ids::ActorDataKey::ColorIndex.wire_value();
 const FLAGS_KEY: u32 = 0;
 const TAMED: u64 = match MolangQuery::IsTamed.descriptor().handler {
     MolangQueryHandler::Flag(bit) => 1 << bit,

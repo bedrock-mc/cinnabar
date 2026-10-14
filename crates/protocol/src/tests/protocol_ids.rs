@@ -7,11 +7,11 @@ fn generated_groups_cover_every_fixture_value_and_preserve_wire_ids() {
     macro_rules! check {
         ($($group:ident),* $(,)?) => {$({
             let values = fixture["groups"][stringify!($group)].as_object().unwrap();
-            let extra = usize::from(stringify!($group) == "ActorDataKey");
+            let extra = usize::from(matches!(stringify!($group), "ActorDataKey" | "Effect"));
             assert_eq!($group::ALL.len(), values.len() + extra);
             for variant in $group::ALL {
                 let name = format!("{variant:?}");
-                if name == "FlagsThird" { continue; }
+                if matches!(name.as_str(), "FlagsThird" | "Weaving") { continue; }
                 let expected = values[&name].as_i64().unwrap();
                 assert_eq!(variant.wire_value() as i64, expected, "{}::{name}", stringify!($group));
                 assert_eq!($group::from_wire(variant.wire_value()).unwrap().wire_value(), variant.wire_value());
@@ -81,4 +81,49 @@ fn fixed_open_window_lengths_match_the_pinned_container_contract() {
             );
         }
     }
+}
+
+/// Checks movement names and word-specific flags against their explicit contract.
+#[test]
+fn movement_extensions_match_the_named_contract() {
+    let contract: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../protocol-ids/data/movement-contract.json"
+    ))
+    .unwrap();
+    assert_eq!(
+        Attribute::ALL.len(),
+        contract["attributes"].as_object().unwrap().len()
+    );
+    for attribute in Attribute::ALL {
+        assert_eq!(
+            attribute.wire_name(),
+            contract["attributes"][format!("{attribute:?}")]
+                .as_str()
+                .unwrap()
+        );
+    }
+    for flag in HorseFlag::ALL {
+        assert_eq!(
+            u64::from(flag.wire_value()),
+            contract["numeric"]["HorseFlag"][format!("{flag:?}")]
+                .as_u64()
+                .unwrap()
+        );
+    }
+    for flag in PlayerFlag::ALL {
+        assert_eq!(
+            u64::from(flag.wire_value()),
+            contract["numeric"]["PlayerFlag"][format!("{flag:?}")]
+                .as_u64()
+                .unwrap()
+        );
+    }
+    assert_eq!(
+        Effect::Weaving.wire_value() as i64,
+        contract["numeric"]["Effect"]["Weaving"].as_i64().unwrap()
+    );
+    assert_eq!(
+        protocol_ids::SPRINT_SPEED_MODIFIER_ID,
+        contract["sprint_speed_modifier_id"].as_str().unwrap()
+    );
 }

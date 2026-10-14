@@ -1,6 +1,7 @@
 //! Completes spear pose inputs when the player definition only supplies their consuming clips.
 
 use assets::{MolangEaseCurve as Curve, MolangEaseMode as Mode, MolangFunction, MolangOp};
+use protocol_ids::ActorFlag;
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 
@@ -124,11 +125,11 @@ impl Slots {
         input: &ActorTickInput,
         attack_time: f32,
     ) {
-        let base_arm_x = if query::actor_flag(actor, query::FLAG_SWIMMING)
-            || query::actor_flag(actor, query::FLAG_GLIDING)
+        let base_arm_x = if query::actor_flag(actor, ActorFlag::Swimming.wire_value())
+            || query::actor_flag(actor, ActorFlag::Gliding.wire_value())
         {
             -115.0 - input.pitch
-        } else if query::actor_flag(actor, query::FLAG_CRAWLING) {
+        } else if query::actor_flag(actor, ActorFlag::Crawling.wire_value()) {
             -115.0
         } else {
             -30.0

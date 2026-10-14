@@ -1,5 +1,6 @@
 use super::*;
 use protocol::{ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorMetadata};
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 /// Derives a custom namespace from a real pinned constructor for the inheritance regression.
@@ -15,11 +16,11 @@ fn spawn(identifier: &str, id: u64) -> ActorEvent {
         identifier,
         Arc::from([
             ActorMetadata {
-                key: BOUNDING_BOX_WIDTH_METADATA_KEY,
+                key: ActorDataKey::Width.wire_value(),
                 value: ActorMetadataValue::Float(2.0),
             },
             ActorMetadata {
-                key: BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                key: ActorDataKey::Height.wire_value(),
                 value: ActorMetadataValue::Float(1.0),
             },
         ]),
@@ -210,7 +211,7 @@ fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
                         force_completion: true,
                     };
                     for store in [&mut early, &mut late] {
-                        store.apply(1, 2, ActorEvent::Move(movement.clone()));
+                        store.apply(1, 2, ActorEvent::Move(movement));
                         if history == "queued" {
                             store.advance_interpolation_ticks(1);
                         }
@@ -219,14 +220,14 @@ fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
                         movement.position[1] = Some(wire_y + 4.0);
                         movement.interpolation.force_completion = false;
                         for store in [&mut early, &mut late] {
-                            store.apply(1, 3, ActorEvent::Move(movement.clone()));
+                            store.apply(1, 3, ActorEvent::Move(movement));
                         }
                         // A rotation-only feet packet must retain the buffered Y's original frame.
                         movement.position = [None; 3];
                         movement.position_origin = ActorPositionOrigin::Feet;
                         movement.yaw = Some(45.0);
                         for store in [&mut early, &mut late] {
-                            store.apply(1, 4, ActorEvent::Move(movement.clone()));
+                            store.apply(1, 4, ActorEvent::Move(movement));
                         }
                     }
                 }
@@ -258,7 +259,7 @@ fn late_falling_block_admission_preserves_sync_and_waits_for_initial_terrain() {
             };
             let mut metadata = event.metadata.to_vec();
             metadata.push(ActorMetadata {
-                key: super::super::entities::DISPLAY_BLOCK_METADATA_KEY,
+                key: ActorDataKey::Variant.wire_value(),
                 value: ActorMetadataValue::Int(0),
             });
             event.metadata = metadata.into();

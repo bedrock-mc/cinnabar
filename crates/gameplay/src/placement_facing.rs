@@ -1,34 +1,42 @@
 //! Body-bound and per-type direction rules for vanilla placement.
 
+use assets::facts::BlockProperty as P;
 use serde_json::{Map, Value};
 
 use crate::{
     block_use::BoxBounds,
-    placement_state::{integer_in, only_keys, set_bit, set_value, yaw_quadrant},
+    placement_state::{only_keys, set_bit, set_value, yaw_quadrant},
 };
 
 /// Resolves six-facing blocks using loaded placement coordinates and player bounds.
 pub(crate) fn facing_states(
-    identifier: &str,
+    fact: assets::facts::BlockFact,
     canonical: &str,
     position: [i32; 3],
     player: BoxBounds,
     yaw: f32,
 ) -> Option<Map<String, Value>> {
-    let (keys, rotation) = match identifier {
-        "minecraft:dispenser" => (&["facing_direction", "triggered_bit"][..], 0.0),
-        "minecraft:piston" | "minecraft:sticky_piston" => (&["facing_direction"][..], 180.0),
+    let (keys, rotation) = match fact.placement {
+        assets::facts::PlacementRule::Dispenser => (
+            &[P::FacingDirection.name(), P::TriggeredBit.name()][..],
+            0.0,
+        ),
+        assets::facts::PlacementRule::Piston => (&[P::FacingDirection.name()][..], 180.0),
         _ => return None,
     };
     let mut states = serde_json::from_str(canonical).ok()?;
     if !only_keys(&states, keys) {
         return None;
     }
-    integer_in(&states, "facing_direction", &[0, 1, 2, 3, 4, 5])?;
+    crate::placement_state::valid_property(&states, P::FacingDirection)?;
     let direction = body_facing(position, player, yaw, rotation)?;
-    set_value(&mut states, "facing_direction", Value::from(direction))?;
-    if keys.contains(&"triggered_bit") {
-        set_bit(&mut states, "triggered_bit", false)?;
+    set_value(
+        &mut states,
+        P::FacingDirection.name(),
+        Value::from(direction),
+    )?;
+    if keys.contains(&P::TriggeredBit.name()) {
+        set_bit(&mut states, P::TriggeredBit.name(), false)?;
     }
     Some(states)
 }

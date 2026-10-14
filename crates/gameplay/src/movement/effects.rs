@@ -1,14 +1,9 @@
-use protocol::{ActorEffectAction, ActorEffectEvent, HASTE_EFFECT_ID, MINING_FATIGUE_EFFECT_ID};
+use protocol::{ActorEffectAction, ActorEffectEvent};
+use protocol_ids::Effect;
 use sim::MovementEffects;
 
 use super::physics::MovementEffectSource;
 
-const JUMP_BOOST_EFFECT_ID: i32 = 8;
-const LEVITATION_EFFECT_ID: i32 = 24;
-const SLOW_FALLING_EFFECT_ID: i32 = 27;
-const CONDUIT_POWER_EFFECT_ID: i32 = 26;
-const WEAVING_EFFECT_ID: i32 = 33;
-const BLINDNESS_EFFECT_ID: i32 = 15;
 const TRACKED_EFFECT_COUNT: usize = 8;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
@@ -30,15 +25,15 @@ enum TrackedEffect {
 
 impl TrackedEffect {
     const fn from_protocol_id(id: i32) -> Option<Self> {
-        match id {
-            JUMP_BOOST_EFFECT_ID => Some(Self::JumpBoost),
-            LEVITATION_EFFECT_ID => Some(Self::Levitation),
-            SLOW_FALLING_EFFECT_ID => Some(Self::SlowFalling),
-            HASTE_EFFECT_ID => Some(Self::Haste),
-            MINING_FATIGUE_EFFECT_ID => Some(Self::MiningFatigue),
-            CONDUIT_POWER_EFFECT_ID => Some(Self::ConduitPower),
-            WEAVING_EFFECT_ID => Some(Self::Weaving),
-            BLINDNESS_EFFECT_ID => Some(Self::Blindness),
+        match Effect::from_wire(id) {
+            Some(Effect::JumpBoost) => Some(Self::JumpBoost),
+            Some(Effect::Levitation) => Some(Self::Levitation),
+            Some(Effect::SlowFalling) => Some(Self::SlowFalling),
+            Some(Effect::Haste) => Some(Self::Haste),
+            Some(Effect::MiningFatigue) => Some(Self::MiningFatigue),
+            Some(Effect::ConduitPower) => Some(Self::ConduitPower),
+            Some(Effect::Weaving) => Some(Self::Weaving),
+            Some(Effect::Blindness) => Some(Self::Blindness),
             _ => None,
         }
     }
@@ -367,7 +362,7 @@ mod tests {
             dimension: 0,
             actor_runtime_id: 1,
             action: ActorEffectAction::Add,
-            effect_id: BLINDNESS_EFFECT_ID,
+            effect_id: Effect::Blindness.wire_value(),
             amplifier: 0,
             particles: false,
             ambient: false,
@@ -437,7 +432,7 @@ mod tests {
                 dimension: 0,
                 actor_runtime_id: 1,
                 action: ActorEffectAction::Add,
-                effect_id: WEAVING_EFFECT_ID,
+                effect_id: Effect::Weaving.wire_value(),
                 amplifier: 0,
                 particles: false,
                 ambient: false,

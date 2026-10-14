@@ -1,6 +1,7 @@
 //! Local health packets mutate actor authority before its UI projection is delivered.
 
 use super::{ActorAttribute, ActorDamageState, ActorStore};
+use protocol_ids::Attribute;
 
 /// Damage state retained while the logical local player has no synthetic pose.
 #[derive(Debug, Clone, Copy)]
@@ -49,11 +50,11 @@ impl ActorStore {
         let mut health = self
             .actors
             .get(&runtime_id)
-            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .and_then(|actor| actor.attributes.get(Attribute::Health.wire_name()))
             .cloned()
             .or_else(|| self.pending_local_health.take())
             .unwrap_or_else(|| ActorAttribute {
-                name: "minecraft:health".into(),
+                name: Attribute::Health.wire_name().into(),
                 min: 0.0,
                 max: DEFAULT_PLAYER_HEALTH,
                 current: DEFAULT_PLAYER_HEALTH,
@@ -119,7 +120,7 @@ impl ActorStore {
             && let Some(health) = attributes
                 .iter()
                 .rev()
-                .find(|attribute| attribute.name.as_ref() == "minecraft:health")
+                .find(|attribute| attribute.name.as_ref() == Attribute::Health.wire_name())
         {
             self.pending_local_health = Some(health.clone());
         }

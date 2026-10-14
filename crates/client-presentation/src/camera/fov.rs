@@ -210,7 +210,7 @@ mod tests {
         for modifiers in [
             Arc::from([]),
             Arc::from([ActorAttributeModifier {
-                id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
+                id: Arc::from(protocol_ids::SPRINT_SPEED_MODIFIER_ID),
                 name: Arc::from("sprint"),
                 amount: factor - 1.0,
                 operation: 2,

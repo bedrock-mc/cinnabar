@@ -1,5 +1,6 @@
 //! Healing beams retain a randomly refreshed nearest crystal on the dragon's fixed ticks.
 
+use protocol_ids::Attribute;
 use std::{hash::BuildHasher, sync::OnceLock};
 
 use assets::facts::entity::NativeEntityClass;
@@ -13,7 +14,7 @@ fn alive(actor: &ActorSnapshot) -> bool {
     !actor.status.dead
         && actor
             .attributes
-            .get("minecraft:health")
+            .get(Attribute::Health.wire_name())
             .is_none_or(|health| health.current > 0.0)
 }
 

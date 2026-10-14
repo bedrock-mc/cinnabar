@@ -175,29 +175,7 @@ fn segment_intersects_cell(origin: [f32; 3], endpoint: [f32; 3], cell: [i32; 3])
 }
 
 /// Placement orientation follows the initial world intercept for these state families.
-pub fn orientation_sensitive(canonical_state: Option<&str>) -> bool {
-    let Some(states) = canonical_state
-        .and_then(|s| serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(s).ok())
-    else {
-        return false;
-    };
-    states.keys().any(|key| {
-        matches!(
-            key.strip_prefix("minecraft:").unwrap_or(key),
-            "cardinal_direction"
-                | "facing_direction"
-                | "vertical_half"
-                | "direction"
-                | "weirdo_direction"
-                | "orientation"
-                | "upside_down_bit"
-                | "top_slot_bit"
-                | "ground_sign_direction"
-                | "hanging"
-                | "rotation"
-                | "torch_facing_direction"
-                | "vine_direction_bits"
-                | "coral_direction"
-        )
-    })
+pub fn orientation_sensitive(fact: assets::facts::BlockFact) -> bool {
+    fact.traits
+        .contains(assets::registry::BlockTraits::ORIENTATION_SENSITIVE)
 }

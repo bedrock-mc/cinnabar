@@ -11,6 +11,7 @@ pub mod graphics_api;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
+pub mod macro_modifier;
 pub mod persistence;
 pub mod render_distance;
 pub mod reset;

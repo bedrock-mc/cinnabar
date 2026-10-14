@@ -1,5 +1,6 @@
 //! Sends `ClientMovementPredictionSync` after the server corrected the local player.
 
+use protocol_ids::{ActorDataKey, Attribute};
 mod countdown;
 
 pub(super) use countdown::PredictionSyncCountdown;
@@ -10,25 +11,19 @@ use protocol::{ActorMetadataValue, MovementPredictionSync, client_movement_predi
 
 use super::LocalPhysicsController;
 
-const FLAGS_KEY: u32 = 0;
-const EXTENDED_FLAGS_KEY: u32 = 92;
-const SCALE_KEY: u32 = 38;
-const WIDTH_KEY: u32 = 53;
-const HEIGHT_KEY: u32 = 54;
-
 /// Attribute names in wire order of the sync's attribute block; all must be set to send.
 const ATTRIBUTE_NAMES: [&str; 6] = [
-    "minecraft:movement",
-    "minecraft:underwater_movement",
-    "minecraft:lava_movement",
-    "minecraft:horse.jump_strength",
-    "minecraft:health",
-    "minecraft:player.hunger",
+    Attribute::Movement.wire_name(),
+    Attribute::UnderwaterMovement.wire_name(),
+    Attribute::LavaMovement.wire_name(),
+    Attribute::HorseJumpStrength.wire_name(),
+    Attribute::Health.wire_name(),
+    Attribute::PlayerHunger.wire_name(),
 ];
 /// Optional modifier attributes in wire order, with the value sent while one is undefined.
 const MODIFIER_ATTRIBUTES: [(&str, f32); 2] = [
-    ("minecraft:friction_modifier", 1.0),
-    ("minecraft:bounciness", 0.0),
+    (Attribute::FrictionModifier.wire_name(), 1.0),
+    (Attribute::Bounciness.wire_name(), 0.0),
 ];
 /// Air drag modifier sent while the attribute is undefined.
 const UNDEFINED_AIR_DRAG_MODIFIER: f32 = 1.0;
@@ -95,9 +90,9 @@ fn flag_words(metadata: &HashMap<u32, ActorMetadataValue>) -> [u64; 3] {
         _ => 0,
     };
     [
-        word(FLAGS_KEY),
-        word(EXTENDED_FLAGS_KEY),
-        word(protocol::ACTOR_DATA_ID_FLAGS_THIRD),
+        word(ActorDataKey::Flags.wire_value()),
+        word(ActorDataKey::FlagsTwo.wire_value()),
+        word(ActorDataKey::FlagsThird.wire_value()),
     ]
 }
 
@@ -107,9 +102,9 @@ fn bounding_box(metadata: &HashMap<u32, ActorMetadataValue>) -> [f32; 3] {
         _ => default,
     };
     [
-        float(SCALE_KEY, 1.0),
-        float(WIDTH_KEY, sim::PLAYER_WIDTH as f32),
-        float(HEIGHT_KEY, sim::PLAYER_HEIGHT as f32),
+        float(ActorDataKey::Scale.wire_value(), 1.0),
+        float(ActorDataKey::Width.wire_value(), sim::PLAYER_WIDTH as f32),
+        float(ActorDataKey::Height.wire_value(), sim::PLAYER_HEIGHT as f32),
     ]
 }
 
@@ -147,11 +142,17 @@ mod tests {
     fn flags_read_all_three_words_and_missing_ones_are_zero() {
         let mut metadata = HashMap::new();
         assert_eq!(flag_words(&metadata), [0; 3]);
-        metadata.insert(FLAGS_KEY, ActorMetadataValue::Flags(0b1010));
-        metadata.insert(EXTENDED_FLAGS_KEY, ActorMetadataValue::FlagsExtended(1));
+        metadata.insert(
+            ActorDataKey::Flags.wire_value(),
+            ActorMetadataValue::Flags(0b1010),
+        );
+        metadata.insert(
+            ActorDataKey::FlagsTwo.wire_value(),
+            ActorMetadataValue::FlagsExtended(1),
+        );
         assert_eq!(flag_words(&metadata), [0b1010, 1, 0]);
         metadata.insert(
-            protocol::ACTOR_DATA_ID_FLAGS_THIRD,
+            ActorDataKey::FlagsThird.wire_value(),
             ActorMetadataValue::FlagsExtended(1),
         );
         assert_eq!(flag_words(&metadata), [0b1010, 1, 1]);
@@ -161,8 +162,14 @@ mod tests {
     fn bounding_box_falls_back_to_the_player_box() {
         let mut metadata = HashMap::new();
         assert_eq!(bounding_box(&metadata), [1.0, 0.6, 1.8]);
-        metadata.insert(HEIGHT_KEY, ActorMetadataValue::Float(0.6));
-        metadata.insert(WIDTH_KEY, ActorMetadataValue::Float(f32::NAN));
+        metadata.insert(
+            ActorDataKey::Height.wire_value(),
+            ActorMetadataValue::Float(0.6),
+        );
+        metadata.insert(
+            ActorDataKey::Width.wire_value(),
+            ActorMetadataValue::Float(f32::NAN),
+        );
         assert_eq!(bounding_box(&metadata), [1.0, 0.6, 0.6]);
     }
 
@@ -171,7 +178,7 @@ mod tests {
         assert_eq!(attributes(|_| None, None), None);
         assert_eq!(
             attributes(
-                |name| (name != "minecraft:player.hunger").then_some(0.1),
+                |name| (name != Attribute::PlayerHunger.wire_name()).then_some(0.1),
                 None
             ),
             None
@@ -255,10 +262,7 @@ mod tests {
             .iter()
             .map(|name| attribute(name, 0.1))
             .collect();
-        attributes.push(attribute(
-            client_world::AIR_DRAG_MODIFIER_ATTRIBUTE,
-            f32::NAN,
-        ));
+        attributes.push(attribute(Attribute::AirDragModifier.wire_name(), f32::NAN));
         let mut authority = client_world::WorldAuthority::new(
             protocol::WorldBootstrap {
                 dimension: 0,

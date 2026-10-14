@@ -87,16 +87,16 @@ pub fn binding_mouse(
         .any(|button| binding_mouse_button(menu, name, *button))
 }
 
-/// The command a physical press runs through an armed Alt+key macro, if any.
+/// The command a physical press runs when the configured macro modifier is held.
 pub fn binding_macro_command(
     menu: Option<&crate::menu::MenuRuntime>,
     control: PhysicalControl,
+    modifiers: semantic_input::ModifierChord,
 ) -> Option<String> {
-    let defaults = launcher::menu::settings_options::SettingsOptions::default();
-    let settings = match menu {
-        Some(menu) => &*menu.settings_options,
-        None => &defaults,
-    };
+    let settings = &menu?.settings_options;
+    if !settings.macro_modifier().is_held(modifiers) {
+        return None;
+    }
     let slot = settings.match_macro(control)?;
     settings.macro_send_text(slot)
 }

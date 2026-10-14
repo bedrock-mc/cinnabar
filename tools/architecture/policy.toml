@@ -140,7 +140,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-p
 [[crates]]
 name = "actor-animation"
 path = "crates/actor-animation"
-allowed_dependencies = ["simulation-clock", "assets", "protocol", "render-api", "render-model", "world"]
+allowed_dependencies = ["simulation-clock", "assets", "protocol", "render-api", "render-model", "world", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "client-world", "chunk-pipeline", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-world", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
@@ -1293,7 +1293,6 @@ vocabularies = [
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "app/src/block_entities/describe.rs", max = 1 },
-    { path = "app/src/block_use.rs", max = 1 },
     { path = "app/src/developer_control/state.rs", max = 1 },
     { path = "app/src/environment/profile_lookup.rs", max = 3 },
     { path = "app/src/hud_tools/debug_overlay/entities.rs", max = 1 },
@@ -1308,10 +1307,7 @@ baselines = [
     { path = "app/src/ui_runtime/presentation/publish.rs", max = 2 },
     { path = "app/src/ui_runtime/presentation/publish/menu_icons.rs", max = 4 },
     { path = "crates/actor-animation/src/legacy_swing.rs", max = 6 },
-    { path = "crates/actor-animation/src/query.rs", max = 19 },
-    { path = "crates/actor-animation/src/query/potion.rs", max = 2 },
-    { path = "crates/actor-animation/src/query/wolf.rs", max = 1 },
-    { path = "crates/actor-animation/src/spear.rs", max = 1 },
+    { path = "crates/actor-animation/src/query.rs", max = 6 },
     { path = "crates/actor-animation/src/store.rs", max = 1 },
     { path = "crates/actor-animation/src/tick.rs", max = 4 },
     { path = "crates/asset-compiler/build_support/sources.rs", max = 1 },
@@ -1356,48 +1352,21 @@ baselines = [
     { path = "crates/client-ui/src/ui_runtime/presentation/publish/recipes.rs", max = 6 },
     { path = "crates/client-ui/src/ui_runtime/sign_editor.rs", max = 10 },
     { path = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs", max = 2 },
-    { path = "crates/client-world/src/actor_store.rs", max = 1 },
     { path = "crates/client-world/src/actor_store/cloud_particles.rs", max = 2 },
-    { path = "crates/client-world/src/actor_store/creeper.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/crystal_beam.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/dragon_animation.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/dragon_beam.rs", max = 3 },
     { path = "crates/client-world/src/actor_store/dragon_fireball_particles.rs", max = 2 },
     { path = "crates/client-world/src/actor_store/dragon_particles.rs", max = 3 },
-    { path = "crates/client-world/src/actor_store/effect_members.rs", max = 5 },
-    { path = "crates/client-world/src/actor_store/entities.rs", max = 3 },
-    { path = "crates/client-world/src/actor_store/hurt.rs", max = 1 },
+    { path = "crates/client-world/src/actor_store/entities.rs", max = 1 },
     { path = "crates/client-world/src/actor_store/lifecycle/interpolation.rs", max = 1 },
     { path = "crates/client-world/src/actor_store/lightning.rs", max = 1 },
     { path = "crates/client-world/src/actor_store/mount.rs", max = 12 },
     { path = "crates/client-world/src/actor_store/projectile.rs", max = 1 },
     { path = "crates/client-world/src/actor_store/properties.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/shadow.rs", max = 60 },
-    { path = "crates/client-world/src/actor_store/spatial.rs", max = 7 },
     { path = "crates/client-world/src/actor_store/synchronized_audio.rs", max = 1 },
     { path = "crates/client-world/src/authority/dimension_ranges.rs", max = 1 },
     { path = "crates/experience-runtime/src/callback.rs", max = 1 },
     { path = "crates/experience-runtime/src/protocol.rs", max = 8 },
     { path = "crates/experience-runtime/src/protocol/visuals.rs", max = 4 },
-    { path = "crates/gameplay/src/block_use.rs", max = 61 },
-    { path = "crates/gameplay/src/block_use/intention.rs", max = 14 },
-    { path = "crates/gameplay/src/block_use/respawn_anchor.rs", max = 1 },
     { path = "crates/gameplay/src/movement/collision_registries.rs", max = 1 },
-    { path = "crates/gameplay/src/movement/collision_registries/multipart.rs", max = 4 },
-    { path = "crates/gameplay/src/movement/local_facts.rs", max = 2 },
-    { path = "crates/gameplay/src/movement/locomotion.rs", max = 6 },
-    { path = "crates/gameplay/src/placement_connections.rs", max = 5 },
-    { path = "crates/gameplay/src/placement_doors.rs", max = 10 },
-    { path = "crates/gameplay/src/placement_facing.rs", max = 7 },
-    { path = "crates/gameplay/src/placement_multiface.rs", max = 3 },
-    { path = "crates/gameplay/src/placement_prediction.rs", max = 8 },
-    { path = "crates/gameplay/src/placement_signs.rs", max = 8 },
-    { path = "crates/gameplay/src/placement_stacking.rs", max = 9 },
-    { path = "crates/gameplay/src/placement_stairs.rs", max = 8 },
-    { path = "crates/gameplay/src/placement_state.rs", max = 47 },
-    { path = "crates/gameplay/src/placement_support.rs", max = 142 },
-    { path = "crates/gameplay/src/placement_vines.rs", max = 1 },
-    { path = "crates/gameplay/src/survival_mining.rs", max = 1 },
     { path = "crates/inventory/src/inventory_ledger/item_roles.rs", max = 2 },
     { path = "crates/json-ui/src/anim.rs", max = 1 },
     { path = "crates/json-ui/src/anim/def.rs", max = 2 },
@@ -1433,7 +1402,6 @@ baselines = [
     { path = "crates/pack-compiler/src/compiler.rs", max = 5 },
     { path = "crates/pack-compiler/src/compiler/classification.rs", max = 62 },
     { path = "crates/pack-compiler/src/compiler/descriptors.rs", max = 11 },
-    { path = "crates/pack-compiler/src/compiler/seasonal_leaves.rs", max = 4 },
     { path = "crates/pack-compiler/src/compiler/visuals/anvil.rs", max = 4 },
     { path = "crates/pack-compiler/src/compiler/visuals/barrel.rs", max = 1 },
     { path = "crates/pack-compiler/src/compiler/visuals/bee_housing.rs", max = 28 },
@@ -1503,7 +1471,6 @@ baselines = [
     { path = "crates/render-model/src/equipment/display.rs", max = 3 },
     { path = "crates/render-model/src/java_animation.rs", max = 3 },
     { path = "crates/sim/src/conformance.rs", max = 3 },
-    { path = "crates/sim/src/destroy.rs", max = 3 },
     { path = "crates/ui-engine/src/engine/vector_icons.rs", max = 1 },
     { path = "crates/ui-screens/src/container_data.rs", max = 2 },
     { path = "crates/ui/src/mod_panel/surface.rs", max = 1 },
@@ -1526,6 +1493,11 @@ baselines = [
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "crates/gameplay/src/placement_state.rs"
+literal = "string"
+reason = "Canonical block-state envelope type keyword; this is a serialization grammar token."
 
 [[identifier_literal_exceptions]]
 path = "crates/asset-compiler/src/block_shapes/furnishings.rs"

@@ -1,5 +1,6 @@
 //! Attachment masks and fallback order for vanilla multiface placement.
 
+use assets::facts::BlockProperty as P;
 use serde_json::{Map, Value};
 
 use crate::placement_state::{only_keys, set_value, value};
@@ -14,21 +15,16 @@ const OTHER_FACES: [[usize; 5]; 6] = [
     [1, 0, 2, 3, 4],
 ];
 
-/// Recognizes states that declare the six-face attachment mask.
-pub(crate) fn is_multiface(states: &Map<String, Value>) -> bool {
-    states.contains_key("multi_face_direction_bits")
-}
-
 /// Resolves a first attachment in air; unknown fallback supports defer placement.
 pub(crate) fn attachment_states(
     canonical: &Map<String, Value>,
     clicked_face: u8,
     supports: [Option<bool>; 6],
 ) -> Option<Map<String, Value>> {
-    if clicked_face > 5 || !only_keys(canonical, &["multi_face_direction_bits"]) {
+    if clicked_face > 5 || !only_keys(canonical, &[P::MultiFaceDirectionBits.name()]) {
         return None;
     }
-    if value(canonical, "multi_face_direction_bits")?.as_u64()? > 63 {
+    if value(canonical, P::MultiFaceDirectionBits.name())?.as_u64()? > 63 {
         return None;
     }
     let opposite = usize::from(clicked_face ^ 1);
@@ -42,7 +38,7 @@ pub(crate) fn attachment_states(
     let mut states = canonical.clone();
     set_value(
         &mut states,
-        "multi_face_direction_bits",
+        P::MultiFaceDirectionBits.name(),
         Value::from(FACE_BITS[selected?]),
     )?;
     Some(states)
@@ -50,7 +46,7 @@ pub(crate) fn attachment_states(
 
 /// Returns the support of a first attachment; existing masks require separate survival checks.
 pub(crate) fn support_face(states: &Map<String, Value>) -> Option<u8> {
-    let mask = value(states, "multi_face_direction_bits")?.as_u64()?;
+    let mask = value(states, P::MultiFaceDirectionBits.name())?.as_u64()?;
     FACE_BITS
         .iter()
         .position(|bit| u64::from(*bit) == mask)

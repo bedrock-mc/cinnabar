@@ -1,51 +1,52 @@
 //! Paired door states and the neighboring facts used to choose their hinge.
 
+use assets::facts::BlockProperty as P;
+use assets::{
+    facts::{BlockFact, SupportKind},
+    registry::BlockTraits as T,
+};
 use serde_json::{Map, Value};
 
 use crate::placement_state::{only_keys, set_bit, set_value, value, yaw_quadrant};
 
-/// Recognizes vanilla doors without including trapdoors or custom block behavior.
-pub(crate) fn is_door(identifier: &str) -> bool {
-    identifier.starts_with("minecraft:")
-        && identifier.ends_with("_door")
-        && !identifier.ends_with("_trapdoor")
-}
-
 /// Resolves both door halves; unknown solidity around the hinge defers the pair.
 pub(crate) fn door_states(
-    identifier: &str,
+    fact: BlockFact,
     canonical: &str,
     position: [i32; 3],
     yaw: f32,
-    mut read: impl FnMut([i32; 3]) -> Option<String>,
+    mut read: impl FnMut([i32; 3]) -> Option<BlockFact>,
 ) -> Option<(Map<String, Value>, Map<String, Value>)> {
-    if !is_door(identifier) {
+    if !fact.traits.contains(T::DOOR) {
         return None;
     }
     let mut lower: Map<String, Value> = serde_json::from_str(canonical).ok()?;
     if !only_keys(
         &lower,
         &[
-            "minecraft:cardinal_direction",
-            "open_bit",
-            "upper_block_bit",
-            "door_hinge_bit",
+            P::MinecraftCardinalDirection.name(),
+            P::OpenBit.name(),
+            P::UpperBlockBit.name(),
+            P::DoorHingeBit.name(),
         ],
-    ) || !["south", "west", "north", "east"]
-        .contains(&value(&lower, "minecraft:cardinal_direction")?.as_str()?)
+    ) || crate::placement_state::valid_property(
+        &lower,
+        assets::facts::BlockProperty::MinecraftCardinalDirection,
+    )
+    .is_none()
     {
         return None;
     }
     let direction = (yaw_quadrant(yaw)? + 1) & 3;
     set_value(
         &mut lower,
-        "minecraft:cardinal_direction",
+        P::MinecraftCardinalDirection.name(),
         Value::from(["south", "west", "north", "east"][direction]),
     )?;
-    set_bit(&mut lower, "upper_block_bit", false)?;
-    set_bit(&mut lower, "door_hinge_bit", false)?;
+    set_bit(&mut lower, P::UpperBlockBit.name(), false)?;
+    set_bit(&mut lower, P::DoorHingeBit.name(), false)?;
     // Item data may carry the open bit; validate it without changing its value.
-    let open = value(&lower, "open_bit")?;
+    let open = value(&lower, P::OpenBit.name())?;
     if !matches!(open.as_u64(), Some(0 | 1)) && !open.is_boolean() {
         return None;
     }
@@ -58,19 +59,24 @@ pub(crate) fn door_states(
                 position[1] + height,
                 position[2] + sign * step[2],
             ])?;
-            let solid = match name.as_str() {
-                "minecraft:air" => false,
-                "minecraft:stone" => true,
-                name if is_door(name) => false,
-                _ => return None,
+            let solid = if name.traits.intersects(T::AIR | T::DOOR) {
+                false
+            } else if name.support == SupportKind::Stone {
+                true
+            } else {
+                return None;
             };
             sides[side].0 += u8::from(solid);
-            sides[side].1 |= is_door(&name);
+            sides[side].1 |= name.traits.contains(T::DOOR);
         }
     }
     let mut upper = lower.clone();
-    set_bit(&mut upper, "upper_block_bit", true)?;
-    set_bit(&mut upper, "door_hinge_bit", hinge(sides[0], sides[1]))?;
+    set_bit(&mut upper, P::UpperBlockBit.name(), true)?;
+    set_bit(
+        &mut upper,
+        P::DoorHingeBit.name(),
+        hinge(sides[0], sides[1]),
+    )?;
     Some((lower, upper))
 }
 
