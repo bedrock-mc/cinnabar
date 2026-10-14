@@ -859,6 +859,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- Hidden clouds skip geometry preparation. Visible cloud windows use bounded worker
+  prefetch and retained GPU storage while keeping the existing admission threshold
+  and cap selection. Cold views and missed prefetches still wait for exact geometry.
+  Incomplete: paired hardware captures and frame-time acceptance remain open.
 - UI publication re-emits only the nodes a frame changes into its retained draw list,
   and HUD rebinds run only the view bindings a change reaches. The paper doll and the
   inventory model turn as geometry without rebuilding a texture page. The pack worker
