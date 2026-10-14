@@ -624,6 +624,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## OreUI menus, appearance and motion
 
+- Keyboard binding labels use unmodified layout characters observed during the session while saved
+  bindings keep their physical codes. Provisional: keys not yet observed use physical names;
+  startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
   panels and controls. Home keeps the shipped title above Play and character cards, with compact
   utility actions and versions from their canonical sources. Commerce actions remain quiet.
@@ -744,6 +747,8 @@ these changes do not close the movement, camera, or actor parity gates.
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+  Slime and bed rebounds apply only the gravity remaining after impact, then
+  vertical drag; negligible clipped travel keeps ordinary gravity.
 - When collision data pauses local ticks, the camera holds the completed crouch
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
