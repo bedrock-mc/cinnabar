@@ -400,7 +400,7 @@ fn prefetched_flight_preserves_admission_frames_without_reallocating_or_waiting(
                 .mesh_cache
                 .finish_pending();
             let x = frame as f32 * speed / 60.0;
-            let position = Vec3::new(x, 0.0, -x * 0.25);
+            let position = Vec3::new(x * 0.8, 0.0, -x * 0.6);
             let requested = CloudViewport::try_new(
                 [f64::from(position.x), f64::from(position.z)],
                 config.mesh_size(),
@@ -430,12 +430,12 @@ fn prefetched_flight_preserves_admission_frames_without_reallocating_or_waiting(
         }
         let gpu = world.resource::<CloudGpu>();
         println!(
-            "cloud flight {speed} blocks/s, 600 frames: rebuilds={}, buffer creations {} -> {}, warm waiting frames {} -> {}",
+            "cloud flight {speed} blocks/s, 600 frames: rebuilds={}, buffer creations {} -> {}, post-warmup unfinished admissions={}, uploaded_bytes={}",
             expected_rebuilds,
             expected_rebuilds,
             gpu.work.buffer_creations,
-            expected_rebuilds - 1,
-            gpu.work.waited - initial_waits
+            gpu.work.waited - initial_waits,
+            gpu.work.uploaded_bytes
         );
     }
 }
