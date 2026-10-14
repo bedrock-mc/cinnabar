@@ -247,6 +247,10 @@ argument completion, and live visual acceptance remain incomplete.
 
 ## P5.5-INTERACTION-COMBAT-INVENTORY
 
+Remote actor snapping respects target-column terrain order. Block-use and painting
+occlusion share rounded intercept distances. CI verification remains pending.
+
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |

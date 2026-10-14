@@ -6791,6 +6791,10 @@ end-to-end verification. Terrain availability during asynchronous chunk ingestio
 and native-origin rounding also remain unverified. These
 changes do not close the combat parity gate.
 
+Remote actor snapping respects target-column terrain order. Block-use and painting
+occlusion share rounded intercept distances. CI verification remains pending.
+
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid

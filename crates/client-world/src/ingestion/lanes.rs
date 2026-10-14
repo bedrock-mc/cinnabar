@@ -57,6 +57,8 @@ pub struct Footprint {
     /// Changes which columns are retained, so it conflicts with every terrain event and
     /// every other retention change.
     pub retention: bool,
+    /// Reads terrain when a partial actor move does not identify its target column.
+    pub terrain_dependency: bool,
     /// Moves the server position, which scopes retention while local physics does not.
     pub positional: bool,
     /// Waits for earlier block mutations, never for chunk decode.
@@ -272,6 +274,25 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
         // Camera switches, targets and attachments resolve actors when consumed.
         WorldEvent::Camera(_) => Footprint::session(C::CAMERA.with(C::AUDIO).with(C::ACTORS)),
         WorldEvent::PrimitiveShapes(_) => Footprint::session(C::SHAPES),
+        WorldEvent::Actor(ActorEvent::Move(movement))
+            if movement.player_mode.is_none()
+                && movement.position_origin == protocol::ActorPositionOrigin::NetworkOffset
+                && !local(movement.runtime_id)
+                && movement.dimension == context.dimension =>
+        {
+            let mut footprint = Footprint::session(C::ACTORS);
+            match (movement.position[0], movement.position[2]) {
+                (Some(x), Some(z)) if x.is_finite() && z.is_finite() => {
+                    footprint.columns.push(ChunkKey::new(
+                        movement.dimension,
+                        (x.floor() as i32).div_euclid(16),
+                        (z.floor() as i32).div_euclid(16),
+                    ));
+                }
+                _ => footprint.terrain_dependency = true,
+            }
+            footprint
+        }
         WorldEvent::Actor(event) => Footprint::session(actor_consumers(event, context)),
         WorldEvent::ActorEffect(event) if local(event.actor_runtime_id) => {
             Footprint::session(C::CONTROLS.with(C::UI))
@@ -340,6 +361,7 @@ pub(crate) struct EarlierEvents {
     barrier: bool,
     retention: bool,
     terrain: bool,
+    terrain_dependency: bool,
     mutation: bool,
     consumers: Consumers,
     columns: Vec<ChunkKey>,
@@ -366,6 +388,7 @@ impl EarlierEvents {
         self.barrier |= earlier.barrier;
         self.retention |= earlier.retention || (couple_position && earlier.positional);
         self.terrain |= !earlier.columns.is_empty();
+        self.terrain_dependency |= earlier.terrain_dependency;
         self.mutation |= earlier.mutation;
         self.consumers = self.consumers.with(earlier.consumers);
         self.columns.extend_from_slice(&earlier.columns);
@@ -379,7 +402,9 @@ impl EarlierEvents {
         let later_retention = later.retention || (couple_position && later.positional);
         self.barrier
             || later.barrier
-            || (later_retention && (self.terrain || self.retention))
+            || (later_retention && (self.terrain || self.retention || self.terrain_dependency))
+            || (later.terrain_dependency && (self.terrain || self.retention))
+            || (self.terrain_dependency && !later.columns.is_empty())
             || (self.retention && !later.columns.is_empty())
             || (later.local_authority && self.mutation)
             || self.consumers.intersects(later.consumers)

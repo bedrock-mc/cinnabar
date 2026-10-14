@@ -144,3 +144,55 @@ fn move_player_teleports_keep_their_own_rules() {
         .unwrap();
     assert_eq!(authority.actor(2).unwrap().position[0], 0.1);
 }
+
+#[test]
+fn pending_target_column_keeps_actor_interpolation_independent_of_decode_timing() {
+    use crate::ingestion::{
+        CommitStep, LaneContext, OrderedCommitState, PreparedWorldEvent, classify,
+    };
+    for ready in [false, true] {
+        let mut authority = authority(false, false);
+        let chunk = WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+            dimension: 0,
+            x: 0,
+            z: 0,
+            mode: protocol::LevelChunkMode::Inline { count: 0 },
+            payload: Vec::new(),
+        });
+        let move_event = WorldEvent::Actor(ActorEvent::Move(movement(Some(1.0), false)));
+        let context = LaneContext {
+            local_runtime_id: 1,
+            local_unique_id: 1,
+            dimension: 0,
+        };
+        let mut queue = OrderedCommitState::new(2);
+        queue.admit(2, classify(&chunk, context), 0).unwrap();
+        queue.admit(3, classify(&move_event, context), 0).unwrap();
+        queue
+            .insert_ready(3, PreparedWorldEvent::Immediate(move_event.clone()))
+            .unwrap();
+        if ready {
+            queue
+                .insert_ready(2, PreparedWorldEvent::Immediate(chunk.clone()))
+                .unwrap();
+        } else {
+            assert!(queue.next_commit().is_none());
+            queue
+                .insert_ready(2, PreparedWorldEvent::Immediate(chunk.clone()))
+                .unwrap();
+        }
+        let Some(CommitStep::Apply { sequence: 2, .. }) = queue.next_commit() else {
+            panic!("the target column must commit before the actor move");
+        };
+        authority.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
+        assert!(queue.finish_commit(2));
+        let Some(CommitStep::Apply { sequence: 3, .. }) = queue.next_commit() else {
+            panic!("the move is ready after its target column");
+        };
+        authority.apply_ordered_event(move_event, Some(3)).unwrap();
+        assert!(queue.finish_commit(3));
+        assert_eq!(authority.actor(2).unwrap().position[0], 0.0);
+        authority.advance_actor_interpolation_ticks(1);
+        assert_eq!(authority.actor(2).unwrap().position[0], 1.0 / 3.0);
+    }
+}
