@@ -48,7 +48,7 @@ pub(super) struct VariableLayout {
 }
 
 /// Immutable camera and attack inputs used to admit scratch presentation evaluation.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub(super) struct PresentationReads {
     pub camera: bool,
     pub swing: bool,

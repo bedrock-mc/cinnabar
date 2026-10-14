@@ -199,14 +199,14 @@ const ZOMBIE: Crosshair = Crosshair::Actor(ActorHit {
 });
 
 #[test]
-fn one_press_attacks_once_with_the_swing_first_and_held_frames_do_nothing() {
+fn one_press_attacks_once_before_its_swing_and_held_frames_do_nothing() {
     let mut runtime = MeleeRuntime::default();
     let mut swings = SwingTracker::default();
     assert!(runtime.observe_input(true, true));
     let outcome = runtime.resolve(ZOMBIE, &press(PlayerInputMode::Mouse), &mut swings);
     assert_eq!(
         kinds(&outcome.packets),
-        ["AnimatePacket", "InventoryTransactionPacket"]
+        ["InventoryTransactionPacket", "AnimatePacket"]
     );
     assert!(!outcome.missed_swing);
     assert!(runtime.actor_in_front());
@@ -593,8 +593,8 @@ fn assert_published_press_retry(crosshair: Crosshair, duration: i32) {
             "a recovered send retains its original packet order"
         );
         if let Crosshair::Actor(hit) = crosshair {
-            let observed = observe_transaction(&packets[1])
-                .expect("the swing precedes the original actor transaction");
+            let observed =
+                observe_transaction(&packets[0]).expect("the actor transaction precedes its swing");
             let transaction = observed
                 .actor_use()
                 .expect("the original actor attack survives backpressure");
@@ -865,7 +865,7 @@ fn assert_fresh_published_press_waits(crosshair: Crosshair, foreign_retry: bool)
             if crosshair == Crosshair::Miss {
                 vec!["AnimatePacket"]
             } else {
-                vec!["AnimatePacket", "InventoryTransactionPacket"]
+                vec!["InventoryTransactionPacket", "AnimatePacket"]
             }
         );
         Ok(())

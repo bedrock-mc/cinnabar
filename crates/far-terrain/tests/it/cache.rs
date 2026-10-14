@@ -504,3 +504,119 @@ fn late_columns_probe_before_reusing_a_cached_epoch() {
     join(&mut later, 64, now);
     assert_eq!(later.namespace(), Some(cached), "the first map is intact");
 }
+
+/// Two lobbies under one identity whose probe area matches: the second's live columns
+/// differ from what the first cached, so its visit drops the cached map and takes a new epoch.
+#[test]
+fn a_cached_map_that_differs_from_live_terrain_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    let shared = first.namespace().unwrap();
+    for x in 300..=305 {
+        first.admit(0, ColumnPos::new(x, 0), flat(70).encode(), now);
+    }
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    join(&mut second, 64, now);
+    assert_eq!(second.namespace(), Some(shared), "the probe area matched");
+    assert_eq!(
+        reload(&mut second, ColumnPos::new(305, 0), now),
+        Some(flat(70))
+    );
+    for x in 300..=303 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    assert!(
+        !second.store().contains(ColumnPos::new(305, 0)),
+        "the other lobby's terrain is no longer shown"
+    );
+    assert_eq!(
+        second
+            .store()
+            .summary(ColumnPos::new(300, 0))
+            .map(Result::unwrap),
+        Some(flat(20))
+    );
+    second.sync();
+    second.poll(now);
+    let fresh = second.namespace().expect("a fresh epoch");
+    assert_ne!(fresh, shared);
+}
+
+/// Cached columns stay off screen until the visit's namespace is resolved from live probes.
+#[test]
+fn nothing_cached_shows_before_the_namespace_resolves() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    store_on_disk(root.path(), ColumnPos::new(300, 0), 70, now);
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    cache.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    cache.set_focus(ColumnPos::new(300, 0), 4);
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(cache.namespace(), None);
+    assert!(!cache.store().contains(ColumnPos::new(300, 0)));
+}
+
+/// A transfer to the same address starts a fresh visit: nothing from the last one stays.
+#[test]
+fn a_new_visit_to_the_same_world_starts_empty() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    cache.admit(0, ColumnPos::new(300, 0), flat(70).encode(), now);
+    cache.begin_visit(SERVER, 42, 0);
+    assert!(cache.store().is_empty());
+    assert_eq!(cache.namespace(), None, "resolved again from new probes");
+}
+
+/// When a visit turns out to be another map, what it already wrote moves to its fresh epoch,
+/// so its visited terrain stays cached for it and leaves the other map's epoch.
+#[test]
+fn a_diverged_visit_keeps_what_it_already_wrote() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    for x in 300..=305 {
+        first.admit(0, ColumnPos::new(x, 0), flat(70).encode(), now);
+    }
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    join(&mut second, 64, now);
+    let shared = second.namespace().unwrap();
+    assert_eq!(
+        reload(&mut second, ColumnPos::new(305, 0), now),
+        Some(flat(70))
+    );
+    let visited = ColumnPos::new(500, 0);
+    second.admit(0, visited, flat(33).encode(), now);
+    second.flush_all();
+    second.sync();
+    second.poll(now);
+    for x in 300..=303 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_ne!(second.namespace(), Some(shared));
+    leave(&mut second);
+    drop(second);
+
+    let mut later = self::cache(root.path());
+    join(&mut later, 64, now);
+    assert_ne!(
+        later.namespace(),
+        Some(shared),
+        "the fresh epoch matches first"
+    );
+    assert_eq!(reload(&mut later, visited, now), Some(flat(33)));
+}

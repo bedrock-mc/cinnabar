@@ -422,7 +422,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // Owned before any core spawn so the direct-connect path below derives
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
-    let client_blob_cache = ClientBlobCacheOwner::default();
+    let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.

@@ -222,6 +222,23 @@ impl SummaryStore {
         self.evict_to_budget();
     }
 
+    /// Drops every summary older than `version`, reporting each as changed so its tiles are
+    /// rebuilt without it.
+    pub fn retain_since(&mut self, version: u64) {
+        let stale: Vec<ColumnPos> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.version < version)
+            .map(|(pos, _)| *pos)
+            .collect();
+        for pos in stale {
+            if let Some(entry) = self.entries.remove(&pos) {
+                self.retire(pos, &entry);
+                self.changed.insert(pos);
+            }
+        }
+    }
+
     /// Drops every summary, as when the namespace changes.
     pub fn clear(&mut self) {
         self.entries.clear();

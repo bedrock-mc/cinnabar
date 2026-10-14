@@ -1,7 +1,9 @@
 //! Bounded component and package admission and deferred settings activation.
 
 use crate::{
-    DataSource, MAX_COMPONENT_BYTES, ModEvent, ModGrants, ModHost, Source, execution, local_files,
+    DataSource, MAX_COMPONENT_SOURCE_BYTES, ModEvent, ModGrants, ModHost, Source,
+    component_assets::ComponentAssets,
+    execution, local_files,
     package::{self, Package},
     runtime::{Declared, Instance},
     screens::{declared, loaded},
@@ -34,12 +36,9 @@ impl ModHost {
     /// Rejects oversized bytes, invalid imports and incompatible callbacks without running
     /// guest code.
     pub fn validate_component(bytes: &[u8]) -> Result<()> {
-        ensure!(
-            bytes.len() <= MAX_COMPONENT_BYTES,
-            "component exceeds byte limit"
-        );
+        let assets = ComponentAssets::read(bytes)?;
         let (engine, _ticker) = execution::engine()?;
-        Instance::check(&engine, bytes)
+        Instance::check(&engine, &assets.executable)
     }
 
     /// Loads the package at `dir` with what its manifest asks for granted, plus `extra`: the
@@ -111,10 +110,7 @@ impl ModHost {
         declared: Declared,
         digest: [u8; 32],
     ) -> Result<Self> {
-        ensure!(
-            bytes.len() <= MAX_COMPONENT_BYTES,
-            "component exceeds byte limit"
-        );
+        let assets = ComponentAssets::read(bytes)?;
         grants.validate()?;
         let path = &source.settings_anchor();
         let (engine, ticker) = execution::engine()?;
@@ -138,11 +134,23 @@ impl ModHost {
             read_settings(path, &grants)?
         };
         let settings_seed = grants.settings.then(|| seed.clone());
-        let instance = Instance::new(&engine, bytes, grants.clone(), seed, declared)?;
+        let instance = Instance::new(
+            &engine,
+            &assets.executable,
+            grants.clone(),
+            seed,
+            declared,
+            assets.panel_bundle.filter(|_| grants.controls),
+        )?;
         Ok(Self {
             engine,
             _ticker: ticker,
             instance,
+            embedded_font: assets.font,
+            embedded_logo: assets.logo,
+            embedded_title: assets.title,
+            embedded_notices: assets.notices,
+            panel_bundle_override: None,
             source,
             attempted: digest,
             authorized_grants: grants.clone(),
@@ -201,21 +209,29 @@ impl ModHost {
             || self.grants.clone(),
             |package| self.authorized_grants.with_manifest(&package.manifest),
         );
+        let assets = ComponentAssets::read(bytes)?;
+        let bundle = self
+            .panel_bundle_override
+            .clone()
+            .or(assets.panel_bundle)
+            .filter(|_| grants.controls);
         let mut candidate = self
             .instance
             .replacement(
                 &self.engine,
-                bytes,
+                &assets.executable,
                 grants.clone(),
                 self.instance.settings().to_owned(),
                 declared,
+                bundle,
             )
             .context("reload rejected; previous mod retained")?;
-        if let Some(bundle) = self.instance.panel_bundle() {
-            candidate.set_panel_bundle(bundle)?;
-        }
         candidate.set_session(Arc::clone(&self.session));
         self.instance = candidate;
+        self.embedded_font = assets.font;
+        self.embedded_logo = assets.logo;
+        self.embedded_title = assets.title;
+        self.embedded_notices = assets.notices;
         self.pending_events.clear();
         self.grants = grants;
         if let Some(package) = package {
@@ -246,6 +262,45 @@ impl ModHost {
 
     pub fn settings_seed(&self) -> Option<&str> {
         self.settings_seed.as_deref()
+    }
+
+    /// Shares this accepted source snapshot's optional font only with an authorized panel.
+    pub fn panel_font_source(&self) -> Option<&[u8]> {
+        (self.grants.controls && self.instance.is_active())
+            .then_some(self.embedded_font.as_deref())
+            .flatten()
+    }
+
+    /// An active instance's menu logo source requires the explicit environment grant.
+    pub fn menu_logo_source(&self) -> Option<&[u8]> {
+        (self.grants.environment && self.instance.is_active())
+            .then_some(self.embedded_logo.as_deref())
+            .flatten()
+    }
+
+    /// An active instance's menu heading requires the explicit environment grant.
+    pub fn menu_title(&self) -> Option<&str> {
+        (self.grants.environment && self.instance.is_active())
+            .then_some(self.embedded_title.as_deref())
+            .flatten()
+    }
+
+    /// Copyright notices belong to the accepted source snapshot and carry no guest authority.
+    pub fn notices(&self) -> Option<&str> {
+        self.embedded_notices.as_deref()
+    }
+
+    /// Identifies a bare local component for its caller's off-frame reload worker.
+    pub fn component_source(&self) -> Option<&Path> {
+        match &self.source {
+            Source::Component(path) => Some(path),
+            Source::Package(_) => None,
+        }
+    }
+
+    /// The last attempted full source identity, including embedded static presentation data.
+    pub fn source_digest(&self) -> [u8; 32] {
+        self.attempted
     }
 }
 
@@ -320,6 +375,6 @@ pub(crate) fn read_settings(path: &Path, grants: &ModGrants) -> Result<String> {
 
 /// Bounds file reads even if a writer grows the file between metadata and read.
 pub(crate) fn read_component(path: &Path) -> Result<Vec<u8>> {
-    local_files::read(path, MAX_COMPONENT_BYTES)
+    local_files::read(path, MAX_COMPONENT_SOURCE_BYTES)
         .with_context(|| format!("read mod {}", path.display()))
 }

@@ -1,5 +1,9 @@
 # Phases 2-5 Completion Ledger
 
+Verified chunk blobs now persist through a bounded background store. Restart, corruption,
+miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
+this storage change advances no rendered, live-join or broader parity completion gate.
+
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
@@ -81,6 +85,10 @@ regressions await CI; full numeric and trajectory parity remains open.
 Spectator regressions cover forced flight without MayFly, solid and unloaded
 terrain traversal, and embedded server anchors. The full native trajectory,
 platform, and performance gates remain open.
+
+Body-contact sampling and retryable query limits now cover fast flight exits.
+The added simulator and controller regressions await CI; live movement and
+performance acceptance remain open.
 
 Server-defined vehicle seats have deterministic coverage for actor-origin conversion,
 yaw, scale, link ordering, updates and removal. Dismount request coverage includes
@@ -170,6 +178,10 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
+matched pack frames, authored sword display transforms and first-person face shading
+remain open in `plan.md`.
+
 Stock wolf texture admission preserves controller-selected adult/baby variants
 and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
 updates. Wet shading, custom-material composition, and exact target-version stock
@@ -215,6 +227,11 @@ Sound engine, session, named playback, local cue and UI sound tests belong to
 `client-audio`; camera publication and actor presentation belong to
 `client-presentation`. App integration tests retain the composed frame-order and
 camera-listener coverage. This ownership change adds no new parity evidence.
+
+The `json_ui::vanilla` contract checks categorized names against the pinned UI
+vocabulary. Screen routing and core form/context consumers use those names;
+remaining controller migrations and stale-name corrections are incomplete.
+This adds no live visual evidence and leaves the UI acceptance gate open.
 
 ## P5.2-HUD
 

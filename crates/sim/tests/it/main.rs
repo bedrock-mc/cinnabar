@@ -12,6 +12,7 @@ mod conformance;
 mod controls_oracle;
 mod doors;
 mod embedment_convergence;
+mod fast_flight;
 mod fixed_tick;
 mod flight_native;
 mod glide_native;

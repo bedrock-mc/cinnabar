@@ -151,10 +151,10 @@ fn custom_npc_without_size_metadata_sends_attack_for_picked_world_point() {
     );
     assert_eq!(
         kinds(&outcome.packets),
-        ["AnimatePacket", "InventoryTransactionPacket"]
+        ["InventoryTransactionPacket", "AnimatePacket"]
     );
     assert!(!outcome.missed_swing);
-    let observed = observe_transaction(&outcome.packets[1])
+    let observed = observe_transaction(&outcome.packets[0])
         .expect("the picked NPC receives an attack transaction");
     let transaction = observed
         .actor_use()

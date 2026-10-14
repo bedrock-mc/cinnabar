@@ -31,6 +31,7 @@ fn chestplate(
         },
         geometry: reference("geometry.player.armor.chestplate"),
         texture: reference(texture),
+        resources: Default::default(),
         material: material.into(),
         color_mask,
         render_controller: "controller.render.armor".into(),

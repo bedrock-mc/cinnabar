@@ -55,7 +55,10 @@ fn replaced_catalog_rejects_prepared_screen_settings() {
     presentation.set_server_ui_pack(&pack);
     let previous = presentation.screen_settings();
     let mut changed = (**pack.catalog.as_ref().unwrap()).clone();
-    let (namespace, name) = json_ui::HUD_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudHudScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     let definition = serde_json::json!({
         "namespace": namespace,
         name: {"type":"screen", "absorbs_input":true}
@@ -72,7 +75,12 @@ fn replaced_catalog_rejects_prepared_screen_settings() {
     presentation.set_server_ui_pack(&pack);
     let current = presentation.screen_settings();
     assert!(!Arc::ptr_eq(&previous, &current));
-    assert!(current.get(json_ui::HUD_SCREEN).unwrap().absorbs_input);
+    assert!(
+        current
+            .get(json_ui::vanilla::Reference::HudHudScreen.as_str())
+            .unwrap()
+            .absorbs_input
+    );
 }
 
 fn fixture_pack(paths: &str) -> ServerUiPack {

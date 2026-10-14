@@ -115,7 +115,11 @@ impl UiPresentationRuntime {
     }
 
     /// Requests a changed artwork set and installs completed pages.
-    pub(super) fn sync_artwork_set(&mut self, set: menu_artwork::ArtworkSet) {
+    pub(super) fn sync_artwork_set(&mut self, mut set: menu_artwork::ArtworkSet) {
+        set.logo = self
+            .mod_menu_branding
+            .as_ref()
+            .and_then(|branding| branding.logo.clone());
         if !set.same(&self.menu_artwork_set) {
             self.menu_artwork_set = set.clone();
             self.menu_artwork_loader.request(set);

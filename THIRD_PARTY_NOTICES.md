@@ -351,6 +351,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 <!-- END DRAGONFLY-MIT -->
 
+## redb persistent blob storage
+
+- Source: https://github.com/cberner/redb
+- Dependency: `redb`, pinned in `Cargo.lock`.
+- License: MIT OR Apache-2.0; Cinnabar distributes it under the MIT option.
+- Copyright: 2021 Christopher Berner.
+- Full selected license: `assets/licenses/redb-MIT.txt`, included in packaged resources.
+
 ## Gophertunnel numeric contracts
 
 The protocol ID fixture uses numeric constants from Gophertunnel, under the MIT license.

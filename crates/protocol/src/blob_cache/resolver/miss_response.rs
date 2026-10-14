@@ -66,6 +66,7 @@ impl BlobCacheResolver {
             }
         }
 
+        let mut admitted = Vec::with_capacity(unique.len());
         let evictions = {
             let mut store = self.cache.lock();
             let newly_admitted = validate_delta(&store, &unique)?;
@@ -74,10 +75,16 @@ impl BlobCacheResolver {
             let before = store.entries.len();
             for (hash, payload) in &unique {
                 insert_verified(&mut store, self.cache.limits, *hash, payload)?;
+                if let Some(entry) = store.entries.get(hash) {
+                    admitted.push((*hash, entry.payload.clone()));
+                }
             }
             let expected_without_eviction = before.saturating_add(newly_admitted);
             expected_without_eviction.saturating_sub(store.entries.len())
         };
+        for (hash, payload) in admitted {
+            self.cache.persist(hash, payload);
+        }
         self.stats.admitted_blobs = self
             .stats
             .admitted_blobs

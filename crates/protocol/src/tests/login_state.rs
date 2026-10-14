@@ -42,6 +42,7 @@ use disconnect_reason::{
 
 const RUNTIME_ID: u64 = 0x1234_5678;
 const OTHER_RUNTIME_ID: u64 = 0x7654_3210;
+const SCRIPTED_PLAY_END_TIME: i32 = 34_567; // The last SetTime of the default play traffic.
 const CORE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy)]
@@ -371,7 +372,7 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
                 let mut traffic = vec![
                     level_chunk(8, -10, 0x6b, 1024 * 1024),
                     Packet::new(cached_level_chunk(9, -11, vec![hash], b"tail")),
-                    set_time(34_567),
+                    set_time(SCRIPTED_PLAY_END_TIME),
                 ];
                 traffic.extend(boundary);
                 frames.push(batch(&traffic));
@@ -408,7 +409,7 @@ fn play_traffic(script: &Script) -> Vec<Bytes> {
                 creation_time: wire::U64LE(888),
                 is_from_server: false,
             }),
-            set_time(34_567),
+            set_time(SCRIPTED_PLAY_END_TIME),
         ];
         traffic.extend(boundary);
         traffic.extend(camera_instruction_epilogue_packets(script.epilogue));

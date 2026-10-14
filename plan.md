@@ -1,3 +1,20 @@
+## Browser portability
+
+Connection framing can prepare a bounded writer for a host executor, and deadlines accept a
+host timer future. Native connections still spawn the writer on Tokio. Image work retains
+its bounded read/decode queues, pending completion and pack cancellation. A browser image
+driver runs one queued job after yielding. World jobs use the same urgent and ageing rules,
+with caller-supplied monotonic observations and retained light-solver scratch; native hosts
+keep their foreground/background threads and priority policy. Native cache-file reads and
+FreeType compilation are excluded from browser targets. Divergent fragment samples use
+explicit gradients computed before rejection.
+
+Incomplete: CI must compile the native changes and run the written regression tests. The
+browser entry, transport, timer implementation and asset source remain pending. Shared
+session/world/render clock migration and browser dependency composition still need a
+wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
+job costs remain unverified. No browser release or parity gate closes here.
+
 ## Far terrain (LOD)
 
 `far-terrain` summarises each column the server sent: the height of every cell's highest
@@ -12,16 +29,20 @@ Summaries persist under the user data root in 32×32-column region files, namesp
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
 Before reusing a namespace, the first non-empty columns received are compared with it (or
 whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
-reuse coordinates for different maps keep them apart. Columns show from memory before that, a
-disk read never replaces a newer column, and a retired session's late summaries never replace
-a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+reuse coordinates for different maps keep them apart. Only live columns show before that.
+Afterwards the first cached columns replaced by live ones are compared too: when enough
+differ, as for another lobby instance under the same identity, the visit drops the cached map
+and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
+summaries never replace a later visit's. Every session, including a transfer to the same
+address, and every dimension change starts a fresh visit. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
 The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
-1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
-near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
-ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+1 to 16 blocks wide, finer toward the near edge. It never draws within the full-detail radius
+(or, without one, what the server sends), which loads in as without far terrain; past it, far
+terrain hides over the columns near terrain has drawn, such as those handing over to it:
+finest quads whole, coarser ones per fragment. Only finest tiles reach the near edge. Tile
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
@@ -500,6 +521,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
+  interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
+  and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart
+  association remains incomplete and does not close shader parity.
 - Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
   vanilla coverage parity. Matched hardware performance and native foliage comparison remain
   incomplete; no parity or performance gate closes from these changes.
@@ -707,6 +732,13 @@ these changes do not close the movement, camera, or actor parity gates.
   absence identities and replay snapshots. Missing sections in partially received
   columns still wait for authoritative data. Streaming-boundary server, input and
   rendered acceptance remain incomplete; this does not close creative-flight parity.
+- All movement modes sample block effects at body contact instead of the swept
+  volume; post-move effects use the inset destination body, and solid collision
+  still checks the full move. Query limits retain physics authority without
+  accumulating tick debt. High ability speeds, 500-block/s actor motion and
+  flight-to-walking transitions have regression coverage. CI and rendered
+  acceptance remain pending, and the existing collision-query extent limit still
+  applies. This does not close the creative-flight parity gate.
 - Validation: 267 simulator tests, 69 semantic-input tests, 345 movement tests
   and 16 focused client tests pass. The touched-crate compile check includes
   tests and the client app. The architecture check passes. Regression tests
@@ -1519,6 +1551,15 @@ acceptance gate.
   matches flat water drawn from its records pixel-for-pixel against any sorted order.
 - Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
   draws unsorted; transparent models still sort only the visible set.
+
+## Held sprite edges
+
+- Held sprites exclude alpha 0 and 1 from their edge mask, preserving side faces next to
+  nearly transparent pack pixels. Dropped sprites share this mask without copying the raster.
+- Mesh and placement fixtures cover 16, 32, 64 and 128 pixel sprites, holes, partial alpha,
+  atlas texel centers, fixed thickness and both animation modes in first and third person.
+- Incomplete: matched in-game pack comparisons, authored sword display transforms and
+  first-person face-shading acceptance remain open.
 
 ## Held cube item consistency
 
@@ -3352,7 +3393,18 @@ Compiles and artwork use the accepted stack's content identity and loaded startu
 digest, so rebuilding carriers under the same source pin refreshes changed artwork paths.
 Mixed packs reuse the compiler's decoded equipment rasters; startup-path artwork is decoded
 separately only when that compiler table lacks it, within the remaining pixel and count budgets.
-Authored pack attachables remain separate. Held pixel meshes and Java raster frames include
+Texture-only bow, crossbow, spear and trident attachables use native held sprite
+meshes and hand transforms when every resolved geometry matches the startup weapon
+or stock item sprite. Their texture aliases follow native use stages; custom models
+keep authored attachable animation. This is an accepted presentation choice.
+Older carriers without texture aliases also recognize overrides of a single stage.
+Missing bow and crossbow stage textures use startup animation icons, including the
+loaded crossbow's offhand image dimensions.
+Cube-based weapon textures are UV atlases, so those weapons use pack item icons,
+then startup item icons. Without an item icon, they retain model rendering.
+Provisional, incomplete: compilation, regression execution and rendered acceptance
+in both animation modes remain unverified. No parity gate is closed.
+Held pixel meshes and Java raster frames include
 the resolved artwork page and layer in their cache keys. Controller glint samplers do not
 replace startup primary artwork. Rendered acceptance remains incomplete.
 
@@ -4195,7 +4247,9 @@ Current implementation state:
    capability (default off, byte-identical wire when unset) that flips the outbound upstream
    `ClientCacheStatus` enabled byte through an observe-then-flip dialer hook, and both production
    app spawn paths enable it exactly when the Rust session owns its process-lifetime verified
-   blob cache; live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
+   blob cache. Verified chunk blobs now persist across launches in a bounded, background redb
+   store; disk reads recheck content hashes before hit reporting, and unavailable entries follow
+   normal misses. Live cached-chunk streaming evidence on authorized targets remains open. A separate opt-in
    read-only Status v1 control endpoint and strict Rust bridge reader expose secret-safe lifecycle
    and latest pack-admission state. Live Lifeboat negotiation and handoff are now evidenced, but
   pack-content semantic validation and parsing, archive extraction, application,
@@ -7532,6 +7586,11 @@ references, PNG evidence and the limitations of the capture.
 
 ### JSON-UI review follow-up (incomplete live form acceptance)
 
+JSON-UI names have a categorized `json_ui::vanilla` contract checked against a
+names-only vocabulary from the pinned sample pack. Screen routing and core form
+and context consumers use it. Remaining controller migrations and corrections
+to stale names are incomplete; this contract closes no live visual gate.
+
 Review corrections cover untrusted animation graphs, expanded widget component
 bags, native form titles, screen cancellation, Drop remapping, recipe icons and
 perspective settings. An open form also remeasures when its session font changes.
@@ -8362,8 +8421,10 @@ rounds final unrotated glyph edges onto the device grid; face rasters are filter
 are available as roles; current screens still use Seven and Ten.
 
 Missing regular, bold, italic and monospace mathematical Latin letters and digits use
-original grid-based variants built from the shipped Latin artwork. Unrestricted Unicode,
-script shaping and native fallback rendering remain open. Owner visual acceptance and
+original grid-based variants built from the shipped Latin artwork.
+The Sans carrier also supplies original monochrome bed-symbol artwork when the source
+outline map lacks it, so MOTDs can display that symbol without a replacement box.
+Unrestricted Unicode, script shaping and native fallback rendering remain open. Owner visual acceptance and
 live text rendering across scales remain open gates.
 
 ## Device render-distance defaults

@@ -1,3 +1,61 @@
+/// Replay preserves the emote status captured by each tick without restarting its duration.
+#[test]
+fn correction_replay_keeps_captured_emote_flags() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 100, true);
+    let frame = physics.advance_with_context(
+        Duration::from_millis(150),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, [0.0, 2.620_01, 0.0]);
+    ticker.set_source(MovementSource::Physics);
+    ticker.start_emote(3);
+    for sample in frame.samples {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    ticker.pop_pending().unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        [0.25, 2.620_01, 0.0],
+        101,
+        true,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    let pending = ticker.pending_samples();
+    let emoting = PlayerInputFlags::EMOTING.bits();
+    assert_eq!(pending.len(), 2);
+    assert_eq!(pending[0].snapshot.tick, 102);
+    assert_ne!(pending[0].snapshot.flags.bits() & emoting, 0);
+    assert_eq!(pending[1].snapshot.tick, 103);
+    assert_eq!(pending[1].snapshot.flags.bits() & emoting, 0);
+    let next = physics.advance_with_context(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    ticker
+        .enqueue_completed_physics(next.samples[0].clone())
+        .unwrap();
+    assert_eq!(
+        ticker
+            .pending_samples()
+            .last()
+            .unwrap()
+            .snapshot
+            .flags
+            .bits()
+            & emoting,
+        0
+    );
+}
+
 #[test]
 fn correction_rebuilds_primary_controls_from_each_retained_input_snapshot() {
     let mut physics = LocalPhysicsController::default();

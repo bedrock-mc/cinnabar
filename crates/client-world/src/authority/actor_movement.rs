@@ -6,7 +6,7 @@ use world::ChunkKey;
 const ACTOR_TELEPORT_DISTANCE_SQUARED: f32 = 0.25;
 
 impl WorldAuthority {
-    /// Resolves MoveActor snapping against its decoded target and terrain committed in wire order.
+    /// Resolves MoveActor snapping against its decoded target and currently resident terrain.
     pub(super) fn resolve_actor_teleport(&self, movement: &mut ActorMoveEvent) {
         if movement.player_mode.is_some()
             || movement.position_origin != ActorPositionOrigin::NetworkOffset

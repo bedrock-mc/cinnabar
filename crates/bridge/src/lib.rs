@@ -12,6 +12,7 @@ mod error;
 mod framed;
 mod packet_delay;
 mod status;
+pub mod tasks;
 mod worlds;
 mod xbox_presence;
 pub use xbox_presence::{XboxPresenceState, report_xbox_presence};

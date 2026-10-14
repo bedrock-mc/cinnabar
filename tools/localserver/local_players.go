@@ -5,7 +5,24 @@ import (
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+
+	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
 )
+
+// localPlayerHandler owns temporary flight controls and clears Experience focus on quit.
+// Its movement handler accepts client positions, including large flight deltas.
+type localPlayerHandler struct {
+	player.NopHandler
+	host   *experience.Host
+	flight flySpeedState
+}
+
+// HandleQuit forgets this player's focus when the server hosts Experiences.
+func (h *localPlayerHandler) HandleQuit(p *player.Player) {
+	if h.host != nil {
+		h.host.PlayerLeft(p.UUID())
+	}
+}
 
 // localPlayerProvider applies the launcher's mode when restoring the local host's data.
 // This loopback server only hosts the local player and overlapping reconnects.

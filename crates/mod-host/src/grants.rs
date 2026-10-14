@@ -56,7 +56,7 @@ grants! {
 
     /// Allows read-only current-session local inventory and status effect snapshots.
     pub player_state: bool,
-    /// Allows this instance to replace visual time only.
+    /// Allows this instance to replace visual time and local menu branding.
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
     pub players: bool,

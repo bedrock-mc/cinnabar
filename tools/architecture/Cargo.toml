@@ -7,6 +7,12 @@ publish = false
 
 [package.metadata.cinnabar]
 reads = [
+    "crates/assets/data/block-registry-v2193.bin",
+    "crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv",
+    "crates/protocol/data/item_tags_dragonfly.tsv",
+    "crates/protocol/data/retail_actors_1_26_50.txt",
+    "crates/protocol/data/retail_biomes_1_26_50.txt",
+    "crates/protocol/data/retail_items_1_26_50.tsv",
     "crates/diagnostics/src/console.rs",
     "crates/diagnostics/src/console/raw_stderr.rs",
     "docs/evidence",
@@ -15,6 +21,7 @@ reads = [
 ]
 
 [dependencies]
+assets = { path = "../../crates/assets" }
 cfg-expr = "=0.20.10"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -23,7 +30,7 @@ toml = "0.9"
 workspace-declarations = { path = "../workspace-declarations" }
 
 proc-macro2 = { version = "1", features = ["span-locations"] }
-syn = { version = "2", features = ["full", "visit"] }
+syn = { version = "=2.0.118", features = ["full", "visit"] }
 
 [dev-dependencies]
 tempfile = "3"

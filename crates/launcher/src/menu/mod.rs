@@ -1,5 +1,6 @@
 //! Launcher actions and immutable menu views shared with presentation.
 
+use json_ui::vanilla::Reference;
 pub mod auth;
 pub mod death;
 pub mod disconnect;
@@ -212,13 +213,15 @@ pub fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
 /// The vanilla screen family used by both menu history and scene composition.
 pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
     Some(match screen {
-        MenuScreen::Death => "death.death_screen",
-        MenuScreen::Pause => "pause.pause_screen",
-        MenuScreen::Home => "start.start_screen",
-        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => "play.play_screen",
-        MenuScreen::AddServer => "add_external_server.add_external_server_screen_new",
-        MenuScreen::Settings => SETTINGS_SCREEN,
-        MenuScreen::Invite => invite::SCREEN,
+        MenuScreen::Death => Reference::DeathDeathScreen.as_str(),
+        MenuScreen::Pause => Reference::PausePauseScreen.as_str(),
+        MenuScreen::Home => Reference::StartStartScreen.as_str(),
+        MenuScreen::Play | MenuScreen::Social | MenuScreen::Servers => {
+            Reference::PlayPlayScreen.as_str()
+        }
+        MenuScreen::AddServer => Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
+        MenuScreen::Settings => Reference::SettingsScreenControlsAndSettings.as_str(),
+        MenuScreen::Invite => Reference::InviteInviteScreen.as_str(),
         MenuScreen::Profile
         | MenuScreen::DressingRoom
         | MenuScreen::Inbox
@@ -228,9 +231,6 @@ pub fn menu_reference(screen: MenuScreen) -> Option<&'static str> {
 
 /// The default Bedrock server port displayed by launcher address fields.
 pub const DEFAULT_PORT: &str = bridge::contract::DEFAULT_BEDROCK_PORT_TEXT;
-
-/// The vanilla screen shared by launcher and in-world settings.
-pub const SETTINGS_SCREEN: &str = "settings.screen_controls_and_settings";
 
 /// Host and port of a saved `host:port`; a bare host gets the default port.
 pub fn split_address(address: &str) -> (String, String) {

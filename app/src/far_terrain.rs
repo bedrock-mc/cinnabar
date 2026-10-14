@@ -26,10 +26,11 @@ pub(crate) struct FarTerrain {
     drained: Vec<FarColumnSummary>,
     unloaded: Vec<::world::ChunkKey>,
     near: Arc<NearMask>,
-    /// Centre column and drawn-set revision the mask was built for.
-    near_view: Option<([i32; 2], u64)>,
+    /// Centre column, near radius and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], i32, u64)>,
     /// When turning far terrain off began waiting for near terrain to cover its columns.
     drain_since: Option<Instant>,
+    near_radius: NearRadius,
     published: Option<u64>,
     retiring: Vec<Retiring>,
 }
@@ -62,6 +63,7 @@ impl FarTerrain {
             near: Arc::new(NearMask::default()),
             near_view: None,
             drain_since: None,
+            near_radius: NearRadius::default(),
             published: None,
             retiring: Vec::new(),
         }
@@ -133,13 +135,26 @@ impl FarTerrain {
 /// Longest far terrain stays after being turned off while near terrain catches up.
 const FAR_DRAIN_LIMIT: Duration = Duration::from_secs(10);
 
-/// Finest tiles are kept built this far either side of the drawn columns' edge, so a column
-/// changing drawer already has its far tile.
-const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
-
-/// The world the cache was last pointed at, so unchanged frames skip the identity hash.
+/// The radius far terrain stays out of entirely.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, u64, i32)>);
+struct NearRadius(i32);
+
+impl NearRadius {
+    /// `wanted` normally; while turning off, the radius from before, so columns that were
+    /// inside it stay free of far terrain while far-only columns past it keep their cover
+    /// until their meshes are drawn.
+    fn update(&mut self, draining: bool, wanted: i32) -> i32 {
+        if !draining {
+            self.0 = wanted;
+        }
+        self.0
+    }
+}
+
+/// The world and session the cache was last pointed at, so unchanged frames skip the
+/// identity hash.
+#[derive(Default)]
+pub(crate) struct ActiveWorld(Option<(String, u64, i32, u64)>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -169,9 +184,13 @@ pub(crate) fn feed_far_terrain(
     let wanted = video
         .far_terrain
         .enabled(u32::from(video.render_distance_chunks), tier);
-    let destination = session
-        .as_deref()
-        .and_then(SessionController::destination_identity);
+    // A transfer or rejoin to the same address is a new session and so a fresh visit: the
+    // lobby behind it may be another instance under the same identity.
+    let destination = session.as_deref().and_then(|session| {
+        session
+            .destination_identity()
+            .map(|destination| (destination, session.generation()))
+    });
     let now = Instant::now();
     // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
     // every column it covered.
@@ -190,11 +209,12 @@ pub(crate) fn feed_far_terrain(
         .as_ref()
         .zip(destination)
         .filter(|_| wanted || draining)
-        .map(|(stream, destination)| {
+        .map(|(stream, (destination, generation))| {
             (
                 destination,
                 world.level_identity,
                 stream.current_dimension(),
+                generation,
             )
         });
     let enabled = target.is_some();
@@ -210,17 +230,20 @@ pub(crate) fn feed_far_terrain(
     let current = active
         .0
         .as_ref()
-        .map(|(destination, level, dimension)| (destination.as_str(), *level, *dimension));
+        .map(|(destination, level, dimension, generation)| {
+            (destination.as_str(), *level, *dimension, *generation)
+        });
     if current != target {
         match target {
-            Some((destination, level, dimension)) => {
-                far.cache.enter_world(destination, level, dimension);
+            Some((destination, level, dimension, _)) => {
+                far.cache.begin_visit(destination, level, dimension);
             }
             None => far.cache.leave_world(),
         }
         far.tiles.clear();
-        active.0 = target
-            .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
+        active.0 = target.map(|(destination, level, dimension, generation)| {
+            (destination.to_owned(), level, dimension, generation)
+        });
     }
     far.drain_retiring(now);
     if world
@@ -289,9 +312,14 @@ pub(crate) fn feed_far_terrain(
         loaded.max(0) as u32,
         tier,
     ) as i32;
-    // Far terrain hides under exactly the columns near terrain has drawn.
+    // Near terrain owns everything within the full-detail radius, or all it is sent without
+    // one, even before its meshes load; past that far terrain hides under the columns near
+    // terrain draws, such as those handing over to it.
+    let near_radius = far
+        .near_radius
+        .update(draining, full_detail.unwrap_or(loaded));
     let (drawn_revision, _) = stream.near_drawn_columns();
-    let near_view = ([centre.x, centre.z], drawn_revision);
+    let near_view = ([centre.x, centre.z], near_radius, drawn_revision);
     let near_changed = far.near_view != Some(near_view);
     if near_changed {
         let drawn = stream
@@ -299,10 +327,14 @@ pub(crate) fn feed_far_terrain(
             .1
             .filter(|column| column.dimension == centre.dimension)
             .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::from_columns(near_view.0, loaded + reach, drawn));
+        far.near = Arc::new(NearMask::around(
+            near_view.0,
+            loaded + reach,
+            near_radius,
+            drawn,
+        ));
         far.near_view = Some(near_view);
     }
-    let horizon_blocks = ((loaded + reach) * 16) as f32;
     far.cache
         .set_memory_budget(summary_budget_bytes(loaded + reach));
     far.cache
@@ -310,20 +342,12 @@ pub(crate) fn feed_far_terrain(
     far.cache.poll(now);
     let changed = far.cache.store().take_changed();
     far.tiles.mark_changed(&changed);
-    // Only finest tiles, which hide per column, reach the drawn columns and a margin past
-    // them, so a coarser tile is replaced before near terrain takes any of its columns. Tiles
-    // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
-    // left out.
-    // Columns leaving full detail need their far tiles built, so the skipped disc stays
-    // inside the radius.
-    let near_blocks = far.near.outer_blocks() + EDGE_MARGIN_BLOCKS;
-    let skip_blocks = full_detail.map_or(f32::INFINITY, |radius| (radius * 16) as f32);
-    far.tiles.set_view(TileView {
-        centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
-        near_blocks,
-        skip_blocks: (far.near.inner_blocks().min(skip_blocks) - EDGE_MARGIN_BLOCKS).max(0.0),
-        far_blocks: (horizon_blocks - near_blocks).max(0.0),
-    });
+    far.tiles.set_view(TileView::around(
+        [centre.x, centre.z],
+        &far.near,
+        near_radius,
+        loaded + reach,
+    ));
     far.tiles.update(far.cache.store(), now);
     // Columns leaving full detail keep their meshes until their far tiles are built.
     let store = far.cache.store();
@@ -464,5 +488,62 @@ mod tests {
         reader.poll(now);
         let stored = reader.store().encoded(ColumnPos::new(300, 0)).cloned();
         assert_eq!(stored.map(|summary| summary.hash), Some(flat(90).hash));
+    }
+
+    /// Turning far terrain off mid warm-join keeps the old full-detail area free of far
+    /// terrain on every frame, while near meshes keep arriving ring by ring.
+    #[test]
+    fn disabling_mid_join_keeps_far_terrain_out_of_the_old_radius() {
+        use far_terrain::SummaryStore;
+        let mut store = SummaryStore::new(usize::MAX);
+        for x in -40..40 {
+            for z in -40..40 {
+                let mut summary = ColumnSummary::default();
+                summary.cells_mut().fill(SurfaceCell {
+                    height: 64,
+                    rgb: [90, 140, 60],
+                    water_depth: 0,
+                });
+                store.admit(ColumnPos::new(x, z), &summary);
+            }
+        }
+        let (centre, full_detail, loaded, horizon) = ([0, 0], 8, 16, 32);
+        let mut radius = NearRadius::default();
+        let mut tiles = FarTiles::default();
+        let mut drawn = Vec::new();
+        let now = Instant::now();
+        for frame in 0..40 {
+            // Far terrain is turned off after a few frames, before the near area has meshed.
+            let draining = frame >= 6;
+            let near_radius = radius.update(draining, if draining { loaded } else { full_detail });
+            if frame % 4 == 3 {
+                let ring = frame / 4;
+                drawn.extend(
+                    (-ring..=ring)
+                        .flat_map(|x| (-ring..=ring).map(move |z| ColumnPos::new(x, z)))
+                        .filter(|column| column.x * column.x + column.z * column.z <= ring * ring),
+                );
+            }
+            let mask = NearMask::around(centre, horizon, near_radius, drawn.iter().copied());
+            tiles.set_view(TileView::around(centre, &mask, near_radius, horizon));
+            test_time::eventually("this frame's far tiles build", || {
+                tiles.update(&mut store, now);
+                tiles.ready(ColumnPos::new(20, 0))
+            });
+            for mesh in tiles.drawn() {
+                for column in mesh.key.columns() {
+                    if column.x * column.x + column.z * column.z <= full_detail * full_detail {
+                        assert!(
+                            mask.contains(column),
+                            "far terrain over {column:?} at frame {frame}"
+                        );
+                        assert_eq!(
+                            mesh.key.level, 0,
+                            "coarse tile near the player at frame {frame}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

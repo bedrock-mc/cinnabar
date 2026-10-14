@@ -37,29 +37,6 @@ pub(crate) fn active_pose_inputs(
     expressions
 }
 
-/// Camera-dependent geometry uses the full frame pose; swing is already sampled at both endpoints.
-pub(super) fn layer_motion_isolated(
-    evaluator: &evaluation::Evaluator<'_>,
-    clips: &[tick::WeightedClip],
-    geometry: u32,
-    camera_changed: bool,
-    budget: &mut EvalBudget<'_>,
-) -> Result<bool, EvalError> {
-    if !camera_changed {
-        return Ok(true);
-    }
-    for active in clips {
-        budget.charge_work()?;
-        if let Some(mapped) = render::clip_for_layer(evaluator.assets, *active, geometry) {
-            let reads = evaluator.layout.clip_inputs(mapped.clip);
-            if reads.camera {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
-}
-
 /// Binds rig-level presentation inputs without animation-channel scans during actor ticks.
 pub(crate) fn presentation_expressions(
     assets: &RuntimeEntityAssets,

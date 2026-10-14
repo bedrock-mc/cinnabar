@@ -479,6 +479,7 @@ pub(super) fn evaluate_state(
     let samples_motion = state.motion_sampling.as_ref().is_some_and(|sampling| {
         actor.is_creeper()
             || sampling.uses_rotation()
+            || state.samples_camera_poses
             || (context.is_local_player && state.samples_swing_poses)
     });
     let mut render_frame = (state.samples_render_frames
@@ -642,11 +643,13 @@ pub(super) fn evaluate_state(
         frame.motion.clips.clone_from(&weighted_clips);
         frame.motion.journal = journal;
         frame.motion.server_effects = server_effects;
+        // Camera frames resample endpoint weights, so camera rigs keep controller history.
         if samples_motion
-            && state
-                .motion_sampling
-                .as_ref()
-                .is_some_and(|s| s.samples_clips())
+            && (state.samples_camera_poses
+                || state
+                    .motion_sampling
+                    .as_ref()
+                    .is_some_and(|s| s.samples_clips()))
         {
             frame.motion.clocks.clone_from(&clip_clocks);
             frame.motion.controllers.clone_from(&controllers);

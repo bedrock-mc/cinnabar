@@ -245,3 +245,54 @@ fn nested_package_literals_keep_real_parent_reads_without_inventing_inputs() {
         );
     }
 }
+
+#[test]
+fn policy_selected_identifier_sources_require_architecture_read_declarations() {
+    let vocabulary =
+        include_str!("../../../../crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv");
+    for declared in [false, true] {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        write(
+            &root.join("Cargo.toml"),
+            "[workspace]\nmembers=['tools/architecture','crates/beta']\n",
+        );
+        let metadata = if declared {
+            "[package.metadata.cinnabar]\nreads=['crates/beta/data/table.tsv']\n"
+        } else {
+            ""
+        };
+        write(
+            &root.join("tools/architecture/Cargo.toml"),
+            &format!("[package]\nname='architecture'\nversion='0.1.0'\n{metadata}"),
+        );
+        write(
+            &root.join("tools/architecture/src/lib.rs"),
+            "fn gate() {}\n",
+        );
+        write(
+            &root.join("crates/beta/Cargo.toml"),
+            "[package]\nname='beta'\nversion='0.1.0'\n",
+        );
+        write(&root.join("crates/beta/src/lib.rs"), "");
+        write(&root.join("crates/beta/data/table.tsv"), vocabulary);
+        write(
+            &root.join("policy.toml"),
+            "production_rust_max=1000\nmodule_root_max=300\npowershell_max=800\ntest_max=1200\n[[crates]]\nname='architecture'\npath='tools/architecture'\n[[crates]]\nname='beta'\npath='crates/beta'\n[identifier_literals]\nvocabularies=[{path='crates/beta/data/table.tsv',column=1}]\n",
+        );
+        let diagnostics = check_repository(root, &root.join("policy.toml")).unwrap();
+        let findings: Vec<_> = diagnostics
+            .iter()
+            .filter(|line| line.contains("reads `") || line.contains("declared read"))
+            .collect();
+        if declared {
+            assert!(findings.is_empty(), "{findings:?}");
+        } else {
+            assert_eq!(findings.len(), 1);
+            assert!(
+                findings[0]
+                    .contains("policy.identifier_literals reads `crates/beta/data/table.tsv`")
+            );
+        }
+    }
+}

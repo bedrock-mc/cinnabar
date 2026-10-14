@@ -31,7 +31,7 @@ fn press(tick: u64) -> PressContext {
 
 /// Extracts the item transaction instead of accepting an actor attack as equivalent.
 fn transaction(outcome: &MeleeOutcome) -> ItemUseObservation {
-    let transaction = observe_transaction(outcome.packets.last().unwrap())
+    let transaction = observe_transaction(outcome.packets.first().unwrap())
         .expect("item attack transaction missing");
     transaction
         .item_use()
@@ -53,6 +53,14 @@ fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() 
         let mut runtime = MeleeRuntime::default();
         runtime.observe_input(true, true);
         let outcome = runtime.resolve(crosshair, &press(100), &mut SwingTracker::default());
+        assert_eq!(
+            outcome
+                .packets
+                .iter()
+                .map(|packet| format!("{:?}", packet.kind()))
+                .collect::<Vec<_>>(),
+            ["InventoryTransactionPacket", "AnimatePacket"]
+        );
         let transaction = transaction(&outcome);
         assert_eq!(transaction.action, Action::UseAsAttack);
         assert_eq!(transaction.slot, 4);
@@ -60,7 +68,7 @@ fn piercing_attacks_report_aim_for_air_actor_and_block_targets_without_mining() 
         assert_eq!(transaction.click_position, [10.0, 50.0, -4.0]);
         assert!(!transaction.cooldown_active);
         assert!(protocol::is_aim_assist_rotation_action(
-            outcome.packets.last().unwrap()
+            outcome.packets.first().unwrap()
         ));
         assert!(!outcome.missed_swing);
         assert!(runtime.actor_in_front(), "piercing attacks veto mining");

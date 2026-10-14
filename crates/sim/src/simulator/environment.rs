@@ -67,26 +67,24 @@ pub(super) fn sample_primary(
     })
 }
 
-/// Samples the movement pose's sweep and the preceding liquid-sensing pose.
+/// Samples the current body and preceding liquid-sensing pose, without sweeping motion.
 pub(super) fn sample(
     world: &(impl CollisionWorld + ?Sized),
     position: Vec3,
-    velocity: Vec3,
     height: f64,
     liquid_contact_height: Option<f64>,
 ) -> Result<SampledEnvironment, WorldQueryError> {
     let player = Aabb::player_with_height_at(position, height);
     let liquid_player =
         Aabb::player_with_height_at(position, liquid_contact_height.unwrap_or(height));
-    let swept = player.swept(velocity);
-    let swept = Aabb::new(
-        swept.min.component_min(liquid_player.min),
-        swept.max.component_max(liquid_player.max),
+    let contact = Aabb::new(
+        player.min.component_min(liquid_player.min),
+        player.max.component_max(liquid_player.max),
     );
-    crate::world::validate_collision_query(swept)?;
+    crate::world::validate_collision_query(contact)?;
     world.ensure_movement_origin(position)?;
-    let min = block_at(swept.min)?;
-    let max = inclusive_max_block_at(swept.max)?;
+    let min = block_at(contact.min)?;
+    let max = inclusive_max_block_at(contact.max)?;
     let support = block_below(position)?;
     let feet = block_at(position)?;
     let inside = inside_cells(player)?;
@@ -100,10 +98,9 @@ pub(super) fn sample(
     for x in min[0]..=max[0] {
         for y in min[1]..=max[1] {
             for z in min[2]..=max[2] {
-                if blocks.len() == MAX_BLOCK_SAMPLES_PER_TICK {
+                if blocks.insert([x, y, z]) && blocks.len() > MAX_BLOCK_SAMPLES_PER_TICK {
                     return Err(WorldQueryError::QueryExtentExceeded);
                 }
-                blocks.insert([x, y, z]);
             }
         }
     }
@@ -145,7 +142,7 @@ pub(super) fn sample(
         }
         for facts in &sample.layers {
             let body_contact = fluid_intersects(player, block, 1.0);
-            let active_response = if body_contact
+            let active_response = if contains(inside, block)
                 && matches!(
                     facts.surface_response,
                     SurfaceResponse::Honey
@@ -190,10 +187,9 @@ pub(super) fn sample(
                 && liquid_contact(liquid_player, block, true);
             movement.in_lava |= facts.flags.contains(BlockPhysicsFlags::LAVA)
                 && liquid_contact(liquid_player, block, false);
-            // Cobwebs occupy a full block volume even without solid collision
-            // boxes. Swept/support samples alone do not establish body contact.
-            movement.in_cobweb |= facts.flags.contains(BlockPhysicsFlags::COBWEB)
-                && fluid_intersects(player, block, 1.0);
+            // Inside-block effects use the inset body, independently of solid boxes.
+            movement.in_cobweb |=
+                facts.flags.contains(BlockPhysicsFlags::COBWEB) && contains(inside, block);
             movement.in_powder_snow |=
                 contains(inside, block) && facts.flags.contains(BlockPhysicsFlags::POWDER_SNOW);
         }
