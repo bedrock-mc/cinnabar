@@ -238,3 +238,31 @@ fn keyboard_neutral_vectors_preserve_positive_zero_on_the_wire() {
         assert_eq!(vector.map(f32::to_bits), [0.0_f32.to_bits(); 2]);
     }
 }
+
+/// Unequal diagonals retain separate squared products and component division on the wire.
+#[test]
+fn unequal_diagonal_wire_vectors_keep_float_division_rounding() {
+    for (axes, expected) in [
+        ([1.0, 0.8], [0xbf47_e704, 0x3f1f_ec04]),
+        ([0.701, 0.714], [0xbf33_5945, 0x3f36_acbb]),
+    ] {
+        let mut ticker = MovementTicker::default();
+        ticker.reset(1, 40, [0.0, 64.0, 0.0]);
+        ticker.set_source(MovementSource::Physics);
+        ticker
+            .enqueue_completed_physics(PhysicsMovementSample {
+                move_vector: axes,
+                raw_move_vector: axes,
+                analogue_move_vector: [0.0; 2],
+                ..completed_sample(41, [0.0, 64.0, 0.0])
+            })
+            .unwrap();
+        let snapshot = ticker.pop_pending().unwrap().snapshot;
+        let packet = protocol::player_auth_input(snapshot).unwrap();
+        let packets = protocol::decode_batch(protocol::encode(&packet).unwrap()).unwrap();
+        let wire = protocol::player_auth_input_trace_sample(&packets[0]).unwrap();
+        assert_eq!(wire.move_vector.map(f32::to_bits), expected);
+        assert_eq!(wire.raw_move_vector.map(f32::to_bits), expected);
+        assert_eq!(wire.analog_move_vector, [0.0; 2]);
+    }
+}
