@@ -14,16 +14,14 @@ pub use action::{
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_store::{
-    ACTOR_FLAG_SHOW_NAME, ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose,
-    ActorShadowCaster, ActorSnapshot, ActorStatus, ActorStatusNotice,
-    BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY, BlockEntityCandidate,
-    BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH,
-    DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, FIREWORK_ROCKET_IDENTIFIER,
-    HITBOX_METADATA_KEY, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse,
-    LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate,
-    PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT,
-    RideSeat, RopeKind, RopeView, SCALE_METADATA_KEY, SLEEPING_PLAYER_NETWORK_OFFSET,
-    SPELL_COLOR_METADATA_KEY, dropped_item_copy_count, tnt_presentation,
+    ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose, ActorShadowCaster,
+    ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityCandidate, BlockEntityKind,
+    BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH, DragonDeathView,
+    DroppedItemView, FIRE_FADE_TICKS, FIREWORK_ROCKET_IDENTIFIER, HURT_DURATION_TICKS,
+    HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES,
+    MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin,
+    PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView,
+    SLEEPING_PLAYER_NETWORK_OFFSET, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,
@@ -38,14 +36,13 @@ pub use item::{
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 
 mod authority;
-pub use authority::{
-    AIR_DRAG_MODIFIER_ATTRIBUTE, BlockEventCue, COMMITTED_AUDIO_CAPACITY,
-    COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY, COMMITTED_PARTICLE_CAPACITY,
-    COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent,
-    CommittedParticleEvent, CommittedUiEvent, MapImage, MovementSpeedAttribute,
-    PublisherViewGeometry, SPRINT_SPEED_MODIFIER_ID, SignEditRequest, ViewCohort, WorldAuthority,
-};
 pub use authority::{ActorCombatEvidence, ActorCombatKind, BiomeCommitReport};
+pub use authority::{
+    BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
+    COMMITTED_PARTICLE_CAPACITY, COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent,
+    CommittedControlEvent, CommittedParticleEvent, CommittedUiEvent, MapImage,
+    MovementSpeedAttribute, PublisherViewGeometry, SignEditRequest, ViewCohort, WorldAuthority,
+};
 pub use protocol::ItemAttackTiming;
 
 pub use actor_store::{DisplayActorStore, MAX_DISPLAY_ACTORS};

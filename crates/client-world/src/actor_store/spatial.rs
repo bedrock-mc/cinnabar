@@ -1,6 +1,7 @@
 //! Spatial queries for retained actor snapshots.
 
 use super::*;
+use protocol_ids::ActorDataKey;
 
 /// Collision dimensions retain a small positive extent after server scaling.
 const MIN_COLLISION_DIMENSION: f32 = 0.005;
@@ -41,16 +42,16 @@ impl ActorSnapshot {
             Some(ActorMetadataValue::Float(_)) => player.then_some(default),
             _ => Some(default),
         };
-        let scale = match self.metadata.get(&SCALE_METADATA_KEY) {
+        let scale = match self.metadata.get(&ActorDataKey::Scale.wire_value()) {
             Some(ActorMetadataValue::Float(value)) => *value,
             _ => 1.0,
         };
         let width = dimension(
-            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorDataKey::Width.wire_value(),
             DEFAULT_ACTOR_COLLISION_WIDTH,
         )? * scale;
         let height = dimension(
-            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorDataKey::Height.wire_value(),
             DEFAULT_ACTOR_COLLISION_HEIGHT,
         )? * scale;
         if !width.is_finite() || !height.is_finite() {

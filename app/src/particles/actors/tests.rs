@@ -4,6 +4,7 @@ use protocol::{
     ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue,
     ActorSpawnEvent, WorldEvent,
 };
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 const ENTITY: &str = r#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{
@@ -313,7 +314,7 @@ fn scale(stream: &mut WorldStream, sequence: u64, value: f32) {
                 runtime_id: 42,
                 tick: sequence,
                 metadata: Arc::from([ActorMetadata {
-                    key: client_world::SCALE_METADATA_KEY,
+                    key: ActorDataKey::Scale.wire_value(),
                     value: ActorMetadataValue::Float(value),
                 }]),
                 properties: Arc::from([]),
@@ -540,7 +541,7 @@ fn bound_spell_particles_use_actor_color_at_spawn_and_after_metadata_updates() {
                     runtime_id: 42,
                     tick: sequence,
                     metadata: Arc::from([ActorMetadata {
-                        key: client_world::SPELL_COLOR_METADATA_KEY,
+                        key: ActorDataKey::DataSpellCastingColor.wire_value(),
                         value: ActorMetadataValue::Int(color),
                     }]),
                     properties: Arc::from([]),

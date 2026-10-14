@@ -51,6 +51,7 @@ reports = []
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+protocol-ids = { path = "../crates/protocol-ids" }
 mimalloc = { workspace = true, optional = true }
 pack-json = { path = "../crates/pack-json" }
 env-compat = { path = "../crates/env-compat" }
@@ -148,7 +149,6 @@ windows-sys = { version = "0.61", features = [
 
 [dev-dependencies]
 wat = "1"
-protocol-ids = { path = "../crates/protocol-ids" }
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }

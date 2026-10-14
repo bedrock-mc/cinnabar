@@ -1,13 +1,10 @@
 use assets::ItemVisualRoute;
 use assets::facts::entity::NativeEntityClass;
 use protocol::ActorMetadataValue;
+use protocol_ids::ActorDataKey;
 
-use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
+use super::{ActorSnapshot, ActorStore};
 
-/// Metadata key carrying a falling block's displayed block runtime ID.
-pub(super) const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
-const OWNER_METADATA_KEY: u32 = 5;
-pub(super) const LEASH_HOLDER_METADATA_KEY: u32 = 37;
 pub(super) const INVALID_LEASH_HOLDER_ID: i64 = -1;
 
 // Provisional presentation constants; each needs independent measurement.
@@ -139,7 +136,7 @@ impl ActorStore {
         match actor.entity_fact.native_class {
             NativeEntityClass::FallingBlock => {
                 let ActorMetadataValue::Int(block) =
-                    actor.metadata.get(&DISPLAY_BLOCK_METADATA_KEY)?
+                    actor.metadata.get(&ActorDataKey::Variant.wire_value())?
                 else {
                     return None;
                 };
@@ -155,7 +152,7 @@ impl ActorStore {
                 })
             }
             NativeEntityClass::Tnt => {
-                let fuse = match actor.metadata.get(&FUSE_TIME_METADATA_KEY) {
+                let fuse = match actor.metadata.get(&ActorDataKey::FuseTime.wire_value()) {
                     Some(ActorMetadataValue::Int(value)) => {
                         let elapsed = actor
                             .status
@@ -186,7 +183,7 @@ impl ActorStore {
         let mut ropes = Vec::new();
         for runtime in &self.effect_members.ropes {
             let actor = &self.actors[runtime];
-            if let Some(holder) = metadata_i64(actor, LEASH_HOLDER_METADATA_KEY)
+            if let Some(holder) = metadata_i64(actor, ActorDataKey::LeashHolder.wire_value())
                 .filter(|holder| *holder != INVALID_LEASH_HOLDER_ID)
                 .and_then(|holder| self.actor_by_unique(holder))
             {
@@ -204,8 +201,8 @@ impl ActorStore {
             if !is_hook {
                 continue;
             }
-            let Some(owner) =
-                metadata_i64(actor, OWNER_METADATA_KEY).and_then(|id| self.actor_by_unique(id))
+            let Some(owner) = metadata_i64(actor, ActorDataKey::Owner.wire_value())
+                .and_then(|id| self.actor_by_unique(id))
             else {
                 continue;
             };

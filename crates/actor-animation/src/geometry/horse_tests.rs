@@ -1,5 +1,6 @@
 use super::super::*;
 use super::fixtures::entity_assets as fixture;
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 fn horse(flags: u64) -> TestActor {
     let mut actor =
@@ -161,7 +162,7 @@ fn pinned_horse_baby_selects_its_own_proportions_and_adult_legs_walk() {
     let Some(assets) = fixture() else {
         return;
     };
-    let mut actor = horse(1 << query::FLAG_BABY);
+    let mut actor = horse(1 << ActorFlag::Baby.wire_value());
     let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.insert(1, 0, &actor);
     tick(&mut store, &actor, false);
@@ -239,7 +240,7 @@ fn pinned_horse_rears_and_grazes_from_its_synced_state() {
         rig.rest[bone(&rig, "body")]
     );
     actor.metadata.insert(
-        super::super::horse::KEY_FLAGS,
+        ActorDataKey::HorseFlags.wire_value(),
         ActorMetadataValue::Long(1 << 5),
     );
     for _ in 0..12 {

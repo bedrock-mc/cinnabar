@@ -1,0 +1,19 @@
+{
+  "numeric": {
+    "Effect": { "Weaving": 33 },
+    "HorseFlag": { "Grazing": 5, "MouthOpen": 7 },
+    "PlayerFlag": { "Sleeping": 2 }
+  },
+  "attributes": {
+    "AirDragModifier": "minecraft:air_drag_modifier",
+    "Bounciness": "minecraft:bounciness",
+    "FrictionModifier": "minecraft:friction_modifier",
+    "Health": "minecraft:health",
+    "HorseJumpStrength": "minecraft:horse.jump_strength",
+    "LavaMovement": "minecraft:lava_movement",
+    "Movement": "minecraft:movement",
+    "PlayerHunger": "minecraft:player.hunger",
+    "UnderwaterMovement": "minecraft:underwater_movement"
+  },
+  "sprint_speed_modifier_id": "d208fc00-42aa-4aad-9276-d5446530de43"
+}

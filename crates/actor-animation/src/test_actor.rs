@@ -1,12 +1,10 @@
 //! A plain actor double for unit tests; actor authority's own derivations are tested where they live.
+use protocol_ids::{ActorDataKey, ActorFlag};
 use std::{collections::HashMap, sync::Arc};
 
 use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, GameModeUpdate};
 
-use super::{AnimatedActor, query};
-
-pub(super) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
-pub(super) const SCALE_METADATA_KEY: u32 = 38;
+use super::AnimatedActor;
 
 #[derive(Clone, Debug)]
 pub(super) struct TestActor {
@@ -199,7 +197,7 @@ impl AnimatedActor for TestActor {
         let (key, bit) = if bit < 64 {
             (0, bit)
         } else {
-            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+            (ActorDataKey::FlagsTwo.wire_value(), bit - 64)
         };
         matches!(
             self.metadata.get(&key),
@@ -232,7 +230,7 @@ impl AnimatedActor for TestActor {
     }
 
     fn is_using_item(&self) -> bool {
-        self.flag(query::FLAG_USING_ITEM)
+        self.flag(ActorFlag::UsingItem.wire_value())
     }
 
     fn is_dead(&self) -> bool {
@@ -244,7 +242,7 @@ impl AnimatedActor for TestActor {
     }
 
     fn render_scale(&self) -> f32 {
-        match self.metadata.get(&SCALE_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Scale.wire_value()) {
             Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }

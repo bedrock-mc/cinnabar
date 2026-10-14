@@ -70,6 +70,12 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: settings_video,
     },
+    State {
+        name: "settings-keyboard",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_keyboard,
+    },
 ];
 
 /// Exercises the native chat collection with an unfinished mention.
@@ -102,4 +108,9 @@ pub fn settings(section: &str) -> MenuView {
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings("video_forced_index")))
+}
+
+/// Shows the keyboard options and command macro modifier without a live session.
+fn settings_keyboard() -> Fixture {
+    Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
 }

@@ -20,6 +20,7 @@ fn every_torch_and_connection_state_has_compiled_traits() {
     let mut connections = 0;
     for record in &records {
         let fact = facts.get(record.sequential_id);
+        assert!(fact.readable);
         assert_eq!(fact.traits, record.traits);
         assert_eq!(fact.family, record.model_family);
         assert_eq!(fact.survival, record.survival);
@@ -46,7 +47,83 @@ fn every_torch_and_connection_state_has_compiled_traits() {
     }
     assert!(torches > 0 && connections > 0);
     assert_eq!(facts.get(u32::MAX).survival, SurvivalRule::Unresolved);
+    assert!(!facts.get(u32::MAX).readable);
     assert_eq!(facts.len(), records.len());
+}
+
+#[test]
+fn placement_counterparts_join_real_block_identities() {
+    use assets::facts::PlacementRule as R;
+    let records = palette();
+    let facts = BlockFacts::new(&records).unwrap();
+    let mut slabs = 0;
+    let mut signs = 0;
+    for record in &records {
+        let fact = facts.get(record.sequential_id);
+        if matches!(fact.placement, R::Slab | R::StandingSign | R::WallSign) {
+            let Some(alternate) = fact.alternate else {
+                continue;
+            };
+            let target = facts.get(alternate);
+            assert_ne!(fact.identity, target.identity);
+            assert!(matches!(
+                (fact.placement, target.placement),
+                (R::Slab, R::DoubleSlab)
+                    | (R::StandingSign, R::WallSign)
+                    | (R::WallSign, R::StandingSign)
+            ));
+            if fact.placement == R::Slab {
+                slabs += 1;
+            } else {
+                signs += 1;
+            }
+        }
+    }
+    assert!(slabs > 0 && signs > 0);
+    assert_eq!(facts.get(u32::MAX).placement, R::Unresolved);
+    assert!(facts.get(u32::MAX).identity.is_none());
+}
+
+#[test]
+fn replacement_overrides_and_interaction_gates_share_compiled_traits() {
+    let records = palette();
+    let facts = BlockFacts::new(&records).unwrap();
+    for record in &records {
+        let fact = facts.get(record.sequential_id);
+        if fact.family == assets::ModelFamily::FlowerBed
+            || fact.traits.contains(BlockTraits::LIGHT_BLOCK)
+        {
+            assert!(
+                fact.traits.contains(BlockTraits::REPLACEABLE),
+                "{}",
+                record.name
+            );
+        }
+        if fact.traits.contains(BlockTraits::SNOW_LAYER) {
+            assert_eq!(
+                fact.traits.contains(BlockTraits::REPLACEABLE),
+                record.property(BlockProperty::Height) == Some(&StateValue::Int(0))
+            );
+        }
+    }
+    for (name, trait_, admitted) in [
+        ("minecraft:chest", BlockTraits::OPENS_CONTAINER, true),
+        ("minecraft:lever", BlockTraits::TOGGLES_BY_HAND, true),
+        ("minecraft:bed", BlockTraits::USES_LOCALLY, true),
+        (
+            "minecraft:iron_trapdoor",
+            BlockTraits::TOGGLES_BY_HAND,
+            false,
+        ),
+        ("minecraft:iron_door", BlockTraits::TOGGLES_BY_HAND, false),
+    ] {
+        let record = records.iter().find(|r| r.name.as_ref() == name).unwrap();
+        assert_eq!(
+            facts.get(record.sequential_id).traits.contains(trait_),
+            admitted,
+            "{name}"
+        );
+    }
 }
 
 #[test]

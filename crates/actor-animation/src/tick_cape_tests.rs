@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 fn fixture() -> (TestActor, ActorAnimationStore) {
     let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
@@ -204,9 +205,10 @@ fn cape_bob_clears_immediately_while_riding() {
 fn rig_snapshot_retains_java_equip_and_native_wing_inputs() {
     let (mut actor, mut store) = fixture();
     actor.on_ground = Some(false);
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_GLIDING));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::Gliding.wire_value()),
+    );
     let context = ActorTickContext {
         main_hand: Some(Arc::from("minecraft:potion")),
         main_hand_metadata: 21,

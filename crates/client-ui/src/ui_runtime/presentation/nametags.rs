@@ -1,12 +1,13 @@
 //! Java-style actor labels, retaining server text and the shared font-pixel atlas.
 
+use protocol_ids::ActorFlag;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
 use assets::RuntimeFontCatalog;
-use client_world::{ACTOR_FLAG_SHOW_NAME, ActorSnapshot};
+use client_world::ActorSnapshot;
 use glam::Vec3;
 use protocol::{ActorKind, ActorMetadataValue};
 use render_model::{
@@ -36,8 +37,6 @@ const METADATA_HEIGHT: u32 = 54;
 const METADATA_ALWAYS_SHOW_NAMETAG: u32 = 81;
 const METADATA_SCORE: u32 = 84;
 const METADATA_RENDER_DISTANCE: u32 = 140;
-const ACTOR_FLAG_SNEAKING: u32 = 1;
-const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
@@ -158,7 +157,7 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
     };
     let offset = if !matches!(actor.kind, ActorKind::Player { .. }) {
         0.0
-    } else if actor_flag(actor, ACTOR_FLAG_SNEAKING) {
+    } else if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_PLAYER_Y_OFFSET
     } else if actor.is_sleeping() {
         SLEEPING_LABEL_DROP
@@ -174,7 +173,7 @@ fn tag_world_position(actor: &ActorSnapshot, feet: Vec3) -> Vec3 {
 }
 
 fn render_distance(actor: &ActorSnapshot) -> f32 {
-    let java_distance = if actor_flag(actor, ACTOR_FLAG_SNEAKING) {
+    let java_distance = if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_RENDER_DISTANCE
     } else {
         DEFAULT_RENDER_DISTANCE
@@ -188,7 +187,7 @@ fn render_distance(actor: &ActorSnapshot) -> f32 {
 
 /// Applies explicit always-show overrides before the ordinary show-name gate.
 fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
-    if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
+    if actor_flag(actor, ActorFlag::Invisible.wire_value()) {
         return false;
     }
     let always = actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME)
@@ -201,12 +200,13 @@ fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
     if matches!(
         actor.metadata.get(&0),
         Some(ActorMetadataValue::Flags(_) | ActorMetadataValue::FlagsExtended(_))
-    ) && !actor_flag(actor, ACTOR_FLAG_SHOW_NAME)
+    ) && !actor_flag(actor, ActorFlag::ShowName.wire_value())
     {
         return false;
     }
     matches!(actor.kind, ActorKind::Player { .. })
-        || (actor_flag(actor, ACTOR_FLAG_SHOW_NAME) && picked_actor == Some(actor.runtime_id))
+        || (actor_flag(actor, ActorFlag::ShowName.wire_value())
+            && picked_actor == Some(actor.runtime_id))
 }
 
 fn tag_text(
@@ -298,7 +298,7 @@ fn nametag_with_lines(
     if !view_depth.is_finite() {
         return None;
     }
-    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
+    let sneaking = actor_flag(actor, ActorFlag::Sneaking.wire_value());
     Some(NametagAnchor {
         runtime_id: actor.runtime_id,
         position,

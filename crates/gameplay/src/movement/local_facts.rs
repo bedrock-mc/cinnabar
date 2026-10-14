@@ -2,16 +2,10 @@
 
 use client_world::game_mode_capabilities::{ability_bit, resolved_layer};
 use protocol::AbilitiesUpdate;
+use protocol_ids::Enchantment;
 
 use super::control_modes::SPRINT_HUNGER_FLOOR;
 use player_state::PlayerState;
-
-const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
-const LEATHER_BOOTS_IDENTIFIER: &str = "minecraft:leather_boots";
-/// Bedrock enchantment ids; provisional until checked against a native item.
-pub(crate) const DEPTH_STRIDER_ENCHANTMENT_ID: i16 = 7;
-const SOUL_SPEED_ENCHANTMENT_ID: i16 = 36;
-const SWIFT_SNEAK_ENCHANTMENT_ID: i16 = 37;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct LocalMovementFacts {
@@ -53,12 +47,24 @@ pub fn read(
     let elytra_ready = !chestplate.is_empty()
         && stream
             .canonical_item_stack(&chestplate)
-            .is_some_and(|stack| elytra_flies(&stack, chestplate_damage));
+            .is_some_and(|stack| {
+                elytra_flies(
+                    &stack,
+                    player
+                        .inventory
+                        .item_facts()
+                        .get(chestplate.network_id)
+                        .traits,
+                    chestplate_damage,
+                )
+            });
     let can_stand_on_snow = !boots.is_empty()
-        && stream
-            .canonical_item_stack(&boots)
-            .and_then(|stack| stack.identifier)
-            .is_some_and(|identifier| &*identifier == LEATHER_BOOTS_IDENTIFIER);
+        && player
+            .inventory
+            .item_facts()
+            .get(boots.network_id)
+            .traits
+            .contains(assets::facts::ItemTraits::POWDER_SNOW_WALKER);
     let capabilities = player.facts.game_mode_capabilities();
     let can_fly = capabilities.is_some_and(|capabilities| capabilities.can_fly);
     let spectator = player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator);
@@ -70,12 +76,7 @@ pub fn read(
     let ride = player.facts.mount_unique_id().map(|unique| {
         stream
             .actor_by_unique_id(unique)
-            .and_then(|actor| match &actor.kind {
-                protocol::ActorKind::Entity { identifier } => {
-                    Some(super::RideKind::from_identifier(identifier))
-                }
-                protocol::ActorKind::Player { .. } => None,
-            })
+            .map(|actor| super::RideKind::from_native_class(actor.entity_fact.native_class))
             .unwrap_or(super::RideKind::Other)
     });
     LocalMovementFacts {
@@ -108,11 +109,11 @@ pub fn read(
         creative_flight: capabilities.is_some_and(|capabilities| capabilities.creative_inventory),
         elytra_ready,
         can_stand_on_snow,
-        depth_strider: boots_level(DEPTH_STRIDER_ENCHANTMENT_ID),
-        soul_speed: boots_level(SOUL_SPEED_ENCHANTMENT_ID),
+        depth_strider: boots_level(i16::from(Enchantment::Depthstrider.wire_value())),
+        soul_speed: boots_level(i16::from(Enchantment::Soulspeed.wire_value())),
         swift_sneak: protocol::item_enchantment_level(
             &leggings.extra_data,
-            SWIFT_SNEAK_ENCHANTMENT_ID,
+            i16::from(Enchantment::Swiftsneak.wire_value()),
         )
         .unwrap_or(0),
         swim_hunger_blocked: !hunger_exempt && hunger_below_floor.unwrap_or(true),
@@ -123,12 +124,13 @@ pub fn read(
 
 /// An elytra flies until its damage reaches one below its maximum. An accepted
 /// inventory response's damage overrides the stack's stale Damage tag.
-fn elytra_flies(stack: &client_world::CanonicalItemStack, corrected_damage: Option<u32>) -> bool {
+fn elytra_flies(
+    stack: &client_world::CanonicalItemStack,
+    traits: assets::facts::ItemTraits,
+    corrected_damage: Option<u32>,
+) -> bool {
     let damage = corrected_damage.or(stack.damage).unwrap_or(0);
-    stack
-        .identifier
-        .as_deref()
-        .is_some_and(|identifier| identifier == ELYTRA_IDENTIFIER)
+    traits.contains(assets::facts::ItemTraits::GLIDER)
         && stack
             .durability
             .maximum()
@@ -148,9 +150,21 @@ fn flight_speed(
 
 #[cfg(test)]
 mod tests {
+    const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
+    const LEATHER_BOOTS_IDENTIFIER: &str = "minecraft:leather_boots";
     use protocol::{AbilityLayerEvidence, AbilityLayersEvidence};
 
     use super::*;
+
+    /// Resolves the fixture's movement traits from the pinned carrier.
+    fn flies(stack: &client_world::CanonicalItemStack, corrected_damage: Option<u32>) -> bool {
+        let traits = assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(stack.identifier.as_deref().unwrap())
+            .unwrap()
+            .traits;
+        elytra_flies(stack, traits, corrected_damage)
+    }
 
     fn update(speeds: &[f32]) -> AbilitiesUpdate {
         let layers: Vec<AbilityLayerEvidence> = speeds
@@ -225,16 +239,10 @@ mod tests {
         let maximum = assets::item::durability::builtin_item_durability(ELYTRA_IDENTIFIER)
             .maximum()
             .unwrap();
-        assert!(elytra_flies(&elytra(ELYTRA_IDENTIFIER, None), None));
-        assert!(elytra_flies(
-            &elytra(ELYTRA_IDENTIFIER, Some(maximum - 2)),
-            None
-        ));
-        assert!(!elytra_flies(
-            &elytra(ELYTRA_IDENTIFIER, Some(maximum - 1)),
-            None
-        ));
-        assert!(!elytra_flies(&elytra(LEATHER_BOOTS_IDENTIFIER, None), None));
+        assert!(flies(&elytra(ELYTRA_IDENTIFIER, None), None));
+        assert!(flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 2)), None));
+        assert!(!flies(&elytra(ELYTRA_IDENTIFIER, Some(maximum - 1)), None));
+        assert!(!flies(&elytra(LEATHER_BOOTS_IDENTIFIER, None), None));
     }
 
     /// A response-corrected repair or break wins over the stack's unchanged Damage tag.
@@ -263,8 +271,8 @@ mod tests {
             damage,
             enchanted: false,
         };
-        assert!(elytra_flies(&elytra(Some(maximum - 1)), Some(0)));
-        assert!(!elytra_flies(&elytra(Some(0)), Some(maximum - 1)));
+        assert!(flies(&elytra(Some(maximum - 1)), Some(0)));
+        assert!(!flies(&elytra(Some(0)), Some(maximum - 1)));
     }
 
     #[test]
@@ -303,13 +311,13 @@ mod tests {
             ..protocol::NetworkItemStack::empty()
         };
         let canonical = authority.canonical_item_stack(&stack).unwrap();
-        assert!(elytra_flies(&canonical, Some(48)));
-        assert!(!elytra_flies(&canonical, Some(49)));
+        assert!(flies(&canonical, Some(48)));
+        assert!(!flies(&canonical, Some(49)));
         std::sync::Arc::make_mut(entry.components.as_mut().unwrap()).max_durability = None;
         assert!(authority.seed_item_registry(protocol::ItemRegistryEvent {
             entries: vec![entry].into()
         }));
-        assert!(!elytra_flies(
+        assert!(!flies(
             &authority.canonical_item_stack(&stack).unwrap(),
             Some(0)
         ));

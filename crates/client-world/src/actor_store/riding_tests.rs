@@ -1,3 +1,4 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use protocol::{
@@ -55,7 +56,7 @@ fn player_on_boat(offset: Option<[f32; 3]>, link_first: bool) -> ActorStore {
     mount.position = [10.0, 5.0, 10.0];
     mount.yaw = 90.0;
     mount.metadata = Arc::from([protocol::ActorMetadata {
-        key: super::SCALE_METADATA_KEY,
+        key: ActorDataKey::Scale.wire_value(),
         value: protocol::ActorMetadataValue::Float(3.0),
     }]);
     let ActorEvent::Spawn(mut rider) = spawn(10, 10) else {
@@ -70,11 +71,11 @@ fn player_on_boat(offset: Option<[f32; 3]>, link_first: bool) -> ActorStore {
         |offset| {
             Arc::from([
                 protocol::ActorMetadata {
-                    key: super::placement::KEY_SEAT_OFFSET,
+                    key: ActorDataKey::SeatOffset.wire_value(),
                     value: protocol::ActorMetadataValue::Vector(offset),
                 },
                 protocol::ActorMetadata {
-                    key: super::SCALE_METADATA_KEY,
+                    key: ActorDataKey::Scale.wire_value(),
                     value: protocol::ActorMetadataValue::Float(2.0),
                 },
             ])
@@ -134,7 +135,7 @@ fn streamed_player_seat_updates_and_dismount_release_placement() {
                 dimension: 0,
                 runtime_id: 10,
                 metadata: Arc::from([protocol::ActorMetadata {
-                    key: super::placement::KEY_SEAT_OFFSET,
+                    key: ActorDataKey::SeatOffset.wire_value(),
                     value: protocol::ActorMetadataValue::Vector(offset),
                 }]),
                 properties: Arc::from([]),
@@ -356,7 +357,7 @@ fn rider_with_a_streamed_seat_offset_follows_its_mount() {
         unreachable!();
     };
     spawned.metadata = Arc::from([protocol::ActorMetadata {
-        key: super::placement::KEY_SEAT_OFFSET,
+        key: ActorDataKey::SeatOffset.wire_value(),
         value: protocol::ActorMetadataValue::Vector([0.0, 1.0, 0.5]),
     }]);
     store.apply(1, 1, mount);
@@ -379,7 +380,7 @@ fn seat_rotation_turns_the_rider_body_and_clamps_its_head() {
     rider.head_yaw = -100.0;
     rider.metadata = Arc::from([
         protocol::ActorMetadata {
-            key: super::placement::KEY_SEAT_OFFSET,
+            key: ActorDataKey::SeatOffset.wire_value(),
             value: protocol::ActorMetadataValue::Vector([0.0; 3]),
         },
         protocol::ActorMetadata {
@@ -413,7 +414,7 @@ fn a_negative_seat_lock_is_skipped_without_panicking() {
     rider.head_yaw = 100.0;
     rider.metadata = Arc::from([
         protocol::ActorMetadata {
-            key: super::placement::KEY_SEAT_OFFSET,
+            key: ActorDataKey::SeatOffset.wire_value(),
             value: protocol::ActorMetadataValue::Vector([0.0; 3]),
         },
         protocol::ActorMetadata {

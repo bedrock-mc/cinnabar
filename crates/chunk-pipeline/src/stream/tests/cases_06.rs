@@ -201,7 +201,7 @@ fn movement_attribute(current: f32) -> ActorAttribute {
 #[test]
 fn movement_authority_retains_effective_current_and_identifies_only_native_sprint() {
     let modifier = protocol::ActorAttributeModifier {
-        id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID.to_uppercase()),
+        id: Arc::from(protocol_ids::SPRINT_SPEED_MODIFIER_ID.to_uppercase()),
         name: Arc::from("unrelated label"),
         amount: 0.3,
         operation: 2,
@@ -252,7 +252,7 @@ fn movement_authority_retains_effective_current_and_identifies_only_native_sprin
 #[test]
 fn ambiguous_or_invalid_sprint_authority_keeps_previous_speed_and_session() {
     let modifier = protocol::ActorAttributeModifier {
-        id: Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
+        id: Arc::from(protocol_ids::SPRINT_SPEED_MODIFIER_ID),
         name: Arc::from(""),
         amount: 0.3,
         operation: 2,

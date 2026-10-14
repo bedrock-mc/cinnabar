@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, path::Path};
 #[serde(deny_unknown_fields)]
 pub(super) struct Rule {
     entry: BlockEntityEntry,
-    status: super::block_rules::Status,
+    status: assets::facts::rules::Status,
     #[serde(default)]
     members: Vec<String>,
     #[serde(default)]
@@ -145,7 +145,7 @@ fn compile(
             });
         }
         let mut entry = rule.entry.clone();
-        entry.provisional = matches!(rule.status, super::block_rules::Status::Provisional);
+        entry.provisional = matches!(rule.status, assets::facts::rules::Status::Provisional);
         entry.backing_blocks = names.into_iter().collect();
         entries.push(entry);
     }

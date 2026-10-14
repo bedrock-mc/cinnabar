@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::Attribute;
 mod spawn;
 
 mod equipment;
@@ -394,7 +395,7 @@ impl ActorStore {
         self.pending_local_health = self
             .remote_state_excluded_runtime_id
             .and_then(|runtime_id| self.actors.get(&runtime_id))
-            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .and_then(|actor| actor.attributes.get(Attribute::Health.wire_name()))
             .cloned()
             .or_else(|| self.pending_local_health.take());
         self.pending_local_damage = self

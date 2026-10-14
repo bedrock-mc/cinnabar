@@ -1,4 +1,5 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
 fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
@@ -1069,8 +1070,8 @@ fn hud_pose_advances_crawling_animation_independently_of_first_person() {
     };
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let mut actor = actor_with_metadata(HashMap::from([(
-        super::test_actor::EXTENDED_FLAGS_METADATA_KEY,
-        ActorMetadataValue::FlagsExtended(1 << (query::FLAG_CRAWLING - u64::BITS)),
+        ActorDataKey::FlagsTwo.wire_value(),
+        ActorMetadataValue::FlagsExtended(1 << (ActorFlag::Crawling.wire_value() - u64::BITS)),
     )]));
     actor.kind = ActorKind::Player {
         uuid: [0; 16],

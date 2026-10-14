@@ -1,3 +1,4 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use bevy::prelude::{Resource, Vec3};
@@ -5,11 +6,7 @@ use client_world::{ActorSnapshot, WorldAuthority};
 use protocol::{ActorMetadataValue, CameraAimAssistTargetMode};
 use sim::PaletteWorld;
 
-use super::{
-    AIM_ASSIST_ACTOR_METADATA_KEY, AIM_ASSIST_CATEGORY_METADATA_KEY,
-    AIM_ASSIST_PRESET_METADATA_KEY, AimAssistCandidate, AimAssistFrustum, AimAssistTarget,
-    ServerAimAssist, TargetKind,
-};
+use super::{AimAssistCandidate, AimAssistFrustum, AimAssistTarget, ServerAimAssist, TargetKind};
 
 /// Vanilla bounds actor admission before visibility and ranking.
 const MAX_ENTITY_CANDIDATES: usize = 101;
@@ -132,15 +129,24 @@ impl AimAssistFrame {
             return;
         }
         self.target = None;
-        let preset_index = metadata_index(local_actor, AIM_ASSIST_PRESET_METADATA_KEY);
-        let category_index = metadata_index(local_actor, AIM_ASSIST_CATEGORY_METADATA_KEY);
+        let preset_index = metadata_index(
+            local_actor,
+            ActorDataKey::AimAssistPriorityPresetID.wire_value(),
+        );
+        let category_index = metadata_index(
+            local_actor,
+            ActorDataKey::AimAssistPriorityCategoryID.wire_value(),
+        );
         for index in 0..self.entities.len() {
             let mut candidate = self.entities[index];
             if let TargetKind::Actor(id) = candidate.kind {
                 candidate.priority = state.player_priority(
                     preset_index,
                     category_index,
-                    metadata_index(world.actor(id), AIM_ASSIST_ACTOR_METADATA_KEY),
+                    metadata_index(
+                        world.actor(id),
+                        ActorDataKey::AimAssistPriorityActorID.wire_value(),
+                    ),
                 );
             }
             let delta = candidate.point - frustum.origin;
@@ -187,8 +193,14 @@ impl AimAssistFrame {
         let Some(frustum) = self.frustum else {
             return;
         };
-        let preset_index = metadata_index(local_actor, AIM_ASSIST_PRESET_METADATA_KEY);
-        let category_index = metadata_index(local_actor, AIM_ASSIST_CATEGORY_METADATA_KEY);
+        let preset_index = metadata_index(
+            local_actor,
+            ActorDataKey::AimAssistPriorityPresetID.wire_value(),
+        );
+        let category_index = metadata_index(
+            local_actor,
+            ActorDataKey::AimAssistPriorityCategoryID.wire_value(),
+        );
         for actor in world.remote_actors() {
             // The threshold admits whole actors, including all of their custom boxes.
             if self.entities.len() >= MAX_ENTITY_CANDIDATES {
@@ -205,7 +217,10 @@ impl AimAssistFrame {
                     continue;
                 }
             }
-            let actor_index = metadata_index(Some(actor), AIM_ASSIST_ACTOR_METADATA_KEY);
+            let actor_index = metadata_index(
+                Some(actor),
+                ActorDataKey::AimAssistPriorityActorID.wire_value(),
+            );
             let priority = if matches!(actor.kind, protocol::ActorKind::Player { .. }) {
                 Some(state.player_priority(preset_index, category_index, actor_index))
             } else {

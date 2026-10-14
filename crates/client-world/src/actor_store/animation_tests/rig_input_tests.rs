@@ -124,7 +124,7 @@ fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
 #[test]
 fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
     // The potion's auxiliary-value key, which its variant query reads.
-    const AUX: u32 = actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
+    const AUX: u32 = protocol_ids::ActorDataKey::AuxValueData.wire_value();
     let Some(protocol::WorldEvent::Actor(event)) =
         protocol::test_support::packets::add_actor_event(
             -7,

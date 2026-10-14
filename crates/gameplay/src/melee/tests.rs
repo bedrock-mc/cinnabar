@@ -1,10 +1,8 @@
+use protocol_ids::ActorDataKey;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{collections::HashMap, sync::Arc};
 
-use client_world::{
-    ActorSnapshot, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-    SCALE_METADATA_KEY, WorldAuthority,
-};
+use client_world::{ActorSnapshot, WorldAuthority};
 use protocol::test_support::transactions::observe_transaction;
 use protocol::{ActorKind, ActorMetadataValue};
 
@@ -21,11 +19,11 @@ pub(super) fn actor(
         .map(|(width, height)| {
             HashMap::from([
                 (
-                    BOUNDING_BOX_WIDTH_METADATA_KEY,
+                    ActorDataKey::Width.wire_value(),
                     ActorMetadataValue::Float(width),
                 ),
                 (
-                    BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                    ActorDataKey::Height.wire_value(),
                     ActorMetadataValue::Float(height),
                 ),
             ])

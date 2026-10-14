@@ -1,12 +1,12 @@
 //! End crystal effects are driven by the target in actor metadata, outside the JSON rig.
 use assets::facts::entity::NativeEntityClass;
+use protocol_ids::ActorDataKey;
 
 use protocol::ActorMetadataValue;
 
 use super::ActorStore;
 
 // EnderCrystal defines this BlockPos with the zero position as its sentinel.
-const CRYSTAL_TARGET_METADATA_KEY: u32 = 47;
 
 /// End crystal beam endpoints and animation age, in world blocks and game ticks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -32,8 +32,9 @@ impl ActorStore {
                 if actor.entity_fact.native_class != NativeEntityClass::EnderCrystal {
                     return None;
                 }
-                let ActorMetadataValue::BlockPosition(target) =
-                    actor.metadata.get(&CRYSTAL_TARGET_METADATA_KEY)?
+                let ActorMetadataValue::BlockPosition(target) = actor
+                    .metadata
+                    .get(&ActorDataKey::BlockTarget.wire_value())?
                 else {
                     return None;
                 };
@@ -74,7 +75,7 @@ mod tests {
             identifier: identifier.into(),
         };
         actor.metadata = Arc::from([ActorMetadata {
-            key: CRYSTAL_TARGET_METADATA_KEY,
+            key: ActorDataKey::BlockTarget.wire_value(),
             value: target,
         }]);
         ActorEvent::Spawn(actor)
@@ -131,7 +132,7 @@ mod tests {
                 dimension: 0,
                 runtime_id: 42,
                 metadata: Arc::from([ActorMetadata {
-                    key: CRYSTAL_TARGET_METADATA_KEY,
+                    key: ActorDataKey::BlockTarget.wire_value(),
                     value: ActorMetadataValue::BlockPosition([0; 3]),
                 }]),
                 properties: Arc::from([]),

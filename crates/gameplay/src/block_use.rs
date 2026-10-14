@@ -1,5 +1,9 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
+use assets::{
+    facts::{BlockFact, BlockProperty as P},
+    registry::{BlockTraits as T, ModelFamily},
+};
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
@@ -16,31 +20,6 @@ const REPEAT_MAX_LAG_MILLIS: u64 = 180;
 /// Placement boxes shrink by this much per side before the actor test.
 const PLACEMENT_ACTOR_EPSILON: f32 = 1.0e-5;
 
-/// Blocks a placement replaces in place. Provisional list; needs independent measurement.
-const REPLACEABLE_BLOCKS: &[&str] = &[
-    "minecraft:air",
-    "minecraft:short_grass",
-    "minecraft:red_shrub",
-    "minecraft:tall_grass",
-    "minecraft:fern",
-    "minecraft:large_fern",
-    "minecraft:deadbush",
-    "minecraft:vine",
-    "minecraft:glow_lichen",
-    "minecraft:seagrass",
-    "minecraft:water",
-    "minecraft:flowing_water",
-    "minecraft:lava",
-    "minecraft:flowing_lava",
-    "minecraft:fire",
-    "minecraft:soul_fire",
-    "minecraft:structure_void",
-    "minecraft:crimson_roots",
-    "minecraft:warped_roots",
-    "minecraft:nether_sprouts",
-    "minecraft:hanging_roots",
-];
-
 /// Which ability a block's own use needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Interaction {
@@ -51,54 +30,13 @@ enum Interaction {
     Other,
 }
 
-/// Container-screen blocks. Provisional list; needs independent measurement.
-const CONTAINER_BLOCKS: &[&str] = &[
-    "minecraft:crafting_table",
-    "minecraft:furnace",
-    "minecraft:lit_furnace",
-    "minecraft:blast_furnace",
-    "minecraft:lit_blast_furnace",
-    "minecraft:smoker",
-    "minecraft:lit_smoker",
-    "minecraft:barrel",
-    "minecraft:anvil",
-    "minecraft:enchanting_table",
-    "minecraft:brewing_stand",
-    "minecraft:hopper",
-    "minecraft:dropper",
-    "minecraft:dispenser",
-    "minecraft:crafter",
-    "minecraft:loom",
-    "minecraft:stonecutter_block",
-    "minecraft:grindstone",
-    "minecraft:cartography_table",
-    "minecraft:smithing_table",
-    "minecraft:beacon",
-];
-
-/// Other blocks whose own use succeeds locally. Provisional list; needs independent measurement.
-const OTHER_INTERACTIVE_BLOCKS: &[&str] = &[
-    "minecraft:noteblock",
-    "minecraft:unpowered_repeater",
-    "minecraft:powered_repeater",
-    "minecraft:unpowered_comparator",
-    "minecraft:powered_comparator",
-    "minecraft:daylight_detector",
-    "minecraft:daylight_detector_inverted",
-    "minecraft:bell",
-    "minecraft:bed",
-];
-
-fn interaction(identifier: &str) -> Option<Interaction> {
-    let metal = identifier == "minecraft:iron_door" || identifier == "minecraft:iron_trapdoor";
-    let ends = |suffixes: &[&str]| suffixes.iter().any(|suffix| identifier.ends_with(suffix));
-    if identifier == "minecraft:lever"
-        || (!metal && ends(&["_door", "_trapdoor", "_button", "fence_gate"]))
-    {
+/// Selects the ability gate from the compiled interaction traits.
+fn interaction(fact: BlockFact) -> Option<Interaction> {
+    if fact.traits.contains(T::TOGGLES_BY_HAND) {
         Some(Interaction::Switch)
-    } else if CONTAINER_BLOCKS.contains(&identifier) || ends(&["chest", "shulker_box"]) {
+    } else if fact.traits.contains(T::OPENS_CONTAINER) {
         Some(Interaction::Container)
-    } else if OTHER_INTERACTIVE_BLOCKS.contains(&identifier) || identifier.ends_with("_bed") {
+    } else if fact.traits.contains(T::USES_LOCALLY) {
         Some(Interaction::Other)
     } else {
         None
@@ -167,13 +105,13 @@ const FULL_CELL: BoxBounds = ([0.0; 3], [1.0; 3]);
 /// World facts one local use depends on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseSurroundings {
-    pub clicked_identifier: Option<String>,
+    pub clicked: BlockFact,
     /// Canonical block state used to classify state-dependent block interactions.
     pub clicked_canonical_state: Option<String>,
     /// The selected block item's resolved block type, including server remaps.
-    pub held_block_identifier: Option<String>,
-    /// Identifier of the cell across the clicked face; `None` when unreadable.
-    pub neighbor_identifier: Option<String>,
+    pub held: BlockFact,
+    /// Facts for the cell across the clicked face; unresolved when unreadable.
+    pub neighbor: BlockFact,
     pub player_box: BoxBounds,
     /// Boxes of actors that obstruct placement.
     pub actor_boxes: Vec<BoxBounds>,
@@ -199,12 +137,11 @@ impl UseSurroundings {
     /// The cell a placement fills: the clicked block when it is replaceable,
     /// otherwise the neighbor across the clicked face.
     pub fn destination(&self, clicked: [i32; 3], face: u8) -> ([i32; 3], bool) {
-        let replaceable = |identifier: Option<&str>| identifier.is_some_and(is_replaceable);
-        if replaceable(self.clicked_identifier.as_deref()) {
+        if self.clicked.traits.contains(T::REPLACEABLE) {
             (clicked, true)
         } else {
             let cell = placement_cell(clicked, face);
-            (cell, replaceable(self.neighbor_identifier.as_deref()))
+            (cell, self.neighbor.traits.contains(T::REPLACEABLE))
         }
     }
 }
@@ -235,11 +172,6 @@ pub(crate) fn placed_collision_boxes(
     )
 }
 
-/// Classifies a destination with the inherited replacement list.
-fn is_replaceable(identifier: &str) -> bool {
-    REPLACEABLE_BLOCKS.contains(&identifier)
-}
-
 /// The local outcome of one click, which sets the prediction flag and swing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalUse {
@@ -257,13 +189,12 @@ impl LocalUse {
         surroundings: &UseSurroundings,
         caps: &GameModeCapabilities,
     ) -> Self {
-        let clicked_identifier = surroundings.clicked_identifier.as_deref();
         let holding = item.network_id() != 0 && item.count() > 0;
         // Sneaking with an item uses the item instead of the block.
-        let block_interaction = if clicked_identifier == Some("minecraft:respawn_anchor") {
+        let block_interaction = if surroundings.clicked.traits.contains(T::RESPAWN_ANCHOR) {
             respawn_anchor::uses_block(surroundings).then_some(Interaction::Other)
         } else {
-            clicked_identifier.and_then(interaction)
+            interaction(surroundings.clicked)
         };
         if block_interaction.is_some_and(|interaction| interaction.permitted(caps))
             && !(surroundings.sneaking && holding)
@@ -549,27 +480,34 @@ pub fn predicted_toggle(
     clicked: u32,
 ) -> Option<u32> {
     let mode = stream.network_id_mode();
-    let identifier = collisions.block_identifier(mode, clicked)?;
-    let states = toggled_states(identifier, collisions.block_canonical_state(mode, clicked)?)?;
-    collisions.block_state_runtime_id(mode, identifier, &states)
+    let states = toggled_states(
+        collisions.block_facts(mode, clicked),
+        collisions.block_canonical_state(mode, clicked)?,
+    )?;
+    collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(
+            collisions.block_facts(mode, clicked).identity?,
+        ),
+        &states,
+    )
 }
 
 /// Trapdoors and levers flip `open_bit`; an
 /// unpressed button presses. Doors and fence gates also change their other
 /// half or facing, which is not modelled, so they wait for the server.
 pub fn toggled_states(
-    identifier: &str,
+    fact: BlockFact,
     canonical_state: &str,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let iron = identifier == "minecraft:iron_trapdoor";
-    let (property, press_only) =
-        if identifier == "minecraft:lever" || (!iron && identifier.ends_with("_trapdoor")) {
-            ("open_bit", false)
-        } else if identifier.ends_with("_button") {
-            ("button_pressed_bit", true)
-        } else {
-            return None;
-        };
+    if !fact.traits.contains(T::TOGGLES_BY_HAND) {
+        return None;
+    }
+    let (property, press_only) = match fact.family {
+        ModelFamily::Lever | ModelFamily::Trapdoor => (P::OpenBit.name(), false),
+        ModelFamily::Button => (P::ButtonPressedBit.name(), true),
+        _ => return None,
+    };
     let mut states =
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(canonical_state).ok()?;
     let entry = states.get_mut(property)?;

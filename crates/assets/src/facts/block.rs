@@ -5,24 +5,54 @@ use crate::{
     registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule},
 };
 
+/// A compiled palette identity, or a named descriptor arriving at an admission boundary.
+#[derive(Debug, Clone, Copy)]
+pub enum BlockStateIdentity<'a> {
+    Compiled(u32),
+    Named(&'a str),
+}
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
-/// Compiled facts for one admitted block state.
+/// Identity, placement and support metadata for one runtime ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {
+    /// Whether this runtime ID has readable block metadata, including custom and reserved entries.
+    pub readable: bool,
     pub traits: BlockTraits,
     pub family: ModelFamily,
     pub survival: SurvivalRule,
+    pub placement: super::PlacementRule,
+    pub support: super::SupportKind,
+    /// Sequential identity of the admitted double slab or matching sign.
+    pub alternate: Option<u32>,
+    /// First sequential state of this block identity, shared by its variants.
+    pub identity: Option<u32>,
 }
 
 impl Default for BlockFact {
     /// Unknown runtime ids retain unresolved placement support.
     fn default() -> Self {
         Self {
+            readable: false,
             traits: BlockTraits::empty(),
             family: ModelFamily::Unknown,
             survival: SurvivalRule::Unresolved,
+            placement: super::PlacementRule::Unresolved,
+            support: super::SupportKind::Unresolved,
+            alternate: None,
+            identity: None,
+        }
+    }
+}
+
+impl BlockFact {
+    /// Retains readable custom support without inventing a compiled placement identity.
+    pub fn custom(identifier: &str) -> Self {
+        Self {
+            readable: true,
+            support: super::SupportKind::for_identifier(identifier),
+            ..Self::default()
         }
     }
 }
@@ -43,13 +73,38 @@ impl BlockFacts {
         {
             return Err(AssetError::InvalidRegistryFlags(0xff));
         }
+        let catalog =
+            super::placement::placement_catalog(records, &super::rules::policy().placement_rules)?;
+        let mut names = std::collections::BTreeMap::new();
+        for record in records
+            .iter()
+            .filter(|r| r.name.as_ref() != RESERVED_BLOCK_NAME)
+        {
+            names
+                .entry(record.name.as_ref())
+                .or_insert(record.sequential_id);
+        }
         Ok(Self {
             records: records
                 .iter()
-                .map(|r| BlockFact {
-                    traits: r.traits,
-                    family: r.model_family,
-                    survival: r.survival,
+                .map(|r| {
+                    let mut fact = BlockFact {
+                        readable: true,
+                        traits: r.traits,
+                        family: r.model_family,
+                        survival: r.survival,
+                        ..BlockFact::default()
+                    };
+                    fact.identity = names.get(r.name.as_ref()).copied();
+                    if let Some(entry) = catalog.get(r.name.as_ref()) {
+                        fact.placement = entry.rule;
+                        fact.support = entry.support;
+                        fact.alternate = entry
+                            .alternate
+                            .as_deref()
+                            .and_then(|name| names.get(name).copied());
+                    }
+                    fact
                 })
                 .collect(),
         })

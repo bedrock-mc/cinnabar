@@ -1,4 +1,5 @@
 use super::{BREG_V2193, active_content_registry_protocol, bind, synthetic_preg};
+use crate::test_support::block_fact;
 use crate::{
     block_use::{PlacementContext, UseSurroundings, predicted_placement},
     movement::PhysicsCollisionRegistries,
@@ -23,6 +24,42 @@ fn fixtures() -> &'static (Box<[RegistryRecord]>, PhysicsCollisionRegistries) {
         .unwrap();
         (records, registries)
     })
+}
+
+#[test]
+fn compiled_identity_and_named_admission_resolve_the_same_palette_states() {
+    use assets::facts::BlockStateIdentity as I;
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let (records, registries) = fixtures();
+        for record in records {
+            let states = serde_json::from_str(&record.canonical_state).unwrap();
+            let Some(identity) = registries.block_facts(mode, id(record, mode)).identity else {
+                assert_eq!(
+                    record.name.as_ref(),
+                    assets::facts::block::RESERVED_BLOCK_NAME
+                );
+                assert!(
+                    registries
+                        .block_state_runtime_id(mode, I::Named(&record.name), &states)
+                        .is_none()
+                );
+                continue;
+            };
+            assert_eq!(
+                registries.block_state_runtime_id(mode, I::Compiled(identity), &states),
+                Some(id(record, mode))
+            );
+            assert_eq!(
+                registries.block_state_runtime_id(mode, I::Named(&record.name), &states),
+                Some(id(record, mode))
+            );
+            assert!(
+                registries
+                    .block_state_runtime_id(mode, I::Compiled(u32::MAX), &states)
+                    .is_none()
+            );
+        }
+    }
 }
 
 /// Selects one real state by its observable values rather than palette ordering.
@@ -68,10 +105,10 @@ fn store(mode: NetworkIdMode) -> ChunkStore {
 /// Supplies collision-free player facts for a top-face placement.
 fn surroundings() -> UseSurroundings {
     UseSurroundings {
-        clicked_identifier: Some("minecraft:stone".to_owned()),
+        clicked: block_fact("minecraft:stone"),
         clicked_canonical_state: Some("{}".to_owned()),
-        held_block_identifier: None,
-        neighbor_identifier: Some("minecraft:air".to_owned()),
+        held: Default::default(),
+        neighbor: block_fact("minecraft:air"),
         player_box: ([0.0; 3], [0.6, 1.8, 0.6]),
         actor_boxes: Vec::new(),
         sneaking: false,
@@ -130,6 +167,74 @@ fn oriented_and_half_block_items_produce_local_predictions_immediately() {
 }
 
 #[test]
+fn cobweb_prediction_keeps_independent_support_in_both_identity_modes() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let store = store(mode);
+        let around = surroundings();
+        let result = predict("minecraft:web", &store, mode, &context(&around)).unwrap();
+        assert_eq!(result.position, [8, 9, 8]);
+        assert_eq!(
+            fixtures().1.block_identifier(mode, result.block),
+            Some("minecraft:web")
+        );
+    }
+}
+
+#[test]
+fn carpet_prediction_accepts_materialized_custom_support_in_both_identity_modes() {
+    let (records, _) = fixtures();
+    let protocol = active_content_registry_protocol();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(protocol, BREG_V2193, records),
+        protocol,
+    )
+    .unwrap();
+    let mut custom =
+        protocol::CustomBlocks::from_definitions([("test:carpet_support", &[10, 0, 0][..])]);
+    custom.vanilla_blocks = assets::server_defined_blocks()
+        .iter()
+        .map(|block| block.name.into())
+        .collect();
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    assert_eq!(registries.begin_session_hashed_custom_blocks(&custom), 1);
+    for (mode, support) in [
+        (NetworkIdMode::Sequential, range.start),
+        (
+            NetworkIdMode::Hashed,
+            custom.blocks[0].hashed_states()[0].hash,
+        ),
+    ] {
+        let mut store = store(mode);
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(8, 8, 8, 0, support),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        let mut around = surroundings();
+        around.clicked = registries.block_facts(mode, support);
+        around.clicked_canonical_state = None;
+        let world =
+            sim::PaletteWorld::new(&store, registries.registry(mode), 0, Default::default());
+        let result = predicted_placement(
+            &registries,
+            mode,
+            id(record("minecraft:white_carpet", &[]), mode),
+            &world,
+            &context(&around),
+        )
+        .unwrap();
+        assert_eq!(result.position, [8, 9, 8]);
+        assert_eq!(
+            registries.block_identifier(mode, result.block),
+            Some("minecraft:white_carpet")
+        );
+    }
+}
+
+#[test]
 fn a_matching_clicked_slab_predicts_its_double_in_the_same_cell() {
     use serde_json::json;
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
@@ -146,7 +251,7 @@ fn a_matching_clicked_slab_predicts_its_double_in_the_same_cell() {
             )
             .unwrap();
         let mut around = surroundings();
-        around.clicked_identifier = Some(slab.name.to_string());
+        around.clicked = fixtures().1.block_facts(mode, id(slab, mode));
         around.clicked_canonical_state = Some(slab.canonical_state.to_string());
         let result = predict("minecraft:oak_slab", &store, mode, &context(&around)).unwrap();
         assert_eq!(result.position, [8, 8, 8]);
@@ -170,7 +275,7 @@ fn invalid_support_height_unloaded_data_and_actor_overlap_refuse_prediction() {
             id(record("minecraft:air", &[]), mode),
         )
         .unwrap();
-    around.clicked_identifier = Some("minecraft:air".to_owned());
+    around.clicked = block_fact("minecraft:air");
     assert!(predict("minecraft:torch", &store, mode, &context(&around)).is_none());
     store
         .update_block(
@@ -179,7 +284,7 @@ fn invalid_support_height_unloaded_data_and_actor_overlap_refuse_prediction() {
             id(record("minecraft:air", &[]), mode),
         )
         .unwrap();
-    around.clicked_identifier = Some("minecraft:stone".to_owned());
+    around.clicked = block_fact("minecraft:stone");
     let mut limited = context(&around);
     limited.build_height = 0..9;
     assert!(predict("minecraft:oak_log", &store, mode, &limited).is_none());
@@ -257,7 +362,7 @@ fn existing_snow_stacks_in_place_and_checks_actors_against_the_whole_cell() {
         )
         .unwrap();
     let mut around = surroundings();
-    around.clicked_identifier = Some(snow.name.to_string());
+    around.clicked = fixtures().1.block_facts(mode, id(snow, mode));
     around.clicked_canonical_state = Some(snow.canonical_state.to_string());
     let result = predict("minecraft:snow_layer", &store, mode, &context(&around)).unwrap();
     assert_eq!(result.position, [8, 8, 8]);
@@ -301,7 +406,7 @@ fn replacing_non_air_destinations_waits_for_verified_replacement_rules() {
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         let mut store = store(mode);
         let mut around = surroundings();
-        around.neighbor_identifier = Some("minecraft:short_grass".to_owned());
+        around.neighbor = block_fact("minecraft:short_grass");
         store
             .update_block(
                 SubChunkKey::new(0, 0, 0, 0),
@@ -312,7 +417,7 @@ fn replacing_non_air_destinations_waits_for_verified_replacement_rules() {
         assert!(predict("minecraft:oak_log", &store, mode, &context(&around)).is_none());
         let mut store = self::store(mode);
         let mut around = surroundings();
-        around.clicked_identifier = Some("minecraft:red_shrub".to_owned());
+        around.clicked = block_fact("minecraft:red_shrub");
         store
             .update_block(
                 SubChunkKey::new(0, 0, 0, 0),
@@ -339,7 +444,7 @@ fn unresolved_families_and_occupied_destinations_stay_server_confirmed() {
             "{name}"
         );
     }
-    around.neighbor_identifier = Some("minecraft:stone".to_owned());
+    around.neighbor = block_fact("minecraft:stone");
     assert!(predict("minecraft:oak_log", &store, mode, &context(&around)).is_none());
 }
 
@@ -352,9 +457,17 @@ fn indexed_state_lookup_preserves_typed_values_in_both_identity_spaces() {
         }) {
             let states = serde_json::from_str(&record.canonical_state).unwrap();
             assert_eq!(
-                fixtures()
-                    .1
-                    .block_state_runtime_id(mode, &record.name, &states),
+                fixtures().1.block_state_runtime_id(
+                    mode,
+                    assets::facts::BlockStateIdentity::Compiled(
+                        fixtures()
+                            .1
+                            .block_facts(mode, id(record, mode))
+                            .identity
+                            .unwrap()
+                    ),
+                    &states
+                ),
                 Some(id(record, mode))
             );
         }
@@ -719,5 +832,75 @@ fn bamboo_placement_tests_the_destination_column_at_custom_build_heights() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn clicked_slab_merges_at_build_height_without_a_loaded_cell_above() {
+    use serde_json::json;
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut store = store(mode);
+        let slab = record(
+            "minecraft:oak_slab",
+            &[("minecraft:vertical_half", json!("bottom"))],
+        );
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(8, 15, 8, 0, id(slab, mode)),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        let mut around = surroundings();
+        around.clicked = fixtures().1.block_facts(mode, id(slab, mode));
+        let mut context = context(&around);
+        context.clicked = [8, 15, 8];
+        let result = predict("minecraft:oak_slab", &store, mode, &context)
+            .expect("same-cell slab merge at the top of the loaded dimension");
+        assert_eq!(result.position, context.clicked);
+        assert_eq!(
+            fixtures().1.block_identifier(mode, result.block),
+            Some("minecraft:oak_double_slab")
+        );
+        assert!(result.additional.is_empty());
+    }
+}
+
+#[test]
+fn clicked_snow_stacks_at_an_unloaded_sub_chunk_boundary() {
+    use serde_json::json;
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut store = store(mode);
+        let snow = record(
+            "minecraft:snow_layer",
+            &[("height", json!(0)), ("covered_bit", json!(0))],
+        );
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(15, 8, 8, 0, id(snow, mode)),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        let mut around = surroundings();
+        around.clicked = fixtures().1.block_facts(mode, id(snow, mode));
+        let mut context = context(&around);
+        context.clicked = [15, 8, 8];
+        context.input.face = 5;
+        context.input.click_position = [1.0, 0.5, 0.5];
+        let result = predict("minecraft:snow_layer", &store, mode, &context)
+            .expect("same-cell snow merge beside an unloaded sub-chunk");
+        assert_eq!(result.position, context.clicked);
+        assert_eq!(
+            result.block,
+            id(
+                record(
+                    "minecraft:snow_layer",
+                    &[("height", json!(1)), ("covered_bit", json!(0))],
+                ),
+                mode
+            )
+        );
+        assert!(result.additional.is_empty());
     }
 }

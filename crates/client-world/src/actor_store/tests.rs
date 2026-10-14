@@ -1,3 +1,4 @@
+use protocol_ids::{ActorDataKey, Attribute};
 use std::sync::Arc;
 
 use protocol::{
@@ -8,7 +9,7 @@ use protocol::{
 };
 use render_api::StandardSkin;
 
-use super::{ActorApplyResult, ActorStore, NAMETAG_METADATA_KEY};
+use super::{ActorApplyResult, ActorStore};
 
 pub(super) fn spawn(runtime_id: u64, unique_id: i64) -> ActorEvent {
     ActorEvent::Spawn(ActorSpawnEvent {
@@ -145,7 +146,7 @@ fn synced_player_tag_overrides_username_without_renaming_scoreboard_identity() {
                 dimension: 0,
                 runtime_id: 7,
                 metadata: Arc::from([ActorMetadata {
-                    key: NAMETAG_METADATA_KEY,
+                    key: ActorDataKey::Name.wire_value(),
                     value: ActorMetadataValue::String(tag.into()),
                 }]),
                 properties: Arc::from([]),
@@ -572,7 +573,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 dimension: 0,
                 runtime_id: 42,
                 attributes: Arc::from([ActorAttribute {
-                    name: "minecraft:health".into(),
+                    name: Attribute::Health.wire_name().into(),
                     min: 0.0,
                     max: 20.0,
                     current: 17.0,
@@ -603,7 +604,10 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
         actor.metadata[&4],
         ActorMetadataValue::String("Beeatrice".into())
     );
-    assert_eq!(actor.attributes["minecraft:health"].current, 17.0);
+    assert_eq!(
+        actor.attributes[Attribute::Health.wire_name()].current,
+        17.0
+    );
 
     assert_eq!(
         store.apply(

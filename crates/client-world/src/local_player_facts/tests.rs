@@ -1,11 +1,12 @@
 use protocol::{ActorAttribute, GameModeUpdate, PlayerGameMode};
+use protocol_ids::Attribute;
 
 use super::{LocalPlayerFacts, LocalPlayerStat};
 
 /// Builds hunger evidence with a valid default and no modifiers.
 fn hunger(current: f32, maximum: f32) -> ActorAttribute {
     ActorAttribute {
-        name: "minecraft:player.hunger".into(),
+        name: Attribute::PlayerHunger.wire_name().into(),
         min: 0.0,
         max: maximum,
         current,

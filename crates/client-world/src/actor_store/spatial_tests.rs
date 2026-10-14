@@ -1,5 +1,6 @@
 use super::*;
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent};
+use protocol_ids::ActorDataKey;
 
 #[test]
 fn zero_dimensions_and_scale_keep_the_minimum_collision_box() {
@@ -30,15 +31,15 @@ fn zero_dimensions_and_scale_keep_the_minimum_collision_box() {
                     runtime_id: 1,
                     metadata: [
                         ActorMetadata {
-                            key: BOUNDING_BOX_WIDTH_METADATA_KEY,
+                            key: ActorDataKey::Width.wire_value(),
                             value: ActorMetadataValue::Float(width),
                         },
                         ActorMetadata {
-                            key: BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                            key: ActorDataKey::Height.wire_value(),
                             value: ActorMetadataValue::Float(height),
                         },
                         ActorMetadata {
-                            key: SCALE_METADATA_KEY,
+                            key: ActorDataKey::Scale.wire_value(),
                             value: ActorMetadataValue::Float(scale),
                         },
                     ]

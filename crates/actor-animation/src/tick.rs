@@ -1,5 +1,6 @@
-use super::{query::FLAG_BABY, *};
+use super::*;
 use assets::EntityControllerAnimationTarget;
+use protocol_ids::ActorFlag;
 
 pub(super) mod controller;
 pub(super) mod selection;
@@ -163,7 +164,7 @@ pub(super) fn advance_motion(
     if actor.is_horse() {
         motion
             .horse
-            .advance(query::actor_flag(actor, query::FLAG_STANDING));
+            .advance(query::actor_flag(actor, ActorFlag::Standing.wire_value()));
     }
     // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
     // a mob: its interpolated body yaw is 0, while
@@ -172,14 +173,14 @@ pub(super) fn advance_motion(
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
     }
-    let baby_scale = if query::actor_flag(actor, FLAG_BABY) {
+    let baby_scale = if query::actor_flag(actor, ActorFlag::Baby.wire_value()) {
         BABY_MOVE_SPEED_SCALE
     } else {
         1.0
     };
     let item_use_ticks = if let Some(ticks) = local_use_counter(actor, context) {
         ticks
-    } else if query::actor_flag(actor, query::FLAG_USING_ITEM) {
+    } else if query::actor_flag(actor, ActorFlag::UsingItem.wire_value()) {
         state
             .history
             .back()
@@ -188,7 +189,7 @@ pub(super) fn advance_motion(
     } else {
         0
     };
-    let swim_target = if query::actor_flag(actor, query::FLAG_SWIMMING) {
+    let swim_target = if query::actor_flag(actor, ActorFlag::Swimming.wire_value()) {
         1.0
     } else {
         0.0
@@ -242,7 +243,7 @@ pub(super) fn advance_motion(
         velocity: actor.native_velocity(),
         on_ground: actor.on_ground(),
         alive: !actor.is_dead() && actor.health().is_none_or(|health| health.current > 0.0),
-        sneaking: query::actor_flag(actor, query::FLAG_SNEAKING),
+        sneaking: query::actor_flag(actor, ActorFlag::Sneaking.wire_value()),
         flying: context.is_flying,
         local: context.is_local,
     });
@@ -287,7 +288,7 @@ pub(super) fn seed_presentation_input(
         state.equipped_main = (context.main_hand.clone(), context.held_variants[0]);
     }
     let counters = retained.unwrap_or_else(|| ActorTickInput {
-        swim_amount: f32::from(query::actor_flag(actor, query::FLAG_SWIMMING)),
+        swim_amount: f32::from(query::actor_flag(actor, ActorFlag::Swimming.wire_value())),
         arm_height: 1.0,
         off_hand_arm_height: state.off_hand_animation[1].arm_height,
         attack_time: state.motion.attack_time(),
@@ -328,11 +329,11 @@ fn java_retains_native_posture(
     swim_amount: f32,
 ) -> bool {
     swim_amount > 0.0
-        || query::actor_flag(actor, query::FLAG_SWIMMING)
+        || query::actor_flag(actor, ActorFlag::Swimming.wire_value())
         || context.main_hand_is_spear
-        || query::actor_flag(actor, query::FLAG_GLIDING)
-        || query::actor_flag(actor, query::FLAG_CRAWLING)
-        || query::actor_flag(actor, query::FLAG_EMOTING)
+        || query::actor_flag(actor, ActorFlag::Gliding.wire_value())
+        || query::actor_flag(actor, ActorFlag::Crawling.wire_value())
+        || query::actor_flag(actor, ActorFlag::Emoting.wire_value())
         || actor.is_sleeping()
 }
 
@@ -803,7 +804,7 @@ pub(super) fn apply_engine_variables(
 ) {
     let truth = |value: bool| if value { 1.0 } else { 0.0 };
     let flag = |bit| truth(query::actor_flag(actor, bit));
-    let gliding = if query::actor_flag(actor, query::FLAG_GLIDING) {
+    let gliding = if query::actor_flag(actor, ActorFlag::Gliding.wire_value()) {
         let speed_squared = input
             .position_delta
             .iter()
@@ -819,15 +820,15 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.gliding_speed_value, gliding);
     variables.set(engine.is_holding_right, truth(context.main_hand.is_some()));
     variables.set(engine.is_holding_left, truth(context.off_hand.is_some()));
-    variables.set(engine.is_sneaking, flag(query::FLAG_SNEAKING));
+    variables.set(engine.is_sneaking, flag(ActorFlag::Sneaking.wire_value()));
     variables.set(
         engine.chest_layer_visible,
         truth(!query::wearing_elytra(context)),
     );
-    variables.set(engine.is_blocking, flag(query::FLAG_BLOCKING));
+    variables.set(engine.is_blocking, flag(ActorFlag::Blocking.wire_value()));
     variables.set(
         engine.damage_nearby_mobs,
-        flag(query::FLAG_DAMAGE_NEARBY_MOBS),
+        flag(ActorFlag::DamageNearbyMobs.wire_value()),
     );
     let (startup, interval) = context
         .main_hand

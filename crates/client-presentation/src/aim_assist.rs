@@ -14,11 +14,6 @@ pub use selection::{
 /// Omitted preset IDs select the registered vanilla default.
 pub const DEFAULT_AIM_ASSIST_PRESET: &str = "minecraft:aim_assist_default";
 
-/// Actor-data keys used by the server's resolved aim-assist priority table.
-pub const AIM_ASSIST_PRESET_METADATA_KEY: u32 = 136;
-pub const AIM_ASSIST_CATEGORY_METADATA_KEY: u32 = 137;
-pub const AIM_ASSIST_ACTOR_METADATA_KEY: u32 = 138;
-
 /// Camera control schemes, independent of the physical input device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

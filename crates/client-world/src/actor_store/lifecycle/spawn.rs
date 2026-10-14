@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::Attribute;
 
 impl ActorStore {
     /// Replaces conflicting IDs and installs one authoritative actor lifetime.
@@ -65,7 +66,7 @@ impl ActorStore {
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
             if self.actors[&runtime_id]
                 .attributes
-                .contains_key("minecraft:health")
+                .contains_key(Attribute::Health.wire_name())
             {
                 self.pending_local_health = None;
                 self.pending_local_damage = None;

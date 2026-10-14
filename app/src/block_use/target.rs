@@ -51,7 +51,7 @@ pub(super) fn observe_use_target(
             gameplay::block_use::orientation_sensitive(
                 context
                     .collisions
-                    .block_canonical_state(stream.network_id_mode(), *block),
+                    .block_facts(stream.network_id_mode(), *block),
             )
         })
         .and_then(|_| runtime.intention.first_world_hit());
