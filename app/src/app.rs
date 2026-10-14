@@ -69,7 +69,9 @@ use {
             update_atmosphere_frame, update_lightning, update_precipitation_scene,
             update_seasonal_foliage,
         },
-        local_player::{publish_local_player_frame, resolve_camera_pose},
+        local_player::{
+            publish_local_player_frame, resolve_camera_pose, resolve_local_player_presentation,
+        },
         melee::produce_melee,
         movement::{advance_local_physics, send_movement_prediction_sync},
         present_mode::{PresentModeRuntime, apply_present_mode},
@@ -133,7 +135,7 @@ use {
 };
 
 mod render_setup;
-use render_setup::render_plugin;
+use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
@@ -227,6 +229,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
         .add_systems(
             Update,
             (
+                resolve_local_player_presentation,
                 client_presentation::local_player_camera_receipt::begin_camera_publication_attempt,
                 resolve_camera_pose,
             )
@@ -247,6 +250,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             drive_world_stream
                 .after(receive_network_events)
                 .before(ChunkRenderApplySet)
+                .in_set(ClientFrameSet::WorldPublication),
+        )
+        .add_systems(
+            Update,
+            crate::far_terrain::feed_far_terrain
+                .after(drive_world_stream)
                 .in_set(ClientFrameSet::WorldPublication),
         )
         .add_systems(
@@ -395,8 +404,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    let minecraft_import_config_root = layout.user_config_root.clone();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
+    let far_terrain_dir = layout.far_terrain_cache_dir();
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -509,6 +520,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .context("JSON-UI engine is missing its carrier catalog")?,
     );
     ui_presentation.set_form_texture_fallbacks(&entity_runtime, layout.vanilla_pack_dir());
+    ui_presentation.enable_touch_controls(cfg!(target_os = "android"));
     // OreUI artwork is decoded once for every native screen.
     if let Some(images) = oreui::images::load_optional_oreui_images(
         loaded_assets
@@ -606,12 +618,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
-    let menu = MenuRuntime::new_with_layout(
+    let renderer_data_root = layout.user_data_root.clone();
+    let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
+    let menu = MenuRuntime::new_with_import_snapshot(
         !connection_requested,
         args.gui_scale,
         args.display_name.clone(),
         layout,
         local_player_skin.clone(),
+        minecraft_import,
     )
     .with_language_assets(
         loaded_assets.selected_path.clone(),
@@ -682,12 +697,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
+    let renderer = RendererSetup {
+        data_root: renderer_data_root,
+        video_override: saved_settings.graphics_api(),
+        graphics_api_revision: saved_settings.graphics_api_revision(),
+    };
     let plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
         })
-        .set(render_plugin())
+        .add_before::<bevy::render::RenderPlugin>(renderer)
+        .disable::<bevy::render::RenderPlugin>()
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
@@ -885,6 +906,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins((
         render::DepthSmaaPlugin,
         render::motion_blur::CameraMotionBlurPlugin,
+        render::FarTerrainRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
@@ -909,12 +931,23 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(identity) = movement_identity_source {
         app.insert_resource(identity);
     }
-    crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
+    crate::global_resources::configure(
+        &mut app,
+        global_pack_root,
+        minecraft_import_config_root,
+        args.import_packs,
+    );
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
+    app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
+        .init_resource::<render_scene::FarTerrainScene>()
+        .add_systems(
+            Last,
+            crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),
+        );
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);

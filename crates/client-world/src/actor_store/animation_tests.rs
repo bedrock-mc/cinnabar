@@ -13,6 +13,7 @@ mod render_frame_tests;
 mod rig_input_tests;
 mod server_tests;
 mod skin_tests;
+mod sleeping_motion_tests;
 
 /// An entity snapshot at the origin with the given metadata.
 fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
@@ -23,6 +24,7 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         head_yaw: 0.0,
     };
     ActorSnapshot {
+        painting: None,
         interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
         unique_id: -1,
         runtime_id: 1,

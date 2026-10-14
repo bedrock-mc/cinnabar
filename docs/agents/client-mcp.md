@@ -1,7 +1,7 @@
 # Driving and recording the client (cinnabar-mcp)
 
 `tools/cinnabar-mcp` is a stdio MCP server that launches a client built with
-`cargo build -p cinnabar --features developer-control` (plus `local-mods` for mods) and drives
+`cargo build -p cinnabar --features developer-control` and drives
 it over a loopback, token-authenticated endpoint written under `.local/developer-control/`. The tool
 schemas document every argument. Agents drive the client only through this endpoint, headless
 (`headless: true`); never with OS-level input or window automation.
@@ -27,7 +27,7 @@ schemas document every argument. Agents drive the client only through this endpo
   packs with `launch_client` args `["--import-pack", path]`, then poll it until `pending` clears.
 - `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
   eligibility, physical jump state, processed sprint state, active item use and the selected
-  item's resolved use profile. With `local-mods`, `state.local_mods` also reports bounded
+  item's resolved use profile. `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per

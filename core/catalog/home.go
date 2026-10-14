@@ -74,7 +74,7 @@ func HomeImages(home *Home) []*Image {
 }
 
 // Message is one player-messaging message; Surface places it (PlayButton,
-// MarketplaceButton, InboxMessage, LoginAnnouncement, ToastNotification, ...).
+// PlayButton, InboxMessage, LoginAnnouncement, ToastNotification, ...).
 type Message struct {
 	Colors     map[string][3]uint8 `json:"colors,omitempty"`
 	Sender     string              `json:"sender,omitempty"`

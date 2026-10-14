@@ -13,6 +13,20 @@ use crate::local_player_camera_receipt::{
 use crate::observations::{CollisionLookup, SessionObservation};
 
 const SESSION: SessionGeneration = SessionGeneration::new(1);
+const BED: [i32; 3] = [2, 0, 5];
+
+mod source_tests;
+
+/// Loads a synthetic bed palette without installing any actor sleep-rotation sample.
+fn bed_collisions(app: &mut App, bed: [i32; 3], direction: usize) -> TestCollisions {
+    load_bed(app, bed);
+    let mut registry = sim::CollisionRegistry::default();
+    registry.register(1, []).unwrap();
+    TestCollisions {
+        registry,
+        bed_state: Some(format!(r#"{{"direction":{direction}}}"#)),
+    }
+}
 
 /// Applies camera effects with the same world observation used to sample hand motion.
 #[allow(clippy::too_many_arguments)]
@@ -53,7 +67,7 @@ impl CollisionLookup for TestCollisions {
         &self.registry
     }
 
-    /// Supplies the original synthetic bed state only for its resident runtime id.
+    /// Returns the authored direction of the fixture's loaded bed palette.
     fn block_canonical_state(&self, _: assets::NetworkIdMode, runtime: u32) -> Option<&str> {
         (runtime == 1)
             .then_some(self.bed_state.as_deref())
@@ -64,6 +78,23 @@ impl CollisionLookup for TestCollisions {
     fn block_identifier(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
         None
     }
+}
+
+/// Resolves the shared presentation before any camera or actor consumer runs.
+fn resolve_presentation(
+    mut world: ResMut<TestWorld>,
+    collisions: Res<TestCollisions>,
+    settings: Res<CameraSettingsAuthority>,
+    mut view: ResMut<LocalViewPose>,
+    physics: Res<TestPhysics>,
+) {
+    let position = physics.state.position;
+    view.resolve_presentation(
+        Some(&mut world.0),
+        &*collisions,
+        settings.perspective(),
+        Some([position.x as f32, position.y as f32, position.z as f32]),
+    );
 }
 
 /// Runs the camera owner with completed physics and collision observations.
@@ -144,8 +175,8 @@ fn audio_camera(
 }
 
 #[test]
-fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible() {
-    let bed = [2, 0, 5];
+fn sleeping_pose_is_shared_before_camera_publication_and_reanchors_only_on_transitions() {
+    let bed = BED;
     let (sleeping_eye, feet) = crate::local_player::sleeping_subject_position(bed);
     let awake_feet = Vec3::new(feet.x, 0.0, feet.z);
     let awake_eye = awake_feet + Vec3::Y * protocol::STANDING_PLAYER_EYE_HEIGHT;
@@ -156,23 +187,17 @@ fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible
             PerspectiveMode::ThirdPersonBack,
             PerspectiveMode::ThirdPersonFront,
         ] {
-            for bed_rotation in [0.0, 90.0, 180.0, 270.0] {
+            for (direction, bed_rotation) in [90.0, 0.0, 270.0, 180.0].into_iter().enumerate() {
                 let mut app = camera_app();
                 let mut user = ui::UserSettings::default();
                 user.video.java_animations = java;
+                user.video.motion_blur = ui::MotionBlurQuality::Medium;
                 user.gameplay.default_perspective = perspective;
                 app.world_mut()
                     .resource_mut::<CameraSettingsAuthority>()
                     .replace(1, &user)
                     .unwrap();
-                let direction = [90.0, 0.0, 270.0, 180.0]
-                    .iter()
-                    .position(|rotation| *rotation == bed_rotation)
-                    .unwrap();
-                let collisions = TestCollisions {
-                    bed_state: Some(format!(r#"{{"direction":{direction}}}"#)),
-                    ..Default::default()
-                };
+                let collisions = bed_collisions(&mut app, bed, direction);
                 app.world_mut().resource_mut::<TestPhysics>().world_identity = Some(
                     sim::WorldCollisionIdentity::new(collisions.registry.identity(), []).unwrap(),
                 );
@@ -180,23 +205,52 @@ fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible
                     .init_resource::<CameraPose>()
                     .init_resource::<CameraPublicationAttempt>()
                     .init_resource::<LocalPlayerFrameCarrier>();
-                load_bed(&mut app, bed);
                 tick(&mut app, 1);
+                app.world_mut().resource_mut::<TestPhysics>().state.position = sim::Vec3::new(
+                    f64::from(awake_feet.x),
+                    f64::from(awake_feet.y),
+                    f64::from(awake_feet.z),
+                );
                 let physics = app.world().resource::<TestPhysics>().state.clone();
                 let camera = app
                     .world_mut()
-                    .spawn((FlyCamera::default(), Transform::IDENTITY))
+                    .spawn((
+                        FlyCamera::default(),
+                        Camera3d::default(),
+                        Transform::IDENTITY,
+                    ))
                     .id();
+                app.add_systems(
+                    PostUpdate,
+                    crate::camera::motion_blur::apply_camera_motion_blur,
+                );
+                let mut anchor = app
+                    .world()
+                    .resource::<LocalViewPose>()
+                    .camera_reanchor_epoch();
+                let mut blur_epoch = None;
                 for (sequence, sleeping) in [(4, false), (5, true), (6, true), (7, false)] {
                     sleep_state(&mut app, sequence, sleeping, Some(bed));
-                    let eye = if sleeping { sleeping_eye } else { awake_eye };
-                    let subject_feet = if sleeping { feet } else { awake_feet };
                     {
                         let mut view = app.world_mut().resource_mut::<LocalViewPose>();
-                        view.set_subject_position(eye, subject_feet);
+                        view.set_subject_position(awake_eye, awake_feet);
                         view.set_rotation(look);
                     }
+                    app.world_mut()
+                        .run_system_cached(resolve_presentation)
+                        .unwrap();
                     let view = *app.world().resource::<LocalViewPose>();
+                    let eye = if sleeping { sleeping_eye } else { awake_eye };
+                    assert!(view.eye_translation().abs_diff_eq(eye, 1e-5));
+                    assert_eq!(
+                        view.feet_translation(),
+                        if sleeping { feet } else { awake_feet }
+                    );
+                    assert!(view.rotation().abs_diff_eq(look, 1e-5));
+                    assert!(view.look_rotation().abs_diff_eq(look, 1e-5));
+                    let transition = sequence == 5 || sequence == 7;
+                    assert_eq!(view.camera_reanchor_epoch(), anchor + u64::from(transition));
+                    anchor = view.camera_reanchor_epoch();
                     app.world_mut()
                         .run_system_cached(begin_camera_publication_attempt)
                         .unwrap();
@@ -207,6 +261,8 @@ fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible
                     } else {
                         look
                     };
+                    // These getters also supply both actor query publication passes.
+                    assert!(view.camera_rotation().abs_diff_eq(rotation, 1e-5));
                     let expected = crate::camera::perspective_pose(eye, rotation, perspective);
                     assert!(captured.translation.abs_diff_eq(expected.translation, 1e-5));
                     assert!(captured.rotation.abs_diff_eq(expected.rotation, 1e-5));
@@ -231,6 +287,57 @@ fn sleeping_rotation_is_published_before_camera_effects_and_keeps_audio_eligible
                     );
                     assert_eq!(*app.world().resource::<LocalViewPose>(), view);
                     assert_eq!(app.world().resource::<TestPhysics>().state, physics);
+                    let mut feed = crate::actor_feed::build_local_player_feed(
+                        app.world().resource::<TestPhysics>(),
+                        look,
+                        false,
+                        false,
+                        [1; 16],
+                        || {
+                            protocol::PlayerSkin::Unavailable(
+                                protocol::PlayerSkinUnavailable::InvalidDimensions,
+                            )
+                        },
+                        client_world::LocalItemUse::Unpredicted,
+                    )
+                    .unwrap();
+                    view.apply_actor_presentation(&mut feed);
+                    // Seed the initial retained pose; later snaps must come from the shared source.
+                    feed.teleported |= sequence == 4;
+                    {
+                        let mut world = app.world_mut().resource_mut::<TestWorld>();
+                        world.0.sync_local_player_pose(&feed);
+                        let actor = world.0.authority().actor(2).unwrap();
+                        for alpha in [0.0, 0.5, 1.0] {
+                            let attachment = crate::presentation::actors::actor_emitter_transform(
+                                actor,
+                                None,
+                                &[],
+                                None,
+                                alpha,
+                            )
+                            .unwrap();
+                            assert_eq!(
+                                attachment.position,
+                                if sleeping { feet } else { awake_feet }.to_array()
+                            );
+                        }
+                    }
+                    app.update();
+                    let blur = app
+                        .world()
+                        .get::<render_scene::CameraMotionBlur>(camera)
+                        .unwrap();
+                    if transition || sequence == 4 {
+                        assert_eq!(blur.exposure_seconds, 0.0);
+                        if let Some(previous) = blur_epoch {
+                            assert_ne!(blur.reset_epoch, previous);
+                        }
+                    } else {
+                        assert!(blur.exposure_seconds > 0.0);
+                        assert_eq!(Some(blur.reset_epoch), blur_epoch);
+                    }
+                    blur_epoch = Some(blur.reset_epoch);
                 }
             }
         }
@@ -267,7 +374,7 @@ fn sleep_state(app: &mut App, sequence: u64, sleeping: bool, bed: Option<[i32; 3
 
 #[test]
 fn sleeping_camera_keeps_its_published_eye_height_and_restores_java_adjustment_on_waking() {
-    let bed = [2, 70, -5];
+    let bed = BED;
     let (eye, feet) = crate::local_player::sleeping_subject_position(bed);
     for java in [false, true] {
         for perspective in [

@@ -1,6 +1,5 @@
 //! Bounded process protocol. OS-restricted production launch deliberately fails closed.
 
-#[cfg(feature = "execution")]
 use crate::server::BundleHost;
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
@@ -198,7 +197,6 @@ pub struct CallFailure {
 impl CallFailure {
     /// The failure of `bundle`'s `callback` with `error`: its error chain, which carries the
     /// guest backtrace of a trap.
-    #[cfg(feature = "execution")]
     pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
         use wasmtime::Trap;
         let kind = match error.downcast_ref::<Trap>() {
@@ -210,13 +208,11 @@ impl CallFailure {
         Self::new(bundle, callback, kind, error)
     }
 
-    #[cfg(feature = "execution")]
     /// A start of `bundle` that failed with `error`.
     fn startup(bundle: &str, error: &anyhow::Error) -> Self {
         Self::new(bundle, "init", FailureKind::Startup, error)
     }
 
-    #[cfg(feature = "execution")]
     fn new(bundle: &str, callback: &str, kind: FailureKind, error: &anyhow::Error) -> Self {
         let mut reason: String = format!("{error:#}")
             .chars()
@@ -378,7 +374,6 @@ impl Drop for Helper {
 }
 
 /// Runs only as the private helper entry point; there are no inherited game handles.
-#[cfg(feature = "execution")]
 pub fn serve_developer() -> Result<()> {
     ensure!(
         std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
@@ -436,7 +431,6 @@ pub fn serve_developer() -> Result<()> {
     }
 }
 
-#[cfg(feature = "execution")]
 /// Writes `reply`, or a failure in its place when it does not fit a reply frame.
 fn answer(output: &mut impl Write, reply: Reply, bundle: &str, callback: &str) -> Result<()> {
     let bytes = match serialize_frame(&reply, MAX_REPLY_IPC) {

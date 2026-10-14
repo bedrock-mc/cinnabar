@@ -19,6 +19,7 @@ use {
 };
 
 mod hud_visibility;
+mod nametag_motion;
 
 /// Gives the local player a known rig and skin without any server connection.
 fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {

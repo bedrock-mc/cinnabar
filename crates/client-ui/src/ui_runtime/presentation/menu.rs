@@ -634,6 +634,16 @@ fn append_dialog(
         PANEL,
     );
     let (title, description, confirm) = match dialog {
+        MenuDialog::MinecraftImport => (
+            view.minecraft_import.title(),
+            view.minecraft_import.body(),
+            view.minecraft_import
+                .actions()
+                .first()
+                .copied()
+                .map(MenuAction::MinecraftImport)
+                .unwrap_or(MenuAction::DismissDialog),
+        ),
         MenuDialog::Accounts => ("Accounts", "", MenuAction::DismissDialog),
         MenuDialog::DeathQuit => (
             "Quit to Main Menu?",
@@ -754,7 +764,6 @@ const fn screen_title(screen: MenuScreen) -> &'static str {
         MenuScreen::Death => "You died!",
         MenuScreen::Inbox => "Inbox",
         MenuScreen::Friends => "Friends",
-        MenuScreen::Store => "Marketplace",
         MenuScreen::Invite => "Invite to Game",
     }
 }

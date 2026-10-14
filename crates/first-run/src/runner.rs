@@ -385,11 +385,22 @@ mod tests {
         let pid = std::thread::scope(|scope| {
             let running = scope.spawn(|| compiler.run(&args, |_| {}));
             let path = dir.path().join("descendant");
-            test_time::wait_until(Duration::from_secs(5), || path.exists());
-            let raw: i32 = fs::read_to_string(path).unwrap().trim().parse().unwrap();
+            let mut descendant = None;
+            test_time::wait_until(Duration::from_secs(5), || {
+                descendant = fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|contents| {
+                        contents
+                            .ends_with('\n')
+                            .then(|| contents.trim().parse::<i32>().ok())
+                            .flatten()
+                    })
+                    .and_then(rustix::process::Pid::from_raw);
+                descendant.is_some()
+            });
             cancel.store(true, Ordering::Relaxed);
             assert!(running.join().unwrap().unwrap_err().is::<Cancelled>());
-            rustix::process::Pid::from_raw(raw).unwrap()
+            descendant.expect("the compiler must publish a complete descendant PID")
         });
         test_time::wait_until(Duration::from_secs(1), || {
             rustix::process::test_kill_process(pid).is_err()

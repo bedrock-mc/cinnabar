@@ -15,6 +15,7 @@ reads = [
     "assets/biome-projection-v2193.json",
     "tools/registrygen",
     "crates/protocol/data/retail_items_1_26_50.tsv",
+    "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "assets/cinnangles-sans-source.json",
     "assets/fonts/CinnanglesSans.ttf",
@@ -32,7 +33,10 @@ reads = [
 world = { path = "../world" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }
+pack-compile-input = { path = "../pack-compiler/input" }
 pack-compiler = { path = "../pack-compiler" }
+pack-entity-compiler = { path = "../pack-compiler/entity" }
+pack-font-compiler = { path = "../pack-compiler/font" }
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 same-file = "1"

@@ -26,12 +26,13 @@ pub(super) struct MotionEndpoint<'a> {
 }
 
 impl MotionEndpointState {
-    /// Replays an endpoint on scratch state with the frame's sampled rotations and swelling.
+    /// Replays an endpoint with frame rotation, swelling and swing, retaining its other inputs.
     pub(super) fn sample<'a>(
         &'a self,
         base: evaluation::Evaluator<'a>,
         state: &ActorRigState,
         amount: f32,
+        swing: Option<f32>,
         publish: bool,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MotionEndpoint<'a>, EvalError> {
@@ -49,6 +50,9 @@ impl MotionEndpointState {
             ..base
         };
         let mut variables = self.variables.clone();
+        if let Some(swing) = swing {
+            variables.set(evaluator.layout.engine.attack_time, swing);
+        }
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
@@ -58,7 +62,7 @@ impl MotionEndpointState {
                 evaluator.actor,
                 evaluator.context,
                 evaluator.input,
-                evaluator.input.attack_time,
+                swing.unwrap_or(evaluator.input.attack_time),
             );
         }
         if publish {

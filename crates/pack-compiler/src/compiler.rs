@@ -1,7 +1,11 @@
 use assets::material_keys::MaterialKeys;
+use pack_compile_input::image::{decode_static_texture, decode_texture, normalize_texture_tile};
+use pack_compile_input::{
+    PackSources, TextureKey, read_pack, resolve_texture_key, static_texture_path,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use assets::{
@@ -21,14 +25,12 @@ use assets::{
 
 use {
     crate::{
-        AnimationInventory, PackSources, TextureKey,
+        AnimationInventory,
         animation::{
             AnimationLimits, AnimationPlan, DecodedImage, compile_animation_plan,
             compile_animation_plan_selected,
         },
         compile_biome_assets,
-        image::{decode_static_texture, decode_texture, normalize_texture_tile},
-        pack::{read_pack, resolve_texture_key},
     },
     assets::BlockFace,
 };
@@ -333,6 +335,11 @@ fn compile_pack_inner(
         if visuals::end_portal_frame::is_record(record)
             && let Some((descriptor, key)) =
                 visuals::end_portal_frame::eye_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
+        if visuals::lever::is_record(record)
+            && let Some((descriptor, key)) = visuals::lever::base_descriptor(&pack, record)
         {
             descriptor_keys.insert(descriptor, key);
         }
@@ -717,7 +724,7 @@ fn compile_runtime_animation_plan(
                 .filter(|candidate| candidate.path == source_path)
                 .all(|candidate| candidate.flipbook_selector.is_some())
         {
-            crate::image::retain_first_strip_frame(&mut decoded);
+            pack_compile_input::image::retain_first_strip_frame(&mut decoded);
         }
         if decoded.width != decoded.height {
             if fallback_only {
@@ -865,35 +872,6 @@ fn runtime_animation_tables(plan: &AnimationPlan) -> Result<CompiledAnimations, 
         .collect::<Vec<_>>()
         .into_boxed_slice();
     Ok((animations, plan.frames.clone()))
-}
-
-pub(crate) fn static_texture_path(
-    root: &Path,
-    source: &str,
-    key: &str,
-) -> Result<PathBuf, AssetError> {
-    let source_path = Path::new(source);
-    if source_path.extension().is_some() {
-        return Ok(root.join(source_path));
-    }
-
-    let png = root.join(format!("{source}.png"));
-    if png.try_exists().map_err(|source| AssetError::TextureIo {
-        key: key.into(),
-        path: png.clone(),
-        source,
-    })? {
-        return Ok(png);
-    }
-    let tga = root.join(format!("{source}.tga"));
-    if tga.try_exists().map_err(|source| AssetError::TextureIo {
-        key: key.into(),
-        path: tga.clone(),
-        source,
-    })? {
-        return Ok(tga);
-    }
-    Ok(png)
 }
 
 #[cfg(test)]

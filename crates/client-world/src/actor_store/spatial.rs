@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Collision dimensions retain a small positive extent after server scaling.
+const MIN_COLLISION_DIMENSION: f32 = 0.005;
+
 impl ActorSnapshot {
     /// Feet-anchored `(min, max)` box with server scale applied once.
     /// Omitted dimensions retain the generic actor defaults independently.
@@ -13,27 +16,48 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
+        if let Some(painting) = &self.painting {
+            use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
+            use protocol::PaintingDirection;
+            let [width, height] = motive(&painting.motive)
+                .size
+                .map(|side| f32::from(side) / 32.0 - PAINTING_HITBOX_INSET);
+            let half = match painting.direction {
+                PaintingDirection::South | PaintingDirection::North => {
+                    [width, height, PAINTING_HALF_DEPTH]
+                }
+                PaintingDirection::West | PaintingDirection::East => {
+                    [PAINTING_HALF_DEPTH, height, width]
+                }
+            };
+            return Some((
+                std::array::from_fn(|axis| position[axis] - half[axis]),
+                std::array::from_fn(|axis| position[axis] + half[axis]),
+            ));
+        }
         let player = matches!(self.kind, ActorKind::Player { .. });
         let dimension = |key, default| match self.metadata.get(&key) {
-            Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
-                Some(*value)
-            }
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
             Some(ActorMetadataValue::Float(_)) => player.then_some(default),
             _ => Some(default),
         };
-        let scale = self.render_scale();
-        let half_width = dimension(
+        let scale = match self.metadata.get(&SCALE_METADATA_KEY) {
+            Some(ActorMetadataValue::Float(value)) => *value,
+            _ => 1.0,
+        };
+        let width = dimension(
             BOUNDING_BOX_WIDTH_METADATA_KEY,
             DEFAULT_ACTOR_COLLISION_WIDTH,
-        )? * scale
-            * 0.5;
+        )? * scale;
         let height = dimension(
             BOUNDING_BOX_HEIGHT_METADATA_KEY,
             DEFAULT_ACTOR_COLLISION_HEIGHT,
         )? * scale;
-        if !half_width.is_finite() || !height.is_finite() {
+        if !width.is_finite() || !height.is_finite() {
             return None;
         }
+        let half_width = width.max(MIN_COLLISION_DIMENSION) * 0.5;
+        let height = height.max(MIN_COLLISION_DIMENSION);
         let [x, y, z] = position;
         Some((
             [x - half_width, y, z - half_width],
@@ -67,6 +91,9 @@ impl ActorSnapshot {
     /// Samples 0.66 of the body height above interpolated feet.
     /// Network position offsets have already been removed by the actor store.
     pub fn brightness_sample_position(&self, mut feet: [f32; 3]) -> [f32; 3] {
+        if self.painting.is_some() {
+            return feet;
+        }
         if let Some((min, max)) = self.bounding_box() {
             feet[1] += 0.66 * (max[1] - min[1]);
         }
@@ -119,3 +146,7 @@ impl ActorSnapshot {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "spatial_tests.rs"]
+mod tests;

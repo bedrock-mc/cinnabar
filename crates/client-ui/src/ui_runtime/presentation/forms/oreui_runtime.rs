@@ -1,5 +1,6 @@
 //! Adapters that project runtime authority into OreUI's typed inputs and apply its outputs.
 
+use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use launcher::menu::{MenuAction, MenuScreen, MenuView};
@@ -45,7 +46,7 @@ impl UiPresentationRuntime {
         let progress = view.connecting || view.local.progress.is_some();
         let screen = view.screen;
         self.menu_scrolls.configure_motion(
-            view.settings_options.value("screen_animations") != 0,
+            view.settings_options.value(SettingId::ScreenAnimations) != 0,
             self.menu_seconds,
         );
         let title_artwork = if screen == MenuScreen::Home && !progress {
@@ -175,6 +176,37 @@ impl UiPresentationRuntime {
         }
         self.screens.menu_sounds.clear();
         Ok(Some(hits))
+    }
+
+    /// Draws the import flow with its own scroll area and modal-only targets.
+    pub(super) fn append_oreui_minecraft_import(
+        &mut self,
+        view: &MenuView,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        let mut frame = PaintFrame {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content: size,
+            translate: &|_| None,
+            language: [0; 3],
+            now: self.menu_seconds,
+            nodes,
+            next,
+            renderers: &mut [],
+        };
+        Ok(self.screens.oreui.paint_minecraft_import(
+            view,
+            size,
+            &mut self.menu_scrolls,
+            &mut frame,
+        )?)
     }
 
     /// Draws the quit confirmation; its targets alone then count.
@@ -316,7 +348,7 @@ impl UiPresentationRuntime {
         let mut frame = PaintFrame {
             layouts: &mut self.layouts,
             font: &self.font,
-            metrics,
+            metrics: self.screens.oreui.accessibility_metrics(metrics),
             solid_page: self.solid_texture_page,
             safe_area: self.safe_area,
             content: size,

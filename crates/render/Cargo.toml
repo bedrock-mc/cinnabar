@@ -31,6 +31,7 @@ tracy-client = { version = "=0.19.0", default-features = false, features = ["ena
 mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 assets = { path = "../assets" }
+far-terrain = { path = "../far-terrain" }
 bevy.workspace = true
 glam.workspace = true
 bytemuck = { version = "1", features = ["derive"] }

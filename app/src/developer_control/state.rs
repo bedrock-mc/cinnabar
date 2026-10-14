@@ -181,6 +181,11 @@ fn actors(world: &World) -> Vec<Value> {
                 json!({
                     "unique_id": actor.unique_id,
                     "runtime_id": actor.runtime_id,
+                    "painting": actor.painting.as_ref().map(|painting| json!({
+                        "motive":painting.motive.as_ref(),
+                        "direction":format!("{:?}",painting.direction),
+                        "size_pixels":assets::painting::motive(&painting.motive).size,
+                    })),
                     "type": kind,
                     "name": name,
                     "position": actor.position,
@@ -285,10 +290,8 @@ pub(super) fn snapshot(world: &World) -> Value {
             "sign_in_fixture": menu.sign_in_fixture_state(),
         })
     });
-    #[cfg(feature = "local-mods")]
     let local_mods = crate::modding::developer_state(world);
-    #[cfg(not(feature = "local-mods"))]
-    let local_mods: Option<Value> = None;
+
     json!({
         "in_world": stream.is_some(),
         "immobile": world.get_resource::<client_state::PlayerRuntime>()

@@ -227,10 +227,10 @@ fn vanilla_mob_motion_on_native_gpu() {
 
 fn compile(pack: &Path) -> Vanilla {
     let manifest = include_bytes!("../../../../../assets/vanilla-source.json");
-    let compiled = pack_compiler::compile_entity_assets(pack, manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_entity_assets(pack, manifest).unwrap();
     let bytes = assets::encode_entity_blob(&compiled).unwrap();
     let entities = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
-    let artwork = pack_compiler::compile_actor_assets(pack, manifest).unwrap();
+    let artwork = pack_entity_compiler::compile_actor_assets(pack, manifest).unwrap();
     let catalog = assets::RuntimeActorCatalog::decode(&artwork.bytes, &entities).unwrap();
     Vanilla {
         candidates: catalog

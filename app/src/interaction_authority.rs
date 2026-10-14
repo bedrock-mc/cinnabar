@@ -197,6 +197,11 @@ pub(crate) fn observe_block_ray_using(
                 hit.hit_local.y as f32,
                 hit.hit_local.z as f32,
             ],
+            hit_world: [
+                hit.hit_world.x as f32,
+                hit.hit_world.y as f32,
+                hit.hit_world.z as f32,
+            ],
             runtime_id: hit.runtime_id,
             identity: hit.identity,
         },
@@ -211,6 +216,7 @@ pub(crate) fn fixture(
     item: protocol::VerifiedNetworkItemStack,
 ) -> FrozenBlockObservation {
     let identity = sim::CollisionQuery::synthetic(()).identity;
+    let relative_hit = [0.5, 1.0, 0.5];
     FrozenBlockObservation {
         frame: FrozenMiningFrame {
             session_generation: SessionGeneration::new(7),
@@ -233,7 +239,8 @@ pub(crate) fn fixture(
         target: FrozenMiningTarget {
             position,
             face,
-            relative_hit: [0.5, 1.0, 0.5],
+            relative_hit,
+            hit_world: std::array::from_fn(|axis| position[axis] as f32 + relative_hit[axis]),
             runtime_id: 9,
             identity,
         },
@@ -255,7 +262,7 @@ mod tests {
             local_player_unique_id: 1,
             player_position: [0.0, 70.0, 0.0],
             world_spawn_position: [0, 70, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         })
     }

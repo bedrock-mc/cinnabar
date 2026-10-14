@@ -2,6 +2,75 @@ use super::*;
 use bevy::math::Quat;
 
 #[test]
+fn sword_pack_resolution_preserves_first_and_third_person_placement_in_both_modes() {
+    use crate::presentation::equipment::display::{
+        FirstPersonHand, first_person_display_for_profile,
+    };
+    use render_model::equipment::held_sprite_display;
+    use render_model::java_animation::{self as java, JavaHand, JavaHeldItem, JavaItemMesh};
+
+    let hand = FirstPersonHand {
+        swing: 0.0,
+        equip: 1.0,
+        consume: None,
+    };
+    let shape = FirstPersonShape::Sprite {
+        mirrored_art: false,
+    };
+    let native = [
+        first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Legacy112),
+        first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Modern),
+        held_sprite_display(true),
+    ]
+    .map(|display| {
+        Mat4::from_scale_rotation_translation(
+            Vec3::splat(display.scale),
+            display.rotation,
+            display.translation,
+        )
+    });
+    let placements = native.into_iter().chain([
+        java::first_person_item(
+            JavaHand {
+                swing: 0.0,
+                equip: 1.0,
+                using: None,
+            },
+            JavaItemMesh::Sprite,
+            false,
+        ),
+        java::third_person_item(
+            JavaHeldItem::Tool {
+                rotate_around: false,
+                blocking: false,
+            },
+            JavaItemMesh::Sprite,
+        ),
+    ]);
+    for placement in placements {
+        let mut reference = None;
+        for side in [16, 32, 64, 128] {
+            let pixels = vec![255; side * side * 4];
+            let mesh =
+                render_model::held_sprite_vertices(side, side, &pixels, [0.0, 0.0, 1.0, 1.0])
+                    .unwrap();
+            // Front/back corners retain their UV labels and thickness after placement.
+            let corners: Vec<_> = mesh[..12]
+                .iter()
+                .map(|vertex| {
+                    (
+                        placement.transform_point3(Vec3::from_array(vertex.position)),
+                        vertex.uv,
+                    )
+                })
+                .collect();
+            let expected = reference.get_or_insert_with(|| corners.clone());
+            assert_eq!(corners.as_slice(), expected.as_slice(), "resolution {side}");
+        }
+    }
+}
+
+#[test]
 fn block_idle_keeps_centered_cube_geometry_and_native_camera_yaw() {
     let idle = block_pose(ItemAnimationState::default()).unwrap();
     assert_eq!(idle.axis_scale, render_model::UNIT_AXIS_SCALE);
@@ -94,7 +163,7 @@ fn apply(bone: RenderBoneTransform, point: Vec3) -> Vec3 {
 
 #[test]
 fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
-    for [width, height] in [[16, 16], [32, 16], [8, 16], [32, 32]] {
+    for [width, height] in [[8, 8], [16, 16], [32, 16], [8, 16], [32, 32], [64, 64]] {
         let long = f32::from(width.max(height));
         let bone = offhand_sprite_pose(false, [width, height]).unwrap();
         assert!((bone.translation_scale[3] - 1.0).abs() < 1e-6);
@@ -104,7 +173,7 @@ fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
             * Mat4::from_rotation_y(-20.0_f32.to_radians())
             * Mat4::from_translation(Vec3::new(-0.3125, 0.25, -0.03125));
         // Read actual front/back vertices and UV-labelled texel corners from the
-        // production mesh. Native front depth is 0; its back is 1 texel.
+        // production mesh. Native back depth scales with the longer raster side.
         let pixels = vec![255; usize::from(width) * usize::from(height) * 4];
         let mesh = render_model::held_sprite_vertices(
             usize::from(width),
@@ -114,7 +183,11 @@ fn offhand_flat_sprite_matches_native_uv_labelled_pixel_corners() {
         )
         .unwrap();
         for vertex in mesh.iter().filter(|vertex| vertex.normal[2] != 0.0) {
-            let depth = if vertex.normal[2] < 0.0 { 1.0 } else { 0.0 };
+            let depth = if vertex.normal[2] < 0.0 {
+                long / 16.0
+            } else {
+                0.0
+            };
             let native_pixel = Vec3::new(
                 vertex.uv[0] * f32::from(width),
                 depth,
@@ -138,7 +211,7 @@ fn offhand_hand_equipped_retains_native_pixel_size_and_rotation_order() {
         * Mat4::from_rotation_z(80.0_f32.to_radians());
     for column in [0.0, 11.0, 32.0] {
         for row in [0.0, 7.0, 16.0] {
-            for depth in [0.0, 1.0] {
+            for depth in [0.0, 32.0 / 16.0] {
                 let held = Vec3::new(-column, 16.0 - row, -depth) / 32.0;
                 let native_pixel =
                     Vec3::new(column, depth, row) / f32::from(NATIVE_ICON_TEXELS_PER_UNIT);

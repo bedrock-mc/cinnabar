@@ -11,11 +11,14 @@ use assets::{
 };
 use clap::Parser;
 use pack_compiler::{
-    AnimationInventory, AtmosphereCompileOptions, CompileReferenceOutcome, FontCompileError,
-    compile_atmosphere_assets_with_options, compile_entity_assets_with_behavior_report,
-    compile_entity_assets_with_report, compile_fonts, compile_pack_with_material_keys,
-    compile_vanilla_entity_refs, inspect_animation_inventory,
+    AnimationInventory, AtmosphereCompileOptions, compile_atmosphere_assets_with_options,
+    compile_pack_with_material_keys, inspect_animation_inventory,
 };
+use pack_entity_compiler::{
+    CompileReferenceOutcome, compile_entity_assets_with_behavior_report,
+    compile_entity_assets_with_report, compile_vanilla_entity_refs,
+};
+use pack_font_compiler::{FontCompileError, compile_fonts};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -60,6 +63,8 @@ mod registry_version;
 mod ui_command;
 #[path = "assetc/vanilla_pack_command.rs"]
 mod vanilla_pack_command;
+#[path = "assetc/vocabulary_command.rs"]
+mod vocabulary_command;
 
 use audio_bank_command::compile_audio_bank_command;
 use audio_command::compile_audio_assets_command;
@@ -183,6 +188,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::Vocabulary {
+            archive,
+            source_manifest,
+            out,
+            actors_out,
+        } => {
+            vocabulary_command::compile(&archive, &source_manifest, &out, &actors_out)?;
+        }
         Command::BlockPhysics {
             registry,
             seed,
@@ -282,7 +295,7 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             println!("compiled HUD extras to {}", out.display());
         }
         Command::StarterSkinAssets { pack, out } => {
-            pack_compiler::compile_starter_skins_to_file(&pack, &out)?;
+            pack_entity_compiler::compile_starter_skins_to_file(&pack, &out)?;
             println!("compiled starter skins to {}", out.display());
         }
         Command::WeatherAssets { pack, out } => {
@@ -621,7 +634,7 @@ fn required_u32(value: &serde_json::Value, field: &str) -> Result<u32, Box<dyn s
 fn write_compiled_font_assets(
     source: serde_json::Value,
     source_manifest_sha256: [u8; 32],
-    compiled: pack_compiler::CompiledFontCarrier,
+    compiled: pack_font_compiler::CompiledFontCarrier,
     out: &Path,
     report: &Path,
     sidecars: &[(&Path, &[u8])],

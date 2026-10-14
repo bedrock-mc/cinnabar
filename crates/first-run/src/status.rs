@@ -60,6 +60,20 @@ impl Status {
         }
     }
 
+    /// One line for a plain progress display, with downloads in megabytes.
+    pub(super) fn summary(&self) -> String {
+        match (self.downloaded, self.download_total) {
+            (Some(received), Some(total)) => format!(
+                "{}: {} / {} MB",
+                self.label,
+                received / 1_000_000,
+                total / 1_000_000
+            ),
+            (Some(received), None) => format!("{}: {} MB", self.label, received / 1_000_000),
+            _ => self.label.clone(),
+        }
+    }
+
     pub(super) fn failed(label: &str, error: &str) -> Self {
         Self {
             error: Some(error.to_owned()),

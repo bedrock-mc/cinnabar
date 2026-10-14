@@ -114,3 +114,29 @@ fn presentation_writes_share_the_label_budget() {
     assert!(host.hud().is_none());
     assert!(host.crosshair().is_none());
 }
+
+#[test]
+fn a_duplicate_hud_slot_is_refused_and_counted_without_trapping_the_losing_mod() {
+    let (_a, mut first) = load("call $cards", "call $cards", true);
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("second.wat");
+    std::fs::write(&path, source(CONTENT, CROSSHAIR, "", "call $cards", true)).unwrap();
+    let mut second = ModHost::load_with_grants(
+        &path,
+        ModGrants {
+            hud: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let claims = crate::HudClaims::default();
+    let budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+    first.set_frame_authority(budget.clone(), false, false, 0, claims.clone());
+    second.set_frame_authority(budget, false, false, 1, claims);
+    first.frame(false).unwrap();
+    second.frame(false).unwrap();
+    assert!(first.hud().is_some());
+    assert!(second.hud().is_none());
+    assert!(second.is_active());
+    assert_eq!(second.refused_outputs(), 1);
+}

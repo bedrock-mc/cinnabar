@@ -399,6 +399,108 @@ fn unknown_runtime_id_collision_data_is_also_deferred_as_transient() {
 }
 
 #[test]
+fn block_sample_limits_keep_physics_authority_without_accumulating_tick_debt() {
+    struct LimitedBlocks;
+
+    impl CollisionWorld for LimitedBlocks {
+        /// Supplies empty solid terrain so the limit belongs to block sampling.
+        fn collision_boxes(
+            &self,
+            _query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ok(CollisionQuery::synthetic(Vec::new()))
+        }
+
+        /// Reports an exhausted block-query budget before publishing any block facts.
+        fn block_physics(
+            &self,
+            _block: [i32; 3],
+        ) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+            Err(WorldQueryError::QueryExtentExceeded)
+        }
+    }
+
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 2.620_01, 0.0], 0, true);
+    let before = physics.state().unwrap().clone();
+    for _ in 0..12 {
+        let frame = physics.advance(
+            Duration::from_millis(250),
+            MovementInput::default(),
+            &LimitedBlocks,
+        );
+        assert_eq!(frame.due_ticks, 5);
+        assert_eq!(frame.completed_ticks, 0);
+        assert_eq!(frame.dropped_ticks, 0);
+        assert_eq!(
+            frame.blocked,
+            Some(sim::SimulationError::World(
+                WorldQueryError::QueryExtentExceeded
+            ))
+        );
+        assert_eq!(physics_authority_fault_for_frame(&frame), None);
+        assert!(physics.is_active());
+        assert_eq!(physics.state(), Some(&before));
+    }
+
+    let retry = physics.advance(Duration::ZERO, MovementInput::default(), &Floor);
+    assert_eq!(retry.due_ticks, 0);
+    assert_eq!(retry.completed_ticks, 0);
+    let resumed = physics.advance(Duration::from_millis(50), MovementInput::default(), &Floor);
+    assert_eq!(resumed.completed_ticks, 1);
+    assert!(resumed.blocked.is_none());
+    assert_eq!(physics_authority_fault_for_frame(&resumed), None);
+}
+
+#[test]
+fn fast_diagonal_flight_exit_keeps_walking_physics_active() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.5, 101.620_01, 0.5], 100, false);
+    let diagonal = 25.0_f32 / std::f32::consts::SQRT_2;
+    physics.queue_server_motion([diagonal, 0.0, diagonal], 101);
+    let flying = physics.advance_with_context(
+        Duration::from_millis(50),
+        MovementInput {
+            strafe: 1.0,
+            forward: 1.0,
+            ..MovementInput::default()
+        },
+        PhysicsSampleContext {
+            mode_intent: super::ModeIntent {
+                can_fly: true,
+                server_flying: true,
+                creative_flight: true,
+                fly_speed: Some(0.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        &Floor,
+    );
+    assert_eq!(flying.completed_ticks, 1);
+    assert!(flying.blocked.is_none());
+    assert_eq!(physics.mode(), sim::MovementMode::Flying);
+    let before = physics.state().unwrap().clone();
+    assert!(before.velocity.x > 16.0 && before.velocity.z > 16.0);
+
+    let walking = physics.advance_with_context(
+        Duration::from_millis(50),
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &Floor,
+    );
+    assert_eq!(walking.completed_ticks, 1);
+    assert!(walking.blocked.is_none());
+    assert_eq!(physics_authority_fault_for_frame(&walking), None);
+    assert!(physics.is_active());
+    assert_eq!(physics.mode(), sim::MovementMode::Walking);
+    let after = physics.state().unwrap();
+    assert_eq!(after.tick, before.tick + 1);
+    assert!(after.position.x > before.position.x + 16.0);
+    assert!(after.position.z > before.position.z + 16.0);
+}
+
+#[test]
 fn local_physics_catch_up_overflow_stays_contiguous_and_keeps_authority() {
     // A render-frame stall that exceeds the per-frame tick budget drops the
     // excess due time instead of simulating it late. The retained samples stay

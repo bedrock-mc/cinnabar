@@ -135,3 +135,6 @@ pub const MAX_OBSERVED_ACTOR_BOXES: usize = 8;
 pub const MAX_OBSERVED_ACTOR_NAME_BYTES: usize = 128;
 pub const MAX_OBSERVED_COMBAT_EVENTS: usize = 64;
 pub const MAX_COMBAT_READ_EVENTS: usize = 4;
+
+/// Total regular frame-callback fuel shared across all local mods.
+pub const TOTAL_MOD_FRAME_FUEL: u64 = 200_000;

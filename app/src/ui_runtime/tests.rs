@@ -6,40 +6,27 @@ mod forms_fixture;
 mod forms_interaction_tests;
 pub(crate) mod menu_input_tests;
 
+/// A tap that lifts within one frame still routes its control, exactly once.
 #[test]
-fn gameplay_touch_targets_remain_unreachable_without_native_layout_authority() {
+fn lifted_touch_samples_route_once() {
     use crate::semantic_controls::SemanticTouchTargets;
-    use crate::ui_runtime::gameplay_touch::{
-        GameplayTouchSample, reconcile_gameplay_touch_targets,
-    };
+    use semantic_input::{TouchContact, touch};
 
     let mut targets = SemanticTouchTargets::default();
-    reconcile_gameplay_touch_targets(
-        &mut targets,
-        &[
-            GameplayTouchSample::new(1, [0.25, 0.75], [0.0, 0.0]),
-            GameplayTouchSample::new(2, [0.75, 0.75], [0.0, 0.0]),
-            GameplayTouchSample::new(3, [0.90, 0.75], [0.0, 0.0]),
-            GameplayTouchSample::new(4, [0.70, 0.40], [0.08, 0.01]),
-            GameplayTouchSample::new(5, [0.25, 0.25], [0.0, 0.0]),
-        ],
-    );
-
-    assert_eq!(targets.target(1), None);
-    assert_eq!(targets.target(2), None);
-    assert_eq!(targets.target(3), None);
-    assert_eq!(targets.target(4), None);
-    assert_eq!(targets.target(5), None);
-
-    reconcile_gameplay_touch_targets(
-        &mut targets,
-        &[GameplayTouchSample::new(4, [0.62, 0.40], [-0.08, 0.01])],
-    );
-    assert_eq!(targets.target(2), None);
-    assert_eq!(targets.target(3), None);
-    assert_eq!(targets.target(4), None);
-
-    reconcile_gameplay_touch_targets(&mut targets, &[]);
+    let sample = TouchContact {
+        contact_id: 4,
+        activity_sequence: 0,
+        position: [0.6, 0.4],
+        delta: [0.1, 0.0],
+        hit_id: Some(touch::LOOK_SURFACE),
+    };
+    targets.set_sample(&sample);
+    assert_eq!(targets.target(4), Some(touch::LOOK_SURFACE));
+    assert_eq!(targets.delta(4), Some([0.1, 0.0]));
+    targets.pulse(sample.clone());
+    assert_eq!(targets.take_pulses(), vec![sample]);
+    assert!(targets.take_pulses().is_empty());
+    targets.release_all();
     assert_eq!(targets.target(4), None);
 }
 

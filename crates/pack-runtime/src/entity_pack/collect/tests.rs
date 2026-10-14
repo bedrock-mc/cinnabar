@@ -149,8 +149,10 @@ fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, bytes).unwrap();
         }
-        let vanilla = pack_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
-        let startup = pack_compiler::compile_actor_pack(files).unwrap().unwrap();
+        let vanilla = pack_entity_compiler::compile_vanilla_entity_refs(root.path()).unwrap();
+        let startup = pack_entity_compiler::compile_actor_pack(files)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             startup
                 .equipment_bindings
@@ -167,7 +169,7 @@ fn changing_mob_geometry_keeps_the_preferred_player_armour_variant() {
             (&format!("{texture}.png"), &pixels),
             ("models/entity/replacement.json", &replacement),
         ]));
-        let compiled = pack_compiler::compile_actor_pack(super::collect_files(
+        let compiled = pack_entity_compiler::compile_actor_pack(super::collect_files(
             &view,
             Some(&vanilla),
             Some(root.path()),
@@ -440,7 +442,7 @@ fn artwork_only_is_decided_from_each_items_authored_dependencies() {
             "wield_first_person": "animation.coat.first", "wield_third_person": "animation.coat.third"},
         "animation_controllers": [{"active": "controller.animation.coat.extra"}]
     }}});
-    let inputs = pack_compiler::EquipmentBindingDependencies::default();
+    let inputs = pack_entity_compiler::EquipmentBindingDependencies::default();
     let authored = BTreeSet::new();
     let unrelated = BTreeSet::from(["geometry.other".into(), "controller.render.other".into()]);
     assert!(binding_inputs_unchanged(
@@ -537,9 +539,11 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
         let mut materials = serde_json::Map::new();
         materials.insert(declaration.into(), fields);
         let authored = json!({"materials": materials});
-        let inputs =
-            pack_compiler::EquipmentBindingDependencies::load(Some(root.path()), Some(&authored))
-                .unwrap();
+        let inputs = pack_entity_compiler::EquipmentBindingDependencies::load(
+            Some(root.path()),
+            Some(&authored),
+        )
+        .unwrap();
         assert_eq!(
             binding_inputs_unchanged(
                 &document,
@@ -552,4 +556,27 @@ fn artwork_only_checks_installed_material_parents_and_skinning_variants() {
             "{declaration}"
         );
     }
+}
+
+#[test]
+fn referenced_painting_texture_still_inherits_the_installed_raster() {
+    let base = tempfile::tempdir().unwrap();
+    let stem = assets::painting::PAINTING_ATLAS;
+    let path = format!("{stem}.png");
+    std::fs::create_dir_all(base.path().join("textures/painting")).unwrap();
+    std::fs::write(base.path().join(&path), b"installed raster").unwrap();
+    let entity = serde_json::json!({"minecraft:client_entity":{"description":{
+        "identifier":"fixture:picture", "textures":{"default":stem}
+    }}})
+    .to_string();
+    let view = resource_pack::LayeredPackView::new(crate::test_support::stack(&[(
+        "entity/fixture.json",
+        entity.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(base.path()));
+    assert!(
+        files
+            .iter()
+            .any(|(file, bytes)| file.as_ref() == path && bytes == b"installed raster")
+    );
 }

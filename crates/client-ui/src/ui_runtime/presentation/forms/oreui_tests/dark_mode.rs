@@ -1,5 +1,6 @@
 //! Dark mode through the menu adapter: applied immediately, restorable and kept across loading.
 
+use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use super::super::super::UiPresentationRuntime;
@@ -39,12 +40,10 @@ fn home_quit_confirmation_uses_oreui_without_a_legacy_popup_and_traps_clicks() {
         hits.iter()
             .any(|(action, _)| *action == MenuAction::DismissDialog)
     );
-    assert!(
-        hits.iter().all(|(action, _)| matches!(
-            action,
-            MenuAction::ConfirmExit | MenuAction::DismissDialog
-        ))
-    );
+    assert!(hits.iter().all(|(action, _)| matches!(
+        action,
+        MenuAction::ConfirmExit | MenuAction::DismissDialog | MenuAction::CloseExitDialog
+    )));
     assert!(
         solids(&nodes)
             .iter()
@@ -98,7 +97,7 @@ fn dark_mode_applies_immediately_and_restores_the_default_without_changing_input
         // An appearance change must not depend on the motion setting.
         let motion = SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "screen_animations")
+            .position(|option| option.id == SettingId::ScreenAnimations)
             .unwrap();
         Arc::make_mut(&mut view.settings_options).set(motion, 0);
         runtime.screens.oreui.transitions.configure_motion(false);
@@ -169,7 +168,7 @@ fn dark_mode_setting_has_a_label_description_and_reachable_toggle() {
     draw(&mut runtime, &view);
     let motion = SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "screen_animations")
+        .position(|option| option.id == SettingId::ScreenAnimations)
         .unwrap();
     Arc::make_mut(&mut view.settings_options).set(motion, 0);
     let option = SETTINGS_OPTIONS

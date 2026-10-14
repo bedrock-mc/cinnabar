@@ -103,7 +103,7 @@ fn world() -> WorldAuthority {
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-4,0,-4],"size":[8,8,8],"uv":[0,0]}]}]}]}"#;
     let animation = br#"{"format_version":"1.8.0","animations":{"animation.test.swing":{"loop":true,"animation_length":1,"bones":{"body":{"rotation":["query.life_time * 90",0,0]}}}}}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         (
             "entity/player.json".into(),
             entity("minecraft:player").into_bytes(),
@@ -125,7 +125,7 @@ fn world() -> WorldAuthority {
             local_player_unique_id: 1,
             player_position: [0.0, 64.0, 0.0],
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(RuntimeAssets::diagnostic()),

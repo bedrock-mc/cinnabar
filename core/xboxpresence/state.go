@@ -6,6 +6,7 @@ import (
 
 	"github.com/df-mc/go-xsapi/v2/presence"
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 )
 
@@ -20,20 +21,20 @@ type State struct {
 // ID selects a base world activity or the generic featured/experience activity.
 func (s State) ID() string {
 	if !s.InWorld {
-		return "Menus"
+		return bridgecontract.PresenceActivityMenus
 	}
 	if s.Experience {
-		return "COM_Experience"
+		return bridgecontract.PresenceActivityExperience
 	}
-	activity := "Survival"
+	activity := bridgecontract.PresenceActivitySurvival
 	switch s.GameMode {
-	case 1:
-		activity = "Creative"
-	case 2:
-		activity = "Adventure"
+	case bridgecontract.PresenceGameModeCreative:
+		activity = bridgecontract.PresenceActivityCreative
+	case bridgecontract.PresenceGameModeAdventure:
+		activity = bridgecontract.PresenceActivityAdventure
 	}
 	if s.Realm {
-		return "Realm_" + activity
+		return bridgecontract.PresenceActivityRealmPrefix + activity
 	}
 	return activity
 }

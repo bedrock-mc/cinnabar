@@ -4,6 +4,8 @@ use super::input::command_macros::macro_editors;
 use super::input::fields::field_editor;
 #[cfg(feature = "developer-control")]
 use launcher::menu::MenuDialog;
+#[cfg(test)]
+use launcher::menu::settings_options::SettingId;
 use launcher::menu::settings_options::{SETTINGS_FILE, SettingsOptions};
 use {
     super::*, launcher::install_layout::InstallLayout, launcher::menu::MenuField,
@@ -23,13 +25,32 @@ impl MenuRuntime {
         Self::new_with_layout(visible, Some(gui_scale), display_name, layout, player_skin)
     }
 
-    /// Loads launcher state and both settings authorities for this install.
+    /// Loads saved launcher state without probing the host for Minecraft installations.
     pub fn new_with_layout(
         visible: bool,
         gui_scale: Option<u8>,
         display_name: String,
         layout: InstallLayout,
         player_skin: crate::player_skin::LocalPlayerSkin,
+    ) -> Self {
+        Self::new_with_import_snapshot(
+            visible,
+            gui_scale,
+            display_name,
+            layout,
+            player_skin,
+            launcher::minecraft_import::Snapshot::default(),
+        )
+    }
+
+    /// Loads launcher state with an import offer explicitly supplied by startup or a fixture.
+    pub fn new_with_import_snapshot(
+        visible: bool,
+        gui_scale: Option<u8>,
+        display_name: String,
+        layout: InstallLayout,
+        player_skin: crate::player_skin::LocalPlayerSkin,
+        minecraft_import: launcher::minecraft_import::Snapshot,
     ) -> Self {
         let config_path = layout.server_file();
         let loaded = load_servers(&config_path);
@@ -48,6 +69,9 @@ impl MenuRuntime {
         let language_pending = settings_options.language().is_some();
         let language_choices = SettingsOptions::language_choices(&layout.resource_root);
         let mut initial = MenuView::new(visible, display_name);
+        if visible && minecraft_import.phase == launcher::minecraft_import::Phase::Offered {
+            initial.dialog = Some(launcher::menu::MenuDialog::MinecraftImport);
+        }
         #[cfg(feature = "developer-control")]
         let sign_in_fixture = super::sign_in_fixture::startup();
         #[cfg(feature = "developer-control")]
@@ -153,10 +177,12 @@ impl MenuRuntime {
             presentation_accounts: false,
             sign_out_requested: false,
             accounts: Default::default(),
-            store_actions: Vec::new(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,
-            store_snapshot: initial.store,
+            mod_actions: Vec::new(),
+            mods: initial.mods,
+            minecraft_import: std::sync::Arc::new(minecraft_import),
+            minecraft_import_requests: Vec::new(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
             settings_dropdown: initial.settings_dropdown,
@@ -194,6 +220,48 @@ mod tests {
     use {super::*, launcher::menu::view::MenuView};
 
     #[test]
+    fn import_detection_is_supplied_explicitly_to_menu_construction() {
+        use launcher::minecraft_import::{Action, Phase, Snapshot};
+        let layout = launcher::test_support::scratch("menu-import-detection");
+        let skin = crate::player_skin::LocalPlayerSkin::generated_default("Fixture");
+        let synthetic = MenuRuntime::new_with_layout(
+            true,
+            Some(2),
+            "Fixture".into(),
+            layout.clone(),
+            skin.clone(),
+        )
+        .view();
+        assert_eq!(synthetic.minecraft_import.phase, Phase::Idle);
+        assert_eq!(synthetic.dialog, None);
+        for visible in [false, true] {
+            let offered = MenuRuntime::new_with_import_snapshot(
+                visible,
+                Some(2),
+                "Fixture".into(),
+                layout.clone(),
+                skin.clone(),
+                Snapshot {
+                    phase: Phase::Offered,
+                    ..Default::default()
+                },
+            )
+            .view();
+            assert_eq!(offered.minecraft_import.phase, Phase::Offered);
+            assert_eq!(
+                offered.dialog,
+                visible.then_some(launcher::menu::MenuDialog::MinecraftImport)
+            );
+            if visible {
+                assert_eq!(
+                    offered.focused_action,
+                    Some(launcher::menu::MenuAction::MinecraftImport(Action::Begin))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn shared_initial_view_matches_the_host_before_services_are_loaded() {
         let layout = launcher::test_support::scratch("initial-menu-view");
         let display_name = "Initial view".to_owned();
@@ -226,12 +294,15 @@ mod tests {
     #[test]
     fn test_menus_never_share_saved_settings() {
         let mut first = MenuRuntime::new(true, 2, "Steve".to_owned());
-        let default = first.settings_options.value("field_of_view");
-        first.set_named_option("field_of_view", default + 1);
+        let default = first.settings_options.value(SettingId::FieldOfView);
+        first.set_named_option(SettingId::FieldOfView, default + 1);
         first.sync_user_settings(None);
         assert!(!first.settings_dirty, "{:?}", first.message);
 
         let second = MenuRuntime::new(true, 2, "Steve".to_owned());
-        assert_eq!(second.settings_options.value("field_of_view"), default);
+        assert_eq!(
+            second.settings_options.value(SettingId::FieldOfView),
+            default
+        );
     }
 }

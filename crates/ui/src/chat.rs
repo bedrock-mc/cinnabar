@@ -175,6 +175,18 @@ impl ChatEditor {
         }
     }
 
+    /// Move the caret to the start of the word before it, skipping whitespace first;
+    /// `selecting` extends the selection instead of dropping it.
+    pub fn move_word_left(&mut self, selecting: bool) {
+        self.move_to(previous_word_boundary(&self.text, self.cursor), selecting);
+    }
+
+    /// Move the caret past the word after it and the whitespace that follows;
+    /// `selecting` extends the selection instead of dropping it.
+    pub fn move_word_right(&mut self, selecting: bool) {
+        self.move_to(next_word_boundary(&self.text, self.cursor), selecting);
+    }
+
     pub fn move_home(&mut self, selecting: bool) {
         self.move_to(0, selecting);
     }
@@ -197,6 +209,25 @@ impl ChatEditor {
             return;
         }
         let end = next_boundary(&self.text, self.cursor);
+        self.text.replace_range(self.cursor..end, "");
+    }
+
+    /// Delete back to the start of the word before the caret, or the selection.
+    pub fn backspace_word(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
+        let start = previous_word_boundary(&self.text, self.cursor);
+        self.text.replace_range(start..self.cursor, "");
+        self.cursor = start;
+    }
+
+    /// Delete the word after the caret and the whitespace that follows, or the selection.
+    pub fn delete_word(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
+        let end = next_word_boundary(&self.text, self.cursor);
         self.text.replace_range(self.cursor..end, "");
     }
 
@@ -242,6 +273,25 @@ fn next_boundary(value: &str, cursor: usize) -> usize {
         .char_indices()
         .nth(1)
         .map_or(value.len(), |(index, _)| cursor + index)
+}
+
+/// The start of the whitespace-delimited word before `cursor`.
+fn previous_word_boundary(value: &str, cursor: usize) -> usize {
+    let before = value[..cursor].trim_end_matches(char::is_whitespace);
+    before
+        .char_indices()
+        .rfind(|(_, character)| character.is_whitespace())
+        .map_or(0, |(index, character)| index + character.len_utf8())
+}
+
+/// The start of the word after the one at `cursor`, or the text's end.
+fn next_word_boundary(value: &str, cursor: usize) -> usize {
+    let after = &value[cursor..];
+    let word = after.find(char::is_whitespace).unwrap_or(after.len());
+    let gap = after[word..]
+        .find(|character: char| !character.is_whitespace())
+        .unwrap_or(after.len() - word);
+    cursor + word + gap
 }
 
 #[derive(Clone, Debug, Default)]

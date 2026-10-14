@@ -97,6 +97,8 @@ pub struct ActorPose {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ActorSnapshot {
+    /// Dedicated hanging-picture state; ordinary AddActor spawns do not supply it.
+    pub painting: Option<protocol::PaintingData>,
     pub unique_id: i64,
     pub runtime_id: u64,
     pub spawn_revision: u64,
@@ -202,6 +204,7 @@ impl ActorSnapshot {
             head_yaw: spawn.head_yaw,
         };
         let mut snapshot = Self {
+            painting: None,
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
             spawn_revision,
@@ -264,6 +267,7 @@ impl ActorSnapshot {
             head_yaw: feed.head_yaw,
         };
         let mut snapshot = Self {
+            painting: None,
             unique_id,
             runtime_id,
             spawn_revision: revision,
@@ -689,6 +693,7 @@ pub(crate) struct ActorStore {
     retained_player_skin_bytes: usize,
     ignored_movement_components: u64,
     actor_identifier_skips: u64,
+    painting_motive_fallbacks: u64,
     player_game_mode_skips: u64,
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
@@ -764,6 +769,8 @@ pub(crate) struct ActorStore {
     synchronized_audio: synchronized_audio::SynchronizedAudio,
 }
 
+pub use synchronized_audio::{FIREWORK_ROCKET_IDENTIFIER, ROCKET_LAUNCH_EVENT};
+
 mod cloud_particles;
 pub(crate) mod creeper;
 mod crystal_beam;
@@ -786,6 +793,9 @@ mod lifecycle;
 mod lightning;
 mod mount;
 mod movement_interpolation;
+#[cfg(test)]
+mod painting_tests;
+mod paintings;
 mod placement;
 mod projectile;
 pub(crate) mod properties;
@@ -827,9 +837,9 @@ fn retained_skin_bytes(skin: &PlayerSkin) -> usize {
 
 fn event_dimension(event: &ActorEvent) -> Option<i32> {
     match event {
-        ActorEvent::Spawn(event) | ActorEvent::PlayerSpawn { spawn: event, .. } => {
-            Some(event.dimension)
-        }
+        ActorEvent::Spawn(event)
+        | ActorEvent::PlayerSpawn { spawn: event, .. }
+        | ActorEvent::PaintingSpawn { spawn: event, .. } => Some(event.dimension),
         ActorEvent::Remove(event) => Some(event.dimension),
         ActorEvent::Move(event) => Some(event.dimension),
         ActorEvent::Metadata(event) => Some(event.dimension),

@@ -38,6 +38,8 @@ mod hollow_containers;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lever.rs"]
+mod lever;
 #[path = "tests/lightning_rod.rs"]
 mod lightning_rod;
 #[path = "tests/potted_plants.rs"]
@@ -244,7 +246,7 @@ fn synthetic_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord
     }
 }
 
-fn empty_pack_sources() -> crate::PackSources {
+fn empty_pack_sources() -> pack_compile_input::PackSources {
     let directory = tempfile::tempdir().expect("create empty-pack fixture");
     // `read_pack` borrows nothing from the directory after parsing, so leak
     // the temporary directory for the lifetime of the returned sources.
@@ -256,7 +258,7 @@ fn empty_pack_sources() -> crate::PackSources {
         r#"{"texture_data":{}}"#,
     );
     write(root.join("textures/flipbook_textures.json"), "[]");
-    crate::pack::read_pack(&root).expect("parse synthetic empty pack")
+    pack_compile_input::pack::read_pack(&root).expect("parse synthetic empty pack")
 }
 
 fn no_exact_admissions() -> super::visuals::dispatcher::ExactAdmissions {

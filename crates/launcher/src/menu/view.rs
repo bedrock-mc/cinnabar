@@ -75,10 +75,10 @@ impl MenuRealmCard {
 }
 
 /// Marks a featured address as an experience's ID, joined when selected.
-pub const EXPERIENCE_ADDRESS_PREFIX: &str = "gathering/";
+pub const EXPERIENCE_ADDRESS_PREFIX: &str = bridge::contract::GATHERING_TARGET_PREFIX;
 
 /// Marks an address as the friend world hosted by this XUID.
-pub const FRIEND_ADDRESS_PREFIX: &str = "friend_xuid/";
+pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
 
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
@@ -393,7 +393,6 @@ impl JoinProgress {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuHome {
     pub play_art: Option<ButtonArt>,
-    pub store_art: Option<ButtonArt>,
     pub inbox_unread: u32,
     pub inbox_counts: std::collections::BTreeMap<usize, u32>,
     pub realm_invites: u32,
@@ -548,6 +547,8 @@ pub struct MenuView {
     pub player_skin: Option<render_api::StandardSkin>,
     pub player_skin_model: crate::dressing_room::SkinModel,
     pub global_resources: std::sync::Arc<crate::global_resources::Snapshot>,
+    pub mods: std::sync::Arc<crate::mods::Snapshot>,
+    pub minecraft_import: std::sync::Arc<crate::minecraft_import::Snapshot>,
     /// Why the last session ended, shown until acknowledged.
     pub disconnect_message: Option<String>,
     /// The failed remote destination can be retried by the current account.
@@ -572,8 +573,6 @@ pub struct MenuView {
     pub settings_advanced_graphics: bool,
     pub language_choices: std::sync::Arc<[(String, String)]>,
     pub feeds: MenuFeeds,
-    /// The Marketplace's state while its screen is up.
-    pub store: Option<std::sync::Arc<crate::store::StoreSnapshot>>,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
     pub hosting: bool,
     /// The code invitation flow covering the Realms tab.
@@ -700,7 +699,13 @@ impl MenuView {
         option: &super::settings_options::SettingDefinition,
         choice: usize,
     ) -> bool {
-        option.name != super::settings_options::UPDATE_CHANNEL_OPTION.name
+        if option.id == super::settings_options::graphics_api::OPTION.id {
+            return super::settings_options::graphics_api::visible(
+                choice,
+                crate::graphics_backend::Platform::current(),
+            );
+        }
+        option.id != super::settings_options::UPDATE_CHANNEL_OPTION.id
             || self.updates.channel_visible(choice)
     }
 
@@ -798,6 +803,8 @@ impl MenuView {
             player_skin: None,
             player_skin_model: Default::default(),
             global_resources: Default::default(),
+            mods: Default::default(),
+            minecraft_import: Default::default(),
             disconnect_message: None,
             can_reconnect: false,
             editing: None,
@@ -816,7 +823,6 @@ impl MenuView {
             settings_advanced_graphics: false,
             language_choices: Default::default(),
             feeds: Default::default(),
-            store: None,
             hosting: false,
             realm_membership: None,
             invite: None,

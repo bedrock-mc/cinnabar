@@ -30,7 +30,9 @@ func withPlayer(t *testing.T, mode world.GameMode, f func(tx *world.Tx, p *playe
 	t.Cleanup(func() { _ = w.Close() })
 	task := w.Do(func(tx *world.Tx) {
 		handle := world.EntitySpawnOpts{Position: mgl64.Vec3{0, 10, 0}}.New(player.Type, player.Config{Name: "tester", GameMode: mode})
-		f(tx, tx.AddEntity(handle).(*player.Player))
+		p := tx.AddEntity(handle).(*player.Player)
+		p.Handle(&localPlayerHandler{})
+		f(tx, p)
 	})
 	if err := task.Err(); err != nil {
 		t.Fatal(err)

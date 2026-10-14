@@ -8,6 +8,7 @@ pub mod interaction;
 pub mod presentation;
 pub mod scene_stack;
 pub mod sign_editor;
+pub(crate) mod touch_pointer;
 
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 pub(crate) use interaction::{

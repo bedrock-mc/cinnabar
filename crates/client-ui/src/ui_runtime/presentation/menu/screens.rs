@@ -28,8 +28,7 @@ pub(super) fn append(
     content: ContentArea,
 ) -> Result<(), UiPresentationError> {
     match view.screen {
-        // Without the engine the Marketplace has no launcher-style screen; show the start screen.
-        MenuScreen::Home | MenuScreen::Store => home(
+        MenuScreen::Home => home(
             view, nodes, hits, next_id, layouts, font, metrics, solid_page, content,
         ),
         MenuScreen::Play => play(

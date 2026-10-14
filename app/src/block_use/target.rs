@@ -1,7 +1,7 @@
 //! Adapts fresh world evidence to the gameplay-owned held placement intention.
 use gameplay::{
     block_use::PlacementTarget,
-    melee::{Crosshair, classify, pick_actor},
+    melee::{Crosshair, classify_block_hit, pick_actor},
 };
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::CollisionWorld;
@@ -74,10 +74,11 @@ pub(super) fn observe_use_target(
             };
             let (origin, direction) = (vector(pick.origin), vector(pick.direction));
             let hit = world.block_interaction_ray_current(origin, direction, reach)?;
-            let mut actor = match classify(actor, hit.as_ref().map(|hit| hit.distance), reach) {
-                Crosshair::Actor(actor) => Some(actor),
-                _ => None,
-            };
+            let mut actor =
+                match classify_block_hit(actor, pick.origin.to_array(), hit.as_ref(), reach) {
+                    Crosshair::Actor(actor) => Some(actor),
+                    _ => None,
+                };
             let indirect = if hit.is_none() && actor.is_none() {
                 world.block_use_miss_support_current(origin, direction)?
             } else {
@@ -103,19 +104,7 @@ pub(super) fn observe_use_target(
                 block = None;
             }
             let endpoint = actor.map_or_else(
-                || {
-                    block.map_or(origin + direction * reach, |hit| {
-                        if indirect.is_some() {
-                            sim::Vec3::new(
-                                f64::from(hit.block_pos[0]) + hit.hit_local.x,
-                                f64::from(hit.block_pos[1]) + hit.hit_local.y,
-                                f64::from(hit.block_pos[2]) + hit.hit_local.z,
-                            )
-                        } else {
-                            origin + direction * hit.distance
-                        }
-                    })
-                },
+                || block.map_or(origin + direction * reach, |hit| hit.hit_world),
                 |actor| {
                     sim::Vec3::new(
                         f64::from(actor.point[0]),
@@ -143,7 +132,7 @@ pub(super) fn observe_use_target(
                 .primary_is_air(target.position)?
                 .ok_or(sim::WorldQueryError::InvalidRayOrigin)?;
             let runtime_id = world.primary_runtime_id(target.position)?;
-            // Miss continuation uses the support corner; a real pick retains its world intercept.
+            // Miss continuation uses the support corner; a real pick keeps its click coordinates.
             let click = orientation_hit
                 .map(|point| point.map(f64::from))
                 .unwrap_or_else(|| {
@@ -168,6 +157,7 @@ pub(super) fn observe_use_target(
                     click[1] - target.position[1] as f64,
                     click[2] - target.position[2] as f64,
                 ),
+                hit_world: endpoint,
                 runtime_id,
                 distance: actor.map_or_else(
                     || block.map_or(reach, |hit| hit.distance),

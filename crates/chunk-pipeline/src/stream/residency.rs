@@ -63,7 +63,11 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
+        self.forget_near_drawn(&columns);
+        self.forget_full_detail_handoffs(&columns);
+        self.note_far_unloaded(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
             self.evict_block_crack_column(column);
@@ -129,7 +133,8 @@ impl WorldStream {
             if !removing_all {
                 self.lighting.remove_key(key);
             }
-            self.mark_dirty_exact(key, now);
+            // Removals publish whatever detail the column had, so no mesh outlives it.
+            self.mark_dirty_exact_ungated(key, now, false);
         }
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);
@@ -140,6 +145,7 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             rayon::spawn(move || drop((retired, retired_indexes)));
         }
+        self.far_terrain.retiring.extend(far_retiring);
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours
@@ -166,7 +172,13 @@ impl WorldStream {
                     }
                     let face = dx == 0 || dz == 0;
                     for &key in self.resident.column(ChunkKey::new(column.dimension, x, z)) {
-                        if face && removed_heights.contains(&key.y) {
+                        if face
+                            && removed_heights.contains(&key.y)
+                            && self.removal_can_change_light(
+                                SubChunkKey::from_chunk(*column, key.y),
+                                key,
+                            )
+                        {
                             light.insert(key);
                         }
                         let below = key.y.saturating_sub(1);
@@ -349,7 +361,7 @@ impl WorldStream {
     }
 
     /// Local physics advances the player grid between server corrections.
-    fn player_chunk(&self) -> ChunkKey {
+    pub(super) fn player_chunk(&self) -> ChunkKey {
         if let Some(chunk) = self.local_player_chunk {
             return chunk;
         }

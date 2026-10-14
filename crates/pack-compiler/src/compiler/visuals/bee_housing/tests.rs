@@ -34,7 +34,7 @@ fn retained_honey_fronts_resolve_the_second_catalog_variant() {
     )
     .unwrap();
     std::fs::write(root.path().join("textures/flipbook_textures.json"), "[]").unwrap();
-    let pack = crate::read_pack(root.path()).unwrap();
+    let pack = pack_compile_input::read_pack(root.path()).unwrap();
     let descriptors = bee_housing_material_descriptors(&pack).unwrap();
     std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
     for (descriptor, _) in &descriptors {

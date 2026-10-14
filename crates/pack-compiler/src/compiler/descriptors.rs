@@ -40,24 +40,22 @@ pub(super) fn descriptor_for(
     {
         flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
     }
-    if crate::respawn_anchor::is_record(record)
+    if pack_compile_input::respawn_anchor::is_record(record)
         || visuals::shelf::is_record(record)
         || visuals::sea_pickle::is_record(record)
         || visuals::brewing_stand::is_record(record)
         || visuals::campfire::is_record(record)
         || visuals::grindstone::is_record(record)
         || visuals::tripwire_hook::is_record(record)
+        || visuals::lever::is_record(record)
         || visuals::end_portal_frame::is_record(record)
         || visuals::end_rod::is_record(record)
         || visuals::lightning_rod::is_record(record)
         || visuals::bamboo::is_record(record)
+        || visuals::lantern::is_record(record)
         || matches!(
             record.name.as_ref(),
-            "minecraft:flower_pot"
-                | "minecraft:lantern"
-                | "minecraft:soul_lantern"
-                | "minecraft:azalea"
-                | "minecraft:flowering_azalea"
+            "minecraft:flower_pot" | "minecraft:azalea" | "minecraft:flowering_azalea"
         )
     {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
@@ -110,7 +108,7 @@ pub(super) fn descriptor_for(
     Some((
         Descriptor {
             state_variant,
-            flipbook_selector: crate::respawn_anchor::is_record(record)
+            flipbook_selector: pack_compile_input::respawn_anchor::is_record(record)
                 .then_some((state_variant, state_variant)),
             path: path.into(),
             texture_key: key.clone(),

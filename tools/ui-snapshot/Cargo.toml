@@ -1,0 +1,26 @@
+[package]
+name = "ui-snapshot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+assets = { path = "../../crates/assets" }
+image.workspace = true
+json-ui = { path = "../../crates/json-ui" }
+jsonui-editor = { path = "../jsonui-editor" }
+launcher = { path = "../../crates/launcher" }
+oreui = { path = "../../crates/oreui" }
+serde_json = "1"
+ui = { path = "../../crates/ui" }
+ui-engine = { path = "../../crates/ui-engine" }
+ui-screens = { path = "../../crates/ui-screens" }
+
+[dev-dependencies]
+oreui = { path = "../../crates/oreui", features = ["test-support"] }
+tempfile = "3"
+ui-engine = { path = "../../crates/ui-engine", features = ["test-support"] }
+
+[lints]
+workspace = true

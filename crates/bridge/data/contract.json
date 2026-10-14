@@ -11,6 +11,247 @@
     {"rust_name": "KIND_TRANSFER", "go_name": "SessionKindTransfer", "value": 5, "rust_type": "u8", "doc": "Terminal core transfer message."},
     {"rust_name": "KIND_DISCONNECT", "go_name": "SessionKindDisconnect", "value": 6, "rust_type": "u8", "doc": "Terminal core disconnect message."},
     {"rust_name": "PACK_CHUNK_BYTES", "go_name": "SessionPackChunkBytes", "value": 4194304, "rust_type": "usize", "doc": "Archive bytes in one resource-pack data frame."},
-    {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."}
-  ]
+    {"rust_name": "HOSTED_WORLD_MAX_PLAYERS", "go_name": "HostedWorldMaxPlayers", "value": 8, "rust_type": "u32", "doc": "Vanilla's player limit for a hosted local world, the host included."},
+    {"rust_name": "RELAY_VERSION", "go_name": "RelayVersion", "value": 2, "rust_type": "u32", "doc": "Browser relay protocol version."},
+    {"rust_name": "RELAY_CONTROL_BYTES", "go_name": "RelayControlBytes", "value": 4096, "rust_type": "usize", "doc": "Largest relay Hello or control JSON payload in bytes."},
+    {"rust_name": "RELAY_PLAY_MESSAGE_BYTES", "go_name": "RelayPlayMessageBytes", "value": 8388608, "rust_type": "usize", "doc": "Largest WebSocket play message and upload burst in bytes."},
+    {"rust_name": "RELAY_KEEPALIVE_SECONDS", "go_name": "RelayKeepAliveSeconds", "value": 30, "rust_type": "u32", "doc": "Interval between control keepalives."},
+    {"rust_name": "RELAY_TRANSPORT_PATH", "go_name": "RelayTransportPath", "value": "/v2/transport", "rust_type": "str", "doc": "WebTransport Extended CONNECT route."},
+    {"rust_name": "RELAY_CONTROL_PATH", "go_name": "RelayControlPath", "value": "/v2/control", "rust_type": "str", "doc": "WebSocket control route."},
+    {"rust_name": "RELAY_PLAY_PATH", "go_name": "RelayPlayPath", "value": "/v2/play", "rust_type": "str", "doc": "WebSocket play route."},
+    {"rust_name": "RELAY_SOCKET_PROTOCOL", "go_name": "RelaySocketProtocol", "value": "cinnabar.relay.v2", "rust_type": "str", "doc": "WebSocket protocol token; credentials travel in Hello."},
+    {"rust_name": "RELAY_CHANNEL_CONTROL", "go_name": "RelayChannelControl", "value": "control", "rust_type": "str", "doc": "Reliable account and progress channel."},
+    {"rust_name": "RELAY_CHANNEL_PLAY", "go_name": "RelayChannelPlay", "value": "play", "rust_type": "str", "doc": "Reliable bridge channel, including resource packs."},
+    {"rust_name": "RELAY_OP_SIGN_IN", "go_name": "RelayOpSignIn", "value": "sign_in", "rust_type": "str", "doc": "Request Microsoft device-code sign-in."},
+    {"rust_name": "RELAY_OP_SIGN_OUT", "go_name": "RelayOpSignOut", "value": "sign_out", "rust_type": "str", "doc": "Forget the in-memory account."},
+    {"rust_name": "RELAY_OP_PONG", "go_name": "RelayOpPong", "value": "pong", "rust_type": "str", "doc": "Answer a keepalive."},
+    {"rust_name": "RELAY_EVENT_WELCOME", "go_name": "RelayEventWelcome", "value": "welcome", "rust_type": "str", "doc": "Issue the current resume capability and play generation."},
+    {"rust_name": "RELAY_EVENT_PING", "go_name": "RelayEventPing", "value": "ping", "rust_type": "str", "doc": "Refresh the resume capability and request pong."},
+    {"rust_name": "RELAY_EVENT_ACCOUNT", "go_name": "RelayEventAccount", "value": "account", "rust_type": "str", "doc": "Report the latest auth.v1 state."},
+    {"rust_name": "RELAY_EVENT_CONNECT", "go_name": "RelayEventConnect", "value": "connect", "rust_type": "str", "doc": "Report the latest join progress."},
+    {"rust_name": "RELAY_EVENT_ERROR", "go_name": "RelayEventError", "value": "error", "rust_type": "str", "doc": "Report a bounded public refusal code."},
+    {"rust_name": "GAME_VERSION", "go_name": "GameVersion", "rust_type": "str", "doc": "Game version reported by the client.", "source": {"path": "assets/bedrock-target.json", "field": "game_version"}},
+    {"rust_name": "DEFAULT_BEDROCK_PORT", "go_name": "DefaultBedrockPort", "value": 19132, "rust_type": "u16", "doc": "Default port for an addressed Bedrock server."},
+    {"rust_name": "DEFAULT_BEDROCK_PORT_TEXT", "go_name": "DefaultBedrockPortText", "rust_type": "str", "doc": "Text form of the default Bedrock server port.", "from_constant": "DEFAULT_BEDROCK_PORT"},
+    {"rust_name": "CONTROL_UNIX_ENDPOINT_NAME", "go_name": "ControlUnixEndpointName", "value": "control.sock", "rust_type": "str", "doc": "Control endpoint name on Unix."},
+    {"rust_name": "SESSION_UNIX_ENDPOINT_NAME", "go_name": "SessionUnixEndpointName", "value": "session.sock", "rust_type": "str", "doc": "Session endpoint name on Unix."},
+    {"rust_name": "CONTROL_WINDOWS_ENDPOINT_NAME", "go_name": "ControlWindowsEndpointName", "value": "control.addr", "rust_type": "str", "doc": "Control endpoint name on Windows."},
+    {"rust_name": "SESSION_WINDOWS_ENDPOINT_NAME", "go_name": "SessionWindowsEndpointName", "value": "session.addr", "rust_type": "str", "doc": "Session endpoint name on Windows."},
+    {"rust_name": "REALM_TARGET_PREFIX", "go_name": "RealmTargetPrefix", "value": "realm_id/", "rust_type": "str", "doc": "Prefix for a Realm id target."},
+    {"rust_name": "REALM_CODE_PREFIX", "go_name": "RealmCodePrefix", "value": "realm/", "rust_type": "str", "doc": "Prefix for a Realm invitation code target."},
+    {"rust_name": "FRIEND_TARGET_PREFIX", "go_name": "FriendTargetPrefix", "value": "friend_xuid/", "rust_type": "str", "doc": "Prefix for a friend world target."},
+    {"rust_name": "GATHERING_TARGET_PREFIX", "go_name": "GatheringTargetPrefix", "value": "gathering/", "rust_type": "str", "doc": "Prefix for an experience target."},
+    {"rust_name": "NETHERNET_TARGET_PREFIX", "go_name": "NetherNetTargetPrefix", "value": "nethernet/", "rust_type": "str", "doc": "Prefix for a NetherNet signaling target."},
+    {"rust_name": "NETHERNET_SIGNALING_JSONRPC", "go_name": "NetherNetSignalingJSONRPC", "value": "jsonrpc", "rust_type": "str", "doc": "NetherNet JSON-RPC signaling selector."},
+    {"rust_name": "NETHERNET_SIGNALING_WEBSOCKET", "go_name": "NetherNetSignalingWebSocket", "value": "websocket", "rust_type": "str", "doc": "NetherNet WebSocket signaling selector."},
+    {"rust_name": "JSON_RPC_VERSION", "go_name": "JSONRPCVersion", "value": "2.0", "rust_type": "str", "doc": "Version of the control JSON-RPC envelope."},
+    {"rust_name": "CONTROL_SCHEMA_VERSION", "go_name": "ControlSchemaVersion", "value": 1, "rust_type": "u32", "doc": "Schema version of control results."},
+    {"rust_name": "METHOD_STATUS", "go_name": "MethodStatus", "value": "status.v1", "rust_type": "str", "doc": "Control method for status."},
+    {"rust_name": "METHOD_PACK_APPLICATION", "go_name": "MethodPackApplication", "value": "pack_application.v1", "rust_type": "str", "doc": "Control method for pack application."},
+    {"rust_name": "METHOD_REALMS_LIST", "go_name": "MethodRealmsList", "value": "realms_list.v1", "rust_type": "str", "doc": "Control method for realms list."},
+    {"rust_name": "METHOD_FRIENDS_LIST", "go_name": "MethodFriendsList", "value": "friends_list.v1", "rust_type": "str", "doc": "Control method for friends list."},
+    {"rust_name": "METHOD_FRIENDS_PEOPLE", "go_name": "MethodFriendsPeople", "value": "friends_people.v1", "rust_type": "str", "doc": "Control method for friends people."},
+    {"rust_name": "METHOD_CONNECT", "go_name": "MethodConnect", "value": "connect.v1", "rust_type": "str", "doc": "Control method for connect."},
+    {"rust_name": "METHOD_ACCOUNT_STATUS", "go_name": "MethodAccountStatus", "value": "account_status.v1", "rust_type": "str", "doc": "Control method for account status."},
+    {"rust_name": "METHOD_SIGN_OUT", "go_name": "MethodSignOut", "value": "sign_out.v1", "rust_type": "str", "doc": "Control method for sign out."},
+    {"rust_name": "METHOD_EVENTS", "go_name": "MethodEvents", "value": "events.v1", "rust_type": "str", "doc": "Control method for events."},
+    {"rust_name": "METHOD_FEATURED_SERVERS", "go_name": "MethodFeaturedServers", "value": "featured_servers.v1", "rust_type": "str", "doc": "Control method for featured servers."},
+    {"rust_name": "METHOD_PING", "go_name": "MethodPing", "value": "ping.v1", "rust_type": "str", "doc": "Control method for ping."},
+    {"rust_name": "METHOD_HOME", "go_name": "MethodHome", "value": "home.v1", "rust_type": "str", "doc": "Control method for home."},
+    {"rust_name": "METHOD_SERVER_TRUST_ANSWER", "go_name": "MethodServerTrustAnswer", "value": "server_trust_answer.v1", "rust_type": "str", "doc": "Control method for server trust answer."},
+    {"rust_name": "METHOD_MESSAGE_EVENT", "go_name": "MethodMessageEvent", "value": "message_event.v1", "rust_type": "str", "doc": "Control method for message event."},
+    {"rust_name": "METHOD_PROFILE", "go_name": "MethodProfile", "value": "profile.v1", "rust_type": "str", "doc": "Control method for profile."},
+    {"rust_name": "METHOD_REALM_MEMBERSHIP", "go_name": "MethodRealmMembership", "value": "realm_membership.v1", "rust_type": "str", "doc": "Control method for realm membership."},
+    {"rust_name": "METHOD_PACKET_DELAY", "go_name": "MethodPacketDelay", "value": "packet_delay.v1", "rust_type": "str", "doc": "Control method for packet delay."},
+    {"rust_name": "METHOD_PRESENCE", "go_name": "MethodPresence", "value": "presence.v1", "rust_type": "str", "doc": "Control method for presence."},
+    {"rust_name": "METHOD_LOCAL_WORLD", "go_name": "MethodLocalWorld", "value": "local_world.v1", "rust_type": "str", "doc": "Control method for local world."},
+    {"rust_name": "METHOD_WORLD_INVITE", "go_name": "MethodWorldInvite", "value": "world_invite.v1", "rust_type": "str", "doc": "Control method for world invite."},
+    {"rust_name": "RPC_PARSE_ERROR", "go_name": "RPCParseError", "value": -32700, "rust_type": "i64", "doc": "Control error code for parse error."},
+    {"rust_name": "RPC_INVALID_REQUEST", "go_name": "RPCInvalidRequest", "value": -32600, "rust_type": "i64", "doc": "Control error code for invalid request."},
+    {"rust_name": "RPC_METHOD_NOT_FOUND", "go_name": "RPCMethodNotFound", "value": -32601, "rust_type": "i64", "doc": "Control error code for method not found."},
+    {"rust_name": "RPC_INVALID_PARAMS", "go_name": "RPCInvalidParams", "value": -32602, "rust_type": "i64", "doc": "Control error code for invalid params."},
+    {"rust_name": "RPC_WORLD_FAILED", "go_name": "RPCWorldFailed", "value": -32000, "rust_type": "i64", "doc": "Control error code for world failed."},
+    {"rust_name": "RPC_WORLD_BUSY", "go_name": "RPCWorldBusy", "value": -32011, "rust_type": "i64", "doc": "Control error code for world busy."},
+    {"rust_name": "RPC_SIGNED_OUT", "go_name": "RPCSignedOut", "value": -32020, "rust_type": "i64", "doc": "Control error code for signed out."},
+    {"rust_name": "RPC_SERVICE_FAILED", "go_name": "RPCServiceFailed", "value": -32021, "rust_type": "i64", "doc": "Control error code for service failed."},
+    {"rust_name": "RPC_INVALID_TARGET", "go_name": "RPCInvalidTarget", "value": -32022, "rust_type": "i64", "doc": "Control error code for invalid target."},
+    {"rust_name": "RPC_SERVICES_DISABLED", "go_name": "RPCServicesDisabled", "value": -32023, "rust_type": "i64", "doc": "Control error code for services disabled."},
+    {"rust_name": "PRESENCE_GAME_MODE_SURVIVAL", "go_name": "PresenceGameModeSurvival", "value": 0, "rust_type": "i32", "doc": "Xbox presence game mode for survival."},
+    {"rust_name": "PRESENCE_GAME_MODE_CREATIVE", "go_name": "PresenceGameModeCreative", "value": 1, "rust_type": "i32", "doc": "Xbox presence game mode for creative."},
+    {"rust_name": "PRESENCE_GAME_MODE_ADVENTURE", "go_name": "PresenceGameModeAdventure", "value": 2, "rust_type": "i32", "doc": "Xbox presence game mode for adventure."},
+    {"rust_name": "PRESENCE_ACTIVITY_MENUS", "go_name": "PresenceActivityMenus", "value": "Menus", "rust_type": "str", "doc": "Xbox presence activity menus."},
+    {"rust_name": "PRESENCE_ACTIVITY_EXPERIENCE", "go_name": "PresenceActivityExperience", "value": "COM_Experience", "rust_type": "str", "doc": "Xbox presence activity experience."},
+    {"rust_name": "PRESENCE_ACTIVITY_SURVIVAL", "go_name": "PresenceActivitySurvival", "value": "Survival", "rust_type": "str", "doc": "Xbox presence activity survival."},
+    {"rust_name": "PRESENCE_ACTIVITY_CREATIVE", "go_name": "PresenceActivityCreative", "value": "Creative", "rust_type": "str", "doc": "Xbox presence activity creative."},
+    {"rust_name": "PRESENCE_ACTIVITY_ADVENTURE", "go_name": "PresenceActivityAdventure", "value": "Adventure", "rust_type": "str", "doc": "Xbox presence activity adventure."},
+    {"rust_name": "PRESENCE_ACTIVITY_REALM_PREFIX", "go_name": "PresenceActivityRealmPrefix", "value": "Realm_", "rust_type": "str", "doc": "Xbox presence activity realmprefix."},
+    {"rust_name": "MESSAGE_SURFACE_PLAY_BUTTON", "go_name": "MessageSurfacePlayButton", "value": "PlayButton", "rust_type": "str", "doc": "Messaging surface for play button."},
+    {"rust_name": "MESSAGE_SURFACE_INBOX_MESSAGE", "go_name": "MessageSurfaceInboxMessage", "value": "InboxMessage", "rust_type": "str", "doc": "Messaging surface for inbox message."},
+    {"rust_name": "MESSAGE_EVENT_IMPRESSION", "go_name": "MessageEventImpression", "value": "Impression", "rust_type": "str", "doc": "Messaging event for impression."},
+    {"rust_name": "MESSAGE_EVENT_DELETE_ALL_READ", "go_name": "MessageEventDeleteAllRead", "value": "DeleteAllRead", "rust_type": "str", "doc": "Messaging event for delete all read."},
+    {"rust_name": "MESSAGE_EVENT_READ_ALL", "go_name": "MessageEventReadAll", "value": "ReadAll", "rust_type": "str", "doc": "Messaging event for read all."},
+    {"rust_name": "MESSAGE_EVENT_DELETE", "go_name": "MessageEventDelete", "value": "Delete", "rust_type": "str", "doc": "Messaging event for delete."},
+    {"rust_name": "MESSAGE_EVENT_CLICK", "go_name": "MessageEventClick", "value": "Click", "rust_type": "str", "doc": "Messaging event for click."},
+    {"rust_name": "MESSAGE_EVENT_DISMISS", "go_name": "MessageEventDismiss", "value": "Dismiss", "rust_type": "str", "doc": "Messaging event for dismiss."},
+    {"rust_name": "MESSAGE_EVENT_CONTROL_IMPRESSION", "go_name": "MessageEventControlImpression", "value": "ControlImpression", "rust_type": "str", "doc": "Messaging event for controlimpression."},
+    {"rust_name": "MESSAGE_STATUS_READ", "go_name": "MessageStatusRead", "value": "read", "rust_type": "str", "doc": "Case-insensitive status of a read inbox message."},
+    {"rust_name": "MESSAGE_ART_BANNER", "go_name": "MessageArtBanner", "value": "banner", "rust_type": "str", "doc": "Image id marker for banner artwork."},
+    {"rust_name": "MESSAGE_ART_HOVER", "go_name": "MessageArtHover", "value": "hover", "rust_type": "str", "doc": "Image id marker for hover artwork."},
+    {"rust_name": "MESSAGE_ART_FORE", "go_name": "MessageArtFore", "value": "fore", "rust_type": "str", "doc": "Image id marker for fore artwork."},
+    {"rust_name": "MESSAGE_ART_FG", "go_name": "MessageArtFg", "value": "fg", "rust_type": "str", "doc": "Image id marker for fg artwork."}
+  ],
+  "string_lists": [
+    {"rust_name": "INBOX_CATEGORIES", "go_name": "InboxCategories", "values": ["News", "Realms", "Invites", "Feedback"], "doc": "Inbox category names in display order."},
+    {"rust_name": "MESSAGE_EVENT_TYPES", "go_name": "MessageEventTypes", "prefix": "MESSAGE_EVENT_", "doc": "Messaging report types accepted by the core."}
+  ],
+  "enums": [
+    {
+      "rust_name": "GameMode",
+      "doc": "Game mode a world starts players in.",
+      "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Survival", "go_name": "GameModeSurvival", "value": "survival", "default": true},
+        {"rust_name": "Creative", "go_name": "GameModeCreative", "value": "creative"},
+        {"rust_name": "Adventure", "go_name": "GameModeAdventure", "value": "adventure"}
+      ]
+    },
+    {
+      "rust_name": "Backend",
+      "doc": "Server backend a world runs on; fixed when the world is created.",
+      "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Bds", "go_name": "BackendBds", "value": "bds", "doc": "Bedrock Dedicated Server: vanilla terrain and mobs."},
+        {"rust_name": "Dragonfly", "go_name": "BackendDragonfly", "value": "dragonfly", "doc": "Built-in Dragonfly server with flat or natural terrain.", "default": true}
+      ]
+    },
+    {
+      "rust_name": "WorldState",
+      "doc": "Lifecycle of the open local world.",
+      "derive": ["Clone", "Copy", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Idle", "go_name": "WorldStateIdle", "value": "idle", "default": true},
+        {"rust_name": "Starting", "go_name": "WorldStateStarting", "value": "starting"},
+        {"rust_name": "Running", "go_name": "WorldStateRunning", "value": "running"},
+        {"rust_name": "Stopping", "go_name": "WorldStateStopping", "value": "stopping"},
+        {"rust_name": "Failed", "go_name": "WorldStateFailed", "value": "failed", "doc": "Kept until the world is closed, so a failed open never falls through to another target."}
+      ]
+    },
+    {
+      "rust_name": "Transport",
+      "doc": "How the core dials the open world's server.",
+      "derive": ["Clone", "Copy", "Debug", "Eq", "PartialEq", "Serialize", "Deserialize"],
+      "variants": [
+        {"rust_name": "RakNet", "go_name": "TransportRakNet", "value": "raknet"},
+        {"rust_name": "NetherNet", "go_name": "TransportNetherNet", "value": "nethernet", "doc": "BDS's loopback HTTP signaling."},
+        {"rust_name": "NetherNetLan", "go_name": "TransportNetherNetLan", "value": "nethernet-lan", "doc": "BDS found through its loopback LAN discovery advertisement."}
+      ]
+    },
+    {
+      "rust_name": "Lifecycle",
+      "doc": "Process lifecycle reported by the local core.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Starting", "go_name": "LifecycleStarting", "value": "starting"},
+        {"rust_name": "Running", "go_name": "LifecycleRunning", "value": "running"},
+        {"rust_name": "Stopping", "go_name": "LifecycleStopping", "value": "stopping"}
+      ]
+    },
+    {
+      "rust_name": "PackOffer",
+      "doc": "Kind of upstream resource-pack offer observed by the core.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "None", "go_name": "PackOfferNone", "value": "none"},
+        {"rust_name": "Optional", "go_name": "PackOfferOptional", "value": "optional"},
+        {"rust_name": "Required", "go_name": "PackOfferRequired", "value": "required"}
+      ]
+    },
+    {
+      "rust_name": "PackAcquisition",
+      "doc": "Result of acquiring the offered resource packs.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "None", "go_name": "PackAcquisitionNone", "value": "none"},
+        {"rust_name": "Complete", "go_name": "PackAcquisitionComplete", "value": "complete"},
+        {"rust_name": "Ignored", "go_name": "PackAcquisitionIgnored", "value": "ignored"},
+        {"rust_name": "Partial", "go_name": "PackAcquisitionPartial", "value": "partial", "doc": "Some offered packs were acquired and the rest ignored by bounds."},
+        {"rust_name": "Failed", "go_name": "PackAcquisitionFailed", "value": "failed"},
+        {"rust_name": "Cancelled", "go_name": "PackAcquisitionCancelled", "value": "cancelled"}
+      ]
+    },
+    {
+      "rust_name": "PackDownstreamOutcome",
+      "doc": "Result of applying resource-pack policy to the downstream session.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "None", "go_name": "PackDownstreamNone", "value": "none"},
+        {"rust_name": "OfferedOptional", "go_name": "PackDownstreamOfferedOptional", "value": "offered_optional"},
+        {"rust_name": "HandedOffOptional", "go_name": "PackDownstreamHandedOffOptional", "value": "handed_off_optional"},
+        {"rust_name": "OfferedRequired", "go_name": "PackDownstreamOfferedRequired", "value": "offered_required", "doc": "The upstream's required bits were forwarded to the client unchanged."},
+        {"rust_name": "HandedOffRequired", "go_name": "PackDownstreamHandedOffRequired", "value": "handed_off_required"},
+        {"rust_name": "RejectedRequired", "go_name": "PackDownstreamRejectedRequired", "value": "rejected_required"},
+        {"rust_name": "StrippedIgnored", "go_name": "PackDownstreamStrippedIgnored", "value": "stripped_ignored"}
+      ]
+    },
+    {
+      "rust_name": "PackApplication",
+      "doc": "Whether the client has applied the newest attempt's handed-off packs.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Unavailable", "go_name": "PackApplicationUnavailable", "value": "unavailable"},
+        {"rust_name": "Applied", "go_name": "PackApplicationApplied", "value": "applied", "doc": "The client confirmed it applied the handed-off packs for this attempt."}
+      ]
+    },
+    {
+      "rust_name": "ConnectTarget",
+      "doc": "Where the next client connection goes.",
+      "derive": ["Clone", "Debug", "Eq", "PartialEq", "Serialize", "Deserialize"],
+      "tag": "kind",
+      "content": "value",
+      "variants": [
+        {"rust_name": "RakNet", "go_name": "TargetRakNet", "value": "raknet", "doc": "A `host:port` server."},
+        {"rust_name": "Realm", "go_name": "TargetRealm", "value": "realm", "doc": "A Realm id from the Realm target (`realm_id/<id>` \u2192 `<id>`)."},
+        {"rust_name": "Friend", "go_name": "TargetFriend", "value": "friend", "doc": "A friend's XUID from the friend XUID."},
+        {"rust_name": "Gathering", "go_name": "TargetGathering", "value": "gathering", "doc": "A featured experience's ID, from a `gathering/<id>` featured server address."}
+      ]
+    },
+    {
+      "rust_name": "AuthState",
+      "doc": "Sign-in state of the core.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Offline", "go_name": "AuthOffline", "value": "offline", "doc": "The core runs without a Microsoft account."},
+        {"rust_name": "SignedOut", "go_name": "AuthSignedOut", "value": "signed_out"},
+        {"rust_name": "AwaitingCode", "go_name": "AuthAwaitingCode", "value": "awaiting_code", "doc": "Show `verification_uri` and `user_code` to the player."},
+        {"rust_name": "SignedIn", "go_name": "AuthSignedIn", "value": "signed_in"},
+        {"rust_name": "Failed", "go_name": "AuthFailed", "value": "failed"}
+      ]
+    },
+    {
+      "rust_name": "ConnectStage",
+      "doc": "Join progress stage reported by the core.",
+      "derive": ["Clone", "Copy", "Debug", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "variants": [
+        {"rust_name": "Realm", "go_name": "ConnectStageRealm", "value": "realm", "doc": "The Realm lookup."},
+        {"rust_name": "Packs", "go_name": "ConnectStagePacks", "value": "packs", "doc": "Resource pack acquisition."},
+        {"rust_name": "Connecting", "go_name": "ConnectStageConnecting", "value": "connecting", "doc": "Transport connect and login; also any stage this client does not know.", "other": true}
+      ]
+    }
+  ],
+  "relay": {
+    "framing": "Every Hello and control message is nonzero u32 big-endian JSON length followed by that many UTF-8 bytes. Stream/message chunks are arbitrary. Play bytes after Hello use the existing bridge framing unchanged.",
+    "control_hello": {"version": 2, "channel": "control", "channels": ["control", "play"], "resume": "optional bearer"},
+    "play_hello": {"version": 2, "channel": "play", "generation": 1, "resume": "required for WebSocket; omitted for authenticated WebTransport"},
+    "welcome": {"type": "welcome", "version": 2, "resume": "rotated bearer", "generation": 1, "expires_seconds": 120},
+    "request": {"op": "sign_in, sign_out or pong", "resume": "pong echoes the bearer from the received ping"},
+    "event": "account carries auth.v1 under account; connect carries ConnectProgress under connect; error carries a public code under error. ping carries the same capability fields as welcome and requires pong with that resume bearer. Unanswered pings repeat the pending bearer and report its remaining expiry. Unknown fields are optional extensions; unknown operations receive error. Malformed framing ends the transport.",
+    "lifecycle": "A successful control Hello rotates the bearer and increments generation. Only one controller and one play stream may be active. Closing control cancels play. Resume retains account state, never gameplay. A ping refreshes an acknowledged bearer; pending replacements retain the prior bearer at its original expiry until acknowledged. Only pong for the current bearer extends the control read deadline. Rejected resume never creates a replacement account.",
+    "fixtures": [
+      {"version": 2, "channel": "control", "channels": ["control", "play"]},
+      {"version": 2, "channel": "play", "generation": 1},
+      {"type": "welcome", "version": 2, "resume": "test-token", "generation": 1, "expires_seconds": 120},
+      {"op": "sign_in"},
+      {"op": "pong", "resume": "test-token"}
+    ]
+  }
 }

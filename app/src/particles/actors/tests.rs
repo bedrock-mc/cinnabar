@@ -48,7 +48,7 @@ fn stream_with_definition(entity: &str, controller: &str, rotation: &str) -> Wor
     image::RgbaImage::from_pixel(1, 1, image::Rgba([255; 4]))
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .unwrap();
-    let compiled = pack_compiler::compile_actor_pack(vec![
+    let compiled = pack_entity_compiler::compile_actor_pack(vec![
         ("entity/test.json".into(), entity.as_bytes().to_vec()),
         ("animation_controllers/test.json".into(), controller.as_bytes().to_vec()),
         ("animations/test.json".into(), animation.into_bytes()),
@@ -69,7 +69,7 @@ fn stream_with_definition(entity: &str, controller: &str, rotation: &str) -> Wor
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),

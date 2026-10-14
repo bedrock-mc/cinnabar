@@ -29,7 +29,7 @@ fn world(identifier: &str) -> client_world::WorldAuthority {
     image::codecs::png::PngEncoder::new(&mut texture)
         .write_image(&[230, 160, 45, 255], 1, 1, image::ExtendedColorType::Rgba8)
         .unwrap();
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/test.json".into(), entity.into_bytes()),
         ("models/entity/test.geo.json".into(), geometry.to_vec()),
         ("animations/test.animation.json".into(), animation.to_vec()),
@@ -45,7 +45,7 @@ fn world(identifier: &str) -> client_world::WorldAuthority {
             local_player_unique_id: 999,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),

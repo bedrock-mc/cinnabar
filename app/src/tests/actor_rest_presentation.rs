@@ -65,9 +65,9 @@ pub(crate) fn compiled_fixture(
         .save(pack.0.join("textures/entity/example.png"))
         .unwrap();
     let manifest = include_bytes!("../../../assets/vanilla-source.json");
-    let entities = pack_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
+    let entities = pack_entity_compiler::compile_entity_assets(&pack.0, manifest).unwrap();
     let bytes = encode_entity_blob(&entities).unwrap();
-    let compiled = pack_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
+    let compiled = pack_entity_compiler::compile_actor_assets(&pack.0, manifest).unwrap();
     // The compiler binds every rig as a compiled pose; re-encode with the requested route.
     let decoded = RuntimeEntityAssets::decode(&bytes).unwrap();
     let catalog = RuntimeActorCatalog::decode(&compiled.bytes, &decoded).unwrap();

@@ -6,7 +6,8 @@ const HEADER_WORDS: usize = 1;
 const BITS_MASK: u32 = 0xff;
 const PALETTE_LEN_SHIFT: u32 = 8;
 const PALETTE_LEN_MASK: u32 = 0x1fff;
-pub(crate) const DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
+pub(crate) const DESCRIPTOR_MAGIC: u32 = 0x4249_4f32;
+pub(crate) const WIDE_DESCRIPTOR_MAGIC: u32 = 0x4249_4f31;
 use super::biome_lattice::DESCRIPTOR_WORDS;
 const NO_UNIFORM_TINT: u32 = u32::MAX;
 /// Shared GPU fallback, also used to reserve the render arena prefix.
@@ -57,7 +58,7 @@ pub struct BiomeBlendSample {
 
 /// Absolute encoded-word ceiling for one self-contained halo record.
 pub const MAX_PACKED_BIOME_RECORD_WORDS: usize = DESCRIPTOR_WORDS
-    + super::biome_lattice::LATTICE_WORDS
+    + super::biome_lattice::WIDE_LATTICE_WORDS
     + BIOME_NEIGHBOUR_SLOT_COUNT * (1 + 2_048 + BLOCKS_PER_SUB_CHUNK);
 
 /// Maps a horizontal subchunk offset in `-1..=1` to the stable descriptor slot.
@@ -132,11 +133,12 @@ impl PackedBiomeRecord {
         let mut slots = [has_missing.then_some(0); BIOME_NEIGHBOUR_SLOT_COUNT];
         let mut uniform_tint = has_missing.then_some(missing_tint);
         let mut all_uniform = true;
+        let mut compact = !has_missing || missing_tint <= u32::from(u16::MAX);
         for (slot, storage) in storages.iter().enumerate() {
             let Some(storage) = storage else {
                 continue;
             };
-            let payload = packed_storage_words(storage, &mut resolve_tint_index);
+            let payload = packed_storage_words(storage, &mut resolve_tint_index, &mut compact);
             let payload_uniform = packed_payload_uniform_tint(&payload);
             match (uniform_tint, payload_uniform) {
                 (None, Some(value)) => uniform_tint = Some(value),
@@ -159,8 +161,10 @@ impl PackedBiomeRecord {
         let mut payload_offsets = Vec::with_capacity(payloads.len());
         let lattice_words = if all_uniform {
             0
-        } else {
+        } else if compact {
             super::biome_lattice::LATTICE_WORDS
+        } else {
+            super::biome_lattice::WIDE_LATTICE_WORDS
         };
         let mut next_offset = DESCRIPTOR_WORDS + lattice_words;
         for payload in &payloads {
@@ -173,7 +177,11 @@ impl PackedBiomeRecord {
         }
 
         let mut words = Vec::with_capacity(next_offset);
-        words.push(DESCRIPTOR_MAGIC);
+        words.push(if compact {
+            DESCRIPTOR_MAGIC
+        } else {
+            WIDE_DESCRIPTOR_MAGIC
+        });
         words.push(if all_uniform {
             uniform_tint.unwrap_or(0)
         } else {
@@ -307,9 +315,11 @@ impl SlotTints<'_> {
     }
 }
 
+/// Copies one storage while checking whether its resolved palette fits u16 indices.
 fn packed_storage_words(
     storage: &BiomeStorage,
     resolve_tint_index: &mut impl FnMut(u32) -> u32,
+    compact: &mut bool,
 ) -> Vec<u32> {
     let palette_len = storage.palette().len();
     debug_assert!((1..=BLOCKS_PER_SUB_CHUNK).contains(&palette_len));
@@ -319,14 +329,11 @@ fn packed_storage_words(
         Vec::with_capacity(HEADER_WORDS + storage.packed_words().len() + storage.palette().len());
     words.push(header);
     words.extend_from_slice(storage.packed_words());
-    words.extend(
-        storage
-            .palette()
-            .values()
-            .iter()
-            .copied()
-            .map(resolve_tint_index),
-    );
+    words.extend(storage.palette().values().iter().copied().map(|id| {
+        let index = resolve_tint_index(id);
+        *compact &= index <= u32::from(u16::MAX);
+        index
+    }));
     words
 }
 

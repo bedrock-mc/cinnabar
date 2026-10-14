@@ -48,19 +48,13 @@ pub enum BlockActionKind {
 }
 
 impl BlockActionKind {
-    /// The pinned protocol-2168 `PlayerActionType` value.
+    /// The pinned generated `PlayerActionType` value.
     #[must_use]
-    pub const fn wire_value(self) -> i32 {
-        match self {
-            Self::StartDestroy => 0,
-            Self::AbortDestroy => 1,
-            Self::StopDestroy => 2,
-            Self::CrackBlock => 18,
-            Self::PredictDestroy => 26,
-            Self::ContinueDestroy => 27,
-        }
+    pub fn wire_value(self) -> i32 {
+        self.vendor().to_raw()
     }
 
+    /// Maps a supported block action to the generated packet variant.
     const fn vendor(self) -> PlayerActionType {
         match self {
             Self::StartDestroy => PlayerActionType::Startdestroyblock,
@@ -249,12 +243,16 @@ mod tests {
 
     #[test]
     fn wire_values_are_the_pinned_destroy_family() {
-        assert_eq!(BlockActionKind::StartDestroy.wire_value(), 0);
-        assert_eq!(BlockActionKind::AbortDestroy.wire_value(), 1);
-        assert_eq!(BlockActionKind::StopDestroy.wire_value(), 2);
-        assert_eq!(BlockActionKind::CrackBlock.wire_value(), 18);
-        assert_eq!(BlockActionKind::PredictDestroy.wire_value(), 26);
-        assert_eq!(BlockActionKind::ContinueDestroy.wire_value(), 27);
+        for kind in [
+            BlockActionKind::StartDestroy,
+            BlockActionKind::AbortDestroy,
+            BlockActionKind::StopDestroy,
+            BlockActionKind::CrackBlock,
+            BlockActionKind::PredictDestroy,
+            BlockActionKind::ContinueDestroy,
+        ] {
+            assert_eq!(kind.wire_value(), kind.vendor().to_raw());
+        }
     }
 
     #[test]

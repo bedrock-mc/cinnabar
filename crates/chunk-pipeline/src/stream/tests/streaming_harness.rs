@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use super::*;
 
 const STONE: u32 = 1;
-const AIR: u32 = 12_530;
+const AIR: u32 = protocol_ids::SEQUENTIAL_AIR_NETWORK_ID;
 const RADIUS: i32 = 8;
 const FRAME: Duration = Duration::from_millis(8);
 const REPLY_LATENCY_FRAMES: u64 = 3;
@@ -81,6 +81,8 @@ struct Harness {
     presented: HashMap<SubChunkKey, ChunkMesh>,
     log: Vec<Published>,
     camera: [f32; 3],
+    /// Horizontal view direction in degrees from +X towards +Z; 90 faces +Z.
+    yaw_degrees: f32,
     columns_per_frame: usize,
     frames_per_column: u64,
     frame_sleep: Duration,
@@ -121,6 +123,7 @@ impl Harness {
             presented: HashMap::new(),
             log: Vec::new(),
             camera: [8.0, 81.62, 8.0],
+            yaw_degrees: 90.0,
             columns_per_frame,
             frames_per_column,
             frame_sleep: FRAME,
@@ -401,7 +404,7 @@ impl Harness {
         for column in spiral(center, NEAR_CHUNKS as i32) {
             for y in [4, 5] {
                 let key = SubChunkKey::from_chunk(column, y);
-                if !solid(key) || !in_frustum(key, self.camera) {
+                if !solid(key) || !in_frustum(key, self.camera, self.yaw_degrees) {
                     continue;
                 }
                 let halo_blockers = key
@@ -457,7 +460,8 @@ impl Harness {
         let work_started = Instant::now();
         self.stream.begin_frame_work();
         self.deliver();
-        self.stream.set_view_forward([0.0, 0.0, 1.0]);
+        let yaw = self.yaw_degrees.to_radians();
+        self.stream.set_view_forward([yaw.cos(), 0.0, yaw.sin()]);
         let poll_started = Instant::now();
         let _ = self.stream.poll(self.camera, MESH_JOBS_PER_FRAME);
         self.poll_times.push(poll_started.elapsed());
@@ -545,7 +549,9 @@ impl Harness {
         let final_meshes = self.presented.clone();
         let in_view = final_meshes
             .iter()
-            .filter(|(key, mesh)| !mesh.cube_quads().is_empty() && in_frustum(**key, self.camera))
+            .filter(|(key, mesh)| {
+                !mesh.cube_quads().is_empty() && in_frustum(**key, self.camera, self.yaw_degrees)
+            })
             .map(|(key, _)| *key)
             .collect::<BTreeSet<_>>();
         self.poll_times.sort_unstable();
@@ -685,14 +691,17 @@ impl Harness {
     }
 }
 
-fn in_frustum(key: SubChunkKey, camera: [f32; 3]) -> bool {
+fn in_frustum(key: SubChunkKey, camera: [f32; 3], yaw_degrees: f32) -> bool {
     let center = [
         key.x as f32 * 16.0 + 8.0 - camera[0],
         key.z as f32 * 16.0 + 8.0 - camera[2],
     ];
     let distance = center[0].hypot(center[1]);
-    // Yaw 0 faces +Z; 90° horizontal field of view, padded by one sub-chunk radius.
-    distance <= (RADIUS * 16) as f32 && (distance < 12.0 || center[1] >= center[0].abs() - 12.0)
+    let yaw = yaw_degrees.to_radians();
+    let along = center[0].mul_add(yaw.cos(), center[1] * yaw.sin());
+    let side = center[0].mul_add(yaw.sin(), -center[1] * yaw.cos());
+    // 90° horizontal field of view, padded by one sub-chunk radius.
+    distance <= (RADIUS * 16) as f32 && (distance < 12.0 || along >= side.abs() - 12.0)
 }
 
 fn zero_light_samples(mesh: &ChunkMesh) -> usize {
@@ -840,6 +849,24 @@ fn scheduler_serves_sub_chunks_in_view_before_nearer_ones_behind() {
     assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
 }
 
+/// A section on the view axis builds before a nearer one far off to the side.
+#[test]
+fn scheduler_serves_the_view_cone_before_nearer_sub_chunks_beside_it() {
+    let view = super::SchedulerView {
+        position: [8.0, 72.0, 8.0],
+        forward: Some([0.0, 0.0, 1.0]),
+        startup_center: None,
+    };
+    let ahead = SubChunkKey::new(0, 0, 4, 4);
+    let beside = SubChunkKey::new(0, 3, 4, 1);
+    let mut candidates = BinaryHeap::from([
+        PendingSchedulerCandidate::new(beside, 1, view, false),
+        PendingSchedulerCandidate::new(ahead, 1, view, false),
+    ]);
+
+    assert_eq!(candidates.pop().map(|candidate| candidate.key), Some(ahead));
+}
+
 /// Measures the destination's visible ring, including admission and mesh convergence.
 #[test]
 #[ignore = "release teleport timing; run with --ignored --nocapture"]
@@ -857,6 +884,28 @@ fn teleport_visible_ring_timing() {
     assert_eq!(report.geometry_meshes, 0);
     assert!(report.poll_p95_us <= report.poll_p99_us);
     assert!(report.poll_p99_us <= report.poll_max_us);
+}
+
+/// Measures the ring a camera turns to while a teleport's terrain is still loading: the
+/// yaw stays within one compass eighth, so only the view-direction refresh can re-rank.
+#[test]
+#[ignore = "release camera-turn timing; run with --ignored --nocapture"]
+fn camera_turn_visible_ring_timing() {
+    let mut harness = Harness::new(8, 1);
+    harness.yaw_degrees = 92.0;
+    harness.send_view(ChunkKey::new(0, 0, 0), false);
+    harness.run();
+    harness.send_view(ChunkKey::new(0, 125, 137), true);
+    for _ in 0..6 {
+        harness.step();
+    }
+    harness.yaw_degrees = 134.0;
+    let report = harness.run();
+    println!("camera_turn_visible_ring {report:?}");
+    assert!(report.in_view > 0);
+    assert!(report.millis_to_100.is_some());
+    assert_eq!(report.dark_meshes, 0);
+    assert_eq!(report.geometry_meshes, 0);
 }
 
 /// Measures logical removal of a full retained disk without network or GPU work.

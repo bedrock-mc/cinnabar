@@ -20,7 +20,57 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
+mod directory;
+mod selection;
+pub use selection::{
+    GlobalSelectionEntry, ParsedGlobalSelection, merge_global_selection, parse_global_selection,
+};
+
 type ImportedArchives = Vec<(InstalledPack, Vec<u8>)>;
+
+/// Validated bytes held between preview and confirmation, without installing anything.
+#[derive(Debug)]
+pub struct PreparedImport {
+    pub report: ImportReport,
+    pub(crate) archives: ImportedArchives,
+}
+
+impl PreparedImport {
+    /// The archive memory retained by this preview, for the host's aggregate bound.
+    pub fn archive_bytes(&self) -> usize {
+        self.archives.iter().map(|(_, bytes)| bytes.len()).sum()
+    }
+
+    /// Splits validated resource halves after the caller has recorded the bundle diagnostics.
+    pub fn into_resource_packs(self) -> impl Iterator<Item = Self> {
+        self.archives.into_iter().map(|(metadata, bytes)| Self {
+            report: ImportReport {
+                imported: vec![metadata.clone()],
+                ..Default::default()
+            },
+            archives: vec![(metadata, bytes)],
+        })
+    }
+}
+
+/// Reads an explicit user pack path and validates it through the ordinary import pipeline.
+pub fn prepare_import(path: &Path) -> Result<PreparedImport, LibraryError> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    let bytes = if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        directory::archive(path)?
+    } else if metadata.is_file() && !metadata.file_type().is_symlink() && is_pack_import_path(path)
+    {
+        crate::library::read_bounded(path, MAX_ARCHIVE_BYTES)?
+    } else {
+        return Err(LibraryError::UnsupportedExtension);
+    };
+    let (mut report, archives) = read_import(bytes, path)?;
+    report.imported = archives
+        .iter()
+        .map(|(metadata, _)| metadata.clone())
+        .collect();
+    Ok(PreparedImport { report, archives })
+}
 
 /// Pack archive extensions accepted by file-open, drag-and-drop, and native pickers.
 pub const PACK_IMPORT_EXTENSIONS: [&str; 3] = ["mcpack", "mcaddon", "zip"];

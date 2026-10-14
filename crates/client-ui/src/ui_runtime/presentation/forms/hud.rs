@@ -1,6 +1,7 @@
 //! Projects the frame into the engine HUD: the [`HudModel`] the templates bind, the native
 //! renderers' captured paint, and the mod and preview renderers drawn ahead of the HUD's own.
 
+use launcher::menu::settings_options::SettingId;
 use std::{collections::BTreeSet, sync::Arc};
 
 use json_ui::{
@@ -71,7 +72,13 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };
-        if self.screens.chat.settings.options().value("hide_hud") != 0
+        if self
+            .screens
+            .chat
+            .settings
+            .options()
+            .value(SettingId::HideHud)
+            != 0
             || self.hud_frame.death_screen
         {
             return Ok(true);
@@ -119,7 +126,7 @@ impl UiPresentationRuntime {
                 model.effects_visible = false;
             }
             ui_screens::settings_chat::apply_hud(options, &mut model);
-            Some((model, options.value("interface_opacity")))
+            Some((model, options.value(SettingId::InterfaceOpacity)))
         };
         let catalog = Arc::clone(renderer.catalog());
         let data = self
@@ -185,7 +192,7 @@ impl UiPresentationRuntime {
             next: &mut *next,
             renderers: &mut renderers,
         };
-        self.screens.hud.paint(
+        let drawn = self.screens.hud.paint(
             renderer,
             HudInput {
                 crosshair,
@@ -197,6 +204,10 @@ impl UiPresentationRuntime {
             },
             &mut paint_frame,
         )?;
+        if !crosshair {
+            // Touch selects hotbar slots through the HUD's own laid-out cells.
+            self.screens.touch.hud = drawn;
+        }
         if let Some(view) = preview_view.get() {
             self.player_preview_view = view;
         }
@@ -321,7 +332,7 @@ fn hud_model(
                 .is_some_and(|air| air.current() < air.maximum()),
         paper_doll: frame.paper_doll_visible
             && mode_allows_hotbar
-            && settings.value("hide_paperdoll") == 0,
+            && settings.value(SettingId::HidePaperdoll) == 0,
         effects_visible: runtime
             .gameplay_hud()
             .effects()
@@ -356,7 +367,8 @@ fn hud_model(
             .collect(),
         player_position,
         days_played,
-        text_background_alpha: f64::from(settings.value("hud_text_background_opacity")) / 100.0,
+        text_background_alpha: f64::from(settings.value(SettingId::HudTextBackgroundOpacity))
+            / 100.0,
     }
 }
 

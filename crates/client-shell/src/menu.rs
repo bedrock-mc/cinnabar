@@ -27,6 +27,7 @@ mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
 pub mod launcher_account;
 mod launcher_core;
+mod minecraft_import;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -177,12 +178,13 @@ pub struct MenuRuntime {
     presentation_accounts: bool,
     sign_out_requested: bool,
     accounts: accounts::Manager,
-    /// Marketplace actions waiting for the store driver.
-    store_actions: Vec<launcher::store::StoreAction>,
     pub global_resource_actions: Vec<launcher::global_resources::Action>,
     pub global_resources: std::sync::Arc<launcher::global_resources::Snapshot>,
-    /// The Marketplace's presented state while its screen is up.
-    store_snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
+    /// Mods-tab work for the mod runtime; disclosure toggles apply in place.
+    pub mod_actions: Vec<launcher::mods::Action>,
+    pub mods: std::sync::Arc<launcher::mods::Snapshot>,
+    minecraft_import: std::sync::Arc<launcher::minecraft_import::Snapshot>,
+    minecraft_import_requests: Vec<launcher_host::minecraft_import::Request>,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
     settings_dropdown: Option<u16>,
@@ -191,8 +193,8 @@ pub struct MenuRuntime {
     /// Failed writes wait until this deadline while retaining the newest edits.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
-    /// In-memory option overrides (index, persisted value) that saves never write.
-    session_overrides: Vec<(usize, i32)>,
+    /// Stored choices beneath session-only overrides, restored before saving preferences.
+    session_overrides: Vec<launcher::menu::settings_options::OptionPreference>,
     /// A developer controller is driving: hotkey toggles stay in memory.
     transient_toggles: bool,
     language_choices: std::sync::Arc<[(String, String)]>,
@@ -305,30 +307,6 @@ impl MenuRuntime {
             self.settings_slider_pointer = None;
             self.settings_slider_hovered = None;
             self.dialog = None;
-        }
-    }
-
-    /// Marketplace actions queued since the last call, for the store driver.
-    pub fn take_store_actions(&mut self) -> Vec<launcher::store::StoreAction> {
-        std::mem::take(&mut self.store_actions)
-    }
-
-    /// Publish (or clear) the Marketplace's presented state.
-    pub fn set_store_snapshot(
-        &mut self,
-        snapshot: Option<std::sync::Arc<launcher::store::snapshot::StoreSnapshot>>,
-    ) {
-        self.store_snapshot = snapshot;
-    }
-
-    pub fn in_store(&self) -> bool {
-        self.screen == MenuScreen::Store
-    }
-
-    /// Leave the Marketplace for the start screen.
-    pub fn leave_store(&mut self) {
-        if self.in_store() {
-            self.enter(MenuScreen::Home);
         }
     }
 
@@ -481,6 +459,9 @@ impl MenuRuntime {
     }
 
     pub fn activate(&mut self, action: MenuAction) {
+        if self.dismiss_minecraft_import(action) {
+            return;
+        }
         if self.disconnect_message.is_some() && self.join_request_prompted() {
             if let MenuAction::JoinRequest(accept) = action {
                 self.answer_join_request(accept);
@@ -537,6 +518,7 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = None;
         match action {
+            MenuAction::MinecraftImport(action) => self.activate_minecraft_import(action),
             MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
             MenuAction::RefreshProfile => {
                 self.feeds.profile.loaded = false;
@@ -590,7 +572,7 @@ impl MenuRuntime {
                     self.set_visible(false);
                 }
             }
-            MenuAction::DismissDialog => self.dismiss_accounts(),
+            MenuAction::DismissDialog | MenuAction::CloseExitDialog => self.dismiss_accounts(),
             MenuAction::Reconnect => {
                 unreachable!("reconnect is handled before clearing the failure")
             }
@@ -779,13 +761,12 @@ impl MenuRuntime {
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
-            MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
-            MenuAction::Store(action) => {
-                if action == launcher::store::StoreAction::Open {
-                    self.enter(MenuScreen::Store);
+            MenuAction::Mods(action) => {
+                if let Some(work) = std::sync::Arc::make_mut(&mut self.mods).apply(action) {
+                    self.mod_actions.push(work);
                 }
-                self.store_actions.push(action);
             }
+            MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
             MenuAction::PlayLocalWorld(index) => {
                 if index < self.local_worlds.len() {
                     self.local_world_requested = Some(index);

@@ -28,7 +28,7 @@ const (
 // maxConcurrentRequests bounds simultaneous local requests; extra connections are dropped.
 const maxConcurrentRequests = 32
 
-const methodPackApplication = "pack_application.v1"
+const methodPackApplication = bridgecontract.MethodPackApplication
 
 type request struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -52,9 +52,8 @@ type responseError struct {
 type Server struct {
 	listener         net.Listener
 	store            *Store
-	worlds           Worlds      // nil disables the local world methods; guarded by mu
-	services         Services    // nil disables the launcher methods; guarded by mu
-	marketplace      Marketplace // nil disables the store_* methods; guarded by mu
+	worlds           Worlds   // nil disables the local world methods; guarded by mu
+	services         Services // nil disables the launcher methods; guarded by mu
 	presence         func(xboxpresence.State)
 	packetDelay      PacketDelay // nil disables packet_delay.v1; guarded by mu
 	done             chan struct{}
@@ -193,16 +192,16 @@ func (server *Server) serveOne(conn net.Conn) error {
 		return err
 	}
 	if !json.Valid(payload) {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32700, Message: "Parse error"}})
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: nil, Error: &responseError{Code: bridgecontract.RPCParseError, Message: "Parse error"}})
 	}
 	var call request
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&call); err != nil || decoder.Decode(new(any)) != io.EOF {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: nil, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: nil, Error: &responseError{Code: bridgecontract.RPCInvalidRequest, Message: "Invalid Request"}})
 	}
-	if call.JSONRPC != "2.0" || call.ID == nil || call.Method == "" {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: call.ID, Error: &responseError{Code: -32600, Message: "Invalid Request"}})
+	if call.JSONRPC != bridgecontract.JSONRPCVersion || call.ID == nil || call.Method == "" {
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: call.ID, Error: &responseError{Code: bridgecontract.RPCInvalidRequest, Message: "Invalid Request"}})
 	}
 	id := *call.ID
 	if call.Method == methodPresence {
@@ -217,20 +216,17 @@ func (server *Server) serveOne(conn net.Conn) error {
 	if isServiceMethod(call.Method) {
 		return server.serveService(conn, id, call.Method, call.Params)
 	}
-	if isStoreMethod(call.Method) {
-		return server.serveStore(conn, id, call.Method, call.Params)
-	}
 	if server.worldService() != nil && isWorldMethod(call.Method) {
 		return server.serveWorld(conn, id, call.Method, call.Params)
 	}
 	if len(call.Params) != 0 {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: id, Error: &responseError{Code: bridgecontract.RPCInvalidParams, Message: "Invalid params"}})
 	}
-	if call.Method != "status.v1" {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32601, Message: "Method not found"}})
+	if call.Method != bridgecontract.MethodStatus {
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: id, Error: &responseError{Code: bridgecontract.RPCMethodNotFound, Message: "Method not found"}})
 	}
 	status := server.store.Status()
-	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
+	return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: id, Result: &status})
 }
 
 // servePackApplication records whether the client applied an attempt's packs
@@ -243,11 +239,11 @@ func (server *Server) servePackApplication(conn net.Conn, id uint64, raw json.Ra
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&params); err != nil || decoder.Decode(new(any)) != io.EOF || params.AttemptID == nil || params.Applied == nil {
-		return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Error: &responseError{Code: -32602, Message: "Invalid params"}})
+		return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: id, Error: &responseError{Code: bridgecontract.RPCInvalidParams, Message: "Invalid params"}})
 	}
 	server.store.SetApplied(*params.AttemptID, *params.Applied)
 	status := server.store.Status()
-	return server.writeResponse(conn, response{JSONRPC: "2.0", ID: id, Result: &status})
+	return server.writeResponse(conn, response{JSONRPC: bridgecontract.JSONRPCVersion, ID: id, Result: &status})
 }
 
 func (server *Server) writeResponse(conn net.Conn, value any) error {

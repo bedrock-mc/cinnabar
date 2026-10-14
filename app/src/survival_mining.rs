@@ -94,10 +94,11 @@ pub(crate) fn produce_survival_mining(
     let snapshot_present = snapshot.is_some();
     let actor_in_front = context.melee.actor_in_front();
     let active = mining_active(caps, focused, snapshot_present);
+    let mining_input =
+        runtime.observe_attack_input(active, attack.pressed, attack.held, actor_in_front);
     let target = match snapshot.filter(|_| active) {
         Some(input) => {
-            runtime.latched_press |= attack.pressed;
-            (attack.held || runtime.latched_press).then(|| {
+            mining_input.then(|| {
                 // An actor in front owns the press; the block behind it is not a target.
                 (!actor_in_front)
                     .then(|| {
@@ -113,10 +114,7 @@ pub(crate) fn produce_survival_mining(
                     .flatten()
             })
         }
-        None => {
-            runtime.latched_press = false;
-            None
-        }
+        None => None,
     };
     if (attack.pressed || attack.held)
         && let Some(reason) = blocked_mining_reason(

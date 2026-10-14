@@ -11,6 +11,10 @@ pub(super) mod drag;
 mod list;
 use details::{details, saved_details};
 
+/// The complete draggable header row, including its top inset, must fit in the list.
+pub(super) const GROUP_HEADER_HEIGHT: f32 = 4.8;
+const GROUP_HEADER_INSET: f32 = 1.6;
+
 #[cfg(test)]
 mod catalog_tests;
 #[cfg(test)]

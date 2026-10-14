@@ -13,6 +13,10 @@ use ui_engine::engine::screen::PaintError;
 const PRIMARY_TINT: [u8; 4] = [0x6c, 0xc3, 0x49, 255];
 /// Closed and expired tag fill (needs the OreUI reference).
 const WARNING_TINT: [u8; 4] = [0xd0, 0x3c, 0x3c, 255];
+const PLAY_HEIGHT: f32 = 4.4;
+const DETAILS_PAD: f32 = 2.4;
+/// A complete Play control and its trailing inset must fit when scrolled to the end.
+pub(super) const MIN_DETAILS_HEIGHT: f32 = PLAY_HEIGHT + DETAILS_PAD;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -121,13 +125,32 @@ pub(super) fn draw(
         )?;
         return Ok(());
     };
+    let scroll = canvas.begin_scroll("realm_details", panel)?;
+    let offset = scroll.offset;
+    let end = draw_details(
+        canvas,
+        view,
+        index,
+        [left, body[1] - offset, right, body[3]],
+    )?;
+    canvas.end_scroll(scroll, end + offset - body[1])
+}
+
+/// Returns the natural bottom of the selected Realm's details, including its Play action.
+fn draw_details(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    index: usize,
+    bounds: Bounds,
+) -> Result<f32, PaintError> {
     let realm = &view.realms[index];
+    let [left, top, right, _] = bounds;
     let edge = canvas.r(0.2);
     let image = [
         left + edge,
-        body[1] + edge,
+        top + edge,
         right - edge,
-        body[1] + edge + (right - left) * 0.3,
+        top + edge + (right - left) * 0.3,
     ];
     canvas.fill(image, NEUTRAL100)?;
     let players = format!("{}/{}", realm.online_players, realm.max_players);
@@ -141,7 +164,7 @@ pub(super) fn draw(
         TEXT_DIMMER,
         false,
     )?;
-    let pad = canvas.r(2.4);
+    let pad = canvas.r(DETAILS_PAD);
     let mut y = image[3] + space(canvas, 3);
     y += canvas.text(
         &realm.name,
@@ -174,11 +197,17 @@ pub(super) fn draw(
     button(
         canvas,
         view,
-        [left + pad, y, left + pad + play_width, y + canvas.r(4.4)],
+        [
+            left + pad,
+            y,
+            left + pad + play_width,
+            y + canvas.r(PLAY_HEIGHT),
+        ],
         Variant::Hero,
         "Play",
         open.then_some(MenuAction::PlayRealm(index)),
-    )
+    )?;
+    Ok(y + canvas.r(PLAY_HEIGHT) + pad)
 }
 
 /// The owner of a joined Realm, or the time left on an owned one.

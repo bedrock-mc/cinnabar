@@ -39,12 +39,6 @@ mod session;
 pub mod session_audio;
 #[cfg(test)]
 mod session_cleanup_tests;
-#[allow(
-    dead_code,
-    unused_imports,
-    reason = "consumed by the store screens as they land"
-)]
-mod store;
 mod survival_mining;
 mod thread_budget;
 #[cfg(feature = "tracy")]
@@ -66,6 +60,7 @@ mod tests;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
+mod far_terrain;
 mod render_distance;
 mod shell_adapters;
 #[cfg(test)]

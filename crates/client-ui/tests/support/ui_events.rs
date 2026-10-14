@@ -1,6 +1,33 @@
 use protocol::UiEvent;
+use std::sync::Arc;
 
 use super::SequencedUiEvent;
+
+/// Builds a command tree with enum and player-target parameters.
+pub(super) fn warp_tree() -> protocol::CommandTreeEvent {
+    let param = |name: &str, kind| protocol::CommandParam {
+        name: Arc::from(name),
+        optional: false,
+        collapse_enum: false,
+        kind,
+    };
+    let mode = protocol::CommandParamKind::Enum {
+        name: Arc::from("Mode"),
+        values: Arc::from([Arc::from("fast"), Arc::from("far"), Arc::from("slow")]),
+    };
+    protocol::CommandTreeEvent {
+        commands: Arc::from([protocol::CommandSpec {
+            name: Arc::from("warp"),
+            aliases: Arc::from([]),
+            permission: 0,
+            overloads: Arc::from([Arc::from([
+                param("mode", mode),
+                param("who", protocol::CommandParamKind::Target),
+            ])]),
+        }]),
+        soft_enums: Arc::from([]),
+    }
+}
 
 /// Wraps a UI event in ordered session metadata.
 pub(super) fn envelope(session_id: u64, sequence: u64, event: UiEvent) -> SequencedUiEvent {

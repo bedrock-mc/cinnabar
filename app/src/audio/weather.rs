@@ -6,6 +6,7 @@ use client_presentation::{
     camera::{FlyCamera, ServerCameraView},
     local_player::LocalViewPose,
 };
+use launcher::menu::settings_options::SettingId;
 
 use {
     crate::{
@@ -39,7 +40,7 @@ pub(super) fn drive_rain_audio(
         ticks.current_rain_levels(),
         rain_listener(&view, camera.single().ok(), server_camera.as_deref()),
         menu.as_ref()
-            .is_none_or(|menu| menu.settings_snapshot().0.value("graphics_mode") != 0),
+            .is_none_or(|menu| menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
         &mut engine,
         &mut state,
     );
@@ -53,7 +54,7 @@ fn rain_listener(
 ) -> [f32; 3] {
     client_audio::audio::listener::camera_listener(
         view.eye_translation(),
-        view.rotation(),
+        view.camera_rotation(),
         camera,
         server_camera.and_then(|camera| camera.active_listener()),
     )

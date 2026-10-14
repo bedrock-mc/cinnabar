@@ -27,6 +27,32 @@ fn installed_settings_categories_use_their_full_native_icon_cells() {
 }
 
 #[test]
+fn mods_follow_resource_packs_in_the_same_group() {
+    let position = |section: &str| TABS.iter().position(|tab| tab.section == section).unwrap();
+    let packs = position("global_texture_pack_forced_index");
+    let mods = position(launcher::mods::SECTION);
+    assert_eq!(mods, packs + 1);
+    assert!(TABS[mods].group.is_none());
+    assert_ne!(section_index(launcher::mods::SECTION), 0);
+}
+
+#[test]
+fn every_installed_category_icon_belongs_to_exactly_one_tab() {
+    for key in SETTINGS_ICONS {
+        assert_eq!(
+            TABS.iter().filter(|tab| tab.art == Some(key)).count(),
+            1,
+            "{key}"
+        );
+    }
+    assert!(
+        TABS.iter()
+            .filter_map(|tab| tab.art)
+            .all(|art| SETTINGS_ICONS.contains(&art))
+    );
+}
+
+#[test]
 fn category_group_divider_has_two_full_width_edges_and_its_own_flow_slot() {
     use super::super::super::{review_tests::paint, test_support::solids};
     let (_, _, nodes) = paint(HashMap::new(), |canvas| {
@@ -67,7 +93,7 @@ fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
             0,
             Some(&originals),
         );
-        icon(&mut canvas, 2, [100.0, 100.0]).unwrap();
+        icon(&mut canvas, &TABS[2], [100.0, 100.0]).unwrap();
         let cell = nodes.last().unwrap().bounds();
         assert_eq!(
             [
@@ -83,7 +109,7 @@ fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
 fn category_bevels_follow_selection_hover_and_press() {
     use super::super::super::{review_tests::paint, test_support::solids};
 
-    let action = MenuAction::SettingsSection(section_index(TABS[7].0));
+    let action = MenuAction::SettingsSection(section_index(TABS[7].section));
     for (selected, hovered, pressed, fill, edges) in [
         (false, false, false, NEUTRAL80.fill, None),
         (false, false, true, NEUTRAL80.fill, None),
@@ -117,7 +143,7 @@ fn category_bevels_follow_selection_hover_and_press() {
         ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
-        view.settings_section = section_index(TABS[if selected { 7 } else { 5 }].0);
+        view.settings_section = section_index(TABS[if selected { 7 } else { 5 }].section);
         view.hovered = hovered.then_some(action);
         view.pressed = pressed.then_some(action);
         let mut edge = 0.0;
@@ -230,7 +256,7 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
         view.settings_section = if selected {
             section_index("global_texture_pack_forced_index")
         } else {
-            section_index(TABS[0].0)
+            section_index(TABS[0].section)
         };
         view.focused_action = Some(action);
         view.hovered = hovered.then_some(action);
@@ -269,9 +295,9 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
 fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
     use super::super::super::review_tests::paint;
 
-    let action = MenuAction::SettingsSection(section_index(TABS[2].0));
+    let action = MenuAction::SettingsSection(section_index(TABS[2].section));
     let mut view = MenuView::new(true, "Player".into());
-    view.settings_section = section_index(TABS[2].0);
+    view.settings_section = section_index(TABS[2].section);
     view.focused_action = Some(action);
     let bounds = [20.0, 20.0, 420.0, 300.0];
     let (scrolls, hits, _) = paint(HashMap::new(), |canvas| {
@@ -299,5 +325,37 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
         visible_color(&draw, [x, viewport.min().y() - edge * 0.5]),
         Some(theme::OUTLINE),
         "the focused row's vertical border remains inside its scroll clip"
+    );
+}
+
+#[test]
+fn account_is_followed_by_resources_without_an_empty_category_row() {
+    use crate::review_tests::paint;
+    let view = MenuView::new(true, "Player".into());
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        draw(canvas, &view, [20.0, 20.0, 420.0, 1100.0], &|_| None, None).unwrap();
+    });
+    let row = |section| {
+        hits.iter()
+            .find(|(action, _)| *action == MenuAction::SettingsSection(section_index(section)))
+            .unwrap()
+            .1
+    };
+    let account = row("account_forced_index");
+    let resources = row("global_texture_pack_forced_index");
+    assert_eq!(account.max().y(), resources.min().y());
+    let actions: Vec<_> = hits
+        .iter()
+        .filter_map(|(action, _)| match action {
+            MenuAction::SettingsSection(index) => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(actions.len(), TABS.len());
+    assert_eq!(
+        actions,
+        TABS.iter()
+            .map(|tab| section_index(tab.section))
+            .collect::<Vec<_>>()
     );
 }

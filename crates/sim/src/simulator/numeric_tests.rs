@@ -1,6 +1,28 @@
 use super::{Vec3, apply_relative_movement};
 
 #[test]
+fn processed_controls_round_the_item_and_pose_product_before_clamping() {
+    let input = super::MovementInput {
+        forward: 1.0,
+        strafe: -1.0,
+        sneaking: true,
+        using_consumable: true,
+        move_vector_is_raw: false,
+        ..Default::default()
+    };
+    let controls = super::controls::process(input);
+    let limit = 0.1225_f32 * 0.3_f32;
+    assert_eq!(controls.move_vector, [f64::from(-limit), f64::from(limit)]);
+    assert_ne!(controls.move_vector[1], 0.1225_f64 * f64::from(0.3_f32));
+}
+
+#[test]
+fn climb_requests_are_single_precision_before_collision_resolution() {
+    assert_eq!(super::CLIMB_SPEED, f64::from(0.2_f32));
+    assert_eq!(super::scaffolding::CLIMB_SPEED, f64::from(0.15_f32));
+}
+
+#[test]
 fn collision_flags_use_the_native_float_epsilon_boundary() {
     use crate::{Aabb, CollisionQuery, CollisionWorld, WorldQueryError};
     struct Wall;

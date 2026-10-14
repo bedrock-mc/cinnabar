@@ -6,7 +6,7 @@ fn head_assets() -> Arc<assets::RuntimeEntityAssets> {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"render_controllers":["controller.render.test"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64},"bones":[{"name":"head","pivot":[0,24,0]},{"name":"body","pivot":[0,24,0]},{"name":"rightarm","pivot":[5,22,0]},{"name":"leftarm","pivot":[-5,22,0]},{"name":"rightleg","pivot":[1.9,12,0]},{"name":"leftleg","pivot":[-1.9,12,0]}]}]}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
-    let compiled = pack_compiler::compile_entity_pack(vec![
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), entity.to_vec()),
         ("models/entity/test.geo.json".into(), geometry.to_vec()),
         ("render_controllers/test.json".into(), controller.to_vec()),
@@ -25,7 +25,7 @@ pub(super) fn head_stream() -> WorldStream {
             local_player_unique_id: 1,
             player_position: [0.0, 64.0, 0.0],
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),

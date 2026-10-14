@@ -5,11 +5,13 @@ use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
 
+use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod camera_hand_tests;
 mod commit;
 mod cooldowns;
 mod loading;
+mod menu_icons;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
     player_preview,
@@ -57,6 +59,7 @@ type PublishExtras<'w, 's> = (
     (
         Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
         Res<'w, client_presentation::local_player::LocalPlayerFrameCarrier>,
+        Res<'w, client_presentation::local_player::LocalAvatarVisibilityCarrier>,
         Res<'w, crate::environment::WorldClock>,
         Res<'w, crate::environment::WeatherState>,
         Res<'w, NetworkHandle<PackApplication>>,
@@ -98,6 +101,7 @@ pub(crate) fn prepare_ui_runtime(
         (
             actor_partial,
             local_frame,
+            local_visibility,
             clock,
             weather,
             network,
@@ -207,8 +211,8 @@ pub(crate) fn prepare_ui_runtime(
     presentation.observe_paper_doll(now_millis, doll_state);
     let settings = menu_runtime.settings_snapshot().0;
     let hud_doll = presentation.hud_frame_mut().paper_doll_visible
-        && settings.value("hide_hud") == 0
-        && settings.value("hide_paperdoll") == 0
+        && settings.value(SettingId::HideHud) == 0
+        && settings.value(SettingId::HidePaperdoll) == 0
         && !menu_runtime.is_visible()
         && !runtime.inventory_open();
     let emote_preview = runtime
@@ -238,8 +242,8 @@ pub(crate) fn prepare_ui_runtime(
         );
     }
     let overlays = client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
-        settings.value("hide_hud") != 0,
-        settings.value("hide_hand") != 0,
+        settings.value(SettingId::HideHud) != 0,
+        settings.value(SettingId::HideHand) != 0,
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
     );
     let hide_hand = !overlays.hand;
@@ -350,7 +354,7 @@ pub(crate) fn prepare_ui_runtime(
     let show_names = menu_runtime
         .settings_snapshot()
         .0
-        .value("ingame_player_names")
+        .value(SettingId::IngamePlayerNames)
         != 0;
     let tag_style = presentation
         .mod_ui()
@@ -365,7 +369,7 @@ pub(crate) fn prepare_ui_runtime(
         .filter(|_| {
             overlays.nametags
                 || (names_with_hidden_hud
-                    && settings.value("hide_hud") != 0
+                    && settings.value(SettingId::HideHud) != 0
                     && !menu_runtime.is_visible())
         })
         .zip(
@@ -410,23 +414,29 @@ pub(crate) fn prepare_ui_runtime(
             }
             if show_self_tag && show_names {
                 let authority = stream.authority();
-                if let Some(actor) =
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .filter(|actor| {
-                            !tag_style.is_some_and(|style| style.hide_passengers)
-                                || authority.ridden_unique_id(actor.unique_id).is_none()
-                        })
+                if let Some(visibility) = local_visibility.snapshot().filter(|visibility| {
+                    visibility.visible()
+                        && visibility.runtime_id() == authority.local_player_runtime_id()
+                        && visibility.session_generation().get() == clock.session_generation()
+                }) && let Some(actor) = authority
+                    .actor(authority.local_player_runtime_id())
+                    .filter(|actor| {
+                        !tag_style.is_some_and(|style| style.hide_passengers)
+                            || authority.ridden_unique_id(actor.unique_id).is_none()
+                    })
                     && let Some(name) = authority
                         .actor_name_tag(actor.unique_id)
                         .or_else(|| authority.actor_display_name(actor.unique_id))
-                    && let Some(tag) = nametags::extract_nametag(
+                    && let Some(tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametag_view,
+                        nametags::NametagView {
+                            viewer_position: visibility.feet(),
+                            ..nametag_view
+                        },
                         None,
                         name,
                         runtime.scoreboards(),
-                        actor_partial.0,
+                        visibility.feet(),
                     )
                 {
                     tags.push(tag);
@@ -449,10 +459,7 @@ pub(crate) fn prepare_ui_runtime(
         for server in view.featured.iter_mut() {
             server.icon = presentation.menu_artwork_icon(&server.image_path);
         }
-        view.featured_icon = presentation.item_icon("minecraft:compass_item", 0);
-        view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
-        view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
-        view.saved_icon = presentation.item_icon("minecraft:book_normal", 0);
+        menu_icons::install(&presentation, &mut view);
         view.profile_icon = presentation.player_preview_icon();
         view
     });

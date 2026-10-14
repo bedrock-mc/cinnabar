@@ -49,6 +49,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .in_set(ClientFrameSet::RawInput),
     )
     .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::ui_runtime::touch_pointer::emulate_ui_pointer
+            .before(bevy::input::InputSystems)
+            .run_if(|| cfg!(target_os = "android")),
+    )
+    .add_systems(
         Update,
         route_semantic_input.in_set(ClientFrameSet::SemanticSample),
     )
@@ -73,7 +79,6 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),
-            crate::store::drive_store.in_set(client_state::ShellFrameSet::Store),
             synchronize_semantic_input_authority.after(client_state::ShellFrameSet::Focus),
             drive_world_inventory_keys
                 .run_if(client_extensions::server_experiences::input::ordinary_input),

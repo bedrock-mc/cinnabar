@@ -4,7 +4,7 @@ use assets::{
     AssetError, EntityDependencyResolution, EquipmentCategory, EquipmentItemFacts,
     EquipmentTransform, encode_entity_blob, encode_equipment_catalog_with_use_profiles,
 };
-use pack_compiler::{
+use pack_entity_compiler::{
     compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
     compile_equipment_textures_for_assets, compile_item_attack_timings, compile_item_foods,
     compile_item_use_profiles,

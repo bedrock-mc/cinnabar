@@ -24,7 +24,7 @@ fn stream() -> WorldStream {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     })
 }
@@ -136,7 +136,8 @@ fn complete_one_light(stream: &mut WorldStream, camera: [f32; 3]) {
 
 /// Advances bounded scheduler turns until test lighting is current and its workers are idle.
 pub(super) fn settle_light(stream: &mut WorldStream, camera: [f32; 3]) {
-    for _ in 0..128 {
+    // Emitter-dense fields take hundreds of boundary exchanges to settle.
+    for _ in 0..1024 {
         stream.dispatch_light_jobs(camera, usize::MAX);
         if stream.lighting.jobs.in_flight.is_empty() {
             // Retired jobs can still own slots after their in-flight entries are removed.
@@ -262,6 +263,7 @@ mod mesh_admission;
 mod backlog;
 mod mixed_prefix;
 mod mutation_summary;
+mod noop_gates;
 mod pending_coalescing;
 mod resident_air;
 mod startup_lanes;

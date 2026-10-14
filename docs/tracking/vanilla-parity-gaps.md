@@ -88,7 +88,7 @@ count and the live-event button. OreUI screens that 26.30 shows by default are d
 (`docs/oreui.md`): play (Worlds/Realms/Servers), death, profile, inbox and the friends drawer;
 settings, disconnect and the main menu stay JSON-UI as in 26.30's defaults. Bed and
 create/edit-world OreUI screens are not built. All need screenshot checks. Not
-served: persona appearance pieces for the paper doll, gathering venues, store layouts. A launcher run keeps one `-control-status` core (restarted
+served: persona appearance pieces for the paper doll, gathering venues. A launcher run keeps one `-control-status` core (restarted
 on sign-in/sign-out) that feeds account, realms, friends and local worlds; joins select their
 target over `connect.v1` and fall back to a per-session core; opened local worlds are joined and
 closed with their session; respawn sends the client-ready respawn request only (no player

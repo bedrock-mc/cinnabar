@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bevy",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "actor-animation"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "protocol",
@@ -370,7 +370,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "cfg-expr",
  "clap",
@@ -423,13 +423,16 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "block-transform",
  "clap",
  "image",
+ "pack-compile-input",
  "pack-compiler",
+ "pack-entity-compiler",
+ "pack-font-compiler",
  "reqwest",
  "same-file",
  "serde",
@@ -442,7 +445,7 @@ dependencies = [
 
 [[package]]
 name = "assets"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
@@ -450,6 +453,7 @@ dependencies = [
  "flate2",
  "glam",
  "lewton",
+ "protocol-ids",
  "rayon",
  "rustix 1.1.4",
  "serde",
@@ -664,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "bedrock-replay"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bridge",
@@ -1790,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "block-transform"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "block2"
@@ -1825,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2031,7 +2035,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2039,11 +2043,13 @@ dependencies = [
  "client-world",
  "criterion",
  "crossbeam-channel",
+ "far-terrain",
  "hashbrown 0.16.1",
  "libc",
  "meshing",
  "mimalloc",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "serde_json",
@@ -2086,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "acceptance",
  "actor-animation",
@@ -2112,12 +2118,13 @@ dependencies = [
  "diagnostics",
  "env-compat",
  "experience-sdk",
+ "far-terrain",
  "first-run",
  "fontdue",
  "gameplay",
  "glam",
  "image",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2133,13 +2140,16 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
  "oreui",
+ "pack-compile-input",
  "pack-compiler",
+ "pack-entity-compiler",
  "pack-json",
  "pack-runtime",
  "particles",
  "player-state",
  "profiling",
  "protocol",
+ "protocol-ids",
  "raw-window-handle",
  "rayon",
  "render",
@@ -2177,8 +2187,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-android"
+version = "0.1.19"
+dependencies = [
+ "anyhow",
+ "assets",
+ "bevy",
+ "cinnabar",
+ "first-run",
+ "jni 0.21.1",
+ "launcher",
+ "rodio",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cinnabar-cxb"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "protocol",
@@ -2195,7 +2221,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-mcp"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "developer-control",
  "image",
@@ -2268,7 +2294,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-audio"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2278,11 +2304,12 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "pack-json",
  "particles",
  "player-state",
  "protocol",
+ "protocol-ids",
  "resource-pack",
  "rodio",
  "serde_json",
@@ -2299,7 +2326,7 @@ dependencies = [
 
 [[package]]
 name = "client-extensions"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "assets",
@@ -2308,7 +2335,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "fontdue",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "mod-api",
  "mod-host",
  "mod-render",
@@ -2325,7 +2352,7 @@ dependencies = [
 
 [[package]]
 name = "client-interaction"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2338,9 +2365,10 @@ dependencies = [
  "client-world",
  "diagnostics",
  "gameplay",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "semantic-input",
  "sha2",
  "sim",
@@ -2352,7 +2380,7 @@ dependencies = [
 
 [[package]]
 name = "client-presentation"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2363,12 +2391,14 @@ dependencies = [
  "client-world",
  "glam",
  "image",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "launcher",
  "meshing",
  "pack-compiler",
+ "pack-entity-compiler",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "render-scene",
@@ -2391,7 +2421,7 @@ dependencies = [
 
 [[package]]
 name = "client-runtime"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2407,6 +2437,7 @@ dependencies = [
  "meshing",
  "pack-runtime",
  "protocol",
+ "protocol-ids",
  "render",
  "render-api",
  "render-scene",
@@ -2416,12 +2447,13 @@ dependencies = [
 
 [[package]]
 name = "client-session"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "bridge",
  "bytes",
  "crossbeam-channel",
  "protocol",
+ "protocol-ids",
  "serde_json",
  "server-experience",
  "simulation-clock",
@@ -2436,7 +2468,7 @@ dependencies = [
 
 [[package]]
 name = "client-shell"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "ash",
  "assets",
@@ -2479,7 +2511,7 @@ dependencies = [
 
 [[package]]
 name = "client-state"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "bevy",
  "player-state",
@@ -2490,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2503,7 +2535,7 @@ dependencies = [
  "env-compat",
  "glam",
  "image",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2511,9 +2543,11 @@ dependencies = [
  "mod-ui",
  "oreui",
  "pack-compiler",
+ "pack-entity-compiler",
  "pack-json",
  "player-state",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "render-model",
@@ -2541,13 +2575,14 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "sha2",
@@ -3131,7 +3166,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "crossbeam-channel",
  "serde",
@@ -3142,7 +3177,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "csv",
  "ctrlc",
@@ -3159,7 +3194,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "chunk-pipeline",
@@ -3244,7 +3279,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "same-file",
@@ -3382,7 +3417,7 @@ dependencies = [
 
 [[package]]
 name = "env-compat"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "equivalent"
@@ -3449,14 +3484,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "serde",
@@ -3472,7 +3507,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "serde",
  "serde_json",
@@ -3482,7 +3517,7 @@ dependencies = [
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "experience-sdk",
  "serde_json",
@@ -3493,6 +3528,25 @@ name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+
+[[package]]
+name = "far-terrain"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "criterion",
+ "crossbeam-channel",
+ "flate2",
+ "rayon",
+ "render-api",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "thiserror 2.0.18",
+ "tracing",
+ "world",
+ "xxhash-rust",
+]
 
 [[package]]
 name = "fastrand"
@@ -3517,7 +3571,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "first-run"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "assets",
@@ -3746,16 +3800,17 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "assets",
  "block-transform",
  "client-world",
  "env-compat",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "semantic-input",
  "serde",
@@ -3898,6 +3953,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gl_generator"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
+dependencies = [
+ "khronos_api",
+ "log",
+ "xml-rs",
+]
+
+[[package]]
 name = "glam"
 version = "0.33.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3916,6 +3982,27 @@ name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
+name = "glow"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29038e1c483364cc6bb3cf78feee1816002e127c331a1eec55a4d202b9e1adb5"
+dependencies = [
+ "js-sys",
+ "slotmap",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "glutin_wgl_sys"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
+dependencies = [
+ "gl_generator",
+]
 
 [[package]]
 name = "gpu-allocator"
@@ -3992,6 +4079,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -4013,7 +4102,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "mod-api",
 ]
@@ -4308,11 +4397,12 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bytes",
  "protocol",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -4488,7 +4578,7 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "pack-json",
  "serde",
@@ -4499,11 +4589,13 @@ dependencies = [
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "image",
  "json-ui",
+ "render-api",
+ "render-model",
  "serde",
  "serde_json",
  "ui",
@@ -4514,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "image",
  "json-ui",
@@ -4523,6 +4615,23 @@ dependencies = [
  "serde_json",
  "uuid",
 ]
+
+[[package]]
+name = "khronos-egl"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
+dependencies = [
+ "libc",
+ "libloading",
+ "pkg-config",
+]
+
+[[package]]
+name = "khronos_api"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "ktx2"
@@ -4544,7 +4653,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bridge",
@@ -4562,7 +4671,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-host"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "async-io",
@@ -4575,6 +4684,7 @@ dependencies = [
  "libc",
  "protocol",
  "reqwest",
+ "resource-pack",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -4869,7 +4979,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "serde_json",
 ]
@@ -4909,7 +5019,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "block-transform",
@@ -4961,14 +5071,14 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "wit-bindgen",
 ]
 
 [[package]]
 name = "mod-host"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "experience-sdk",
@@ -4982,6 +5092,7 @@ dependencies = [
  "tempfile",
  "test-time",
  "ui",
+ "wasmparser 0.247.0",
  "wasmtime",
  "wat",
  "windows-sys 0.61.2",
@@ -4990,7 +5101,7 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "bytemuck",
  "mod-api",
@@ -4999,7 +5110,7 @@ dependencies = [
 
 [[package]]
 name = "mod-ui"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "glam",
@@ -5690,7 +5801,7 @@ dependencies = [
 
 [[package]]
 name = "oreui"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bridge",
@@ -5730,8 +5841,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "pack-compile-input"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "image",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pack-compiler"
-version = "0.1.17"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "cap-fs-ext",
+ "cap-std",
+ "image",
+ "pack-compile-input",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "pack-entity-compiler"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "image",
+ "pack-compile-input",
+ "pack-compiler",
+ "pack-json",
+ "serde",
+ "serde_json",
+ "sha2",
+ "simulation-clock",
+ "tempfile",
+]
+
+[[package]]
+name = "pack-font-compiler"
+version = "0.1.19"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -5739,18 +5896,16 @@ dependencies = [
  "fontdue",
  "freetype-sys",
  "image",
- "pack-json",
  "serde",
  "serde_json",
  "sha2",
- "simulation-clock",
  "tempfile",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "pack-json"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "serde",
  "serde_json",
@@ -5758,13 +5913,14 @@ dependencies = [
 
 [[package]]
 name = "pack-runtime"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "block-transform",
  "image",
  "json-ui",
- "pack-compiler",
+ "pack-compile-input",
+ "pack-entity-compiler",
  "pack-json",
  "protocol",
  "rayon",
@@ -5819,7 +5975,7 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bytemuck",
@@ -5902,10 +6058,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "client-world",
- "inventory 0.1.17",
+ "inventory 0.1.19",
 ]
 
 [[package]]
@@ -6055,7 +6211,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "base64",
@@ -6066,6 +6222,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "futures",
+ "protocol-ids",
  "render-api",
  "serde",
  "serde_json",
@@ -6081,6 +6238,10 @@ dependencies = [
  "xxhash-rust",
  "zeroize",
 ]
+
+[[package]]
+name = "protocol-ids"
+version = "0.1.19"
 
 [[package]]
 name = "pulley-interpreter"
@@ -6381,7 +6542,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "base64",
  "serde_json",
@@ -6393,13 +6554,14 @@ dependencies = [
 
 [[package]]
 name = "render"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bevy",
  "block-transform",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "image",
  "libc",
@@ -6427,11 +6589,11 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "render-model"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "block-transform",
@@ -6442,6 +6604,7 @@ dependencies = [
  "image",
  "mod-api",
  "pack-compiler",
+ "pack-entity-compiler",
  "render-api",
  "serde_json",
  "sha2",
@@ -6454,24 +6617,24 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "mod-api",
 ]
 
 [[package]]
 name = "render-scene"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "bevy",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "meshing",
  "mod-api",
  "mod-render",
- "pack-compiler",
  "particles",
  "render-api",
  "render-model",
@@ -6531,7 +6694,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "aes",
  "pack-json",
@@ -6546,7 +6709,7 @@ dependencies = [
 
 [[package]]
 name = "rich-presence"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "crossbeam-channel",
  "discord-presence",
@@ -6730,7 +6893,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen-probe-mod"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "experience-sdk",
  "mod-api",
@@ -6751,7 +6914,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "semver"
@@ -6846,7 +7009,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -6920,7 +7083,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "block-transform",
@@ -6957,7 +7120,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simulation-clock"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "slab"
@@ -7169,11 +7332,11 @@ dependencies = [
 
 [[package]]
 name = "test-alloc"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "test-time"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "thiserror"
@@ -7240,7 +7403,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "mod-api",
 ]
@@ -7700,7 +7863,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "json-ui",
@@ -7713,7 +7876,7 @@ dependencies = [
 
 [[package]]
 name = "ui-engine"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "assets",
  "crossbeam-channel",
@@ -7734,13 +7897,13 @@ dependencies = [
 
 [[package]]
 name = "ui-screens"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "actor-animation",
  "assets",
  "bridge",
  "image",
- "inventory 0.1.17",
+ "inventory 0.1.19",
  "json-ui",
  "launcher",
  "player-state",
@@ -7752,6 +7915,23 @@ dependencies = [
  "ui",
  "ui-engine",
  "url",
+]
+
+[[package]]
+name = "ui-snapshot"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "image",
+ "json-ui",
+ "jsonui-editor",
+ "launcher",
+ "oreui",
+ "serde_json",
+ "tempfile",
+ "ui",
+ "ui-engine",
+ "ui-screens",
 ]
 
 [[package]]
@@ -7797,7 +7977,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "update-installer"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "anyhow",
  "rustix 1.1.4",
@@ -7811,7 +7991,7 @@ dependencies = [
 
 [[package]]
 name = "update-manifest"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "base64",
  "ring",
@@ -8056,6 +8236,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "semver",
+ "serde",
 ]
 
 [[package]]
@@ -8443,6 +8624,7 @@ checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
  "dlib",
  "log",
+ "once_cell",
  "pkg-config",
 ]
 
@@ -8592,6 +8774,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.18",
  "wgpu-core-deps-apple",
+ "wgpu-core-deps-emscripten",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
  "wgpu-naga-bridge",
@@ -8600,6 +8783,14 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core-deps-apple"
+version = "30.0.1"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=9686723e5deb6341cf9f088515ced3c8e6fe4f29#9686723e5deb6341cf9f088515ced3c8e6fe4f29"
+dependencies = [
+ "wgpu-hal",
+]
+
+[[package]]
+name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
 source = "git+https://github.com/bedrock-mc/wgpu?rev=9686723e5deb6341cf9f088515ced3c8e6fe4f29#9686723e5deb6341cf9f088515ced3c8e6fe4f29"
 dependencies = [
@@ -8628,13 +8819,18 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "glow",
+ "glutin_wgl_sys",
  "gpu-allocator",
  "hashbrown 0.17.1",
+ "js-sys",
+ "khronos-egl",
  "libc",
  "libloading",
  "log",
  "naga",
  "naga-types",
+ "ndk-sys 0.6.0+11769913",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -8654,10 +8850,14 @@ dependencies = [
  "smallvec",
  "static_assertions",
  "thiserror 2.0.18",
+ "wasm-bindgen",
+ "wayland-sys",
+ "web-sys",
  "wgpu-naga-bridge",
  "wgpu-types",
  "windows 0.62.2",
  "windows-core 0.62.2",
+ "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -9428,11 +9628,11 @@ dependencies = [
 
 [[package]]
 name = "workspace-declarations"
-version = "0.1.17"
+version = "0.1.19"
 
 [[package]]
 name = "world"
-version = "0.1.17"
+version = "0.1.19"
 dependencies = [
  "criterion",
  "hashbrown 0.16.1",
@@ -9507,6 +9707,12 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
+
+[[package]]
+name = "xml-rs"
+version = "0.8.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xxhash-rust"

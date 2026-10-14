@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use json_ui::RectOut;
+use launcher::menu::settings_options::SettingId;
 use launcher::menu::split_address;
 use {
     super::*,
@@ -62,11 +63,6 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
 
 fn reference(view: &MenuView) -> Option<&'static str> {
     screen_data(view, &|_| None, 0).map(|screen| screen.reference)
-}
-
-#[test]
-fn the_pause_store_button_names_the_server_store() {
-    assert_eq!(server_store_text(&|_| None), "Server Store");
 }
 
 #[test]
@@ -257,29 +253,6 @@ fn the_pause_friends_drawer_invites_only_while_hosting() {
 }
 
 #[test]
-fn the_start_screen_marketplace_button_opens_the_store_and_its_presses_route_to_it() {
-    let home = view(MenuScreen::Home);
-    assert_eq!(
-        action_for(&home, &region(HitKind::Button, Some("button.menu_store"))),
-        Some(MenuAction::Store(launcher::store::StoreAction::Open))
-    );
-    let mut store = view(MenuScreen::Store);
-    assert!(
-        reference(&store).is_none(),
-        "no engine screen until the store publishes"
-    );
-    store.store = Some(std::sync::Arc::new(launcher::store::StoreSnapshot::empty()));
-    assert_eq!(
-        reference(&store),
-        Some("store_layout.store_data_driven_screen")
-    );
-    assert_eq!(
-        action_for(&store, &region(HitKind::Button, Some("button.menu_exit"))),
-        Some(MenuAction::Store(launcher::store::StoreAction::Back))
-    );
-}
-
-#[test]
 fn radio_tabs_pick_play_tabs_and_settings_sections() {
     let mut tab = region(HitKind::Toggle, None);
     tab.control_name = Some("navigation_tab".into());
@@ -334,6 +307,40 @@ fn fullscreen_toggle_binds_and_changes_the_current_window_mode() {
         Some(&Value::Bool(true))
     );
     assert_eq!(bound.properties.get("#enabled"), Some(&Value::Bool(true)));
+}
+
+#[test]
+fn gui_scale_slider_enabled_only_when_multiple_choices_are_available() {
+    let name = SettingId::GuiScale.name();
+    let slider = json_ui::ResolvedControl {
+        name: name.into(),
+        control_type: Some("slider".into()),
+        base: None,
+        unresolved_base: None,
+        properties: [(
+            "bindings".into(),
+            serde_json::json!([{
+                "binding_name": format!("#{name}_enabled"),
+                "binding_name_override": "#enabled"
+            }]),
+        )]
+        .into(),
+        children: Vec::new(),
+        factory: None,
+    };
+    for (window, enabled) in [([376, 250], false), ([1920, 1080], true)] {
+        let mut shown = view(MenuScreen::Settings);
+        shown.gui_scale_choices = ui::DesktopGuiScale::for_window(window).choices().collect();
+        if !enabled {
+            assert_eq!(shown.gui_scale_choices.len(), 1);
+        }
+        let data = screen_data(&shown, &|_| None, 0).unwrap().data;
+        let bound = json_ui::bind(&slider, &data, &json_ui::EmptyLibrary);
+        assert_eq!(
+            bound.properties.get("#enabled"),
+            Some(&Value::Bool(enabled))
+        );
+    }
 }
 
 #[test]
@@ -393,7 +400,7 @@ fn antialiasing_slider_uses_device_sample_stops_and_numeric_labels() {
     options.set_anti_aliasing_support(ui::AntiAliasingSupport::from_counts([1, 4, 8]));
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "msaa")
+        .position(|option| option.id == SettingId::Msaa)
         .unwrap();
     options.set(index, 4);
     let mut slider = region(HitKind::Slider, None);

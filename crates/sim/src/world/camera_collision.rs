@@ -50,12 +50,14 @@ impl PaletteWorld<'_> {
         origin: Vec3,
         delta: Vec3,
     ) -> Result<(Option<f64>, LenientSkipCounts), WorldQueryError> {
+        let origin = origin.rounded();
         let end = origin + delta;
+        let delta = end - origin;
         validate_collision_query(Aabb::new(
             origin.component_min(end),
             origin.component_max(end),
         ))?;
-        let mut state = TraversalState::new(origin, delta)?;
+        let mut state = TraversalState::new(origin, delta, 1.0)?;
         let mut skipped = LenientSkipCounts::default();
         let mut best: Option<f64> = None;
         let mut section = SectionCache::default();
@@ -69,7 +71,7 @@ impl PaletteWorld<'_> {
                 &mut skipped,
             )?;
             let next = state.next_crossing();
-            if next > 1.0 || best.is_some_and(|hit| strictly_precedes(hit, next)) {
+            if next > 1.0 || best.is_some_and(|hit| strictly_precedes(hit, f64::from(next))) {
                 return Ok((best, skipped));
             }
             for cell in state.advance(next)? {

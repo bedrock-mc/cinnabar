@@ -2,6 +2,12 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 use {super::*, render_api::PublicationAllowance};
 
 impl WorldStream {
+    /// Publishes local placement and its transition to retained pose and animation readers.
+    pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
+        self.authority
+            .set_local_actor_presentation_position(position, reanchor);
+    }
+
     /// Retains StartGame's level mode for remote-player target admission.
     pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
         self.authority.set_world_default_game_mode(mode);
@@ -116,6 +122,7 @@ impl WorldStream {
             self.applied_mesh_generations.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
+        self.note_near_drawn(key.chunk());
         self.acknowledge_actor_block_syncs(key, generation);
         self.stats.publication_stages.mesh_uploads_acknowledged = self
             .stats

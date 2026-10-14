@@ -3,6 +3,7 @@
 use super::super::theme::{BODY, CAPTION, EDGE, NEUTRAL, TEXT, TEXT_DIMMER};
 use super::super::widgets;
 use super::{Content, button};
+use launcher::menu::settings_sections::SettingSection;
 use launcher::menu::{
     MenuAction,
     auth::AuthState,
@@ -14,18 +15,21 @@ use ui_engine::engine::screen::PaintError;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn draw(content: &mut Content<'_, '_>, section: &str) -> Result<bool, PaintError> {
+pub(super) fn draw(
+    content: &mut Content<'_, '_>,
+    section: SettingSection,
+) -> Result<bool, PaintError> {
     match section {
-        "language_forced_index" => language(content)?,
-        "account_forced_index" => account(content)?,
-        "global_texture_pack_forced_index" => resources(content)?,
-        "storage_management_forced_index" => storage(content)?,
-        "view_subscriptions_forced_index" => subscriptions(content)?,
-        "touch_forced_index" => {
+        SettingSection::Language => language(content)?,
+        SettingSection::Account => account(content)?,
+        SettingSection::GlobalTexturePack => resources(content)?,
+        SettingSection::Mods => super::mods::draw(content)?,
+        SettingSection::StorageManagement => storage(content)?,
+        SettingSection::Touch => {
             content.heading("menu.touch.tab.title", "menu.touch.tab.description")?;
             content.label("", "hudScreen.controlCustomization.tooltip.notouch")?;
         }
-        "party_forced_index" => {
+        SettingSection::Party => {
             content.heading("options.party", "")?;
             for title in [
                 "options.partyInviteReceivedFilter",
@@ -136,29 +140,6 @@ fn account(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             "menu.account.signIn.title",
             "",
             "menu.account.signIn.buttonLabel",
-            Some(MenuAction::StartSignIn),
-        )?;
-    }
-    Ok(())
-}
-
-fn subscriptions(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
-    content.heading("options.viewSubscriptions", "")?;
-    if matches!(content.view.auth_state, AuthState::Authenticated) {
-        content.label("options.viewSubscriptions.mySubscriptions", "")?;
-        action_row(
-            content,
-            "options.viewSubscriptions.realmsServer",
-            "",
-            "options.viewSubscriptions.button.manage",
-            None,
-        )?;
-    } else {
-        action_row(
-            content,
-            "menu.account.signIn.title",
-            "",
-            "options.viewSubscriptions.signIn",
             Some(MenuAction::StartSignIn),
         )?;
     }

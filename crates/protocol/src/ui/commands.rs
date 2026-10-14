@@ -2,9 +2,12 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
+use bedrock_protocol_1_26_51::enums::CommandPermissionLevel;
 use bedrock_protocol_1_26_51::packets::AvailableCommands;
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
+
+use protocol_ids::{CommandArgFlag, CommandArgType};
 
 use super::{
     ChatAutocompleteAction, ChatAutocompleteEvent, MAX_CHAT_AUTOCOMPLETE,
@@ -14,13 +17,14 @@ use super::{
 const MAX_COMMANDS: usize = 4_096;
 const MAX_SOFT_ENUM_VALUES: usize = 16_384;
 const MAX_USAGE_ENUM_VALUES: usize = 6;
-const SELECTORS: [&str; 5] = ["@a", "@e", "@p", "@r", "@s"];
+const SELECTORS: [&str; 6] = ["@a", "@e", "@n", "@p", "@r", "@s"];
+const ALL_PLAYERS_MENTION: &str = "@here";
 
 // Parameter type word layout: flag bits over a table index or basic type id.
-const ARG_ENUM: u32 = 0x20_0000;
-const ARG_SOFT_ENUM: u32 = 0x400_0000;
-const ARG_CHAINED: u32 = 0x800_0000;
-const ARG_ENUM_INDEX_MASK: u32 = 0xF_FFFF;
+const ARG_ENUM: u32 = CommandArgFlag::Enum.wire_value();
+const ARG_SOFT_ENUM: u32 = CommandArgFlag::SoftEnum.wire_value();
+const ARG_CHAINED: u32 = CommandArgType::ChainedCommand.wire_value();
+const ARG_ENUM_INDEX_MASK: u32 = CommandArgFlag::Valid.wire_value() - 1;
 const ARG_BASIC_MASK: u32 = 0xFFFF;
 const PARAM_OPTION_COLLAPSE_ENUM: u8 = 1;
 
@@ -68,17 +72,23 @@ pub struct CommandTreeEvent {
 
 type NamedValues = (Arc<str>, Arc<[Arc<str>]>);
 
+#[cfg(test)]
+mod id_tests;
+
+/// Resolves the permission name to the generated wire permission level.
 fn permission_level(name: &str) -> u8 {
     match name {
-        "gamedirectors" => 1,
-        "admin" => 2,
-        "host" => 3,
-        "owner" => 4,
-        "internal" => 5,
-        _ => 0,
+        "gamedirectors" => CommandPermissionLevel::Gamedirectors,
+        "admin" => CommandPermissionLevel::Admin,
+        "host" => CommandPermissionLevel::Host,
+        "owner" => CommandPermissionLevel::Owner,
+        "internal" => CommandPermissionLevel::Internal,
+        _ => CommandPermissionLevel::Any,
     }
+    .to_raw()
 }
 
+/// Reduces known wire parameter types to the shapes used by completion.
 fn param_kind(word: u32, enums: &[NamedValues], soft: &[NamedValues]) -> CommandParamKind {
     let index = (word & ARG_ENUM_INDEX_MASK) as usize;
     if word & ARG_ENUM != 0 {
@@ -99,13 +109,24 @@ fn param_kind(word: u32, enums: &[NamedValues], soft: &[NamedValues]) -> Command
     if word & ARG_CHAINED != 0 {
         return CommandParamKind::Rest;
     }
-    // Basic ids follow gophertunnel's argument-type table.
-    match word & ARG_BASIC_MASK {
-        1 | 5 => CommandParamKind::Int,
-        3 => CommandParamKind::Float,
-        8..=11 => CommandParamKind::Target,
-        64 | 65 => CommandParamKind::Position,
-        67 | 70 | 71 | 74 => CommandParamKind::Rest,
+    match CommandArgType::from_wire(word & ARG_BASIC_MASK) {
+        Some(CommandArgType::Int | CommandArgType::WildcardInt) => CommandParamKind::Int,
+        Some(CommandArgType::Float) => CommandParamKind::Float,
+        Some(
+            CommandArgType::Target
+            | CommandArgType::StandaloneTarget
+            | CommandArgType::WildcardTarget
+            | CommandArgType::NonIDTarget,
+        ) => CommandParamKind::Target,
+        Some(CommandArgType::BlockPosition | CommandArgType::Position) => {
+            CommandParamKind::Position
+        }
+        Some(
+            CommandArgType::Message
+            | CommandArgType::RawText
+            | CommandArgType::TextContinuation
+            | CommandArgType::JSON,
+        ) => CommandParamKind::Rest,
         _ => CommandParamKind::Word,
     }
 }
@@ -255,8 +276,8 @@ fn has_prefix(candidate: &str, prefix: &str) -> bool {
         .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
 }
 
-/// Matches command-name substrings using the command parser’s ASCII case rules.
-fn contains_command(candidate: &str, partial: &str) -> bool {
+/// Matches a completion substring using ASCII case rules.
+fn contains_partial(candidate: &str, partial: &str) -> bool {
     partial.is_empty()
         || candidate
             .as_bytes()
@@ -335,8 +356,8 @@ impl ChatAutocompleteCatalog {
         self.complete_in(input, cursor_byte, CompletionContext::default())
     }
 
-    /// Suggestions replace the token before the cursor. With a command tree
-    /// loaded only `/` input completes; without one, flat enum values do.
+    /// Completes command arguments or the last `@` mention before the cursor.
+    /// Flat server enum values remain available without a command tree.
     pub fn complete_in(
         &self,
         input: &str,
@@ -350,11 +371,17 @@ impl ChatAutocompleteCatalog {
             return Err(ChatAutocompleteCatalogError::InvalidInput);
         }
         let before = &input[..cursor_byte];
-        let token = before
-            .rsplit_once(char::is_whitespace)
-            .map_or(before, |(_, token)| token);
+        let token = &before[Self::replacement_start(before)..];
+        let mention = is_mention(before);
         let tree = !self.commands.is_empty();
-        let (mut suggestions, usage) = if tree {
+        let (mut suggestions, usage, players) = if mention {
+            let mut out = Vec::new();
+            if contains_partial(ALL_PLAYERS_MENTION, token) {
+                out.push(Arc::from(ALL_PLAYERS_MENTION));
+            }
+            extend_players(&mut out, context.players, &token[1..], true);
+            (out, None, true)
+        } else if tree {
             self.complete_tree(before, context)
         } else {
             let mut flat: Vec<Arc<str>> = Vec::new();
@@ -363,9 +390,20 @@ impl ChatAutocompleteCatalog {
                     flat.push(Arc::clone(suggestion));
                 }
             }
-            (flat, None)
+            (flat, None, false)
         };
-        finish(&mut suggestions, token, tree);
+        if players {
+            let partial = if mention { &token[1..] } else { token };
+            suggestions.sort_by(|a, b| {
+                let a = Self::suggestion_text(before, a);
+                let b = Self::suggestion_text(before, b);
+                has_prefix(b, partial)
+                    .cmp(&has_prefix(a, partial))
+                    .then_with(|| a.cmp(b))
+            });
+            suggestions.dedup();
+        }
+        finish(&mut suggestions, token, tree && !players);
         Ok(ChatAutocompleteCompletion {
             catalog_revision: self.revision,
             suggestions: Arc::from(suggestions),
@@ -375,6 +413,56 @@ impl ChatAutocompleteCatalog {
 
     pub const fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Finds the start of a mention or a command token, keeping quoted names whole.
+    pub fn replacement_start(before: &str) -> usize {
+        if is_mention(before) {
+            return before.rfind('@').expect("a mention contains @");
+        }
+        let token = command_tokens(before).pop().unwrap_or("");
+        before.len() - token.len()
+    }
+
+    /// Shows player names without the mention marker, while retaining `@here`.
+    pub fn suggestion_text<'a>(before: &str, suggestion: &'a str) -> &'a str {
+        if is_mention(before) && suggestion != ALL_PLAYERS_MENTION {
+            suggestion.strip_prefix('@').unwrap_or(suggestion)
+        } else {
+            suggestion
+        }
+    }
+
+    /// Returns the localization key for a built-in selector or all-player mention.
+    pub fn suggestion_description(before: &str, suggestion: &str) -> Option<String> {
+        if is_mention(before) {
+            (suggestion == ALL_PLAYERS_MENTION)
+                .then(|| "chat.mentions.autocomplete.allPlayers".to_owned())
+        } else {
+            SELECTORS
+                .contains(&suggestion)
+                .then(|| format!("commands.autocomplete.{}", &suggestion[1..]))
+        }
+    }
+
+    /// Finds the typed substring in the displayed suggestion using ASCII case rules.
+    pub fn suggestion_match(before: &str, suggestion: &str) -> Option<std::ops::Range<usize>> {
+        let token_start = Self::replacement_start(before);
+        let mut partial = &before[token_start..];
+        if is_mention(before) && suggestion != ALL_PLAYERS_MENTION {
+            partial = &partial[1..];
+        } else if token_start == 0 {
+            partial = partial.strip_prefix('/').unwrap_or(partial);
+        }
+        if partial.is_empty() {
+            return None;
+        }
+        let text = Self::suggestion_text(before, suggestion);
+        let start = text
+            .as_bytes()
+            .windows(partial.len())
+            .position(|part| part.eq_ignore_ascii_case(partial.as_bytes()))?;
+        Some(start..start + partial.len())
     }
 
     fn find(&self, name: &str, context: CompletionContext<'_>) -> Option<&CommandSpec> {
@@ -392,18 +480,18 @@ impl ChatAutocompleteCatalog {
         &self,
         before: &str,
         context: CompletionContext<'_>,
-    ) -> (Vec<Arc<str>>, Option<Arc<str>>) {
+    ) -> (Vec<Arc<str>>, Option<Arc<str>>, bool) {
         let Some(line) = before.strip_prefix('/') else {
-            return (Vec::new(), None);
+            return (Vec::new(), None, false);
         };
-        let mut tokens = line.split(char::is_whitespace).collect::<Vec<_>>();
+        let mut tokens = command_tokens(line);
         let partial = tokens.pop().unwrap_or("");
         tokens.retain(|token| !token.is_empty());
         let mut out = Vec::new();
         let Some((&name, args)) = tokens.split_first() else {
             for command in self.commands.iter().filter(|c| visible(c, context)) {
                 for candidate in std::iter::once(&command.name).chain(command.aliases.iter()) {
-                    if contains_command(candidate, partial) {
+                    if contains_partial(candidate, partial) {
                         out.push(Arc::from(format!("/{candidate}")));
                     }
                 }
@@ -411,12 +499,13 @@ impl ChatAutocompleteCatalog {
             let usage = self
                 .find(partial, context)
                 .map(|command| usage_of(command, command.overloads.first()));
-            return (out, usage);
+            return (out, usage, false);
         };
         let Some(command) = self.find(name, context) else {
-            return (out, None);
+            return (out, None, false);
         };
         let mut shown = None;
+        let mut players = false;
         for overload in command.overloads.iter() {
             let Some(current) = self.match_overload(overload, args) else {
                 continue;
@@ -424,6 +513,7 @@ impl ChatAutocompleteCatalog {
             shown.get_or_insert(overload);
             let mut index = current;
             while let Some(param) = overload.get(index) {
+                players |= matches!(param.kind, CommandParamKind::Target);
                 self.param_values(param, partial, context, &mut out);
                 if !param.optional {
                     break;
@@ -432,7 +522,7 @@ impl ChatAutocompleteCatalog {
             }
         }
         let usage = usage_of(command, shown.or_else(|| command.overloads.first()));
-        (out, Some(usage))
+        (out, Some(usage), players)
     }
 
     /// Index of the parameter the next token belongs to, or `None` when
@@ -499,14 +589,60 @@ impl ChatAutocompleteCatalog {
                 }
             }
             CommandParamKind::Target => {
-                extend_matching(out, context.players, partial);
+                extend_players(out, context.players, partial, false);
                 for selector in SELECTORS {
-                    if has_prefix(selector, partial) {
+                    if contains_partial(selector, partial) {
                         out.push(Arc::from(selector));
                     }
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Returns whether a line enters plain-chat mention completion.
+fn is_mention(before: &str) -> bool {
+    !before.trim_start().starts_with('/') && before.contains('@')
+}
+
+/// Splits arguments on whitespace outside double quotes and retains the active token.
+fn command_tokens(line: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let mut start = 0;
+    let mut quoted = false;
+    for (at, ch) in line.char_indices() {
+        if ch == '"' {
+            quoted = !quoted;
+        } else if ch.is_whitespace() && !quoted {
+            if start < at {
+                tokens.push(&line[start..at]);
+            }
+            start = at + ch.len_utf8();
+        }
+    }
+    tokens.push(&line[start..]);
+    tokens
+}
+
+/// Quotes player names with punctuation outside the command word alphabet or only digits.
+fn quoted_player(name: &str) -> String {
+    let word = name
+        .bytes()
+        .all(|ch| ch.is_ascii_alphanumeric() || b"()-.:?_".contains(&ch));
+    if !word || name.bytes().all(|ch| ch.is_ascii_digit()) {
+        format!("\"{name}\"")
+    } else {
+        name.to_owned()
+    }
+}
+
+/// Adds matching roster names, retaining a mention marker for editor replacement.
+fn extend_players(out: &mut Vec<Arc<str>>, players: &[Arc<str>], partial: &str, mention: bool) {
+    for player in players {
+        let name = quoted_player(player);
+        if contains_partial(&name, partial) {
+            out.push(Arc::from(if mention { format!("@{name}") } else { name }));
         }
     }
 }

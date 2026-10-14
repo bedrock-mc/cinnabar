@@ -10,8 +10,8 @@ use windows_sys::Win32::{
     },
     UI::{
         Controls::Dialogs::{
-            CommDlgExtendedError, GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST,
-            OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
+            CommDlgExtendedError, GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER,
+            OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
         },
         Shell::ShellExecuteW,
         WindowsAndMessaging::{
@@ -23,6 +23,8 @@ use windows_sys::Win32::{
 
 /// Room for a long (`\\?\`) path; the dialog fails rather than truncating.
 const PATH_CAPACITY: usize = 32_768;
+/// Room for a long directory path and hundreds of selected file names.
+const MULTI_FILE_CAPACITY: usize = PATH_CAPACITY * 4;
 
 /// Runs console helpers without a console window while preserving their configured streams.
 pub fn hide_console(command: &mut std::process::Command) {
@@ -45,10 +47,26 @@ pub fn physical_memory() -> Option<u64> {
 /// Shows the Open dialog; `Ok(None)` on cancel, `Err` with the dialog error code on failure.
 /// `filter` is a double-NUL-terminated list of `name\0patterns\0` pairs.
 pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
+    file_chooser(title, filter, false).map(|paths| paths.into_iter().next())
+}
+
+/// Shows the Open dialog with multiple selection; an empty list means cancellation.
+/// `filter` has the same double-NUL-terminated format as `pick_file`.
+pub fn pick_files(title: &str, filter: &str) -> Result<Vec<PathBuf>, u32> {
+    file_chooser(title, filter, true)
+}
+
+/// Shares the native dialog setup while preserving each caller's selection mode.
+fn file_chooser(title: &str, filter: &str, multiple: bool) -> Result<Vec<PathBuf>, u32> {
     let _apartment = ComApartment::enter();
     let filter = filter.encode_utf16().collect::<Vec<_>>();
     let title = wide(title);
-    let mut file = vec![0u16; PATH_CAPACITY];
+    let capacity = if multiple {
+        MULTI_FILE_CAPACITY
+    } else {
+        PATH_CAPACITY
+    };
+    let mut file = vec![0u16; capacity];
     let mut dialog = OPENFILENAMEW {
         lStructSize: size_of::<OPENFILENAMEW>() as u32,
         lpstrFilter: filter.as_ptr(),
@@ -56,21 +74,41 @@ pub fn pick_file(title: &str, filter: &str) -> Result<Option<PathBuf>, u32> {
         lpstrFile: file.as_mut_ptr(),
         nMaxFile: file.len() as u32,
         lpstrTitle: title.as_ptr(),
-        Flags: OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR,
+        Flags: OFN_EXPLORER
+            | OFN_FILEMUSTEXIST
+            | OFN_PATHMUSTEXIST
+            | OFN_NOCHANGEDIR
+            | if multiple { OFN_ALLOWMULTISELECT } else { 0 },
         ..Default::default()
     };
     // SAFETY: every pointer in `dialog` refers to a live, NUL-terminated buffer owned above.
     if unsafe { GetOpenFileNameW(&mut dialog) } != 0 {
-        let length = file
-            .iter()
-            .position(|&unit| unit == 0)
-            .unwrap_or(file.len());
-        return Ok(Some(PathBuf::from(OsString::from_wide(&file[..length]))));
+        return Ok(selected_paths(&file));
     }
     // SAFETY: reads the calling thread's last common-dialog error.
     match unsafe { CommDlgExtendedError() } {
-        0 => Ok(None),
+        0 => Ok(Vec::new()),
         code => Err(code),
+    }
+}
+
+/// Reads an Explorer-style result: one full path, or a directory followed by file names.
+/// The first empty component ends the list; UTF-16 path data is preserved without loss.
+fn selected_paths(buffer: &[u16]) -> Vec<PathBuf> {
+    let mut parts = buffer
+        .split(|&unit| unit == 0)
+        .take_while(|part| !part.is_empty());
+    let Some(first) = parts.next() else {
+        return Vec::new();
+    };
+    let path = PathBuf::from(OsString::from_wide(first));
+    let mut names = parts.peekable();
+    if names.peek().is_none() {
+        vec![path]
+    } else {
+        names
+            .map(|name| path.join(OsString::from_wide(name)))
+            .collect()
     }
 }
 
@@ -143,5 +181,76 @@ impl Drop for ComApartment {
             // SAFETY: matches the successful CoInitializeEx in `enter` on this thread.
             unsafe { CoUninitialize() };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_selection_is_already_a_full_path() {
+        let path = r"C:\Resource Packs\My Pack.mcpack";
+        assert_eq!(selected_paths(&wide(path)), [PathBuf::from(path)]);
+    }
+
+    #[test]
+    fn multiple_selections_join_names_to_the_directory_and_stop_at_double_nul() {
+        let buffer = "C:\\Resource Packs\0First Pack.mcpack\0第二包.mcaddon\0\0unused";
+        assert_eq!(
+            selected_paths(&buffer.encode_utf16().collect::<Vec<_>>()),
+            [
+                PathBuf::from(r"C:\Resource Packs\First Pack.mcpack"),
+                PathBuf::from(r"C:\Resource Packs\第二包.mcaddon"),
+            ]
+        );
+    }
+
+    #[test]
+    fn selections_preserve_unc_paths_and_unpaired_utf16_units() {
+        use std::os::windows::ffi::OsStrExt;
+
+        let mut buffer = "\\\\server\\packs\0".encode_utf16().collect::<Vec<_>>();
+        let name = [0xd800, b'.' as u16, b'z' as u16, b'i' as u16, b'p' as u16];
+        buffer.extend(name);
+        buffer.extend([0, 0]);
+        let expected = PathBuf::from(r"\\server\packs").join(OsString::from_wide(&name));
+        let paths = selected_paths(&buffer);
+        assert_eq!(paths.as_slice(), std::slice::from_ref(&expected));
+        assert_eq!(
+            paths[0].as_os_str().encode_wide().collect::<Vec<_>>(),
+            expected.as_os_str().encode_wide().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_hundred_long_file_names_fit_the_multi_selection_buffer() {
+        let directory = format!(r"C:\{}", "directory\\".repeat(1000));
+        let names = (0..100)
+            .map(|index| format!("{index:03}-{}.mcpack", "p".repeat(240)))
+            .collect::<Vec<_>>();
+        let mut buffer = directory.encode_utf16().collect::<Vec<_>>();
+        buffer.push(0);
+        for name in &names {
+            buffer.extend(name.encode_utf16());
+            buffer.push(0);
+        }
+        buffer.push(0);
+        assert!(buffer.len() > PATH_CAPACITY);
+        assert!(buffer.len() <= MULTI_FILE_CAPACITY);
+        buffer.resize(MULTI_FILE_CAPACITY, 0);
+        assert_eq!(
+            selected_paths(&buffer),
+            names
+                .iter()
+                .map(|name| PathBuf::from(&directory).join(name))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn empty_selection_has_no_paths() {
+        assert!(selected_paths(&[]).is_empty());
+        assert!(selected_paths(&[0, 0]).is_empty());
     }
 }

@@ -2,11 +2,12 @@
 //! terminal selection, a full pipe) never stalls the frame thread that logs or emits a marker.
 
 mod raw_stderr;
+mod synchronized;
 
 use std::{
     io::{IsTerminal, Write},
     sync::{
-        Arc, OnceLock,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
         mpsc::{Receiver, SyncSender, TrySendError, sync_channel},
     },
@@ -32,6 +33,8 @@ pub enum Stream {
 
 enum Message {
     Write(Stream, Vec<u8>),
+    /// Terminal output whose file copy has already been synchronized.
+    WriteConsole(Stream, Vec<u8>),
     /// Acknowledged once every earlier write has reached its stream.
     Flush(SyncSender<()>),
 }
@@ -39,6 +42,7 @@ enum Message {
 /// An ordered queue in front of two output streams, drained by its own thread.
 pub struct Console {
     queue: Option<SyncSender<Message>>,
+    log: Option<Arc<Mutex<crate::rotating_log::RotatingLog>>>,
     dropped: Arc<AtomicU64>,
     raw_stderr: Option<Arc<raw_stderr::RawStderr>>,
 }
@@ -53,13 +57,15 @@ impl Console {
     fn spawn_with_log(
         mut stdout: impl Write + Send + 'static,
         mut stderr: impl Write + Send + 'static,
-        mut log: Option<crate::rotating_log::RotatingLog>,
+        log: Option<crate::rotating_log::RotatingLog>,
     ) -> Self {
         let (queue, pending): (SyncSender<Message>, Receiver<Message>) =
             sync_channel(QUEUED_WRITES);
         let dropped = Arc::new(AtomicU64::new(0));
         let lost = Arc::clone(&dropped);
         let mut plain = AnsiFilter::default();
+        let log = log.map(|log| Arc::new(Mutex::new(log)));
+        let writer_log = log.clone();
         let spawned = std::thread::Builder::new()
             .name("console-writer".to_owned())
             .spawn(move || {
@@ -67,15 +73,18 @@ impl Console {
                     let count = lost.swap(0, Ordering::Relaxed);
                     if count > 0 {
                         let notice = format!("console queue full: dropped {count} writes\n");
-                        if let Some(log) = &mut log {
+                        if let Some(log) = &writer_log {
+                            let mut log = log.lock().unwrap_or_else(|error| error.into_inner());
                             let _ = log.write_all(notice.as_bytes()).and_then(|()| log.flush());
                         }
                         let _ = stderr.write_all(notice.as_bytes());
                         let _ = stderr.flush();
                     }
+                    let mirror = matches!(&message, Message::Write(..));
                     match message {
-                        Message::Write(stream, bytes) => {
-                            if let Some(log) = &mut log {
+                        Message::Write(stream, bytes) | Message::WriteConsole(stream, bytes) => {
+                            if mirror && let Some(log) = &writer_log {
+                                let mut log = log.lock().unwrap_or_else(|error| error.into_inner());
                                 let text = plain.strip(&bytes);
                                 let _ = log.write_all(&text).and_then(|()| log.flush());
                             }
@@ -96,6 +105,7 @@ impl Console {
             });
         Self {
             queue: spawned.is_ok().then_some(queue),
+            log,
             dropped,
             raw_stderr: None,
         }
@@ -115,7 +125,7 @@ impl Console {
             Err(TrySendError::Disconnected(Message::Write(stream, bytes))) => {
                 write_inline(stream, &bytes);
             }
-            Err(TrySendError::Disconnected(Message::Flush(_))) => unreachable!(),
+            Err(TrySendError::Disconnected(_)) => unreachable!(),
         }
     }
 
@@ -277,6 +287,22 @@ pub fn stderr() -> Queued {
 
 /// Initializes the rotating sink, capturing raw stderr for nonterminal launches before any writes.
 pub fn initialize_log(path: &std::path::Path, limit: u64) -> std::io::Result<()> {
+    let terminal = std::io::stderr().is_terminal();
+    let destination = if terminal {
+        None
+    } else {
+        raw_stderr::original()?
+    };
+    initialize_log_with_destination(path, limit, terminal, destination)
+}
+
+/// Initializes the file mirror with the launcher's optional nonterminal stderr destination.
+fn initialize_log_with_destination(
+    path: &std::path::Path,
+    limit: u64,
+    terminal: bool,
+    destination: Option<std::fs::File>,
+) -> std::io::Result<()> {
     if CONSOLE.get().is_some() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::AlreadyExists,
@@ -284,12 +310,14 @@ pub fn initialize_log(path: &std::path::Path, limit: u64) -> std::io::Result<()>
         ));
     }
     let log = crate::rotating_log::RotatingLog::open(path, limit)?;
-    let terminal = std::io::stderr().is_terminal();
     let stderr: Box<dyn Write + Send> = if terminal {
         Box::new(std::io::stderr())
     } else {
         // Keep the launch destination before fd 2 becomes the capture pipe.
-        Box::new(raw_stderr::original()?)
+        match destination {
+            Some(destination) => Box::new(destination),
+            None => Box::new(std::io::sink()),
+        }
     };
     let mut console = Console::spawn_with_log(std::io::stdout(), stderr, Some(log));
     if !terminal {
@@ -324,6 +352,58 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+
+    /// Recreates a launcher with no stderr destination in a separate process.
+    #[test]
+    fn missing_stderr_child() {
+        let Some(path) = std::env::var_os("CINNABAR_MISSING_STDERR_FIXTURE") else {
+            return;
+        };
+        let path = std::path::PathBuf::from(path);
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Console::{STD_ERROR_HANDLE, SetStdHandle};
+            // SAFETY: Only this fixture process loses its launcher-owned stderr handle.
+            assert_ne!(
+                unsafe { SetStdHandle(STD_ERROR_HANDLE, std::ptr::null_mut()) },
+                0
+            );
+            initialize_log(&path, 4096).unwrap();
+        }
+        #[cfg(not(windows))]
+        initialize_log_with_destination(&path, 4096, false, None).unwrap();
+        crate::log_stderr!("queued session marker");
+        eprintln!("raw session marker");
+        assert!(flush_before_exit());
+    }
+
+    /// Losing the launcher's console must not leave a newly created session file empty.
+    #[test]
+    fn missing_stderr_keeps_queued_and_raw_diagnostics() {
+        let path =
+            std::env::temp_dir().join(format!("cinnabar-missing-stderr-{}", std::process::id()));
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "console::tests::missing_stderr_child",
+                "--nocapture",
+            ])
+            .env("CINNABAR_MISSING_STDERR_FIXTURE", &path)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "fixture failed: {output:?}");
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        for marker in ["queued session marker", "raw session marker"] {
+            assert_eq!(
+                text.matches(marker).count(),
+                1,
+                "lost or repeated diagnostic: {text}"
+            );
+        }
+    }
 
     #[test]
     fn session_file_drops_terminal_colours_split_across_writes() {

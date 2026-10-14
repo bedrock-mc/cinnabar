@@ -60,7 +60,7 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A throw swung the arm; its swing packet precedes `packets`.
+    /// A projectile use swung the arm; its swing packet precedes `packets`.
     pub swung: bool,
     used: bool,
     released: bool,
@@ -373,6 +373,7 @@ impl ItemUseRuntime {
                     });
                 }
             }
+            Some(AirUse::GlideRocket) if frame.ready => swung = true,
             _ => {}
         }
         let inventory_change = change.as_ref().and_then(|change| {

@@ -9,15 +9,15 @@ pub struct ModInteraction {
     pub attack_pulse: bool,
 }
 
-/// Uses the validated personal override for both actor picking and attack admission.
+/// Allows a personal override to shorten actor reach within the current mode's limit.
 pub fn effective_reach(default: f64, interaction: Option<&ModInteraction>) -> f64 {
     interaction
         .and_then(|interaction| interaction.attack_reach)
         .filter(|reach| reach.is_finite() && *reach >= 0.0)
-        .map_or(default, f64::from)
+        .map_or(default, |reach| default.min(f64::from(reach)))
 }
 
-/// Actor reach may extend wall observation, but cannot shorten ordinary block picking.
+/// Keeps ordinary block picking available when an actor override shortens reach.
 pub fn block_pick_reach(default: f64, actor_reach: f64) -> f64 {
     default.max(actor_reach)
 }
@@ -33,6 +33,7 @@ mod tests {
 
     use super::*;
 
+    /// Admits a remote player at a fixed distance along the test ray.
     fn player(distance: f32) -> ActorSnapshot {
         let position = [0.0, 0.0, -distance];
         let mut authority = WorldAuthority::new(
@@ -79,6 +80,7 @@ mod tests {
         authority.actor(9).expect("remote player admitted").clone()
     }
 
+    /// Applies the production pick and attack limits to one remote player.
     fn crosshair(
         actor: &ActorSnapshot,
         interaction: Option<&ModInteraction>,
@@ -112,16 +114,16 @@ mod tests {
     }
 
     #[test]
-    fn personal_reach_admits_distant_actor_but_keeps_wall_occlusion() {
+    fn personal_reach_cannot_admit_an_actor_beyond_survival_reach() {
         let interaction = ModInteraction {
             attack_reach: Some(5.0),
             ..Default::default()
         };
         let target = player(4.0);
-        assert!(matches!(
+        assert_eq!(
             crosshair(&target, Some(&interaction), None),
-            Crosshair::Actor(hit) if hit.runtime_id == target.runtime_id
-        ));
+            Crosshair::Miss
+        );
         assert_eq!(
             crosshair(&target, Some(&interaction), Some(2.0)),
             Crosshair::Block
@@ -133,21 +135,54 @@ mod tests {
     }
 
     #[test]
-    fn personal_reach_extends_actor_pick_without_skipping_distant_wall() {
+    fn personal_reach_cannot_extend_the_actor_pick_ray() {
         let interaction = ModInteraction {
             attack_reach: Some(6.0),
             ..Default::default()
         };
         let target = player(6.25);
         assert_eq!(crosshair(&target, None, None), Crosshair::Miss);
-        assert!(matches!(
-            crosshair(&target, Some(&interaction), None),
-            Crosshair::Actor(_)
-        ));
         assert_eq!(
-            crosshair(&target, Some(&interaction), Some(5.75)),
+            crosshair(&target, Some(&interaction), None),
+            Crosshair::Miss
+        );
+        assert_eq!(
+            crosshair(&target, Some(&interaction), Some(5.5)),
             Crosshair::Block
         );
+    }
+
+    #[test]
+    fn personal_override_is_bounded_by_each_mode_and_input_limit() {
+        for mode in [
+            protocol::PlayerGameMode::Survival,
+            protocol::PlayerGameMode::Adventure,
+            protocol::PlayerGameMode::Creative,
+            protocol::PlayerGameMode::Spectator,
+        ] {
+            let caps = client_world::game_mode_capabilities::GameModeCapabilities::for_mode(mode);
+            for input in [
+                protocol::PlayerInputMode::Mouse,
+                protocol::PlayerInputMode::GamePad,
+                protocol::PlayerInputMode::Touch,
+            ] {
+                let pick = if caps.creative_reach {
+                    gameplay::mining::creative_reach(input)
+                } else {
+                    gameplay::mining::survival_reach(input)
+                };
+                for reach in [0.0, 1.0, 6.0] {
+                    let interaction = ModInteraction {
+                        attack_reach: Some(reach),
+                        ..Default::default()
+                    };
+                    assert!(
+                        effective_reach(caps.attack_reach, Some(&interaction)) <= caps.attack_reach
+                    );
+                    assert!(effective_reach(pick, Some(&interaction)) <= pick);
+                }
+            }
+        }
     }
 
     #[test]

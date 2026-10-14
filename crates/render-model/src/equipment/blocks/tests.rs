@@ -238,7 +238,7 @@ fn pinned_portal_frame_keeps_its_short_block_mesh_and_distinct_faces() {
     };
     let world = RuntimeAssets::decode(&std::fs::read(world_path).unwrap()).unwrap();
     let entities = RuntimeEntityAssets::from_compiled(
-        pack_compiler::compile_entity_assets(
+        pack_entity_compiler::compile_entity_assets(
             std::path::Path::new(&pack_root),
             assets::VANILLA_SOURCE_MANIFEST.as_bytes(),
         )

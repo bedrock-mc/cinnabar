@@ -1,4 +1,4 @@
-//! Marketplace-style content encryption: AES-CFB8 whose IV is the key's first
+//! Resource-pack content encryption: AES-CFB8 whose IV is the key's first
 //! 16 bytes, a `contents.json` index behind a 256-byte header, and per-file keys.
 
 use std::collections::HashMap;

@@ -25,6 +25,7 @@ impl MotionSampling {
     /// Tracks sampled motion queries and their authored variable and channel dependencies.
     pub(crate) fn new(
         assets: &RuntimeEntityAssets,
+        layout: &VariableLayout,
         rig: usize,
         geometry: usize,
         controllers: &[ControllerState],
@@ -83,7 +84,15 @@ impl MotionSampling {
                 }
             }
         }
-        let mut variables = BTreeSet::new();
+        let mut variables = assets
+            .molang_symbols()
+            .iter()
+            .enumerate()
+            .filter_map(|(symbol, _)| {
+                let symbol = symbol as u32;
+                layout.symbol_inputs(symbol).swing.then_some(symbol)
+            })
+            .collect::<BTreeSet<_>>();
         let mut random = false;
         let (expressions, weighted_symbols) = loop {
             let before = (variables.len(), random);

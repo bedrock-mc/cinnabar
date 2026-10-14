@@ -35,11 +35,13 @@ fn sheets_at_capacity(pages: usize) -> Vec<IconSprite> {
 /// Builds original compiled item routes and admitted sheets without needing game carriers.
 fn catalog(sheets: Vec<IconSprite>) -> (RuntimeEntityAssets, RuntimeIconCatalog) {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"fixture:budget"}}}"#;
-    let mut compiled =
-        pack_compiler::compile_entity_pack(vec![("entity/budget.json".into(), entity.to_vec())])
-            .unwrap()
-            .unwrap()
-            .assets;
+    let mut compiled = pack_entity_compiler::compile_entity_pack(vec![(
+        "entity/budget.json".into(),
+        entity.to_vec(),
+    )])
+    .unwrap()
+    .unwrap()
+    .assets;
     compiled.block_visual_count = sheets.len() as u32;
     compiled.item_visuals = (0..sheets.len())
         .map(|index| assets::ItemVisualDefinition {

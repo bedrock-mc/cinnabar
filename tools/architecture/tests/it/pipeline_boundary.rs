@@ -52,15 +52,24 @@ fn fixture() -> tempfile::TempDir {
 /// Replace one crate manifest with the requested dependency declarations.
 fn set_dependencies(root: &Path, name: &str, dependencies: &str) {
     write(
-        &root
-            .join(if name == "app" {
-                "app".to_owned()
-            } else {
-                format!("crates/{name}")
-            })
-            .join("Cargo.toml"),
+        &root.join(crate_path(root, name)).join("Cargo.toml"),
         &format!("[package]\nname='{name}'\nversion='0.1.0'\n{dependencies}\n"),
     );
+}
+
+/// Reads a fixture package's directory from the real ownership policy.
+fn crate_path(root: &Path, name: &str) -> String {
+    let policy: toml::Value =
+        toml::from_str(&fs::read_to_string(root.join("policy.toml")).unwrap()).unwrap();
+    policy["crates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["name"].as_str() == Some(name))
+        .unwrap()["path"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// Return all diagnostics from the fixture's copy of the real policy.
@@ -166,13 +175,23 @@ fn production_pipeline_cannot_parse_protocol_via_a_renamed_dependency() {
 
 #[test]
 fn new_domain_crates_reject_hidden_engine_dependencies() {
-    for name in ["chunk-pipeline", "pack-compiler", "client-world"] {
+    for name in [
+        "chunk-pipeline",
+        "pack-compiler",
+        "pack-compile-input",
+        "pack-entity-compiler",
+        "pack-font-compiler",
+        "client-world",
+    ] {
         for package in ["bevy", "bevy_ecs", "wgpu", "wgpu-core"] {
             let temp = fixture();
             set_dependencies(
                 temp.path(),
                 name,
-                "[dependencies]\nassets={path='../assets'}",
+                &format!(
+                    "[dependencies]\nassets={{path='{}assets'}}",
+                    "../".repeat(crate_path(temp.path(), name).split('/').count() - 1)
+                ),
             );
             set_dependencies(
                 temp.path(),

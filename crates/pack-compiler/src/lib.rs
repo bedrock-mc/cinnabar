@@ -3,40 +3,23 @@
 //! Compilation produces engine-independent `assets` data. Command-line argument
 //! parsing and publication of offline output bundles belong to `asset-compiler`.
 
-mod actor;
 mod animation;
 mod atmosphere;
 mod audio;
 mod audio_bank;
 mod audio_pcm;
 mod biome;
-mod block_entity;
 pub mod block_geometry;
 mod compiler;
-mod entity;
 mod fadpcm;
-mod font;
-mod geometry_key;
 mod hud;
 mod hud_extras;
-mod icon;
-mod image;
 mod lang;
-mod lightning_rod;
 mod oreui_icons;
-mod pack;
 mod particle;
-mod respawn_anchor;
-mod starter_skins;
 mod ui;
 mod weather_textures;
-pub use pack::{apply_atlas_tint, parse_atlas_tint};
 
-pub use actor::{
-    ActorCompileReport, ActorFallback, ActorPackCompilation, ActorTextureEvidence,
-    CompiledActorCarrier, compile_actor_assets, compile_actor_assets_for_assets,
-    compile_actor_pack, compile_actor_pack_unless,
-};
 pub use animation::AnimationInventory;
 
 pub use atmosphere::{
@@ -53,50 +36,21 @@ pub use audio_pcm::{
     AudioPcmCompileError, AudioPcmCompileReport, CompiledAudioPcmCarrier, compile_audio_pcm_assets,
 };
 pub use biome::compile_biome_assets;
-pub use block_entity::{
-    BlockEntityCompileReport, BlockEntityTexture, CompiledBlockEntityCarrier,
-    compile_block_entity_assets, overlay_block_entity_assets,
-};
 pub use compiler::{
     compile_pack, compile_pack_with_biomes, compile_pack_with_material_keys,
     inspect_animation_inventory,
 };
-pub use entity::{
-    BlockMolang, BlockStateValue, CompileReferenceOutcome, EntityAssetCompilation,
-    EntityPackCompilation, EntityPackSkips, EquipmentBindingDependencies, FallbackReason,
-    MAX_PACK_ENTITY_BYTES, MAX_PACK_ENTITY_SOURCES, RejectReason, compile_entity_assets,
-    compile_entity_assets_with_behavior_report, compile_entity_assets_with_report,
-    compile_entity_pack, compile_equipment_textures, compile_equipment_textures_for_assets,
-    compile_equipment_textures_for_assets_with, compile_equipment_textures_with,
-    compile_item_attack_timings, compile_item_foods, compile_item_use_durations,
-    compile_item_use_profiles, compile_molang_expression, compile_vanilla_entity_refs,
-    decode_equipment_raster, select_entity_geometry,
-};
 pub use fadpcm::{DecodedFadpcm, FadpcmDecodeError, decode_fsb5_fadpcm};
-pub use font::{
-    CompiledFontCarrier, FontCompileError, FontCompileReport, GlyphAdvances, NATIVE_SDF_EM_PIXELS,
-    NATIVE_SDF_MIN_PIXELS, OutlineFontConfig, compile_fonts, compile_native_outline_rasters,
-    compile_outline_font, compile_outline_font_with_fallback,
-};
 pub use hud::{CompiledHudCarrier, HudCompileError, HudCompileReport, compile_hud_assets};
 pub use hud_extras::compile_hud_extras_to_file;
-pub use icon::{
-    CompiledIconCarrier, IconCompileReport, compile_icon_assets, compile_icon_assets_with_blocks,
-    overlay_block_icon, overlay_cube_icon,
-};
 pub use lang::{
     CompiledLangCarrier, LangCompileError, LangCompileReport, compile_lang_assets,
     compile_language, vanilla_language_codes,
 };
 pub use oreui_icons::{compile_oreui_icons_to_file, oreui_icon_sources};
-pub use pack::{
-    BlockTextureMap, MAX_FLIPBOOKS, PackSources, TerrainTextureMap, TextureKey, read_pack,
-    resolve_texture_key,
-};
 pub use particle::{
     CompiledParticleCarrier, ParticleCompileReport, compile_particle_assets,
     decode_particle_carrier,
 };
-pub use starter_skins::{compile_starter_skins, compile_starter_skins_to_file};
 pub use ui::{CompiledUiCarrier, UiCompileReport, compile_ui_assets, decode_ui_carrier};
 pub use weather_textures::{compile_weather_textures, compile_weather_textures_to_file};

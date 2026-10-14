@@ -27,7 +27,11 @@ pub(crate) fn cave_connectivity(
     }
 }
 
+/// Every face bit of [`touched_faces`].
+const ALL_FACES: u8 = (1 << Face::ALL.len()) - 1;
+
 /// Connects the faces each component of `open` voxels touches, walking every voxel at most once.
+/// A component touching all six faces connects every pair, so the walk stops there.
 fn connectivity_through(open: impl Fn([usize; 3]) -> bool) -> FaceConnectivity {
     let mut connectivity = FaceConnectivity::none();
     let mut visited = [0_u64; 64];
@@ -47,6 +51,9 @@ fn connectivity_through(open: impl Fn([usize; 3]) -> bool) -> FaceConnectivity {
             len -= 1;
             let [x, y, z] = coordinate_from_linear(usize::from(stack[len]));
             touched |= touched_faces(x, y, z);
+            if touched == ALL_FACES {
+                return FaceConnectivity::all();
+            }
 
             for neighbour in adjacent_coordinates(x, y, z).into_iter().flatten() {
                 let neighbour_linear = linear_from_coordinate(neighbour);
@@ -139,6 +146,12 @@ mod tests {
         assert!(tunnel.is_connected(Face::NegativeZ, Face::PositiveZ));
         assert!(!tunnel.is_connected(Face::NegativeZ, Face::NegativeX));
         assert!(!tunnel.is_connected(Face::NegativeY, Face::PositiveY));
+
+        // An open shell around a closed core still connects every face, whatever lies inside.
+        let shell = connectivity_through(|[x, y, z]| {
+            [x, y, z].iter().any(|&axis| axis == 0 || axis == SIDE - 1)
+        });
+        assert!(shell.is_all_connected());
 
         // An enclosed pocket touches no face and connects nothing.
         let pocket = connectivity_through(|[x, y, z]| (6..9).contains(&x) && y == 7 && z == 7);

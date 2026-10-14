@@ -1,6 +1,9 @@
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+mod android;
+pub use android::configure_android;
+
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
 /// The pinned vanilla resource pack below a resource root, which mirrors `.local/`.
@@ -44,6 +47,10 @@ pub enum LayoutError {
     InvalidLinuxLayout(PathBuf),
     #[error("macOS executable is not inside <name>.app/Contents/MacOS: `{0}`")]
     InvalidMacOsBundle(PathBuf),
+    #[error("the Android activity has not configured the install layout")]
+    AndroidUnconfigured,
+    #[error("the Android install layout cannot change within a process")]
+    AndroidReconfigured,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -149,6 +156,9 @@ impl InstallLayout {
     }
 
     pub fn discover() -> Result<Self, LayoutError> {
+        if cfg!(target_os = "android") {
+            return android::discover();
+        }
         let platform = current_platform();
         let home = std::env::var_os(home_variable(platform)).map(PathBuf::from);
         let layout = Self::resolve(
@@ -276,12 +286,6 @@ impl InstallLayout {
             .join("artwork")
     }
 
-    /// Downloaded Marketplace offer art.
-    #[must_use]
-    pub fn store_images_dir(&self) -> PathBuf {
-        self.auth_cache().with_file_name("store-images")
-    }
-
     /// The public keys of NetherNet servers the player trusted.
     #[must_use]
     pub fn server_trust_file(&self) -> PathBuf {
@@ -301,9 +305,21 @@ impl InstallLayout {
         self.user_data_root.join("resource-packs/global")
     }
 
+    /// Mod components imported through Settings.
+    #[must_use]
+    pub fn mods_dir(&self) -> PathBuf {
+        self.user_data_root.join("mods")
+    }
+
     #[must_use]
     pub fn resource_pack_cache_dir(&self) -> PathBuf {
         self.user_data_root.join("resource-packs/v1/objects")
+    }
+
+    /// Far-terrain summaries of terrain servers sent, per hashed server; safe to delete.
+    #[must_use]
+    pub fn far_terrain_cache_dir(&self) -> PathBuf {
+        self.user_data_root.join("far-terrain/v1")
     }
 
     /// Join-time server-pack archives and compilations reused across launches; safe to delete.
@@ -770,10 +786,6 @@ mod tests {
         assert_eq!(
             layout.launcher_artwork_dir(),
             PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/catalog-cache/artwork")
-        );
-        assert_eq!(
-            layout.store_images_dir(),
-            PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/auth/store-images")
         );
         assert_eq!(
             layout.resource_pack_cache_dir(),

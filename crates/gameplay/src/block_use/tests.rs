@@ -575,3 +575,11 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
     assert!(!runtime.press_interacted());
     assert!(!runtime.press_pending());
 }
+
+#[test]
+fn placement_obstruction_rounds_world_faces_before_comparing() {
+    let actor = ([8_388_608.0, 0.0, 0.0], [8_388_609.0, 1.0, 1.0]);
+    let local_shape = ([0.6, 0.0, 0.0], [1.0, 1.0, 1.0]);
+    assert!(!super::overlaps([8_388_608, 0, 0], local_shape, actor));
+    assert!(super::overlaps([8_388_608, 0, 0], super::FULL_CELL, actor));
+}

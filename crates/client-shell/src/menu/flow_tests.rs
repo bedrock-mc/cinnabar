@@ -5,6 +5,31 @@ use {
 };
 
 #[test]
+fn quit_cancel_and_close_dismiss_without_exiting_and_preserve_cancel_navigation() {
+    for action in [MenuAction::DismissDialog, MenuAction::CloseExitDialog] {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::OpenExitDialog);
+        menu.hovered = Some(action);
+        menu.focus_pointer(action);
+        let view = menu.view();
+        assert_eq!(view.hovered, Some(action));
+        assert_eq!(view.focused_action, Some(MenuAction::DismissDialog));
+        menu.move_focus(-1);
+        assert_eq!(menu.view().focused_action, Some(MenuAction::ConfirmExit));
+        menu.activate(action);
+        assert!(menu.dialog.is_none());
+        assert!(menu.is_visible());
+        assert!(!menu.intents.exit);
+
+        menu.activate(MenuAction::OpenExitDialog);
+        menu.move_focus(1);
+        menu.activate_focused();
+        assert!(menu.dialog.is_none());
+        assert!(!menu.intents.exit);
+    }
+}
+
+#[test]
 fn death_controls_wait_before_accepting_input() {
     let mut menu = MenuRuntime::new(false, 2, "Steve".into());
     menu.open_death();
@@ -253,7 +278,7 @@ fn device_code_focus_starts_on_open_link_and_error_focus_starts_on_retry() {
         super::input::MenuInputMode::Gamepad,
     ] {
         menu.input_mode = mode;
-        for screen in [MenuScreen::Home, MenuScreen::Settings, MenuScreen::Store] {
+        for screen in [MenuScreen::Home, MenuScreen::Settings] {
             menu.screen = screen;
             menu.settings_focus = vec![MenuAction::Navigate(MenuScreen::Home)];
             let bounds = ui::UiRect::new(
@@ -483,9 +508,9 @@ fn server_form_returns_to_the_servers_tab() {
 }
 
 #[test]
-fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
+fn home_realms_route_remains_reachable_from_keyboard_focus() {
     let realms = MenuAction::Navigate(MenuScreen::Social);
-    let marketplace = MenuAction::Store(launcher::store::OPEN);
+    let servers = MenuAction::Navigate(MenuScreen::Servers);
     for directional in [false, true] {
         let mut menu = MenuRuntime::new(true, 2, "Tester".into());
         menu.focus_pointer(realms);
@@ -495,11 +520,7 @@ fn home_realms_and_marketplace_are_reachable_and_activate_their_routes() {
         } else {
             menu.move_focus(1);
         }
-        assert_eq!(menu.view().focused_action, Some(marketplace));
-        menu.activate_focused();
-        assert_eq!(menu.screen(), MenuScreen::Store);
-        assert_eq!(menu.take_store_actions(), vec![launcher::store::OPEN]);
-        menu.show_home();
+        assert_eq!(menu.view().focused_action, Some(servers));
         menu.focus_pointer(realms);
         menu.activate_focused();
         assert_eq!(menu.screen(), MenuScreen::Social);

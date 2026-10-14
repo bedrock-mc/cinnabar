@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"sync"
 	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -44,9 +46,9 @@ var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers
 type ConnectStage string
 
 const (
-	ConnectStageRealm      ConnectStage = "realm"      // vanilla progress stage: the Realm lookup
-	ConnectStageConnecting ConnectStage = "connecting" // vanilla progress stage: connecting to the server
-	ConnectStagePacks      ConnectStage = "packs"      // vanilla progress stage: resource packs
+	ConnectStageRealm      ConnectStage = bridgecontract.ConnectStageRealm      // vanilla progress stage: the Realm lookup
+	ConnectStageConnecting ConnectStage = bridgecontract.ConnectStageConnecting // vanilla progress stage: connecting to the server
+	ConnectStagePacks      ConnectStage = bridgecontract.ConnectStagePacks      // vanilla progress stage: resource packs
 )
 
 // ConnectProgress is the join's live stage; a zero Stage means no join is being prepared.
@@ -476,6 +478,8 @@ type preparedConnections struct {
 	upstreamClientCache         bool
 	connectPrepared             func(context.Context, dialerDownstream) (*preparedConnection, error)
 	resolveTarget               func(context.Context) (*resolvedUpstreamTarget, error)
+	httpClient                  *http.Client          // nil keeps the native pack downloader
+	addressNetwork              minecraft.Network     // nil keeps native transfer probing
 	serverTrust                 minecraft.ServerTrust // decides transfer hops to addressed NetherNet servers
 	dialTarget                  func(context.Context, *resolvedUpstreamTarget, minecraft.Dialer) (upstreamSession, error)
 	captureResourcePackStack    func(upstreamSession, func(*resource.Pack) bool) (*selectedResourcePackStack, error)
@@ -520,7 +524,7 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 					return dialWithPreparedTransport(ctx, network, address, attempt.DialContextNetwork)
 				}
 			}
-			return dialMinecraftUpstream(ctx, networkForAddress(target, address, connections.serverTrust), address, dial)
+			return dialMinecraftUpstream(ctx, connections.hopNetwork(target, address), address, dial)
 		})
 	}
 	connections.captureResourcePackStack = captureSelectedResourcePackStack
@@ -661,6 +665,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		clientCache = clientCache && session.sessionClientCache()
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
+	dialer.HTTPClient = connections.httpClient
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}

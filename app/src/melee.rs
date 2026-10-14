@@ -16,7 +16,6 @@ use semantic_input::Action;
 mod crosshair;
 use crosshair::resolve_crosshair;
 
-#[cfg(feature = "local-mods")]
 use crate::modding::interaction::{ModInteraction, effective_reach};
 use client_shell::ui_resources::UiRuntimeResource;
 use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
@@ -47,7 +46,6 @@ pub(crate) struct MeleeContext<'w, 's> {
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     camera: Res<'w, client_presentation::camera::ServerCameraView>,
-    #[cfg(feature = "local-mods")]
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
 
@@ -107,7 +105,6 @@ pub(crate) fn produce_melee(
     }
     let caps = player_runtime.facts.game_mode_capabilities();
     let attack_reach = caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
-    #[cfg(feature = "local-mods")]
     let attack_reach = effective_reach(attack_reach, context.mod_interaction.as_deref());
     let input_mode = protocol_input_mode(input.input_mode);
     let (Some(crosshair), Some(stream)) = (

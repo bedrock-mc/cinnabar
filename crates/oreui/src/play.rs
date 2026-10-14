@@ -9,15 +9,18 @@ mod tabs;
 use super::grid::{Grid, space};
 use super::icons::{self, Icon};
 use super::paint::{Bounds, Canvas};
-use super::theme::EDGE;
 use super::theme::{
     BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
-use super::widgets::{Variant, button, header, panel, row, screen_overlay, tag};
+use super::theme::{EDGE, HEADER_HEIGHT, SPACE};
+use super::widgets::{TAB_HEIGHT, Variant, button, header, panel, row, screen_overlay, tag};
 use super::{play_realms, play_servers};
 use launcher::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
 use ui::IconRef;
 use ui_engine::engine::screen::PaintError;
+
+const CREATE_HEIGHT: f32 = 4.4;
+const WORLD_ROW_HEIGHT: f32 = 8.4;
 
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
@@ -33,7 +36,32 @@ pub(super) fn draw(
     draw_tab(canvas, view, size, images, selected)
 }
 
+/// Fits the selected route's pinned controls while preserving a usable content viewport.
 pub(super) fn draw_tab(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    images: &HashMap<String, IconRef>,
+    selected: usize,
+) -> Result<(), PaintError> {
+    let chrome = HEADER_HEIGHT + EDGE + SPACE[0] + TAB_HEIGHT + SPACE[1] * 2.0;
+    let content = if selected == 0 {
+        CREATE_HEIGHT + SPACE[0] + WORLD_ROW_HEIGHT * 0.5
+    } else if selected == 1 && !view.realms.is_empty() {
+        play_realms::MIN_DETAILS_HEIGHT
+    } else if selected == 2 {
+        play_servers::GROUP_HEADER_HEIGHT
+    } else {
+        super::theme::BODY.line
+    };
+    let scale = (size[1] / canvas.r(chrome + content)).min(1.0);
+    canvas.with_scale(scale, |canvas| {
+        draw_fitted(canvas, view, size, images, selected)
+    })
+}
+
+/// Keeps the header, tabs and world creation controls above a positive scroll viewport.
+fn draw_fitted(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
@@ -52,7 +80,7 @@ pub(super) fn draw_tab(
     let grid = Grid::new(canvas.r(1.0), width);
     let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
     let tab_top = top + space(canvas, 1);
-    let tab_bottom = tab_top + canvas.r(4.8);
+    let tab_bottom = tab_top + canvas.r(TAB_HEIGHT);
     tabs::draw(canvas, view, [left, tab_top, right, tab_bottom], selected)?;
     let body: Bounds = [
         left,
@@ -71,7 +99,7 @@ pub(super) fn draw_tab(
 
 fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<(), PaintError> {
     // Create buttons, right-aligned, each at most 25.6rem.
-    let button_height = canvas.r(4.4);
+    let button_height = canvas.r(CREATE_HEIGHT);
     let gap = space(canvas, 2);
     let button_width = canvas.r(25.6).min((body[2] - body[0] - gap) / 2.0);
     let second = body[2] - button_width;
@@ -128,7 +156,7 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
         )?;
         return Ok(());
     }
-    let row_height = canvas.r(8.4);
+    let row_height = canvas.r(WORLD_ROW_HEIGHT);
     let gap = space(canvas, 2);
     let scroll = canvas.begin_scroll("worlds_list", [body[0], list_top, body[2], body[3]])?;
     let mut y = list_top - scroll.offset;
