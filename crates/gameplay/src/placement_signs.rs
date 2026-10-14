@@ -1,67 +1,73 @@
 //! Standing and wall sign identities selected from one sign item.
 
+use assets::facts::{BlockFact, BlockProperty as P, PlacementRule as R, PropertyDomain};
 use serde_json::{Map, Value, json};
 
 use crate::placement_state::{PlacementInput, integer_in, only_keys, value};
 
-const SIGN_ROTATIONS: u8 = 16;
+/// Counts the rotations in the pinned sign property domain.
+fn sign_rotations() -> u8 {
+    let PropertyDomain::Int(values) = P::GroundSignDirection.domain() else {
+        unreachable!()
+    };
+    values.len() as u8
+}
 
 /// Chooses the wood-matched sign and its standing rotation or wall attachment face.
 pub(crate) fn sign_states(
+    fact: BlockFact,
     identifier: &str,
+    alternate_identifier: Option<&str>,
     canonical: &str,
     input: PlacementInput,
 ) -> Option<(String, Map<String, Value>)> {
-    if !identifier.starts_with("minecraft:") || !(1..=5).contains(&input.face) {
+    if !(1..=5).contains(&input.face) {
         return None;
     }
     let states = serde_json::from_str(canonical).ok()?;
-    let prefix = if let Some(prefix) = identifier.strip_suffix("standing_sign") {
-        if !only_keys(&states, &["ground_sign_direction"]) {
-            return None;
+    match fact.placement {
+        R::StandingSign if only_keys(&states, &[P::GroundSignDirection.name()]) => {
+            crate::placement_state::valid_property(&states, P::GroundSignDirection)?;
         }
-        if value(&states, "ground_sign_direction")?.as_u64()? >= u64::from(SIGN_ROTATIONS) {
-            return None;
+        R::WallSign if only_keys(&states, &[P::FacingDirection.name()]) => {
+            integer_in(&states, P::FacingDirection.name(), &[2, 3, 4, 5])?;
         }
-        prefix
-    } else {
-        let prefix = identifier.strip_suffix("wall_sign")?;
-        if !only_keys(&states, &["facing_direction"]) {
-            return None;
-        }
-        integer_in(&states, "facing_direction", &[2, 3, 4, 5])?;
-        prefix
-    };
-    let (suffix, key, direction) = if input.face == 1 {
+        _ => return None,
+    }
+    let (rule, key, direction) = if input.face == 1 {
         if !input.yaw.is_finite() {
             return None;
         }
-        let rotation = ((input.yaw + 180.0) * f32::from(SIGN_ROTATIONS) / 360.0 + 0.5).floor();
+        let rotation = ((input.yaw + 180.0) * f32::from(sign_rotations()) / 360.0 + 0.5).floor();
         if !rotation.is_finite() {
             return None;
         }
         (
-            "standing_sign",
-            "ground_sign_direction",
-            rotation.rem_euclid(f32::from(SIGN_ROTATIONS)) as u8,
+            R::StandingSign,
+            P::GroundSignDirection.name(),
+            rotation.rem_euclid(f32::from(sign_rotations())) as u8,
         )
     } else {
-        ("wall_sign", "facing_direction", input.face)
+        (R::WallSign, P::FacingDirection.name(), input.face)
     };
     Some((
-        format!("{prefix}{suffix}"),
+        if rule == fact.placement {
+            identifier.to_owned()
+        } else {
+            alternate_identifier?.to_owned()
+        },
         serde_json::from_value(json!({key:{"type":"int","value":direction}})).ok()?,
     ))
 }
 
 /// Maps a resolved ordinary sign to the cell that supports it.
-pub(crate) fn support_face(identifier: &str, states: &Map<String, Value>) -> Option<u8> {
-    if identifier.ends_with("standing_sign") && only_keys(states, &["ground_sign_direction"]) {
+pub(crate) fn support_face(fact: BlockFact, states: &Map<String, Value>) -> Option<u8> {
+    if fact.placement == R::StandingSign && only_keys(states, &[P::GroundSignDirection.name()]) {
         return Some(0);
     }
-    if identifier.ends_with("wall_sign") && only_keys(states, &["facing_direction"]) {
-        integer_in(states, "facing_direction", &[2, 3, 4, 5])?;
-        return Some(value(states, "facing_direction")?.as_u64()? as u8 ^ 1);
+    if fact.placement == R::WallSign && only_keys(states, &[P::FacingDirection.name()]) {
+        integer_in(states, P::FacingDirection.name(), &[2, 3, 4, 5])?;
+        return Some(value(states, P::FacingDirection.name())?.as_u64()? as u8 ^ 1);
     }
     None
 }
@@ -69,6 +75,32 @@ pub(crate) fn support_face(identifier: &str, states: &Map<String, Value>) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::block_fact;
+    const SIGN_ROTATIONS: u8 = 16;
+
+    /// Uses a real compiled counterpart for each ordinary sign identity.
+    fn sign_states(
+        name: &str,
+        canonical: &str,
+        input: PlacementInput,
+    ) -> Option<(String, Map<String, Value>)> {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let fact = block_fact(name);
+        let alternate = fact
+            .alternate
+            .and_then(|id| records.get(id as usize))
+            .map(|r| r.name.as_ref());
+        super::sign_states(fact, name, alternate, canonical, input)
+    }
+
+    /// Reads the sign kind from its pinned numeric facts.
+    fn support_face(name: &str, states: &Map<String, Value>) -> Option<u8> {
+        super::support_face(block_fact(name), states)
+    }
 
     #[test]
     fn standing_rotations_cover_sixteen_steps_and_strict_rounding_boundaries() {

@@ -1,5 +1,6 @@
 //! First vine attachments on a verified solid supporting cell.
 
+use assets::facts::BlockProperty as P;
 use serde_json::{Map, Value};
 
 use crate::placement_state::{only_keys, set_value, value};
@@ -13,8 +14,8 @@ pub(crate) fn attachment_states(
     supports: [Option<bool>; 6],
 ) -> Option<Map<String, Value>> {
     if !(2..=5).contains(&face)
-        || !only_keys(canonical, &["vine_direction_bits"])
-        || value(canonical, "vine_direction_bits")?.as_u64()? > 15
+        || !only_keys(canonical, &[P::VineDirectionBits.name()])
+        || value(canonical, P::VineDirectionBits.name())?.as_u64()? > 15
         || !supports[usize::from(face ^ 1)]?
     {
         return None;
@@ -22,7 +23,7 @@ pub(crate) fn attachment_states(
     let mut states = canonical.clone();
     set_value(
         &mut states,
-        "vine_direction_bits",
+        P::VineDirectionBits.name(),
         Value::from(CLICK_BITS[usize::from(face - 2)]),
     )?;
     Some(states)
@@ -30,7 +31,7 @@ pub(crate) fn attachment_states(
 
 /// Returns the support required by a single first-attachment mask.
 pub(crate) fn support_face(states: &Map<String, Value>) -> Option<u8> {
-    let mask = value(states, "vine_direction_bits")?.as_u64()?;
+    let mask = value(states, P::VineDirectionBits.name())?.as_u64()?;
     CLICK_BITS
         .iter()
         .position(|bit| u64::from(*bit) == mask)

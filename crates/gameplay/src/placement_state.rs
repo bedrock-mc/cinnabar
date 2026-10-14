@@ -1,5 +1,6 @@
 //! Click-dependent block states, resolved without world or rendering dependencies.
 use crate::placement_connections::CONNECTION_STATES;
+use assets::facts::{BlockFact, BlockProperty as P, PlacementRule as R, PropertyDomain};
 use serde_json::{Map, Value};
 
 /// The click inputs used by the supported placement rules.
@@ -13,7 +14,7 @@ pub struct PlacementInput {
 
 /// Resolve a registered held state; unsupported state families wait for the server.
 pub fn resolve_placement_state(
-    identifier: &str,
+    fact: BlockFact,
     canonical_state: &str,
     input: PlacementInput,
 ) -> Option<Map<String, Value>> {
@@ -24,100 +25,100 @@ pub fn resolve_placement_state(
     if states.is_empty() {
         return Some(states);
     }
-    if !identifier.starts_with("minecraft:") {
+    if fact.placement == R::Unresolved {
         return None;
     }
-    if identifier.ends_with("_stairs")
+    if fact.placement == R::Stair
         && only_keys(
             &states,
-            &["weirdo_direction", "upside_down_bit", "minecraft:corner"],
+            &[
+                P::WeirdoDirection.name(),
+                P::UpsideDownBit.name(),
+                P::MinecraftCorner.name(),
+            ],
         )
     {
-        integer_in(&states, "weirdo_direction", &[0, 1, 2, 3])?;
-        bit(&states, "upside_down_bit")?;
-        string_in(
-            &states,
-            "minecraft:corner",
-            &[
-                "none",
-                "inner_left",
-                "inner_right",
-                "outer_left",
-                "outer_right",
-            ],
-        )?;
+        crate::placement_state::valid_property(&states, P::WeirdoDirection)?;
+        bit(&states, P::UpsideDownBit.name())?;
+        valid_property(&states, P::MinecraftCorner)?;
         set_value(
             &mut states,
-            "weirdo_direction",
+            P::WeirdoDirection.name(),
             Value::from([2, 1, 3, 0][yaw_quadrant(input.yaw)?]),
         )?;
         if upper_half(input)? {
-            set_bit(&mut states, "upside_down_bit", true)?;
+            set_bit(&mut states, P::UpsideDownBit.name(), true)?;
         }
-        set_value(&mut states, "minecraft:corner", Value::from("none"))?;
-    } else if identifier == "minecraft:loom" && only_keys(&states, &["direction"]) {
-        integer_in(&states, "direction", &[0, 1, 2, 3])?;
+        set_value(&mut states, P::MinecraftCorner.name(), Value::from("none"))?;
+    } else if fact.placement == R::Loom && only_keys(&states, &[P::Direction.name()]) {
+        crate::placement_state::valid_property(&states, P::Direction)?;
         set_value(
             &mut states,
-            "direction",
+            P::Direction.name(),
             Value::from([2, 3, 0, 1][yaw_quadrant(input.yaw)?]),
         )?;
-    } else if identifier.ends_with("_glazed_terracotta")
-        && only_keys(&states, &["facing_direction"])
-    {
-        integer_in(&states, "facing_direction", &[0, 1, 2, 3, 4, 5])?;
+    } else if fact.placement == R::Glazed && only_keys(&states, &[P::FacingDirection.name()]) {
+        crate::placement_state::valid_property(&states, P::FacingDirection)?;
         set_value(
             &mut states,
-            "facing_direction",
+            P::FacingDirection.name(),
             Value::from([2, 5, 3, 4][yaw_quadrant(input.yaw)?]),
         )?;
-    } else if identifier == "minecraft:snow_layer" && only_keys(&states, &["height", "covered_bit"])
+    } else if fact.placement == R::Snow
+        && only_keys(&states, &[P::Height.name(), P::CoveredBit.name()])
     {
-        integer_in(&states, "height", &[0, 1, 2, 3, 4, 5, 6, 7])?;
-        set_value(&mut states, "height", Value::from(0))?;
-        set_bit(&mut states, "covered_bit", false)?;
-    } else if identifier == "minecraft:sea_pickle"
-        && only_keys(&states, &["cluster_count", "dead_bit"])
+        crate::placement_state::valid_property(&states, P::Height)?;
+        set_value(&mut states, P::Height.name(), Value::from(0))?;
+        set_bit(&mut states, P::CoveredBit.name(), false)?;
+    } else if fact.placement == R::SeaPickle
+        && only_keys(&states, &[P::ClusterCount.name(), P::DeadBit.name()])
     {
-        integer_in(&states, "cluster_count", &[0, 1, 2, 3])?;
-        set_value(&mut states, "cluster_count", Value::from(0))?;
-        set_bit(&mut states, "dead_bit", true)?;
-    } else if crate::placement_support::is_candle(identifier)
-        && only_keys(&states, &["candles", "lit"])
+        crate::placement_state::valid_property(&states, P::ClusterCount)?;
+        set_value(&mut states, P::ClusterCount.name(), Value::from(0))?;
+        set_bit(&mut states, P::DeadBit.name(), true)?;
+    } else if fact.placement == R::Candle && only_keys(&states, &[P::Candles.name(), P::Lit.name()])
     {
-        integer_in(&states, "candles", &[0, 1, 2, 3])?;
-        set_value(&mut states, "candles", Value::from(0))?;
-        set_bit(&mut states, "lit", false)?;
-    } else if only_keys(&states, &["pillar_axis"]) {
-        string_in(&states, "pillar_axis", &["x", "y", "z"])?;
+        crate::placement_state::valid_property(&states, P::Candles)?;
+        set_value(&mut states, P::Candles.name(), Value::from(0))?;
+        set_bit(&mut states, P::Lit.name(), false)?;
+    } else if fact.placement == R::Axis && only_keys(&states, &[P::PillarAxis.name()]) {
+        valid_property(&states, P::PillarAxis)?;
         let axis = ["y", "y", "z", "z", "x", "x"][usize::from(input.face)];
-        set_value(&mut states, "pillar_axis", Value::from(axis))?;
-    } else if single_slab(identifier) && only_keys(&states, &["minecraft:vertical_half"]) {
-        string_in(&states, "minecraft:vertical_half", &["bottom", "top"])?;
+        set_value(&mut states, P::PillarAxis.name(), Value::from(axis))?;
+    } else if fact.placement == R::Slab && only_keys(&states, &[P::MinecraftVerticalHalf.name()]) {
+        valid_property(&states, P::MinecraftVerticalHalf)?;
         set_value(
             &mut states,
-            "minecraft:vertical_half",
+            P::MinecraftVerticalHalf.name(),
             Value::from(if upper_half(input)? { "top" } else { "bottom" }),
         )?;
-    } else if (identifier == "minecraft:trapdoor" || identifier.ends_with("_trapdoor"))
-        && only_keys(&states, &["direction", "open_bit", "upside_down_bit"])
+    } else if fact.placement == R::Trapdoor
+        && only_keys(
+            &states,
+            &[
+                P::Direction.name(),
+                P::OpenBit.name(),
+                P::UpsideDownBit.name(),
+            ],
+        )
     {
-        integer_in(&states, "direction", &[0, 1, 2, 3])?;
-        bit(&states, "open_bit")?;
-        bit(&states, "upside_down_bit")?;
+        crate::placement_state::valid_property(&states, P::Direction)?;
+        bit(&states, P::OpenBit.name())?;
+        bit(&states, P::UpsideDownBit.name())?;
         // Trapdoors use their own four-way encoding rather than cardinal direction.
         let direction = [3, 0, 2, 1][yaw_quadrant(input.yaw)?];
-        set_value(&mut states, "direction", Value::from(direction))?;
-        set_bit(&mut states, "upside_down_bit", upper_half(input)?)?;
-    } else if identifier == "minecraft:hopper"
-        && only_keys(&states, &["facing_direction", "toggle_bit"])
+        set_value(&mut states, P::Direction.name(), Value::from(direction))?;
+        set_bit(&mut states, P::UpsideDownBit.name(), upper_half(input)?)?;
+    } else if fact.placement == R::Hopper
+        && only_keys(&states, &[P::FacingDirection.name(), P::ToggleBit.name()])
     {
-        integer_in(&states, "facing_direction", &[0, 2, 3, 4, 5])?;
-        bit(&states, "toggle_bit")?;
+        integer_in(&states, P::FacingDirection.name(), &[0, 2, 3, 4, 5])?;
+        bit(&states, P::ToggleBit.name())?;
         let facing = if input.face < 2 { 0 } else { input.face ^ 1 };
-        set_value(&mut states, "facing_direction", Value::from(facing))?;
-        set_bit(&mut states, "toggle_bit", false)?;
-    } else if states.len() == CONNECTION_STATES.len()
+        set_value(&mut states, P::FacingDirection.name(), Value::from(facing))?;
+        set_bit(&mut states, P::ToggleBit.name(), false)?;
+    } else if fact.placement == R::Connections
+        && states.len() == CONNECTION_STATES.len()
         && CONNECTION_STATES
             .iter()
             .all(|(key, _)| states.contains_key(*key))
@@ -136,24 +137,28 @@ pub fn resolve_placement_state(
 /// Merge a matching slab; a clicked slab exposes only its empty vertical half.
 /// `clicked_face` is absent when the existing slab is in the neighboring destination.
 pub fn merge_slab_state(
-    held_identifier: &str,
+    held_fact: BlockFact,
+    alternate_identifier: Option<&str>,
     held_canonical_state: &str,
-    existing_identifier: &str,
+    existing_fact: BlockFact,
     existing_canonical_state: &str,
     clicked_face: Option<u8>,
 ) -> Option<(String, Map<String, Value>)> {
-    if held_identifier != existing_identifier || !single_slab(held_identifier) {
+    if held_fact.identity.is_none()
+        || held_fact.identity != existing_fact.identity
+        || held_fact.placement != R::Slab
+    {
         return None;
     }
     let held: Map<String, Value> = serde_json::from_str(held_canonical_state).ok()?;
     let existing: Map<String, Value> = serde_json::from_str(existing_canonical_state).ok()?;
-    if !only_keys(&held, &["minecraft:vertical_half"])
-        || !only_keys(&existing, &["minecraft:vertical_half"])
+    if !only_keys(&held, &[P::MinecraftVerticalHalf.name()])
+        || !only_keys(&existing, &[P::MinecraftVerticalHalf.name()])
     {
         return None;
     }
-    string_in(&held, "minecraft:vertical_half", &["bottom", "top"])?;
-    let upper = match value(&existing, "minecraft:vertical_half")?.as_str()? {
+    valid_property(&held, P::MinecraftVerticalHalf)?;
+    let upper = match value(&existing, P::MinecraftVerticalHalf.name())?.as_str()? {
         "top" => true,
         "bottom" => false,
         _ => return None,
@@ -163,30 +168,15 @@ pub fn merge_slab_state(
     {
         return None;
     }
-    let identifier = double_slab_identifier(held_identifier)?;
+    let identifier = alternate_identifier?.to_owned();
     let mut states = held;
     // A double slab is the double block's default state, irrespective of the first half.
     set_value(
         &mut states,
-        "minecraft:vertical_half",
+        P::MinecraftVerticalHalf.name(),
         Value::from("bottom"),
     )?;
     Some((identifier, states))
-}
-
-/// Whether the identifier names a single vanilla slab.
-fn single_slab(identifier: &str) -> bool {
-    identifier.starts_with("minecraft:")
-        && identifier.ends_with("_slab")
-        && !identifier.contains("double_")
-}
-
-/// Map modern slab identifiers to their registered double counterparts.
-fn double_slab_identifier(identifier: &str) -> Option<String> {
-    if let Some(prefix) = identifier.strip_suffix("cut_copper_slab") {
-        return Some(format!("{prefix}double_cut_copper_slab"));
-    }
-    Some(format!("{}_double_slab", identifier.strip_suffix("_slab")?))
 }
 
 /// Reject state keys whose placement behavior has not been modeled.
@@ -214,11 +204,26 @@ pub(crate) fn value<'a>(states: &'a Map<String, Value>, key: &str) -> Option<&'a
     }
 }
 
-/// Require a string state to belong to its modeled domain.
-fn string_in(states: &Map<String, Value>, key: &str, allowed: &[&str]) -> Option<()> {
-    allowed
-        .contains(&value(states, key)?.as_str()?)
-        .then_some(())
+/// Checks a state against the domain generated from the pinned property registry.
+pub(crate) fn valid_property(states: &Map<String, Value>, key: P) -> Option<()> {
+    let value = value(states, key.name())?;
+    let valid = match key.domain() {
+        PropertyDomain::Bool => value.is_boolean() || matches!(value.as_u64(), Some(0 | 1)),
+        PropertyDomain::Int(domain) => value
+            .as_i64()
+            .and_then(|v| i32::try_from(v).ok())
+            .is_some_and(|v| domain.contains(&v)),
+        PropertyDomain::String(domain) => value.as_str().is_some_and(|v| domain.contains(&v)),
+    };
+    valid.then_some(())
+}
+
+/// Returns the largest admitted integer in a pinned state property's domain.
+pub(crate) fn maximum(key: P) -> Option<u64> {
+    let PropertyDomain::Int(domain) = key.domain() else {
+        return None;
+    };
+    u64::try_from(*domain.iter().max()?).ok()
 }
 
 /// Require an integer state to belong to its modeled domain.
@@ -289,6 +294,44 @@ pub(crate) fn yaw_quadrant(yaw: f32) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::block_fact;
+
+    /// Supplies numeric facts and the collected counterpart for each tested identity.
+    fn resolve_placement_state(
+        name: &str,
+        state: &str,
+        input: PlacementInput,
+    ) -> Option<Map<String, Value>> {
+        super::resolve_placement_state(block_fact(name), state, input)
+    }
+
+    /// Joins a real pinned slab counterpart before applying the merge boundary.
+    fn merge_slab_state(
+        held: &str,
+        held_state: &str,
+        existing: &str,
+        existing_state: &str,
+        face: Option<u8>,
+    ) -> Option<(String, Map<String, Value>)> {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let fact = block_fact(held);
+        let alternate = fact
+            .alternate
+            .and_then(|id| records.get(id as usize))
+            .map(|r| r.name.as_ref());
+        super::merge_slab_state(
+            fact,
+            alternate,
+            held_state,
+            block_fact(existing),
+            existing_state,
+            face,
+        )
+    }
     use serde_json::json;
 
     /// Build a click with the inputs changed by each table row.
@@ -396,22 +439,6 @@ mod tests {
                 )
                 .is_none()
             );
-        }
-    }
-
-    #[test]
-    fn copper_slab_names_preserve_oxidation_and_wax() {
-        for (single, double) in [
-            (
-                "minecraft:cut_copper_slab",
-                "minecraft:double_cut_copper_slab",
-            ),
-            (
-                "minecraft:waxed_exposed_cut_copper_slab",
-                "minecraft:waxed_exposed_double_cut_copper_slab",
-            ),
-        ] {
-            assert_eq!(double_slab_identifier(single).as_deref(), Some(double));
         }
     }
 

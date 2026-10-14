@@ -2,6 +2,8 @@
 
 pub mod block;
 pub use block::{BlockFact, BlockFacts};
+mod placement;
+pub use placement::{BLOCK_PLACEMENT_SOURCE_PATH, PlacementRule, SupportKind};
 
 pub(crate) mod family_routing;
 mod properties;

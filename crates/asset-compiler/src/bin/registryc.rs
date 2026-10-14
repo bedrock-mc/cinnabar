@@ -213,6 +213,7 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         for path in [
             &target_path,
             &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
+            &PathBuf::from(assets::facts::BLOCK_PLACEMENT_SOURCE_PATH),
             &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
             &item_path,
             &item_expansion,

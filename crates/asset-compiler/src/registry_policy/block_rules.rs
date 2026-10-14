@@ -15,8 +15,8 @@ pub(super) enum Status {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Rule {
-    id: String,
-    fact: String,
+    pub(super) id: String,
+    pub(super) fact: String,
     status: Status,
     #[serde(default = "enabled")]
     value: bool,
@@ -33,6 +33,8 @@ pub(super) struct Rule {
     #[serde(default)]
     state_values: BTreeMap<String, serde_json::Value>,
     state_maximum: Option<String>,
+    #[serde(default)]
+    state_minimum: BTreeMap<String, i64>,
     #[serde(default)]
     model_family: Vec<String>,
     #[serde(default)]
@@ -52,12 +54,23 @@ fn enabled() -> bool {
 
 impl Rule {
     /// Evaluates selectors once during compilation, with exclusions and state values as filters.
-    fn matches(&self, name: &str, state: &BTreeMap<String, Scalar>, family: ModelFamily) -> bool {
+    pub(super) fn matches(
+        &self,
+        name: &str,
+        state: &BTreeMap<String, Scalar>,
+        family: ModelFamily,
+    ) -> bool {
         if self.exclude_members.iter().any(|m| m == name)
             || self
                 .exclude_contains
                 .as_ref()
                 .is_some_and(|s| name.contains(s))
+            || self.state_minimum.iter().any(|(key, minimum)| {
+                state
+                    .get(key)
+                    .and_then(|s| s.value.as_i64())
+                    .is_none_or(|value| value < *minimum)
+            })
             || self.state_maximum.as_ref().is_some_and(|key| {
                 let maximum =
                     assets::facts::BlockProperty::from_name(key).and_then(|p| match p.domain() {
@@ -95,7 +108,7 @@ impl Rule {
     }
 
     /// Rejects misspelled members, unknown domains and selectors that silently match nothing.
-    fn validate(
+    pub(super) fn validate(
         &self,
         source: &[BlockFact],
         families: &[ModelFamily],
@@ -131,6 +144,7 @@ impl Rule {
             .chain(&self.state_properties)
             .chain(self.state_values.keys())
             .chain(&self.state_maximum)
+            .chain(self.state_minimum.keys())
         {
             check(
                 assets::facts::BlockProperty::from_name(key).is_some(),

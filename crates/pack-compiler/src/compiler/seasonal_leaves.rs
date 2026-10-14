@@ -28,7 +28,11 @@ pub(super) fn install(
     ordered.sort_unstable_by_key(|record| record.sequential_id);
     for record in ordered {
         let visual = &mut visuals[record.sequential_id as usize];
-        if visual.kind != VisualKind::Diagnostic && native_seasonal_replaceable(&record.name) {
+        if visual.kind != VisualKind::Diagnostic
+            && record
+                .traits
+                .contains(assets::registry::BlockTraits::REPLACEABLE)
+        {
             visual.flags.insert(BlockFlags::SEASONAL_REPLACEABLE);
         }
         if visual.kind != VisualKind::Cube || !visual.flags.contains(BlockFlags::LEAF_MODEL) {
@@ -121,17 +125,6 @@ fn world_flags(original: u32, seasonal: u32, deep: bool) -> u32 {
         } else {
             MATERIAL_FLAG_ALPHA_CUTOUT | MATERIAL_FLAG_TWO_SIDED
         }
-}
-
-fn native_seasonal_replaceable(name: &str) -> bool {
-    // Vanilla blocks registered as replaceable:
-    // short_grass, fern, water,
-    // flowing_water. Flowers/mushrooms are deliberately not
-    // included: their crossed shape does not establish this component.
-    matches!(
-        name,
-        "minecraft:short_grass" | "minecraft:fern" | "minecraft:water" | "minecraft:flowing_water"
-    )
 }
 
 #[cfg(test)]
@@ -237,10 +230,14 @@ mod tests {
     }
 
     #[test]
-    fn seasonal_replacement_is_exact_native_admission_without_variant_changes() {
+    fn seasonal_replacement_reads_shared_traits_without_variant_changes() {
         let cases = [
             ("minecraft:short_grass", VisualKind::Cross, true),
             ("minecraft:fern", VisualKind::Cross, true),
+            ("minecraft:vine", VisualKind::Cross, true),
+            ("minecraft:pink_petals", VisualKind::Cross, true),
+            ("minecraft:light_block_0", VisualKind::Cross, true),
+            ("minecraft:snow_layer", VisualKind::Cross, true),
             ("minecraft:water", VisualKind::Liquid, true),
             ("minecraft:flowing_water", VisualKind::Liquid, true),
             ("minecraft:dandelion", VisualKind::Cross, false),
@@ -249,12 +246,21 @@ mod tests {
             ("example:fern", VisualKind::Cross, false),
             ("minecraft:fern", VisualKind::Diagnostic, false),
         ];
+        let pinned = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
         let records = cases
             .iter()
             .enumerate()
             .map(|(id, &(name, _, _))| {
                 let mut record = leaf(name, id as u32);
                 record.flags = BlockFlags::empty();
+                record.traits = pinned
+                    .iter()
+                    .find(|r| r.name.as_ref() == name)
+                    .map_or(assets::registry::BlockTraits::empty(), |r| r.traits);
                 record
             })
             .collect::<Vec<_>>();

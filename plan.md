@@ -776,6 +776,10 @@ these changes do not close the movement, camera, or actor parity gates.
   that simulates two ticks resolves build actions only before the first.
 - Deterministic gameplay and wire tests cover ledges, jump bridging, towering,
   backward sneak bridging, failed attempts and refused transport.
+- Placement and block-use classification read compiled block facts and numeric identity
+  handles. Slab and sign counterparts come from the checked placement catalog. Support,
+  interaction membership and replacement admission remain provisional; this migration
+  does not close the placement parity gate.
 - Provisional: slot or item changes preserve the held placement line and repeat
   schedule. Native slot-change callbacks and their effect on retained history,
   orientation and timing remain unverified; this does not close the hotbar-switch gate.

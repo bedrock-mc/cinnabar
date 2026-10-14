@@ -1,3 +1,4 @@
+use crate::test_support::block_fact;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::sync::Arc;
 
@@ -130,10 +131,10 @@ fn placement_targets_the_clicked_face_neighbor() {
 
 fn surroundings(clicked: &str, neighbor: &str) -> UseSurroundings {
     UseSurroundings {
-        clicked_identifier: Some(clicked.to_owned()),
+        clicked: block_fact(clicked),
         clicked_canonical_state: None,
-        held_block_identifier: None,
-        neighbor_identifier: Some(neighbor.to_owned()),
+        held: Default::default(),
+        neighbor: block_fact(neighbor),
         player_box: ([0.2, 64.0, 0.2], [0.8, 65.8, 0.8]),
         actor_boxes: Vec::new(),
         sneaking: false,
@@ -185,6 +186,22 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+#[test]
+fn replacement_overrides_choose_the_clicked_cell() {
+    for name in [
+        "minecraft:pink_petals",
+        "minecraft:light_block_0",
+        "minecraft:snow_layer",
+    ] {
+        let around = surroundings(name, "minecraft:stone");
+        assert_eq!(
+            around.destination([2, 64, 0], 4),
+            ([2, 64, 0], true),
+            "{name}"
+        );
+    }
 }
 
 /// Obstruction tests the placed block's own shape, and a replaced block is the destination.
@@ -240,7 +257,7 @@ fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
 #[test]
 fn switch_uses_predict_their_toggled_state() {
     let flipped = |identifier, state: &str| {
-        toggled_states(identifier, state)
+        toggled_states(block_fact(identifier), state)
             .map(|states| serde_json::Value::Object(states).to_string())
     };
     assert_eq!(
@@ -499,14 +516,14 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
-    assert!(super::orientation_sensitive(Some(
-        r#"{"minecraft:cardinal_direction":"north"}"#
+    assert!(super::orientation_sensitive(block_fact(
+        "minecraft:wooden_door"
     )));
-    assert!(super::orientation_sensitive(Some(
-        r#"{"upside_down_bit":false}"#
+    assert!(super::orientation_sensitive(block_fact(
+        "minecraft:oak_stairs"
     )));
-    assert!(!super::orientation_sensitive(Some(
-        r#"{"pillar_axis":"y"}"#
+    assert!(!super::orientation_sensitive(block_fact(
+        "minecraft:oak_log"
     )));
     let mut intention = super::BuildIntention::default();
     intention.record(
@@ -526,6 +543,13 @@ fn orientation_sensitive_states_preserve_the_original_world_hit() {
         [1.5, 64.0, 0.5],
     );
     assert_eq!(intention.first_world_hit(), Some([0.75, 64.0, 0.25]));
+}
+
+#[test]
+fn held_orientation_uses_compiled_attachment_and_rail_facts() {
+    for name in ["minecraft:lever", "minecraft:rail", "minecraft:resin_clump"] {
+        assert!(super::orientation_sensitive(block_fact(name)), "{name}");
+    }
 }
 
 #[test]

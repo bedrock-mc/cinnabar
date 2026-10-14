@@ -1,91 +1,132 @@
 //! Existing-cell stacking rules for local placement prediction.
 
+use assets::facts::BlockProperty as P;
+use assets::facts::{BlockFact, PlacementRule as R};
 use serde_json::{Map, Value};
 
 /// Adds one verified stack unit; snow requires a whole-cell actor check by the caller.
 pub(crate) fn stacked_placement_state(
-    held_identifier: &str,
-    existing_identifier: &str,
+    held_fact: BlockFact,
+    existing_fact: BlockFact,
     existing_states: &Map<String, Value>,
     face: u8,
 ) -> Option<Map<String, Value>> {
-    if held_identifier == "minecraft:sea_pickle"
-        && held_identifier == existing_identifier
+    if held_fact.placement == R::SeaPickle
+        && held_fact.identity.is_some()
+        && held_fact.identity == existing_fact.identity
         && (1..=5).contains(&face)
-        && crate::placement_state::only_keys(existing_states, &["cluster_count", "dead_bit"])
+        && crate::placement_state::only_keys(
+            existing_states,
+            &[P::ClusterCount.name(), P::DeadBit.name()],
+        )
     {
-        let count = crate::placement_state::value(existing_states, "cluster_count")?.as_u64()?;
-        if count >= 3 {
+        let count =
+            crate::placement_state::value(existing_states, P::ClusterCount.name())?.as_u64()?;
+        if count >= crate::placement_state::maximum(P::ClusterCount)? {
             return None;
         }
         let mut states = existing_states.clone();
-        crate::placement_state::set_value(&mut states, "cluster_count", Value::from(count + 1))?;
-        crate::placement_state::set_bit(&mut states, "dead_bit", true)?;
+        crate::placement_state::set_value(
+            &mut states,
+            P::ClusterCount.name(),
+            Value::from(count + 1),
+        )?;
+        crate::placement_state::set_bit(&mut states, P::DeadBit.name(), true)?;
         return Some(states);
     }
-    if held_identifier == existing_identifier
-        && crate::placement_support::is_candle(held_identifier)
+    if held_fact.identity.is_some()
+        && held_fact.identity == existing_fact.identity
+        && held_fact.placement == R::Candle
         && (1..=5).contains(&face)
-        && crate::placement_state::only_keys(existing_states, &["candles", "lit"])
+        && crate::placement_state::only_keys(existing_states, &[P::Candles.name(), P::Lit.name()])
     {
-        let count = crate::placement_state::value(existing_states, "candles")?.as_u64()?;
-        if count >= 3 {
+        let count = crate::placement_state::value(existing_states, P::Candles.name())?.as_u64()?;
+        if count >= crate::placement_state::maximum(P::Candles)? {
             return None;
         }
         let mut states = existing_states.clone();
-        let lit = crate::placement_state::value(&states, "lit")?.clone();
+        let lit = crate::placement_state::value(&states, P::Lit.name())?.clone();
         crate::placement_state::set_bit(
             &mut states,
-            "lit",
+            P::Lit.name(),
             lit.as_bool().or_else(|| lit.as_u64().map(|v| v == 1))?,
         )?;
-        crate::placement_state::set_value(&mut states, "candles", Value::from(count + 1))?;
+        crate::placement_state::set_value(&mut states, P::Candles.name(), Value::from(count + 1))?;
         return Some(states);
     }
     if face > 5
-        || held_identifier != "minecraft:snow_layer"
-        || held_identifier != existing_identifier
+        || held_fact.placement != R::Snow
+        || held_fact.identity.is_none()
+        || held_fact.identity != existing_fact.identity
     {
         return None;
     }
     if existing_states.len() != 2
         || existing_states
             .keys()
-            .any(|key| !["height", "covered_bit"].contains(&key.as_str()))
+            .any(|key| ![P::Height.name(), P::CoveredBit.name()].contains(&key.as_str()))
     {
         return None;
     }
-    let covered = existing_states.get("covered_bit")?;
+    let covered = existing_states.get(P::CoveredBit.name())?;
     if covered.get("type")?.as_str()? != "byte"
         || !matches!(covered.get("value")?.as_u64(), Some(0 | 1))
-        || existing_states.get("height")?.get("type")?.as_str()? != "int"
+        || existing_states
+            .get(P::Height.name())?
+            .get("type")?
+            .as_str()?
+            != "int"
     {
         return None;
     }
-    let height = existing_states.get("height")?.get("value")?.as_u64()?;
-    if height >= 7 {
+    let height = existing_states
+        .get(P::Height.name())?
+        .get("value")?
+        .as_u64()?;
+    if height >= crate::placement_state::maximum(P::Height)? {
         return None;
     }
     let mut states = existing_states.clone();
-    let state = states.get_mut("height")?.as_object_mut()?;
+    let state = states.get_mut(P::Height.name())?.as_object_mut()?;
     *state.get_mut("value")? = Value::from(height + 1);
     Some(states)
 }
 
 /// Parses the stored palette envelope before resolving an existing-cell stack.
 pub(crate) fn stacked_placement_canonical(
-    held_identifier: &str,
-    existing_identifier: &str,
+    held_fact: BlockFact,
+    existing_fact: BlockFact,
     existing_canonical: &str,
     face: u8,
 ) -> Option<Map<String, Value>> {
     let states = serde_json::from_str(existing_canonical).ok()?;
-    stacked_placement_state(held_identifier, existing_identifier, &states, face)
+    stacked_placement_state(held_fact, existing_fact, &states, face)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::block_fact;
+
+    /// Supplies the real held identity facts for stack behavior cases.
+    fn stacked_placement_state(
+        held: &str,
+        existing: &str,
+        states: &Map<String, Value>,
+        face: u8,
+    ) -> Option<Map<String, Value>> {
+        super::stacked_placement_state(block_fact(held), block_fact(existing), states, face)
+    }
+
+    /// Parses the tested envelope using compiled held-block admission.
+    fn stacked_placement_canonical(
+        held: &str,
+        existing: &str,
+        state: &str,
+        face: u8,
+    ) -> Option<Map<String, Value>> {
+        super::stacked_placement_canonical(block_fact(held), block_fact(existing), state, face)
+    }
     use serde_json::json;
 
     #[test]

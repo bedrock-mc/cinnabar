@@ -1,5 +1,7 @@
 //! Stair corner selection from loaded neighboring block states.
 
+use assets::facts::BlockProperty as P;
+use assets::facts::{BlockFact, PlacementRule as R};
 use serde_json::{Map, Value};
 
 use crate::{
@@ -17,16 +19,16 @@ const CORNERS: [[u8; 8]; 4] = [
 
 /// Resolves a stair corner, refusing missing cells or unmodeled cornerable neighbors.
 pub(crate) fn corner_states(
-    identifier: &str,
+    fact: BlockFact,
     states: &mut Map<String, Value>,
     position: [i32; 3],
-    mut read: impl FnMut([i32; 3]) -> Option<(String, Map<String, Value>)>,
+    mut read: impl FnMut([i32; 3]) -> Option<(BlockFact, Map<String, Value>)>,
 ) -> Option<()> {
-    if !identifier.ends_with("_stairs") {
+    if fact.placement != R::Stair {
         return Some(());
     }
     let orientation = direction(states)?;
-    let half = value(states, "upside_down_bit")?.as_u64()?;
+    let half = value(states, P::UpsideDownBit.name())?.as_u64()?;
     let config = CORNERS[orientation as usize];
     let mut corner = "none";
     'neighbors: for (face, blocker_index, names) in [
@@ -34,13 +36,13 @@ pub(crate) fn corner_states(
         (config[1], 4, ["inner_left", "inner_right"]),
     ] {
         let (name, neighbor) = read(placement_cell(position, face))?;
-        if !name.ends_with("_stairs") {
-            if neighbor.contains_key("minecraft:corner") {
+        if name.placement != R::Stair {
+            if neighbor.contains_key(P::MinecraftCorner.name()) {
                 return None;
             }
             continue;
         }
-        if value(&neighbor, "upside_down_bit")?.as_u64()? != half {
+        if value(&neighbor, P::UpsideDownBit.name())?.as_u64()? != half {
             continue;
         }
         let neighbor_direction = direction(&neighbor)?;
@@ -50,30 +52,47 @@ pub(crate) fn corner_states(
             }
             let (blocker_name, mut blocker) =
                 read(placement_cell(position, config[blocker_index + side * 3]))?;
-            if blocker.contains_key("minecraft:corner") {
-                set_value(&mut blocker, "minecraft:corner", Value::from("none"))?;
+            if blocker.contains_key(P::MinecraftCorner.name()) {
+                set_value(&mut blocker, P::MinecraftCorner.name(), Value::from("none"))?;
             }
             let mut straight = states.clone();
-            set_value(&mut straight, "minecraft:corner", Value::from("none"))?;
-            if blocker_name != identifier || blocker != straight {
+            set_value(
+                &mut straight,
+                P::MinecraftCorner.name(),
+                Value::from("none"),
+            )?;
+            if blocker_name.identity != fact.identity || blocker != straight {
                 corner = names[side];
                 break 'neighbors;
             }
         }
     }
-    set_value(states, "minecraft:corner", Value::from(corner))
+    set_value(states, P::MinecraftCorner.name(), Value::from(corner))
 }
 
 /// Converts the stair's legacy state to the shared south/west/north/east encoding.
 fn direction(states: &Map<String, Value>) -> Option<u8> {
     [3, 1, 0, 2]
-        .get(value(states, "weirdo_direction")?.as_u64()? as usize)
+        .get(value(states, P::WeirdoDirection.name())?.as_u64()? as usize)
         .copied()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::block_fact;
+
+    /// Resolves the tested identities into the same numeric facts as production.
+    fn corner_states(
+        name: &str,
+        states: &mut Map<String, Value>,
+        position: [i32; 3],
+        mut read: impl FnMut([i32; 3]) -> Option<(String, Map<String, Value>)>,
+    ) -> Option<()> {
+        super::corner_states(block_fact(name), states, position, |cell| {
+            read(cell).map(|(name, state)| (block_fact(&name), state))
+        })
+    }
     use serde_json::json;
 
     /// Creates a typed stair state matching the palette's encoding.

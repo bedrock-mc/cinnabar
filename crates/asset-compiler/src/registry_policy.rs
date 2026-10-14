@@ -18,6 +18,7 @@ pub mod items;
 mod light;
 mod manifest;
 mod movement;
+mod placement;
 mod projection;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -57,6 +58,7 @@ struct BiomeFact {
 struct Policy {
     model_family_rules: Vec<block_rules::Rule>,
     block_rules: Vec<block_rules::Rule>,
+    placement_rules: Vec<block_rules::Rule>,
     item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
@@ -214,6 +216,10 @@ pub fn blocks(
     manifest::write_blob(light_out, &light_bytes, true)?;
     let data = out.parent().ok_or("block output has no parent")?;
     manifest::write(&data.join("facts-expansion-v2193.tsv"), &expansion)?;
+    manifest::write(
+        &data.join("block-placement-v2193.tsv"),
+        &placement::compile(&facts.blocks, &records, &policy)?,
+    )?;
     manifest::write(
         &data.join("vocabulary-v2193.txt"),
         &block_rules::vocabulary(root, &facts.blocks)?,

@@ -24,6 +24,7 @@ const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 #[derive(Debug, Clone)]
 struct InteractionBlock {
     identifier: Arc<str>,
+    facts: assets::facts::BlockFact,
     full_cube: bool,
     build_intention: bool,
     shape_flags: assets::block_shapes::ShapeFlags,
@@ -159,6 +160,7 @@ impl PhysicsCollisionRegistries {
         let mut state_ids: BTreeMap<Arc<str>, BTreeMap<String, (u32, u32)>> = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
         let mut vanilla_runs: Vec<(u64, Arc<str>, u32)> = Vec::new();
+        let block_facts = assets::facts::BlockFacts::new(records)?;
         for record in records {
             let fact = physics
                 .by_sequential_id(record.sequential_id)
@@ -184,6 +186,7 @@ impl PhysicsCollisionRegistries {
             .ok();
             let binding = InteractionBlock {
                 identifier: Arc::from(record.name.as_ref()),
+                facts: block_facts.get(record.sequential_id),
                 full_cube,
                 build_intention: shapes
                     .flags
@@ -202,9 +205,9 @@ impl PhysicsCollisionRegistries {
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
                     record.model_state.get(assets::ModelStateField::Orientation),
                 )),
-                second_part: states
-                    .as_ref()
-                    .and_then(|states| multipart::second_part_offset(&record.name, states)),
+                second_part: states.as_ref().and_then(|states| {
+                    multipart::second_part_offset(block_facts.get(record.sequential_id), states)
+                }),
             };
             interaction_blocks.insert(record.sequential_id, binding.clone());
             hashed_interaction_blocks.insert(record.network_hash, binding);
@@ -366,6 +369,7 @@ impl PhysicsCollisionRegistries {
                     next,
                     InteractionBlock {
                         identifier: Arc::clone(&block.name),
+                        facts: assets::facts::BlockFact::default(),
                         full_cube: effective.collides && effective.collision_boxes.is_none(),
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -417,6 +421,7 @@ impl PhysicsCollisionRegistries {
                         state.hash,
                         InteractionBlock {
                             identifier: Arc::clone(&block.name),
+                            facts: assets::facts::BlockFact::default(),
                             full_cube: effective.collides && effective.collision_boxes.is_none(),
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -439,6 +444,30 @@ impl PhysicsCollisionRegistries {
             }
         }
         self.session_hashes.len()
+    }
+
+    /// Copies the shared facts for one admitted session runtime identity.
+    pub fn block_facts(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> assets::facts::BlockFact {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .map_or_else(Default::default, |block| block.facts)
+    }
+
+    /// Borrows a compiled counterpart's identity from the sequential palette.
+    pub fn block_alternate_identifier(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let alternate = self.block_facts(mode, runtime_id).alternate?;
+        self.block_identifier(assets::NetworkIdMode::Sequential, alternate)
     }
 
     pub fn block_identifier(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {

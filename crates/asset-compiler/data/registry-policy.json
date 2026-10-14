@@ -1430,11 +1430,22 @@
       ]
     },
     {
+      "id": "multipart-pitcher-tall",
+      "fact": "MULTIPART",
+      "status": "provisional",
+      "members": [
+        "minecraft:pitcher_crop"
+      ],
+      "state_minimum": {
+        "growth": 3
+      }
+    },
+    {
       "id": "multipart-35",
       "fact": "MULTIPART",
       "status": "provisional",
       "state_property": "upper_block_bit",
-      "members": [
+      "exclude_members": [
         "minecraft:pale_moss_carpet",
         "minecraft:small_dripleaf_block",
         "minecraft:pitcher_crop"
@@ -1463,12 +1474,6 @@
       "fact": "ORIENTATION_SENSITIVE",
       "status": "verified",
       "state_property": "minecraft:cardinal_direction"
-    },
-    {
-      "id": "orientation_sensitive-40",
-      "fact": "ORIENTATION_SENSITIVE",
-      "status": "verified",
-      "state_property": "pillar_axis"
     },
     {
       "id": "orientation_sensitive-41",
@@ -1522,6 +1527,10 @@
       "status": "verified",
       "model_family": [
         "Carpet"
+      ],
+      "exclude_members": [
+        "minecraft:moss_carpet",
+        "minecraft:pale_moss_carpet"
       ]
     },
     {
@@ -2358,6 +2367,54 @@
         "Cube",
         "ChiseledBookshelf"
       ]
+    },
+    {
+      "id": "multipart-bed",
+      "fact": "MULTIPART",
+      "status": "provisional",
+      "state_property": "head_piece_bit"
+    },
+    {
+      "id": "orientation-minecraft-vertical_half",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "minecraft:vertical_half"
+    },
+    {
+      "id": "orientation-orientation",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "orientation"
+    },
+    {
+      "id": "orientation-upside_down_bit",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "upside_down_bit"
+    },
+    {
+      "id": "orientation-hanging",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "hanging"
+    },
+    {
+      "id": "orientation-rotation",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "rotation"
+    },
+    {
+      "id": "orientation-vine_direction_bits",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "vine_direction_bits"
+    },
+    {
+      "id": "orientation-coral_direction",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "coral_direction"
     }
   ],
   "item_rules": [
@@ -3061,6 +3118,38 @@
       "repair": {
         "item": "minecraft:armadillo_scute"
       }
+    }
+  ],
+  "placement_rules": [
+    {
+      "id": "placement-loom",
+      "fact": "placement:Loom",
+      "status": "provisional",
+      "members": [
+        "minecraft:loom"
+      ]
+    },
+    {
+      "id": "placement-glazed",
+      "fact": "placement:Glazed",
+      "status": "verified",
+      "suffix": "_glazed_terracotta"
+    },
+    {
+      "id": "support-stone",
+      "fact": "support:Stone",
+      "status": "provisional",
+      "members": [
+        "minecraft:stone"
+      ]
+    },
+    {
+      "id": "support-powder-snow",
+      "fact": "support:PowderSnow",
+      "status": "provisional",
+      "members": [
+        "minecraft:powder_snow"
+      ]
     }
   ]
 }

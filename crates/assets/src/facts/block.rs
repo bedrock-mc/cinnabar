@@ -11,6 +11,12 @@ pub struct BlockFact {
     pub traits: BlockTraits,
     pub family: ModelFamily,
     pub survival: SurvivalRule,
+    pub placement: super::PlacementRule,
+    pub support: super::SupportKind,
+    /// Sequential identity of the admitted double slab or matching sign.
+    pub alternate: Option<u32>,
+    /// First sequential state of this block identity, shared by its variants.
+    pub identity: Option<u32>,
 }
 
 impl Default for BlockFact {
@@ -20,6 +26,10 @@ impl Default for BlockFact {
             traits: BlockTraits::empty(),
             family: ModelFamily::Unknown,
             survival: SurvivalRule::Unresolved,
+            placement: super::PlacementRule::Unresolved,
+            support: super::SupportKind::Unresolved,
+            alternate: None,
+            identity: None,
         }
     }
 }
@@ -40,13 +50,30 @@ impl BlockFacts {
         {
             return Err(AssetError::InvalidRegistryFlags(0xff));
         }
+        let catalog = super::placement::catalog()?;
+        let mut names = std::collections::BTreeMap::new();
+        for record in records {
+            names
+                .entry(record.name.as_ref())
+                .or_insert(record.sequential_id);
+        }
         Ok(Self {
             records: records
                 .iter()
-                .map(|r| BlockFact {
-                    traits: r.traits,
-                    family: r.model_family,
-                    survival: r.survival,
+                .map(|r| {
+                    let mut fact = BlockFact {
+                        traits: r.traits,
+                        family: r.model_family,
+                        survival: r.survival,
+                        ..BlockFact::default()
+                    };
+                    fact.identity = names.get(r.name.as_ref()).copied();
+                    if let Some(entry) = catalog.get(r.name.as_ref()) {
+                        fact.placement = entry.rule;
+                        fact.support = entry.support;
+                        fact.alternate = super::placement::alternate(entry, &names);
+                    }
+                    fact
                 })
                 .collect(),
         })

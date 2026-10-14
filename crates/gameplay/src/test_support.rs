@@ -37,3 +37,25 @@ pub(crate) fn movement_speed_attribute(
     attribute.current = current;
     attribute
 }
+
+/// Returns facts for an actual pinned identity, or unresolved facts for an unknown identity.
+#[cfg(test)]
+pub(crate) fn block_fact(name: &str) -> assets::facts::BlockFact {
+    static PALETTE: std::sync::OnceLock<(
+        Box<[assets::RegistryRecord]>,
+        assets::facts::BlockFacts,
+    )> = std::sync::OnceLock::new();
+    let (records, facts) = PALETTE.get_or_init(|| {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
+        let facts = assets::facts::BlockFacts::new(&records).unwrap();
+        (records, facts)
+    });
+    records
+        .iter()
+        .find(|r| r.name.as_ref() == name)
+        .map_or_else(Default::default, |r| facts.get(r.sequential_id))
+}
