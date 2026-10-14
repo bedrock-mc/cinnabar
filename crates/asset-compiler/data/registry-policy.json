@@ -665,5 +665,708 @@
     "unresolved": [
       "minecraft:soul_soil"
     ]
-  }
+  },
+  "item_rules": [
+    {
+      "id": "is_sword",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_sword"
+      },
+      "traits": [
+        "sword"
+      ]
+    },
+    {
+      "id": "is_axe",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_axe"
+      },
+      "traits": [
+        "axe"
+      ]
+    },
+    {
+      "id": "is_pickaxe",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_pickaxe"
+      },
+      "traits": [
+        "pickaxe"
+      ]
+    },
+    {
+      "id": "is_shovel",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_shovel"
+      },
+      "traits": [
+        "shovel"
+      ]
+    },
+    {
+      "id": "is_hoe",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_hoe"
+      },
+      "traits": [
+        "hoe"
+      ]
+    },
+    {
+      "id": "is_shears",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_shears"
+      },
+      "traits": [
+        "shears"
+      ]
+    },
+    {
+      "id": "is_spear",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_spear"
+      },
+      "traits": [
+        "spear"
+      ]
+    },
+    {
+      "id": "is_trident",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_trident"
+      },
+      "traits": [
+        "trident"
+      ]
+    },
+    {
+      "id": "is_sword-creative",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_sword"
+      },
+      "traits": [
+        "creative_no_break"
+      ]
+    },
+    {
+      "id": "is_trident-creative",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:is_trident"
+      },
+      "traits": [
+        "creative_no_break"
+      ]
+    },
+    {
+      "id": "banner",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:banner"
+      },
+      "roles": [
+        "loom_banner"
+      ]
+    },
+    {
+      "id": "horse_armor",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:horse_armor"
+      },
+      "roles": [
+        "horse_armour"
+      ]
+    },
+    {
+      "id": "trim_templates",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:trim_templates"
+      },
+      "roles": [
+        "smithing_template"
+      ]
+    },
+    {
+      "id": "transform_templates",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:transform_templates"
+      },
+      "roles": [
+        "smithing_template"
+      ]
+    },
+    {
+      "id": "trim_materials",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:trim_materials"
+      },
+      "roles": [
+        "smithing_material"
+      ]
+    },
+    {
+      "id": "transform_materials",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:transform_materials"
+      },
+      "roles": [
+        "smithing_material"
+      ]
+    },
+    {
+      "id": "trimmable_armors",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:trimmable_armors"
+      },
+      "roles": [
+        "smithing_input"
+      ]
+    },
+    {
+      "id": "transformable_items",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:transformable_items"
+      },
+      "roles": [
+        "smithing_input"
+      ]
+    },
+    {
+      "id": "wooden_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:wooden_tier"
+      },
+      "tier": "wood"
+    },
+    {
+      "id": "stone_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:stone_tier"
+      },
+      "tier": "stone"
+    },
+    {
+      "id": "copper_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:copper_tier"
+      },
+      "tier": "copper"
+    },
+    {
+      "id": "iron_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:iron_tier"
+      },
+      "tier": "iron"
+    },
+    {
+      "id": "golden_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:golden_tier"
+      },
+      "tier": "gold"
+    },
+    {
+      "id": "diamond_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:diamond_tier"
+      },
+      "tier": "diamond"
+    },
+    {
+      "id": "netherite_tier",
+      "status": "verified",
+      "selector": {
+        "tag": "minecraft:netherite_tier"
+      },
+      "tier": "netherite"
+    },
+    {
+      "id": "elytra",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:elytra"
+        ]
+      },
+      "traits": [
+        "glider"
+      ]
+    },
+    {
+      "id": "powder-snow-boots",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:leather_boots"
+        ]
+      },
+      "traits": [
+        "powder_snow_walker"
+      ]
+    },
+    {
+      "id": "books",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:book",
+          "minecraft:enchanted_book"
+        ]
+      },
+      "traits": [
+        "book"
+      ]
+    },
+    {
+      "id": "enchanted-book",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:enchanted_book"
+        ]
+      },
+      "traits": [
+        "enchanted_book"
+      ]
+    },
+    {
+      "id": "bow",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:bow"
+        ]
+      },
+      "traits": [
+        "bow"
+      ]
+    },
+    {
+      "id": "crossbow",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:crossbow"
+        ]
+      },
+      "traits": [
+        "crossbow"
+      ]
+    },
+    {
+      "id": "shield",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:shield"
+        ]
+      },
+      "traits": [
+        "shield"
+      ]
+    },
+    {
+      "id": "fishing-rod",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:fishing_rod"
+        ]
+      },
+      "traits": [
+        "fishing_rod"
+      ]
+    },
+    {
+      "id": "flint-and-steel",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:flint_and_steel"
+        ]
+      },
+      "traits": [
+        "flint_and_steel"
+      ]
+    },
+    {
+      "id": "carrot-stick",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:carrot_on_a_stick"
+        ]
+      },
+      "traits": [
+        "carrot_stick"
+      ]
+    },
+    {
+      "id": "fungus-stick",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:warped_fungus_on_a_stick"
+        ]
+      },
+      "traits": [
+        "fungus_stick"
+      ]
+    },
+    {
+      "id": "compasses",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:compass",
+          "minecraft:recovery_compass"
+        ]
+      },
+      "traits": [
+        "compass"
+      ]
+    },
+    {
+      "id": "brush",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:brush"
+        ]
+      },
+      "traits": [
+        "brush"
+      ]
+    },
+    {
+      "id": "mace",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:mace"
+        ]
+      },
+      "traits": [
+        "mace"
+      ]
+    },
+    {
+      "id": "head-wearables",
+      "status": "verified",
+      "selector": {
+        "members": [
+          "minecraft:skeleton_skull",
+          "minecraft:wither_skeleton_skull",
+          "minecraft:zombie_head",
+          "minecraft:player_head",
+          "minecraft:creeper_head",
+          "minecraft:dragon_head",
+          "minecraft:piglin_head",
+          "minecraft:carved_pumpkin"
+        ]
+      },
+      "traits": [
+        "cosmetic_head"
+      ],
+      "armour_slot": "head"
+    },
+    {
+      "id": "beacon-payment",
+      "status": "verified",
+      "selector": {
+        "members": [
+          "minecraft:iron_ingot",
+          "minecraft:gold_ingot",
+          "minecraft:emerald",
+          "minecraft:diamond",
+          "minecraft:netherite_ingot"
+        ]
+      },
+      "roles": [
+        "beacon_payment"
+      ]
+    },
+    {
+      "id": "brewing-fuel",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:blaze_powder"
+        ]
+      },
+      "roles": [
+        "brewing_fuel"
+      ]
+    },
+    {
+      "id": "brewing-bottles",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:potion",
+          "minecraft:splash_potion",
+          "minecraft:lingering_potion",
+          "minecraft:glass_bottle"
+        ]
+      },
+      "roles": [
+        "brewing_bottle"
+      ]
+    },
+    {
+      "id": "loom-legacy-dyes",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:ink_sac",
+          "minecraft:glow_ink_sac"
+        ]
+      },
+      "roles": [
+        "loom_dye"
+      ]
+    },
+    {
+      "id": "horse-saddle",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:saddle"
+        ]
+      },
+      "roles": [
+        "horse_saddle"
+      ]
+    },
+    {
+      "id": "enchanting-lapis",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:lapis_lazuli"
+        ]
+      },
+      "roles": [
+        "enchanting_lapis"
+      ]
+    },
+    {
+      "id": "loom-pattern",
+      "status": "provisional",
+      "selector": {
+        "suffix": "_banner_pattern"
+      },
+      "roles": [
+        "loom_pattern"
+      ]
+    },
+    {
+      "id": "loom-dyes",
+      "status": "provisional",
+      "selector": {
+        "suffix": "_dye"
+      },
+      "roles": [
+        "loom_dye"
+      ]
+    },
+    {
+      "id": "horse-decor",
+      "status": "provisional",
+      "selector": {
+        "suffix": "_carpet"
+      },
+      "roles": [
+        "horse_decor"
+      ]
+    },
+    {
+      "id": "offhand",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:totem_of_undying",
+          "minecraft:shield",
+          "minecraft:arrow",
+          "minecraft:firework_rocket",
+          "minecraft:empty_map",
+          "minecraft:nautilus_shell"
+        ]
+      },
+      "allow_off_hand": true
+    },
+    {
+      "id": "wooden_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:wooden_tier"
+      },
+      "repair": {
+        "tag": "minecraft:planks"
+      }
+    },
+    {
+      "id": "stone_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:stone_tier"
+      },
+      "repair": {
+        "tag": "minecraft:stone_tool_materials"
+      }
+    },
+    {
+      "id": "copper_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:copper_tier"
+      },
+      "repair": {
+        "item": "minecraft:copper_ingot"
+      }
+    },
+    {
+      "id": "iron_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:iron_tier"
+      },
+      "repair": {
+        "item": "minecraft:iron_ingot"
+      }
+    },
+    {
+      "id": "chainmail_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:chainmail_tier"
+      },
+      "repair": {
+        "item": "minecraft:iron_ingot"
+      }
+    },
+    {
+      "id": "golden_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:golden_tier"
+      },
+      "repair": {
+        "item": "minecraft:gold_ingot"
+      }
+    },
+    {
+      "id": "diamond_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:diamond_tier"
+      },
+      "repair": {
+        "item": "minecraft:diamond"
+      }
+    },
+    {
+      "id": "netherite_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:netherite_tier"
+      },
+      "repair": {
+        "item": "minecraft:netherite_ingot"
+      }
+    },
+    {
+      "id": "leather_tier-repair",
+      "status": "provisional",
+      "selector": {
+        "tag": "minecraft:leather_tier"
+      },
+      "repair": {
+        "item": "minecraft:leather"
+      }
+    },
+    {
+      "id": "turtle_helmet-repair",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:turtle_helmet"
+        ]
+      },
+      "repair": {
+        "item": "minecraft:turtle_scute"
+      }
+    },
+    {
+      "id": "elytra-repair",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:elytra"
+        ]
+      },
+      "repair": {
+        "item": "minecraft:phantom_membrane"
+      }
+    },
+    {
+      "id": "shield-repair",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:shield"
+        ]
+      },
+      "repair": {
+        "tag": "minecraft:planks"
+      }
+    },
+    {
+      "id": "mace-repair",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:mace"
+        ]
+      },
+      "repair": {
+        "item": "minecraft:breeze_rod"
+      }
+    },
+    {
+      "id": "wolf_armor-repair",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:wolf_armor"
+        ]
+      },
+      "repair": {
+        "item": "minecraft:armadillo_scute"
+      }
+    }
+  ]
 }

@@ -203,6 +203,9 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
                 ui_out.as_deref(),
             )?;
         }
+        Command::ItemFacts { root, out } => {
+            asset_compiler::registry_policy::items::write(&root, &out, None)?;
+        }
         Command::BlockPhysics {
             registry,
             seed,
