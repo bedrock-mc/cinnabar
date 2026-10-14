@@ -870,16 +870,15 @@ impl ActorStore {
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
                     if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
-                        let java_ticks = self
+                        let effects = self
                             .actors
                             .get(&lifetime.runtime_id)
-                            .map_or(actor_animation::ACTOR_SWING_TICKS, |actor| {
-                                actor.status.swing_effects.ticks()
-                            });
+                            .map(|actor| actor.status.swing_effects)
+                            .unwrap_or_default();
                         self.animation.start_swing(
                             lifetime.runtime_id,
-                            actor_animation::ACTOR_SWING_TICKS,
-                            java_ticks,
+                            effects.bedrock_ticks(render_api::DEFAULT_COMBAT_VISUALS),
+                            effects.ticks(),
                         );
                     }
                     if applied && let Some(request) = prepared.as_ref() {

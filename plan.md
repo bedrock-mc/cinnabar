@@ -14,6 +14,8 @@ session controller. Both use the bridge codec and bounded receive/send queues. C
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
 
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
+Memory startup requires the same bounded item-glint artwork as native startup. Cached
+navigation retains page resources and restores relay controls with an unexpired capability.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
