@@ -44,6 +44,7 @@ pub fn spawn_network<P: Send + 'static>(
                 }
             };
             run_session_runtime(runtime, async move {
+                let packet_tap = packet_log::session_tap(config.packet_capture.as_ref());
                 let Some(login) = wait_for_login_or_cancel(
                     LoginSequence::connect_session(
                         &config.socket_dir,
@@ -52,6 +53,7 @@ pub fn spawn_network<P: Send + 'static>(
                         Some(config.client_blob_cache.clone()),
                         Some(config.player_skin),
                         &config.login_settings,
+                        Some(packet_tap),
                     ),
                     &mut shutdown_rx,
                 )

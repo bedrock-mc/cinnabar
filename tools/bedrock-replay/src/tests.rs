@@ -1,14 +1,18 @@
+mod capture_v2;
 mod fixtures;
 mod session;
 use super::{
     capture::read_capture,
     options::Options,
-    replay::{ReplayResult, plan_bursts, replay_bursts},
+    replay::{ReplayResult, Schedule, plan_bursts, replay_bursts},
 };
 use bytes::Bytes;
 use fixtures::record;
 use protocol::session_wire::{SessionHandoff, SessionIdentity};
 use std::{io::Cursor, time::Duration};
+
+/// The default fixed schedule.
+const FIFTY_MS: Schedule = Schedule::Fixed(Duration::from_millis(50));
 
 /// Supplies only the required paths so every optional flag retains its compatible default.
 fn arguments() -> Vec<String> {
@@ -170,7 +174,7 @@ fn capture_preserves_opaque_bodies_and_post_login_metadata() {
             .collect::<Vec<_>>(),
         expected.iter().map(Vec::as_slice).collect::<Vec<_>>()
     );
-    let bursts = plan_bursts(&captured.packets, 2, 8).unwrap();
+    let bursts = plan_bursts(&captured.packets, 2, 8, FIFTY_MS).unwrap();
     assert_eq!(
         bursts
             .iter()
@@ -199,14 +203,13 @@ fn capture_rejects_truncation_transfers_and_duplicate_start() {
 #[tokio::test(start_paused = true)]
 async fn pacing_preserves_witness_and_source_boundaries() {
     let captured = read_capture(Cursor::new(fixtures::capture())).unwrap();
-    let bursts = plan_bursts(&captured.packets, 2, 1 << 20).unwrap();
+    let bursts = plan_bursts(&captured.packets, 2, 1 << 20, FIFTY_MS).unwrap();
     let mut sink = futures::sink::drain::<Bytes>().sink_map_err(std::io::Error::other);
     let mut result = ReplayResult::default();
     replay_bursts(
         &mut sink,
         &captured.packets,
         &bursts,
-        Duration::from_millis(50),
         handoff(),
         &[],
         &mut result,
@@ -242,32 +245,37 @@ async fn invalid_bounds_and_failed_writes_never_report_delivery() {
     use futures::SinkExt;
     let captured = read_capture(Cursor::new(fixtures::capture())).unwrap();
     for bounds in [(0, 10), (1, 0), (1, 1)] {
-        assert!(plan_bursts(&captured.packets, bounds.0, bounds.1).is_err());
+        assert!(plan_bursts(&captured.packets, bounds.0, bounds.1, FIFTY_MS).is_err());
     }
-    let bursts = plan_bursts(&captured.packets, 1, 1 << 20).unwrap();
+    let too_long = Schedule::Fixed(Duration::from_nanos(i64::MAX as u64));
+    assert!(plan_bursts(&captured.packets, 1, 1 << 20, too_long).is_err());
+    let bursts = plan_bursts(
+        &captured.packets,
+        1,
+        1 << 20,
+        Schedule::Fixed(Duration::ZERO),
+    )
+    .unwrap();
     let mut sink = Box::pin(
         futures::sink::drain::<Bytes>()
             .sink_map_err(std::io::Error::other)
             .with(|_: Bytes| async { Err::<Bytes, _>(std::io::Error::other("closed")) }),
     );
-    for interval in [Duration::ZERO, Duration::from_nanos(i64::MAX as u64)] {
-        let mut result = ReplayResult::default();
-        assert!(
-            replay_bursts(
-                &mut sink,
-                &captured.packets,
-                &bursts,
-                interval,
-                handoff(),
-                &[],
-                &mut result
-            )
-            .await
-            .is_err()
-        );
-        assert_eq!(result.packets, 0);
-        assert!(result.sha256.is_empty());
-    }
+    let mut result = ReplayResult::default();
+    assert!(
+        replay_bursts(
+            &mut sink,
+            &captured.packets,
+            &bursts,
+            handoff(),
+            &[],
+            &mut result
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(result.packets, 0);
+    assert!(result.sha256.is_empty());
 }
 
 use futures::SinkExt;
@@ -275,7 +283,7 @@ use futures::SinkExt;
 #[tokio::test(start_paused = true)]
 async fn backpressure_catches_up_to_the_original_schedule() {
     let captured = read_capture(Cursor::new(fixtures::capture())).unwrap();
-    let bursts = plan_bursts(&captured.packets, 2, 1 << 20).unwrap();
+    let bursts = plan_bursts(&captured.packets, 2, 1 << 20, FIFTY_MS).unwrap();
     let (waiting, blocked) = tokio::sync::oneshot::channel();
     let (release, released) = tokio::sync::oneshot::channel();
     let mut first = Some((waiting, released));
@@ -304,7 +312,6 @@ async fn backpressure_catches_up_to_the_original_schedule() {
             &mut sink,
             &captured.packets,
             &bursts,
-            Duration::from_millis(50),
             handoff(),
             &[],
             &mut result

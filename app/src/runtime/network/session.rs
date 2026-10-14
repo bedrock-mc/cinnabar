@@ -22,6 +22,8 @@ pub struct NetworkConfig {
     pub actor_artwork: Option<render_model::ActorArtworkPages>,
     /// The carrier catalog initial server UI resolves against on the worker.
     pub ui_catalog: Option<std::sync::Arc<json_ui::Catalog>>,
+    /// Where an opted-in packet capture goes by default.
+    pub log_dir: PathBuf,
 }
 
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
@@ -41,6 +43,11 @@ pub fn spawn_network(
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
             login_settings: config.login_settings,
+            packet_capture: client_session::packet_log::PacketCaptureRequest::from_setting(
+                std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
+                &config.log_dir,
+                unix_time_ms(),
+            ),
         },
         move |handoff, game_data, cancelled| {
             let started = std::time::Instant::now();
@@ -82,6 +89,15 @@ pub fn spawn_network(
         },
     )
     .map(|inner| NetworkHandle::connected(inner, socket_dir))
+}
+
+/// Wall-clock milliseconds since the Unix epoch, as a capture header records its start.
+fn unix_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.

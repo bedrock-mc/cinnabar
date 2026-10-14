@@ -2,6 +2,7 @@
 //! and this client continues from StartGame with its own spawn sequence.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::session_wire::{ConnectRequest, CoreMessage, HandoffPackReceiver, SessionHandoff};
 use bridge::{BridgeError, FramedReader};
@@ -11,6 +12,7 @@ use super::client_data::{ClientRandomId, LoginSettings};
 use super::{LoginSequence, PlaySession};
 use crate::codec::SessionFailure;
 use crate::disconnect::{disconnect_reason, join_disconnect};
+use crate::packet_tap::{PacketOutcome, PacketTap};
 use crate::session_transport::SessionTransport;
 use crate::{
     ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
@@ -20,7 +22,8 @@ use crate::{
 impl LoginSequence {
     /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
     /// open local world, using the caller's persisted login ID. The owner calls
-    /// `finish_loading` after presenting the world.
+    /// `finish_loading` after presenting the world. `tap` sees every session packet from the
+    /// first handed-off startup packet on, in both directions.
     pub async fn connect_session(
         socket_dir: &Path,
         display_name: &str,
@@ -28,6 +31,7 @@ impl LoginSequence {
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
+        tap: Option<Arc<dyn PacketTap>>,
     ) -> Result<(PlaySession, GameData), ProtocolError> {
         let (mut reader, frames) = bridge::connect_session(socket_dir)
             .await
@@ -52,8 +56,18 @@ impl LoginSequence {
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
-        let mut transport = SessionTransport::new(reader, frames, &handoff.startup);
-        let spawned = super::startup::await_spawn(&mut transport).await?;
+        let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
+        let spawned = match super::startup::await_spawn(&mut transport).await {
+            Ok(spawned) => spawned,
+            Err(error) => {
+                if let ProtocolError::Session(session) = &error
+                    && session.0.is_packet_failure()
+                {
+                    transport.reject_current(PacketOutcome::Failed);
+                }
+                return Err(error);
+            }
+        };
         let runtime_id = spawned.runtime_id;
         let terrain_before_spawn = spawned.terrain_before_spawn;
         let game_data = tokio::task::spawn_blocking(move || {

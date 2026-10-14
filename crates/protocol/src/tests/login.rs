@@ -39,6 +39,7 @@ async fn login_reaches_start_game_through_bds() {
             None,
             None,
             &Default::default(),
+            None,
         ),
     )
     .await
@@ -147,6 +148,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
                 None,
                 None,
                 &Default::default(),
+                None,
             ),
         )
         .await

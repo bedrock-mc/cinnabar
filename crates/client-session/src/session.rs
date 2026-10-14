@@ -43,6 +43,8 @@ pub struct NetworkConfig {
     pub player_skin: protocol::ClientSkin,
     /// The player's language, input mode and GUI scale, reported at login.
     pub login_settings: protocol::LoginSettings,
+    /// Records this session's full packet capture when set.
+    pub packet_capture: Option<packet_log::PacketCaptureRequest>,
 }
 
 /// Prepared facts returned by the pack owner at the join bootstrap boundary.
@@ -871,6 +873,7 @@ mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;
+pub mod packet_log;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
 use outbound::*;
 mod pump;
