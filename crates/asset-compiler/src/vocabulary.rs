@@ -95,7 +95,7 @@ pub fn generate(samples: &Path) -> Result<(Vec<u8>, Vec<u8>)> {
 }
 
 /// Parses one bounded pack document, including its JSON comments and trailing commas.
-fn read(path: &Path) -> Result<Value> {
+pub(crate) fn read(path: &Path) -> Result<Value> {
     let mut bytes = Vec::new();
     fs::File::open(path)?
         .take((MAX_FILE_BYTES + 1) as u64)
@@ -127,7 +127,7 @@ fn string<'a>(document: &'a Value, key: &str) -> Result<&'a str> {
 }
 
 /// Collects JSON definitions recursively and rejects links outside the verified archive.
-fn json_files(directory: &Path) -> Result<Vec<std::path::PathBuf>> {
+pub(crate) fn json_files(directory: &Path) -> Result<Vec<std::path::PathBuf>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;

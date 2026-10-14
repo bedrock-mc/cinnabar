@@ -24,7 +24,10 @@ const FALLBACK: SheetSprite = SheetSprite {
 /// Builds a cursor screen with optional server texture overrides.
 fn engine(files: &[(String, Vec<u8>)]) -> FormEngine {
     let mut catalog = Catalog::default();
-    let (namespace, name) = json_ui::CROSSHAIR_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     let definition = serde_json::json!({
         "namespace": namespace,
         (name): {"type": "screen", "controls": [{
@@ -69,7 +72,7 @@ fn draw_custom(
     let mut next = 1;
     engine
         .render_screen(
-            json_ui::CROSSHAIR_SCREEN,
+            json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
             &DataSource::default(),
             &Context::default(),
             &ViewState::default(),

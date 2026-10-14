@@ -4,12 +4,10 @@
 //! viewport, or scale changes; each frame only repaints it, evaluating fades and the native
 //! renderers against the live state.
 
+use json_ui::vanilla::Reference;
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{
-    CROSSHAIR_SCREEN, Catalog, Context, DataSource, HUD_SCREEN, HudModel, hud_clocks,
-    hud_data_source,
-};
+use json_ui::{Catalog, Context, DataSource, HudModel, hud_clocks, hud_data_source};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef};
 use ui_engine::{
     cached_screen::CachedScreen,
@@ -182,9 +180,9 @@ impl HudScreens {
             icons,
         } = input;
         let reference = if crosshair {
-            CROSSHAIR_SCREEN
+            Reference::HudCrosshairHudCrosshairScreen.as_str()
         } else {
-            HUD_SCREEN
+            Reference::HudHudScreen.as_str()
         };
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;

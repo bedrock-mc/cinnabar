@@ -1,7 +1,8 @@
 use super::{
-    Catalog, Context, DrawNode, FixedText, HUD_SCREEN, HudModel, LayoutEnv, PackTextures,
-    ViewState, hud_context, hud_data_source, java_pack, named, pack, render_screen,
+    Catalog, Context, DrawNode, FixedText, HudModel, LayoutEnv, PackTextures, ViewState,
+    hud_context, hud_data_source, java_pack, named, pack, render_screen,
 };
+use json_ui::vanilla::Reference;
 
 const POSITION: &str = "Position: -17, 47, 2";
 const DAYS: &str = "Days played: 3";
@@ -61,7 +62,7 @@ fn render_world_text(
     textures: &PackTextures,
 ) -> Vec<DrawNode> {
     render_screen(
-        HUD_SCREEN,
+        Reference::HudHudScreen.as_str(),
         catalog,
         &hud_context(&Context::desktop()),
         &hud_data_source(model),

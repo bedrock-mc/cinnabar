@@ -7559,6 +7559,11 @@ references, PNG evidence and the limitations of the capture.
 
 ### JSON-UI review follow-up (incomplete live form acceptance)
 
+JSON-UI names have a categorized `json_ui::vanilla` contract checked against a
+names-only vocabulary from the pinned sample pack. Screen routing and core form
+and context consumers use it. Remaining controller migrations and corrections
+to stale names are incomplete; this contract closes no live visual gate.
+
 Review corrections cover untrusted animation graphs, expanded widget component
 bags, native form titles, screen cancellation, Drop remapping, recipe icons and
 perspective settings. An open form also remeasures when its session font changes.

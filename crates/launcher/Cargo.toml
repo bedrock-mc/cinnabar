@@ -20,6 +20,7 @@ test-support = []
 
 [dependencies]
 bridge = { path = "../bridge" }
+json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
 resource-pack = { path = "../resource-pack" }
