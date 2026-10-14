@@ -1530,3 +1530,8 @@ baselines = [
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "crates/gameplay/src/placement_state.rs"
+literal = "string"
+reason = "Canonical block-state envelope type keyword; this is a serialization grammar token."
