@@ -24,6 +24,49 @@ impl CollisionWorld for Wall {
     }
 }
 
+/// A level floor keeps downward launches grounded without a side collision.
+struct Floor;
+
+impl CollisionWorld for Floor {
+    fn collision_boxes(&self, _: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(vec![Aabb::new(
+            Vec3::new(-128.0, 0.0, -128.0),
+            Vec3::new(128.0, 1.0, 128.0),
+        )]))
+    }
+}
+
+#[test]
+fn a_grounded_spin_ends_on_its_sixth_tick() {
+    let mut player = PlayerState::new(Vec3::new(0.0, 1.0, 0.0));
+    player.on_ground = true;
+    let simulator = Simulator::default();
+    simulator
+        .tick(
+            &mut player,
+            MovementInput {
+                riptide_level: 3,
+                pitch_degrees: 30.0,
+                ..Default::default()
+            },
+            &Floor,
+        )
+        .unwrap();
+    assert_eq!(player.spin_attack_ticks, Some(1));
+    for elapsed in 2..=5 {
+        simulator
+            .tick(&mut player, MovementInput::default(), &Floor)
+            .unwrap();
+        assert!(player.on_ground);
+        assert_eq!(player.spin_attack_ticks, Some(elapsed));
+    }
+    simulator
+        .tick(&mut player, MovementInput::default(), &Floor)
+        .unwrap();
+    assert!(player.on_ground);
+    assert_eq!(player.spin_attack_ticks, None);
+}
+
 #[test]
 fn a_side_collision_ends_the_spin_on_the_launch_tick() {
     let mut player = PlayerState::new(Vec3::new(0.0, 64.0, 0.0));
