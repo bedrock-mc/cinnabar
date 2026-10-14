@@ -1526,3 +1526,28 @@ baselines = [
 path = "tools/architecture/src/identifiers/scan.rs"
 literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/src/block_shapes/furnishings.rs"
+literal = "hanging"
+reason = "Bell attachment value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/src/block_shapes/state.rs"
+literal = "string"
+reason = "Canonical-state envelope type keyword used when computing state identity."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/src/block_shapes/support.rs"
+literal = "unknown"
+reason = "Portal axis value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/src/block_shapes/visual.rs"
+literal = "unknown"
+reason = "Portal axis value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/src/block_shapes/visual.rs"
+literal = "tip"
+reason = "Dripstone thickness value from the pinned block-state domain."
