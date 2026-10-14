@@ -9,8 +9,13 @@ keep their foreground/background threads and priority policy. Native cache-file 
 FreeType compilation are excluded from browser targets. Divergent fragment samples use
 explicit gradients computed before rejection.
 
+Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
+session controller. Both use the bridge codec and bounded receive/send queues. Control
+resumption retains account intent and bearer expiry; play reconnects never replay packets.
+
 Incomplete: CI must compile the native changes and run the written regression tests. The
-browser entry, transport, timer implementation and asset source remain pending. Shared
+browser entry, timer implementation and asset source remain pending. Relay integration
+and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
 job costs remain unverified. No browser release or parity gate closes here.
@@ -8892,3 +8897,13 @@ labels retain fractional positions, including the origin read by caret metadata.
 cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
 Incomplete: matched rendered title size and vertical alignment still require
 verification in the reported server form; these CPU fixtures do not close that gate.
+
+## Compiled item facts
+
+A hash-checked item-facts carrier joins the pinned retail IDs, tags, capacities,
+armour, durability, fuel, glint, grips and use profiles. Startup requires its exact
+fingerprint; `make assets` rebuilds it. Registry admission caches server component
+facts by negotiated numeric ID and retires them on replacement or reconnect.
+The consumer migration remains incomplete. Native compatibility rules retain their
+provisional status, and identities absent from the retail table remain unresolved.
+This infrastructure does not close a gameplay or rendering parity gate.

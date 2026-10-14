@@ -14,6 +14,7 @@ mod biomes;
 mod carriers;
 pub mod entities;
 mod format_generated;
+pub mod items;
 mod light;
 mod manifest;
 mod movement;
@@ -56,6 +57,7 @@ struct BiomeFact {
 struct Policy {
     entity_compatibility: Vec<String>,
     entity_rules: Vec<entities::Rule>,
+    item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,

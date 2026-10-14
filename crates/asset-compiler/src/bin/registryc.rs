@@ -10,6 +10,7 @@ enum Kind {
     Blocks,
     Physics,
     Biomes,
+    Items,
     All,
 }
 #[derive(Parser)]
@@ -59,6 +60,24 @@ fn main() -> Result<()> {
             )?,
         );
     }
+    if matches!(args.kind, Kind::Items) {
+        registry_policy::items::write(&args.root, &args.out, args.manifest.as_deref())?;
+        if args.check {
+            let expected = args.root.join(assets::facts::ITEM_FACTS_SOURCE_PATH);
+            compare(&args.out, &expected)?;
+            compare(
+                &args.out.with_extension("sha256"),
+                &expected.with_extension("sha256"),
+            )?;
+            if let Some(expansion) = &args.manifest {
+                compare(
+                    expansion,
+                    &args.root.join(assets::facts::ITEM_FACTS_EXPANSION_PATH),
+                )?;
+            }
+        }
+        return Ok(());
+    }
     let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
         Kind::Entities => unreachable!(),
@@ -87,6 +106,15 @@ fn main() -> Result<()> {
             required(&args.manifest, "--manifest")?,
         )?,
         Kind::All => all(&args, &facts)?,
+        Kind::Items => unreachable!(),
+    }
+    Ok(())
+}
+
+/// Rejects a regenerated artifact that differs from its reviewed bytes.
+fn compare(actual: &Path, expected: &Path) -> Result<()> {
+    if std::fs::read(actual)? != std::fs::read(expected)? {
+        return Err(format!("regeneration changed {}", expected.display()).into());
     }
     Ok(())
 }
@@ -188,6 +216,13 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
                 .join("crates/asset-compiler/data/registry-policy.json"),
         )?,
     )?;
+    let item_path = PathBuf::from(assets::facts::ITEM_FACTS_SOURCE_PATH);
+    let item_expansion = PathBuf::from(assets::facts::ITEM_FACTS_EXPANSION_PATH);
+    registry_policy::items::write(
+        &args.root,
+        &args.out.join(&item_path),
+        Some(&args.out.join(&item_expansion)),
+    )?;
     if args.check {
         for path in [
             assets::facts::entity::SOURCE_PATH,
@@ -201,7 +236,10 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         if std::fs::read(args.out.join(&sha))? != std::fs::read(args.root.join(&sha))? {
             return Err("entity facts checksum changed".into());
         }
+
         for path in [
+            &item_path,
+            &item_expansion,
             &block_path,
             &light_path,
             &biome_path,
@@ -215,6 +253,7 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             }
         }
         for (path, filename) in [
+            (&item_path, false),
             (&block_path, true),
             (&light_path, true),
             (&biome_path, false),

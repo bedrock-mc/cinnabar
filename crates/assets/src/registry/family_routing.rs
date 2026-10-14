@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{AssetError, ModelFamily};
 
-const ROUTING: &[u8] = include_bytes!("../data/block-family-routing.json");
+const ROUTING: &[u8] = include_bytes!("../../data/block-family-routing.json");
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

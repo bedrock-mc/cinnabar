@@ -19,22 +19,12 @@ pub(super) fn resolve(entry: &ItemRegistryEntry, assets: Option<&RuntimeEntityAs
                 .map(|index| assets.item_visuals()[index].grip)
         })
         .unwrap_or_default();
-    if let Some(components) = &entry.components {
-        if let Some(upright) = components.hand_equipped {
-            return ItemGrip::Session {
-                upright,
-                mirrored_art: compiled.mirrored_art(),
-            };
-        }
-        if components.hand_equipped_declared {
-            return ItemGrip::Unresolved;
-        }
-    }
-    if entry.component_based {
-        ItemGrip::Unresolved
-    } else {
-        compiled
-    }
+    let components = entry.components.as_deref();
+    compiled.with_hand_equipped(
+        components.and_then(|components| components.hand_equipped),
+        components.is_some_and(|components| components.hand_equipped_declared),
+        entry.component_based,
+    )
 }
 
 #[cfg(test)]

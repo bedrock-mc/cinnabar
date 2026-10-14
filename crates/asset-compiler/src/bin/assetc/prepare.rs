@@ -258,6 +258,10 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
                 .map_err(|_| "entity facts require one pinned carrier")?;
             Command::EntityFacts { source, out }
         }
+        Recipe::ItemFacts => Command::ItemFacts {
+            root: context.sources.resolve(""),
+            out,
+        },
         Recipe::BlockPhysics => {
             let [registry, seed] = <[PathBuf; 2]>::try_from(context.files(carrier))
                 .map_err(|_| "the physics recipe takes a registry and its seed")?;

@@ -10,9 +10,18 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
     let mut inputs: Vec<&Path> = Vec::new();
     let mut outputs: Vec<&Path> = Vec::new();
     let sidecar;
+    let item_inputs;
     match command {
         EntityFacts { source, out } => {
             inputs.push(source);
+            outputs.push(out);
+        }
+        ItemFacts { root, out } => {
+            item_inputs = assets::facts::ITEM_FACTS_INPUTS
+                .iter()
+                .map(|path| root.join(path))
+                .collect::<Vec<_>>();
+            inputs.extend(item_inputs.iter().map(PathBuf::as_path));
             outputs.push(out);
         }
         Vocabulary {
@@ -158,6 +167,10 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
         }
     }
     match command {
+        ItemFacts { out, .. } => {
+            sidecar = out.with_extension("sha256");
+            outputs.push(&sidecar);
+        }
         EntityAssets { out, .. } => {
             sidecar = entity_refs_output(out);
             outputs.push(&sidecar);

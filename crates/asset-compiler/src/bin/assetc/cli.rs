@@ -23,6 +23,13 @@ pub(super) enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Compile gameplay item facts from the pinned registry inputs.
+    ItemFacts {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Generate pack and actor vocabularies from the pinned sample archive.
     Vocabulary {
         #[arg(long)]

@@ -248,6 +248,7 @@ mod tests {
         Policy {
             entity_compatibility: Vec::new(),
             entity_rules: Vec::new(),
+            item_rules: Vec::new(),
             twins: BTreeMap::new(),
             unresolved_retail: Vec::new(),
             movement: vec![super::super::Movement {

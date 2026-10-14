@@ -18,6 +18,18 @@ pub fn prepare_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     crate::framed::prepare(read, write, maximum)
 }
 
+/// Prepares the shared codec with a byte budget in addition to its frame count bound.
+/// A larger frame reserves the whole budget and stays alone until flushed. Drop the
+/// writer on cancellation to release every permit without waiting for a transport drain.
+pub fn prepare_bounded_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    read: R,
+    write: W,
+    maximum: usize,
+    budget: usize,
+) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
+    crate::framed::prepare_bounded(read, write, maximum, Some(budget))
+}
+
 /// A caller-supplied deadline expired before the operation completed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Elapsed;
@@ -40,7 +52,7 @@ pub async fn until<F: Future, T: Future<Output = ()>>(
 mod tests {
     use super::*;
     use bytes::Bytes;
-    use futures::StreamExt;
+    use futures::{FutureExt, StreamExt};
 
     #[tokio::test]
     async fn host_driven_writer_preserves_order_and_completion() {
@@ -116,5 +128,21 @@ mod tests {
             until(std::future::ready(7), std::future::ready(())).await,
             Ok(7)
         );
+    }
+
+    #[tokio::test]
+    async fn byte_budget_admits_one_large_frame_and_cancellation_releases_waiters() {
+        let (stream, _peer) = tokio::io::duplex(1);
+        let (read, write) = tokio::io::split(stream);
+        let (_, frames, writer) = prepare_bounded_connection(read, write, 32, 8);
+        let first = frames.accept(Bytes::from(vec![1; 9])).await.unwrap();
+        let mut waiting = Box::pin(frames.accept(Bytes::from_static(b"x")));
+        assert!(waiting.as_mut().now_or_never().is_none());
+        let mut writer = Box::pin(writer);
+        assert!(writer.as_mut().now_or_never().is_none());
+        assert!(waiting.as_mut().now_or_never().is_none());
+        drop(writer);
+        assert!(waiting.await.is_err());
+        assert!(first.await.is_err());
     }
 }

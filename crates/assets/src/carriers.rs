@@ -39,6 +39,7 @@ pub fn physics_registry_basename() -> &'static str {
 pub enum Recipe {
     World,
     BlockPhysics,
+    ItemFacts,
     Atmosphere,
     Entity,
     EntityFacts,
@@ -136,6 +137,30 @@ pub const WORLD: Carrier = Carrier {
         true,
     )
 };
+/// Pinned gameplay item facts, independent of fetched artwork.
+pub const ITEM_FACTS: Carrier = Carrier {
+    inputs: &item_facts_inputs(),
+    ..carrier(
+        "item-facts",
+        "Compiling item facts",
+        Recipe::ItemFacts,
+        crate::facts::ITEM_FACTS_FILENAME,
+        None,
+        true,
+    )
+};
+
+/// Converts the shared compiler source list into tracked recipe inputs.
+const fn item_facts_inputs() -> [Input; crate::facts::ITEM_FACTS_INPUTS.len()] {
+    let mut inputs = [Input::File(""); crate::facts::ITEM_FACTS_INPUTS.len()];
+    let mut index = 0;
+    while index < inputs.len() {
+        inputs[index] = Input::File(crate::facts::ITEM_FACTS_INPUTS[index]);
+        index += 1;
+    }
+    inputs
+}
+
 pub const BLOCK_PHYSICS: Carrier = Carrier {
     inputs: &[
         Input::File(BLOCK_REGISTRY),
@@ -490,6 +515,7 @@ pub const AUDIO_PCM: Carrier = Carrier {
 
 /// Every carrier, in the order progress reports them.
 pub const CARRIERS: &[Carrier] = &[
+    ITEM_FACTS,
     BLOCK_PHYSICS,
     WORLD,
     ATMOSPHERE,
