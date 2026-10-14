@@ -125,12 +125,12 @@ impl CaptureFeed {
         )?;
         let (feed, queue, stop) = channel(CAPTURE_QUEUE_RECORDS, started);
         let (done_sender, done) = crossbeam_channel::bounded::<()>(0);
-        let display = path.display().to_string();
+        let shown_path = path.display().to_string();
         thread::Builder::new()
             .name("packet-capture".to_owned())
             .spawn(move || {
                 if let Err(error) = queue.drain(writer) {
-                    tracing::warn!(path = %display, %error, "packet capture stopped");
+                    tracing::warn!(path = %shown_path, %error, "packet capture stopped");
                 }
                 drop(done_sender);
             })?;
