@@ -5,6 +5,7 @@ mod minecraft_import;
 use std::sync::Arc;
 
 use launcher::menu::{MenuScreen, MenuView};
+use ui_screens::player_list::RosterRow;
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -21,6 +22,8 @@ pub enum Fixture {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
     },
+    /// The held tab roster's rows.
+    TabList(Vec<RosterRow>),
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -65,6 +68,12 @@ pub const STATES: &[State] = &[
         fixture: chat_command_targets,
     },
     State {
+        name: "tab-list-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: tab_list_badges,
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -86,6 +95,24 @@ fn chat_command_targets() -> Fixture {
         draft: "/give @",
         suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
     }
+}
+
+/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
+fn tab_list_badges() -> Fixture {
+    Fixture::TabList(
+        [
+            ("Alex", true),
+            ("Alex", false),
+            ("Riley", false),
+            ("Steve", true),
+            ("Zoe", false),
+        ]
+        .map(|(name, badged)| RosterRow {
+            name: Arc::from(name),
+            badged,
+        })
+        .into(),
+    )
 }
 
 /// Opens a settings category by its registered name rather than a copied index.
