@@ -654,12 +654,12 @@ fn scaled_axes(mut rows: [[f32; 4]; 3], axis_scale: [f32; 3]) -> [[f32; 4]; 3] {
     rows
 }
 
-/// Tips the rig sideways about its feet as death progresses; the ease-out curve needs measurement.
+/// Tips the rig sideways about its feet by `progress` of a right angle.
 pub fn death_tilted(mut rows: [[f32; 4]; 3], progress: Option<f32>) -> [[f32; 4]; 3] {
     let Some(progress) = progress else {
         return rows;
     };
-    let angle = progress.clamp(0.0, 1.0).sqrt() * std::f32::consts::FRAC_PI_2;
+    let angle = progress.clamp(0.0, 1.0) * std::f32::consts::FRAC_PI_2;
     let (sine, cosine) = angle.sin_cos();
     for row in &mut rows {
         let (x, y) = (row[0], row[1]);
