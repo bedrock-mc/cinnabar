@@ -1,18 +1,15 @@
 //! The crash window's OreUI drawing: the summary panel, the details log and the actions.
 
+use bootstrap_ui::{
+    canvas::{Canvas, Image, Rect, Text},
+    view::{ButtonState, backdrop, button_label, panel_surface, raised_button},
+};
 use ui::oreui_theme::{self as theme, Appearance, Rgba};
 
 use super::{
-    super::{
-        canvas::{Canvas, Image, Rect, Text},
-        view::{
-            backdrop,
-            controls::{ButtonState, button_label, raised_button},
-            panel_surface,
-        },
-    },
-    Copied, CrashAction, CrashScreen, CrashSummary, DetailLine, ROW, Tone,
+    Copied, CrashAction, CrashScreen, CrashSummary, ROW,
     discord::DiscordMark,
+    summary::{DetailLine, Tone},
 };
 
 /// The panel's widest extent; wide enough for each summary row and action label on one line.
@@ -202,7 +199,7 @@ pub(super) fn draw(
     let inner = panel.inset(theme::LOADING_PAD * rem);
     let mut y = inner.y;
 
-    header(canvas, text, appearance, inner, y, rem);
+    header(canvas, text, appearance, &summary.title(), inner, y, rem);
     y += BADGE * rem + theme::SPACE[2] * rem;
     let body_px = theme::CAPTION.size * rem;
     let body_offset = (theme::CAPTION.line * rem - text.line_height(body_px)) * 0.5;
@@ -273,11 +270,12 @@ pub(super) fn draw(
     Frame { hits, log }
 }
 
-/// The destructive badge with a pixel-art exclamation mark, then the title beside it.
+/// The destructive badge with a pixel-art exclamation mark, then `title` beside it.
 fn header(
     canvas: &mut Canvas,
     text: &mut Text,
     appearance: Appearance,
+    title: &str,
     inner: Rect,
     y: f32,
     rem: f32,
@@ -327,7 +325,7 @@ fn header(
         title_y,
         title_px,
         appearance.ink(theme::TEXT),
-        &CrashSummary::title(),
+        title,
     );
 }
 
@@ -754,3 +752,6 @@ fn action_button(
     let label_y = face.y + (face.h - text.line_height(px)) * 0.5;
     text.draw(canvas, x + 7.0 * pixel + gap, label_y, px, role.text, label);
 }
+
+#[cfg(test)]
+mod tests;

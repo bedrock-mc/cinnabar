@@ -1,12 +1,11 @@
 //! One preparation run: fetch the pack only when a stale carrier reads it, rebuild the stale
 //! carriers with a single `assetc prepare` and publish the set over the previous one.
 
-use std::{fs, io::Write, path::Path, sync::atomic::AtomicBool};
+use std::{fs, io::Write, sync::atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
-use assets::carriers::{self, COMPILED_DIR, FONT_MANIFEST, Sources};
+use assets::carriers::{self, COMPILED_DIR};
 use diagnostics::session_log::{Family, Retention, SessionLog, SharedLog};
-use serde::Deserialize;
 
 use super::{
     download,
@@ -16,19 +15,6 @@ use super::{
 use launcher::install_layout::InstallLayout;
 
 pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
-
-/// The bundled UI font's file name, from the kit's copy of the font manifest.
-pub(super) fn ui_font_file(kit: &Path) -> Result<String> {
-    #[derive(Deserialize)]
-    struct FontSource {
-        font_file: String,
-    }
-    let path = Sources::Kit(kit.to_path_buf()).resolve(FONT_MANIFEST);
-    let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let font: FontSource =
-        serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
-    Ok(font.font_file)
-}
 
 fn compiler<'a>(
     layout: &InstallLayout,

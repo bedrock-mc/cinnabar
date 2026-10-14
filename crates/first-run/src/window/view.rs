@@ -1,14 +1,12 @@
 //! Asset-independent OreUI setup drawing using the shared menu theme and our open font.
 
+use bootstrap_ui::{
+    canvas::{Canvas, Image, Rect, Text},
+    view::{ButtonState, backdrop, button_label, centred, panel_surface, raised_button},
+};
 use ui::oreui_theme::{self as theme, Appearance};
 
-use super::{
-    super::screen::{Action, Screen},
-    canvas::{Canvas, Image, Rect, Text},
-};
-
-pub(super) mod controls;
-use controls::{button, centred};
+use super::super::screen::{Action, Screen};
 
 const MAX_ERROR_LINES: usize = 10;
 
@@ -239,32 +237,35 @@ pub(super) fn draw(
     hits
 }
 
-/// Dims the panorama under the whole frame and draws the logo, as the menus' loading screen does.
-pub(super) fn backdrop(canvas: &mut Canvas, appearance: Appearance, logo: Option<(&Image, Rect)>) {
-    let full = Rect {
-        x: 0.0,
-        y: 0.0,
-        w: canvas.width as f32,
-        h: canvas.height as f32,
+/// The setup screen's buttons: primary green for the screen's default, menu neutral otherwise.
+fn button(
+    canvas: &mut Canvas,
+    text: &mut Text,
+    screen: &Screen,
+    style: &Style<'_>,
+    action: Action,
+    rect: Rect,
+    rem: f32,
+) {
+    let role = style.appearance.role(if screen.primary() == Some(action) {
+        theme::PRIMARY_ROLE
+    } else {
+        theme::MENU_NEUTRAL
+    });
+    let state = ButtonState {
+        hovered: style.hovered == Some(action),
+        focused: style.focused == Some(action),
+        pressed: style.pressed == Some(action),
     };
-    canvas.fill(full, appearance.backdrop(theme::OVERLAY_SCREEN));
-    if let Some((logo, rect)) = logo {
-        canvas.image(logo, rect);
-    }
-}
-
-/// The raised panel: an offset drop shadow, the panel surface and its one-edge border.
-pub(super) fn panel_surface(canvas: &mut Canvas, appearance: Appearance, panel: Rect, rem: f32) {
-    canvas.fill(
-        Rect {
-            x: panel.x + theme::BUTTON_DEPTH * rem,
-            y: panel.y + theme::BUTTON_DEPTH * rem,
-            ..panel
-        },
-        theme::TEXT_SHADOW,
+    let face = raised_button(canvas, style.appearance, role, state, rect, rem);
+    button_label(
+        canvas,
+        text,
+        face,
+        rem,
+        role.text,
+        screen.button_label(action),
     );
-    canvas.fill(panel, appearance.surface(theme::NEUTRAL80.fill));
-    canvas.frame(panel, theme::EDGE * rem, appearance.surface(theme::BORDER));
 }
 
 #[cfg(test)]

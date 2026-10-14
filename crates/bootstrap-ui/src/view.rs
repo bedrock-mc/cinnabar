@@ -1,9 +1,40 @@
-//! Solid OreUI control drawing without any installed artwork.
+//! Solid OreUI drawing without any installed artwork: the dimmed backdrop, the raised panel and
+//! the menus' raised buttons, shared by every bootstrap window.
 
-use super::*;
+use ui::oreui_theme::{self as theme, Appearance};
+
+use crate::canvas::{Canvas, Image, Rect, Text};
+
+/// Dims the panorama under the whole frame and draws the logo, as the menus' loading screen does.
+pub fn backdrop(canvas: &mut Canvas, appearance: Appearance, logo: Option<(&Image, Rect)>) {
+    let full = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: canvas.width as f32,
+        h: canvas.height as f32,
+    };
+    canvas.fill(full, appearance.backdrop(theme::OVERLAY_SCREEN));
+    if let Some((logo, rect)) = logo {
+        canvas.image(logo, rect);
+    }
+}
+
+/// The raised panel: an offset drop shadow, the panel surface and its one-edge border.
+pub fn panel_surface(canvas: &mut Canvas, appearance: Appearance, panel: Rect, rem: f32) {
+    canvas.fill(
+        Rect {
+            x: panel.x + theme::BUTTON_DEPTH * rem,
+            y: panel.y + theme::BUTTON_DEPTH * rem,
+            ..panel
+        },
+        theme::TEXT_SHADOW,
+    );
+    canvas.fill(panel, appearance.surface(theme::NEUTRAL80.fill));
+    canvas.frame(panel, theme::EDGE * rem, appearance.surface(theme::BORDER));
+}
 
 /// Centres open-font text within a shared OreUI semantic type size.
-pub(in crate::window) fn centred(
+pub fn centred(
     canvas: &mut Canvas,
     text: &mut Text,
     rect: Rect,
@@ -18,46 +49,15 @@ pub(in crate::window) fn centred(
 
 /// One raised button's interaction state.
 #[derive(Clone, Copy, Debug, Default)]
-pub(in crate::window) struct ButtonState {
+pub struct ButtonState {
     pub hovered: bool,
     pub focused: bool,
     pub pressed: bool,
 }
 
-/// The setup screen's buttons: primary green for the screen's default, menu neutral otherwise.
-pub(super) fn button(
-    canvas: &mut Canvas,
-    text: &mut Text,
-    screen: &Screen,
-    style: &Style<'_>,
-    action: Action,
-    rect: Rect,
-    rem: f32,
-) {
-    let role = style.appearance.role(if screen.primary() == Some(action) {
-        theme::PRIMARY_ROLE
-    } else {
-        theme::MENU_NEUTRAL
-    });
-    let state = ButtonState {
-        hovered: style.hovered == Some(action),
-        focused: style.focused == Some(action),
-        pressed: style.pressed == Some(action),
-    };
-    let face = raised_button(canvas, style.appearance, role, state, rect, rem);
-    button_label(
-        canvas,
-        text,
-        face,
-        rem,
-        role.text,
-        screen.button_label(action),
-    );
-}
-
 /// Reproduces the menus' solid raised fallback, including active speculars and focus outline,
 /// and returns the face the label sits on.
-pub(in crate::window) fn raised_button(
+pub fn raised_button(
     canvas: &mut Canvas,
     appearance: Appearance,
     role: theme::Role,
@@ -153,7 +153,7 @@ pub(in crate::window) fn raised_button(
 }
 
 /// Centres a button label on its face in the menus' secondary button type.
-pub(in crate::window) fn button_label(
+pub fn button_label(
     canvas: &mut Canvas,
     text: &mut Text,
     face: Rect,

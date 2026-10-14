@@ -2,6 +2,42 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    Accept,
+    ViewEula,
+    Retry,
+    Quit,
+}
+
+/// Screens with the setup window's button sets, so the state machine runs on real shapes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Screen {
+    Consent,
+    Starting,
+    Downloading,
+    Preparing,
+    Failed,
+    Done,
+}
+
+impl Actions for Screen {
+    type Action = Action;
+
+    fn actions(&self) -> &[Action] {
+        match self {
+            Self::Consent => &[Action::Accept, Action::ViewEula, Action::Quit],
+            Self::Failed => &[Action::Retry, Action::Quit],
+            Self::Done => &[],
+            Self::Starting | Self::Downloading | Self::Preparing => &[Action::Quit],
+        }
+    }
+
+    fn cancel(&self) -> Action {
+        Action::Quit
+    }
+}
+
 #[test]
 fn keyboard_and_controller_focus_wrap_and_activate_cancel() {
     for source in [Source::Keyboard, Source::Controller] {
@@ -22,16 +58,7 @@ fn keyboard_and_controller_focus_wrap_and_activate_cancel() {
 
 #[test]
 fn cancel_press_survives_download_and_unpack_reports() {
-    let download = Screen::Downloading {
-        received: 50,
-        total: Some(100),
-        bytes_per_second: None,
-    };
-    let unpack = Screen::Preparing {
-        step: 1,
-        total: 2,
-        label: "Unpacking".into(),
-    };
+    let (download, unpack) = (Screen::Downloading, Screen::Preparing);
     for source in [Source::Keyboard, Source::Controller, Source::Pointer] {
         let mut input = Input::default();
         input.reset(&Screen::Starting);
@@ -42,12 +69,7 @@ fn cancel_press_survives_download_and_unpack_reports() {
             input.release(source, Some(Action::Quit)),
             Some(Action::Quit)
         );
-        input.update_screen(
-            &unpack,
-            &Screen::Failed {
-                message: "offline".into(),
-            },
-        );
+        input.update_screen(&unpack, &Screen::Failed);
         assert_eq!(input.focused, Some(Action::Retry));
     }
 }
@@ -63,9 +85,7 @@ fn pointer_drag_out_blur_and_screen_changes_cancel_presses() {
     input.blur();
     assert_eq!(input.release(Source::Keyboard, None), None);
     input.press(&Screen::Starting, Source::Keyboard, None);
-    input.reset(&Screen::Failed {
-        message: "offline".into(),
-    });
+    input.reset(&Screen::Failed);
     assert_eq!(input.focused, Some(Action::Retry));
     assert_eq!(input.release(Source::Keyboard, None), None);
     input.reset(&Screen::Done);
@@ -75,9 +95,7 @@ fn pointer_drag_out_blur_and_screen_changes_cancel_presses() {
 
 #[test]
 fn retry_requires_matching_release_and_pointer_click_stays_hidden() {
-    let screen = Screen::Failed {
-        message: "offline".into(),
-    };
+    let screen = Screen::Failed;
     let mut input = Input::default();
     input.reset(&screen);
     input.press(&screen, Source::Pointer, Some(Action::Retry));

@@ -7,43 +7,31 @@ publish = false
 
 [package.metadata.cinnabar]
 platform-specific = ["windows"]
-reads = [
-    "assets/fonts/CinnanglesSans.ttf",
-    "assets/panorama/*",
-    "website/index.html.in",
-]
+reads = ["assets/fonts/CinnanglesSans.ttf"]
 
 [dependencies]
 anyhow.workspace = true
 assets = { path = "../assets" }
+bootstrap-ui = { path = "../bootstrap-ui" }
 diagnostics = { path = "../diagnostics" }
-fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 gilrs = "0.11.2"
-image.workspace = true
 launcher = { path = "../launcher" }
 launcher-host = { path = "../launcher-host" }
 render-model = { path = "../render-model" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-semantic-input = { path = "../input" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 tokio.workspace = true
-tiny-skia = { version = "0.11.4", default-features = false, features = ["std"] }
 ui = { path = "../ui" }
-wgpu.workspace = true
 winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "x11"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
-
 [dev-dependencies]
+image.workspace = true
 tempfile = "3"
-# The game binary enables wgpu's platform backends; the standalone crash preview needs them too.
-wgpu = { workspace = true, features = ["dx12", "metal", "vulkan"] }
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }

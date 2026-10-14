@@ -1,11 +1,13 @@
 //! Opens the crash report window with sample data, for reviewing its look and behaviour.
 //!
-//! `cargo run -p first-run --example crash_preview`. The sample report folder is created under
+//! `cargo run -p crash-monitor --example crash_preview`. The sample report folder is created under
 //! the system temporary directory, so Open folder has something to show.
 
 use std::{fs, path::PathBuf};
 
-use first_run::CrashSummary;
+use bootstrap_ui::Preferences;
+use crash_monitor::window::{CrashSummary, Headline};
+use launcher::install_layout::InstallLayout;
 
 const FONT: &[u8] = include_bytes!("../../../assets/fonts/CinnanglesSans.ttf");
 
@@ -78,7 +80,9 @@ const LAST_PACKETS: &str = "\
 fn main() {
     let folder = sample_folder();
     let summary = CrashSummary {
-        activity: "joining a server".into(),
+        headline: Headline::Crashed {
+            activity: "joining a server".into(),
+        },
         fault: "EXCEPTION_ACCESS_VIOLATION reading 0x18".into(),
         location: "cinnabar.exe+0x1a2b3c on thread world-2".into(),
         version: "0.1.20 (4ec3296c5, release)".into(),
@@ -88,9 +92,11 @@ fn main() {
         last_packets: LAST_PACKETS.lines().map(str::to_owned).collect(),
         folder,
     };
-    let code = first_run::run_crash_preview(summary, FONT);
-    println!("crash preview closed with exit code {code}");
-    std::process::exit(code);
+    let preferences = InstallLayout::discover()
+        .map(|layout| Preferences::load(&layout))
+        .unwrap_or_default();
+    let choice = crash_monitor::window::show_with_font(summary, FONT, preferences);
+    println!("crash preview closed: {choice:?}");
 }
 
 /// A throwaway report folder holding placeholder files, so Open folder has something to show.

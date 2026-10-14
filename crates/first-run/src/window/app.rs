@@ -24,17 +24,16 @@ use super::{
         screen::{self, Action, Effect, Meter, Screen},
         status::Status,
     },
-    EXIT_QUIT, EXIT_UNAVAILABLE, Preferences,
+    EXIT_QUIT, EXIT_UNAVAILABLE, view,
+};
+use bootstrap_ui::{
+    OVERLAY_INTERVAL, PANORAMA_TINT, Preferences,
     canvas::{Canvas, Image, Rect, Text},
     gpu,
-    input::{Command, Input, Source, pointer::Pointer},
-    view,
+    input::{self, Command, Input, Source, pointer::Pointer},
 };
 use launcher::install_layout::InstallLayout;
 
-pub(super) const PANORAMA_TINT: [f32; 4] = [0.0, 0.0, 0.0, 0.3];
-/// Progress repaints at most this often; the panorama animates every frame.
-pub(super) const OVERLAY_INTERVAL: Duration = Duration::from_millis(66);
 /// How long "Starting Cinnabar" stays up before the game window replaces it.
 const DONE_LINGER: Duration = Duration::from_millis(700);
 /// How long a cancelled worker gets to kill its step before the process exits anyway.
@@ -93,7 +92,7 @@ impl SetupApp {
         let mut input = Input::default();
         input.reset(&screen);
         let preferences = Preferences::load(&layout);
-        let controllers = super::controllers();
+        let controllers = bootstrap_ui::controllers();
         Self {
             layout,
             text,
@@ -224,7 +223,7 @@ impl ApplicationHandler for SetupApp {
         if self.window.is_some() {
             return;
         }
-        let attributes = super::window_attributes(super::SETUP_SIZE);
+        let attributes = bootstrap_ui::window::attributes(super::SETUP_SIZE);
         let Ok(window) = event_loop.create_window(attributes) else {
             self.finish(EXIT_UNAVAILABLE, event_loop);
             return;
@@ -351,8 +350,7 @@ impl ApplicationHandler for SetupApp {
             if !self.pointer.active {
                 continue;
             }
-            if let Some(command) = super::input::controller(event.event, &self.preferences.settings)
-            {
+            if let Some(command) = input::controller(event.event, &self.preferences.settings) {
                 let (action, changed) =
                     self.input
                         .apply(&self.screen, Source::Controller, command, None);

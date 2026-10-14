@@ -10,16 +10,17 @@ use winit::{
     window::{Window, WindowId},
 };
 
+use bootstrap_ui::{
+    OVERLAY_INTERVAL, PANORAMA_TINT, Preferences,
+    canvas::{Canvas, Image, Rect, Text},
+    gpu,
+    input::{self, Command, Input, Source, pointer::Pointer},
+};
+
 use super::{
-    super::{
-        EXIT_QUIT, EXIT_UNAVAILABLE, Preferences,
-        app::{OVERLAY_INTERVAL, PANORAMA_TINT},
-        canvas::{Canvas, Image, Rect, Text},
-        gpu,
-        input::{Command, Input, Source, pointer::Pointer},
-    },
-    CRASH_SIZE, Copied, CrashAction, CrashScreen, CrashSummary, DetailLine, EXIT_RESTART, desktop,
+    CRASH_SIZE, Choice, Copied, CrashAction, CrashScreen, CrashSummary, desktop,
     discord::DiscordMark,
+    summary::DetailLine,
     view::{self, LogFrame},
 };
 
@@ -57,7 +58,7 @@ pub(super) struct CrashApp {
     overlay_dirty: bool,
     overlay_at: Option<Instant>,
     epoch: Instant,
-    exit: Option<i32>,
+    choice: Option<Choice>,
 }
 
 impl CrashApp {
@@ -93,28 +94,29 @@ impl CrashApp {
             pointer: Pointer::default(),
             hovered: None,
             input,
-            controllers: super::super::controllers(),
+            controllers: bootstrap_ui::controllers(),
             preferences,
             modifiers: ModifiersState::default(),
             overlay_dirty: true,
             overlay_at: None,
             epoch: Instant::now(),
-            exit: None,
+            choice: None,
         }
     }
 
-    pub(super) const fn exit_code(&self) -> Option<i32> {
-        self.exit
+    /// What the player chose, once the window has closed.
+    pub(super) const fn choice(&self) -> Option<Choice> {
+        self.choice
     }
 
     fn act(&mut self, action: CrashAction, event_loop: &ActiveEventLoop) {
         match action {
-            CrashAction::Restart => self.finish(EXIT_RESTART, event_loop),
-            CrashAction::Close => self.finish(EXIT_QUIT, event_loop),
+            CrashAction::Restart => self.finish(Choice::Restart, event_loop),
+            CrashAction::Close => self.finish(Choice::Close, event_loop),
             CrashAction::OpenFolder => desktop::open_folder(&self.summary.folder),
             CrashAction::Discord => launcher_host::desktop::open_url(launcher::DISCORD_INVITE_URL),
             CrashAction::CopyReport => {
-                let outcome = match desktop::copy_text(&self.summary.issue_markdown()) {
+                let outcome = match super::copy_report(&self.summary) {
                     Ok(()) => Copied::Done,
                     Err(error) => {
                         eprintln!("copy report failed: {error}");
@@ -132,8 +134,8 @@ impl CrashApp {
         self.overlay_dirty = true;
     }
 
-    fn finish(&mut self, code: i32, event_loop: &ActiveEventLoop) {
-        self.exit = Some(code);
+    fn finish(&mut self, choice: Choice, event_loop: &ActiveEventLoop) {
+        self.choice = Some(choice);
         event_loop.exit();
     }
 
@@ -267,9 +269,9 @@ impl ApplicationHandler for CrashApp {
         if self.window.is_some() {
             return;
         }
-        let Ok(window) = event_loop.create_window(super::super::window_attributes(CRASH_SIZE))
+        let Ok(window) = event_loop.create_window(bootstrap_ui::window::attributes(CRASH_SIZE))
         else {
-            self.finish(EXIT_UNAVAILABLE, event_loop);
+            self.finish(Choice::Unavailable, event_loop);
             return;
         };
         let window = Arc::new(window);
@@ -280,7 +282,7 @@ impl ApplicationHandler for CrashApp {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(error) => {
                 eprintln!("crash window unavailable: {error:#}");
-                self.finish(EXIT_UNAVAILABLE, event_loop);
+                self.finish(Choice::Unavailable, event_loop);
                 return;
             }
         }
@@ -289,7 +291,7 @@ impl ApplicationHandler for CrashApp {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => self.finish(EXIT_QUIT, event_loop),
+            WindowEvent::CloseRequested => self.finish(Choice::Close, event_loop),
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = &mut self.gpu {
                     gpu.resize(size.width, size.height);
@@ -409,7 +411,7 @@ impl ApplicationHandler for CrashApp {
                     PANORAMA_TINT,
                 )) {
                     eprintln!("crash window display failed: {error}");
-                    self.finish(EXIT_UNAVAILABLE, event_loop);
+                    self.finish(Choice::Unavailable, event_loop);
                 }
             }
             _ => {}
@@ -436,9 +438,7 @@ impl ApplicationHandler for CrashApp {
                     _ => {}
                 }
             }
-            if let Some(command) =
-                super::super::input::controller(event.event, &self.preferences.settings)
-            {
+            if let Some(command) = input::controller(event.event, &self.preferences.settings) {
                 let (action, changed) =
                     self.input
                         .apply(&self.screen, Source::Controller, command, None);

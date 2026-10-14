@@ -1,5 +1,5 @@
-//! Draws the setup window: the built-in panorama through the launcher's own shader, then the
-//! CPU-drawn overlay composited on top.
+//! Presents a bootstrap window: the built-in panorama through the launcher's own shader, then
+//! the CPU-drawn overlay composited on top.
 
 use std::sync::Arc;
 
@@ -33,7 +33,8 @@ fn overlay_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 ";
 const UNIFORM_BYTES: u64 = 32;
 
-pub(super) struct Gpu {
+/// The window's surface and the two pipelines that draw each frame.
+pub struct Gpu {
     surface: wgpu::Surface<'static>,
     instance: wgpu::Instance,
     window: Arc<Window>,
@@ -50,7 +51,9 @@ pub(super) struct Gpu {
 }
 
 impl Gpu {
-    pub(super) fn new(window: Arc<Window>, faces: &PanoramaFaces) -> Result<Self> {
+    /// Opens a surface and device for `window` and uploads `faces`; fails when no adapter or
+    /// device fits the surface, so the caller can fall back to another prompt.
+    pub fn new(window: Arc<Window>, faces: &PanoramaFaces) -> Result<Self> {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(
             wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
@@ -148,14 +151,15 @@ impl Gpu {
         })
     }
 
-    pub(super) fn resize(&mut self, width: u32, height: u32) {
+    /// Reconfigures the surface for a resized window.
+    pub fn resize(&mut self, width: u32, height: u32) {
         self.config.width = width.max(1);
         self.config.height = height.max(1);
         self.surface.configure(&self.device, &self.config);
     }
 
     /// Replaces the overlay with premultiplied sRGB RGBA8 `pixels` of the given size.
-    pub(super) fn set_overlay(&mut self, width: u32, height: u32, pixels: &[u8]) {
+    pub fn set_overlay(&mut self, width: u32, height: u32, pixels: &[u8]) {
         let size = wgpu::Extent3d {
             width,
             height,
@@ -199,7 +203,7 @@ impl Gpu {
     }
 
     /// Presents one frame; a lost or outdated surface is reconfigured and skipped.
-    pub(super) fn draw(&mut self, view: &PanoramaView) -> Result<()> {
+    pub fn draw(&mut self, view: &PanoramaView) -> Result<()> {
         let Some(frame) = acquire_frame(self.surface.get_current_texture(), |recreate| {
             if recreate {
                 self.surface = self

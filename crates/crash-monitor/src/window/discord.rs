@@ -5,7 +5,7 @@ use std::f32::consts::{FRAC_PI_2, TAU};
 
 use tiny_skia::{FillRule, Paint, Path, PathBuilder, Pixmap, Transform};
 
-use super::super::canvas::Image;
+use bootstrap_ui::canvas::Image;
 
 /// The mark in a 24-unit view box, copied from the Discord link in `website/index.html.in`; a test
 /// keeps the two identical.
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn mark_matches_the_website_discord_link() {
-        let website = include_str!("../../../../../website/index.html.in");
+        let website = include_str!("../../../../website/index.html.in");
         assert!(website.contains(&format!("<path d=\"{MARK}\"")));
     }
 

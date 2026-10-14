@@ -1,7 +1,10 @@
 //! Native pointer position survives focus changes until the pointer leaves the window.
 
+/// The pointer's last position in physical pixels and whether its window is active.
 pub struct Pointer {
+    /// `None` once the pointer leaves the window.
     pub position: Option<(f32, f32)>,
+    /// Whether the window has native focus.
     pub active: bool,
 }
 

@@ -1,12 +1,13 @@
-//! CPU drawing for the setup overlay: rectangles, the logo and Cinnangles Sans text into premultiplied
-//! sRGB RGBA8.
+//! CPU drawing for the bootstrap overlays: rectangles, images and Cinnangles Sans text into
+//! premultiplied sRGB RGBA8.
 
 use std::collections::HashMap;
 
 use fontdue::{Font, FontSettings, Metrics};
 
+/// A rectangle in physical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(super) struct Rect {
+pub struct Rect {
     pub x: f32,
     pub y: f32,
     pub w: f32,
@@ -15,7 +16,7 @@ pub(super) struct Rect {
 
 impl Rect {
     /// Insets every edge; negative values expand a focus outline.
-    pub(super) fn inset(self, edge: f32) -> Self {
+    pub fn inset(self, edge: f32) -> Self {
         Self {
             x: self.x + edge,
             y: self.y + edge,
@@ -24,19 +25,21 @@ impl Rect {
         }
     }
 
-    pub(super) fn contains(&self, x: f32, y: f32) -> bool {
+    /// Half-open hit test: the left and top edges are inside, the right and bottom are not.
+    pub fn contains(&self, x: f32, y: f32) -> bool {
         x >= self.x && x < self.x + self.w && y >= self.y && y < self.y + self.h
     }
 }
 
 /// Straight-alpha RGBA8 image.
-pub(super) struct Image {
+pub struct Image {
     pub width: u32,
     pub height: u32,
     pub rgba: Vec<u8>,
 }
 
-pub(super) struct Canvas {
+/// The overlay one frame draws into before it is uploaded.
+pub struct Canvas {
     pub width: u32,
     pub height: u32,
     /// Premultiplied RGBA8, row-major.
@@ -46,7 +49,8 @@ pub(super) struct Canvas {
 }
 
 impl Canvas {
-    pub(super) fn new(width: u32, height: u32) -> Self {
+    /// A transparent canvas of `width` by `height` pixels, unclipped.
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
             width,
             height,
@@ -56,7 +60,7 @@ impl Canvas {
     }
 
     /// Limits later drawing to `rect` (rounded to device pixels), or to the whole canvas.
-    pub(super) fn set_clip(&mut self, rect: Option<Rect>) {
+    pub fn set_clip(&mut self, rect: Option<Rect>) {
         let (width, height) = (i64::from(self.width), i64::from(self.height));
         self.clip = rect.map_or([0, 0, width, height], |rect| {
             [
@@ -90,7 +94,7 @@ impl Canvas {
     }
 
     /// Fills a rectangle with the same linear-light compositing as glyph coverage.
-    pub(super) fn fill(&mut self, rect: Rect, color: [u8; 4]) {
+    pub fn fill(&mut self, rect: Rect, color: [u8; 4]) {
         let [clip_left, clip_top, clip_right, clip_bottom] = self.clip;
         let (x0, y0) = (rect.x.round() as i64, rect.y.round() as i64);
         let (x1, y1) = (
@@ -125,7 +129,7 @@ impl Canvas {
     }
 
     /// Draws a one-edge frame without double-compositing translucent corners.
-    pub(super) fn frame(&mut self, rect: Rect, edge: f32, color: [u8; 4]) {
+    pub fn frame(&mut self, rect: Rect, edge: f32, color: [u8; 4]) {
         self.fill(Rect { h: edge, ..rect }, color);
         self.fill(
             Rect {
@@ -156,7 +160,7 @@ impl Canvas {
     }
 
     /// Nearest-neighbour scale of `image` into `rect`.
-    pub(super) fn image(&mut self, image: &Image, rect: Rect) {
+    pub fn image(&mut self, image: &Image, rect: Rect) {
         if image.width == 0 || image.height == 0 || rect.w < 1.0 || rect.h < 1.0 {
             return;
         }
@@ -200,13 +204,14 @@ fn linear_to_srgb(value: f32) -> u8 {
 }
 
 /// Cinnangles Sans rasterized on demand, cached per glyph and size.
-pub(super) struct Text {
+pub struct Text {
     font: Font,
     cache: HashMap<(char, u32), (Metrics, Vec<u8>)>,
 }
 
 impl Text {
-    pub(super) fn from_bytes(bytes: &[u8]) -> Option<Self> {
+    /// Loads a TrueType or OpenType font; `None` when `bytes` are not a usable font.
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
         let font = Font::from_bytes(bytes, FontSettings::default()).ok()?;
         Some(Self {
             font,
@@ -234,36 +239,38 @@ impl Text {
             .or_insert_with(|| font.rasterize(c, px))
     }
 
-    pub(super) fn line_height(&self, px: f32) -> f32 {
+    /// The line advance at `px`, never less than `px`.
+    pub fn line_height(&self, px: f32) -> f32 {
         self.font
             .horizontal_line_metrics(px)
             .map_or(px * 1.3, |metrics| metrics.new_line_size)
             .max(px)
     }
 
-    pub(super) fn width(&mut self, text: &str, px: f32) -> f32 {
+    /// The advance width of `text` on one line at `px`.
+    pub fn width(&mut self, text: &str, px: f32) -> f32 {
         text.chars()
             .map(|c| self.glyph(c, px).0.advance_width)
             .sum()
     }
 
     /// Greedy word wrap of each `\n`-separated paragraph to `max_width`.
-    pub(super) fn wrap(&mut self, text: &str, px: f32, max_width: f32) -> Vec<String> {
+    pub fn wrap(&mut self, text: &str, px: f32, max_width: f32) -> Vec<String> {
         wrap(text, max_width, |s| self.width(s, px))
     }
 
     /// Fits `text` to `max_width` by replacing its middle with an ellipsis, keeping both ends.
-    pub(super) fn truncate_middle(&mut self, text: &str, px: f32, max_width: f32) -> String {
+    pub fn truncate_middle(&mut self, text: &str, px: f32, max_width: f32) -> String {
         truncate(text, max_width, true, |s| self.width(s, px))
     }
 
     /// Fits `text` to `max_width` by ending it with an ellipsis.
-    pub(super) fn truncate_end(&mut self, text: &str, px: f32, max_width: f32) -> String {
+    pub fn truncate_end(&mut self, text: &str, px: f32, max_width: f32) -> String {
         truncate(text, max_width, false, |s| self.width(s, px))
     }
 
     /// Draws `text` with its top-left at (`x`, `top`).
-    pub(super) fn draw(
+    pub fn draw(
         &mut self,
         canvas: &mut Canvas,
         x: f32,

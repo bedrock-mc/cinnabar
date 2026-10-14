@@ -1,21 +1,21 @@
 //! Focus and press capture shared by pointer, keyboard and controller input.
 
-use super::super::screen::{Action, Screen};
 use launcher::menu::settings_options::SettingsOptions;
 use winit::{
     event::ElementState,
     keyboard::{Key, NamedKey},
 };
 
+/// Where an input came from; a press only activates on a release from the same source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Source {
+pub enum Source {
     Pointer,
     Keyboard,
     Controller,
 }
 
 /// A screen's focusable buttons, in focus order.
-pub(super) trait Actions {
+pub trait Actions {
     type Action: Copy + Eq;
     /// Enabled buttons in focus order; a reset focuses the first.
     fn actions(&self) -> &[Self::Action];
@@ -23,21 +23,12 @@ pub(super) trait Actions {
     fn cancel(&self) -> Self::Action;
 }
 
-impl Actions for Screen {
-    type Action = Action;
-
-    fn actions(&self) -> &[Action] {
-        Screen::actions(self)
-    }
-
-    fn cancel(&self) -> Action {
-        Action::Quit
-    }
-}
-
+/// Keyboard and controller focus plus the press being held, for one window's buttons.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct Input<A> {
+pub struct Input<A> {
+    /// The button keyboard and controller presses act on.
     pub focused: Option<A>,
+    /// Whether the focus outline shows; pointer use hides it.
     pub focus_visible: bool,
     capture: Option<(A, Source)>,
 }
@@ -124,7 +115,7 @@ impl<A: Copy + Eq> Input<A> {
 
 /// Controller commands use the same state machine as keyboard commands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Command {
+pub enum Command {
     Navigate(bool),
     Press,
     Release,
@@ -133,7 +124,7 @@ pub(super) enum Command {
 }
 
 /// Converts gamepad transitions without accepting held-button repeat events.
-pub(super) fn controller(event: gilrs::EventType, settings: &SettingsOptions) -> Option<Command> {
+pub fn controller(event: gilrs::EventType, settings: &SettingsOptions) -> Option<Command> {
     match event {
         gilrs::EventType::ButtonPressed(button, _) => controller_button(button, true, settings),
         gilrs::EventType::ButtonReleased(button, _) => controller_button(button, false, settings),
@@ -229,7 +220,7 @@ impl<A: Copy + Eq> Input<A> {
     }
 }
 
-pub(super) mod pointer;
+pub mod pointer;
 
 #[cfg(test)]
 mod regression_tests;
