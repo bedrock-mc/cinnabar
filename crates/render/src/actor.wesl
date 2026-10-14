@@ -48,14 +48,14 @@ struct MotionInstance {
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     // xy samples the artwork; zw carries the item sprite or face origin.
-    @location(0) uv: vec4<f32>,
+    @location(0) @interpolate(perspective, centroid) uv: vec4<f32>,
     // Texture layer, geometry validity, optional glint instance index and UV wrapping.
     @location(1) @interpolate(flat) skin_info: vec4<u32>,
     @if(!ACTOR_MOTION)
     @location(2) world_normal: vec3<f32>,
     @if(ACTOR_MOTION)
     @location(2) current_clip: vec4<f32>,
-    @location(3) back_uv: vec2<f32>,
+    @location(3) @interpolate(perspective, centroid) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
     @location(7) @interpolate(flat) light: u32,
@@ -293,6 +293,8 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // decode before dye/overlay products, then transfer once at the output.
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
+    @if(ALPHA_TO_COVERAGE)
+    if (texel.a == 0.0) { discard; }
     @if(ALPHA_TO_COVERAGE)
     let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u);
     @if(ALPHA_TO_COVERAGE)
