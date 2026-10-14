@@ -15,6 +15,8 @@ fn view(metadata: bool) -> Fixture {
             description: "Lets the mod fix the local time of day.".into(),
             enabled: true,
             requested: Some(true),
+            requested_allowed: true,
+            sensitive: false,
         }],
         metadata: if metadata {
             declared
@@ -97,4 +99,109 @@ fn icon() -> Arc<[u8]> {
         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
         .expect("encode fixture icon");
     png.into()
+}
+
+/// A sample library for permission summaries, consent and both customization modes.
+fn permissions(customizing: bool, show_all: bool, consent: bool, declared: bool) -> Fixture {
+    let Fixture::Menu(mut view) = view(true) else {
+        unreachable!()
+    };
+    let snapshot = Arc::make_mut(&mut view.mods);
+    snapshot.library.installed.truncate(1);
+    snapshot.details_expanded = None;
+    snapshot.customizing = customizing.then_some(1);
+    snapshot.show_all_permissions = show_all;
+    snapshot.consent = consent.then_some(1);
+    snapshot.library.installed[0].permissions = [
+        (
+            "HUD",
+            "Allows bounded HUD cards and a custom crosshair.",
+            false,
+            false,
+        ),
+        (
+            "Camera rotation",
+            "Allows bounded camera rotation and camera rigs.",
+            true,
+            true,
+        ),
+        (
+            "Controls",
+            "Allows key bindings and the mod settings panel.",
+            true,
+            true,
+        ),
+        (
+            "Settings file",
+            "Allows this mod's companion settings file.",
+            true,
+            false,
+        ),
+        (
+            "Item use",
+            "Allows air use after slot changes and while attacking.",
+            false,
+            true,
+        ),
+        (
+            "Attack reach",
+            "Allows bounded attack range and held attack requests.",
+            false,
+            true,
+        ),
+        (
+            "Packet delay",
+            "Allows bounded post-login packet delay.",
+            false,
+            true,
+        ),
+        (
+            "Movement",
+            "Allows physics snapshots and one-shot jumps.",
+            false,
+            true,
+        ),
+    ]
+    .into_iter()
+    .map(|(name, description, requested, sensitive)| Permission {
+        name: name.into(),
+        description: description.into(),
+        enabled: requested && !consent,
+        requested: declared.then_some(requested),
+        requested_allowed: requested && !consent,
+        sensitive,
+    })
+    .collect();
+    if customizing {
+        view.focused_action = Some(launcher::menu::MenuAction::Mods(
+            launcher::mods::Action::Permission(1, 1, false),
+        ));
+        view.navigation_focus_visible = true;
+    }
+    Fixture::Menu(view)
+}
+
+/// Collapsed actions, requested-grant count and allowed gameplay warnings.
+pub fn collapsed() -> Fixture {
+    permissions(false, false, false, true)
+}
+
+/// A first-enable card waiting for explicit requested-grant consent.
+pub fn consent() -> Fixture {
+    permissions(false, false, true, true)
+}
+
+/// A compact grid limited to this sample mod's three requests.
+pub fn requested_only() -> Fixture {
+    permissions(true, false, false, true)
+}
+
+/// Requested permissions precede the optional permissions in the expanded grid.
+pub fn show_all() -> Fixture {
+    permissions(true, true, false, true)
+}
+
+/// A component without a declaration can only customize its grants.
+pub fn undeclared_permissions() -> Fixture {
+    permissions(false, false, true, false)
 }

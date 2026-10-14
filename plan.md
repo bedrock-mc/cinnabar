@@ -2893,7 +2893,11 @@ consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
 Active/My mods groups and animations now manage an ordered native mod list. Enable,
 Disable and Remove affect each card's identity independently. Active cards can reorder,
 reload individually or reload all; failed reloads preserve the running instance.
-Per-card permission toggles are derived from the host grant declaration and default off.
+Per-card permissions are derived from the host grant declaration and default off.
+Collapsed cards show requested-grant counts and allowed gameplay-sensitive capabilities.
+Consent grants exactly declared requests; customization uses a requested-first grid,
+hover/focus descriptions, Show all permissions and Revoke all. Batch edits save once
+through the existing registration path. Owner visual approval remains incomplete.
 The original single registration migrates with its grants, font and UI intact. Each guest
 keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
 with bounded event and session-loading lanes preserving their full guest limits. Deferred

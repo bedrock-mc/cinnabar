@@ -111,6 +111,42 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: mods::undeclared,
     },
+    State {
+        name: "settings-mods-permissions-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::collapsed,
+    },
+    State {
+        name: "settings-mods-permissions-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::consent,
+    },
+    State {
+        name: "settings-mods-permissions-requested",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::requested_only,
+    },
+    State {
+        name: "settings-mods-permissions-all",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-undeclared-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::undeclared_permissions,
+    },
 ];
 
 /// Exercises the native chat collection with an unfinished mention.

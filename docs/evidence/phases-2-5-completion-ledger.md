@@ -1,5 +1,11 @@
 # Phases 2-5 Completion Ledger
 
+Settings mod cards now show permission summaries, explicit requested-grant consent
+and a compact customization grid. Capability metadata supplies gameplay warnings;
+batch grant edits preserve the existing registration format and enforcement.
+Owner visual approval and native cross-platform acceptance remain incomplete.
+This changes no broader parity or performance gate.
+
 Verified chunk blobs now persist through a bounded background store. Restart, corruption,
 miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
 this storage change advances no rendered, live-join or broader parity completion gate.
