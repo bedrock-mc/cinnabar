@@ -187,6 +187,14 @@ impl<F: PartialEq> MenuScrolls<F> {
         }
     }
 
+    /// Moves the areas a painter just published from its content space into window space.
+    pub fn translate_areas(&mut self, by: [f32; 2]) -> Result<(), ui::GeometryError> {
+        for area in &mut self.areas {
+            *area = area.clone().translated(by)?;
+        }
+        Ok(())
+    }
+
     pub fn clear_areas(&mut self) {
         self.areas.clear();
     }

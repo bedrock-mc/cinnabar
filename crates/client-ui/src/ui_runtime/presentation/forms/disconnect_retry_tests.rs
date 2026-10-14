@@ -331,3 +331,44 @@ fn launcher_question_targets_follow_the_safe_area_origin() {
     let point = ui::UiPoint::new(640.0 + origin[0], 360.0 + origin[1]).unwrap();
     assert!(inset.menu_scrolls.wheel(point, -120.0, true));
 }
+
+// OreUI routes publish window-space targets, so insets move them with the painted controls.
+#[test]
+fn oreui_route_targets_follow_the_safe_area_origin() {
+    let origin = [48.0, 32.0];
+    let mut disconnect = MenuView::new(true, "Player".into());
+    disconnect.disconnect_message = Some(launcher::menu::disconnect::from_server("Closed"));
+    disconnect.can_reconnect = true;
+    let home = MenuView::new(true, "Player".into());
+    for view in [disconnect, home] {
+        let hits = |inset: [f32; 2]| {
+            let mut presentation =
+                super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font())
+                    .unwrap();
+            presentation.set_safe_area(ui::SafeArea::new(inset[0], inset[1], 0.0, 0.0).unwrap());
+            presentation.set_menu_view(Some(view.clone()));
+            let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+                Some(2),
+            );
+            presentation
+                .append_menu(
+                    &UiRuntime::new(1),
+                    &mut Vec::new(),
+                    &mut 1,
+                    metrics,
+                    1280.0,
+                    720.0,
+                )
+                .unwrap()
+        };
+        let flush = hits([0.0, 0.0]);
+        assert!(!flush.is_empty());
+        let moved: Vec<_> = flush
+            .iter()
+            .map(|(action, bounds)| (*action, bounds.translated(origin).unwrap()))
+            .collect();
+        assert_eq!(hits(origin), moved, "{:?}", view.flow());
+    }
+}
