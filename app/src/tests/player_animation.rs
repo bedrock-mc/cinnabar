@@ -797,7 +797,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
         .iter()
         .map(|packet| format!("{:?}", packet.kind()))
         .collect();
-    assert_eq!(names, ["AnimatePacket", "InventoryTransactionPacket"]);
+    assert_eq!(names, ["InventoryTransactionPacket", "AnimatePacket"]);
     world.start_local_player_swing(swings.take_started().expect("the attack swings"));
     let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
     assert!(
