@@ -542,3 +542,143 @@ fn component_items_do_not_inherit_brewing_or_beacon_roles_from_stock_names() {
         }
     }
 }
+
+/// Opens a station with the content length declared by the protocol policy.
+fn station_ledger(entry: &ItemRegistryEntry, window_type: i8) -> PlayerInventoryLedger {
+    let mut ledger = ledger(entry, 0);
+    open(&mut ledger, window_type);
+    if let Some(&length) = ledger.window_kind().unwrap().content_lengths().first() {
+        ledger.apply(&content(
+            ContainerIdentity::window(3),
+            vec![NetworkItemStack::empty(); length],
+        ));
+    }
+    ledger
+}
+
+/// Checks rollback and recovery when the same registered identity gains or loses a role.
+fn assert_station_route_refresh(
+    identifier: &str,
+    window_type: i8,
+    native_target: InventoryTarget,
+    component_target: InventoryTarget,
+) {
+    let native = registered(identifier);
+    let mut component = native.clone();
+    component.component_based = true;
+    component.version = protocol::ItemRegistryVersion::DataDriven;
+    component.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+    for restore_native in [false, true] {
+        for transported in [false, true] {
+            let (entry, replacement, old_target, new_target) = if restore_native {
+                (&component, &native, component_target, native_target)
+            } else {
+                (&native, &component, native_target, component_target)
+            };
+            let mut ledger = station_ledger(entry, window_type);
+            let source = ledger.displayed_stack(SOURCE_SLOT).unwrap().clone();
+            assert_quick_move(&mut ledger, entry, old_target);
+            assert!(ledger.pending_batch().unwrap().is_some());
+            if transported {
+                assert!(ledger.mark_transport_enqueued(10));
+            }
+
+            resend(&mut ledger, replacement);
+            assert_eq!(ledger.pending_request_count(), 0, "{identifier}");
+            assert!(ledger.pending_batch().unwrap().is_none());
+            assert!(ledger.target_stack(old_target).is_none());
+            if transported {
+                assert!(ledger.resync_required());
+                assert_eq!(
+                    ledger.begin_quick_move(InventoryTarget::Player(SOURCE_SLOT)),
+                    Err(InventoryGestureError::ResyncRequired),
+                );
+            } else {
+                assert_eq!(ledger.displayed_stack(SOURCE_SLOT), Some(&source));
+                assert!(!ledger.resync_required());
+                assert_quick_move(&mut ledger, replacement, new_target);
+            }
+        }
+    }
+}
+
+#[test]
+fn fact_dependent_beacon_moves_retire_when_registry_routes_change() {
+    assert_station_route_refresh(
+        "minecraft:diamond",
+        protocol::WINDOW_TYPE_BEACON,
+        InventoryTarget::Craft(27),
+        InventoryTarget::Player(0),
+    );
+}
+
+#[test]
+fn fact_dependent_brewing_moves_retire_when_registry_routes_change() {
+    for (identifier, native_slot) in [("minecraft:blaze_powder", 4), ("minecraft:potion", 1)] {
+        assert_station_route_refresh(
+            identifier,
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(native_slot),
+            InventoryTarget::Storage(0),
+        );
+    }
+}
+
+#[test]
+fn fact_dependent_enchanting_moves_retire_when_registry_routes_change() {
+    assert_station_route_refresh(
+        "minecraft:lapis_lazuli",
+        protocol::WINDOW_TYPE_ENCHANTMENT,
+        InventoryTarget::Craft(15),
+        InventoryTarget::Craft(14),
+    );
+}
+
+#[test]
+fn fact_dependent_moves_keep_requests_when_destinations_do_not_change() {
+    for (identifier, window, target) in [
+        (
+            "minecraft:diamond",
+            protocol::WINDOW_TYPE_BEACON,
+            InventoryTarget::Craft(27),
+        ),
+        (
+            "minecraft:diamond",
+            protocol::WINDOW_TYPE_ENCHANTMENT,
+            InventoryTarget::Craft(14),
+        ),
+        (
+            "minecraft:brick",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(0),
+        ),
+        (
+            "minecraft:potion",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(1),
+        ),
+    ] {
+        let entry = registered(identifier);
+        let mut ledger = station_ledger(&entry, window);
+        assert_quick_move(&mut ledger, &entry, target);
+        let request_id = ledger.pending_request_id().unwrap();
+        let actions = ledger.newest_request().unwrap().actions.clone();
+        let predicted = ledger.target_stack(target).unwrap().clone();
+        let mut replacement = entry.clone();
+        replacement.item_tags = [std::sync::Arc::from("minecraft:is_sword")].into();
+
+        resend(&mut ledger, &replacement);
+        assert!(
+            ledger
+                .item_facts()
+                .get(entry.network_id)
+                .traits
+                .contains(assets::facts::ItemTraits::SWORD)
+        );
+        assert_eq!(ledger.pending_request_count(), 1);
+        assert_eq!(ledger.pending_request_id(), Some(request_id));
+        assert_eq!(ledger.newest_request().unwrap().actions, actions);
+        assert_eq!(ledger.target_stack(target), Some(&predicted));
+        assert!(ledger.pending_batch().unwrap().is_some());
+    }
+}

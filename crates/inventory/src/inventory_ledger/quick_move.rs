@@ -19,8 +19,28 @@ pub(super) struct QuickMoveRoute {
     window: WindowKind,
     network_id: i32,
     metadata: u32,
-    /// The chosen input slot; `None` used the window's fallback destinations.
-    slot: Option<u8>,
+    /// The chosen input cells; `None` used the window's fallback destinations.
+    input: Option<QuickMoveInput>,
+}
+
+/// Input destinations selected from the current item and recipe facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QuickMoveInput {
+    Single(Cell),
+    StorageSlots(&'static [u8]),
+}
+
+impl QuickMoveInput {
+    /// Lists eligible cells before filtering for confirmed container content.
+    fn cells(self) -> impl Iterator<Item = Cell> {
+        let (single, slots): (Option<Cell>, &'static [u8]) = match self {
+            Self::Single(cell) => (Some(cell), &[]),
+            Self::StorageSlots(slots) => (None, slots),
+        };
+        single
+            .into_iter()
+            .chain(slots.iter().copied().map(Cell::Storage))
+    }
 }
 
 /// Cells that hold one item however large the item's stack size is.
@@ -225,14 +245,36 @@ impl PlayerInventoryLedger {
         network_id: i32,
         metadata: u32,
     ) -> Option<QuickMoveRoute> {
-        let slot = if crate::furnace_recipes::kind(window).is_some() {
+        let input = if crate::furnace_recipes::kind(window).is_some() {
             self.furnace_slot(window, network_id, metadata)
+                .map(Cell::Storage)
+                .map(QuickMoveInput::Single)
         } else {
             let fact = self.item_facts.get(network_id);
             match window {
-                WindowKind::Horse => item_roles::horse_slot(fact),
-                WindowKind::Loom => item_roles::loom_slot(fact),
-                WindowKind::Smithing => item_roles::smithing_slot(fact),
+                WindowKind::Horse => item_roles::horse_slot(fact)
+                    .map(Cell::Storage)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Loom => item_roles::loom_slot(fact)
+                    .map(Cell::Craft)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Smithing => item_roles::smithing_slot(fact)
+                    .map(Cell::Craft)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Brewing => Some(QuickMoveInput::StorageSlots(
+                    item_roles::brewing_slots(fact),
+                )),
+                WindowKind::Enchanting => Some(QuickMoveInput::Single(Cell::Craft(
+                    if fact.roles.contains(ContainerRoles::ENCHANTING_LAPIS) {
+                        15
+                    } else {
+                        14
+                    },
+                ))),
+                WindowKind::Beacon => fact
+                    .roles
+                    .contains(ContainerRoles::BEACON_PAYMENT)
+                    .then_some(QuickMoveInput::Single(Cell::Craft(27))),
                 _ => return None,
             }
         };
@@ -240,7 +282,7 @@ impl PlayerInventoryLedger {
             window,
             network_id,
             metadata,
-            slot,
+            input,
         })
     }
 
@@ -253,7 +295,7 @@ impl PlayerInventoryLedger {
         (fuel.eligible() == Some(true)).then(|| u8::from(fuel.ingredient_first() != Some(true)))
     }
 
-    /// Retires quick moves whose recipe, fuel or item tags now route them elsewhere.
+    /// Retires quick moves whose recipes or admitted item facts change their destinations.
     pub(super) fn retire_rerouted_quick_moves(&mut self) {
         let rerouted: Vec<i32> = self
             .queue
@@ -344,10 +386,9 @@ impl PlayerInventoryLedger {
 
     /// The window cells a negotiated stack shift-clicks into.
     fn window_destinations(&self, kind: WindowKind, network_id: i32, metadata: u32) -> Vec<Cell> {
-        let fact = self.item_facts.get(network_id);
-        let input_slot = self
+        let input = self
             .quick_move_input_route(kind, network_id, metadata)
-            .and_then(|route| route.slot);
+            .and_then(|route| route.input);
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .map(Cell::Storage)
@@ -367,37 +408,19 @@ impl PlayerInventoryLedger {
             | WindowKind::Dropper
             | WindowKind::Hopper
             | WindowKind::Crafter => storage(0..u8::MAX),
-            WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => {
-                input_slot.map_or_else(Vec::new, |slot| storage(slot..slot + 1))
-            }
-            WindowKind::Brewing => item_roles::brewing_slots(fact)
-                .iter()
-                .map(|slot| Cell::Storage(*slot))
-                .filter(|cell| self.confirmed.contains(*cell))
-                .collect(),
-            WindowKind::Horse => match input_slot {
-                Some(slot) => storage(slot..slot + 1),
-                None => storage(2..u8::MAX),
-            },
+            WindowKind::Horse if input.is_none() => storage(2..u8::MAX),
             WindowKind::Anvil => ui(&[1, 2]),
-            WindowKind::Enchanting => {
-                ui(&[if fact.roles.contains(ContainerRoles::ENCHANTING_LAPIS) {
-                    15
-                } else {
-                    14
-                }])
-            }
-            WindowKind::Beacon if fact.roles.contains(ContainerRoles::BEACON_PAYMENT) => ui(&[27]),
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),
             WindowKind::Cartography => ui(&[item_roles::cartography_slot(
                 self.negotiated_item_entry(network_id)
                     .map_or("", |entry| &entry.identifier),
             )]),
-            WindowKind::Loom | WindowKind::Smithing => {
-                input_slot.map_or_else(Vec::new, |slot| ui(&[slot]))
-            }
-            WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
+            _ => input
+                .into_iter()
+                .flat_map(QuickMoveInput::cells)
+                .filter(|cell| self.confirmed.contains(*cell))
+                .collect(),
         }
     }
 }
