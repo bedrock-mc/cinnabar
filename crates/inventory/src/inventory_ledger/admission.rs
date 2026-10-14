@@ -397,6 +397,21 @@ impl PlayerInventoryLedger {
             }
             return;
         }
+        // Servers may repeat an open without sending the already-known chest contents again.
+        if self.storage.as_ref().is_some_and(|storage| {
+            !storage.closing
+                && storage.kind == protocol::WindowKind::Storage
+                && storage.window_id != protocol::DYNAMIC_STORAGE_WINDOW_ID
+                && open.container.window_id == Some(storage.window_id)
+                && open.window_type == storage.window_type
+                && open.position == storage.position
+                && open.runtime_entity_id == storage.actor_unique_id
+                && storage
+                    .identity
+                    .is_some_and(|identity| identity.dynamic_id.is_none())
+        }) {
+            return;
+        }
         // A closed window still settling keeps its requests; only the replaced one's go.
         let settling = self.settling_storage_generations();
         self.abandon_requests(|pending| {
