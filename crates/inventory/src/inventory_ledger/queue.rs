@@ -841,9 +841,15 @@ fn storage_identity_mismatch(
     identity: ContainerIdentity,
 ) -> bool {
     expected.is_none_or(|expected| {
+        // Legacy windows without a dynamic identity may be echoed with a zero-filled ID.
+        let legacy_zero = expected.dynamic_id.is_none()
+            && expected
+                .window_id
+                .is_some_and(|id| id != protocol::DYNAMIC_STORAGE_WINDOW_ID)
+            && identity.dynamic_id == Some(0);
         identity.window_id.is_some()
             || expected.slot_type != identity.slot_type
-            || expected.dynamic_id != identity.dynamic_id
+            || (expected.dynamic_id != identity.dynamic_id && !legacy_zero)
     })
 }
 

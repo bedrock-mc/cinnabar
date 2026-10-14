@@ -38,6 +38,7 @@ impl WorldStream {
         let uploaded = keys.peek().is_some()
             && keys.all(|key| {
                 self.applied_mesh_generations.contains_key(key)
+                    && !self.withdrawn_meshes.contains(key)
                     && self.revisions.dirty(*key).is_none()
             });
         if uploaded {

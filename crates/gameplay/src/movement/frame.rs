@@ -227,6 +227,7 @@ impl LocomotionState {
                         ride_seat: facts.ride_seat,
                         can_fly: facts.can_fly,
                         server_flying: facts.server_flying,
+                        ability_sequence: facts.ability_sequence,
                         fly_speed: facts.fly_speed,
                         vertical_fly_speed: facts.vertical_fly_speed,
                         creative_flight: facts.creative_flight,

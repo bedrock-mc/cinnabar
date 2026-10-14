@@ -13,6 +13,7 @@ pub(super) struct ControllerFrame {
     pub eye_height: f32,
     pub intent: ModeIntent,
     pub jump_edge: bool,
+    pub jump_down: bool,
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
@@ -21,6 +22,7 @@ pub(super) struct ControllerFrame {
     pub sneak_override: Option<bool>,
     pub sprint_override: Option<bool>,
     pub forced_sneak: bool,
+    pub flight_request: Option<bool>,
     pub grounded_before_tick: bool,
     pub jump_repeated: bool,
     pub ride_delta: Option<[f32; 3]>,
@@ -82,8 +84,8 @@ impl ControllerFrame {
             liquid_attach_height: input
                 .liquid_attach_height
                 .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
-            jumping: input.jumping,
             jump_edge: self.jump_edge,
+            jump_down: self.jump_down,
         };
         if self.frame_start {
             anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
@@ -98,6 +100,7 @@ impl ControllerFrame {
                     mode: modes.mode(),
                     forced_sneak: self.forced_sneak,
                     sprinting: input.sprinting,
+                    flight_request: None,
                 }
             }
             Err(error) => return Err(error.into()),
@@ -106,6 +109,7 @@ impl ControllerFrame {
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
         self.forced_sneak = choice.forced_sneak;
+        self.flight_request = choice.flight_request;
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,

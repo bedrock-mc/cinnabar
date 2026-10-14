@@ -373,6 +373,8 @@ pub struct WorldStream {
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
+    /// Sections whose last acknowledged mesh withdrew them, as past full detail, so none is drawn.
+    withdrawn_meshes: HashSet<SubChunkKey>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
     mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,

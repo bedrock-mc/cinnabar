@@ -97,6 +97,7 @@ impl WorldStream {
                 std::mem::take(&mut self.resident),
                 std::mem::take(&mut self.known_air),
                 std::mem::take(&mut self.applied_mesh_generations),
+                std::mem::take(&mut self.withdrawn_meshes),
                 std::mem::take(&mut self.mesh_dependency_masks),
                 std::mem::take(&mut self.connectivity),
             )
@@ -113,6 +114,7 @@ impl WorldStream {
                 self.resident.remove(key);
                 self.known_air.remove(key);
                 self.applied_mesh_generations.remove(key);
+                self.withdrawn_meshes.remove(key);
                 self.mesh_dependency_masks.remove(key);
             }
             // One cell sweep beats per-key removal, which rescans overflow keys each time.
