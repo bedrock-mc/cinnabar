@@ -571,7 +571,13 @@ fn catchup_attack_selection_uses_the_pose_before_the_first_input() {
         assert_eq!(selected.position, anchor);
         assert!(runtime.press_sample(crosshair, &movement, 2, 1).is_none());
     }
-    movement.pop_pending().unwrap();
+    crate::movement::flush_player_auth_inputs(
+        &mut movement,
+        1,
+        Some(crate::test_support::survival_mining::evidence()),
+        |_, _| Ok::<_, ()>(()),
+    )
+    .unwrap();
     let selected = runtime
         .press_sample(Crosshair::Miss, &movement, 2, 2)
         .unwrap();
