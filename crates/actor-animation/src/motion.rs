@@ -51,6 +51,24 @@ impl SwingEffects {
         ticks.max(1)
     }
 
+    /// Bedrock swing length for `visuals`: the 1.12 profile shortens it only from Haste II, by
+    /// one tick per level past the first, and otherwise lengthens it for Mining Fatigue.
+    #[must_use]
+    pub fn bedrock_ticks(self, visuals: render_api::CombatVisuals) -> i32 {
+        if visuals == render_api::CombatVisuals::Modern {
+            return self.ticks();
+        }
+        let amplifier = |value: Option<i32>| value.filter(|value| *value >= 0);
+        let ticks = match (amplifier(self.haste), amplifier(self.mining_fatigue)) {
+            (Some(haste), _) if haste >= 1 => (ACTOR_SWING_TICKS - 1).saturating_sub(haste),
+            (_, Some(fatigue)) => {
+                ACTOR_SWING_TICKS.saturating_add(fatigue.saturating_add(1).saturating_mul(2))
+            }
+            _ => ACTOR_SWING_TICKS,
+        };
+        ticks.max(1)
+    }
+
     /// Applies one MobEffect change, ignoring effects that leave swings alone.
     pub fn apply(&mut self, effect_id: i32, amplifier: Option<i32>) {
         match effect_id {
@@ -384,5 +402,36 @@ mod tests {
         assert_eq!(effects.ticks(), 8);
         effects.apply(protocol::MINING_FATIGUE_EFFECT_ID, Some(-1));
         assert_eq!(effects.ticks(), 6);
+    }
+
+    /// The 1.12 profile keeps six ticks under Haste I, then takes one per further level.
+    #[test]
+    fn legacy_swing_length_starts_shortening_at_haste_two() {
+        let legacy = render_api::CombatVisuals::Legacy112;
+        let effects = |haste, mining_fatigue| SwingEffects {
+            haste,
+            mining_fatigue,
+        };
+        for (haste, fatigue, ticks) in [
+            (None, None, 6),
+            (Some(0), None, 6),
+            (Some(1), None, 4),
+            (Some(2), None, 3),
+            (Some(9), None, 1),
+            (None, Some(0), 8),
+            (None, Some(1), 10),
+            (Some(0), Some(0), 8),
+            (Some(1), Some(0), 4),
+        ] {
+            assert_eq!(
+                effects(haste, fatigue).bedrock_ticks(legacy),
+                ticks,
+                "haste {haste:?}, fatigue {fatigue:?}"
+            );
+            assert_eq!(
+                effects(haste, fatigue).bedrock_ticks(render_api::CombatVisuals::Modern),
+                effects(haste, fatigue).ticks()
+            );
+        }
     }
 }

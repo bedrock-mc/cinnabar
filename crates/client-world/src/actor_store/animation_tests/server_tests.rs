@@ -553,3 +553,24 @@ fn remote_haste_shortens_the_java_swing_and_its_restart_guard_until_removed() {
     swing_effect(&mut store, protocol::ActorEffectAction::Remove, 0);
     remote_swing_frames(&mut store, &[0, 3], 8, 6);
 }
+
+/// Remote Bedrock swings follow the actor's effects: six ticks under Haste I, four under Haste II.
+#[test]
+fn remote_bedrock_swing_length_follows_haste_levels() {
+    for (amplifier, length) in [(0, 6), (1, 4)] {
+        let mut store = store();
+        swing_effect(&mut store, protocol::ActorEffectAction::Add, amplifier);
+        let first = store.latest_sequence + 1;
+        swing_arm(&mut store, first);
+        let mut progress = Vec::new();
+        for _ in 0..length + 1 {
+            store.advance_interpolation_ticks(1);
+            progress.push(store.actor_rigs().next().unwrap().hand[1].attack_time);
+        }
+        let expected: Vec<f32> = (0..length)
+            .map(|tick| tick as f32 / length as f32)
+            .chain([0.0])
+            .collect();
+        assert_eq!(progress, expected, "Haste amplifier {amplifier}");
+    }
+}
