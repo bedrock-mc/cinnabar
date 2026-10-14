@@ -11,9 +11,9 @@ use crate::ui_runtime::presentation::{inventory_tooltip, publish::capture_hud_fr
 #[test]
 fn enchantment_names_resolve_complete_keys_and_level_fallbacks() {
     let entries = [
+        ("enchantment.damage.all", "Sharpness"),
         ("enchantment.fire", "Fire Aspect"),
         ("enchantment.level.2", "II"),
-        ("enchantment.sharpness", "Sharpness"),
     ]
     .map(|(key, value)| assets::LangEntry {
         key: key.into(),
