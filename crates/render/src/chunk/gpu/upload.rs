@@ -49,6 +49,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut fairness: ResMut<GpuUpdateFairness>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
         acknowledgements,
