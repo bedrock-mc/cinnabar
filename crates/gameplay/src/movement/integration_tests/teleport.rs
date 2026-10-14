@@ -67,7 +67,7 @@ fn snapped_teleport_skips_only_the_first_air_travel_tick() {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
     let mut packets = Vec::new();
-    flush_player_auth_inputs(&mut ticker, 2, None, |_, packet| {
+    flush_player_auth_inputs(&mut ticker, 2, Some(evidence_context()), |_, packet| {
         packets.push(packet.clone());
         Ok::<_, &str>(())
     })
