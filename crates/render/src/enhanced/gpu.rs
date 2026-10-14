@@ -20,7 +20,7 @@ use bevy::{
             FilterMode, Origin3d, PipelineCache, Sampler, SamplerBindingType, SamplerDescriptor,
             ShaderStages, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-            TextureViewDescriptor, TextureViewDimension,
+            TextureViewDescriptor, TextureViewDimension, TextureViewId,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::{CachedTexture, TextureCache},
@@ -380,7 +380,8 @@ impl ShadowTargets {
     }
 }
 
-/// Per-view Enhanced state, rebuilt from the frame each render update.
+/// Per-view Enhanced state; uniforms are rewritten each render update while bind groups
+/// are retained until one of their input views changes.
 pub(crate) struct EnhancedViewGpu {
     pub(crate) frame: Buffer,
     pub(crate) casters: Buffer,
@@ -394,6 +395,21 @@ pub(crate) struct EnhancedViewGpu {
     pub(crate) hand_layer: Option<super::hand_layer::HandLayer>,
     pub(crate) view_bind_group: Option<BindGroup>,
     pub(crate) caster_bind_group: Option<BindGroup>,
+    /// Post-chain groups the post node retains across frames.
+    pub(crate) post: super::post::PostBindings,
+    view_bound: Option<ViewBindingInputs>,
+    caster_materials: Option<TextureViewId>,
+}
+
+/// Texture views bound by `view_bind_group`. The frame buffer lives as long as the view
+/// state; the samplers live as long as `EnhancedGpu`, whose replacement also replaces
+/// `materials`, so these identities cover every input of the group.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ViewBindingInputs {
+    shadow: TextureViewId,
+    materials: TextureViewId,
+    scene_colour: TextureViewId,
+    scene_depth: TextureViewId,
 }
 
 impl EnhancedViewGpu {
@@ -423,6 +439,9 @@ impl EnhancedViewGpu {
             hand_layer: None,
             view_bind_group: None,
             caster_bind_group: None,
+            post: Default::default(),
+            view_bound: None,
+            caster_materials: None,
         }
     }
 }
@@ -501,8 +520,8 @@ pub(crate) fn prepare_enhanced_views(
     state.0.retain(|entity, _| views.contains(*entity));
     let atmosphere = atmosphere.map(|frame| *frame).unwrap_or_default();
     let seconds = time.elapsed_secs_wrapped();
-    let view_layout = pipeline_cache.get_bind_group_layout(&enhanced_view_layout());
-    let caster_layout = pipeline_cache.get_bind_group_layout(&enhanced_caster_layout());
+    let mut casters = [<CasterUniformGpu as bytemuck::Zeroable>::zeroed();
+        render_scene::MAX_SHADOW_CASCADES as usize];
     for (entity, view, target, depth, settings) in &views {
         let inputs = view_inputs(view, seconds);
         let (frame, fits) = build_frame(&inputs, settings, &atmosphere);
@@ -529,18 +548,23 @@ pub(crate) fn prepare_enhanced_views(
             state.hand_layer = Some(super::hand_layer::HandLayer::new(&device, target));
         }
         state.settings = *settings;
-        state.cascades = fits.iter().map(|fit| fit.bounds).collect();
+        state.cascades.clear();
+        state.cascades.extend(fits.iter().map(|fit| fit.bounds));
         queue.profiled_write_buffer(&state.frame, 0, bytemuck::bytes_of(&frame));
-        let casters = fits
-            .iter()
-            .map(|fit| CasterUniformGpu {
+        // `build_frame` clamps its cascades to MAX_SHADOW_CASCADES, the buffer's slot count.
+        for (slot, fit) in casters.iter_mut().zip(&fits) {
+            *slot = CasterUniformGpu {
                 clip_from_world: fit.clip_from_world,
                 params: Vec4::new(seconds, frame.ambient_colour.w, 0.0, 0.0),
                 flags: UVec4::new(frame.flags.x, 0, 0, 0),
                 padding: [Vec4::ZERO; 10],
-            })
-            .collect::<Vec<_>>();
-        queue.profiled_write_buffer(&state.casters, 0, bytemuck::cast_slice(&casters));
+            };
+        }
+        queue.profiled_write_buffer(
+            &state.casters,
+            0,
+            bytemuck::cast_slice(&casters[..fits.len()]),
+        );
 
         let resolution = frame.flags.z;
         let cascades = frame.flags.y;
@@ -606,58 +630,71 @@ pub(crate) fn prepare_enhanced_views(
             .scene_depth
             .as_ref()
             .map_or(&gpu.fallback_depth, |texture| &texture.default_view);
-        state.view_bind_group = Some(device.create_bind_group(
-            "enhanced view bind group",
-            &view_layout,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: state.frame.as_entire_binding(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(shadow_view),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(&gpu.shadow_sampler),
-                },
-                BindGroupEntry {
-                    binding: 3,
-                    resource: BindingResource::TextureView(&gpu.materials),
-                },
-                BindGroupEntry {
-                    binding: 4,
-                    resource: BindingResource::TextureView(scene_colour),
-                },
-                BindGroupEntry {
-                    binding: 5,
-                    resource: BindingResource::TextureView(scene_depth),
-                },
-                BindGroupEntry {
-                    binding: 6,
-                    resource: BindingResource::Sampler(&gpu.linear_sampler),
-                },
-            ],
-        ));
-        state.caster_bind_group = Some(device.create_bind_group(
-            "enhanced caster bind group",
-            &caster_layout,
-            &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::Buffer(BufferBinding {
-                        buffer: &state.casters,
-                        offset: 0,
-                        size: NonZeroU64::new(CASTER_UNIFORM_BYTES),
-                    }),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&gpu.materials),
-                },
-            ],
-        ));
+        let view_bound = ViewBindingInputs {
+            shadow: shadow_view.id(),
+            materials: gpu.materials.id(),
+            scene_colour: scene_colour.id(),
+            scene_depth: scene_depth.id(),
+        };
+        if state.view_bound != Some(view_bound) {
+            state.view_bind_group = Some(device.create_bind_group(
+                "enhanced view bind group",
+                &pipeline_cache.get_bind_group_layout(&enhanced_view_layout()),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: state.frame.as_entire_binding(),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(shadow_view),
+                    },
+                    BindGroupEntry {
+                        binding: 2,
+                        resource: BindingResource::Sampler(&gpu.shadow_sampler),
+                    },
+                    BindGroupEntry {
+                        binding: 3,
+                        resource: BindingResource::TextureView(&gpu.materials),
+                    },
+                    BindGroupEntry {
+                        binding: 4,
+                        resource: BindingResource::TextureView(scene_colour),
+                    },
+                    BindGroupEntry {
+                        binding: 5,
+                        resource: BindingResource::TextureView(scene_depth),
+                    },
+                    BindGroupEntry {
+                        binding: 6,
+                        resource: BindingResource::Sampler(&gpu.linear_sampler),
+                    },
+                ],
+            ));
+            state.view_bound = Some(view_bound);
+        }
+        // The caster buffer lives as long as the view state; only the material table changes.
+        if state.caster_materials != Some(gpu.materials.id()) {
+            state.caster_bind_group = Some(device.create_bind_group(
+                "enhanced caster bind group",
+                &pipeline_cache.get_bind_group_layout(&enhanced_caster_layout()),
+                &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: BindingResource::Buffer(BufferBinding {
+                            buffer: &state.casters,
+                            offset: 0,
+                            size: NonZeroU64::new(CASTER_UNIFORM_BYTES),
+                        }),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: BindingResource::TextureView(&gpu.materials),
+                    },
+                ],
+            ));
+            state.caster_materials = Some(gpu.materials.id());
+        }
     }
 }
 

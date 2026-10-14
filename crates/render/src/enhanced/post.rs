@@ -7,15 +7,16 @@ use bevy::{
     prelude::*,
     render::{
         render_resource::{
-            BindGroup, BindGroupEntry, BindingResource, BlendState, CachedRenderPipelineId,
-            ColorTargetState, ColorWrites, FragmentState, LoadOp, Operations, PipelineCache,
-            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, StoreOp,
-            TextureView,
+            BindGroup, BindGroupEntry, BindGroupLayout, BindingResource, BlendState,
+            CachedRenderPipelineId, ColorTargetState, ColorWrites, FragmentState, LoadOp,
+            Operations, PipelineCache, RenderPassColorAttachment, RenderPassDescriptor,
+            RenderPipelineDescriptor, StoreOp, TextureView, TextureViewId,
         },
         renderer::{RenderContext, RenderDevice},
         view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
+use std::sync::{Mutex, PoisonError};
 
 use {
     super::{
@@ -75,13 +76,13 @@ struct PostInputs<'a> {
 /// Binds this view and the post-process inputs.
 fn post_bind_group(
     device: &RenderDevice,
-    cache: &PipelineCache,
+    layout: &BindGroupLayout,
     gpu: &EnhancedGpu,
     inputs: PostInputs,
 ) -> BindGroup {
     device.create_bind_group(
         "enhanced post bind group",
-        &cache.get_bind_group_layout(&enhanced_post_layout()),
+        layout,
         &[
             BindGroupEntry {
                 binding: 0,
@@ -117,6 +118,61 @@ fn post_bind_group(
             },
         ],
     )
+}
+
+/// Post-chain groups the node retains while their input views are unchanged. Groups are
+/// still created only by the node, for the inputs it actually draws.
+#[derive(Default)]
+pub(crate) struct PostBindings(Mutex<RetainedPost>);
+
+#[derive(Default)]
+struct RetainedPost {
+    inputs: Option<PostBindingKey>,
+    shafts: Option<BindGroup>,
+    /// Composite groups keyed by their ping-pong source view.
+    composite: Vec<(TextureViewId, BindGroup)>,
+}
+
+/// Every view a post-chain group binds besides its source. The frame buffer lives as long
+/// as the view state; the samplers live as long as `EnhancedGpu`, whose replacement also
+/// replaces `black`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PostBindingKey {
+    shafts: Option<TextureViewId>,
+    depth: TextureViewId,
+    shadow: TextureViewId,
+    black: TextureViewId,
+}
+
+impl RetainedPost {
+    /// Drops every retained group when a shared input changed since they were created.
+    fn retain_inputs(&mut self, inputs: PostBindingKey) {
+        if self.inputs != Some(inputs) {
+            self.inputs = Some(inputs);
+            self.shafts = None;
+            self.composite.clear();
+        }
+    }
+
+    /// The composite group reading `source`, created on first use. Only the two ping-pong
+    /// sources are retained; a third source replaces them.
+    fn composite(
+        &mut self,
+        source: TextureViewId,
+        create: impl FnOnce() -> BindGroup,
+    ) -> &BindGroup {
+        let index = match self.composite.iter().position(|(id, _)| *id == source) {
+            Some(index) => index,
+            None => {
+                if self.composite.len() == 2 {
+                    self.composite.clear();
+                }
+                self.composite.push((source, create()));
+                self.composite.len() - 1
+            }
+        };
+        &self.composite[index].1
+    }
 }
 
 /// Draws one fullscreen pass.
@@ -212,7 +268,7 @@ pub(crate) fn enhanced_post(
     let bind = |source: &TextureView, bloom: &TextureView, shafts: &TextureView| {
         post_bind_group(
             &device,
-            cache,
+            &cache.get_bind_group_layout(&enhanced_post_layout()),
             gpu,
             PostInputs {
                 frame: state.frame.as_entire_binding(),
@@ -227,8 +283,17 @@ pub(crate) fn enhanced_post(
     let clear = LoadOp::Clear(wgpu::Color::TRANSPARENT);
 
     let shaft_view = state.shafts.as_ref().map(|texture| &texture.default_view);
+    let mut retained = state.post.0.lock().unwrap_or_else(PoisonError::into_inner);
+    retained.retain_inputs(PostBindingKey {
+        shafts: shaft_view.map(TextureView::id),
+        depth: depth.view.id(),
+        shadow: shadow.id(),
+        black: black.id(),
+    });
     if let Some(shaft_view) = shaft_view {
-        let group = bind(black, black, black);
+        let group = retained
+            .shafts
+            .get_or_insert_with(|| bind(black, black, black));
         fullscreen_pass(
             context,
             world,
@@ -236,12 +301,14 @@ pub(crate) fn enhanced_post(
             shaft_view,
             clear,
             shafts,
-            &group,
+            group,
         );
     }
 
     let post = target.post_process_write();
-    let group = bind(post.source, black, shaft_view.unwrap_or(black));
+    let group = retained.composite(post.source.id(), || {
+        bind(post.source, black, shaft_view.unwrap_or(black))
+    });
     fullscreen_pass(
         context,
         world,
@@ -249,7 +316,7 @@ pub(crate) fn enhanced_post(
         post.destination,
         clear,
         composite,
-        &group,
+        group,
     );
     Ok(())
 }

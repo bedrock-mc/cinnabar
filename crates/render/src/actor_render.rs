@@ -384,7 +384,12 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages, &instances, &rig.geometry_spans);
+            draw_spans(
+                &mut gpu.spans,
+                &frame.instance_pages,
+                &instances,
+                &rig.geometry_spans,
+            );
             gpu.instances = instances;
             let ActorGpu {
                 sorted,

@@ -1,5 +1,5 @@
 use render_scene::ActorDrawFrame;
-use std::{collections::BTreeSet, sync::Mutex};
+use std::sync::Mutex;
 
 use bevy::prelude::Resource;
 
@@ -12,15 +12,28 @@ pub use geometry::storage_binding_bytes;
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {
-    pending: Mutex<Option<PendingActorDraw>>,
+    pending: Mutex<PendingActorDraw>,
 }
 
-#[derive(Clone)]
+/// The frame awaiting draws; its span storage is reused across frames.
+#[derive(Default)]
 struct PendingActorDraw {
-    draw: ActorDrawFrame,
+    /// `None` when no frame is pending.
+    draw: Option<ActorDrawFrame>,
     view: u64,
-    expected: BTreeSet<ActorDrawSpan>,
-    received: BTreeSet<ActorDrawSpan>,
+    /// Distinct spans in strictly ascending `first` order, as `begin` validates.
+    expected: Vec<ActorDrawSpan>,
+    /// Whether each `expected` span has drawn in `view`.
+    received: Vec<bool>,
+    /// Expected spans not yet drawn.
+    missing: usize,
+}
+
+impl PendingActorDraw {
+    /// Locks the tracker state, recovering it after a panicking holder.
+    fn lock(pending: &Mutex<Self>) -> std::sync::MutexGuard<'_, Self> {
+        pending.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -35,10 +48,7 @@ pub(crate) struct ActorDrawSpan {
 
 impl ActorDrawTracker {
     pub(crate) fn clear(&self) {
-        *self
-            .pending
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = None;
+        PendingActorDraw::lock(&self.pending).draw = None;
     }
 
     pub(crate) fn begin(&self, draw: ActorDrawFrame, view: u64, spans: &[ActorDrawSpan]) -> bool {
@@ -61,38 +71,39 @@ impl ActorDrawTracker {
             self.clear();
             return false;
         }
-        *self
-            .pending
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = Some(PendingActorDraw {
-            draw,
-            view,
-            expected: spans.iter().copied().collect(),
-            received: BTreeSet::new(),
-        });
+        let mut pending = PendingActorDraw::lock(&self.pending);
+        pending.draw = Some(draw);
+        pending.view = view;
+        pending.expected.clear();
+        pending.expected.extend_from_slice(spans);
+        pending.received.clear();
+        pending.received.resize(spans.len(), false);
+        pending.missing = spans.len();
         true
     }
 
     pub(crate) fn record_draw(&self, view: u64, span: ActorDrawSpan) {
-        if let Some(pending) = self
-            .pending
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .as_mut()
-            && pending.view == view
-            && pending.expected.contains(&span)
-        {
-            pending.received.insert(span);
+        let mut pending = PendingActorDraw::lock(&self.pending);
+        if pending.draw.is_none() || pending.view != view {
+            return;
+        }
+        // Contiguous validated spans have unique, ascending `first` offsets.
+        let Ok(index) = pending
+            .expected
+            .binary_search_by_key(&span.first, |expected| expected.first)
+        else {
+            return;
+        };
+        if pending.expected[index] == span && !pending.received[index] {
+            pending.received[index] = true;
+            pending.missing -= 1;
         }
     }
 
     pub(crate) fn take_drawn(&self) -> Option<ActorDrawFrame> {
-        self.pending
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
-            .take()
-            .filter(|pending| pending.expected == pending.received)
-            .map(|pending| pending.draw)
+        let mut pending = PendingActorDraw::lock(&self.pending);
+        let missing = pending.missing;
+        pending.draw.take().filter(|_| missing == 0)
     }
 }
 
