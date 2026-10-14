@@ -173,12 +173,26 @@ fn preview_session_replacement_removal_and_transparency_retire_old_meshes() {
     transparent.rgba8.fill(0);
     install(&mut presentation, vec![transparent]);
     assert!(first.upgrade().is_none());
-    assert!(presentation.session_icons.held_sprite(ITEM, 0).is_none());
-    let empty = presentation.gui_player_mesh().unwrap();
-    assert_eq!(empty.batches().len() + 1, base.batches().len());
+    let (source, transparent_mesh) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
     assert_eq!(
-        empty.vertices().len() + (base.batches().last().unwrap().index_range.len()),
-        base.vertices().len()
+        transparent_mesh.len(),
+        12,
+        "transparent art retains only alpha-tested front/back faces"
+    );
+    assert!(
+        presentation
+            .session_icons
+            .sprite(ITEM, 0)
+            .unwrap()
+            .rgba8
+            .iter()
+            .all(|byte| *byte == 0)
+    );
+    let empty = presentation.gui_player_mesh().unwrap();
+    assert_eq!(empty.batches().last().unwrap().texture_page, source.page);
+    assert_eq!(
+        empty.batches().last().unwrap().index_range.len(),
+        transparent_mesh.len()
     );
     session_icons::observe(&mut presentation, None);
     assert_eq!(presentation.item_icon(ITEM, 0), Some(base_icon));
