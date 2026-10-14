@@ -408,8 +408,10 @@ impl PlayerInventoryLedger {
                 && open.runtime_entity_id == storage.actor_unique_id
                 && storage
                     .identity
-                    .is_some_and(|identity| identity.dynamic_id.is_none())
+                    .is_none_or(|identity| identity.dynamic_id.is_none())
         }) {
+            self.pending_open_warnings =
+                (self.pending_open_warnings + 1).min(super::MAX_PENDING_REQUESTS);
             return;
         }
         // A closed window still settling keeps its requests; only the replaced one's go.
