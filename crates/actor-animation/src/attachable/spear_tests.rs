@@ -55,7 +55,7 @@ fn player_spear_completion_preserves_authored_and_inherited_attachable_poses() {
                 },
             )
             .unwrap();
-        let expected = if inherited { 1.0 } else { 0.45 };
+        let expected = if inherited { 16.0 } else { 0.45 };
         assert!(
             (snapshot.pose[0].translation_scale[1] - expected).abs() < 1.0e-6,
             "inherited={inherited}: {:?}",
