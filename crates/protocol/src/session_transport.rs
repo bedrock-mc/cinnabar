@@ -47,8 +47,8 @@ pub(crate) enum Terminal {
 /// The handed-off startup packets come first; each later Batch frame is split in place, without
 /// copying. A terminal Transfer or Disconnect ends the stream. A send is retained from its first
 /// poll until flushed, strictly in order, so cancellation neither loses nor repeats it. An
-/// optional [`PacketTap`] sees each received packet once, as its batch is split, and each sent
-/// packet once.
+/// optional [`PacketTap`] sees each received packet once, as its batch is read and split (see
+/// [`crate::packet_tap`] for what that time measures), and each sent packet once.
 pub(crate) struct SessionTransport {
     reader: FramedReader,
     frames: FrameQueue,
@@ -186,7 +186,7 @@ impl SessionTransport {
         }
     }
 
-    /// Makes `packet`, which the tap recorded on arrival, the current packet.
+    /// Makes `packet`, which the tap recorded when its batch was split, the current packet.
     fn observe(&mut self, packet: &RawPacket) {
         if self.tap.is_none() {
             return;
@@ -198,8 +198,8 @@ impl SessionTransport {
         });
     }
 
-    /// Splits a batch body and records each packet with the tap as it arrives, so every packet
-    /// of one batch carries its arrival time; a batch that cannot be split is reported whole.
+    /// Splits a batch body and records each packet with the tap, so every packet of one batch
+    /// carries the time its batch was read; a batch that cannot be split is reported whole.
     fn split_batch(&self, body: Bytes) -> Result<Vec<RawPacket>, SessionError> {
         let len = body.len();
         let mut packets = decode_batch_body(body, MAX_SESSION_BATCH_BYTES).inspect_err(|_| {

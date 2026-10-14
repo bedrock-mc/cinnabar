@@ -8990,3 +8990,15 @@ resource-pack fixture checks title-selected panels through indexed pack overlays
 Incomplete: the reported server form flash-close needs the affected pack and an
 ordered packet/input trace. The separate data-driven screen packet family remains
 unsupported. Live visual parity and performance acceptance remain open.
+
+## Packet flight recorder and capture
+
+Sessions record the last 4,096 packet headers in both directions, with each packet's
+accept, skip or failure outcome, and keep up to four rejected bodies per packet ID from
+the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture v2 that
+`bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
+handshake and pack-offer bodies never reach samples or captures.
+
+Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced
+"Record network session" option is not built; recorded times are when the client read
+each batch, not socket arrival; no frame or join capture has measured the recorder's cost.

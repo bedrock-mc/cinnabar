@@ -3,6 +3,14 @@
 //! The session transport reports each clientbound packet once, in arrival order and before any
 //! decoding, and each serverbound packet once after it is encoded. An observer must not block:
 //! it runs on the network tasks.
+//!
+//! Clientbound packets are reported when the transport reads their batch from the core's
+//! socket, which it does only when ingress asks for a packet and has none split; the handed-off
+//! startup packets are reported together as the first is asked for. An observer that times
+//! them therefore measures when the client read each batch: under ingress backpressure (a full
+//! world-event channel, slow decoding) that trails the batch reaching the socket, and the true
+//! socket arrival is not observable without reading ahead of ingress, which would change the
+//! session's flow control.
 
 use std::fmt;
 
@@ -123,8 +131,8 @@ impl<'a> PacketBody<'a> {
 /// Receives the packet stream of one session.
 pub trait PacketTap: Send + Sync {
     /// Records one packet and returns the handle a later [`PacketTap::reject`] names it by.
-    /// Clientbound packets are reported once each, in arrival order, before decoding;
-    /// serverbound packets once each, after encoding.
+    /// Clientbound packets are reported once each, in arrival order, before decoding, as their
+    /// batch is read; serverbound packets once each, after encoding.
     fn record(
         &self,
         direction: PacketDirection,

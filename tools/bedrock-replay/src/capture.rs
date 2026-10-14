@@ -31,6 +31,8 @@ pub struct CaptureSummary {
     pub packet_counts: BTreeMap<u32, usize>,
     pub serverbound_records_ignored: usize,
     pub dropped_packets: u64,
+    /// The capture ended early, at its size limit or inside a record its writer never finished;
+    /// replay keeps the complete records.
     pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capture_started_unix_ms: Option<u64>,
@@ -153,15 +155,18 @@ fn read_v1(data: &Bytes, summary: &mut CaptureSummary) -> Result<Vec<Entry>> {
 /// Reads a v2 capture, keeping clientbound packets with their arrival times and counting what
 /// replay leaves out.
 fn read_v2(data: Bytes, summary: &mut CaptureSummary) -> Result<Vec<Entry>> {
-    let (header, records) = protocol::capture::read_capture(data)?;
+    let file = protocol::capture::read_capture(data)?;
+    let header = file.header;
     ensure!(
         header.protocol_version == protocol::PROTOCOL_VERSION,
         "capture protocol {} differs from the pinned protocol {}",
         header.protocol_version,
         protocol::PROTOCOL_VERSION
     );
+    let records = file.records;
     summary.format = 2;
     summary.records = records.len();
+    summary.truncated = file.cut_short;
     summary.capture_started_unix_ms = Some(header.started_unix_ms);
     summary.original_timing = "recorded";
     let mut entries = Vec::new();

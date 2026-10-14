@@ -23,9 +23,11 @@ pub struct Burst {
 pub enum Schedule {
     /// Bursts `interval` apart from the handoff on.
     Fixed(Duration),
-    /// Each burst when its first packet originally arrived, counted from StartGame's arrival.
-    /// Packets that arrived within [`ORIGINAL_TIMING_RESOLUTION`] of a burst's first packet
-    /// join it, within the burst limits.
+    /// Each burst when its first packet was originally received, counted from StartGame's.
+    /// Packets received within [`ORIGINAL_TIMING_RESOLUTION`] of a burst's first packet join
+    /// it, within the burst limits. The client records a packet when its session read the
+    /// batch from the core, which trails socket arrival while its ingress is backlogged, so
+    /// this replays the original client's read pace, slowdowns included.
     Original,
 }
 

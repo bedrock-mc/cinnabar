@@ -1,25 +1,37 @@
 //! Opt-in full capture of one session's packets, written on a background thread.
 //!
 //! The network tasks hand each packet to a bounded queue as a shared view of its batch; they
-//! never copy a body or wait for the disk. When the queue is full the packet is dropped and
-//! counted, and the next packet that fits is preceded by a gap record carrying that count.
+//! never copy a body, wait for the disk or block on a full queue. A packet that finds the queue
+//! full is dropped and counted, and the next packet that fits is preceded by a gap record
+//! carrying that count; packets dropped after the last gap are counted in a gap the writer
+//! appends when the capture finishes.
+//!
+//! The writer passes at most [`CAPTURE_BUFFER_BYTES`] at a time to the file and flushes
+//! whenever its queue runs empty, so a crash loses at most that much plus the queue, and the
+//! file then ends inside a record, which readers drop. At session end, [`CaptureFinisher`]
+//! asks it to write what is queued, append the last gap and flush, waiting a bounded time.
 
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, Sender, TrySendError};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError};
 use protocol::capture::{CaptureHeader, CaptureRecord, CaptureWriter};
 use protocol::packet_tap::{PacketBody, PacketDirection};
 
 /// Records waiting for the writer thread; past this, packets are dropped and counted.
 pub const CAPTURE_QUEUE_RECORDS: usize = 8192;
+/// Encoded bytes the writer holds before passing them to the file.
+pub const CAPTURE_BUFFER_BYTES: usize = 64 << 10;
 /// Extension of capture v2 files.
 pub const CAPTURE_EXTENSION: &str = "cnbrcap";
+/// How long session teardown waits for the writer to finish the file.
+pub(crate) const CAPTURE_FINISH_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Where one session's capture goes, and the wall-clock time its header records.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,45 +67,74 @@ impl PacketCaptureRequest {
 pub(crate) struct CaptureFeed {
     sender: Sender<CaptureRecord>,
     started: Instant,
-    dropped: AtomicU64, // packets dropped since the last gap record
+    dropped: Arc<AtomicU64>, // packets dropped since the last gap record
+}
+
+/// The writer side of a capture: queued records, the stop request and the drop count.
+pub(crate) struct CaptureQueue {
+    records: Receiver<CaptureRecord>,
+    stop: Receiver<()>,
+    started: Instant,
+    dropped: Arc<AtomicU64>,
+}
+
+/// Ends a capture from session teardown.
+pub(crate) struct CaptureFinisher {
+    stop: Sender<()>,
+    done: Receiver<()>,
+}
+
+/// A feed into a queue of `capacity` records whose timestamps count from `started`, and the
+/// sender that stops the queue's writer, which dropping also does.
+pub(crate) fn channel(
+    capacity: usize,
+    started: Instant,
+) -> (CaptureFeed, CaptureQueue, Sender<()>) {
+    let (sender, records) = crossbeam_channel::bounded(capacity);
+    let (stop_sender, stop) = crossbeam_channel::bounded(1);
+    let dropped = Arc::new(AtomicU64::new(0));
+    let feed = CaptureFeed {
+        sender,
+        started,
+        dropped: Arc::clone(&dropped),
+    };
+    let queue = CaptureQueue {
+        records,
+        stop,
+        started,
+        dropped,
+    };
+    (feed, queue, stop_sender)
 }
 
 impl CaptureFeed {
     /// Creates the capture file and starts its writer thread. An existing file is never
-    /// replaced: the start time is added to the name instead. Returns the feed, the path
-    /// written and the writer thread, which ends once the feed is dropped and every queued
-    /// record is written, or when the size limit ends the capture.
+    /// replaced: the start time is added to the name instead. Returns the feed, the finisher
+    /// that ends the capture and the path written.
     pub(crate) fn start(
         request: &PacketCaptureRequest,
         started: Instant,
-    ) -> io::Result<(Self, PathBuf, JoinHandle<()>)> {
+    ) -> io::Result<(Self, CaptureFinisher, PathBuf)> {
         let (path, file) = create_capture_file(&request.path, request.started_unix_ms)?;
         let writer = CaptureWriter::new(
-            BufWriter::new(file),
+            BufWriter::with_capacity(CAPTURE_BUFFER_BYTES, file),
             CaptureHeader {
                 protocol_version: protocol::PROTOCOL_VERSION,
                 started_unix_ms: request.started_unix_ms,
             },
         )?;
-        let (sender, receiver) = crossbeam_channel::bounded(CAPTURE_QUEUE_RECORDS);
+        let (feed, queue, stop) = channel(CAPTURE_QUEUE_RECORDS, started);
+        let (done_sender, done) = crossbeam_channel::bounded::<()>(0);
         let display = path.display().to_string();
-        let thread = thread::Builder::new()
+        thread::Builder::new()
             .name("packet-capture".to_owned())
             .spawn(move || {
-                if let Err(error) = drain(&receiver, writer) {
+                if let Err(error) = queue.drain(writer) {
                     tracing::warn!(path = %display, %error, "packet capture stopped");
                 }
+                drop(done_sender);
             })?;
-        Ok((Self::new(sender, started), path, thread))
-    }
-
-    /// A feed into `sender` whose timestamps count from `started`.
-    pub(crate) fn new(sender: Sender<CaptureRecord>, started: Instant) -> Self {
-        Self {
-            sender,
-            started,
-            dropped: AtomicU64::new(0),
-        }
+        Ok((feed, CaptureFinisher { stop, done }, path))
     }
 
     /// Queues one packet seen at `now` without waiting; the body stays a view of its batch.
@@ -131,36 +172,62 @@ impl CaptureFeed {
     }
 }
 
-impl Drop for CaptureFeed {
-    /// Records the packets dropped since the last gap, waiting for room if it must: the
-    /// session is over, and the count is the only trace of them.
-    fn drop(&mut self) {
-        let dropped = *self.dropped.get_mut();
+impl CaptureQueue {
+    /// Writes queued records until every feed is gone, a stop is requested or the size limit
+    /// ends the capture. On a stop it writes the records already queued. It then appends a gap
+    /// for packets dropped since the last one, flushes and returns the underlying writer.
+    pub(crate) fn drain<W: Write>(self, mut writer: CaptureWriter<W>) -> io::Result<W> {
+        loop {
+            crossbeam_channel::select! {
+                recv(self.records) -> record => {
+                    let Ok(record) = record else { break };
+                    if !writer.write(&record)? {
+                        break;
+                    }
+                    if self.records.is_empty() {
+                        writer.flush()?;
+                    }
+                }
+                recv(self.stop) -> _ => {
+                    for record in self.records.try_iter() {
+                        if !writer.write(&record)? {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        let dropped = self.dropped.swap(0, Ordering::Relaxed);
         if dropped != 0 {
-            let _ = self.sender.send(CaptureRecord::Gap {
+            writer.write(&CaptureRecord::Gap {
                 elapsed_us: micros(self.started.elapsed()),
                 dropped,
-            });
+            })?;
         }
+        writer.flush()?;
+        Ok(writer.into_inner())
     }
 }
 
-/// Writes queued records until every feed is gone or the size limit ends the capture,
-/// flushing whenever the queue runs empty. Returns the underlying writer.
-pub(crate) fn drain<W: Write>(
-    receiver: &Receiver<CaptureRecord>,
-    mut writer: CaptureWriter<W>,
-) -> io::Result<W> {
-    while let Ok(record) = receiver.recv() {
-        if !writer.write(&record)? {
-            break;
-        }
-        if receiver.is_empty() {
-            writer.flush()?;
-        }
+impl CaptureFinisher {
+    /// Asks the writer to finish the file and waits at most `within` for it; returns whether
+    /// it finished. Feeds still held elsewhere may keep queuing, but nothing more is written.
+    pub(crate) fn finish(self, within: Duration) -> bool {
+        let _ = self.stop.try_send(());
+        matches!(
+            self.done.recv_timeout(within),
+            Err(RecvTimeoutError::Disconnected)
+        )
     }
-    writer.flush()?;
-    Ok(writer.into_inner())
+}
+
+#[cfg(test)]
+impl CaptureQueue {
+    /// Takes the queued records without writing them.
+    pub(crate) fn take_queued(&self) -> Vec<CaptureRecord> {
+        self.records.try_iter().collect()
+    }
 }
 
 /// Creates `path` exclusively, readable only by its owner on Unix; when it exists, creates

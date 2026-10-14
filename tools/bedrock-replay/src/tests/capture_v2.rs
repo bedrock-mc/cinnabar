@@ -115,8 +115,30 @@ fn a_capture_cut_by_its_size_limit_replays_what_it_kept() {
     assert_eq!(cut.summary.replay_packets, 5);
 }
 
+/// A client that crashed mid-write leaves a capture ending inside a record.
 #[test]
-fn v2_captures_from_another_protocol_or_cut_short_are_rejected() {
+fn a_capture_ending_inside_a_record_replays_its_complete_records() {
+    let full = read(v2_fixture(protocol::PROTOCOL_VERSION, MAX_CAPTURE_BYTES)).unwrap();
+    assert!(!full.summary.truncated);
+    let mut torn = v2_fixture(protocol::PROTOCOL_VERSION, MAX_CAPTURE_BYTES);
+    torn.pop();
+    let torn = read(torn).unwrap();
+    assert!(torn.summary.truncated);
+    assert_eq!(torn.summary.replay_packets, full.summary.replay_packets - 1);
+    assert_eq!(
+        torn.packets
+            .iter()
+            .map(|packet| packet.wire.clone())
+            .collect::<Vec<_>>(),
+        full.packets[..full.packets.len() - 1]
+            .iter()
+            .map(|packet| packet.wire.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn v2_captures_from_another_protocol_are_rejected() {
     assert!(
         read(v2_fixture(
             protocol::PROTOCOL_VERSION + 1,
@@ -124,9 +146,6 @@ fn v2_captures_from_another_protocol_or_cut_short_are_rejected() {
         ))
         .is_err()
     );
-    let mut cut = v2_fixture(protocol::PROTOCOL_VERSION, MAX_CAPTURE_BYTES);
-    cut.pop();
-    assert!(read(cut).is_err());
 }
 
 #[test]

@@ -31,6 +31,18 @@ fn encode(limit: u64, records: &[CaptureRecord]) -> (Vec<u8>, Vec<bool>) {
     (bytes, accepted)
 }
 
+fn read(bytes: &[u8]) -> Result<CaptureFile, CaptureError> {
+    read_capture(Bytes::copy_from_slice(bytes))
+}
+
+fn complete(records: &[CaptureRecord]) -> CaptureFile {
+    CaptureFile {
+        header: HEADER,
+        records: records.to_vec(),
+        cut_short: false,
+    }
+}
+
 #[test]
 fn records_round_trip_with_their_header_and_little_endian_layout() {
     let records = [
@@ -57,10 +69,7 @@ fn records_round_trip_with_their_header_and_little_endian_layout() {
     let expected_len =
         CAPTURE_HEADER_BYTES + records.iter().map(CaptureRecord::encoded_len).sum::<u64>();
     assert_eq!(bytes.len() as u64, expected_len);
-    assert_eq!(
-        read_capture(Bytes::from(bytes)).unwrap(),
-        (HEADER, records.to_vec())
-    );
+    assert_eq!(read(&bytes), Ok(complete(&records)));
 }
 
 #[test]
@@ -74,15 +83,16 @@ fn gap_records_count_dropped_packets_in_stream_order() {
         packet(PacketDirection::Clientbound, 9, 30, &[2]),
     ];
     let (bytes, _) = encode(MAX_CAPTURE_BYTES, &records);
-    let (_, read) = read_capture(Bytes::from(bytes)).unwrap();
-    assert_eq!(read, records);
-    assert!(matches!(
-        read[1],
-        CaptureRecord::Gap {
-            dropped: u64::MAX,
-            ..
-        }
-    ));
+    assert_eq!(read(&bytes), Ok(complete(&records)));
+    let mut writer = CaptureWriter::new(Vec::new(), HEADER).unwrap();
+    assert!(
+        writer
+            .write(&CaptureRecord::Gap {
+                elapsed_us: 1,
+                dropped: 0
+            })
+            .is_err()
+    );
 }
 
 #[test]
@@ -97,48 +107,80 @@ fn size_limit_ends_the_capture_with_one_final_marker_and_never_exceeds_it() {
     let (bytes, accepted) = encode(limit, &records);
     assert_eq!(accepted, [true, true, false, false, false]);
     assert!(bytes.len() as u64 <= limit);
-    let (_, read) = read_capture(Bytes::from(bytes)).unwrap();
     assert_eq!(
-        read,
-        [
+        read(&bytes),
+        Ok(complete(&[
             records[0].clone(),
             records[1].clone(),
             CaptureRecord::Truncated { elapsed_us: 200 }
-        ]
+        ]))
     );
     let exact = CAPTURE_HEADER_BYTES + 3 * one + RECORD_HEADER_BYTES;
     assert_eq!(encode(exact, &records).1, [true, true, true, false, false]);
     assert!(CaptureWriter::with_limit(Vec::new(), HEADER, CAPTURE_HEADER_BYTES).is_err());
 }
 
+/// A writer that stopped mid-record leaves a readable capture of the records before it.
 #[test]
-fn reader_rejects_truncation_unknown_kinds_and_records_after_the_final_marker() {
+fn a_file_ending_inside_a_record_keeps_the_complete_records_and_is_cut_short() {
+    let records = [
+        packet(PacketDirection::Clientbound, 11, 0, &[1, 2, 3]),
+        packet(PacketDirection::Clientbound, 9, 5, &[4, 5]),
+    ];
+    let (bytes, _) = encode(MAX_CAPTURE_BYTES, &records);
+    let second = CAPTURE_HEADER_BYTES + records[0].encoded_len();
+    for cut in 0..bytes.len() {
+        let result = read(&bytes[..cut]);
+        if (cut as u64) < CAPTURE_HEADER_BYTES {
+            assert!(result.is_err(), "header cut at {cut}");
+            continue;
+        }
+        let kept = usize::from(cut as u64 >= second);
+        let boundary = cut as u64 == CAPTURE_HEADER_BYTES || cut as u64 == second;
+        assert_eq!(
+            result,
+            Ok(CaptureFile {
+                header: HEADER,
+                records: records[..kept].to_vec(),
+                cut_short: !boundary,
+            }),
+            "cut at {cut}"
+        );
+    }
+}
+
+#[test]
+fn reader_rejects_malformed_records_and_records_after_the_final_marker() {
     let (bytes, _) = encode(
         MAX_CAPTURE_BYTES,
         &[packet(PacketDirection::Clientbound, 11, 0, &[1, 2, 3])],
     );
-    for cut in 0..bytes.len() {
-        if cut == CAPTURE_HEADER_BYTES as usize {
-            assert_eq!(
-                read_capture(Bytes::copy_from_slice(&bytes[..cut])).map(|(_, records)| records),
-                Ok(Vec::new())
-            );
-            continue;
-        }
-        assert!(read_capture(Bytes::copy_from_slice(&bytes[..cut])).is_err());
-    }
+    let record = CAPTURE_HEADER_BYTES as usize;
     let mut version = bytes.clone();
     version[8] = 3;
-    assert_eq!(
-        read_capture(Bytes::from(version)),
-        Err(CaptureError::Version(3))
-    );
+    assert_eq!(read(&version), Err(CaptureError::Version(3)));
     let mut kind = bytes.clone();
-    kind[CAPTURE_HEADER_BYTES as usize] = 9;
-    assert_eq!(
-        read_capture(Bytes::from(kind)),
-        Err(CaptureError::Kind { record: 0, kind: 9 })
+    kind[record] = 9;
+    assert_eq!(read(&kind), Err(CaptureError::Kind { record: 0, kind: 9 }));
+
+    let (gap, _) = encode(
+        MAX_CAPTURE_BYTES,
+        &[CaptureRecord::Gap {
+            elapsed_us: 4,
+            dropped: 2,
+        }],
     );
+    let malformed_gap = CaptureError::Marker {
+        record: 0,
+        kind: "gap",
+    };
+    let mut named = gap.clone();
+    named[record + 1] = 1;
+    assert_eq!(read(&named), Err(malformed_gap.clone()));
+    let mut empty = gap.clone();
+    empty[record + RECORD_HEADER_BYTES as usize] = 0;
+    assert_eq!(read(&empty), Err(malformed_gap));
+
     let mut after_end = Vec::new();
     let mut writer = CaptureWriter::with_limit(
         &mut after_end,
@@ -151,10 +193,31 @@ fn reader_rejects_truncation_unknown_kinds_and_records_after_the_final_marker() 
             .write(&packet(PacketDirection::Clientbound, 11, 5, &[1]))
             .unwrap()
     );
-    after_end.extend_from_slice(&bytes[CAPTURE_HEADER_BYTES as usize..]);
+    let mut named_end = after_end.clone();
+    named_end[record + 1] = 1;
     assert_eq!(
-        read_capture(Bytes::from(after_end)),
-        Err(CaptureError::AfterEnd { record: 1 })
+        read(&named_end),
+        Err(CaptureError::Marker {
+            record: 0,
+            kind: "final"
+        })
+    );
+    after_end.extend_from_slice(&bytes[record..]);
+    assert_eq!(read(&after_end), Err(CaptureError::AfterEnd { record: 1 }));
+}
+
+#[test]
+fn captures_over_the_size_limit_are_rejected() {
+    let (bytes, _) = encode(
+        MAX_CAPTURE_BYTES,
+        &[packet(PacketDirection::Clientbound, 11, 0, &[1, 2, 3])],
+    );
+    let len = bytes.len() as u64;
+    let data = Bytes::from(bytes);
+    assert!(read_capture_within(data.clone(), len).is_ok());
+    assert_eq!(
+        read_capture_within(data, len - 1),
+        Err(CaptureError::TooLarge(len))
     );
 }
 
@@ -162,5 +225,5 @@ fn reader_rejects_truncation_unknown_kinds_and_records_after_the_final_marker() 
 fn v1_streams_are_not_mistaken_for_v2() {
     let v1 = [11_u32.to_le_bytes(), 0_u32.to_le_bytes()].concat();
     assert!(!is_capture_v2(&v1));
-    assert_eq!(read_capture(Bytes::from(v1)), Err(CaptureError::Magic));
+    assert_eq!(read(&v1), Err(CaptureError::Magic));
 }

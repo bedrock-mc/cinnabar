@@ -43,8 +43,9 @@ pub fn spawn_network<P: Send + 'static>(
                     return;
                 }
             };
+            let (packet_tap, packet_capture) =
+                packet_log::session_tap(config.packet_capture.as_ref());
             run_session_runtime(runtime, async move {
-                let packet_tap = packet_log::session_tap(config.packet_capture.as_ref());
                 let Some(login) = wait_for_login_or_cancel(
                     LoginSequence::connect_session(
                         &config.socket_dir,
@@ -176,6 +177,14 @@ pub fn spawn_network<P: Send + 'static>(
                     pump.await;
                 }
             });
+            // Tasks the background shutdown has not dropped yet may still hold the capture's
+            // feed, so end it explicitly. This thread is detached from the handle's teardown,
+            // and the wait is bounded.
+            if let Some(capture) = packet_capture
+                && !capture.finish(packet_log::CAPTURE_FINISH_TIMEOUT)
+            {
+                tracing::warn!("packet capture writer did not finish in time");
+            }
         })?;
     Ok(NetworkHandle {
         session_generation: session_generation.get(),

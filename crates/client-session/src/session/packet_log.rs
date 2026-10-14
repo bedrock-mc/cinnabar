@@ -1,10 +1,10 @@
 //! The always-on packet flight recorder and opt-in full capture at session ingress and egress.
 //!
 //! Every session reports its packets to [`global`]: a header ring of the last
-//! [`RING_CAPACITY`] packets in both directions, and the raw bodies of packets ingress rejected.
-//! Recording a header neither allocates nor formats; only a rejected packet's body is copied.
-//! Packets that can carry credentials or pack content keys keep their header but never their
-//! body, in samples or in captures.
+//! [`RING_CAPACITY`] packets in both directions, and the raw bodies of packets ingress rejected
+//! in the latest session that rejected any. Recording a header neither allocates nor formats;
+//! only a rejected packet's body is copied. Packets that can carry credentials or pack content
+//! keys keep their header but never their body, in samples or in captures.
 
 mod capture;
 mod ring;
@@ -14,6 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
@@ -22,8 +23,10 @@ use protocol::packet_tap::{
     UNFRAMED_BATCH_ID, carries_secrets,
 };
 
-pub(crate) use capture::CaptureFeed;
-pub use capture::{CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, PacketCaptureRequest};
+pub use capture::{
+    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, PacketCaptureRequest,
+};
+pub(crate) use capture::{CAPTURE_FINISH_TIMEOUT, CaptureFeed, CaptureFinisher};
 use ring::HeaderRing;
 pub use ring::{HeaderRecord, RING_CAPACITY};
 use samples::FailureSamples;
@@ -33,6 +36,7 @@ pub use samples::{FailureSample, MAX_SAMPLE_BYTES, MAX_SAMPLES_PER_PACKET};
 pub struct PacketLog {
     ring: HeaderRing,
     samples: Mutex<FailureSamples>,
+    sessions: AtomicU64, // sessions begun so far
 }
 
 static PACKET_LOG: PacketLog = PacketLog::new();
@@ -48,7 +52,13 @@ impl PacketLog {
         Self {
             ring: HeaderRing::new(),
             samples: Mutex::new(FailureSamples::new()),
+            sessions: AtomicU64::new(0),
         }
+    }
+
+    /// Numbers a new session, from 1; its rejected bodies replace older sessions' samples.
+    pub(crate) fn begin_session(&self) -> u64 {
+        self.sessions.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     /// Appends a header, returning its sequence number. `elapsed_ms` is the caller's monotonic
@@ -66,10 +76,11 @@ impl PacketLog {
             .record(direction, packet_id, len, elapsed_ms, outcome)
     }
 
-    /// Records that ingress rejected record `sequence` with `outcome`, keeping its body as a
-    /// sample within the sample bounds.
+    /// Records that ingress in `session` rejected record `sequence` with `outcome`, keeping its
+    /// body as a sample within that session's sample bounds.
     pub(crate) fn reject(
         &self,
+        session: u64,
         sequence: u64,
         packet_id: u32,
         outcome: PacketOutcome,
@@ -77,7 +88,7 @@ impl PacketLog {
     ) {
         self.ring.settle(sequence, outcome);
         self.lock_samples()
-            .offer(sequence, packet_id, outcome, body);
+            .offer(session, sequence, packet_id, outcome, body);
     }
 
     /// The retained headers, oldest first. A header overwritten while it is read is left out.
@@ -88,15 +99,16 @@ impl PacketLog {
         headers
     }
 
-    /// The kept rejected-packet samples, oldest first.
+    /// The kept rejected-packet samples of the latest session that rejected a packet, oldest
+    /// first.
     #[must_use]
     pub fn samples(&self) -> Vec<FailureSample> {
         self.lock_samples().samples().to_vec()
     }
 
     /// Writes the retained headers as a text table, oldest first, followed by a summary of the
-    /// rejected-packet samples. Never waits: samples another thread is updating, as when the
-    /// crash interrupted it, are reported as unavailable.
+    /// latest session's rejected-packet samples. Never waits: samples another thread is
+    /// updating, as when the crash interrupted it, are reported as unavailable.
     pub fn dump(&self, out: &mut impl Write) -> io::Result<()> {
         let recorded = self.ring.recorded();
         writeln!(
@@ -134,7 +146,8 @@ impl PacketLog {
         };
         writeln!(
             out,
-            "rejected packet samples: {} kept ({} bytes), {} withheld as credential-bearing, {} over the bounds",
+            "rejected packet samples from session {}: {} kept ({} bytes), {} withheld as credential-bearing, {} over the bounds",
+            samples.session(),
             samples.samples().len(),
             samples.bytes(),
             samples.withheld(),
@@ -159,7 +172,8 @@ impl PacketLog {
             fs::write(dir.join(&name), &sample.body)?;
             writeln!(
                 index,
-                "{name}: {} ({}) {}, {} of {} bytes",
+                "{name}: session {}, {} ({}) {}, {} of {} bytes",
+                sample.session,
                 PacketName(sample.packet_id),
                 sample.packet_id,
                 Outcome(sample.outcome),
@@ -187,36 +201,50 @@ impl PacketLog {
 /// The instant [`global`] header times count from: the first session's start.
 static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
-/// Starts a session's tap into [`global`], with a full capture when `capture` asks for one.
-/// A capture that cannot start is logged and the session continues without it.
-pub(crate) fn session_tap(capture: Option<&PacketCaptureRequest>) -> Arc<dyn PacketTap> {
+/// Starts a session's tap into [`global`] under a new session number, with a full capture when
+/// `capture` asks for one. A capture that cannot start is logged and the session continues
+/// without it; one that starts comes with the finisher session teardown ends it with.
+pub(crate) fn session_tap(
+    capture: Option<&PacketCaptureRequest>,
+) -> (Arc<dyn PacketTap>, Option<CaptureFinisher>) {
     let epoch = *EPOCH;
-    let capture = capture.and_then(|request| {
-        match CaptureFeed::start(request, Instant::now()) {
-            Ok((feed, path, _writer)) => {
-                tracing::info!(path = %path.display(), "recording a full packet capture");
-                Some(feed)
-            }
-            Err(error) => {
-                tracing::warn!(path = %request.path.display(), %error, "packet capture unavailable");
-                None
-            }
+    let (feed, finisher) = match capture
+        .map(|request| (request, CaptureFeed::start(request, Instant::now())))
+    {
+        Some((_, Ok((feed, finisher, path)))) => {
+            tracing::info!(path = %path.display(), "recording a full packet capture");
+            (Some(feed), Some(finisher))
         }
-    });
-    Arc::new(SessionTap::new(global(), epoch, capture))
+        Some((request, Err(error))) => {
+            tracing::warn!(path = %request.path.display(), %error, "packet capture unavailable");
+            (None, None)
+        }
+        None => (None, None),
+    };
+    let log = global();
+    let tap = SessionTap::new(log, log.begin_session(), epoch, feed);
+    (Arc::new(tap), finisher)
 }
 
 /// One session's [`PacketTap`]: headers go to a [`PacketLog`], and packets to its capture.
 pub(crate) struct SessionTap<'log> {
     log: &'log PacketLog,
+    session: u64,
     epoch: Instant,
     capture: Option<CaptureFeed>,
 }
 
 impl<'log> SessionTap<'log> {
-    pub(crate) fn new(log: &'log PacketLog, epoch: Instant, capture: Option<CaptureFeed>) -> Self {
+    /// A tap for session number `session` of `log`, timing headers from `epoch`.
+    pub(crate) fn new(
+        log: &'log PacketLog,
+        session: u64,
+        epoch: Instant,
+        capture: Option<CaptureFeed>,
+    ) -> Self {
         Self {
             log,
+            session,
             epoch,
             capture,
         }
@@ -258,7 +286,7 @@ impl PacketTap for SessionTap<'_> {
         body: PacketBody<'_>,
     ) {
         self.log
-            .reject(record.0, packet_id, outcome, body.as_slice());
+            .reject(self.session, record.0, packet_id, outcome, body.as_slice());
     }
 
     fn reject_batch(&self, len: usize) {

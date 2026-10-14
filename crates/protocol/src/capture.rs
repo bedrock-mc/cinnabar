@@ -5,7 +5,10 @@
 //! `u8` kind, `u32` packet ID, `u64` microseconds since the start, `u32` body length and the
 //! body. Kinds 0 and 1 are packets in their [`PacketDirection`]; kind 2 is a gap whose 8-byte
 //! body counts the packets dropped at that point; kind 3, with an empty body, ends a capture
-//! its size limit cut short.
+//! its size limit cut short. Markers carry packet ID 0.
+//!
+//! A capture whose writer stopped mid-write, as when the client crashed, ends inside a record;
+//! [`read_capture`] keeps the complete records before it and reports the capture cut short.
 
 use std::io::{self, Write};
 
@@ -140,8 +143,15 @@ impl<W: Write> CaptureWriter<W> {
     }
 
     /// Appends `record`, returning `false` once the limit has ended the capture: the record
-    /// that reaches it is replaced by the final marker, and later records are not written.
+    /// that reaches it is replaced by the final marker, and later records are not written. A
+    /// gap of zero packets is refused.
     pub fn write(&mut self, record: &CaptureRecord) -> io::Result<bool> {
+        if matches!(record, CaptureRecord::Gap { dropped: 0, .. }) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a gap record counts at least one dropped packet",
+            ));
+        }
         if self.ended {
             return Ok(false);
         }
@@ -180,16 +190,16 @@ impl<W: Write> CaptureWriter<W> {
 }
 
 /// Why a capture could not be read.
-#[derive(Debug, Error, Eq, PartialEq)]
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum CaptureError {
     #[error("capture does not start with the v2 magic")]
     Magic,
     #[error("capture header is truncated")]
     TruncatedHeader,
+    #[error("capture of {0} bytes exceeds the capture size limit")]
+    TooLarge(u64),
     #[error("unsupported capture format version {0}")]
     Version(u16),
-    #[error("record {record}: truncated")]
-    TruncatedRecord { record: usize },
     #[error("record {record}: unknown kind {kind}")]
     Kind { record: usize, kind: u8 },
     #[error("record {record}: malformed {kind} marker")]
@@ -198,16 +208,34 @@ pub enum CaptureError {
     AfterEnd { record: usize },
 }
 
+/// A v2 capture as read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CaptureFile {
+    pub header: CaptureHeader,
+    pub records: Vec<CaptureRecord>,
+    /// The file ends inside a record, which was left out: its writer stopped mid-write.
+    pub cut_short: bool,
+}
+
 /// Whether `data` starts like a v2 capture.
 #[must_use]
 pub fn is_capture_v2(data: &[u8]) -> bool {
     data.starts_with(&CAPTURE_MAGIC)
 }
 
-/// Reads a whole v2 capture; packet bodies are views of `data`.
-pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), CaptureError> {
+/// Reads a whole v2 capture of at most [`MAX_CAPTURE_BYTES`]; packet bodies are views of
+/// `data`. A final record the file ends inside is dropped and reported as
+/// [`CaptureFile::cut_short`]; any other malformed record rejects the capture.
+pub fn read_capture(data: Bytes) -> Result<CaptureFile, CaptureError> {
+    read_capture_within(data, MAX_CAPTURE_BYTES)
+}
+
+fn read_capture_within(data: Bytes, max_bytes: u64) -> Result<CaptureFile, CaptureError> {
     if !is_capture_v2(&data) {
         return Err(CaptureError::Magic);
+    }
+    if data.len() as u64 > max_bytes {
+        return Err(CaptureError::TooLarge(data.len() as u64));
     }
     if (data.len() as u64) < CAPTURE_HEADER_BYTES {
         return Err(CaptureError::TruncatedHeader);
@@ -223,6 +251,7 @@ pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), 
     let mut records = Vec::new();
     let mut offset = CAPTURE_HEADER_BYTES as usize;
     let mut ended = false;
+    let mut cut_short = false;
     while offset < data.len() {
         let record = records.len();
         if ended {
@@ -230,7 +259,8 @@ pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), 
         }
         let rest = &data[offset..];
         if (rest.len() as u64) < RECORD_HEADER_BYTES {
-            return Err(CaptureError::TruncatedRecord { record });
+            cut_short = true;
+            break;
         }
         let kind = rest[0];
         let packet_id = u32::from_le_bytes(rest[1..5].try_into().expect("four bytes"));
@@ -238,8 +268,10 @@ pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), 
         let length = u32::from_le_bytes(rest[13..17].try_into().expect("four bytes")) as usize;
         let start = offset + RECORD_HEADER_BYTES as usize;
         let Some(end) = start.checked_add(length).filter(|end| *end <= data.len()) else {
-            return Err(CaptureError::TruncatedRecord { record });
+            cut_short = true;
+            break;
         };
+        let marker = |name| CaptureError::Marker { record, kind: name };
         records.push(match (PacketDirection::from_wire(kind), kind) {
             (Some(direction), _) => CaptureRecord::Packet {
                 direction,
@@ -248,23 +280,21 @@ pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), 
                 body: data.slice(start..end),
             },
             (None, KIND_GAP) => {
-                if length != GAP_BODY_BYTES as usize {
-                    return Err(CaptureError::Marker {
-                        record,
-                        kind: "gap",
-                    });
+                if packet_id != 0 || length != GAP_BODY_BYTES as usize {
+                    return Err(marker("gap"));
+                }
+                let dropped = u64::from_le_bytes(data[start..end].try_into().expect("eight bytes"));
+                if dropped == 0 {
+                    return Err(marker("gap"));
                 }
                 CaptureRecord::Gap {
                     elapsed_us,
-                    dropped: u64::from_le_bytes(data[start..end].try_into().expect("eight bytes")),
+                    dropped,
                 }
             }
             (None, KIND_TRUNCATED) => {
-                if length != 0 {
-                    return Err(CaptureError::Marker {
-                        record,
-                        kind: "final",
-                    });
+                if packet_id != 0 || length != 0 {
+                    return Err(marker("final"));
                 }
                 ended = true;
                 CaptureRecord::Truncated { elapsed_us }
@@ -273,7 +303,11 @@ pub fn read_capture(data: Bytes) -> Result<(CaptureHeader, Vec<CaptureRecord>), 
         });
         offset = end;
     }
-    Ok((header, records))
+    Ok(CaptureFile {
+        header,
+        records,
+        cut_short,
+    })
 }
 
 #[cfg(test)]

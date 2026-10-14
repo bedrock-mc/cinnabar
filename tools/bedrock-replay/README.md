@@ -76,13 +76,16 @@ The helper reads two capture formats and tells them apart by the v2 magic.
   is a `u8` kind, `u32` packet ID, `u64` microseconds since the start, `u32` body length
   and the body, all little-endian. Kinds 0 and 1 are clientbound and serverbound
   packets; kind 2 is a gap whose 8-byte body counts packets the client dropped; kind 3
-  ends a capture its 512 MiB limit cut short. The client records clientbound packets as
-  their batch arrives, from the handed-off startup on, and never records login,
-  handshake or resource-pack offer packets.
+  ends a capture its 512 MiB limit cut short. Markers carry packet ID 0. The client
+  records clientbound packets when its session reads their batch from the core, from the
+  handed-off startup on, and never records login, handshake or resource-pack offer
+  packets.
 
 Serverbound records are counted and ignored. The report's `capture` section gives the
 `format`, `serverbound_records_ignored`, `dropped_packets` from gap records and whether
-the capture was `truncated`; a capture with gaps or truncation replays what it kept.
+the capture was `truncated`: stopped by its size limit, or ending inside a record because
+the client crashed or was killed while writing. A capture with gaps or truncation replays
+the complete records it kept; any other malformed record rejects the file.
 The helper reconstructs a header with zero subclient IDs and preserves all selected
 bodies and their order. A v2 capture from another protocol version is rejected; for v1,
 use a capture from the pinned protocol version, because the report identifies the
@@ -104,11 +107,16 @@ the same capture, packs, burst settings, client build, carrier hashes, cache sta
 presentation settings and focus/occlusion conditions for before/after work.
 
 With a v2 capture, `-original-timing` replaces the fixed schedule with the recorded
-arrival times: each play burst is due when its first packet arrived, counted from
-StartGame's arrival, and packets that arrived within 1 ms of it join the burst within
-the packet and byte limits. The report sets `original_timing`. Arrival times are the
-client's, so they include the original session's network and core delays but not the
-server's send times. v1 captures have no timing and refuse `-original-timing`.
+times: each play burst is due when its first packet was received, counted from
+StartGame's, and packets received within 1 ms of it join the burst within the packet
+and byte limits. The report sets `original_timing`. The client records a packet when its
+session reads the batch from the core's socket, which it does only when ingress asks for
+a packet and has none left; the handed-off startup is recorded at once. While the
+original client's ingress was backlogged (a full world-event queue, slow decoding),
+those times trail the batch's socket arrival, so `-original-timing` replays the original
+client's read pace, slowdowns included, rather than the server's send times. Compare
+captures from unloaded sessions when timing matters. v1 captures have no timing and
+refuse `-original-timing`.
 
 `complete` means every selected packet was flushed and the ordered byte witness
 matched. It does not mean the client consumed every packet or presented the world.
