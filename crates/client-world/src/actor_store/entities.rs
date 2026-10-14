@@ -1,9 +1,11 @@
 use assets::ItemVisualRoute;
-use protocol::{ActorKind, ActorMetadataValue};
+use assets::facts::entity::NativeEntityClass;
+use protocol::ActorMetadataValue;
 
 use super::{ActorSnapshot, ActorStore, FUSE_TIME_METADATA_KEY};
 
-const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
+/// Metadata key carrying a falling block's displayed block runtime ID.
+pub(super) const DISPLAY_BLOCK_METADATA_KEY: u32 = 2;
 const OWNER_METADATA_KEY: u32 = 5;
 pub(super) const LEASH_HOLDER_METADATA_KEY: u32 = 37;
 pub(super) const INVALID_LEASH_HOLDER_ID: i64 = -1;
@@ -132,13 +134,10 @@ impl ActorStore {
     }
 
     fn block_entity_view(&self, actor: &ActorSnapshot, alpha: f32) -> Option<BlockEntityView> {
-        let ActorKind::Entity { identifier } = &actor.kind else {
-            return None;
-        };
         let feet = interpolated(actor, alpha);
         let center = [feet[0], feet[1] + BLOCK_ENTITY_CENTER_HEIGHT, feet[2]];
-        match identifier.as_ref() {
-            "minecraft:falling_block" => {
+        match actor.entity_fact.native_class {
+            NativeEntityClass::FallingBlock => {
                 let ActorMetadataValue::Int(block) =
                     actor.metadata.get(&DISPLAY_BLOCK_METADATA_KEY)?
                 else {
@@ -155,7 +154,7 @@ impl ActorStore {
                     flash: false,
                 })
             }
-            "minecraft:tnt" => {
+            NativeEntityClass::Tnt => {
                 let fuse = match actor.metadata.get(&FUSE_TIME_METADATA_KEY) {
                     Some(ActorMetadataValue::Int(value)) => {
                         let elapsed = actor
@@ -201,7 +200,7 @@ impl ActorStore {
                     to: attach(holder),
                 });
             }
-            let is_hook = matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:fishing_hook");
+            let is_hook = actor.entity_fact.native_class == NativeEntityClass::FishingHook;
             if !is_hook {
                 continue;
             }

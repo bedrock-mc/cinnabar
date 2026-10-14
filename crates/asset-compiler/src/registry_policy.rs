@@ -15,6 +15,7 @@ mod biomes;
 pub mod block_entities;
 mod block_rules;
 mod carriers;
+pub mod entities;
 mod format_generated;
 pub mod items;
 mod light;
@@ -57,6 +58,8 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    entity_compatibility: Vec<String>,
+    entity_rules: Vec<entities::Rule>,
     model_family_rules: Vec<block_rules::Rule>,
     block_rules: Vec<block_rules::Rule>,
     block_entity_rules: Vec<block_entities::Rule>,

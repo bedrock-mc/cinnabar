@@ -13,6 +13,7 @@ pub(crate) use properties::decode;
 pub use properties::{PropertyDomain, StateValue};
 pub use properties_generated::BlockProperty;
 
+pub mod entity;
 mod item;
 mod item_carrier;
 pub use item::{

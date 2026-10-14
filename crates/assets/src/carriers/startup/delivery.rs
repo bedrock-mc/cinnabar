@@ -54,6 +54,7 @@ impl DeliveryManifest {
                     carrier.recipe,
                     Recipe::World
                         | Recipe::ItemFacts
+                        | Recipe::EntityFacts
                         | Recipe::Atmosphere
                         | Recipe::Entity
                         | Recipe::Actor
@@ -169,6 +170,9 @@ impl MemoryCarriers {
         let decode = || -> Result<_, Box<dyn std::error::Error>> {
             crate::facts::ItemFacts::validate_pinned(self.read(&carriers::ITEM_FACTS)?)?;
             let item_facts = Arc::clone(crate::facts::ItemFacts::builtin()?);
+            crate::facts::entity::EntityFacts::validate_pinned(
+                self.read(&carriers::ENTITY_FACTS)?,
+            )?;
             let world = RuntimeAssets::decode(self.read(&carriers::WORLD)?)?;
             super::world_provenance::verify_world_carrier(
                 Path::new(carriers::WORLD.output),
@@ -312,6 +316,52 @@ mod tests {
             entities.source_manifest_sha256(),
             canonical_source_manifest_sha256(VANILLA_SOURCE_MANIFEST.as_bytes())
         );
+    }
+
+    #[test]
+    fn memory_startup_requires_the_same_entity_facts_pin_as_file_startup() {
+        use crate::facts::entity::{EntityFacts, SOURCE_BYTES};
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join(carriers::WORLD.output);
+        super::super::test_carriers::write_pinned_facts(&world);
+        let item_bytes = std::fs::read(world.with_file_name(carriers::ITEM_FACTS.output)).unwrap();
+        let mut changed =
+            EntityFacts::decode(SOURCE_BYTES, active_content_registry_protocol()).unwrap();
+        changed.records[0].fact.provisional = !changed.records[0].fact.provisional;
+        for (pinned, entity_bytes) in [
+            (true, SOURCE_BYTES.to_vec()),
+            (false, changed.encode().unwrap()),
+        ] {
+            let mut index = manifest(b"not loaded");
+            for (carrier, bytes) in [
+                (carriers::ITEM_FACTS, item_bytes.as_slice()),
+                (carriers::ENTITY_FACTS, entity_bytes.as_slice()),
+            ] {
+                let entry = index
+                    .entries
+                    .iter_mut()
+                    .find(|entry| entry.name == carrier.name)
+                    .unwrap();
+                entry.bytes = bytes.len() as u64;
+                entry.sha256 = Sha256::digest(bytes).into();
+            }
+            let mut source = MemoryCarriers::new(index).unwrap();
+            source
+                .insert(carriers::ITEM_FACTS.name, item_bytes.clone())
+                .unwrap();
+            source
+                .insert(carriers::ENTITY_FACTS.name, entity_bytes)
+                .unwrap();
+            let error = source.decode_startup().err().unwrap().to_string();
+            if pinned {
+                assert!(error.contains(carriers::WORLD.output), "{error}");
+            } else {
+                assert!(
+                    error.contains("entity facts differ from the pinned carrier"),
+                    "{error}"
+                );
+            }
+        }
     }
 
     #[test]

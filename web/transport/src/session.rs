@@ -5,7 +5,15 @@
 //! drives six bounded retries with capped backoff and caller-supplied jitter.
 
 use crate::{Channel, CloseReason, RelayTransport};
-use bridge::{BridgeCodec, contract::*};
+use bridge::{
+    BridgeCodec,
+    contract::{
+        MAX_FRAME_LEN, RELAY_CHANNEL_CONTROL, RELAY_CHANNEL_PLAY, RELAY_CONTROL_BYTES,
+        RELAY_EVENT_ACCOUNT, RELAY_EVENT_CONNECT, RELAY_EVENT_ERROR, RELAY_EVENT_PING,
+        RELAY_EVENT_WELCOME, RELAY_OP_PONG, RELAY_OP_SIGN_IN, RELAY_OP_SIGN_OUT,
+        RELAY_PLAY_MESSAGE_BYTES, RELAY_VERSION,
+    },
+};
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use serde_json::{Value, json};

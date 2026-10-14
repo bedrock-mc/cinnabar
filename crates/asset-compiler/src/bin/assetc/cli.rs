@@ -16,6 +16,13 @@ pub(super) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Install the checked-in entity facts with checksum and target validation.
+    EntityFacts {
+        #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Compile gameplay item facts from the pinned registry inputs.
     ItemFacts {
         #[arg(long)]

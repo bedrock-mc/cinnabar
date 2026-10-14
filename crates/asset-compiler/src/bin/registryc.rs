@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Kind {
+    Entities,
     Blocks,
     Physics,
     Biomes,
@@ -19,6 +20,8 @@ struct Args {
     root: PathBuf,
     #[arg(long)]
     facts: Option<PathBuf>,
+    #[arg(long)]
+    archive: Option<PathBuf>,
     #[arg(long, value_enum)]
     kind: Kind,
     #[arg(long)]
@@ -56,6 +59,22 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    if matches!(args.kind, Kind::Entities) {
+        if let Some(archive) = &args.archive {
+            let bytes = registry_policy::entities::components_from_archive(archive)?;
+            let path = args.root.join(registry_policy::entities::COMPONENTS_PATH);
+            std::fs::create_dir_all(path.parent().ok_or("components parent missing")?)?;
+            std::fs::write(path, bytes)?;
+        }
+        return registry_policy::entities::compile(
+            &args.root,
+            &args.out,
+            &std::fs::read(
+                args.root
+                    .join("crates/asset-compiler/data/registry-policy.json"),
+            )?,
+        );
+    }
     if matches!(args.kind, Kind::Items) {
         registry_policy::items::write(&args.root, &args.out, args.manifest.as_deref())?;
         if args.check {
@@ -76,6 +95,7 @@ fn main() -> Result<()> {
     }
     let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
+        Kind::Entities => unreachable!(),
         Kind::Blocks => registry_policy::blocks(
             &args.root,
             &facts,
@@ -203,6 +223,16 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         final_path.with_extension("sha256"),
         format!("{:x}\n", Sha256::digest(&final_bytes)),
     )?;
+    registry_policy::entities::compile(
+        &args.root,
+        &args.out,
+        &std::fs::read(
+            args.root
+                .join("crates/asset-compiler/data/registry-policy.json"),
+        )?,
+    )?;
+    let entity_path = PathBuf::from(assets::facts::entity::SOURCE_PATH);
+    let entity_expansion = PathBuf::from(assets::facts::entity::EXPANSION_PATH);
     let item_path = PathBuf::from(assets::facts::ITEM_FACTS_SOURCE_PATH);
     let item_expansion = PathBuf::from(assets::facts::ITEM_FACTS_EXPANSION_PATH);
     registry_policy::items::write(
@@ -233,6 +263,8 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
     if args.check {
         for path in [
             &target_path,
+            &entity_path,
+            &entity_expansion,
             &block_entities,
             &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
             &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
@@ -251,6 +283,7 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             }
         }
         for (path, filename) in [
+            (&entity_path, false),
             (&item_path, false),
             (&block_path, true),
             (&light_path, true),

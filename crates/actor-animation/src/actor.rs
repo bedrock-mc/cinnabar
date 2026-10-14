@@ -12,6 +12,8 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     /// Distinguishes a respawned actor from the one that held its runtime id before.
     fn spawn_revision(&self) -> u64;
     fn kind(&self) -> &ActorKind;
+    /// Native facts resolved by actor authority at admission.
+    fn entity_fact(&self) -> assets::facts::entity::EntityFact;
     fn position(&self) -> [f32; 3];
     /// Position at the previous completed tick.
     fn previous_position(&self) -> [f32; 3];

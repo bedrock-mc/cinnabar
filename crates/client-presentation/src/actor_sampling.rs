@@ -87,7 +87,7 @@ fn bed_rotation_degrees(canonical_state: &str) -> Option<f32> {
     };
     let value = map.get("direction")?;
     let direction = value.get("value").unwrap_or(value).as_i64()?;
-    Some([90.0, 0.0, 270.0, 180.0][direction.rem_euclid(4) as usize])
+    Some((90 - direction.rem_euclid(4) * 90).rem_euclid(360) as f32)
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use crate::{
     ActorTickContext, ActorTickInput, evaluation::MolangValue, query::QueryInputs,
     test_actor::TestActor, tests::actor_with_metadata,
 };
-use protocol::{ActorAttribute, ActorMetadataValue};
+use protocol::{ActorAttribute, ActorKind, ActorMetadataValue};
 use std::{collections::HashMap, sync::Arc};
 
 fn wolf(flags: u64, health: Option<(f32, f32)>) -> TestActor {
@@ -148,4 +148,17 @@ fn pinned_wolf_clips_rotate_the_existing_tail_for_wild_tame_angry_and_baby_actor
             );
         }
     }
+}
+
+#[test]
+fn a_custom_actor_with_a_wolf_base_keeps_the_native_tail_query() {
+    let base = "minecraft:wolf";
+    let mut actor = wolf(0, None);
+    let expected = tail_angle(&actor);
+    assert_ne!(expected, 0.0);
+    actor.entity_fact_override = Some(assets::facts::entity::EntityFacts::pinned().get(base));
+    actor.kind = ActorKind::Entity {
+        identifier: format!("fixture:{}", base.strip_prefix("minecraft:").unwrap()).into(),
+    };
+    assert_eq!(tail_angle(&actor), expected);
 }

@@ -35,7 +35,7 @@ use {
     assets::pinned_world_provenance,
 };
 
-/// Creates an isolated startup fixture with the required pinned item facts.
+/// Creates an isolated startup fixture with the required pinned content facts.
 fn temporary_directory(label: &str) -> PathBuf {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -46,7 +46,7 @@ fn temporary_directory(label: &str) -> PathBuf {
         std::process::id()
     ));
     fs::create_dir_all(&path).unwrap();
-    assets::carriers::startup::test_carriers::write_pinned_item_facts(
+    assets::carriers::startup::test_carriers::write_pinned_facts(
         &path.join(assets::carriers::WORLD.output),
     );
     path
@@ -355,6 +355,28 @@ fn missing_blob_starts_with_diagnostic_assets_and_exact_local_commands() {
     assert_eq!(Arc::strong_count(&atmosphere), 1);
 
     fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn required_facts_siblings_preserve_the_diagnostic_world_contract() {
+    for carrier in [assets::carriers::ENTITY_FACTS, assets::carriers::ITEM_FACTS] {
+        let directory = temporary_directory("required-content-facts");
+        let path = directory.join("missing.mcbea");
+        write_sibling_atmosphere(&path, 0x30);
+        let sibling = path.with_file_name(carrier.output);
+        fs::remove_file(&sibling).unwrap();
+        let error = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap_err();
+        let message = error.to_string();
+        assert!(
+            message.contains(&sibling.display().to_string()),
+            "{message}"
+        );
+        assert!(message.contains("make assets"), "{message}");
+        assets::carriers::startup::test_carriers::write_pinned_facts(&path);
+        let loaded = load_runtime_assets(select_asset_path(Some(&path), None)).unwrap();
+        assert_eq!(loaded.kind, LoadedAssetKind::Diagnostic);
+        fs::remove_dir_all(directory).unwrap();
+    }
 }
 
 #[test]

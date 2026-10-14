@@ -2,15 +2,6 @@
 
 use super::*;
 
-/// Minecart identifiers without the `minecraft:` namespace.
-const MINECART_PATHS: [&str; 5] = [
-    "minecart",
-    "hopper_minecart",
-    "tnt_minecart",
-    "chest_minecart",
-    "command_block_minecart",
-];
-
 /// Collision dimensions retain a small positive extent after server scaling.
 const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
@@ -127,10 +118,7 @@ impl ActorSnapshot {
 
     /// Whether this actor is any minecart variant.
     pub(crate) fn is_minecart(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier }
-            if identifier
-                .strip_prefix("minecraft:")
-                .is_some_and(|path| MINECART_PATHS.contains(&path)))
+        self.entity_fact.native_class == NativeEntityClass::Minecart
     }
 
     /// Offset from stored collision feet to the native actor-state position.
@@ -143,19 +131,11 @@ impl ActorSnapshot {
                     PLAYER_NETWORK_OFFSET
                 }
             }
-            ActorKind::Entity { identifier } => {
-                let Some(path) = identifier.strip_prefix("minecraft:") else {
-                    return 0.0;
-                };
-                match path {
-                    "item" => ITEM_ACTOR_NETWORK_OFFSET,
-                    "falling_block" => self.falling_block_network_offset(),
-                    "tnt" => self.primed_tnt_network_offset(),
-                    path if MINECART_PATHS.contains(&path) => MINECART_NETWORK_OFFSET,
-                    "boat" => BOAT_NETWORK_OFFSET,
-                    _ => 0.0,
-                }
-            }
+            ActorKind::Entity { .. } => match self.entity_fact.native_class {
+                NativeEntityClass::FallingBlock => self.falling_block_network_offset(),
+                NativeEntityClass::Tnt => self.primed_tnt_network_offset(),
+                _ => self.entity_fact.network_y_offset,
+            },
         }
     }
 }

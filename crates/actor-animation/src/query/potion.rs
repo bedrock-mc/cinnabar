@@ -1,12 +1,14 @@
 use super::*;
+use assets::facts::entity::NativeEntityClass;
 
 pub(crate) const AUX_VALUE_METADATA_KEY: u32 = 36;
 
 /// Potion projectiles expose the effect appearance of their own short auxiliary value.
 pub(super) fn variant(actor: &dyn AnimatedActor) -> Option<f32> {
-    if !matches!(actor.kind(), ActorKind::Entity { identifier }
-        if matches!(identifier.as_ref(), "minecraft:splash_potion" | "minecraft:lingering_potion"))
-    {
+    if !matches!(
+        actor.entity_fact().native_class,
+        NativeEntityClass::SplashPotion | NativeEntityClass::LingeringPotion
+    ) {
         return None;
     }
     let auxiliary = match actor.metadata().get(&AUX_VALUE_METADATA_KEY) {

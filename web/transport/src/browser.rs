@@ -1,5 +1,8 @@
 use crate::{Channel, CloseReason, RelayTransport};
-use bridge::contract::*;
+use bridge::contract::{
+    RELAY_CHANNEL_CONTROL, RELAY_CONTROL_BYTES, RELAY_CONTROL_PATH, RELAY_PLAY_MESSAGE_BYTES,
+    RELAY_PLAY_PATH, RELAY_SOCKET_PROTOCOL, RELAY_TRANSPORT_PATH,
+};
 use js_sys::{Promise, Uint8Array};
 use std::{
     future::Future,
@@ -8,7 +11,7 @@ use std::{
     task::{Context, Poll, ready},
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
 use wasm_bindgen_futures::JsFuture;
 
 #[wasm_bindgen(module = "/src/adapters.mjs")]

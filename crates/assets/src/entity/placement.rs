@@ -1,7 +1,5 @@
 //! Placement and target-rotation frames admitted with a rig, independent of presentation names.
 
-use std::{collections::BTreeMap, sync::OnceLock};
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -9,7 +7,7 @@ use super::{CompiledEntityAssets, EntityAssetKind, invalid};
 use crate::AssetError;
 
 pub const SOURCE_PATH: &str = "registry/entity-placement-frame.json";
-pub const SOURCE_BYTES: &[u8] = include_bytes!("../../data/entity-placement-frame.json");
+pub const SOURCE_BYTES: &[u8] = crate::facts::entity::SOURCE_BYTES;
 
 /// Coordinate frame used by the rig's placement or target-rotation query.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -50,21 +48,11 @@ impl EntityPlacementFrame {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Catalog {
-    version: u32,
-    frames: BTreeMap<Box<str>, EntityPlacementFrame>,
-}
-
-/// Reads the compatibility catalog only during compilation or carrier admission.
+/// Resolves a compiled placement disposition during rig admission.
 pub fn builtin_placement_frame(identifier: &str) -> EntityPlacementFrame {
-    static CATALOG: OnceLock<Catalog> = OnceLock::new();
-    let catalog = CATALOG.get_or_init(|| {
-        serde_json::from_slice(SOURCE_BYTES).expect("embedded placement frames are valid")
-    });
-    assert_eq!(catalog.version, 1, "unsupported placement frame catalog");
-    catalog.frames.get(identifier).copied().unwrap_or_default()
+    crate::facts::entity::EntityFacts::pinned()
+        .get(identifier)
+        .placement
 }
 
 /// Checks every independently collected rig identity against its hash-bound frame source.

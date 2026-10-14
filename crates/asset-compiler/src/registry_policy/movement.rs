@@ -246,6 +246,8 @@ mod tests {
         let reviewed: String = names.iter().map(|name| format!("{name}\n")).collect();
         let owned = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
         Policy {
+            entity_compatibility: Vec::new(),
+            entity_rules: Vec::new(),
             block_rules: Vec::new(),
             block_entity_rules: Vec::new(),
             model_family_rules: Vec::new(),

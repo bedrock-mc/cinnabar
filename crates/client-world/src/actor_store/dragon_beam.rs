@@ -2,16 +2,12 @@
 
 use std::{hash::BuildHasher, sync::OnceLock};
 
-use protocol::ActorKind;
+use assets::facts::entity::NativeEntityClass;
 
 use super::{ActorSnapshot, ActorStore, CrystalBeamView};
 
 const HEALING_RADIUS_SQUARED: f32 = 1024.0;
 const REFRESH_CHANCES: u64 = 10;
-
-fn kind(actor: &ActorSnapshot, identifier: &str) -> bool {
-    matches!(&actor.kind, ActorKind::Entity { identifier: actual } if actual.as_ref() == identifier)
-}
 
 fn alive(actor: &ActorSnapshot) -> bool {
     !actor.status.dead
@@ -72,7 +68,8 @@ impl ActorStore {
                         self.actors.get(runtime).is_some_and(|crystal| {
                             crystal.spawn_revision == *revision
                                 && alive(crystal)
-                                && kind(crystal, "minecraft:ender_crystal")
+                                && crystal.entity_fact.native_class
+                                    == NativeEntityClass::EnderCrystal
                         })
                     })
                 };
@@ -95,14 +92,16 @@ impl ActorStore {
             .iter()
             .filter_map(move |runtime| {
                 let dragon = self.actors.get(runtime)?;
-                if !kind(dragon, "minecraft:ender_dragon") || !alive(dragon) {
+                if dragon.entity_fact.native_class != NativeEntityClass::EnderDragon
+                    || !alive(dragon)
+                {
                     return None;
                 }
                 let (runtime, revision) = dragon.status.healing_crystal?;
                 let crystal = self.actors.get(&runtime)?;
                 if crystal.spawn_revision != revision
                     || !alive(crystal)
-                    || !kind(crystal, "minecraft:ender_crystal")
+                    || crystal.entity_fact.native_class != NativeEntityClass::EnderCrystal
                 {
                     return None;
                 }

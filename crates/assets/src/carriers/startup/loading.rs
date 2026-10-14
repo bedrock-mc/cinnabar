@@ -8,7 +8,7 @@ use super::{
         load_atmosphere_assets, load_entity_assets, load_font_assets, load_material_keys,
         load_vanilla_entity_refs,
     },
-    world_provenance,
+    require_entity_facts, world_provenance,
 };
 use crate::RuntimeAssets;
 use serde::Deserialize;
@@ -55,8 +55,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     load_runtime_assets_observed(selection, &())
 }
 
-/// Loads item facts, then the artwork carriers in parallel through `observer`.
-/// World decoding errors retain priority over the remaining carrier errors.
+/// Loads the required facts and artwork carriers, preserving world error priority.
 pub fn load_runtime_assets_observed(
     selection: AssetSelection,
     observer: &impl CarrierLoadObserver,
@@ -72,12 +71,17 @@ pub fn load_runtime_assets_observed(
         let world = observer.observe("world", || load_world_carrier(path));
         (world, join(atmosphere), join(entities), join(fonts))
     });
-    let Some(world) = world? else {
+    let world = world?;
+    // Preserve the existing required-carrier error order before checking the facts sibling.
+    let atmosphere = atmosphere?;
+    let entities = entities?;
+    observer.observe("entity facts", || require_entity_facts(path))?;
+    let Some(world) = world else {
         return Ok(diagnostic_assets(
             selection,
             source,
-            atmosphere?,
-            entities?,
+            atmosphere,
+            entities,
             fonts?,
             item_facts?,
         ));
@@ -88,8 +92,8 @@ pub fn load_runtime_assets_observed(
         item_facts: item_facts?,
         material_keys: world.material_keys,
         vanilla_entity_refs: world.vanilla_entity_refs,
-        atmosphere: atmosphere?,
-        entities: entities?,
+        atmosphere,
+        entities,
         fonts: fonts?,
         metrics,
         selected_path: selection.path,
@@ -248,7 +252,7 @@ fn runtime_metrics(
 mod tests {
     use super::*;
     use crate::carriers::startup::test_carriers::{
-        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_item_facts,
+        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_facts,
     };
 
     #[derive(Default)]
@@ -266,7 +270,7 @@ mod tests {
     fn diagnostic_startup_loads_every_required_sibling_once() {
         let directory = tempfile::tempdir().unwrap();
         let world = directory.path().join(crate::carriers::WORLD.output);
-        write_pinned_item_facts(&world);
+        write_pinned_facts(&world);
         std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
         std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
         let observer = Loads::default();
@@ -284,7 +288,14 @@ mod tests {
         loads.sort_unstable();
         assert_eq!(
             loads,
-            ["atmosphere", "entity", "font", "item-facts", "world"]
+            [
+                "atmosphere",
+                "entity",
+                "entity facts",
+                "font",
+                "item-facts",
+                "world"
+            ]
         );
     }
 }
