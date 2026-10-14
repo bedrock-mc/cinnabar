@@ -61,7 +61,10 @@ impl BlockFacts {
         }
         let catalog = super::placement::catalog()?;
         let mut names = std::collections::BTreeMap::new();
-        for record in records {
+        for record in records
+            .iter()
+            .filter(|r| r.name.as_ref() != RESERVED_BLOCK_NAME)
+        {
             names
                 .entry(record.name.as_ref())
                 .or_insert(record.sequential_id);

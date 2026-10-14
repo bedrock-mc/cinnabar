@@ -31,15 +31,20 @@ fn compiled_identity_and_named_admission_resolve_the_same_palette_states() {
     use assets::facts::BlockStateIdentity as I;
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
         let (records, registries) = fixtures();
-        for record in records
-            .iter()
-            .filter(|r| r.model_family != assets::ModelFamily::Unknown)
-        {
+        for record in records {
             let states = serde_json::from_str(&record.canonical_state).unwrap();
-            let identity = registries
-                .block_facts(mode, id(record, mode))
-                .identity
-                .unwrap();
+            let Some(identity) = registries.block_facts(mode, id(record, mode)).identity else {
+                assert_eq!(
+                    record.name.as_ref(),
+                    assets::facts::block::RESERVED_BLOCK_NAME
+                );
+                assert!(
+                    registries
+                        .block_state_runtime_id(mode, I::Named(&record.name), &states)
+                        .is_none()
+                );
+                continue;
+            };
             assert_eq!(
                 registries.block_state_runtime_id(mode, I::Compiled(identity), &states),
                 Some(id(record, mode))

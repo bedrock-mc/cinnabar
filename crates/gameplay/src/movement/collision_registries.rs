@@ -216,11 +216,9 @@ impl PhysicsCollisionRegistries {
             let state: Arc<str> = Arc::from(record.canonical_state.as_ref());
             canonical_states.insert(record.sequential_id, Arc::clone(&state));
             hashed_canonical_states.insert(record.network_hash, state);
-            if let Some(states) = states {
-                let identity = block_facts
-                    .get(record.sequential_id)
-                    .identity
-                    .expect("admitted palette identity");
+            if let (Some(states), Some(identity)) =
+                (states, block_facts.get(record.sequential_id).identity)
+            {
                 named_block_identities
                     .entry(Arc::from(record.name.as_ref()))
                     .or_insert(identity);

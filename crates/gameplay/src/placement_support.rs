@@ -187,7 +187,7 @@ pub(crate) fn support_requirement(
 /// Accepts full attachment support and carpet's non-air support using compiled facts.
 pub(crate) fn accepts_support(fact: BlockFact, support: BlockFact, full_cube: bool) -> bool {
     if fact.survival == S::Carpet {
-        return !support.traits.contains(T::AIR) && support.family != F::Unknown;
+        return support.identity.is_some() && !support.traits.contains(T::AIR);
     }
     full_cube
         && support.family != F::Unknown
@@ -201,6 +201,9 @@ pub(crate) fn support_acceptance(
     support: BlockFact,
     full_cube: bool,
 ) -> Option<bool> {
+    if fact.survival == S::Carpet && support.identity.is_none() {
+        return None;
+    }
     if fact.placement == R::Vine {
         return match support.support {
             SupportKind::Stone => Some(true),
@@ -631,6 +634,54 @@ mod tests {
             support_acceptance("minecraft:torch", "minecraft:stone", true),
             Some(true)
         );
+    }
+
+    #[test]
+    fn carpet_support_preserves_every_admitted_non_air_state() {
+        let facts = assets::facts::BlockFacts::new(registry()).unwrap();
+        let carpet = block_fact("minecraft:white_carpet");
+        for record in registry()
+            .iter()
+            .filter(|r| r.name.as_ref() != assets::facts::block::RESERVED_BLOCK_NAME)
+        {
+            let support = facts.get(record.sequential_id);
+            let expected = record.name.as_ref() != "minecraft:air";
+            for full_cube in [false, true] {
+                assert_eq!(
+                    super::support_acceptance(carpet, support, full_cube),
+                    Some(expected),
+                    "{} {} full_cube={full_cube}",
+                    record.name,
+                    record.canonical_state
+                );
+            }
+        }
+        for name in [
+            "minecraft:ice",
+            "minecraft:hopper",
+            "minecraft:redstone_lamp",
+        ] {
+            let support = block_fact(name);
+            assert_eq!(support.family, F::Unknown);
+            assert!(support.identity.is_some());
+            assert_eq!(
+                super::support_acceptance(carpet, support, false),
+                Some(true)
+            );
+        }
+        assert_eq!(
+            super::support_acceptance(carpet, facts.get(u32::MAX), true),
+            None
+        );
+        for record in registry()
+            .iter()
+            .filter(|r| r.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME)
+        {
+            assert_eq!(
+                super::support_acceptance(carpet, facts.get(record.sequential_id), true),
+                None
+            );
+        }
     }
 
     #[test]
