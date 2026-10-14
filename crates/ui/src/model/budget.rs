@@ -2,7 +2,7 @@
 
 use std::mem::size_of;
 
-use super::{UiDrawBatch, UiError, UiLimits, UiVertex, UiVisual};
+use super::{TextShadow, UiDrawBatch, UiError, UiLimits, UiVertex, UiVisual};
 
 /// A node's share of the draw list's reserved capacity: quads, and mesh vertices, indices and
 /// batches.
