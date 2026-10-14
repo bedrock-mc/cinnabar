@@ -382,7 +382,10 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
 
     app.update();
     let runtime = app.world().resource::<UiRuntimeResource>();
-    assert!(!runtime.inventory_open());
+    assert!(
+        runtime.inventory_open(),
+        "the frame's last key keeps the latest open intent while the open reply is pending"
+    );
     assert_eq!(
         app.world()
             .resource::<PlayerRuntime>()
@@ -422,23 +425,10 @@ fn keyboard_open_does_not_replay_its_click_and_next_fresh_click_is_inventory_own
                 position: [0, 64, 0],
                 runtime_entity_id: -1,
             }));
-        assert!(
-            flush_inventory_send(player_runtime, runtime, 20, |_| Ok::<_, ()>(())).unwrap(),
-            "the close uses the acknowledged personal window"
-        );
-        runtime
-            .inventory_ledger_mut(player_runtime)
-            .apply(&InventoryEvent::Close(protocol::ContainerCloseEvent {
-                container: ContainerIdentity::window(2),
-                window_type: -1,
-                server_initiated: true,
-            }));
-        runtime.toggle_inventory(player_runtime);
         assert!(runtime.inventory_open());
         assert!(
-            runtime
-                .inventory_ledger_mut(player_runtime)
-                .mark_transport_enqueued(30)
+            !flush_inventory_send(player_runtime, runtime, 20, |_| Ok::<_, ()>(())).unwrap(),
+            "the reply confirms the still-wanted window without a close cycle"
         );
     });
     app.world_mut()
