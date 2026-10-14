@@ -1,5 +1,6 @@
 {
-  "magic": "BREG1004",
+  "magic": "BREG1005",
+  "block_properties": "block-properties-v2193.json",
   "previous_magic": "BREG1003",
   "legacy_protocol": 1001,
   "physics_magic": "PREG1003",
@@ -146,6 +147,61 @@
       ],
       "read": true,
       "read_visibility": "pub"
+    },
+    {
+      "name": "SurvivalRule",
+      "doc": "Placement support rule; unresolved rules require server authority.",
+      "default": "None",
+      "go_prefix": "SurvivalRule",
+      "go_max": "maxSurvivalRule",
+      "read": true,
+      "read_visibility": "pub",
+      "values": [
+        {
+          "name": "None",
+          "value": 0
+        },
+        {
+          "name": "Unresolved",
+          "value": 1
+        },
+        {
+          "name": "Torch",
+          "value": 2
+        },
+        {
+          "name": "Lantern",
+          "value": 3
+        },
+        {
+          "name": "Button",
+          "value": 4
+        },
+        {
+          "name": "Carpet",
+          "value": 5
+        },
+        {
+          "name": "Door",
+          "value": 6
+        },
+        {
+          "name": "Candle",
+          "value": 7
+        },
+        {
+          "name": "SeaPickle",
+          "value": 8
+        },
+        {
+          "name": "SnowLayer",
+          "value": 9
+        },
+        {
+          "name": "Vine",
+          "value": 10
+        }
+      ]
     }
   ],
   "flags": [
@@ -173,6 +229,76 @@
         {"name": "VALENTINE", "bit": 3, "go_name": "ProvenanceValentine", "source": true}
       ],
       "doc": "Pinned sources that proved the identity of a canonical state."
+    },
+    {
+      "name": "BlockTraits",
+      "type": "u64",
+      "go_all": "allBlockTraits",
+      "doc": "Compiled block identity, interaction and presentation facts.",
+      "values": [
+        {"name": "TORCH", "bit": 0, "go_name": "traitTorch", "source": true},
+        {"name": "LANTERN_LIKE", "bit": 1, "go_name": "traitLanternLike", "source": true},
+        {"name": "CONNECTS_THIN", "bit": 2, "go_name": "traitConnectsThin", "source": true},
+        {"name": "CONNECTS_FENCE", "bit": 3, "go_name": "traitConnectsFence", "source": true},
+        {"name": "MULTIFACE", "bit": 4, "go_name": "traitMultiface", "source": true},
+        {"name": "DOOR", "bit": 5, "go_name": "traitDoor", "source": true},
+        {"name": "REPLACEABLE", "bit": 6, "go_name": "traitReplaceable", "source": true},
+        {"name": "OPENS_CONTAINER", "bit": 7, "go_name": "traitOpensContainer", "source": true},
+        {"name": "TOGGLES_BY_HAND", "bit": 8, "go_name": "traitTogglesByHand", "source": true},
+        {"name": "USES_LOCALLY", "bit": 9, "go_name": "traitUsesLocally", "source": true},
+        {"name": "HUMANOID_WEARABLE", "bit": 10, "go_name": "traitHumanoidWearable", "source": true},
+        {"name": "SURVIVAL_RULE", "bit": 11, "go_name": "traitSurvivalRule", "source": true},
+        {"name": "VINE_SUPPORT", "bit": 12, "go_name": "traitVineSupport", "source": true},
+        {"name": "FULL_TOP_SUPPORT", "bit": 13, "go_name": "traitFullTopSupport", "source": true},
+        {"name": "BLOCK_ENTITY_DRAWN", "bit": 14, "go_name": "traitBlockEntityDrawn", "source": true},
+        {"name": "TRANSLUCENT", "bit": 15, "go_name": "traitTranslucent", "source": true},
+        {"name": "CUTOUT", "bit": 16, "go_name": "traitCutout", "source": true},
+        {"name": "GRASS_TINT", "bit": 17, "go_name": "traitGrassTint", "source": true},
+        {"name": "FOLIAGE_TINT", "bit": 18, "go_name": "traitFoliageTint", "source": true},
+        {"name": "WATER_TINT", "bit": 19, "go_name": "traitWaterTint", "source": true},
+        {"name": "ONE_WAY_COLLIDABLE", "bit": 20, "go_name": "traitOneWayCollidable", "source": true},
+        {"name": "DOUBLE_SLAB", "bit": 21, "go_name": "traitDoubleSlab", "source": true},
+        {"name": "BODY_RELATIVE_FACING", "bit": 22, "go_name": "traitBodyRelativeFacing", "source": true},
+        {"name": "ORIENTATION_SENSITIVE", "bit": 23, "go_name": "traitOrientationSensitive", "source": true},
+        {"name": "MULTIPART", "bit": 24, "go_name": "traitMultipart", "source": true},
+        {"name": "WATER", "bit": 25, "go_name": "traitWater", "source": true},
+        {"name": "LAVA", "bit": 26, "go_name": "traitLava", "source": true},
+        {"name": "LIGHT_BLOCK", "bit": 27, "go_name": "traitLightBlock", "source": true},
+        {"name": "RESPAWN_ANCHOR", "bit": 28, "go_name": "traitRespawnAnchor", "source": true},
+        {"name": "GLOWSTONE", "bit": 29, "go_name": "traitGlowstone", "source": true},
+        {"name": "NETHER_BRICK_FENCE", "bit": 30, "go_name": "traitNetherBrickFence", "source": true},
+        {"name": "INVISIBLE", "bit": 31, "go_name": "traitInvisible", "source": true},
+        {"name": "AIR", "bit": 32, "go_name": "traitAir", "source": true},
+        {"name": "PORTAL", "bit": 33, "go_name": "traitPortal", "source": true},
+        {"name": "DRIPSTONE_OFFSET", "bit": 34, "go_name": "traitDripstoneOffset", "source": true},
+        {"name": "CHORUS_CONNECT", "bit": 35, "go_name": "traitChorusConnect", "source": true},
+        {"name": "BUILD_INTENTION", "bit": 36, "go_name": "traitBuildIntention", "source": true},
+        {"name": "FIRE_FLAMMABLE", "bit": 37, "go_name": "traitFireFlammable", "source": true},
+        {"name": "HEAD", "bit": 38, "go_name": "traitHead", "source": true},
+        {"name": "FRAME", "bit": 39, "go_name": "traitFrame", "source": true},
+        {"name": "LADDER", "bit": 40, "go_name": "traitLadder", "source": true},
+        {"name": "BANNER", "bit": 41, "go_name": "traitBanner", "source": true},
+        {"name": "STANDING_SIGN", "bit": 42, "go_name": "traitStandingSign", "source": true},
+        {"name": "WALL_SIGN", "bit": 43, "go_name": "traitWallSign", "source": true},
+        {"name": "HANGING_SIGN", "bit": 44, "go_name": "traitHangingSign", "source": true},
+        {"name": "HOPPER", "bit": 45, "go_name": "traitHopper", "source": true},
+        {"name": "CAULDRON", "bit": 46, "go_name": "traitCauldron", "source": true},
+        {"name": "COMPOSTER", "bit": 47, "go_name": "traitComposter", "source": true},
+        {"name": "SCAFFOLDING", "bit": 48, "go_name": "traitScaffolding", "source": true},
+        {"name": "FIRE", "bit": 49, "go_name": "traitFire", "source": true},
+        {"name": "SNOW_LAYER", "bit": 50, "go_name": "traitSnowLayer", "source": true},
+        {"name": "PLANT", "bit": 51, "go_name": "traitPlant", "source": true},
+        {"name": "CAMPFIRE", "bit": 52, "go_name": "traitCampfire", "source": true},
+        {"name": "SPAWNER", "bit": 53, "go_name": "traitSpawner", "source": true},
+        {"name": "END_PORTAL", "bit": 54, "go_name": "traitEndPortal", "source": true},
+        {"name": "END_GATEWAY", "bit": 55, "go_name": "traitEndGateway", "source": true},
+        {"name": "PISTON", "bit": 56, "go_name": "traitPiston", "source": true},
+        {"name": "SHULKER_BOX", "bit": 57, "go_name": "traitShulkerBox", "source": true},
+        {"name": "CANDLE", "bit": 58, "go_name": "traitCandle", "source": true},
+        {"name": "CORAL", "bit": 59, "go_name": "traitCoral", "source": true},
+        {"name": "BLOCK_ENTITY_BACKING", "bit": 60, "go_name": "traitBlockEntityBacking", "source": true},
+        {"name": "FARMLAND", "bit": 61, "go_name": "traitFarmland", "source": true}
+      ]
     }
   ],
   "structs": [
@@ -227,7 +353,10 @@
         {"rust_name": "face_coverage", "go_name": "FaceCoverage", "rust_type": "u8", "go_type": "uint8", "public": true},
         {"rust_name": "collision_seed", "go_name": "CollisionSeed", "rust_type": "CollisionSeed", "go_type": "CollisionSeed", "public": true},
         {"rust_name": "provenance", "go_name": "Provenance", "rust_type": "RegistryProvenance", "go_type": "uint8", "public": true},
-        {"rust_name": "beacon_tint", "go_name": "BeaconTint", "rust_type": "BeaconTint", "go_type": "BeaconTint", "public": true}
+        {"rust_name": "beacon_tint", "go_name": "BeaconTint", "rust_type": "BeaconTint", "go_type": "BeaconTint", "public": true},
+        {"rust_name": "traits", "go_name": "Traits", "rust_type": "BlockTraits", "go_type": "uint64", "public": true},
+        {"rust_name": "survival", "go_name": "Survival", "rust_type": "SurvivalRule", "go_type": "SurvivalRule", "public": true},
+        {"rust_name": "properties", "go_name": null, "rust_type": "Box<[(BlockProperty, StateValue)]>", "public": true}
       ],
       "doc": "One canonical state from the deterministic block registry."
     },
@@ -262,6 +391,8 @@
     {"name": "name_len", "type": "u16", "go_value": "uint16(len(record.Name))", "rust_value": "record.name.len() as u16"},
     {"name": "state_len", "type": "u32", "go_value": "uint32(len(record.StateJSON))", "rust_value": "record.canonical_state.len() as u32"},
     {"name": "values", "type": "u32[8]", "go_value": "record.ModelState.Values", "rust_value": "record.model_state"},
-    {"name": "beacon_tint", "type": "u8", "go_value": "uint8(record.BeaconTint)", "rust_value": "record.beacon_tint as u8", "previous_default": 0}
+    {"name": "beacon_tint", "type": "u8", "go_value": "uint8(record.BeaconTint)", "rust_value": "record.beacon_tint as u8", "previous_default": 0},
+    {"name": "raw_traits", "type": "u64", "go_value": "record.Traits", "rust_value": "record.traits.bits()", "previous_default": 0},
+    {"name": "survival", "type": "u8", "go_value": "uint8(record.Survival)", "rust_value": "record.survival as u8", "previous_default": 0}
   ]
 }

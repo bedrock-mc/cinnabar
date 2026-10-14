@@ -16,6 +16,9 @@ fn compiled_snow_fixture() -> &'static CompiledSnowFixture {
             let id = records.len() as u32;
             records.push(RegistryRecord {
                 beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
                 sequential_id: id,
                 network_hash: id,
                 name: name.into(),

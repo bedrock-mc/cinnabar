@@ -87,4 +87,23 @@ fn pinned_pack_vocabularies_regenerate_byte_for_byte() {
         std::fs::read(actors).unwrap(),
         include_bytes!("../../../protocol/data/retail_actors_1_26_50.txt")
     );
+    let derivative = Command::new("python3")
+        .arg(root.join("tools/registrygen/generate_block_inputs.py"))
+        .arg("--archive")
+        .arg(&paths.archive)
+        .arg("--out")
+        .arg(scratch.path())
+        .output()
+        .unwrap();
+    assert!(
+        derivative.status.success(),
+        "{}",
+        String::from_utf8_lossy(&derivative.stderr)
+    );
+    for filename in ["block-properties-v2193.json", "block-components-v2193.tsv"] {
+        assert_eq!(
+            std::fs::read(scratch.path().join("crates/assets/data").join(filename)).unwrap(),
+            std::fs::read(root.join("crates/assets/data").join(filename)).unwrap()
+        );
+    }
 }

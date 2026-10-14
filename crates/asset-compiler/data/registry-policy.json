@@ -665,5 +665,1679 @@
     "unresolved": [
       "minecraft:soul_soil"
     ]
-  }
+  },
+  "model_family_rules": [
+    {
+      "id": "family-air-0",
+      "fact": "family:Air",
+      "status": "verified",
+      "members": [
+        "minecraft:air"
+      ]
+    },
+    {
+      "id": "family-liquid-1",
+      "fact": "family:Liquid",
+      "status": "verified",
+      "members": [
+        "minecraft:water",
+        "minecraft:flowing_water",
+        "minecraft:lava",
+        "minecraft:flowing_lava"
+      ]
+    },
+    {
+      "id": "family-statue-2",
+      "fact": "family:Statue",
+      "status": "verified",
+      "contains": "copper_golem_statue"
+    },
+    {
+      "id": "family-invisible-3",
+      "fact": "family:Invisible",
+      "status": "verified",
+      "members": [
+        "minecraft:barrier"
+      ]
+    },
+    {
+      "id": "family-decorative-4",
+      "fact": "family:Decorative",
+      "status": "verified",
+      "members": [
+        "minecraft:dragon_egg"
+      ]
+    },
+    {
+      "id": "family-cuboid-5",
+      "fact": "family:Cuboid",
+      "status": "verified",
+      "members": [
+        "minecraft:soul_sand",
+        "minecraft:mud"
+      ]
+    },
+    {
+      "id": "family-cube-6",
+      "fact": "family:Cube",
+      "status": "verified",
+      "members": [
+        "minecraft:bone_block",
+        "minecraft:hay_block",
+        "minecraft:chiseled_quartz_block",
+        "minecraft:purpur_block",
+        "minecraft:quartz_block",
+        "minecraft:smooth_quartz",
+        "minecraft:tnt"
+      ]
+    },
+    {
+      "id": "family-cube-7",
+      "fact": "family:Cube",
+      "status": "verified",
+      "suffix": "_glazed_terracotta"
+    },
+    {
+      "id": "family-trapdoor-8",
+      "fact": "family:Trapdoor",
+      "status": "verified",
+      "contains": "trapdoor"
+    },
+    {
+      "id": "family-door-9",
+      "fact": "family:Door",
+      "status": "verified",
+      "suffix": "_door"
+    },
+    {
+      "id": "family-stair-10",
+      "fact": "family:Stair",
+      "status": "verified",
+      "suffix": "_stairs"
+    },
+    {
+      "id": "family-slab-11",
+      "fact": "family:Slab",
+      "status": "verified",
+      "contains": "slab"
+    },
+    {
+      "id": "family-gate-12",
+      "fact": "family:Gate",
+      "status": "verified",
+      "contains": "fence_gate"
+    },
+    {
+      "id": "family-wall-13",
+      "fact": "family:Wall",
+      "status": "verified",
+      "suffix": "_wall"
+    },
+    {
+      "id": "family-fence-14",
+      "fact": "family:Fence",
+      "status": "verified",
+      "suffix": "_fence"
+    },
+    {
+      "id": "family-pane-15",
+      "fact": "family:Pane",
+      "status": "verified",
+      "contains": "glass_pane"
+    },
+    {
+      "id": "family-pane-16",
+      "fact": "family:Pane",
+      "status": "verified",
+      "suffix": "_pane"
+    },
+    {
+      "id": "family-pane-17",
+      "fact": "family:Pane",
+      "status": "verified",
+      "suffix": "_bars"
+    },
+    {
+      "id": "family-bed-18",
+      "fact": "family:Bed",
+      "status": "verified",
+      "members": [
+        "minecraft:bed"
+      ],
+      "suffix": "_bed"
+    },
+    {
+      "id": "family-chest-19",
+      "fact": "family:Chest",
+      "status": "verified",
+      "contains": "chest"
+    },
+    {
+      "id": "family-sign-20",
+      "fact": "family:Sign",
+      "status": "verified",
+      "contains": "sign"
+    },
+    {
+      "id": "family-rail-21",
+      "fact": "family:Rail",
+      "status": "verified",
+      "contains": "rail"
+    },
+    {
+      "id": "family-torch-22",
+      "fact": "family:Torch",
+      "status": "verified",
+      "state_property": "torch_facing_direction"
+    },
+    {
+      "id": "family-lever-23",
+      "fact": "family:Lever",
+      "status": "verified",
+      "members": [
+        "minecraft:lever"
+      ]
+    },
+    {
+      "id": "family-button-24",
+      "fact": "family:Button",
+      "status": "verified",
+      "suffix": "_button"
+    },
+    {
+      "id": "family-pressureplate-25",
+      "fact": "family:PressurePlate",
+      "status": "verified",
+      "contains": "pressure_plate"
+    },
+    {
+      "id": "family-carpet-26",
+      "fact": "family:Carpet",
+      "status": "verified",
+      "suffix": "_carpet"
+    },
+    {
+      "id": "family-layer-27",
+      "fact": "family:Layer",
+      "status": "verified",
+      "members": [
+        "minecraft:snow_layer",
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
+      "id": "family-aquatic-28",
+      "fact": "family:Aquatic",
+      "status": "verified",
+      "members": [
+        "minecraft:seagrass",
+        "minecraft:kelp"
+      ]
+    },
+    {
+      "id": "family-aquatic-29",
+      "fact": "family:Aquatic",
+      "status": "verified",
+      "contains": "coral",
+      "exclude_contains": "coral_block"
+    },
+    {
+      "id": "family-cocoa-30",
+      "fact": "family:Cocoa",
+      "status": "verified",
+      "members": [
+        "minecraft:cocoa"
+      ]
+    },
+    {
+      "id": "family-crop-31",
+      "fact": "family:Crop",
+      "status": "verified",
+      "members": [
+        "minecraft:wheat",
+        "minecraft:carrots",
+        "minecraft:potatoes",
+        "minecraft:beetroot",
+        "minecraft:nether_wart",
+        "minecraft:sweet_berry_bush",
+        "minecraft:torchflower_crop",
+        "minecraft:pitcher_crop",
+        "minecraft:melon_stem",
+        "minecraft:pumpkin_stem"
+      ]
+    },
+    {
+      "id": "family-flowerbed-32",
+      "fact": "family:FlowerBed",
+      "status": "verified",
+      "members": [
+        "minecraft:wildflowers",
+        "minecraft:pink_petals"
+      ]
+    },
+    {
+      "id": "family-vine-33",
+      "fact": "family:Vine",
+      "status": "verified",
+      "members": [
+        "minecraft:vine"
+      ]
+    },
+    {
+      "id": "family-glowlichen-34",
+      "fact": "family:GlowLichen",
+      "status": "verified",
+      "members": [
+        "minecraft:glow_lichen"
+      ]
+    },
+    {
+      "id": "family-sculkvein-35",
+      "fact": "family:SculkVein",
+      "status": "verified",
+      "members": [
+        "minecraft:sculk_vein"
+      ]
+    },
+    {
+      "id": "family-chiseledbookshelf-36",
+      "fact": "family:ChiseledBookshelf",
+      "status": "verified",
+      "members": [
+        "minecraft:chiseled_bookshelf"
+      ]
+    },
+    {
+      "id": "family-cube-37",
+      "fact": "family:Cube",
+      "status": "verified",
+      "members": [
+        "minecraft:bee_nest",
+        "minecraft:beehive"
+      ]
+    },
+    {
+      "id": "family-resinclump-38",
+      "fact": "family:ResinClump",
+      "status": "verified",
+      "members": [
+        "minecraft:resin_clump"
+      ]
+    },
+    {
+      "id": "family-cuboid-39",
+      "fact": "family:Cuboid",
+      "status": "verified",
+      "members": [
+        "minecraft:cactus",
+        "minecraft:cake",
+        "minecraft:farmland"
+      ]
+    },
+    {
+      "id": "family-shelf",
+      "fact": "family:Cuboid",
+      "status": "verified",
+      "suffix": "_shelf"
+    },
+    {
+      "id": "family-cross-41",
+      "fact": "family:Cross",
+      "status": "verified",
+      "members": [
+        "minecraft:short_grass",
+        "minecraft:tall_grass",
+        "minecraft:short_dry_grass",
+        "minecraft:tall_dry_grass",
+        "minecraft:fern",
+        "minecraft:large_fern",
+        "minecraft:deadbush",
+        "minecraft:bush",
+        "minecraft:dandelion",
+        "minecraft:poppy",
+        "minecraft:blue_orchid",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley",
+        "minecraft:wither_rose",
+        "minecraft:sunflower",
+        "minecraft:lilac",
+        "minecraft:rose_bush",
+        "minecraft:peony",
+        "minecraft:brown_mushroom",
+        "minecraft:red_mushroom",
+        "minecraft:crimson_fungus",
+        "minecraft:warped_fungus",
+        "minecraft:crimson_roots",
+        "minecraft:warped_roots",
+        "minecraft:nether_sprouts",
+        "minecraft:mangrove_propagule",
+        "minecraft:hanging_roots",
+        "minecraft:pale_hanging_moss",
+        "minecraft:firefly_bush",
+        "minecraft:reeds",
+        "minecraft:weeping_vines",
+        "minecraft:twisting_vines",
+        "minecraft:web",
+        "minecraft:fire",
+        "minecraft:soul_fire",
+        "minecraft:torchflower"
+      ]
+    },
+    {
+      "id": "family-cross-42",
+      "fact": "family:Cross",
+      "status": "verified",
+      "prefix": "cave_vines"
+    },
+    {
+      "id": "family-cross-43",
+      "fact": "family:Cross",
+      "status": "verified",
+      "suffix": "_flower",
+      "exclude_members": [
+        "minecraft:chorus_flower"
+      ]
+    },
+    {
+      "id": "family-cross-44",
+      "fact": "family:Cross",
+      "status": "verified",
+      "suffix": "_sapling",
+      "exclude_contains": "flower_pot"
+    }
+  ],
+  "block_rules": [
+    {
+      "id": "torch-0",
+      "fact": "TORCH",
+      "status": "verified",
+      "state_property": "torch_facing_direction",
+      "exclude_members": []
+    },
+    {
+      "id": "lantern_like-1",
+      "fact": "LANTERN_LIKE",
+      "status": "verified",
+      "exclude_members": [
+        "minecraft:standing_sign",
+        "minecraft:wall_sign"
+      ],
+      "state_properties": [
+        "hanging"
+      ],
+      "exact_properties": true
+    },
+    {
+      "id": "multiface-2",
+      "fact": "MULTIFACE",
+      "status": "verified",
+      "state_property": "multi_face_direction_bits",
+      "exclude_members": []
+    },
+    {
+      "id": "orientation_sensitive-3",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "facing_direction",
+      "exclude_members": []
+    },
+    {
+      "id": "door-4",
+      "fact": "DOOR",
+      "status": "verified",
+      "state_properties": [
+        "open_bit",
+        "upper_block_bit"
+      ]
+    },
+    {
+      "id": "connects_thin-5",
+      "fact": "CONNECTS_THIN",
+      "status": "verified",
+      "model_family": [
+        "Pane"
+      ]
+    },
+    {
+      "id": "connects_fence-6",
+      "fact": "CONNECTS_FENCE",
+      "status": "verified",
+      "model_family": [
+        "Fence"
+      ]
+    },
+    {
+      "id": "multiface-7",
+      "fact": "MULTIFACE",
+      "status": "verified",
+      "model_family": [
+        "GlowLichen",
+        "SculkVein",
+        "ResinClump"
+      ]
+    },
+    {
+      "id": "one_way_collidable-8",
+      "fact": "ONE_WAY_COLLIDABLE",
+      "status": "verified",
+      "model_family": [
+        "Door",
+        "Trapdoor",
+        "Gate"
+      ]
+    },
+    {
+      "id": "air-9",
+      "fact": "AIR",
+      "status": "verified",
+      "model_family": [
+        "Air"
+      ]
+    },
+    {
+      "id": "invisible-10",
+      "fact": "INVISIBLE",
+      "status": "verified",
+      "model_family": [
+        "Invisible"
+      ]
+    },
+    {
+      "id": "water-11",
+      "fact": "WATER",
+      "status": "verified",
+      "members": [
+        "minecraft:water",
+        "minecraft:flowing_water",
+        "minecraft:bubble_column"
+      ]
+    },
+    {
+      "id": "lava-12",
+      "fact": "LAVA",
+      "status": "verified",
+      "members": [
+        "minecraft:lava",
+        "minecraft:flowing_lava"
+      ]
+    },
+    {
+      "id": "double_slab-13",
+      "fact": "DOUBLE_SLAB",
+      "status": "verified",
+      "suffix": "_double_slab"
+    },
+    {
+      "id": "double_slab-14",
+      "fact": "DOUBLE_SLAB",
+      "status": "verified",
+      "contains": "double_cut_copper_slab"
+    },
+    {
+      "id": "light_block-15",
+      "fact": "LIGHT_BLOCK",
+      "status": "verified",
+      "prefix": "light_block_"
+    },
+    {
+      "id": "respawn_anchor-16",
+      "fact": "RESPAWN_ANCHOR",
+      "status": "verified",
+      "members": [
+        "minecraft:respawn_anchor"
+      ]
+    },
+    {
+      "id": "glowstone-17",
+      "fact": "GLOWSTONE",
+      "status": "verified",
+      "members": [
+        "minecraft:glowstone"
+      ]
+    },
+    {
+      "id": "nether_brick_fence-18",
+      "fact": "NETHER_BRICK_FENCE",
+      "status": "verified",
+      "members": [
+        "minecraft:nether_brick_fence"
+      ]
+    },
+    {
+      "id": "portal-19",
+      "fact": "PORTAL",
+      "status": "verified",
+      "members": [
+        "minecraft:portal",
+        "minecraft:end_portal"
+      ]
+    },
+    {
+      "id": "dripstone_offset-20",
+      "fact": "DRIPSTONE_OFFSET",
+      "status": "verified",
+      "members": [
+        "minecraft:pointed_dripstone",
+        "minecraft:sulfur_spike"
+      ]
+    },
+    {
+      "id": "chorus_connect-21",
+      "fact": "CHORUS_CONNECT",
+      "status": "verified",
+      "members": [
+        "minecraft:chorus_plant",
+        "minecraft:chorus_flower"
+      ]
+    },
+    {
+      "id": "build_intention-22",
+      "fact": "BUILD_INTENTION",
+      "status": "verified",
+      "model_family": [
+        "Cube",
+        "Leaves",
+        "Stair",
+        "Slab",
+        "Pane",
+        "Fence",
+        "Wall",
+        "Carpet"
+      ],
+      "members": [
+        "minecraft:soul_sand",
+        "minecraft:mud",
+        "minecraft:barrier",
+        "minecraft:chiseled_bookshelf"
+      ]
+    },
+    {
+      "id": "replaceable-23",
+      "fact": "REPLACEABLE",
+      "status": "provisional",
+      "members": [
+        "minecraft:air",
+        "minecraft:short_grass",
+        "minecraft:red_shrub",
+        "minecraft:tall_grass",
+        "minecraft:fern",
+        "minecraft:large_fern",
+        "minecraft:deadbush",
+        "minecraft:vine",
+        "minecraft:glow_lichen",
+        "minecraft:seagrass",
+        "minecraft:water",
+        "minecraft:flowing_water",
+        "minecraft:lava",
+        "minecraft:flowing_lava",
+        "minecraft:fire",
+        "minecraft:soul_fire",
+        "minecraft:structure_void",
+        "minecraft:crimson_roots",
+        "minecraft:warped_roots",
+        "minecraft:nether_sprouts",
+        "minecraft:hanging_roots"
+      ]
+    },
+    {
+      "id": "opens_container-24",
+      "fact": "OPENS_CONTAINER",
+      "status": "provisional",
+      "members": [
+        "minecraft:crafting_table",
+        "minecraft:furnace",
+        "minecraft:lit_furnace",
+        "minecraft:blast_furnace",
+        "minecraft:lit_blast_furnace",
+        "minecraft:smoker",
+        "minecraft:lit_smoker",
+        "minecraft:barrel",
+        "minecraft:anvil",
+        "minecraft:enchanting_table",
+        "minecraft:brewing_stand",
+        "minecraft:hopper",
+        "minecraft:dropper",
+        "minecraft:dispenser",
+        "minecraft:crafter",
+        "minecraft:loom",
+        "minecraft:stonecutter_block",
+        "minecraft:grindstone",
+        "minecraft:cartography_table",
+        "minecraft:smithing_table",
+        "minecraft:beacon"
+      ]
+    },
+    {
+      "id": "uses_locally-25",
+      "fact": "USES_LOCALLY",
+      "status": "provisional",
+      "members": [
+        "minecraft:noteblock",
+        "minecraft:unpowered_repeater",
+        "minecraft:powered_repeater",
+        "minecraft:unpowered_comparator",
+        "minecraft:powered_comparator",
+        "minecraft:daylight_detector",
+        "minecraft:daylight_detector_inverted",
+        "minecraft:bell",
+        "minecraft:bed"
+      ]
+    },
+    {
+      "id": "replaceable-26",
+      "fact": "REPLACEABLE",
+      "status": "provisional",
+      "model_family": [
+        "FlowerBed"
+      ],
+      "prefix": "light_block_"
+    },
+    {
+      "id": "replaceable-27",
+      "fact": "REPLACEABLE",
+      "status": "provisional",
+      "members": [
+        "minecraft:snow_layer"
+      ],
+      "state_values": {
+        "height": 0
+      }
+    },
+    {
+      "id": "opens_container-28",
+      "fact": "OPENS_CONTAINER",
+      "status": "provisional",
+      "model_family": [
+        "Chest"
+      ],
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "uses_locally-29",
+      "fact": "USES_LOCALLY",
+      "status": "provisional",
+      "model_family": [
+        "Bed"
+      ]
+    },
+    {
+      "id": "toggles_by_hand-30",
+      "fact": "TOGGLES_BY_HAND",
+      "status": "provisional",
+      "model_family": [
+        "Door",
+        "Trapdoor",
+        "Gate",
+        "Button",
+        "Lever"
+      ],
+      "exclude_members": [
+        "minecraft:iron_door",
+        "minecraft:iron_trapdoor"
+      ]
+    },
+    {
+      "id": "humanoid_wearable-31",
+      "fact": "HUMANOID_WEARABLE",
+      "status": "verified",
+      "suffix": "_head"
+    },
+    {
+      "id": "humanoid_wearable-32",
+      "fact": "HUMANOID_WEARABLE",
+      "status": "verified",
+      "suffix": "_skull"
+    },
+    {
+      "id": "humanoid_wearable-33",
+      "fact": "HUMANOID_WEARABLE",
+      "status": "verified",
+      "members": [
+        "minecraft:carved_pumpkin"
+      ]
+    },
+    {
+      "id": "body_relative_facing-34",
+      "fact": "BODY_RELATIVE_FACING",
+      "status": "provisional",
+      "members": [
+        "minecraft:dispenser",
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ]
+    },
+    {
+      "id": "multipart-35",
+      "fact": "MULTIPART",
+      "status": "provisional",
+      "state_property": "upper_block_bit",
+      "members": [
+        "minecraft:pale_moss_carpet",
+        "minecraft:small_dripleaf_block",
+        "minecraft:pitcher_crop"
+      ]
+    },
+    {
+      "id": "orientation_sensitive-36",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "weirdo_direction"
+    },
+    {
+      "id": "orientation_sensitive-37",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "direction"
+    },
+    {
+      "id": "orientation_sensitive-38",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "ground_sign_direction"
+    },
+    {
+      "id": "orientation_sensitive-39",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "minecraft:cardinal_direction"
+    },
+    {
+      "id": "orientation_sensitive-40",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "pillar_axis"
+    },
+    {
+      "id": "orientation_sensitive-41",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "torch_facing_direction"
+    },
+    {
+      "id": "orientation_sensitive-42",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "rail_direction"
+    },
+    {
+      "id": "orientation_sensitive-43",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "lever_direction"
+    },
+    {
+      "id": "orientation_sensitive-44",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "multi_face_direction_bits"
+    },
+    {
+      "id": "orientation_sensitive-45",
+      "fact": "ORIENTATION_SENSITIVE",
+      "status": "verified",
+      "state_property": "minecraft:block_face"
+    },
+    {
+      "id": "survival-torch-46",
+      "fact": "survival:Torch",
+      "status": "verified",
+      "model_family": [
+        "Torch"
+      ]
+    },
+    {
+      "id": "survival-button-47",
+      "fact": "survival:Button",
+      "status": "verified",
+      "model_family": [
+        "Button"
+      ]
+    },
+    {
+      "id": "survival-carpet-48",
+      "fact": "survival:Carpet",
+      "status": "verified",
+      "model_family": [
+        "Carpet"
+      ]
+    },
+    {
+      "id": "survival-door-49",
+      "fact": "survival:Door",
+      "status": "verified",
+      "model_family": [
+        "Door"
+      ]
+    },
+    {
+      "id": "survival-vine-50",
+      "fact": "survival:Vine",
+      "status": "verified",
+      "model_family": [
+        "Vine"
+      ]
+    },
+    {
+      "id": "survival-lantern-51",
+      "fact": "survival:Lantern",
+      "status": "verified",
+      "state_properties": [
+        "hanging"
+      ],
+      "exact_properties": true
+    },
+    {
+      "id": "survival-candle-52",
+      "fact": "survival:Candle",
+      "status": "verified",
+      "state_property": "candles"
+    },
+    {
+      "id": "survival-seapickle-53",
+      "fact": "survival:SeaPickle",
+      "status": "verified",
+      "state_property": "cluster_count"
+    },
+    {
+      "id": "survival-snowlayer-54",
+      "fact": "survival:SnowLayer",
+      "status": "verified",
+      "members": [
+        "minecraft:snow_layer"
+      ]
+    },
+    {
+      "id": "survival-unresolved-55",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "members": [
+        "minecraft:bush",
+        "minecraft:unlit_redstone_torch",
+        "minecraft:lever",
+        "minecraft:rail",
+        "minecraft:redstone_wire",
+        "minecraft:unpowered_repeater",
+        "minecraft:powered_repeater",
+        "minecraft:unpowered_comparator",
+        "minecraft:powered_comparator",
+        "minecraft:snow_layer",
+        "minecraft:candle",
+        "minecraft:sea_pickle",
+        "minecraft:vine",
+        "minecraft:glow_lichen",
+        "minecraft:sculk_vein",
+        "minecraft:standing_sign",
+        "minecraft:wall_sign",
+        "minecraft:bed",
+        "minecraft:wooden_door",
+        "minecraft:iron_door",
+        "minecraft:cactus",
+        "minecraft:chorus_plant",
+        "minecraft:chorus_flower",
+        "minecraft:scaffolding",
+        "minecraft:short_grass",
+        "minecraft:tall_grass",
+        "minecraft:fern",
+        "minecraft:large_fern",
+        "minecraft:deadbush",
+        "minecraft:seagrass",
+        "minecraft:kelp",
+        "minecraft:reeds",
+        "minecraft:bamboo",
+        "minecraft:bamboo_sapling",
+        "minecraft:azalea",
+        "minecraft:flowering_azalea",
+        "minecraft:dandelion",
+        "minecraft:golden_dandelion",
+        "minecraft:poppy",
+        "minecraft:blue_orchid",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley",
+        "minecraft:closed_eyeblossom",
+        "minecraft:open_eyeblossom",
+        "minecraft:wither_rose",
+        "minecraft:torchflower",
+        "minecraft:sunflower",
+        "minecraft:lilac",
+        "minecraft:rose_bush",
+        "minecraft:peony",
+        "minecraft:pitcher_plant",
+        "minecraft:pitcher_crop",
+        "minecraft:brown_mushroom",
+        "minecraft:red_mushroom",
+        "minecraft:wheat",
+        "minecraft:carrots",
+        "minecraft:potatoes",
+        "minecraft:beetroot",
+        "minecraft:melon_stem",
+        "minecraft:pumpkin_stem",
+        "minecraft:nether_wart",
+        "minecraft:cocoa",
+        "minecraft:waterlily",
+        "minecraft:moss_carpet",
+        "minecraft:pale_moss_carpet",
+        "minecraft:hanging_roots",
+        "minecraft:nether_sprouts",
+        "minecraft:weeping_vines",
+        "minecraft:twisting_vines",
+        "minecraft:pointed_dripstone",
+        "minecraft:small_dripleaf_block",
+        "minecraft:big_dripleaf",
+        "minecraft:turtle_egg",
+        "minecraft:sniffer_egg",
+        "minecraft:frog_spawn",
+        "minecraft:spore_blossom",
+        "minecraft:pink_petals",
+        "minecraft:wildflowers",
+        "minecraft:leaf_litter",
+        "minecraft:fire",
+        "minecraft:soul_fire",
+        "minecraft:ladder",
+        "minecraft:bell",
+        "minecraft:tripwire_hook",
+        "minecraft:trip_wire",
+        "minecraft:flower_pot",
+        "minecraft:lantern",
+        "minecraft:grindstone",
+        "minecraft:brewing_stand"
+      ]
+    },
+    {
+      "id": "survival-unresolved-56",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_shrub"
+    },
+    {
+      "id": "survival-unresolved-57",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_grass"
+    },
+    {
+      "id": "survival-unresolved-58",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_shulker_box"
+    },
+    {
+      "id": "survival-unresolved-59",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_flower"
+    },
+    {
+      "id": "survival-unresolved-60",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_tulip"
+    },
+    {
+      "id": "survival-unresolved-61",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_sapling"
+    },
+    {
+      "id": "survival-unresolved-62",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_mushroom"
+    },
+    {
+      "id": "survival-unresolved-63",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_roots"
+    },
+    {
+      "id": "survival-unresolved-64",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_fungus"
+    },
+    {
+      "id": "survival-unresolved-65",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_rail"
+    },
+    {
+      "id": "survival-unresolved-66",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_pressure_plate"
+    },
+    {
+      "id": "survival-unresolved-67",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_sign"
+    },
+    {
+      "id": "survival-unresolved-68",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_wall_sign"
+    },
+    {
+      "id": "survival-unresolved-69",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_hanging_sign"
+    },
+    {
+      "id": "survival-unresolved-70",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_coral"
+    },
+    {
+      "id": "survival-unresolved-71",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_coral_fan"
+    },
+    {
+      "id": "survival-unresolved-72",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_coral_wall_fan"
+    },
+    {
+      "id": "survival-unresolved-73",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_candle"
+    },
+    {
+      "id": "survival-unresolved-74",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_candle_cake"
+    },
+    {
+      "id": "survival-unresolved-75",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_door"
+    },
+    {
+      "id": "survival-unresolved-76",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_bush"
+    },
+    {
+      "id": "survival-unresolved-77",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_skull"
+    },
+    {
+      "id": "survival-unresolved-78",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_head"
+    },
+    {
+      "id": "survival-unresolved-79",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "suffix": "_chain"
+    },
+    {
+      "id": "survival-unresolved-80",
+      "fact": "survival:Unresolved",
+      "status": "provisional",
+      "model_family": [
+        "Cross",
+        "Crop",
+        "Aquatic",
+        "Rail",
+        "Sign",
+        "Bed",
+        "FlowerBed",
+        "Cocoa",
+        "GlowLichen",
+        "SculkVein",
+        "ResinClump",
+        "PressurePlate"
+      ]
+    },
+    {
+      "id": "translucent-81",
+      "fact": "TRANSLUCENT",
+      "status": "provisional",
+      "model_family": [
+        "Liquid"
+      ],
+      "members": [
+        "minecraft:glass",
+        "minecraft:ice",
+        "minecraft:slime",
+        "minecraft:honey_block",
+        "minecraft:portal"
+      ],
+      "suffix": "_stained_glass"
+    },
+    {
+      "id": "cutout-82",
+      "fact": "CUTOUT",
+      "status": "provisional",
+      "model_family": [
+        "Leaves",
+        "Cross",
+        "Crop",
+        "Pane",
+        "Torch",
+        "Vine",
+        "GlowLichen",
+        "SculkVein",
+        "ResinClump",
+        "FlowerBed",
+        "Aquatic"
+      ],
+      "state_properties": [
+        "hanging"
+      ],
+      "exact_properties": true
+    },
+    {
+      "id": "foliage_tint-83",
+      "fact": "FOLIAGE_TINT",
+      "status": "provisional",
+      "model_family": [
+        "Leaves"
+      ]
+    },
+    {
+      "id": "grass_tint-84",
+      "fact": "GRASS_TINT",
+      "status": "provisional",
+      "members": [
+        "minecraft:grass_block",
+        "minecraft:short_grass",
+        "minecraft:tall_grass",
+        "minecraft:fern",
+        "minecraft:large_fern"
+      ]
+    },
+    {
+      "id": "water_tint-85",
+      "fact": "WATER_TINT",
+      "status": "provisional",
+      "members": [
+        "minecraft:water",
+        "minecraft:flowing_water",
+        "minecraft:bubble_column"
+      ]
+    },
+    {
+      "id": "head-86",
+      "fact": "HEAD",
+      "status": "provisional",
+      "members": [
+        "minecraft:skeleton_skull",
+        "minecraft:wither_skeleton_skull",
+        "minecraft:zombie_head",
+        "minecraft:player_head",
+        "minecraft:creeper_head",
+        "minecraft:dragon_head",
+        "minecraft:piglin_head"
+      ]
+    },
+    {
+      "id": "frame-87",
+      "fact": "FRAME",
+      "status": "provisional",
+      "members": [
+        "minecraft:frame",
+        "minecraft:glow_frame"
+      ]
+    },
+    {
+      "id": "ladder-88",
+      "fact": "LADDER",
+      "status": "provisional",
+      "members": [
+        "minecraft:ladder"
+      ]
+    },
+    {
+      "id": "hopper-89",
+      "fact": "HOPPER",
+      "status": "provisional",
+      "members": [
+        "minecraft:hopper"
+      ]
+    },
+    {
+      "id": "cauldron-90",
+      "fact": "CAULDRON",
+      "status": "provisional",
+      "members": [
+        "minecraft:cauldron"
+      ]
+    },
+    {
+      "id": "composter-91",
+      "fact": "COMPOSTER",
+      "status": "provisional",
+      "members": [
+        "minecraft:composter"
+      ]
+    },
+    {
+      "id": "scaffolding-92",
+      "fact": "SCAFFOLDING",
+      "status": "provisional",
+      "members": [
+        "minecraft:scaffolding"
+      ]
+    },
+    {
+      "id": "fire-93",
+      "fact": "FIRE",
+      "status": "provisional",
+      "members": [
+        "minecraft:fire",
+        "minecraft:soul_fire"
+      ]
+    },
+    {
+      "id": "snow_layer-94",
+      "fact": "SNOW_LAYER",
+      "status": "provisional",
+      "members": [
+        "minecraft:snow_layer"
+      ]
+    },
+    {
+      "id": "campfire-95",
+      "fact": "CAMPFIRE",
+      "status": "provisional",
+      "members": [
+        "minecraft:campfire",
+        "minecraft:soul_campfire"
+      ]
+    },
+    {
+      "id": "spawner-96",
+      "fact": "SPAWNER",
+      "status": "provisional",
+      "members": [
+        "minecraft:mob_spawner"
+      ]
+    },
+    {
+      "id": "end_portal-97",
+      "fact": "END_PORTAL",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_portal"
+      ]
+    },
+    {
+      "id": "piston-99",
+      "fact": "PISTON",
+      "status": "provisional",
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
+      ]
+    },
+    {
+      "id": "candle-100",
+      "fact": "CANDLE",
+      "status": "provisional",
+      "members": [
+        "minecraft:candle"
+      ]
+    },
+    {
+      "id": "farmland-101",
+      "fact": "FARMLAND",
+      "status": "provisional",
+      "members": [
+        "minecraft:farmland"
+      ]
+    },
+    {
+      "id": "banner-102",
+      "fact": "BANNER",
+      "status": "provisional",
+      "suffix": "_banner"
+    },
+    {
+      "id": "standing_sign-103",
+      "fact": "STANDING_SIGN",
+      "status": "provisional",
+      "suffix": "standing_sign"
+    },
+    {
+      "id": "wall_sign-104",
+      "fact": "WALL_SIGN",
+      "status": "provisional",
+      "suffix": "wall_sign"
+    },
+    {
+      "id": "hanging_sign-105",
+      "fact": "HANGING_SIGN",
+      "status": "provisional",
+      "suffix": "hanging_sign"
+    },
+    {
+      "id": "shulker_box-106",
+      "fact": "SHULKER_BOX",
+      "status": "provisional",
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "candle-107",
+      "fact": "CANDLE",
+      "status": "provisional",
+      "suffix": "_candle"
+    },
+    {
+      "id": "coral-108",
+      "fact": "CORAL",
+      "status": "provisional",
+      "suffix": "_coral"
+    },
+    {
+      "id": "coral-109",
+      "fact": "CORAL",
+      "status": "provisional",
+      "suffix": "_coral_fan"
+    },
+    {
+      "id": "coral-110",
+      "fact": "CORAL",
+      "status": "provisional",
+      "suffix": "_coral_wall_fan"
+    },
+    {
+      "id": "plant-111",
+      "fact": "PLANT",
+      "status": "provisional",
+      "model_family": [
+        "Cross",
+        "Crop",
+        "Aquatic",
+        "FlowerBed",
+        "Cocoa",
+        "Vine",
+        "GlowLichen",
+        "SculkVein"
+      ]
+    },
+    {
+      "id": "block_entity_drawn-112",
+      "fact": "BLOCK_ENTITY_DRAWN",
+      "status": "provisional",
+      "model_family": [
+        "Chest",
+        "Bed",
+        "Statue"
+      ],
+      "members": [
+        "minecraft:standing_banner",
+        "minecraft:wall_banner",
+        "minecraft:decorated_pot",
+        "minecraft:conduit",
+        "minecraft:bell",
+        "minecraft:frame",
+        "minecraft:glow_frame",
+        "minecraft:lectern",
+        "minecraft:end_portal"
+      ],
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "block_entity_drawn-113",
+      "fact": "BLOCK_ENTITY_DRAWN",
+      "status": "provisional",
+      "members": [
+        "minecraft:skeleton_skull",
+        "minecraft:wither_skeleton_skull",
+        "minecraft:zombie_head",
+        "minecraft:player_head",
+        "minecraft:creeper_head",
+        "minecraft:dragon_head",
+        "minecraft:piglin_head"
+      ]
+    },
+    {
+      "id": "vine_support-114",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "members": [
+        "minecraft:jigsaw",
+        "minecraft:structure_block",
+        "minecraft:air",
+        "minecraft:scaffolding",
+        "minecraft:cauldron",
+        "minecraft:composter",
+        "minecraft:cactus",
+        "minecraft:hopper",
+        "minecraft:lectern",
+        "minecraft:invisible_bedrock"
+      ]
+    },
+    {
+      "id": "vine_support-115",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "vine_support-116",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "members": [
+        "minecraft:barrier",
+        "minecraft:farmland",
+        "minecraft:grass_path",
+        "minecraft:mud",
+        "minecraft:soul_sand",
+        "minecraft:honey_block",
+        "minecraft:sculk_sensor"
+      ]
+    },
+    {
+      "id": "vine_support-117",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "suffix": "_double_slab"
+    },
+    {
+      "id": "vine_support-118",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "contains": "double_cut_copper_slab"
+    },
+    {
+      "id": "vine_support-119",
+      "fact": "VINE_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "model_family": [
+        "Cube",
+        "Leaves",
+        "ChiseledBookshelf"
+      ]
+    },
+    {
+      "id": "full_top_support-120",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "members": [
+        "minecraft:hopper",
+        "minecraft:cauldron",
+        "minecraft:composter",
+        "minecraft:scaffolding",
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ]
+    },
+    {
+      "id": "full_top_support-121",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "members": [
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
+      ],
+      "state_values": {
+        "facing_direction": 1
+      }
+    },
+    {
+      "id": "full_top_support-122",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "members": [
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision",
+        "minecraft:farmland",
+        "minecraft:grass_path",
+        "minecraft:cactus",
+        "minecraft:daylight_detector",
+        "minecraft:daylight_detector_inverted",
+        "minecraft:enchanting_table",
+        "minecraft:end_portal_frame",
+        "minecraft:lectern",
+        "minecraft:powder_snow",
+        "minecraft:sculk_sensor",
+        "minecraft:calibrated_sculk_sensor",
+        "minecraft:sculk_shrieker",
+        "minecraft:stonecutter_block",
+        "minecraft:sea_pickle",
+        "minecraft:campfire",
+        "minecraft:soul_campfire",
+        "minecraft:chorus_plant",
+        "minecraft:chorus_flower",
+        "minecraft:brewing_stand",
+        "minecraft:jigsaw",
+        "minecraft:structure_block",
+        "minecraft:invisible_bedrock",
+        "minecraft:air"
+      ]
+    },
+    {
+      "id": "full_top_support-123",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "members": [
+        "minecraft:snow_layer"
+      ],
+      "state_maximum": "height"
+    },
+    {
+      "id": "full_top_support-124",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "members": [
+        "minecraft:snow_layer"
+      ],
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "full_top_support-125",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "model_family": [
+        "Trapdoor"
+      ],
+      "state_values": {
+        "open_bit": 0,
+        "upside_down_bit": 1
+      }
+    },
+    {
+      "id": "full_top_support-126",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "model_family": [
+        "Stair"
+      ],
+      "state_values": {
+        "upside_down_bit": 1
+      }
+    },
+    {
+      "id": "full_top_support-127",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "model_family": [
+        "Leaves",
+        "Chest",
+        "Wall",
+        "Pane",
+        "Trapdoor",
+        "Stair"
+      ]
+    },
+    {
+      "id": "full_top_support-128",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "suffix": "_double_slab"
+    },
+    {
+      "id": "full_top_support-129",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "contains": "double_cut_copper_slab"
+    },
+    {
+      "id": "full_top_support-130",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": false,
+      "model_family": [
+        "Slab"
+      ]
+    },
+    {
+      "id": "full_top_support-131",
+      "fact": "FULL_TOP_SUPPORT",
+      "status": "provisional",
+      "value": true,
+      "members": [
+        "minecraft:barrier",
+        "minecraft:mud",
+        "minecraft:soul_sand",
+        "minecraft:honey_block"
+      ],
+      "model_family": [
+        "Cube",
+        "ChiseledBookshelf"
+      ]
+    }
+  ]
 }

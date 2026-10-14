@@ -78,6 +78,9 @@ fn fixture() -> &'static Fixture {
         .map(
             |(index, (name, flags, model_family, contributor_role))| RegistryRecord {
                 beacon_tint: assets::BeaconTint::Unresolved,
+                traits: assets::registry::BlockTraits::empty(),
+                survival: assets::registry::SurvivalRule::None,
+                properties: Box::new([]),
                 sequential_id: index as u32,
                 network_hash: index as u32 + 101,
                 name: name.into(),

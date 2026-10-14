@@ -135,6 +135,7 @@ fn add(refs: &mut BTreeSet<Reference>, file: &str, path: &str, domain: &str, ide
 /// Selects the registry namespace for a JSON table, failing when a new table has no policy.
 fn table_domain(file: &str) -> &'static str {
     match file {
+        "block-properties-v2193.json" => "property",
         "entity-interactions.json" | "entity-placement-frame.json" | "mount-equipment.json" => {
             "actor"
         }
@@ -188,6 +189,7 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     add(refs, file, &child, key_domain, key);
                 }
                 let child_domain = match key.as_str() {
+                    "state_property" | "state_properties" | "state_values" => "property",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "twin" if file == "registry-policy.json" => "legacy_block",
                     "duration_alias" => "behavior_item",
@@ -210,6 +212,7 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                         | "default_alias"
                 ) || (key == "name"
                     && (file == "registry-policy.json"
+                        || file == "block-properties-v2193.json"
                         || file == "visual-coverage-v1001.json"
                         || path.contains("/backing_blocks/")));
                 if identity_field {
@@ -291,12 +294,17 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         | "item-glint-v2193.tsv"
         | "item-grips-v2193.tsv"
         | "legacy-icon-routes-26.30.tsv" => "retail_item",
-        "server-defined-blocks-v2193.tsv" | "block-destroy-v2193.tsv" => "block",
+        "server-defined-blocks-v2193.tsv"
+        | "block-destroy-v2193.tsv"
+        | "block-components-v2193.tsv"
+        | "facts-expansion-v2193.tsv" => "block",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
         .lines()
-        .filter(|line| !line.starts_with('#') && !line.is_empty())
+        .filter(|line| {
+            !line.starts_with('#') && !line.starts_with("identifier\t") && !line.is_empty()
+        })
         .enumerate()
     {
         let fields: Vec<_> = line.split('\t').collect();
@@ -324,6 +332,7 @@ fn references(root: &Path) -> BTreeSet<Reference> {
                     }
                 }
                 "tsv" if file == "vanilla-pack-vocabulary-1.26.50.tsv" => {}
+                "txt" if file == "vocabulary-v2193.txt" => {}
                 "tsv" => tsv_refs(&mut refs, file, &fs::read_to_string(&path).unwrap()),
                 // Light, physics and fallback carriers use checked block IDs, not identifier text.
                 "bin" if file.starts_with("block-registry-") => {

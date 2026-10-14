@@ -40,7 +40,7 @@ fn reads_the_go_wire_contract_without_reinterpreting_fields() {
     assert_eq!(leaf.name.as_ref(), "fixture:leaf");
     assert_eq!(
         leaf.canonical_state.as_ref(),
-        r#"{"color":{"type":"int","value":3}}"#
+        r#"{"growth":{"type":"int","value":3}}"#
     );
     assert_eq!(
         leaf.flags,
@@ -103,6 +103,8 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         (50, 0x80),
         (51, 8),
         (92, 0xff),
+        (100, 0x80),
+        (101, 0xff),
     ] {
         let mut bytes = fixture();
         bytes[offset] = value;

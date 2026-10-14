@@ -23,6 +23,9 @@ fn snow_grass_fixture() -> &'static SnowGrassFixture {
             let id = records.len() as u32;
             records.push(RegistryRecord {
                 beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
                 sequential_id: id,
                 network_hash: snow_grass_wire_id(NetworkIdMode::Hashed, id),
                 name: name.into(), canonical_state: state.into(), flags, model_family: family,

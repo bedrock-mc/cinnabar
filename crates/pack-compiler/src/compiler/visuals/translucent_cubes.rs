@@ -45,6 +45,9 @@ mod tests {
     fn record(name: &str, flags: BlockFlags) -> RegistryRecord {
         RegistryRecord {
             beacon_tint: assets::BeaconTint::Unresolved,
+            traits: assets::registry::BlockTraits::empty(),
+            survival: assets::registry::SurvivalRule::None,
+            properties: Box::new([]),
             sequential_id: 1,
             network_hash: 1,
             name: name.into(),

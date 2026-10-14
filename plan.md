@@ -8857,3 +8857,16 @@ labels retain fractional positions, including the origin read by caret metadata.
 cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
 Incomplete: matched rendered title size and vertical alignment still require
 verification in the reported server form; these CPU fixtures do not close that gate.
+
+
+### Compiled block registry facts
+
+The active block carrier stores traits and survival classifications by sequential
+runtime id. State properties use generated keys and pinned scalar domains decoded
+when the registry loads. Compiler selectors expand against the pinned palette and
+produce a reviewed membership table; provisional rules remain explicitly listed.
+
+Incomplete: native replacement and interaction membership, support-rule parity,
+complete survival coverage, and refreshed block-entity backings remain open.
+Gameplay, shape, rendering and session consumers still require migration onto the
+compiled facts. Adding this owner does not close those behavior gates.

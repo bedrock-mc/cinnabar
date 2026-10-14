@@ -45,16 +45,9 @@ func isBeeHousingName(name string) bool {
 	return name == "minecraft:bee_nest" || name == "minecraft:beehive"
 }
 
+// isShelfName checks the shelf group declared in the shared compiler rules.
 func isShelfName(name string) bool {
-	name = strings.TrimPrefix(name, "minecraft:")
-	switch name {
-	case "acacia_shelf", "bamboo_shelf", "birch_shelf", "cherry_shelf",
-		"crimson_shelf", "dark_oak_shelf", "jungle_shelf", "mangrove_shelf",
-		"oak_shelf", "pale_oak_shelf", "spruce_shelf", "warped_shelf":
-		return true
-	default:
-		return false
-	}
+	return legacyFamilyMember(name, "family-shelf")
 }
 
 func isShelfCandidateName(name string) bool {
@@ -462,46 +455,6 @@ func orientationUint(property string, scalar TypedScalar) (uint32, bool) {
 		return value, ok
 	}
 	return scalarUint(scalar)
-}
-
-func isCropName(name string) bool {
-	switch name {
-	case "wheat", "carrots", "potatoes", "beetroot", "nether_wart", "sweet_berry_bush", "torchflower_crop", "pitcher_crop", "melon_stem", "pumpkin_stem":
-		return true
-	default:
-		return false
-	}
-}
-
-func isCrossName(name string) bool {
-	if name == "chorus_flower" {
-		return false
-	}
-	if name == "short_grass" || name == "tall_grass" || name == "short_dry_grass" || name == "tall_dry_grass" || name == "fern" || name == "large_fern" || name == "deadbush" || name == "bush" || name == "red_flower" || name == "yellow_flower" || name == "dandelion" || name == "poppy" || name == "blue_orchid" || name == "allium" || name == "azure_bluet" || name == "oxeye_daisy" || name == "cornflower" || name == "lily_of_the_valley" || name == "wither_rose" || name == "sunflower" || name == "lilac" || name == "rose_bush" || name == "peony" || name == "brown_mushroom" || name == "red_mushroom" || name == "crimson_fungus" || name == "warped_fungus" || name == "crimson_roots" || name == "warped_roots" || name == "nether_sprouts" || name == "mangrove_propagule" || name == "hanging_roots" || name == "pale_hanging_moss" || name == "firefly_bush" || name == "reeds" || name == "weeping_vines" || name == "twisting_vines" || strings.HasPrefix(name, "cave_vines") || name == "web" || name == "fire" || name == "soul_fire" || name == "torchflower" {
-		return true
-	}
-	return !strings.Contains(name, "flower_pot") && (strings.HasSuffix(name, "_flower") || strings.HasSuffix(name, "_sapling"))
-}
-
-func isAquaticName(name string) bool {
-	return name == "seagrass" || name == "tall_seagrass" || name == "kelp" || name == "kelp_plant" || (strings.Contains(name, "coral") && !strings.Contains(name, "coral_block"))
-}
-
-func isTorchName(name string) bool {
-	return name == "torch" || name == "copper_torch" || name == "soul_torch" || name == "redstone_torch" || name == "unlit_redstone_torch"
-}
-
-func isGlazedTerracottaName(name string) bool {
-	return strings.HasSuffix(name, "_glazed_terracotta")
-}
-
-func isReviewedSelectorAliasCubeName(name string) bool {
-	switch name {
-	case "bone_block", "hay_block", "chiseled_quartz_block", "purpur_block", "quartz_block", "smooth_quartz", "tnt":
-		return true
-	default:
-		return false
-	}
 }
 
 func selectorAliasCubeCollisionIsExact(seed CollisionSeed) bool {
