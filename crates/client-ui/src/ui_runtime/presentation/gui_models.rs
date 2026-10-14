@@ -369,7 +369,7 @@ impl UiPresentationRuntime {
         if !nodes.iter().any(|node| is_preview(node.visual())) {
             return;
         }
-        let Some(body) = self.gui_player_mesh_with_models([None; 2]) else {
+        let Some(body) = self.gui_player_mesh_with_models([const { None }; 2]) else {
             return;
         };
         let held = self.preview_held_models([true; 2]);
