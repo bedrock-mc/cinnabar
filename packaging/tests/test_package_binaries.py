@@ -93,12 +93,7 @@ class PackageBinariesTests(unittest.TestCase):
                     builds = [args for tool, *args in calls if tool == "cargo" and args[0] == "build"]
                     self.assertEqual(len(builds), 1)
                     args = builds[0]
-                    features = {
-                        feature
-                        for index, arg in enumerate(args) if arg == "--features"
-                        for feature in args[index + 1].replace(",", " ").split()
-                    }
-                    self.assertIn("cinnabar/local-mods", features)
+                    self.assertNotIn("--features", args)
                     self.assertIn("--release", args)
                     self.assertIn("--no-default-features", args)
                     runtime = [line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]

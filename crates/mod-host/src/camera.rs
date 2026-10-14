@@ -16,6 +16,9 @@ impl cinnabar::extension::camera::Host for State {
         if self.camera_writes > MAX_IMPORT_WRITES {
             bail!("camera import budget exhausted");
         }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
+        }
         if !self.grants.camera {
             return Ok(Err("camera capability denied".into()));
         }
@@ -27,6 +30,9 @@ impl cinnabar::extension::camera::Host for State {
         self.camera_writes += 1;
         if self.camera_writes > MAX_IMPORT_WRITES {
             bail!("camera import budget exhausted");
+        }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
         }
         if !self.grants.camera {
             return Ok(Err("camera capability denied".into()));

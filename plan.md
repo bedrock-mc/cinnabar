@@ -446,6 +446,40 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   differing DPI. Native offscreen validation covers nonzero small attachments.
 - The reported unfocused macOS startup panic remains incomplete until a matching
   headless startup capture reproduces it. No native parity or frame-budget gate closes.
+
+## Graphics API startup recovery
+
+- A shared policy selects Windows Vulkan/DX12, Linux Vulkan, Android Vulkan,
+  and macOS Metal. Each API has its own instance and enumeration sentinel. Known vendor
+  defaults order probes; fresh installs use platform order until hardware is identified.
+- Precedence is `WGPU_BACKEND`, the restart-only Video override, vendor defaults and the
+  driver blocklist, then crash exclusions. Explicit overrides bypass automatic filters.
+  A failed saved Video choice retries Auto for that launch; only the environment override is strict.
+  GL/GLES is unavailable, saved GL choices become Auto, and Android requires Vulkan.
+  The Video control is hidden on macOS.
+- All eligible adapters are ranked by device type (discrete, integrated, virtual, other, CPU),
+  then vendor backend order. Low-power preference puts integrated hardware before discrete.
+  Windows Intel adapters prefer DX12 on ties; other multi-API defaults prefer Vulkan. A requested adapter name restricts candidates across every API.
+- Candidates must support terrain base-vertex draws, vertex and fragment storage, alternate
+  texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
+  the required storage limits.
+  Startup tries each ranked candidate; returned device failures advance to the next candidate.
+  Crash exclusions identify only the backend and survive successful fallback. Client version
+  changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
+  If no non-excluded candidate succeeds, startup clears allowed exclusions for one more attempt pass.
+  Startup log boundaries flush the file directly without waiting for terminal output.
+- The driver blocklist has one data source and bounded numeric version rules. Native Windows
+  exception capture and Unix fatal-signal capture retain local renderer context and normal OS
+  crash handling.
+- Startup recovery files have an exclusive OS lease through the first completed frame;
+  sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
+  cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel
+  writes, while panics and native faults retain crash evidence. Saved Unix handlers receive the
+  original signal information and machine context; default hardware faults repeat their original
+  instruction. Another client's saved choice cannot change this process's crash attribution.
+- Target-device crash reproduction, Android lifecycle acceptance
+  and Video screenshots remain incomplete. This work closes no parity or performance gate.
+
 ## UI text and presentation failure recovery
 
 - Wrapped presentation text keeps an indivisible glyph wider than its control, with
@@ -1961,6 +1995,10 @@ routes agree with the pinned effect texture arrays; the current native potion
 table constructor and auxiliary values without reviewed routes remain incomplete.
 This correction does not close the broader actor parity gate.
 
+Projectile controllers now keep their primary sprite draw instead of drawing an
+auxiliary glint raster as a separate quad. The admitted three-sampler material
+keeps its grouped draw. Other secondary material samplers remain incomplete.
+
 The canonical v21 debug build passes, along with focused snowball, explosion,
 credits, boss UI/wire/app/session, orb, portal overlay GPU and shader checks.
 Formatting, architecture and diff checks pass. It is running through a persistent
@@ -2773,6 +2811,23 @@ gaps: no smelting at 1.26.x, brewing skipped, recipes with Molang/complex/deferr
 ingredients dropped. Incomplete as for the spike: process isolation, signing,
 consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
 
+2026-10-13 Settings Mods tab: the resource-pack page's toolbar, card disclosures,
+Active/My mods groups and animations now manage an ordered native mod list. Enable,
+Disable and Remove affect each card's identity independently. Active cards can reorder,
+reload individually or reload all; failed reloads preserve the running instance.
+Per-card permission toggles are derived from the host grant declaration and default off.
+The original single registration migrates with its grants, font and UI intact. Each guest
+keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
+with bounded event and session-loading lanes preserving their full guest limits. Deferred
+lifecycle notifications and bounded screen-scoped edit text remain queued until delivery.
+Frame-local outputs reset even when execution defers. Superseded authority revocations can
+rebuild; unrelated registration changes retain guest quarantine.
+Camera, time and contested HUD slots obey Active-list precedence with counted refusals.
+Modding and its Wasmtime host ship in every native build, including builds without default
+features. The host's execution modules and tests compile unconditionally. Incomplete:
+component icons and descriptions, owner visual review and native cross-platform acceptance.
+See `docs/modding-spike.md`.
+
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
 the native 0.35-block crouch offset, half-blended once per completed tick and
 interpolated per frame. Local actor feet, interaction eye and network anchor are
@@ -2824,8 +2879,9 @@ to front by camera depth, independently of viewer-distance limits and score rang
 with depth selection on each quad. Sneaking tags draw only their depth-tested background
 and dim text. Only tested text writes depth; labels use no depth bias and test final
 alpha against `0.1`. Visibility uses strict viewer-distance limits of 64 blocks, or
-32 when sneaking, shortened by server limits. Invisible actors, mounts carrying riders
-and explicit server hides suppress tags; the local player's tag stays hidden by default.
+32 when sneaking, shortened by server limits. Invisible actors and mounts carrying riders
+suppress tags; the local player's tag stays hidden by default. Explicit always-show metadata
+overrides a cleared show-name flag; otherwise explicit server hides suppress tags.
 The open font, server text and formatting, score lines, debug text and explicit debug
 quaternions retain their existing paths. Rendered-frame acceptance remains incomplete;
 no name-tag visual parity gate is closed. See [rendering rules](docs/reference/nametag-rendering.md).
@@ -6798,6 +6854,9 @@ nearest-hit decisions use segment fractions so endpoint rounding cannot change
 their units. Incomplete: native block tie/union rules, camera-direction generation,
 and runtime witnesses still need verification; these precision fixes do not close
 the interaction parity gate.
+
+Remote actor snapping respects target-column terrain order. Block-use and painting
+occlusion share rounded intercept distances. CI verification remains pending.
 
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;

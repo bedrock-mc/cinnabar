@@ -1,7 +1,7 @@
 //! Global pack management. Live application is a Cinnabar extension to Bedrock.
 
 mod icons;
-mod picker;
+pub(crate) mod picker;
 mod worker;
 
 use bevy::prelude::*;

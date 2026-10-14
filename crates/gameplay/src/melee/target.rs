@@ -208,6 +208,27 @@ pub fn ray_box_entry(
     Some(near)
 }
 
+/// Resolves actor occlusion from the rounded world intercept, ignoring cached ray distance.
+pub fn classify_block_hit(
+    actor: Option<ActorHit>,
+    origin: [f32; 3],
+    block: Option<&sim::BlockHit>,
+    reach: f64,
+) -> Crosshair {
+    let distance = block.map(|hit| {
+        block_pick_distance(
+            origin,
+            hit.block_pos,
+            [
+                hit.hit_local.x as f32,
+                hit.hit_local.y as f32,
+                hit.hit_local.z as f32,
+            ],
+        )
+    });
+    classify(actor, distance, reach)
+}
+
 /// Resolves the press target; an actor wins only when clearly in front of the block.
 pub fn classify(
     actor: Option<ActorHit>,

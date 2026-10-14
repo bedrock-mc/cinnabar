@@ -182,7 +182,7 @@ fn run(
             Command::Action {
                 action: Action::Import,
                 ..
-            } => match super::picker::pick() {
+            } => match super::picker::pick_files(&super::picker::PACKS) {
                 Ok(paths) => import_files(&mut library, paths, &mut snapshot, refresh_icons),
                 Err(error) => {
                     snapshot.message = error;

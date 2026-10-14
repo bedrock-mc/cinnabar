@@ -14,7 +14,7 @@ pub enum PanelUiOwner {
     /// A component's stable index in the environment-loaded set.
     Environment(usize),
     /// The independently registered component, including all of its replacements.
-    Registration,
+    Registration(u64),
 }
 
 impl crate::ModUi {

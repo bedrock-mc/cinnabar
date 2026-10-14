@@ -177,7 +177,7 @@ fn full_heavy_admission_leaves_light_capacity() {
 #[test]
 fn actor_move_passes_a_pending_block_decode_on_another_column() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, block_update(0), true);
+    admit(&mut state, 1, block_update(1), true);
     let Some(CommitStep::BlockUpdates { sequence: 1, .. }) = state.next_commit() else {
         panic!("the block batch is first");
     };
@@ -188,9 +188,9 @@ fn actor_move_passes_a_pending_block_decode_on_another_column() {
 }
 
 #[test]
-fn actor_move_passes_a_pending_level_chunk_decode() {
+fn actor_move_passes_a_pending_level_chunk_decode_on_another_column() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), false);
+    admit(&mut state, 1, level_chunk(1), false);
     admit(&mut state, 2, actor_move(9), true);
     assert_eq!(commit_one(&mut state), Some(2));
     assert_eq!(state.committed_sequence(), 0);
@@ -252,7 +252,7 @@ fn local_authority_waits_for_block_mutations_but_not_chunk_decode() {
 #[test]
 fn exhausted_heavy_budget_still_commits_light_events() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), false);
+    admit(&mut state, 1, level_chunk(1), false);
     state
         .insert_ready(1, PreparedWorldEvent::CommitOnly)
         .unwrap();
@@ -460,7 +460,7 @@ fn randomized_interleavings_match_strict_wire_order() {
 #[test]
 fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), false);
+    admit(&mut state, 1, level_chunk(1), false);
     for sequence in 2..=10_001 {
         admit(&mut state, sequence, actor_move(9), true);
         assert_eq!(commit_one(&mut state), Some(sequence));
@@ -486,9 +486,9 @@ fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
 #[test]
 fn skipping_chunk_data_still_commits_what_a_ready_mutation_waits_behind() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), true);
-    admit(&mut state, 2, block_update(0), true);
-    admit(&mut state, 3, level_chunk(1), true);
+    admit(&mut state, 1, level_chunk(1), true);
+    admit(&mut state, 2, block_update(1), true);
+    admit(&mut state, 3, level_chunk(2), true);
     admit(&mut state, 4, actor_move(9), true);
     let order =
         std::iter::from_fn(|| commit_within(&mut state, SKIP_CHUNK_DATA)).collect::<Vec<_>>();
@@ -622,4 +622,38 @@ fn skipping_chunk_data_follows_a_queued_batch_dependency() {
             "unrelated chunk data stays offloaded"
         );
     }
+}
+
+#[test]
+fn actor_move_waits_for_its_target_column_regardless_of_decode_completion() {
+    for ready in [false, true] {
+        let mut state = OrderedCommitState::new(1);
+        admit(&mut state, 1, level_chunk(0), ready);
+        admit(&mut state, 2, actor_move(9), true);
+        if !ready {
+            assert!(state.next_commit().is_none());
+            state
+                .insert_ready(1, PreparedWorldEvent::Immediate(level_chunk(0)))
+                .unwrap();
+        }
+        assert_eq!(commit_one(&mut state), Some(1));
+        assert_eq!(commit_one(&mut state), Some(2));
+    }
+}
+
+#[test]
+fn partial_actor_move_keeps_terrain_reads_in_wire_order() {
+    let WorldEvent::Actor(ActorEvent::Move(mut movement)) = actor_move(9) else {
+        unreachable!()
+    };
+    movement.position[0] = None;
+    let event = WorldEvent::Actor(ActorEvent::Move(movement));
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, level_chunk(1), false);
+    admit(&mut state, 2, event.clone(), true);
+    assert!(state.next_commit().is_none());
+    let mut state = OrderedCommitState::new(1);
+    admit(&mut state, 1, event, false);
+    admit(&mut state, 2, level_chunk(1), true);
+    assert!(state.next_commit().is_none());
 }

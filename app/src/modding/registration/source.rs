@@ -5,7 +5,7 @@ use std::path::Path;
 use client_extensions::modding::font;
 use sha2::{Digest, Sha256};
 
-use super::{MAX_BYTES, MAX_REQUEST_BYTES, Registration, SourceSnapshot};
+use super::{Entry, MAX_BYTES, MAX_REQUEST_BYTES, Registration, SourceSnapshot};
 
 pub(super) struct Observation {
     pub(super) fingerprint: [u8; 32],
@@ -13,6 +13,7 @@ pub(super) struct Observation {
     pub(super) result: Result<Option<Registration>, String>,
 }
 
+/// Reads a bounded registration and normalizes directory aliases without following leaf links.
 pub(super) fn observe(path: &Path) -> Observation {
     let bytes = (|| {
         let bytes = match mod_host::local_files::read(path, MAX_BYTES) {
@@ -46,9 +47,15 @@ pub(super) fn observe(path: &Path) -> Observation {
             let result = if bytes.len() > MAX_BYTES {
                 Err("local extension registration exceeds byte limit".into())
             } else {
-                serde_json::from_slice::<Registration>(&bytes)
+                Registration::decode(&bytes)
                     .map_err(|error| format!("invalid local extension registration: {error}"))
-                    .and_then(|registration| registration.validate().map(|()| Some(registration)))
+                    .map(|mut registration| {
+                        for entry in &mut registration.mods {
+                            entry.component =
+                                super::selection::resolved_component(&entry.component);
+                        }
+                        Some(registration)
+                    })
             };
             Observation {
                 fingerprint: Sha256::digest(&bytes).into(),
@@ -59,7 +66,8 @@ pub(super) fn observe(path: &Path) -> Observation {
     }
 }
 
-pub(super) fn source_snapshot(registration: Registration) -> Result<SourceSnapshot, String> {
+/// Captures source bytes and authority together so admission never rereads a changed file.
+pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, String> {
     let mut digest = Sha256::new();
     digest.update(serde_json::to_vec(&registration).map_err(|error| error.to_string())?);
     let component = read_bounded_source(&registration.component, mod_host::MAX_COMPONENT_BYTES)?;
@@ -97,6 +105,7 @@ pub(super) fn source_snapshot(registration: Registration) -> Result<SourceSnapsh
     })
 }
 
+/// Uses the same regular-file and byte-limit admission as component imports.
 fn read_bounded_source(path: &Path, max: usize) -> Result<Vec<u8>, String> {
     mod_host::local_files::read(path, max).map_err(|error| {
         format!(

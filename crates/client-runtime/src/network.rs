@@ -3,7 +3,6 @@
 use bevy::app::{App, Last, MainScheduleOrder};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::{Deref, DerefMut, Res, Resource};
-#[cfg(feature = "local-mods")]
 use std::path::PathBuf;
 
 /// A Bevy resource retaining the domain's exact command and event queues.
@@ -12,7 +11,6 @@ pub struct NetworkHandle<P: Send + Sync + 'static> {
     #[deref]
     inner: client_session::NetworkHandle<P>,
     pending_world_ingress: Option<client_session::WorldIngress>,
-    #[cfg(feature = "local-mods")]
     core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
 }
 
@@ -21,7 +19,6 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
         Self {
             inner,
             pending_world_ingress: None,
-            #[cfg(feature = "local-mods")]
             core_socket_dir: None,
         }
     }
@@ -49,7 +46,6 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
     }
 
     /// Adopts the domain queues and the endpoint used by this live session.
-    #[cfg(feature = "local-mods")]
     pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
         Self {
             inner,
@@ -58,7 +54,6 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
         }
     }
 
-    #[cfg(feature = "local-mods")]
     /// Returns the control endpoint only while this handle belongs to a live session.
     pub fn core_socket_dir(&self) -> Option<&std::path::Path> {
         self.core_socket_dir.as_deref()
@@ -66,10 +61,7 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
 
     /// Retires the control endpoint and stops the owned network worker.
     pub fn shutdown(&mut self) {
-        #[cfg(feature = "local-mods")]
-        {
-            self.core_socket_dir = None;
-        }
+        self.core_socket_dir = None;
         self.inner.shutdown();
     }
 

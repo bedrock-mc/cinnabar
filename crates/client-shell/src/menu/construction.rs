@@ -179,6 +179,8 @@ impl MenuRuntime {
             accounts: Default::default(),
             global_resource_actions: Vec::new(),
             global_resources: initial.global_resources,
+            mod_actions: Vec::new(),
+            mods: initial.mods,
             minecraft_import: std::sync::Arc::new(minecraft_import),
             minecraft_import_requests: Vec::new(),
             settings_options: std::sync::Arc::new(settings_options),

@@ -127,6 +127,14 @@ network and audio adapters remain in `app`. Menu tests moved with their owner;
 combined session, inventory and present-mode checks remain in `app`. These moves
 have not been compiled or executed and do not close this gate.
 
+Settings now manages ordered local components, independent reloads and per-mod permissions.
+The native mod host is always included; regular callback fuel and separate event/loading
+lanes are bounded across the full frame. Deferred lifecycle state and bounded screen-scoped
+edit text remain queued until delivery, while frame-local outputs reset. Revocation is distinct
+from quarantine, so unrelated registration changes do not restart trapped guests.
+These extension changes close no vanilla parity gate. Their native execution and visual
+acceptance remain incomplete until CI and owner review, as recorded in `plan.md`.
+
 `client-extensions` now owns personal component collection and callback merging,
 permission grants, player snapshots, panel fonts, and server consent input and text.
 Consent state and ordering live in `client-state`. The coupled session, gameplay,
@@ -251,6 +259,9 @@ Block and actor rays share float normalization. Block traversal and clipping use
 rounded float segments; placement bounds and click coordinates stay in float
 precision. CI must verify the new rounding regressions. Block tie/union rules,
 camera-direction generation and runtime witnesses remain incomplete.
+
+Remote actor snapping respects target-column terrain order. Block-use and painting
+occlusion share rounded intercept distances. CI verification remains pending.
 
 | Field | Evidence |
 |---|---|
@@ -392,3 +403,23 @@ JSON-UI banner controls draw ordered front-cloth layers from the active artwork.
 normalization machinery are gone. Packet routing and UI budgets derive from the generated packet
 table and field sites rather than hand-maintained ID lists. The ported tests have not been
 executed locally. No existing completion entry is advanced.
+
+## Graphics API startup recovery
+
+The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
+are implemented. GL/GLES is absent from choices and candidates; older saved GL choices read
+as Auto. Android requires Vulkan. Failed saved Video choices retry Auto for the current launch,
+while WGPU_BACKEND stays strict. Each API is enumerated under its own sentinel before eligible adapters are
+ranked by power preference, device type and vendor backend order, with unclassified hardware
+ahead of software. Device failures advance through all candidates;
+named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
+client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
+pass with exclusions cleared. Startup log boundaries synchronize only the file sink.
+Candidate filtering requires base-vertex terrain draws, vertex and fragment storage, alternate
+texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
+sufficient storage limits. Native crash reports retain the running process's renderer context
+independently of shared recovery files.
+Window closure and handled SIGINT/SIGTERM cancel unfinished startup and termination prevents
+later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,
+Android lifecycle and rendered Video acceptance remain incomplete as recorded in `plan.md`.
+No parity or performance completion entry advances.

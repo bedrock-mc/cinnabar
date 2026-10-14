@@ -16,6 +16,8 @@ pub struct ModHosts {
     pub host: ModHost,
     pub companions: Vec<Companion>,
     panel_selection: usize,
+    budget: mod_host::CallbackBudget,
+    hud_claims: mod_host::HudClaims,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
@@ -127,10 +129,94 @@ impl ModHosts {
             host,
             companions,
             panel_selection: 0,
+            budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+            hud_claims: Default::default(),
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
         }
+    }
+
+    /// Resets the shared frame, event and loading allowances, and grants
+    /// exclusive camera and time output to the first active instance publishing that output.
+    pub fn begin_frame(&mut self) {
+        self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        self.hud_claims.reset();
+        for index in 0..self.host_count() {
+            self.host_mut(index).begin_frame();
+        }
+        for index in 0..self.host_count() {
+            self.authorize(index);
+        }
+    }
+
+    /// Refreshes precedence before a callback, allowing a later mod to follow an earlier trap.
+    fn authorize(&mut self, index: usize) {
+        let camera = (0..index).any(|earlier| {
+            self.host(earlier).is_active() && self.host(earlier).has_camera_output()
+        });
+        let environment = (0..index).any(|earlier| {
+            self.host(earlier).is_active() && self.host(earlier).time_override().is_some()
+        });
+        let budget = self.budget.clone();
+        let claims = self.hud_claims.clone();
+        let host = self.host_mut(index);
+        if host.is_active() {
+            host.set_frame_authority(budget, camera, environment, index, claims);
+        }
+    }
+
+    /// Exchanges two hosts while keeping the selected panel attached to its instance.
+    pub fn swap(&mut self, left: usize, right: usize) {
+        if left == right {
+            return;
+        }
+        if left == 0 {
+            std::mem::swap(&mut self.host, &mut self.companions[right - 1].host);
+        } else if right == 0 {
+            std::mem::swap(&mut self.host, &mut self.companions[left - 1].host);
+        } else {
+            self.companions.swap(left - 1, right - 1);
+        }
+        if self.panel_selection == left {
+            self.panel_selection = right;
+        } else if self.panel_selection == right {
+            self.panel_selection = left;
+        }
+    }
+
+    /// Removes any host while another remains, preserving the surviving order.
+    pub fn remove(&mut self, index: usize) -> ModHost {
+        if index == 0 {
+            self.swap(0, 1);
+            self.remove_companion(1)
+        } else {
+            self.remove_companion(index)
+        }
+    }
+
+    /// Combines distinct HUD slots in precedence order within all shared presentation limits.
+    pub fn merged_hud(&self) -> Option<ui::mod_hud::Hud> {
+        let owner = self.hud_owner()?;
+        let mut hud = self.host(owner).hud()?.clone();
+        let mut rows = hud.cards.iter().map(|card| card.rows.len()).sum::<usize>();
+        let mut cells = hud.cards.iter().map(|card| card.cells.len()).sum::<usize>();
+        for index in owner + 1..self.host_count() {
+            if let Some(other) = self.host(index).hud() {
+                for card in &other.cards {
+                    if !hud.cards.iter().any(|existing| existing.id == card.id)
+                        && hud.cards.len() < ui::mod_hud::MAX_HUD_CARDS
+                        && rows + card.rows.len() <= ui::mod_hud::MAX_HUD_ROWS
+                        && cells + card.cells.len() <= ui::mod_hud::MAX_HUD_CELLS
+                    {
+                        rows += card.rows.len();
+                        cells += card.cells.len();
+                        hud.cards.push(card.clone());
+                    }
+                }
+            }
+        }
+        Some(hud)
     }
 
     /// Counts the primary component and every companion.
@@ -370,6 +456,7 @@ pub fn run_frame(
         controls.panel_open = input.controls.panel_open && index == owner;
         controls.gameplay = snapshot.is_some() || movement.is_some();
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
+        runtime.authorize(index);
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
         let player_state = host

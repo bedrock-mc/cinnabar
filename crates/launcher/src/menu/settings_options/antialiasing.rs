@@ -24,6 +24,24 @@ impl SettingsOptions {
             return 0;
         };
         let value = self.get(index);
+        if option.id == SettingId::GraphicsApi {
+            return (option.min..=option.max)
+                .filter(|choice| {
+                    super::graphics_api::visible(
+                        *choice as usize,
+                        crate::graphics_backend::Platform::current(),
+                    )
+                })
+                .filter(|choice| {
+                    if direction > 0 {
+                        *choice > value
+                    } else {
+                        *choice < value
+                    }
+                })
+                .min_by_key(|choice| choice.abs_diff(value))
+                .unwrap_or(value);
+        }
         if option.id != SettingId::Msaa {
             return value.saturating_add(direction * option.step);
         }

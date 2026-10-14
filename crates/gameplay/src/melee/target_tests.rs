@@ -79,3 +79,33 @@ fn segment_hits_include_endpoints_and_inside_origins() {
         None
     );
 }
+
+#[test]
+fn actor_use_occlusion_ignores_the_cached_double_distance() {
+    let origin = [8192.0, 65.62, 4096.0];
+    let block = sim::BlockHit {
+        block_pos: [8194, 66, 4097],
+        face: 4,
+        hit_local: sim::Vec3::new(
+            0.0,
+            f64::from(0.084_676_59_f32),
+            f64::from(0.143_673_03_f32),
+        ),
+        runtime_id: 7,
+        distance: 10.0,
+        identity: sim::CollisionQuery::synthetic(()).identity,
+    };
+    let actor = Some(ActorHit {
+        runtime_id: 1,
+        distance: f64::from(2.250_259_9_f32),
+        point: [0.0; 3],
+    });
+    assert_eq!(
+        classify_block_hit(actor, origin, Some(&block), 3.0),
+        Crosshair::Block
+    );
+    assert!(matches!(
+        classify(actor, Some(block.distance), 3.0),
+        Crosshair::Actor(_)
+    ));
+}

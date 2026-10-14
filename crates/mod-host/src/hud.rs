@@ -155,6 +155,15 @@ pub(super) fn set_content(state: &mut State, json: String) -> Result<Result<(), 
             || !hud.chat_actions.is_empty())
         .then_some(hud)
     };
+    if let Some(content) = &content
+        && let Some(claims) = &state.exclusive.hud
+        && !claims.claim(
+            state.exclusive.owner,
+            content.cards.iter().map(|card| card.id.clone()),
+        )
+    {
+        return Ok(Err(state.exclusive.refuse()));
+    }
     state.hud.pending_content = Some(content);
     Ok(Ok(()))
 }

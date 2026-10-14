@@ -1,41 +1,34 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
-#[cfg(feature = "execution")]
 mod grants;
+mod requested_grants;
+pub use requested_grants::{REQUESTED_GRANTS_SECTION, requested_grants};
 pub mod helper;
-#[cfg(feature = "execution")]
-pub use grants::ModGrants;
-#[cfg(feature = "execution")]
+pub use grants::{Capability, ModGrants};
+mod callback_budget;
+mod callbacks;
+pub use callback_budget::{CallbackBudget, CallbackOutcome};
+mod exclusive;
+pub use exclusive::HudClaims;
 mod execution;
-#[cfg(feature = "execution")]
 mod load;
-#[cfg(feature = "execution")]
 pub mod local_files;
-#[cfg(feature = "execution")]
 pub mod module_observations;
-#[cfg(feature = "execution")]
 mod outputs;
-#[cfg(feature = "execution")]
 pub mod package;
-#[cfg(feature = "execution")]
 mod runtime;
-#[cfg(feature = "execution")]
 mod screens;
-#[cfg(feature = "execution")]
 pub mod server;
-#[cfg(feature = "execution")]
 mod settings;
+pub use settings::settings_companion;
 
-#[cfg(feature = "execution")]
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
-#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::gameplay::{
     CameraRig as GameplayCameraRig, Mob as GameplayMob,
     MovementSnapshot as GameplayMovementSnapshot, Player as GameplayPlayer,
     Snapshot as GameplaySnapshot, Vector3 as GameplayVector3,
 };
-#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::player_state::{
     Actor as ActorObservation, Bounds as ActorObservationBounds,
     ChatMessage as ObservedChatMessage, CombatEvent as CombatObservation, CombatKind,
@@ -43,13 +36,11 @@ pub use runtime::cinnabar::extension::player_state::{
     Motion as MotionObservation, Sidebar as SidebarSnapshot, SidebarRow, Slot as PlayerStateSlot,
     Snapshot as PlayerStateSnapshot, Vitals as VitalsObservation, WorldObservation,
 };
-#[cfg(feature = "execution")]
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
 };
 
 /// Successfully committed local interaction requests, consumed once per frame.
-#[cfg(feature = "execution")]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
@@ -57,15 +48,12 @@ pub struct InteractionOutput {
 }
 
 /// Committed local actor rotation; yaw turns left and pitch turns up, in radians.
-#[cfg(feature = "execution")]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CameraDelta {
     pub yaw: f32,
     pub pitch: f32,
 }
-#[cfg(feature = "execution")]
 use {
-    anyhow::Result,
     runtime::Instance,
     server_experience::{screen::ScreenLayout, session_data::SessionData},
     std::{path::PathBuf, sync::Arc},
@@ -76,19 +64,15 @@ use {
 pub const MAX_COMPONENT_BYTES: usize = 4 * 1024 * 1024;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
-#[cfg(feature = "execution")]
 pub(crate) const FRAME_FUEL: u64 = 100_000;
-#[cfg(feature = "execution")]
 pub(crate) const MEMORY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Where a mod came from, which reload reads again.
-#[cfg(feature = "execution")]
 enum Source {
     Component(PathBuf),
     Package(PathBuf),
 }
 /// A developer-selected component with transactional reload and trap quarantine.
-#[cfg(feature = "execution")]
 pub struct ModHost {
     engine: Engine,
     _ticker: execution::EpochTicker,
@@ -100,175 +84,13 @@ pub struct ModHost {
     authorized_grants: ModGrants,
     settings_writer: Option<settings::SettingsWriter>,
     settings_seed: Option<String>,
+    pending_events: Vec<ModEvent>,
     package: Option<LoadedPackage>,
     layout: Option<ScreenLayout>,
     session: Arc<SessionData>,
 }
 
-#[cfg(feature = "execution")]
-impl ModHost {
-    /// Runs one bounded callback; a trap revokes its presentation and disables the guest.
-    pub fn frame(&mut self, pressed: bool) -> Result<()> {
-        self.frame_with_gameplay(pressed, None)
-    }
-
-    /// Runs a callback with a validated snapshot belonging only to this frame.
-    pub fn frame_with_gameplay(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-    ) -> Result<()> {
-        self.frame_with_controls(pressed, snapshot, empty_controls())
-    }
-
-    /// Receives only bounded host-owned edges, alongside the current gameplay frame.
-    pub fn frame_with_controls(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        controls: ControlFrame,
-    ) -> Result<()> {
-        self.frame_with_world(pressed, snapshot, Vec::new(), controls)
-    }
-
-    /// Adds nearby mobs, readable only with the entities grant and a current snapshot.
-    pub fn frame_with_world(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
-        controls: ControlFrame,
-    ) -> Result<()> {
-        self.frame_with_player_state(pressed, snapshot, mobs, None, controls)
-    }
-
-    /// Supplies read-only local facts independently of captured gameplay input.
-    pub fn frame_with_player_state(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
-        player_state: Option<PlayerStateSnapshot>,
-        controls: ControlFrame,
-    ) -> Result<()> {
-        self.frame_with_movement(pressed, snapshot, mobs, player_state, None, controls)
-    }
-
-    /// Adds local physics state for this callback, under movement authority.
-    pub fn frame_with_movement(
-        &mut self,
-        pressed: bool,
-        snapshot: Option<GameplaySnapshot>,
-        mobs: Vec<GameplayMob>,
-        player_state: Option<PlayerStateSnapshot>,
-        movement: Option<GameplayMovementSnapshot>,
-        controls: ControlFrame,
-    ) -> Result<()> {
-        self.instance
-            .frame(pressed, snapshot, mobs, player_state, movement, controls)?;
-        self.queue_settings();
-        Ok(())
-    }
-
-    /// Supplies bounded, read-only presentation facts for the next frame callback only.
-    pub fn observe_presentation(
-        &mut self,
-        world: Option<WorldObservation>,
-        fps: Option<f32>,
-        sidebar: Option<SidebarSnapshot>,
-        chat: Vec<ObservedChatMessage>,
-    ) -> Result<()> {
-        self.instance
-            .observe_presentation(world, fps, sidebar, chat)
-    }
-
-    /// Supplies bounded, session-fenced cosmetic facts for the next callback only.
-    pub fn observe_modules(
-        &mut self,
-        observations: module_observations::ModuleObservations,
-    ) -> Result<()> {
-        self.instance.observe_modules(observations)
-    }
-
-    /// The session and dimension of the last successful gameplay delay-fix request.
-    pub fn item_use_delay_fix(&self) -> Option<(u64, i32)> {
-        self.instance.item_use_delay_fix()
-    }
-
-    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
-    pub fn preserves_teleport_rotation(&self) -> bool {
-        self.instance.preserves_teleport_rotation()
-    }
-
-    /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
-    pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
-        self.instance.camera_view_scale()
-    }
-
-    /// Consumes a successful callback's jump request once.
-    pub fn take_jump_pulse(&mut self) -> bool {
-        self.instance.take_jump_pulse()
-    }
-
-    /// Consumes an explicit cancellation of pending jump input once.
-    pub fn take_jump_cancel(&mut self) -> bool {
-        self.instance.take_jump_cancel()
-    }
-
-    /// The retained camera rig from the last successful callback.
-    pub fn camera_rig(&self) -> Option<GameplayCameraRig> {
-        self.instance.camera_rig()
-    }
-
-    /// Consumes the last successful frame's granted command requests once.
-    pub fn take_commands(&mut self) -> Vec<String> {
-        self.instance.take_commands()
-    }
-
-    /// Cues the next callback can poll, typically last frame's from every loaded mod.
-    pub fn deliver_cues(&mut self, cues: Vec<ModCue>) {
-        self.instance.deliver_cues(cues);
-    }
-
-    /// Consumes committed local-only system feedback once.
-    pub fn take_local_messages(&mut self) -> Vec<String> {
-        self.instance.take_local_messages()
-    }
-
-    /// Consumes the last successful frame's presentation cues once.
-    pub fn take_cues(&mut self) -> Vec<ModCue> {
-        self.instance.take_cues()
-    }
-
-    fn queue_settings(&mut self) {
-        if let Some(writer) = &self.settings_writer
-            && writer.is_active()
-            && let Some(json) = self.instance.settings_write()
-        {
-            writer.submit(json.to_owned());
-            self.instance.settings_written();
-        }
-    }
-
-    /// Consumes an asynchronous persistence error without quarantining the guest.
-    pub fn take_settings_error(&self) -> Option<String> {
-        self.settings_writer
-            .as_ref()
-            .and_then(settings::SettingsWriter::take_error)
-    }
-
-    /// Retained request from a successful callback, independent of UI focus.
-    pub fn packet_delay_ms(&self) -> u32 {
-        self.instance.packet_delay_ms()
-    }
-
-    /// Whether this guest can still receive callbacks.
-    pub fn is_active(&self) -> bool {
-        self.instance.active
-    }
-}
-
-#[cfg(feature = "execution")]
+/// Builds an empty, unfocused control snapshot for a frame with no routed input.
 pub fn empty_controls() -> ControlFrame {
     ControlFrame {
         seconds: 0.0,
@@ -281,5 +103,5 @@ pub fn empty_controls() -> ControlFrame {
     }
 }
 
-#[cfg(all(test, feature = "execution"))]
+#[cfg(test)]
 mod tests;
