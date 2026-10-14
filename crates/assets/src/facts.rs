@@ -35,3 +35,9 @@ pub use block_entity::{
     BlockEntityFacts, BlockEntityFactsPayload, BlockEntityGeometry, BlockEntityMount,
     BlockEntityRenderer, BlockEntityState,
 };
+
+mod render;
+pub use render::{
+    BlockRenderFact, BlockRenderKind, BlockRenderRoute, BlockRenderTint, PortalAxis,
+    block_render_fact,
+};

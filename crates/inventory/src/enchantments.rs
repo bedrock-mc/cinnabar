@@ -553,7 +553,8 @@ const ITEM_SLOTS: &[(ItemTraits, u32)] = &[
 
 // New traits must explicitly choose an enchantment slot or stay outside this domain.
 const _: () = {
-    let mut covered = ItemTraits::POWDER_SNOW_WALKER.0 | ItemTraits::CREATIVE_NO_BREAK.0;
+    let mut covered =
+        ItemTraits::POWDER_SNOW_WALKER.0 | ItemTraits::CREATIVE_NO_BREAK.0 | ItemTraits::SPYGLASS.0;
     let mut index = 0;
     while index < ITEM_SLOTS.len() {
         covered |= ITEM_SLOTS[index].0.0;

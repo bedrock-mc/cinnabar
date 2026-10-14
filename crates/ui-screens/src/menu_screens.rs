@@ -22,81 +22,6 @@ pub fn retail_context() -> Context {
 
 /// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
-const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
-
-/// The local-world loading screen: vanilla's "Starting World" title over the current stage,
-/// a determinate bar when the stage knows its total, and Cancel until the join starts.
-fn local_world_progress(
-    data: &mut DataSource,
-    translate: Translate<'_>,
-    progress: &launcher::local_worlds::Progress,
-) {
-    use launcher::local_worlds::Stage;
-    let (title, message) = match progress.stage {
-        Stage::StartingServer => (
-            translated(
-                translate,
-                "progressScreen.title.connectingLocal",
-                "Starting World",
-            ),
-            translated(
-                translate,
-                "progressScreen.message.building",
-                "Building terrain",
-            ),
-        ),
-        Stage::Connecting => (
-            translated(
-                translate,
-                "progressScreen.title.connectingLocal",
-                "Starting World",
-            ),
-            translated(
-                translate,
-                "progressScreen.message.locating",
-                "Locating server",
-            ),
-        ),
-        stage => (
-            translated(
-                translate,
-                "progressScreen.title.connectingLocal",
-                "Starting World",
-            ),
-            stage.title().to_owned(),
-        ),
-    };
-    data.set_global("#title_text", text(title));
-    let detail = match progress.stage {
-        Stage::StartingServer | Stage::Connecting => message,
-        _ if progress.detail.is_empty() => message,
-        _ => format!("{message}\n{}", progress.detail),
-    };
-    data.set_global("#progress_text", text(detail));
-    match progress.fraction {
-        Some(fraction) => {
-            flags(data, &["#loading_bar_visible"]);
-            // The fancy bar binds this as its `#clip_ratio`: the share clipped away.
-            data.set_global(
-                "#loading_bar_percentage",
-                Scalar::Num(1.0 - f64::from(fraction)),
-            );
-            data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
-            data.set_global(
-                "#loading_bar_current_amount",
-                Scalar::Num((f64::from(fraction) * 1000.0).round()),
-            );
-        }
-        None => flags(data, &["#bar_animation_visible"]),
-    }
-    if progress.stage != Stage::Connecting {
-        flags(data, &["#cancel_visible"]);
-        data.set_global(
-            "#cancel_button_text",
-            text(translated(translate, "gui.cancel", "Cancel")),
-        );
-    }
-}
 
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
@@ -285,6 +210,82 @@ pub fn screen_data(
         data,
         overlay: None,
     })
+}
+
+const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
+
+/// The local-world loading screen: vanilla's "Starting World" title over the current stage,
+/// a determinate bar when the stage knows its total, and Cancel until the join starts.
+fn local_world_progress(
+    data: &mut DataSource,
+    translate: Translate<'_>,
+    progress: &launcher::local_worlds::Progress,
+) {
+    use launcher::local_worlds::Stage;
+    let (title, message) = match progress.stage {
+        Stage::StartingServer => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.building",
+                "Building terrain",
+            ),
+        ),
+        Stage::Connecting => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.locating",
+                "Locating server",
+            ),
+        ),
+        stage => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            stage.title().to_owned(),
+        ),
+    };
+    data.set_global("#title_text", text(title));
+    let detail = match progress.stage {
+        Stage::StartingServer | Stage::Connecting => message,
+        _ if progress.detail.is_empty() => message,
+        _ => format!("{message}\n{}", progress.detail),
+    };
+    data.set_global("#progress_text", text(detail));
+    match progress.fraction {
+        Some(fraction) => {
+            flags(data, &["#loading_bar_visible"]);
+            // The fancy bar binds this as its `#clip_ratio`: the share clipped away.
+            data.set_global(
+                "#loading_bar_percentage",
+                Scalar::Num(1.0 - f64::from(fraction)),
+            );
+            data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
+            data.set_global(
+                "#loading_bar_current_amount",
+                Scalar::Num((f64::from(fraction) * 1000.0).round()),
+            );
+        }
+        None => flags(data, &["#bar_animation_visible"]),
+    }
+    if progress.stage != Stage::Connecting {
+        flags(data, &["#cancel_visible"]);
+        data.set_global(
+            "#cancel_button_text",
+            text(translated(translate, "gui.cancel", "Cancel")),
+        );
+    }
 }
 
 fn start_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>, now_unix: i64) {

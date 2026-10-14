@@ -220,6 +220,14 @@ impl BlockEntityFacts {
             .map(|i| &self.payload.entries[i])
     }
 
+    /// Resolves a pinned block identity once when compiling inventory artwork.
+    pub fn by_block_identifier(&self, identifier: &str) -> Option<&BlockEntityEntry> {
+        self.payload
+            .entries
+            .iter()
+            .find(|entry| entry.backing_blocks.iter().any(|name| name == identifier))
+    }
+
     /// Returns a backing route in one numeric array lookup.
     pub fn get(&self, sequential_id: u32) -> Option<BlockEntityBacking<'_>> {
         let state = self.states.get(sequential_id as usize)?.as_ref()?;

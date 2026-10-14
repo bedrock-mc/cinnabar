@@ -5,16 +5,14 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use super::state::exact_tagged_int;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) type TemplateKey = ([u32; 2], i16, u8);
 
 /// Identifies the two terrain-owned fruit stems.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    matches!(
-        record.name.as_ref(),
-        "minecraft:melon_stem" | "minecraft:pumpkin_stem"
-    )
+    block_render_fact(&record.name).kind == R::Stem
 }
 
 /// Reads the complete bounded stem state without accepting extra selectors.

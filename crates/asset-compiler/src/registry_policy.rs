@@ -201,7 +201,7 @@ pub fn blocks(
     let legacy = assets::read_registry(&read(legacy)?)?;
     let policy: Policy = serde_json::from_slice(POLICY)?;
     let (mut records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
-    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy)?;
+    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy, &legacy)?;
     let encoded = carriers::blocks(facts.protocol, &records)?;
     let lights = light::compile(&records, &facts.blocks)?;
     let light_bytes = carriers::lights(

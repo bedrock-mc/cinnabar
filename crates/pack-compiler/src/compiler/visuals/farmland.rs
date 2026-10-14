@@ -1,7 +1,8 @@
 use super::super::*;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_farmland_name(name: &str) -> bool {
-    name == "minecraft:farmland"
+    block_render_fact(name).kind == R::Farmland
 }
 
 pub(in crate::compiler) fn exact_farmland_moisture(record: &RegistryRecord) -> Option<u32> {
