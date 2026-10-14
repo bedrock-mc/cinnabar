@@ -13,6 +13,7 @@ fn sword_pack_resolution_preserves_first_and_third_person_placement_in_both_mode
         swing: 0.0,
         equip: 1.0,
         consume: None,
+        aspect: 1.0,
     };
     let shape = FirstPersonShape::Sprite {
         mirrored_art: false,

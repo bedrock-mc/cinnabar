@@ -51,6 +51,7 @@ pub(super) fn worn_item(
         },
         dye_rgb,
         enchanted: item.enchanted || item.glint.enabled().unwrap_or(false),
+        variant: (&item.identity).into(),
     })
 }
 
@@ -194,6 +195,7 @@ mod tests {
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,
+            variant: Default::default(),
         };
         let equipment = ActorEquipmentInput {
             main: Some(item("minecraft:bow")),

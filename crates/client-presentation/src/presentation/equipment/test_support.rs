@@ -66,6 +66,7 @@ pub fn render_first_person_session_item(items: &SessionItems, item: &WornItem) -
             swing: 0.,
             equip: 1.,
             consume: None,
+            aspect: 1.,
         },
     ) else {
         return frame(target, 0);

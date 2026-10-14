@@ -1,4 +1,4 @@
-use super::{BlockFact, Policy, RESERVED, Result, Scalar, check, manifest::Projection};
+use super::{BlockFact, Policy, RESERVED_BLOCK_NAME, Result, Scalar, check, manifest::Projection};
 use assets::registry::{
     BeaconTint, BlockFlags, CollisionConfidence, CollisionSeed, ContributorRole, ModelFamily,
     ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
@@ -181,7 +181,7 @@ pub(super) fn project(
 ) -> Result<(Vec<RegistryRecord>, Projection)> {
     let old: BTreeMap<_, _> = legacy
         .iter()
-        .filter(|r| r.name.as_ref() != RESERVED)
+        .filter(|r| r.name.as_ref() != RESERVED_BLOCK_NAME)
         .map(|r| (key(&r.name, &r.canonical_state), r))
         .collect();
     let mut stats = Projection {
@@ -254,7 +254,7 @@ pub(super) fn project(
                 stats.denied_count += 1;
                 fingerprint(&mut denied, f);
                 let mut record = identity(f);
-                record.name = RESERVED.into();
+                record.name = RESERVED_BLOCK_NAME.into();
                 record.canonical_state = format!(
                     "{{\"reserved_id\":{{\"type\":\"int\",\"value\":{}}}}}",
                     f.sequential_id
@@ -263,7 +263,7 @@ pub(super) fn project(
                 record
             }
         };
-        if record.name.as_ref() != RESERVED {
+        if record.name.as_ref() != RESERVED_BLOCK_NAME {
             record.model_family =
                 super::block_rules::family(&policy.model_family_rules, f, record.model_family)?;
             record.collision_seed = collision(f)?;

@@ -1,4 +1,4 @@
-use super::{BlockFact, RESERVED, Result, Scalar, check};
+use super::{BlockFact, RESERVED_BLOCK_NAME, Result, Scalar, check};
 use assets::registry::RegistryRecord;
 use std::collections::BTreeMap;
 
@@ -47,7 +47,7 @@ pub(super) fn compile(records: &[RegistryRecord], facts: &[BlockFact]) -> Result
     check(records.len() == facts.len(), "light source count mismatch")?;
     let mut result = Vec::with_capacity(records.len());
     for (record, fact) in records.iter().zip(facts) {
-        if record.name.as_ref() == RESERVED {
+        if record.name.as_ref() == RESERVED_BLOCK_NAME {
             result.push(0);
             continue;
         }

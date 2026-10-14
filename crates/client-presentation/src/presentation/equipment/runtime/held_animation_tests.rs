@@ -99,6 +99,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::resolve_item_use(
                 &assets::item_use::diagnostic_profile(identifier),

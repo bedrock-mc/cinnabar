@@ -1,6 +1,7 @@
 //! Compile identifier selectors once against the pinned block palette.
 
 use super::{BlockFact, Result, Scalar, check};
+use assets::facts::shape::ShapeTraits;
 use assets::registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule};
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -177,7 +178,12 @@ pub(super) fn compile(
     for rule in policy.model_family_rules.iter().chain(&policy.block_rules) {
         check(ids.insert(&rule.id), "duplicate block rule id")?;
         rule.validate(source, &families, &states)?;
-        if !rule.fact.starts_with("family:") && !rule.fact.starts_with("survival:") {
+        if let Some(value) = rule.fact.strip_prefix("shape:") {
+            check(
+                ShapeTraits::from_name(value).is_some(),
+                format!("unknown shape trait {value}"),
+            )?;
+        } else if !rule.fact.starts_with("family:") && !rule.fact.starts_with("survival:") {
             check(
                 BlockTraits::from_name(&rule.fact).is_some(),
                 format!("unknown block trait {}", rule.fact),
@@ -192,9 +198,10 @@ pub(super) fn compile(
     let components = components(source)?;
     let backings = backings();
     let mut expansion =
-        BTreeMap::<String, (BlockTraits, BTreeSet<String>, BTreeSet<String>)>::new();
+        BTreeMap::<String, (BlockTraits, ShapeTraits, BTreeSet<String>, BTreeSet<String>)>::new();
     for ((block, record), state) in source.iter().zip(records).zip(&states) {
-        let mut traits = BlockTraits::empty();
+        let mut traits = intrinsic(state, record.model_family);
+        let mut shapes = ShapeTraits::empty();
         let mut survival = None;
         let mut applied = BTreeSet::new();
         let mut provisional = BTreeSet::new();
@@ -205,26 +212,6 @@ pub(super) fn compile(
             .find(|rule| rule.matches(&block.name, state, record.model_family))
         {
             applied.insert(rule.id.clone());
-        }
-        // State shape wins over all lower-priority membership rules.
-        if state.contains_key("torch_facing_direction") {
-            traits |= BlockTraits::TORCH;
-        }
-        if state.contains_key("multi_face_direction_bits") {
-            traits |= BlockTraits::MULTIFACE;
-        }
-        if state.keys().any(|k| k.starts_with("minecraft:connection_")) {
-            traits |= if record.model_family == ModelFamily::Fence {
-                BlockTraits::CONNECTS_FENCE
-            } else {
-                BlockTraits::CONNECTS_THIN
-            };
-        }
-        if state.contains_key("open_bit") && state.contains_key("upper_block_bit") {
-            traits |= BlockTraits::DOOR;
-        }
-        if state.len() == 1 && state.contains_key("hanging") {
-            traits |= BlockTraits::LANTERN_LIKE;
         }
         if let Some(flags) = components.get(&block.name) {
             traits |= *flags;
@@ -247,7 +234,12 @@ pub(super) fn compile(
             if matches!(rule.status, Status::Provisional) {
                 provisional.insert(rule.id.clone());
             }
-            if let Some(value) = rule.fact.strip_prefix("survival:") {
+            if let Some(value) = rule.fact.strip_prefix("shape:") {
+                shapes.set(
+                    ShapeTraits::from_name(value).ok_or("unknown shape trait")?,
+                    rule.value,
+                );
+            } else if let Some(value) = rule.fact.strip_prefix("survival:") {
                 if survival.is_none() {
                     survival = SurvivalRule::from_name(value);
                 }
@@ -263,22 +255,24 @@ pub(super) fn compile(
         traits.set(BlockTraits::SURVIVAL_RULE, survival != SurvivalRule::None);
         let entry = expansion.entry(block.name.clone()).or_default();
         entry.0 |= traits;
-        entry.1.extend(applied);
-        entry.1.insert(format!("survival:{survival:?}"));
-        entry.2.extend(provisional);
-        if record.name.as_ref() != super::RESERVED {
+        entry.1 |= shapes;
+        entry.2.extend(applied);
+        entry.2.insert(format!("survival:{survival:?}"));
+        entry.3.extend(provisional);
+        if record.name.as_ref() != super::RESERVED_BLOCK_NAME {
             record.traits = traits;
             record.survival = survival;
         } else {
             record.survival = SurvivalRule::Unresolved;
-            entry.2.insert("unadmitted".into());
+            entry.3.insert("unadmitted".into());
         }
     }
     let mut text = String::from("identifier\ttraits\trules\tprovisional\n");
-    for (name, (traits, rules, provisional)) in expansion {
+    for (name, (traits, shapes, rules, provisional)) in expansion {
         let names = traits
             .iter_names()
-            .map(|(name, _)| name)
+            .map(|(name, _)| name.to_owned())
+            .chain(shapes.iter_names().map(|(name, _)| format!("shape:{name}")))
             .collect::<Vec<_>>()
             .join(",");
         text.push_str(&format!(
@@ -294,29 +288,69 @@ pub(super) fn compile(
     Ok(text.into_bytes())
 }
 
-/// Projects the same support rules for historical compiler inputs without compiled traits.
-pub(super) fn support(record: &RegistryRecord, rules: &[Rule]) -> BlockTraits {
+/// Resolves compiler-only shape classes and derives traits for older carriers.
+pub(super) fn for_record(record: &RegistryRecord, rules: &[Rule]) -> (BlockTraits, ShapeTraits) {
     let state = serde_json::from_str(&record.canonical_state).unwrap_or_default();
-    let mut traits = BlockTraits::empty();
-    let mut decided = BlockTraits::empty();
+    let historical = record.traits.is_empty();
+    let mut traits = if historical {
+        intrinsic(&state, record.model_family)
+    } else {
+        record.traits
+    };
+    if historical && record.flags.contains(assets::BlockFlags::FIRE_TOP_SUPPORT) {
+        traits |= BlockTraits::FULL_TOP_SUPPORT;
+    }
+    let mut decided = traits;
+    let mut shapes = ShapeTraits::empty();
     for rule in rules {
-        let Some(fact) = BlockTraits::from_name(&rule.fact) else {
-            continue;
-        };
-        if !fact.intersects(BlockTraits::VINE_SUPPORT | BlockTraits::FULL_TOP_SUPPORT)
-            || decided.contains(fact)
-        {
-            continue;
-        }
-        if rule.matches(&record.name, &state, record.model_family) {
-            traits.set(fact, rule.value);
-            decided |= fact;
+        if let Some(name) = rule.fact.strip_prefix("shape:") {
+            if rule.matches(&record.name, &state, record.model_family) {
+                shapes.set(
+                    ShapeTraits::from_name(name).expect("validated shape rule"),
+                    rule.value,
+                );
+            }
+        } else if historical {
+            let Some(fact) = BlockTraits::from_name(&rule.fact) else {
+                continue;
+            };
+            if !decided.contains(fact) && rule.matches(&record.name, &state, record.model_family) {
+                traits.set(fact, rule.value);
+                decided |= fact;
+            }
         }
     }
+    (traits, shapes)
+}
+
+/// Gives state-derived memberships priority over lower-order identifier rules.
+fn intrinsic(state: &BTreeMap<String, Scalar>, family: ModelFamily) -> BlockTraits {
+    let mut traits = BlockTraits::empty();
     traits.set(
-        BlockTraits::FULL_TOP_SUPPORT,
-        traits.contains(BlockTraits::FULL_TOP_SUPPORT)
-            || record.flags.contains(assets::BlockFlags::FIRE_TOP_SUPPORT),
+        BlockTraits::TORCH,
+        state.contains_key("torch_facing_direction"),
+    );
+    traits.set(
+        BlockTraits::MULTIFACE,
+        state.contains_key("multi_face_direction_bits"),
+    );
+    if state
+        .keys()
+        .any(|key| key.starts_with("minecraft:connection_"))
+    {
+        traits |= if family == ModelFamily::Fence {
+            BlockTraits::CONNECTS_FENCE
+        } else {
+            BlockTraits::CONNECTS_THIN
+        };
+    }
+    traits.set(
+        BlockTraits::DOOR,
+        state.contains_key("open_bit") && state.contains_key("upper_block_bit"),
+    );
+    traits.set(
+        BlockTraits::LANTERN_LIKE,
+        state.len() == 1 && state.contains_key("hanging"),
     );
     traits
 }
@@ -486,6 +520,28 @@ mod tests {
             .unwrap();
         for name in &shelf.compatibility_exclude_members {
             assert!(shelf.matches(name, &empty, ModelFamily::Unknown));
+        }
+    }
+
+    #[test]
+    fn every_shape_trait_has_a_validated_policy_rule() {
+        let policy: super::super::Policy = serde_json::from_slice(super::super::POLICY).unwrap();
+        let declared: BTreeSet<_> = policy
+            .block_rules
+            .iter()
+            .filter_map(|rule| rule.fact.strip_prefix("shape:"))
+            .collect();
+        for (name, _) in ShapeTraits::all().iter_names() {
+            assert!(
+                declared.contains(name),
+                "shape trait {name} has no membership rule"
+            );
+        }
+        for name in declared {
+            assert!(
+                ShapeTraits::from_name(name).is_some(),
+                "unknown shape trait {name}"
+            );
         }
     }
 }

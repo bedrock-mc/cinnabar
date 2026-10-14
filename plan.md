@@ -14,6 +14,8 @@ session controller. Both use the bridge codec and bounded receive/send queues. C
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
 
 The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
+Memory startup requires the same bounded item-glint artwork as native startup. Cached
+navigation retains page resources and restores relay controls with an unexpired capability.
 Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
@@ -1218,6 +1220,10 @@ acceptance gate.
   and chorus outlines, deterministic column offsets, and piston actor inputs.
   Geometry-bearing actor updates retire pick revisions and historical snapshots
   retain their original facts, including remote piston-owner dependencies.
+- Shape compilation reads block traits, model families, and validated shape
+  memberships from the registry policy. Numeric bounds stay in the geometry
+  compiler; the expansion records provisional memberships without closing a
+  parity gate. Thin connected blocks share the pane collision recipe.
 - Incomplete parity: client piston animation timing, legacy moving-block state
   migration, animated shulker outlines, remaining material/support bindings, and
   newer block identifiers using compatibility recipes. These do not close the
@@ -1400,9 +1406,10 @@ acceptance gate.
   bites do not double; other players' crumbs come from feed events for admitted foods.
 - Arm poses, sounds and crumbs use the effective consumption after server and pack overrides.
   A food overridden to drink plays drinking presentation without emitting crumbs.
-- Provisional: the engine sets both variables natively and no version-matched witness is
-  recorded; the 4-tick rise, the 4-tick sine bob and the first-person crumb point (0.45 ahead,
-  0.15 below the camera) are approximations.
+- The progress follows the use's remaining ticks: the arm rises until 25 ticks remain, then
+  bobs in quarter steps of the remaining ticks modulo four, the 1.12-era formula.
+- Provisional: no version-matched witness of the current engine's values is recorded, and the
+  first-person crumb point (0.45 ahead, 0.15 below the camera) is an approximation.
 
 ## Read-back terrain occlusion on direct-draw devices
 
@@ -1784,6 +1791,10 @@ walking endpoints, including persona layers, and sampled spear poses complete
 their generated inputs before selection and channel evaluation.
 CI execution and rendered acceptance remain pending; broader motion-query parity
 and interpolation mixed with active camera clips remain incomplete.
+
+Walk stride and speed queries interpolate to the frame fraction on both drawn endpoints, so
+the walk curve is evaluated per frame rather than blended between tick poses. Burning actors
+advance the walk cycle half again as fast; the jumping multiplier remains incomplete.
 
 Player head and body turns no longer start or restart the native walk cycle.
 Native and Java 1.7 player walking targets use horizontal position changes and
@@ -2679,6 +2690,12 @@ The reported flat held-thumbnail and plain-tooltip regressions passed fresh
 macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
 first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
+2026-10-14 inventory player previews resolve admitted session sprite replacements in both
+hands, sharing inventory-cell texture regions and caching extrusion and compatibility pixels
+for the installed page. Block and authored models keep their geometry. Incomplete: held
+meshes that exceed the UI storage budget are omitted while the player and other equipment
+remain visible; native behavior for that resource limit is unverified. Full pack-authored
+and multi-bone preview parity remains open.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
 state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces

@@ -45,9 +45,9 @@ pub(super) struct ActorRigState {
     /// Latest owner query inputs, retained even when its pose does not need frame sampling.
     pub(super) query_context: ActorTickContext,
     /// Main-hand item the arm has finished equipping.
-    pub(super) equipped_main: Option<Arc<str>>,
+    pub(super) equipped_main: (Option<Arc<str>>, tick::StackVariant),
     /// Offhand item accepted by the independent native equip clock.
-    pub(super) equipped_off: Option<Arc<str>>,
+    pub(super) equipped_off: (Option<Arc<str>>, tick::StackVariant),
     /// Retained separately from pose history, so a geometry reset cannot restart equipping.
     pub(super) off_hand_animation: [ItemAnimationState; 2],
     /// The worn skin's own model, when it names one.

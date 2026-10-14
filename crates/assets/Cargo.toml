@@ -34,6 +34,7 @@ block-transform = { path = "../block-transform" }
 bitflags = "2"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam.workspace = true
+png = "0.18"
 lewton = "0.10.2"
 rayon.workspace = true
 serde = { version = "1", features = ["derive"] }

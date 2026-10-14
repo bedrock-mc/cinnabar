@@ -36,6 +36,7 @@ pub(super) fn prepare(
         java_mode,
         combat_visuals: _,
         sampling_camera,
+        aspect,
     } = view;
     let HandCaches {
         source: ready_hand_source,
@@ -77,6 +78,7 @@ pub(super) fn prepare(
                     artwork,
                     motion,
                     sampling_camera,
+                    aspect,
                 },
                 java_mode,
                 equipment,
