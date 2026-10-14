@@ -39,8 +39,7 @@ const SOURCE_DIRECTORIES: &[&str] = &[
     "textures/entity/skulls",
 ];
 
-/// Individual textures packed by exact logical name (no extension).
-
+/// Encoded block-entity assets and their compilation diagnostics.
 #[derive(Debug)]
 pub struct CompiledBlockEntityCarrier {
     pub bytes: Vec<u8>,

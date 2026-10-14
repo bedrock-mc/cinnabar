@@ -22,8 +22,6 @@ pub const ITEM_ICON_PARTICLES: u32 = 6;
 pub const TOTEM_PARTICLE_EFFECT: &str = assets::facts::ParticleEffect::TotemParticle.name();
 /// Vanilla keeps hits this far from the edge and outside the selected face.
 const CRACK_FACE_INSET: f32 = 0.1;
-/// Huge explosions use the finite emitter despite its dragon-specific name.
-
 /// What a level event asks the particle system to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LevelParticle {
