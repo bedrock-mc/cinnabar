@@ -40,6 +40,7 @@ mod sidecar;
 mod sprite;
 mod state;
 mod tree;
+pub mod vanilla;
 pub mod vector_path;
 mod widgets;
 
@@ -77,13 +78,12 @@ pub use form::{
     render_form_with,
 };
 pub use hud::{
-    BossBar, CROSSHAIR_SCREEN, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
-    hud_context, hud_data_source,
+    BossBar, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks, hud_context, hud_data_source,
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
-    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, region_rect,
-    scroll_target,
+    MappingScope, MappingType, focus_order, global_mapping, hit_regions, hit_test, press_region,
+    region_rect, scroll_target,
 };
 pub use input::{
     CustomRoute, FOCUS_OVERRIDE_STOP, FocusContainer, FocusDirection, FocusMeta, FocusMove,

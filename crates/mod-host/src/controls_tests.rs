@@ -399,6 +399,7 @@ fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
         },
         "{}".into(),
         Default::default(),
+        None,
     )
     .unwrap();
     let state = instance.store.data_mut();

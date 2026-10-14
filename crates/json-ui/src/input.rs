@@ -366,14 +366,20 @@ fn kind_of(node: &LaidOut, modal: bool) -> Option<HitKind> {
     })
 }
 
-/// The topmost enabled region under `point`, or `None` when nothing (or a modal
-/// panel with nothing of its own there) is hit.
-pub fn hit_test(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
-    let top = regions
+/// The topmost region under `point` that takes a press, enabled or not: any
+/// control except an input panel without a `button.menu_select` mapping.
+pub fn press_region(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
+    regions
         .iter()
         .rev()
         .filter(|region| region.kind != HitKind::Panel || region.pressed.is_some())
-        .find(|region| region.contains(point))?;
+        .find(|region| region.contains(point))
+}
+
+/// The topmost enabled region under `point`, or `None` when nothing (or a modal
+/// panel with nothing of its own there) is hit.
+pub fn hit_test(regions: &[HitRegion], point: [f64; 2]) -> Option<&HitRegion> {
+    let top = press_region(regions, point)?;
     (top.enabled && top.kind != HitKind::Modal).then_some(top)
 }
 

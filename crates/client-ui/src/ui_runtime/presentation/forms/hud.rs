@@ -1,13 +1,11 @@
 //! Projects the frame into the engine HUD: the [`HudModel`] the templates bind, the native
 //! renderers' captured paint, and the mod and preview renderers drawn ahead of the HUD's own.
 
+use json_ui::vanilla::Reference;
 use launcher::menu::settings_options::SettingId;
 use std::{collections::BTreeSet, sync::Arc};
 
-use json_ui::{
-    BossBar, CROSSHAIR_SCREEN, Catalog, HUD_SCREEN, HudModel, HudSlot, HudTitle, Sidebar, Timed,
-    hud_context,
-};
+use json_ui::{BossBar, Catalog, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_context};
 use mod_ui::crosshair::CrosshairRenderer;
 use ui::{IconRef, TimedText, UiNode};
 use ui_engine::{
@@ -88,9 +86,9 @@ impl UiPresentationRuntime {
             self.screens.chat.settings.options(),
         );
         let reference = if crosshair {
-            CROSSHAIR_SCREEN
+            Reference::HudCrosshairHudCrosshairScreen.as_str()
         } else {
-            HUD_SCREEN
+            Reference::HudHudScreen.as_str()
         };
         if !renderer
             .scene_settings(reference, &context)

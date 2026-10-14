@@ -43,6 +43,50 @@ label only after initialization succeeds; a broken replacement keeps the previou
 instance. A runtime trap removes its label and disables callbacks until a changed,
 valid component is loaded.
 
+## Single-file presentation resources
+
+An installed binary component may carry optional resources in these singleton
+top-level WebAssembly custom sections. No filesystem extraction or additional
+guest imports are required.
+
+| Section | Contents | Source limit |
+| --- | --- | --- |
+| `cinnabar:extension/panel-bundle@1` | Existing UTF-8 panel bundle JSON | 8 MiB |
+| `cinnabar:extension/font@1` | Outline font bytes | 2 MiB |
+| `cinnabar:extension/menu-logo@1` | PNG main-menu logo | 2 MiB |
+| `cinnabar:extension/menu-title@1` | Nonempty UTF-8 single-line heading | 64 bytes |
+| `cinnabar:extension/notices@1` | UTF-8 copyright and license text | 4 MiB |
+
+Embedded resources are supported only in the single-file component form, not in
+directory packages. Directory packages retain their existing asset lifecycle and
+4 MiB component ceiling. Resources require a binary component and are rejected when duplicated, nested,
+truncated or over their limits. Recognized resources are removed before compiling
+the component; executable bytes and unrelated custom metadata retain the existing
+4 MiB limit. License text has no required product schema and grants no authority.
+The PNG must be at most 4096 by 2048 pixels and 4,194,304 pixels in total. Its
+original source bytes remain intact; the existing artwork decoder fits the image
+into its bounded atlas and native main-menu layout preserves its aspect ratio.
+
+Panel bundles are available before guest initialization. Panel and font use require
+the controls grant; local main-menu branding requires the environment grant.
+Declaring requested grants in component metadata never grants them automatically.
+Enabled instances use their existing registration order for branding precedence.
+Disabling, removing or quarantining the selected instance restores the next active
+instance or Cinnabar's shipped branding. Server-defined pause and loading logos
+keep their existing priority.
+
+Install through Settings, Mods, Import, review the requested grants, then Enable.
+To update while preserving the same registration and preferences, atomically
+replace the installed component at its current path and select Reload. Importing
+a differently named version creates another registration.
+
+`CINNABAR_MOD_COMPONENT=/absolute/path/component.wasm` also accepts embedded
+resources with the existing explicit capability switches. Optional
+`CINNABAR_MOD_FONT` and `CINNABAR_MOD_UI` sidecars override the embedded sources.
+Changed environment components prepare the guest, panel, font and branding on a
+bounded worker, then publish them together. Invalid replacements retain the
+accepted instance; preferences changed during preparation cause a fresh retry.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one

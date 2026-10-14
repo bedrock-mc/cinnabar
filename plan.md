@@ -7581,6 +7581,11 @@ references, PNG evidence and the limitations of the capture.
 
 ### JSON-UI review follow-up (incomplete live form acceptance)
 
+JSON-UI names have a categorized `json_ui::vanilla` contract checked against a
+names-only vocabulary from the pinned sample pack. Screen routing and core form
+and context consumers use it. Remaining controller migrations and corrections
+to stale names are incomplete; this contract closes no live visual gate.
+
 Review corrections cover untrusted animation graphs, expanded widget component
 bags, native form titles, screen cancellation, Drop remapping, recipe icons and
 perspective settings. An open form also remeasures when its session font changes.
@@ -8411,8 +8416,10 @@ rounds final unrotated glyph edges onto the device grid; face rasters are filter
 are available as roles; current screens still use Seven and Ten.
 
 Missing regular, bold, italic and monospace mathematical Latin letters and digits use
-original grid-based variants built from the shipped Latin artwork. Unrestricted Unicode,
-script shaping and native fallback rendering remain open. Owner visual acceptance and
+original grid-based variants built from the shipped Latin artwork.
+The Sans carrier also supplies original monochrome bed-symbol artwork when the source
+outline map lacks it, so MOTDs can display that symbol without a replacement box.
+Unrestricted Unicode, script shaping and native fallback rendering remain open. Owner visual acceptance and
 live text rendering across scales remain open gates.
 
 ## Device render-distance defaults

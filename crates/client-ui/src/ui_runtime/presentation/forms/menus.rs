@@ -96,6 +96,7 @@ impl UiPresentationRuntime {
                     view.dialog = None;
                     view
                 });
+                let product_title = self.mod_menu_title().map(str::to_owned);
                 menu::append_menu_nodes(
                     fallback.as_ref().unwrap_or(shown),
                     nodes,
@@ -108,6 +109,7 @@ impl UiPresentationRuntime {
                     height,
                     self.safe_area,
                     &mut self.menu_scrolls,
+                    product_title.as_deref(),
                 )
                 .map(|hits| {
                     // The programmatic fallback has no trust or join popup, so vanilla's draws over it.

@@ -89,7 +89,10 @@ fn pack_image_crosshair_obeys_camera_mode_and_hud_visibility() {
     };
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    let (namespace, screen) = json_ui::CROSSHAIR_SCREEN.split_once('.').unwrap();
+    let (namespace, screen) = json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     let overlay = serde_json::json!({
         "namespace": namespace,
         (screen): {"controls":[{"pack_cursor":{

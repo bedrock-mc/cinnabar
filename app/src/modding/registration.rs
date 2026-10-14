@@ -2,7 +2,7 @@
 
 mod candidate;
 mod install;
-mod presentation;
+pub(super) mod presentation;
 pub(super) mod removal;
 mod schema;
 pub(super) mod selection;
@@ -16,7 +16,7 @@ use super::{ModRuntime, RELOAD_INTERVAL, VisualTimeOverride, interaction::ModInt
 use assets::RuntimeFontCatalog;
 use bevy::prelude::*;
 use candidate::{Candidate, build_candidate_with_settings};
-use client_extensions::modding::{font, multi::ModHosts};
+use client_extensions::modding::multi::ModHosts;
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::ModHost;
@@ -39,6 +39,8 @@ const MAX_REQUEST_BYTES: usize = 64;
 /// Runtime metadata belongs to one instance and moves with it during reordering.
 pub(super) struct HostMetadata {
     pub(super) font: Option<Arc<RuntimeFontCatalog>>,
+    pub(super) branding:
+        Option<Arc<client_ui::ui_runtime::presentation::menu_branding::PreparedMenuBranding>>,
     pub(super) owner: mod_ui::PanelUiOwner,
     pub(super) registration: Option<RegisteredHost>,
 }
@@ -47,6 +49,7 @@ impl HostMetadata {
     pub(super) fn environment(index: usize) -> Self {
         Self {
             font: None,
+            branding: None,
             owner: mod_ui::PanelUiOwner::Environment(index),
             registration: None,
         }

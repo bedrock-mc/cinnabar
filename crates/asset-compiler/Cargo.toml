@@ -26,6 +26,7 @@ reads = [
     "assets/vanilla-source.json",
     "crates/assets/data/*",
     "crates/assets/tests/fixtures/registry-wire.hex",
+    "crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt",
     "packaging/common/prep-kit-files.txt",
 ]
 

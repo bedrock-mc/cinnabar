@@ -27,6 +27,41 @@ pub(super) struct Policy {
     pub(super) reexport_allowances: Vec<ReexportAllowance>,
     #[serde(default)]
     pub(super) timing: TimingRules,
+    #[serde(default)]
+    pub(super) identifier_literals: IdentifierRules,
+    #[serde(default)]
+    pub(super) identifier_literal_exceptions: Vec<IdentifierException>,
+}
+
+/// Identifier sources, their owners, and the remaining per-file migration budgets.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct IdentifierRules {
+    #[serde(default)]
+    pub(super) owners: Vec<String>,
+    #[serde(default)]
+    pub(super) vocabularies: Vec<IdentifierVocabulary>,
+    #[serde(default)]
+    pub(super) block_registries: Vec<String>,
+    #[serde(default)]
+    pub(super) baselines: Vec<LineBaseline>,
+}
+
+/// A pinned text vocabulary and its zero-based identifier column.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct IdentifierVocabulary {
+    pub(super) path: String,
+    pub(super) column: usize,
+}
+
+/// A literal allowed in one file for a documented reason.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct IdentifierException {
+    pub(super) path: String,
+    pub(super) literal: String,
+    pub(super) reason: String,
 }
 
 /// Tests never sleep, and listed crates never read the clock outside tests.

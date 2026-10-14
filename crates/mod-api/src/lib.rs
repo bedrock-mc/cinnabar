@@ -23,6 +23,35 @@ pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
 /// Bounded control and settings payloads for personal components.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
+/// Optional top-level component data containing one existing personal panel bundle.
+pub const PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@1";
+/// Optional top-level component data containing one outline font for the personal panel.
+pub const PANEL_FONT_SECTION: &str = "cinnabar:extension/font@1";
+/// Maximum source bytes in an embedded or explicitly selected personal panel font.
+pub const MAX_PANEL_FONT_BYTES: usize = 2 * 1024 * 1024;
+/// Optional top-level PNG data replacing the local main-menu logo.
+pub const MENU_LOGO_SECTION: &str = "cinnabar:extension/menu-logo@1";
+/// Optional top-level UTF-8 text replacing the local menu's product heading.
+pub const MENU_TITLE_SECTION: &str = "cinnabar:extension/menu-title@1";
+/// Optional top-level UTF-8 copyright and license notices, retained outside executable bytes.
+pub const NOTICES_SECTION: &str = "cinnabar:extension/notices@1";
+/// Bounded static menu-logo source and decoded image geometry.
+pub const MAX_MENU_LOGO_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_MENU_LOGO_WIDTH: u32 = 4096;
+pub const MAX_MENU_LOGO_HEIGHT: u32 = 2048;
+pub const MAX_MENU_LOGO_PIXELS: u64 = 4 * 1024 * 1024;
+/// A menu heading is one bounded, nonempty line of UTF-8 text.
+pub const MAX_MENU_TITLE_BYTES: usize = 64;
+/// Retained license text has its own static source budget.
+pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
+/// Every versioned static section recognized by the local component loader.
+pub const COMPONENT_ASSET_SECTIONS: [&str; 5] = [
+    PANEL_BUNDLE_SECTION,
+    PANEL_FONT_SECTION,
+    MENU_LOGO_SECTION,
+    MENU_TITLE_SECTION,
+    NOTICES_SECTION,
+];
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.
 pub const MAX_CONTROL_KEY_BYTES: usize = 32;

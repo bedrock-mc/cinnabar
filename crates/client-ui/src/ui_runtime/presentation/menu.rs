@@ -42,6 +42,7 @@ pub(super) fn append_menu_nodes(
     height: f32,
     safe_area: SafeArea,
     scrolls: &mut ui_engine::menu_scroll::MenuScrolls<MenuAction>,
+    product_title: Option<&str>,
 ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
     if !view.visible {
         return Ok(Vec::new());
@@ -68,7 +69,17 @@ pub(super) fn append_menu_nodes(
         }
     } else {
         append_shell(
-            view, nodes, &mut hits, next_id, layouts, font, metrics, solid_page, width, height,
+            view,
+            nodes,
+            &mut hits,
+            next_id,
+            layouts,
+            font,
+            metrics,
+            solid_page,
+            width,
+            height,
+            product_title,
         )?
     };
 
@@ -223,6 +234,7 @@ fn append_shell(
     solid_page: u16,
     width: f32,
     height: f32,
+    product_title: Option<&str>,
 ) -> Result<ContentArea, UiPresentationError> {
     solid(
         nodes,
@@ -238,7 +250,7 @@ fn append_shell(
         font,
         metrics,
         solid_page,
-        "CINNABAR",
+        product_title.unwrap_or(&launcher::PRODUCT_NAME.to_ascii_uppercase()),
         [SPACE_LG, 21.0],
         210.0,
         ACCENT,
@@ -818,6 +830,7 @@ mod review_tests {
                 720.0,
                 SafeArea::ZERO,
                 scrolls,
+                None,
             )
             .unwrap()
         };

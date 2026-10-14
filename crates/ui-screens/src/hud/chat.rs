@@ -134,7 +134,13 @@ fn derived_labels(derived: &BTreeMap<ControlRef, Vec<ControlRef>>) -> BTreeSet<C
 /// Retains visibility rules from the ordinary chat labels the pack HUD instantiates.
 fn collect_active_labels(catalog: &Catalog, labels: &BTreeSet<ControlRef>, rules: &mut Rules) {
     let context = crate::menu_screens::retail_context();
-    let Some(hud) = json_ui::resolve(catalog, json_ui::HUD_SCREEN, &context).control else {
+    let Some(hud) = json_ui::resolve(
+        catalog,
+        json_ui::vanilla::Reference::HudHudScreen.as_str(),
+        &context,
+    )
+    .control
+    else {
         return;
     };
     let mut templates = Vec::new();
