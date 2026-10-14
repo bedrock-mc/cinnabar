@@ -2,8 +2,8 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 use ::image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 
+use super::CompileRuleResult;
 use super::inspect_animation_inventory;
-use super::{CompileRuleResult, canonical_state_u32};
 use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 
 #[path = "tests/anvil.rs"]
