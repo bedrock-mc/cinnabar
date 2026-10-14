@@ -739,6 +739,10 @@ these changes do not close the movement, camera, or actor parity gates.
   absence identities and replay snapshots. Missing sections in partially received
   columns still wait for authoritative data. Streaming-boundary server, input and
   rendered acceptance remain incomplete; this does not close creative-flight parity.
+- The flight double-tap counts presses from the per-tick `JumpDown`/`Jumping`
+  pair the server replays, every ability update overwrites local flight, flight
+  persists on the ground, and only the double-tap sends `StartFlying`/`StopFlying`.
+  The flying-on-ground lift-off nudge is not modelled; creative-flight parity stays open.
 - All movement modes sample block effects at body contact instead of the swept
   volume; post-move effects use the inset destination body, and solid collision
   still checks the full move. Query limits retain physics authority without
@@ -2898,8 +2902,10 @@ Frame-local outputs reset even when execution defers. Superseded authority revoc
 rebuild; unrelated registration changes retain guest quarantine.
 Camera, time and contested HUD slots obey Active-list precedence with counted refusals.
 Modding and its Wasmtime host ship in every native build, including builds without default
-features. The host's execution modules and tests compile unconditionally. Incomplete:
-component icons and descriptions, owner visual review and native cross-platform acceptance.
+features. The host's execution modules and tests compile unconditionally. Cards show the
+name, version, authors, description and licenses from the component's standard metadata
+sections, else the file name, and an optional embedded PNG icon, read without
+instantiation. Incomplete: owner visual review and native cross-platform acceptance.
 See `docs/modding-spike.md`.
 
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes

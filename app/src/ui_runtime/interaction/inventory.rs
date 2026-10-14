@@ -137,7 +137,7 @@ pub(super) fn apply_inventory_pointer(
         }
         return;
     }
-    let book_open = runtime.screen_state().book_open;
+    let book_open = runtime.screen_state().book_open.unwrap_or(false);
     let reader_mode = runtime
         .screen_state()
         .book

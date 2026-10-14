@@ -84,4 +84,9 @@ impl LocalPlayerFacts {
     pub fn local_abilities(&self) -> Option<&AbilitiesUpdate> {
         self.local_abilities.update.as_ref()
     }
+
+    /// Arrival sequence of the retained update; it advances even when the values repeat.
+    pub const fn local_abilities_sequence(&self) -> Option<u64> {
+        self.local_abilities.sequence
+    }
 }

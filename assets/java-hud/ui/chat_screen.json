@@ -46,7 +46,7 @@
               "background": {
                 "type": "image",
                 "texture": "textures/ui/Black",
-                "alpha": 0.5,
+                "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
                 "size": [ "100%", "100%" ]
               }
             },
@@ -114,7 +114,7 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
-            "alpha": 0.8,
+            "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
             "size": [ "100%", "100%" ],
             "layer": -1
           } }
@@ -132,7 +132,7 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
-            "alpha": 0.5,
+            "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
             "size": [ "100%", "100%" ]
           } }
         ]

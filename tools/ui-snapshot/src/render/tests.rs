@@ -1,6 +1,7 @@
 use super::REGISTRY;
 use json_ui::{
-    Catalog, Draw, HitKind, LayoutEnv, NineSlice, TextMeasure, TextureMeta, TextureSource,
+    Catalog, DataSource, Draw, EmptyLibrary, HitKind, LayoutEnv, NineSlice, ResolvedControl,
+    Scalar, TextMeasure, TextureMeta, TextureSource,
 };
 use serde_json::json;
 
@@ -27,6 +28,13 @@ impl TextureSource for Resources {
             pixels: [2.0; 2],
         })
     }
+}
+
+/// Binds the chat opacity the shipped backdrops read, at a translucent value.
+fn with_chat_opacity(control: &ResolvedControl) -> ResolvedControl {
+    let mut data = DataSource::new();
+    data.set_global("#chat_background_opacity", Scalar::Num(0.5));
+    json_ui::bind(control, &data, &EmptyLibrary)
 }
 
 #[test]
@@ -81,6 +89,7 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
         let screen = json_ui::resolve(&catalog, ui_screens::chat_screen::CHAT_SCREEN, &context)
             .control
             .unwrap();
+        let screen = with_chat_opacity(&screen);
         let laid = json_ui::layout(&screen, viewport, &env);
         let hits = json_ui::hit_regions(&laid);
         let input = hits
@@ -121,6 +130,7 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
     )
     .control
     .unwrap();
+    let suggestion = with_chat_opacity(&suggestion);
     let draws = json_ui::emit(&json_ui::layout(&suggestion, [120.0, 20.0], &env), &env);
     assert!(
         draws.iter().any(|node| {
