@@ -16,6 +16,8 @@ use sha2::{Digest, Sha256};
 
 use crate::AssetError;
 
+mod item_glint;
+
 pub const UI_CARRIER_MAGIC: [u8; 8] = *b"MCBEUI01";
 pub const UI_CARRIER_VERSION: u32 = 2;
 pub const SPLASH_RESOURCE_PATH: &str = "splashes.json";
