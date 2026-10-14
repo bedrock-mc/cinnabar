@@ -429,3 +429,54 @@ fn preview_dense_sprite_reserves_surrounding_controls_and_repeated_player_nodes(
         );
     }
 }
+
+#[test]
+fn preview_session_mesh_cache_retires_old_items_under_aggregate_storage_pressure() {
+    let mut presentation = presentation();
+    let source = dense_sprite(16);
+    let vertices = held_sprite_vertices(16, 16, &source.rgba8, [0.0, 0.0, 1.0, 1.0]).unwrap();
+    let bytes = vertices.len() * std::mem::size_of::<render_model::ActorRigVertex>();
+    let count = assets::texture::policy::MAX_SUBSCRIBER_BYTES / bytes + 1;
+    let icons = install(
+        &mut presentation,
+        (0..count)
+            .map(|metadata| {
+                let mut icon = dense_sprite(16);
+                icon.metadata = metadata as u32;
+                icon
+            })
+            .collect(),
+    );
+    test_time::eventually("admitted original cache-pressure icons", || {
+        session_icons::observe(&mut presentation, Some(&icons));
+        presentation
+            .session_icons
+            .sprite(ITEM, (count - 1) as u32)
+            .is_some()
+    });
+    let (_, first) = presentation.session_icons.held_sprite(ITEM, 0).unwrap();
+    let old = Arc::downgrade(&first);
+    drop(first);
+    for metadata in 1..count {
+        presentation
+            .session_icons
+            .held_sprite(ITEM, metadata as u32)
+            .unwrap();
+    }
+    assert!(
+        old.upgrade().is_none(),
+        "unused source meshes must not accumulate beyond the storage budget"
+    );
+    let (_, last) = presentation
+        .session_icons
+        .held_sprite(ITEM, (count - 1) as u32)
+        .unwrap();
+    let (_, again) = presentation
+        .session_icons
+        .held_sprite(ITEM, (count - 1) as u32)
+        .unwrap();
+    assert!(
+        Arc::ptr_eq(&last, &again),
+        "the selected source still reuses its extrusion"
+    );
+}
