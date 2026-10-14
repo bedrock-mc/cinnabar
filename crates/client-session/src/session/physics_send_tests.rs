@@ -437,7 +437,7 @@ async fn physics_send_ack_is_emitted_only_after_successful_socket_write() {
 #[tokio::test]
 async fn transfer_messages_survive_reanchor_and_precede_destination_movement() {
     let (mut handle, _) = NetworkHandle::stub();
-    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (commands, command_rx) = super::super::frame_flush::command_channel(COMMAND_CAPACITY);
     handle.commands = commands;
     let stale = protocol::PhysicsSendIdentity {
         session_generation: SessionGeneration::new(7),
