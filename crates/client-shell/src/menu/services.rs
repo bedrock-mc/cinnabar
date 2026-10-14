@@ -66,7 +66,7 @@ pub fn sync_cinnabar_players(
     account: &launcher_account::LauncherAccount,
     runtime: &mut client_ui::ui_runtime::UiRuntime,
 ) {
-    account.0.set_player_roster(
+    account.0.set_cinnabar_roster(
         runtime.session_id(),
         runtime.player_roster.revision(),
         runtime.player_roster.xuids(),
