@@ -101,3 +101,76 @@ fn snapped_teleport_samples_water_before_travel_resumes() {
     assert_eq!(next.samples[0].velocity, [0.0, -0.005, 0.0]);
 }
 
+/// Missing terrain defers the single skipped tick until prediction succeeds.
+#[test]
+fn snapped_teleport_keeps_travel_suppression_across_a_blocked_tick() {
+    let (mut physics, _) = snapped_teleport(&VersionedFloor(1));
+    let target = physics.network_position().unwrap();
+    let blocked = physics.advance(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        &UnavailableWorld,
+    );
+    assert!(blocked.blocked.is_some());
+    assert!(blocked.samples.is_empty());
+    let frame = physics.advance(
+        Duration::from_millis(100),
+        forward_physics_input(),
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 2);
+    assert_eq!(frame.samples[0].position, target);
+    assert_eq!(frame.samples[0].velocity, [0.0; 3]);
+    assert_ne!(frame.samples[1].position, target);
+}
+
+/// Session reanchoring discards a teleport marker belonging to the old timeline.
+#[test]
+fn reanchoring_clears_pending_teleport_travel_suppression() {
+    let (mut physics, _) = snapped_teleport(&VersionedFloor(1));
+    let target = physics.network_position().unwrap();
+    physics.reanchor_network_position(target, 200, false);
+    let frame = physics.advance(
+        Duration::from_millis(50),
+        forward_physics_input(),
+        &VersionedFloor(1),
+    );
+    assert_ne!(frame.samples[0].position, target);
+    assert_ne!(frame.samples[0].velocity, [0.0; 3]);
+}
+
+/// Replaying a captured stationary tick must not turn it back into travel.
+#[test]
+fn correction_replay_preserves_the_captured_travel_suppression() {
+    let world = VersionedFloor(1);
+    let (mut physics, mut ticker) = walked_physics(2);
+    physics.skip_next_travel_tick();
+    for sample in physics
+        .advance(Duration::from_millis(100), forward_physics_input(), &world)
+        .samples
+    {
+        ticker.enqueue_completed_physics(sample).unwrap();
+    }
+    let target = [1.0, 2.620_01, 0.0];
+    super::reconcile_physics_anchor(
+        &mut ticker,
+        &mut physics,
+        super::PhysicsAnchor {
+            network_position: target,
+            tick: 102,
+            on_ground: true,
+            velocity: Some([0.0; 3]),
+        },
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &world,
+    )
+    .unwrap();
+    assert_eq!(physics.sample_at(103).unwrap().position, target);
+    assert_eq!(physics.sample_at(103).unwrap().velocity, [0.0; 3]);
+    let mut expected = LocalPhysicsController::default();
+    expected.reanchor_network_position(target, 102, true);
+    expected.skip_next_travel_tick();
+    expected.advance(Duration::from_millis(100), forward_physics_input(), &world);
+    assert_eq!(physics.state(), expected.state());
+    assert_eq!(physics.sample_at(104), expected.sample_at(104));
+}

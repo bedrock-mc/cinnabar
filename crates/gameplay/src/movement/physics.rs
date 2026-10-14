@@ -235,6 +235,8 @@ pub struct LocalPhysicsController {
     visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
+    /// A snapped server teleport suppresses travel on the next completed tick.
+    skip_travel_pending: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
     input_edges: super::input_state::PendingInputEdges,
@@ -281,6 +283,7 @@ impl Default for LocalPhysicsController {
             visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
+            skip_travel_pending: false,
             previous_jump_held: false,
             jump_edge_pending: false,
             input_edges: Default::default(),
@@ -338,6 +341,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -399,6 +403,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -549,6 +554,7 @@ impl LocalPhysicsController {
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
+            input.skip_travel = self.skip_travel_pending;
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -668,6 +674,7 @@ impl LocalPhysicsController {
             };
             match predicted {
                 Ok(output) => {
+                    self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
                     while self.controller_history.len() >= self.history_capacity {

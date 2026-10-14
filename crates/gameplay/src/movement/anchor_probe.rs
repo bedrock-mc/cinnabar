@@ -181,7 +181,7 @@ impl AnchorProbeState {
         observed: &mut ModeObservation,
         input: sim::MovementInput,
     ) {
-        if input.immobile || !self.pending() {
+        if input.immobile || input.skip_travel || !self.pending() {
             return;
         }
         if input.spectator || intent.ride.is_some() {

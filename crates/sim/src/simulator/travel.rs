@@ -31,6 +31,46 @@ const GLIDE_BOOST_TARGET: f32 = 1.5;
 const GLIDE_BOOST_BLEND: f32 = 0.5;
 const GLIDE_BOOST_PUSH: f32 = 0.1;
 
+/// Completes a stationary tick while retaining independent motion and block contacts.
+pub(super) fn tick_without_travel(
+    mut next: PlayerState,
+    state: &mut PlayerState,
+    input: MovementInput,
+    controls: controls::ProcessedControls,
+    mut sampled: SampledEnvironment,
+    jump_initiated: bool,
+    world: &impl CollisionWorld,
+) -> Result<ControlledTickResult, SimulationError> {
+    next.movement = Vec3::ZERO;
+    next.requested_movement = Vec3::ZERO;
+    let mut identity = sampled.identity.clone();
+    super::inside::after_move(
+        world,
+        next.collision_box(input.mode.hitbox_height(input.sneaking)),
+        &mut next.velocity,
+        &input,
+        &mut sampled,
+        &mut identity,
+    )?;
+    next.jump_delay = next.jump_delay.saturating_sub(1);
+    let result = TickResult {
+        tick: next.tick,
+        position: next.position,
+        velocity: next.velocity,
+        movement: next.movement,
+        collisions: next.collisions,
+        on_ground: next.on_ground,
+        environment: sampled.movement,
+        world_identity: identity,
+    };
+    *state = next;
+    Ok(ControlledTickResult {
+        tick_result: result,
+        controls,
+        jump_initiated,
+    })
+}
+
 pub(super) fn tick_mode(
     mut next: PlayerState,
     state: &mut PlayerState,

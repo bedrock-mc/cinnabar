@@ -18,6 +18,85 @@ impl CollisionWorld for Floor {
     }
 }
 
+/// A skipped travel tick still initiates a valid jump and leaves its motion for the next tick.
+#[test]
+fn skipped_travel_retains_ground_jump_motion_without_moving() {
+    let simulator = Simulator::default();
+    let mut ordinary = state(true, 1.0, Vec3::ZERO);
+    let normal = simulator
+        .tick_with_controls(&mut ordinary, jump(), &Floor)
+        .unwrap();
+    let mut teleported = state(true, 1.0, Vec3::ZERO);
+    let target = teleported.position;
+    let skipped = simulator
+        .tick_with_controls(
+            &mut teleported,
+            MovementInput {
+                skip_travel: true,
+                ..jump()
+            },
+            &Floor,
+        )
+        .unwrap();
+    assert!(skipped.jump_initiated);
+    assert_eq!(skipped.tick_result.position, target);
+    assert_eq!(skipped.tick_result.movement, Vec3::ZERO);
+    assert_eq!(skipped.tick_result.velocity, normal.tick_result.movement);
+    assert_eq!(teleported.jump_delay, ordinary.jump_delay);
+}
+
+/// Travel suppression decrements an active jump cooldown without resetting it or damping impulses.
+#[test]
+fn skipped_travel_keeps_jump_cooldown_and_independent_motion() {
+    let simulator = Simulator::default();
+    let mut teleported = state(true, 1.0, Vec3::new(0.5, 0.2, -0.25));
+    teleported.jump_delay = sim::JUMP_DELAY_TICKS;
+    let target = teleported.position;
+    let velocity = Vec3::new(
+        f64::from(teleported.velocity.x as f32),
+        f64::from(teleported.velocity.y as f32),
+        f64::from(teleported.velocity.z as f32),
+    );
+    let skipped = simulator
+        .tick_with_controls(
+            &mut teleported,
+            MovementInput {
+                skip_travel: true,
+                forward: 1.0,
+                ..jump()
+            },
+            &Floor,
+        )
+        .unwrap();
+    assert!(!skipped.jump_initiated);
+    assert_eq!(skipped.tick_result.position, target);
+    assert_eq!(skipped.tick_result.velocity, velocity);
+    assert_eq!(teleported.jump_delay, sim::JUMP_DELAY_TICKS - 1);
+}
+
+/// Spectator flight also holds its teleport destination for the skipped travel tick.
+#[test]
+fn skipped_spectator_travel_does_not_apply_flight_controls() {
+    let mut teleported = state(false, 10.0, Vec3::ZERO);
+    let target = teleported.position;
+    let output = Simulator::default()
+        .tick(
+            &mut teleported,
+            MovementInput {
+                skip_travel: true,
+                spectator: true,
+                mode: sim::MovementMode::Flying,
+                forward: 1.0,
+                ..jump()
+            },
+            &Floor,
+        )
+        .unwrap();
+    assert_eq!(output.position, target);
+    assert_eq!(output.movement, Vec3::ZERO);
+    assert_eq!(output.velocity, Vec3::ZERO);
+}
+
 /// Starts a player at the requested ground state with an incoming velocity.
 fn state(grounded: bool, height: f64, velocity: Vec3) -> PlayerState {
     let mut state = PlayerState::new(Vec3::new(0.0, height, 0.0));
