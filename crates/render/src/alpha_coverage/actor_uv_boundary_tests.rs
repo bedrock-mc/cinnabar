@@ -1,9 +1,5 @@
-use crate as render_api;
-use crate::{gpu_snapshot, shader_source};
+use crate::{actor_raster, gpu_snapshot};
 use bevy::math::{Mat4, Vec3, Vec4};
-
-#[path = "../../tests/it/support/actor_raster.rs"]
-mod actor_raster;
 
 const CHART_TEXTURE_SIDE: u32 = 48;
 const CHART_START_X: [u32; 2] = [18, 4];
@@ -210,8 +206,10 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
                 let background = raster(&blank);
                 let positive = raster(&opaque);
                 let positive_pixels = positive
-                    .chunks_exact(4)
-                    .zip(background.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(background.as_chunks::<4>().0.iter())
                     .filter(|(pixel, clear)| pixel[1] > clear[1] + 50)
                     .count();
                 assert!(
@@ -226,8 +224,10 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
                     capture_chart(&format!("{case}-subject"), &subject);
                 }
                 let changed_pixels = subject
-                    .chunks_exact(4)
-                    .zip(background.chunks_exact(4))
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .zip(background.as_chunks::<4>().0.iter())
                     .filter(|(pixel, clear)| pixel != clear)
                     .count();
                 eprintln!(
@@ -271,8 +271,10 @@ fn actor_coverage_preserves_transparent_side_of_interior_contours() {
         let hard = raster(&contour, false);
         let smooth = raster(&contour, true);
         let opaque_pixels = hard
-            .chunks_exact(4)
-            .zip(clear.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(clear.as_chunks::<4>().0.iter())
             .filter(|(pixel, background)| pixel[1] > background[1] + 50)
             .count();
         assert!(
@@ -280,9 +282,11 @@ fn actor_coverage_preserves_transparent_side_of_interior_contours() {
             "interior contour must draw its opaque half"
         );
         let recovered = hard
-            .chunks_exact(4)
-            .zip(smooth.chunks_exact(4))
-            .zip(clear.chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(smooth.as_chunks::<4>().0.iter())
+            .zip(clear.as_chunks::<4>().0.iter())
             .filter(|((hard, smooth), clear)| *hard == *clear && *smooth != *clear)
             .count();
         eprintln!(

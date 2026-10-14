@@ -296,7 +296,8 @@ impl FarTerrainGpu {
         count: u32,
     ) -> Option<Range<u32>> {
         let limits = device.limits();
-        let max_quads = (u64::from(limits.max_storage_buffer_binding_size)
+        let max_quads = (limits
+            .max_storage_buffer_binding_size
             .min(limits.max_buffer_size)
             / QUAD_BYTES)
             .min(u64::from(u32::MAX)) as u32;

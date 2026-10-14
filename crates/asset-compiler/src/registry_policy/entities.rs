@@ -133,7 +133,7 @@ pub fn components(samples: &Path) -> Result<Vec<u8>> {
     };
     Ok(serde_json::to_vec_pretty(&source)?
         .into_iter()
-        .chain([b'\n'])
+        .chain(*b"\n")
         .collect())
 }
 

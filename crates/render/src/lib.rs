@@ -1,4 +1,9 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+#[cfg(test)]
+use crate as render_api;
+#[cfg(test)]
+#[path = "../tests/it/support/actor_raster.rs"]
+mod actor_raster;
 mod alpha_coverage;
 mod depth_smaa;
 #[cfg(test)]
