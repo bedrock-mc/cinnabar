@@ -22,7 +22,6 @@ pub fn retail_context() -> Context {
 
 /// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
-
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
         .with_flag("unlock_full_game_button_ignored", true)

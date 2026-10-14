@@ -24,7 +24,6 @@ fn view(screen: MenuScreen) -> MenuView {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.over_world = true;
     view.screen = screen;
-    view.over_world = true;
     view.auth_state = AuthState::SignedOut;
     view
 }

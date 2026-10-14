@@ -210,7 +210,6 @@ fn loading_screen_snapshot() {
     }
 }
 
-// The overworld backdrop carries vanilla's darkening gradient and its colours.
 #[test]
 fn terrain_loading_uses_only_native_nodes() {
     let player_runtime = player_state::PlayerState::new(1);

@@ -29,16 +29,7 @@ pub const CAPTURE_SECONDS: f64 = 1.0;
 
 static REGISTRY: LazyLock<ScreenRegistry> = LazyLock::new(|| {
     let mut registry = ScreenRegistry::new(ui_screens::menu_screens::retail_context());
-    for &reference in json_ui::ENGINE_SCREENS {
-        registry.screen(reference);
-    }
-    ui_screens::death_screen::register(&mut registry);
-    registry
-        .catalog_mut()
-        .layer_builtin(ui_screens::menu_policy::apply);
-    registry
-        .catalog_mut()
-        .layer_builtin(ui_screens::menu_renderers::install_brand_overlays);
+    registry.screen(ui_screens::chat_screen::CHAT_SCREEN);
     ui_screens::hud::register(&mut registry);
     ui_screens::chat_screen::register(&mut registry);
     registry

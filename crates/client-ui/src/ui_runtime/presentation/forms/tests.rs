@@ -1036,7 +1036,7 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     }
 }
 
-// The join's trust question draws vanilla's modal popup over everything, and only its answers take
+// The join's trust question draws an OreUI popup over everything, and only its answers take
 // presses, even with a launcher dialog open beneath it.
 #[test]
 fn server_trust_question_draws_the_oreui_popup_and_owns_the_input() {

@@ -55,7 +55,13 @@ macro_rules! menu_screens {
 }
 menu_screens! {
     Home, Play, Social, Servers, Profile, DressingRoom, Settings, AddServer,
-    Pause, Death, Inbox, Friends, Invite,
+    Pause, Death,
+    /// OreUI-only screen.
+    Inbox,
+    /// OreUI-only screen.
+    Friends,
+    /// The invite screen over Pause while the world is hosted for friends.
+    Invite,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
