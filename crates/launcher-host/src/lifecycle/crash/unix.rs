@@ -174,7 +174,13 @@ unsafe fn forward(
             unsafe { (*info).si_code }
         };
         // BSD reserves the high 16 bits for sender codes; Linux uses nonpositive sender codes.
-        let hardware = code > 0
+        // xnu's sendsig gives SIGSEGV, SIGBUS and SIGILL fixed positive fault codes and no sender
+        // pid even when they are raised, so Apple targets cannot tell the two apart and always
+        // re-raise. That is also correct for a real fault: the signal stays blocked until this
+        // handler returns, and its default action then ends the process before the instruction
+        // runs again.
+        let hardware = !cfg!(target_vendor = "apple")
+            && code > 0
             && code < 0x10000
             && matches!(
                 signal,
