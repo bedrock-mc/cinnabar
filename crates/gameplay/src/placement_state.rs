@@ -473,7 +473,7 @@ mod tests {
         let canonical = r#"{"direction":{"type":"int","value":0},"open_bit":{"type":"byte","value":0},"upside_down_bit":{"type":"byte","value":0}}"#;
         for (yaw, direction) in [(0.0, 3), (90.0, 0), (180.0, 2), (-90.0, 1), (360.0, 3)] {
             let states =
-                resolve_placement_state("minecraft:oak_trapdoor", canonical, input(0, 0.1, yaw))
+                resolve_placement_state("minecraft:trapdoor", canonical, input(0, 0.1, yaw))
                     .unwrap();
             assert_eq!(value(&states, "direction"), Some(&json!(direction)));
             assert_eq!(value(&states, "upside_down_bit"), Some(&json!(1)));
@@ -535,15 +535,15 @@ mod tests {
                 json!({"minecraft:vertical_half":"middle"}),
             ),
             (
-                "minecraft:oak_trapdoor",
+                "minecraft:trapdoor",
                 json!({"direction":4,"open_bit":0,"upside_down_bit":0}),
             ),
             (
-                "minecraft:oak_trapdoor",
+                "minecraft:trapdoor",
                 json!({"direction":0,"open_bit":2,"upside_down_bit":0}),
             ),
             (
-                "minecraft:oak_trapdoor",
+                "minecraft:trapdoor",
                 json!({"direction":0,"upside_down_bit":0}),
             ),
             (

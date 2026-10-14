@@ -29,6 +29,7 @@ pub(super) fn install(
     for record in ordered {
         let visual = &mut visuals[record.sequential_id as usize];
         if visual.kind != VisualKind::Diagnostic
+            && !record.traits.contains(assets::registry::BlockTraits::AIR)
             && record
                 .traits
                 .contains(assets::registry::BlockTraits::REPLACEABLE)
@@ -232,6 +233,7 @@ mod tests {
     #[test]
     fn seasonal_replacement_reads_shared_traits_without_variant_changes() {
         let cases = [
+            ("minecraft:air", VisualKind::Invisible, false),
             ("minecraft:short_grass", VisualKind::Cross, true),
             ("minecraft:fern", VisualKind::Cross, true),
             ("minecraft:vine", VisualKind::Cross, true),

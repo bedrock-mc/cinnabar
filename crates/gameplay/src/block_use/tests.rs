@@ -282,7 +282,7 @@ fn switch_uses_predict_their_toggled_state() {
         flipped("minecraft:stone_button", r#"{"button_pressed_bit":true}"#),
         None
     );
-    assert_eq!(flipped("minecraft:oak_door", r#"{"open_bit":0}"#), None);
+    assert_eq!(flipped("minecraft:wooden_door", r#"{"open_bit":0}"#), None);
     assert_eq!(
         flipped("minecraft:iron_trapdoor", r#"{"open_bit":0}"#),
         None
@@ -304,7 +304,7 @@ fn interaction_and_placement_follow_their_own_abilities() {
         )
     };
     assert_eq!(
-        resolve("minecraft:oak_door", &adventure),
+        resolve("minecraft:wooden_door", &adventure),
         LocalUse::Interact
     );
     assert_eq!(resolve("minecraft:chest", &adventure), LocalUse::Interact);
