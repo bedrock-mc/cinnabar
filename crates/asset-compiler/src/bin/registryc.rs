@@ -10,6 +10,7 @@ enum Kind {
     Physics,
     Biomes,
     Items,
+    BlockEntities,
     All,
 }
 #[derive(Parser)]
@@ -41,6 +42,20 @@ struct Args {
 /// Dispatches a compiler pass or regenerates every carrier for an exact byte comparison.
 fn main() -> Result<()> {
     let args = Args::parse();
+    if matches!(args.kind, Kind::BlockEntities) {
+        registry_policy::block_entities::write(
+            &args.root,
+            required(&args.breg, "--breg")?,
+            &args.out,
+        )?;
+        if args.check {
+            compare(
+                &args.out,
+                &args.root.join(assets::facts::BLOCK_ENTITY_FACTS_PATH),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::Items) {
         registry_policy::items::write(&args.root, &args.out, args.manifest.as_deref())?;
         if args.check {
@@ -86,7 +101,7 @@ fn main() -> Result<()> {
             required(&args.manifest, "--manifest")?,
         )?,
         Kind::All => all(&args, &facts)?,
-        Kind::Items => unreachable!(),
+        Kind::Items | Kind::BlockEntities => unreachable!(),
     }
     Ok(())
 }
@@ -195,6 +210,12 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         &args.out.join(&item_path),
         Some(&args.out.join(&item_expansion)),
     )?;
+    let block_entities = PathBuf::from(assets::facts::BLOCK_ENTITY_FACTS_PATH);
+    registry_policy::block_entities::write(
+        &args.root,
+        &args.out.join(&block_path),
+        &args.out.join(&block_entities),
+    )?;
     for (key, path) in [
         ("block_registry", &block_path),
         ("light_registry", &light_path),
@@ -212,6 +233,7 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
     if args.check {
         for path in [
             &target_path,
+            &block_entities,
             &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
             &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
             &item_path,

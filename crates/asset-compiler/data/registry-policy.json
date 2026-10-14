@@ -3062,5 +3062,492 @@
         "item": "minecraft:armadillo_scute"
       }
     }
+  ],
+  "block_entity_rules": [
+    {
+      "entry": {
+        "nbt_id": "Banner",
+        "route": "model",
+        "renderer": "banner",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:standing_banner",
+        "minecraft:wall_banner"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Barrel",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "existing_block_state",
+        "geometry": "cube_or_full_model"
+      },
+      "members": [
+        "minecraft:barrel"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Beacon",
+        "route": "model",
+        "renderer": "beacon",
+        "diagnostic": "deferred",
+        "geometry": "cube"
+      },
+      "members": [
+        "minecraft:beacon"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Bed",
+        "route": "model",
+        "renderer": "bed",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "family": "Bed",
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Beehive",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:beehive",
+        "minecraft:bee_nest"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "Bell",
+        "route": "model",
+        "renderer": "bell",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:bell"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "BlastFurnace",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "existing_block_state",
+        "geometry": "cube"
+      },
+      "members": [
+        "minecraft:blast_furnace",
+        "minecraft:lit_blast_furnace"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "BrewingStand",
+        "route": "no_draw",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "diagnostic"
+      },
+      "members": [
+        "minecraft:brewing_stand"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "BrushableBlock",
+        "route": "unsupported",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:suspicious_gravel",
+        "minecraft:suspicious_sand"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "Campfire",
+        "route": "model",
+        "renderer": "campfire",
+        "diagnostic": "deferred",
+        "geometry": "diagnostic"
+      },
+      "members": [
+        "minecraft:campfire",
+        "minecraft:soul_campfire"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Chest",
+        "route": "model",
+        "renderer": "chest",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "family": "Chest",
+      "exclude_members": [
+        "minecraft:ender_chest"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChiseledBookshelf",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:chiseled_bookshelf"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "Conduit",
+        "route": "model",
+        "renderer": "conduit",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:conduit"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "CopperGolemStatue",
+        "route": "model",
+        "renderer": "statue",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "family": "Statue",
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Crafter",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:crafter"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "CreakingHeart",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:creaking_heart"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "DecoratedPot",
+        "route": "model",
+        "renderer": "decorated_pot",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:decorated_pot"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "EnchantTable",
+        "route": "model",
+        "renderer": "enchant_table",
+        "diagnostic": "deferred",
+        "geometry": "model_or_diagnostic"
+      },
+      "members": [
+        "minecraft:enchanting_table"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "EndGateway",
+        "route": "model",
+        "renderer": "end_gateway",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:end_gateway"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "EndPortal",
+        "route": "model",
+        "renderer": "end_portal",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:end_portal"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "EnderChest",
+        "route": "model",
+        "renderer": "ender_chest",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:ender_chest"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "FlowerPot",
+        "route": "model",
+        "renderer": "flower_pot",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:flower_pot"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Furnace",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "existing_block_state",
+        "geometry": "cube"
+      },
+      "members": [
+        "minecraft:furnace",
+        "minecraft:lit_furnace"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "GlowItemFrame",
+        "route": "model",
+        "renderer": "glow_item_frame",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:glow_frame"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "HangingSign",
+        "route": "text_overlay",
+        "renderer": "sign",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "family": "Sign",
+      "state_property": "attached_bit",
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Hopper",
+        "route": "no_draw",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "diagnostic"
+      },
+      "members": [
+        "minecraft:hopper"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "ItemFrame",
+        "route": "model",
+        "renderer": "item_frame",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:frame"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Jukebox",
+        "route": "no_draw",
+        "renderer": "none",
+        "diagnostic": "logical",
+        "geometry": "cube"
+      },
+      "members": [
+        "minecraft:jukebox"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Lectern",
+        "route": "model",
+        "renderer": "lectern",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:lectern"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "MobSpawner",
+        "route": "model",
+        "renderer": "mob_spawner",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:mob_spawner"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Note",
+        "route": "no_draw",
+        "renderer": "none",
+        "diagnostic": "logical",
+        "geometry": "cube",
+        "idless": true
+      },
+      "members": [
+        "minecraft:noteblock"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "ShulkerBox",
+        "route": "model",
+        "renderer": "shulker",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "suffixes": [
+        "_shulker_box"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Sign",
+        "route": "text_overlay",
+        "renderer": "sign",
+        "diagnostic": "deferred",
+        "geometry": "model"
+      },
+      "family": "Sign",
+      "exclude_property": "attached_bit",
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Skull",
+        "route": "model",
+        "renderer": "skull",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "suffixes": [
+        "_head",
+        "_skull"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "Smoker",
+        "route": "existing_block_state",
+        "renderer": "none",
+        "diagnostic": "existing_block_state",
+        "geometry": "cube"
+      },
+      "members": [
+        "minecraft:smoker",
+        "minecraft:lit_smoker"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
+        "nbt_id": "TrialSpawner",
+        "route": "unsupported",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:trial_spawner"
+      ],
+      "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "Vault",
+        "route": "unsupported",
+        "renderer": "none",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:vault"
+      ],
+      "status": "provisional"
+    }
   ]
 }

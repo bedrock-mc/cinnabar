@@ -15,6 +15,7 @@ const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
     biome_registry_sha256: [0x3C; 32],
 };
 
+/// Encodes a retained entity identity and bounded root fields.
 fn block_entity_nbt(id: Option<&str>, fields: &[(u8, &str, u8)]) -> world::BlockEntityNbt {
     let mut bytes = vec![10, 0];
     if let Some(id) = id {
@@ -34,52 +35,28 @@ fn block_entity_nbt(id: Option<&str>, fields: &[(u8, &str, u8)]) -> world::Block
     world::BlockEntityNbt::decode_prefix(&bytes).unwrap().0
 }
 
-fn backing(sequential_id: u32, network_hash: u32) -> BackingBlockIdentity {
-    let kind = if sequential_id == 846
-        || matches!(
-            sequential_id,
-            1_936
-                | 2_699..=2_702
-                | 7_069..=7_080
-                | 8_516
-                | 13_947..=13_950
-                | 14_587..=14_590
-                | 15_143..=15_146
-                | 15_321..=15_324
-                | 15_688..=15_691
-        ) {
-        VisualKind::Cube
-    } else if matches!(
-        sequential_id,
-        13..=28
-            | 837..=842
-            | 1_992..=1_997
-            | 2_018..=2_023
-            | 5_393..=5_398
-            | 6_438..=6_453
-            | 6_883..=6_888
-            | 8_510..=8_515
-            | 9_120..=9_125
-            | 9_209..=9_214
-            | 10_237..=10_252
-            | 11_064..=11_079
-            | 12_171..=12_186
-            | 12_620..=12_635
-            | 13_126..=13_141
-            | 13_336..=13_347
-            | 13_849..=13_864
-            | 14_513..=14_528
-            | 14_533..=14_548
-            | 14_691..=14_722
-            | 14_941..=14_946
-            | 15_347..=15_352
-    ) {
-        VisualKind::Model
-    } else {
-        VisualKind::Diagnostic
-    };
-    let runtime = runtime_with_block_identity(sequential_id, network_hash, kind);
-    BackingBlockIdentity::from_runtime(network_hash, NetworkIdMode::Hashed, &runtime)
+/// Resolves names from the real pinned registry, without copied ids or hashes.
+fn records() -> &'static [assets::RegistryRecord] {
+    static RECORDS: std::sync::OnceLock<Box<[assets::RegistryRecord]>> = std::sync::OnceLock::new();
+    RECORDS.get_or_init(|| {
+        assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+    })
+}
+
+/// Selects an actual registry record for a named backing block.
+fn record(name: &str) -> &'static assets::RegistryRecord {
+    records().iter().find(|r| r.name.as_ref() == name).unwrap()
+}
+
+/// Supplies the real identity with the visual kind being tested.
+fn backing(name: &str, kind: VisualKind) -> BackingBlockIdentity {
+    let record = record(name);
+    let runtime = runtime_with_block_identity(record.sequential_id, record.network_hash, kind);
+    BackingBlockIdentity::from_runtime(record.network_hash, NetworkIdMode::Hashed, &runtime)
 }
 
 /// Decodes the synthetic identity through the same checked carrier boundary as runtime.
@@ -166,26 +143,25 @@ fn compiled_block_identity(
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
-        provenance: FIXTURE_PROVENANCE,
+        provenance: BlobProvenance {
+            block_registry_sha256: assets::pinned_world_provenance().block_registry_sha256,
+            ..FIXTURE_PROVENANCE
+        },
     }
 }
 
 #[test]
 fn block_entity_visuals_classify_static_logical_deferred_and_unknown_routes() {
-    let static_routes = [
-        ("Barrel", 7069, 198_111_737),
-        ("BlastFurnace", 15_143, 2_142_573_020),
-        ("BlastFurnace", 13_947, 1_464_259_042),
-        ("Furnace", 15_688, 3_463_497_305),
-        ("Furnace", 14_587, 2_568_407_871),
-        ("Smoker", 2_699, 3_435_179_109),
-        ("Smoker", 15_321, 2_080_399_355),
-    ];
-    for (id, sequential_id, network_hash) in static_routes {
+    for (id, name) in [
+        ("Barrel", "minecraft:barrel"),
+        ("BlastFurnace", "minecraft:blast_furnace"),
+        ("Furnace", "minecraft:lit_furnace"),
+        ("Smoker", "minecraft:smoker"),
+    ] {
         assert!(matches!(
             adjudicate_block_entity_visual(
                 &block_entity_nbt(Some(id), &[]),
-                backing(sequential_id, network_hash),
+                backing(name, VisualKind::Cube)
             ),
             BlockEntityVisualRoute::ExistingBlockState {
                 additional_refs: 0,
@@ -193,89 +169,81 @@ fn block_entity_visuals_classify_static_logical_deferred_and_unknown_routes() {
             }
         ));
     }
-
     assert!(matches!(
         adjudicate_block_entity_visual(
             &block_entity_nbt(Some("Jukebox"), &[]),
-            backing(8_516, 1_605_519_270),
+            backing("minecraft:jukebox", VisualKind::Cube)
         ),
-        BlockEntityVisualRoute::LogicalNoAdditionalDraw {
-            additional_refs: 0,
-            ..
-        }
+        BlockEntityVisualRoute::LogicalNoAdditionalDraw { .. }
     ));
     assert!(matches!(
         adjudicate_block_entity_visual(
             &block_entity_nbt(None, &[(1, "note", 24), (1, "powered", 1)]),
-            backing(1_936, 166_024_317),
+            backing("minecraft:noteblock", VisualKind::Cube)
         ),
-        BlockEntityVisualRoute::LogicalNoAdditionalDraw {
-            additional_refs: 0,
-            ..
-        }
+        BlockEntityVisualRoute::LogicalNoAdditionalDraw { .. }
     ));
-
-    for (id, sequential_id, network_hash) in [
-        ("Banner", 10_321, 909_112_222),
-        ("Beacon", 846, 561_914_719),
-        ("Bed", 13_095, 313_457_523),
-        ("BrewingStand", 15_128, 1_742_101_107),
-        ("Campfire", 10_421, 2_722_749_277),
-        ("Chest", 14_039, 741_882_976),
-        ("CopperGolemStatue", 2_648, 2_018_082_108),
-        ("DecoratedPot", 13_157, 340_115_056),
-        ("EnchantTable", 13_163, 1_230_080_101),
-        ("EnderChest", 6_870, 1_106_211_301),
-        ("GlowItemFrame", 1_047, 209_894_407),
-        ("Hopper", 13_514, 3_036_911_681),
-        ("ItemFrame", 6_477, 2_475_575_814),
-        ("Lectern", 13_559, 3_354_404_216),
-        ("Sign", 13, 1_222_845_996),
-        ("Skull", 33, 235_396_048),
-    ] {
-        let source = block_entity_nbt(Some(id), &[(3, "note", 25), (1, "powered", 7)]);
-        assert!(matches!(
-            adjudicate_block_entity_visual(&source, backing(sequential_id, network_hash)),
-            BlockEntityVisualRoute::Deferred { .. }
-        ));
-        assert!(matches!(
-            adjudicate_block_entity_visual(&source, backing(1_936, 166_024_317)),
-            BlockEntityVisualRoute::Unknown { .. }
-        ));
-    }
-
-    for (source, identity) in [
-        (block_entity_nbt(Some("Barrel"), &[]), backing(42, 84)),
+    for (id, name, kind) in [
+        ("Chest", "minecraft:chest", VisualKind::Invisible),
         (
-            block_entity_nbt(Some("Jukebox"), &[]),
-            backing(1_936, 166_024_317),
+            "Chest",
+            "minecraft:waxed_exposed_copper_chest",
+            VisualKind::Invisible,
         ),
         (
-            block_entity_nbt(Some("NotAReviewedSource"), &[]),
-            backing(7_069, 198_111_737),
+            "ShulkerBox",
+            "minecraft:red_shulker_box",
+            VisualKind::Invisible,
         ),
+        (
+            "HangingSign",
+            "minecraft:oak_hanging_sign",
+            VisualKind::Model,
+        ),
+        ("Sign", "minecraft:standing_sign", VisualKind::Model),
     ] {
+        assert!(
+            matches!(
+                adjudicate_block_entity_visual(
+                    &block_entity_nbt(Some(id), &[]),
+                    backing(name, kind)
+                ),
+                BlockEntityVisualRoute::Deferred { .. }
+            ),
+            "{name}"
+        );
         assert!(matches!(
-            adjudicate_block_entity_visual(&source, identity),
+            adjudicate_block_entity_visual(
+                &block_entity_nbt(Some(id), &[]),
+                backing("minecraft:stone", kind)
+            ),
             BlockEntityVisualRoute::Unknown { .. }
         ));
     }
 }
 
 #[test]
-fn block_entity_visuals_deferred_routes_require_exact_backing_identity() {
+fn block_entity_visuals_require_exact_backing_identity_and_geometry() {
     let beacon = block_entity_nbt(Some("Beacon"), &[]);
-    let runtime = runtime_with_block_identity(846, 561_914_719, VisualKind::Cube);
-    for identity in [
-        BackingBlockIdentity::from_runtime(0, NetworkIdMode::Hashed, &runtime),
-        BackingBlockIdentity::from_runtime(
-            561_914_719,
-            NetworkIdMode::Hashed,
-            &runtime_with_block_identity(846, 561_914_719, VisualKind::Invisible),
-        ),
+    assert!(matches!(
+        adjudicate_block_entity_visual(&beacon, backing("minecraft:beacon", VisualKind::Invisible)),
+        BlockEntityVisualRoute::Unknown { .. }
+    ));
+    let record = record("minecraft:beacon");
+    let runtime = runtime_with_block_identity(
+        record.sequential_id,
+        record.network_hash.wrapping_add(1),
+        VisualKind::Cube,
+    );
+    for (mode, value) in [
+        (NetworkIdMode::Sequential, record.sequential_id),
+        (NetworkIdMode::Hashed, record.network_hash.wrapping_add(1)),
     ] {
         assert!(matches!(
-            adjudicate_block_entity_visual(&beacon, identity),
+            adjudicate_block_entity_visual(
+                &beacon,
+                BackingBlockIdentity::from_runtime(value, mode, &runtime)
+            ),
             BlockEntityVisualRoute::Unknown { .. }
         ));
     }
@@ -283,7 +251,7 @@ fn block_entity_visuals_deferred_routes_require_exact_backing_identity() {
 
 #[test]
 fn block_entity_visuals_fail_closed_at_every_note_identity_boundary() {
-    let valid_backing = backing(1_936, 166_024_317);
+    let valid_backing = backing("minecraft:noteblock", VisualKind::Cube);
     for fields in [
         vec![],
         vec![(1, "note", 0)],
@@ -303,7 +271,7 @@ fn block_entity_visuals_fail_closed_at_every_note_identity_boundary() {
     assert!(matches!(
         adjudicate_block_entity_visual(
             &block_entity_nbt(None, &[(1, "note", 0), (1, "powered", 0)]),
-            backing(42, 84),
+            backing("minecraft:stone", VisualKind::Cube)
         ),
         BlockEntityVisualRoute::Unknown { .. }
     ));
@@ -311,30 +279,51 @@ fn block_entity_visuals_fail_closed_at_every_note_identity_boundary() {
 
 #[test]
 fn block_entity_visuals_route_digest_is_stable_and_identity_bound() {
-    let first = adjudicate_block_entity_visual(
-        &block_entity_nbt(Some("Barrel"), &[]),
-        backing(7_069, 198_111_737),
-    );
+    let source = block_entity_nbt(Some("Barrel"), &[]);
+    let first =
+        adjudicate_block_entity_visual(&source, backing("minecraft:barrel", VisualKind::Cube));
     let repeated = adjudicate_block_entity_visual(
         &block_entity_nbt(Some("Barrel"), &[(1, "irrelevant", 9)]),
-        backing(7_069, 198_111_737),
-    );
-    let other_state = adjudicate_block_entity_visual(
-        &block_entity_nbt(Some("Barrel"), &[]),
-        backing(7_070, 501_043_176),
+        backing("minecraft:barrel", VisualKind::Cube),
     );
     assert_eq!(first.route_digest(), repeated.route_digest());
-    assert_ne!(first.route_digest(), other_state.route_digest());
-
-    let chest = block_entity_nbt(Some("Chest"), &[]);
-    let runtime = runtime_with_block_identity(14_039, 741_882_976, VisualKind::Diagnostic);
+    let first_record = record("minecraft:barrel");
+    let other = records()
+        .iter()
+        .find(|r| r.name == first_record.name && r.sequential_id != first_record.sequential_id)
+        .unwrap();
+    let runtime =
+        runtime_with_block_identity(other.sequential_id, other.network_hash, VisualKind::Cube);
+    assert_ne!(
+        first.route_digest(),
+        adjudicate_block_entity_visual(
+            &source,
+            BackingBlockIdentity::from_runtime(
+                other.sequential_id,
+                NetworkIdMode::Sequential,
+                &runtime
+            )
+        )
+        .route_digest()
+    );
+    let record = record("minecraft:chest");
+    let source = block_entity_nbt(Some("Chest"), &[]);
+    let runtime = runtime_with_block_identity(
+        record.sequential_id,
+        record.network_hash,
+        VisualKind::Invisible,
+    );
     let sequential = adjudicate_block_entity_visual(
-        &chest,
-        BackingBlockIdentity::from_runtime(14_039, NetworkIdMode::Sequential, &runtime),
+        &source,
+        BackingBlockIdentity::from_runtime(
+            record.sequential_id,
+            NetworkIdMode::Sequential,
+            &runtime,
+        ),
     );
     let hashed = adjudicate_block_entity_visual(
-        &chest,
-        BackingBlockIdentity::from_runtime(741_882_976, NetworkIdMode::Hashed, &runtime),
+        &source,
+        BackingBlockIdentity::from_runtime(record.network_hash, NetworkIdMode::Hashed, &runtime),
     );
     assert_eq!(sequential.route_digest(), hashed.route_digest());
 }
@@ -342,7 +331,9 @@ fn block_entity_visuals_route_digest_is_stable_and_identity_bound() {
 #[test]
 fn block_entity_visuals_route_digest_distinguishes_unresolved_hashed_states() {
     let source = block_entity_nbt(Some("Barrel"), &[]);
-    let runtime = runtime_with_block_identity(7_069, 198_111_737, VisualKind::Cube);
+    let record = record("minecraft:barrel");
+    let runtime =
+        runtime_with_block_identity(record.sequential_id, record.network_hash, VisualKind::Cube);
     let first = adjudicate_block_entity_visual(
         &source,
         BackingBlockIdentity::from_runtime(1, NetworkIdMode::Hashed, &runtime),
@@ -357,15 +348,19 @@ fn block_entity_visuals_route_digest_distinguishes_unresolved_hashed_states() {
 }
 
 /// Encodes full-cube model geometry for the adjudicator's retained barrel identities.
-fn compiled_barrels_with_retained_identities() -> (CompiledAssets, Vec<super::StaticBacking>) {
-    let records = super::STATIC_BACKINGS
+fn compiled_barrels_with_retained_identities()
+-> (CompiledAssets, Vec<&'static assets::RegistryRecord>) {
+    let records = records()
         .iter()
-        .filter(|r| r.source == super::StaticSource::Barrel)
-        .copied()
+        .filter(|r| r.name.as_ref() == "minecraft:barrel")
         .collect::<Vec<_>>();
     let last = records.last().unwrap();
-    let mut compiled = compiled_block_identity(last.sequential_id, last.hash, VisualKind::Model);
-    compiled.hashed = records.iter().map(|r| (r.hash, r.sequential_id)).collect();
+    let mut compiled =
+        compiled_block_identity(last.sequential_id, last.network_hash, VisualKind::Model);
+    compiled.hashed = records
+        .iter()
+        .map(|r| (r.network_hash, r.sequential_id))
+        .collect();
     compiled.hashed.sort_unstable();
     for visual in &mut compiled.visuals {
         visual.faces = [1; 6];
@@ -420,7 +415,7 @@ fn compiled_barrel_models_keep_existing_block_entity_routes() {
         );
         for (mode, value) in [
             (NetworkIdMode::Sequential, record.sequential_id),
-            (NetworkIdMode::Hashed, record.hash),
+            (NetworkIdMode::Hashed, record.network_hash),
         ] {
             let identity = BackingBlockIdentity::from_runtime(value, mode, &runtime);
             assert!(
@@ -455,7 +450,7 @@ fn barrel_backing_rejects_models_without_full_cube_geometry() {
     let runtime = assets::RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap();
     for (mode, value) in [
         (NetworkIdMode::Sequential, record.sequential_id),
-        (NetworkIdMode::Hashed, record.hash),
+        (NetworkIdMode::Hashed, record.network_hash),
     ] {
         assert!(matches!(
             adjudicate_block_entity_visual(

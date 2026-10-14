@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use assets::{NetworkIdMode, RuntimeAssets, VisualKind};
+use assets::{
+    NetworkIdMode, RuntimeAssets, VisualKind,
+    facts::{BlockEntityBacking, BlockEntityDiagnostic, BlockEntityFacts},
+};
 use sha2::{Digest, Sha256};
 use world::{BlockEntityKey, BlockEntityNbt, ChunkKey, RootByteCandidate, SubChunkKey};
 
@@ -13,6 +16,7 @@ pub struct BackingBlockIdentity {
     visual_kind: VisualKind,
     full_cube_model: bool,
     known: bool,
+    fact: Option<BlockEntityBacking<'static>>,
 }
 
 impl BackingBlockIdentity {
@@ -20,8 +24,9 @@ impl BackingBlockIdentity {
     #[must_use]
     pub fn from_runtime(value: u32, mode: NetworkIdMode, assets: &RuntimeAssets) -> Self {
         let resolved = assets.resolve(mode, value);
+        let fact = BlockEntityFacts::pinned().for_runtime(value, mode, assets);
         let (sequential_id, network_hash) = match mode {
-            NetworkIdMode::Sequential => (value, expected_network_hash(value)),
+            NetworkIdMode::Sequential => (value, fact.map(|fact| fact.network_hash)),
             NetworkIdMode::Hashed => (
                 assets.sequential_id_for_hash(value).unwrap_or(u32::MAX),
                 Some(value),
@@ -37,16 +42,8 @@ impl BackingBlockIdentity {
             )
             .is_some(),
             known: resolved.is_known(),
+            fact,
         }
-    }
-
-    fn matches(self, expected: StaticSource) -> bool {
-        self.known
-            && (self.visual_kind == VisualKind::Cube
-                || (expected == StaticSource::Barrel && self.full_cube_model))
-            && static_backing(self.sequential_id).is_some_and(|record| {
-                record.source == expected && Some(record.hash) == self.network_hash
-            })
     }
 }
 
@@ -151,37 +148,28 @@ pub fn adjudicate_block_entity_visual(
     source: &BlockEntityNbt,
     backing: BackingBlockIdentity,
 ) -> BlockEntityVisualRoute {
-    let outcome = match source.id() {
-        Some("Barrel") => static_outcome(backing, StaticSource::Barrel),
-        Some("BlastFurnace") => static_outcome(backing, StaticSource::BlastFurnace),
-        Some("Furnace") => static_outcome(backing, StaticSource::Furnace),
-        Some("Smoker") => static_outcome(backing, StaticSource::Smoker),
-        Some("Jukebox") => {
-            if backing.matches(StaticSource::Jukebox) {
-                RouteOutcome::Logical
-            } else {
-                RouteOutcome::Unknown
-            }
-        }
-        Some(id) if REVIEWED_DEFERRED_IDS.contains(&id) => {
-            if deferred_backing_matches(id, backing) {
-                RouteOutcome::Deferred
-            } else {
-                RouteOutcome::Unknown
-            }
-        }
-        Some(_) => RouteOutcome::Unknown,
-        None => {
-            if backing.matches(StaticSource::Note)
-                && matches!(source.note_candidate(), RootByteCandidate::Value(0..=24))
-                && matches!(source.powered_candidate(), RootByteCandidate::Value(0..=1))
-            {
-                RouteOutcome::Logical
-            } else {
-                RouteOutcome::Unknown
-            }
-        }
-    };
+    let outcome = backing
+        .fact
+        .filter(|fact| {
+            backing.known
+                && fact
+                    .entity
+                    .geometry
+                    .accepts(backing.visual_kind, backing.full_cube_model)
+                && match source.id() {
+                    Some(id) => !fact.entity.idless && id == fact.entity.nbt_id,
+                    None => {
+                        fact.entity.idless
+                            && matches!(source.note_candidate(), RootByteCandidate::Value(0..=24))
+                            && matches!(source.powered_candidate(), RootByteCandidate::Value(0..=1))
+                    }
+                }
+        })
+        .map_or(RouteOutcome::Unknown, |fact| match fact.entity.diagnostic {
+            BlockEntityDiagnostic::ExistingBlockState => RouteOutcome::Static,
+            BlockEntityDiagnostic::Logical => RouteOutcome::Logical,
+            BlockEntityDiagnostic::Deferred => RouteOutcome::Deferred,
+        });
     let route_digest = route_digest(outcome, source, backing);
     match outcome {
         RouteOutcome::Static => BlockEntityVisualRoute::ExistingBlockState {
@@ -197,14 +185,7 @@ pub fn adjudicate_block_entity_visual(
     }
 }
 
-fn static_outcome(backing: BackingBlockIdentity, expected: StaticSource) -> RouteOutcome {
-    if backing.matches(expected) {
-        RouteOutcome::Static
-    } else {
-        RouteOutcome::Unknown
-    }
-}
-
+/// Binds the outcome to the retained NBT identity and admitted backing state.
 fn route_digest(
     outcome: RouteOutcome,
     source: &BlockEntityNbt,
@@ -239,6 +220,7 @@ fn route_digest(
     digest.finalize().into()
 }
 
+/// Includes absent and malformed idless fields in the diagnostic identity.
 fn update_candidate_digest(digest: &mut Sha256, candidate: RootByteCandidate) {
     match candidate {
         RootByteCandidate::Absent => digest.update([0, 0]),
@@ -255,327 +237,6 @@ enum RouteOutcome {
     Deferred = 3,
     Unknown = 4,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StaticSource {
-    Barrel,
-    BlastFurnace,
-    Furnace,
-    Smoker,
-    Jukebox,
-    Note,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct StaticBacking {
-    sequential_id: u32,
-    hash: u32,
-    source: StaticSource,
-}
-
-fn static_backing(sequential_id: u32) -> Option<&'static StaticBacking> {
-    STATIC_BACKINGS
-        .binary_search_by_key(&sequential_id, |record| record.sequential_id)
-        .ok()
-        .map(|index| &STATIC_BACKINGS[index])
-}
-
-fn expected_network_hash(sequential_id: u32) -> Option<u32> {
-    static_backing(sequential_id).map(|record| record.hash)
-}
-
-fn deferred_backing_matches(id: &str, backing: BackingBlockIdentity) -> bool {
-    // Entity-drawn blocks compile to `Invisible` and the enchanting-table base to `Model`;
-    // the placeholder `Diagnostic` route stays accepted for carriers built before that.
-    let expected_visual_kinds: &[VisualKind] = match id {
-        "Beacon" => &[VisualKind::Cube],
-        "Sign" => &[VisualKind::Model],
-        "Banner" | "Bed" | "Chest" | "CopperGolemStatue" | "DecoratedPot" | "EnderChest"
-        | "GlowItemFrame" | "ItemFrame" | "Lectern" | "Skull" => {
-            &[VisualKind::Diagnostic, VisualKind::Invisible]
-        }
-        "EnchantTable" => &[VisualKind::Diagnostic, VisualKind::Model],
-        _ => &[VisualKind::Diagnostic],
-    };
-    if !backing.known || !expected_visual_kinds.contains(&backing.visual_kind) {
-        return false;
-    }
-    let sequential_id = backing.sequential_id;
-    match id {
-        "Banner" => matches!(sequential_id, 10_321..=10_326 | 13_571..=13_586),
-        "Beacon" => sequential_id == 846,
-        "Bed" => matches!(sequential_id, 13_095..=13_110),
-        "BrewingStand" => matches!(sequential_id, 15_128..=15_135),
-        "Campfire" => matches!(sequential_id, 10_421..=10_428 | 15_923..=15_930),
-        "Chest" => matches!(sequential_id, 14_039..=14_042),
-        "CopperGolemStatue" => matches!(
-            sequential_id,
-            2_648..=2_651
-                | 6_357..=6_360
-                | 6_854..=6_857
-                | 7_865..=7_868
-                | 8_544..=8_547
-                | 12_151..=12_154
-                | 15_022..=15_025
-                | 15_918..=15_921
-        ),
-        "DecoratedPot" => matches!(sequential_id, 13_157..=13_160),
-        "EnchantTable" => sequential_id == 13_163,
-        "EnderChest" => matches!(sequential_id, 6_870..=6_873),
-        "GlowItemFrame" => matches!(sequential_id, 1_047..=1_070),
-        "Hopper" => matches!(sequential_id, 13_514..=13_525),
-        "ItemFrame" => matches!(sequential_id, 6_477..=6_500),
-        "Lectern" => matches!(sequential_id, 13_559..=13_566),
-        "Sign" => matches!(
-            sequential_id,
-            13..=28
-                | 837..=842
-                | 1_992..=1_997
-                | 2_018..=2_023
-                | 5_393..=5_398
-                | 6_438..=6_453
-                | 6_883..=6_888
-                | 8_510..=8_515
-                | 9_120..=9_125
-                | 9_209..=9_214
-                | 10_237..=10_252
-                | 11_064..=11_079
-                | 12_171..=12_186
-                | 12_620..=12_635
-                | 13_126..=13_141
-                | 13_336..=13_347
-                | 13_849..=13_864
-                | 14_513..=14_528
-                | 14_533..=14_548
-                | 14_691..=14_722
-                | 14_941..=14_946
-                | 15_347..=15_352
-        ),
-        "Skull" => matches!(
-            sequential_id,
-            33..=38
-                | 5_468..=5_473
-                | 9_295..=9_300
-                | 10_987..=10_992
-                | 11_011..=11_016
-                | 13_832..=13_837
-                | 14_565..=14_570
-        ),
-        _ => false,
-    }
-}
-
-const REVIEWED_DEFERRED_IDS: [&str; 16] = [
-    "Banner",
-    "Beacon",
-    "Bed",
-    "BrewingStand",
-    "Campfire",
-    "Chest",
-    "CopperGolemStatue",
-    "DecoratedPot",
-    "EnchantTable",
-    "EnderChest",
-    "GlowItemFrame",
-    "Hopper",
-    "ItemFrame",
-    "Lectern",
-    "Sign",
-    "Skull",
-];
-
-const STATIC_BACKINGS: [StaticBacking; 38] = [
-    StaticBacking {
-        sequential_id: 1_936,
-        hash: 166_024_317,
-        source: StaticSource::Note,
-    },
-    StaticBacking {
-        sequential_id: 2_699,
-        hash: 3_435_179_109,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 2_700,
-        hash: 2_950_269_998,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 2_701,
-        hash: 3_568_550_727,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 2_702,
-        hash: 3_132_699_916,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 7_069,
-        hash: 198_111_737,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_070,
-        hash: 501_043_176,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_071,
-        hash: 1_071_581_843,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_072,
-        hash: 4_094_588_762,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_073,
-        hash: 4_152_884_613,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_074,
-        hash: 1_814_814_452,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_075,
-        hash: 3_437_772_462,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_076,
-        hash: 1_556_349_747,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_077,
-        hash: 16_275_272,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_078,
-        hash: 854_928_037,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_079,
-        hash: 3_097_578_042,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 7_080,
-        hash: 2_870_121_023,
-        source: StaticSource::Barrel,
-    },
-    StaticBacking {
-        sequential_id: 8_516,
-        hash: 1_605_519_270,
-        source: StaticSource::Jukebox,
-    },
-    StaticBacking {
-        sequential_id: 13_947,
-        hash: 1_464_259_042,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 13_948,
-        hash: 1_215_033_323,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 13_949,
-        hash: 3_697_737_228,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 13_950,
-        hash: 3_322_658_681,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 14_587,
-        hash: 2_568_407_871,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 14_588,
-        hash: 42_144_652,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 14_589,
-        hash: 1_568_180_725,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 14_590,
-        hash: 1_899_400_230,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 15_143,
-        hash: 2_142_573_020,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 15_144,
-        hash: 3_066_600_017,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 15_145,
-        hash: 184_718_330,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 15_146,
-        hash: 793_504_035,
-        source: StaticSource::BlastFurnace,
-    },
-    StaticBacking {
-        sequential_id: 15_321,
-        hash: 2_080_399_355,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 15_322,
-        hash: 859_357_296,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 15_323,
-        hash: 4_033_512_929,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 15_324,
-        hash: 3_231_615_138,
-        source: StaticSource::Smoker,
-    },
-    StaticBacking {
-        sequential_id: 15_688,
-        hash: 3_463_497_305,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 15_689,
-        hash: 2_478_237_434,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 15_690,
-        hash: 1_875_646_683,
-        source: StaticSource::Furnace,
-    },
-    StaticBacking {
-        sequential_id: 15_691,
-        hash: 4_038_254_352,
-        source: StaticSource::Furnace,
-    },
-];
 
 #[cfg(test)]
 mod adjudication_tests;

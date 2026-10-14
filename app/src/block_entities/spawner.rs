@@ -85,7 +85,13 @@ fn column(source: Arc<EntityIndex>, previous: Option<&Column>) -> Column {
     let previous = previous.map_or(&[][..], |column| column.displays.as_slice());
     let displays = source
         .iter()
-        .filter(|(_, nbt)| nbt.id() == Some("MobSpawner"))
+        .filter(|(_, nbt)| {
+            nbt.id()
+                .and_then(|id| assets::facts::BlockEntityFacts::pinned().entry(id))
+                .is_some_and(|entry| {
+                    entry.renderer == assets::facts::BlockEntityRenderer::MobSpawner
+                })
+        })
         .filter_map(|(key, nbt)| {
             let position = key.position();
             // Requests follow the index's key order, so the previous column is sorted by position.
@@ -125,7 +131,6 @@ fn column(source: Arc<EntityIndex>, previous: Option<&Column>) -> Column {
 pub(crate) fn prepare_spawner_actors(
     world: Res<ClientWorld>,
     view: Res<LocalViewPose>,
-    collisions: Res<client_interaction::movement::PhysicsCollisionRegistries>,
     (artwork, state): (
         Res<render_scene::ActorArtworkResource>,
         Res<ActorFrameState>,
@@ -265,8 +270,16 @@ pub(crate) fn prepare_spawner_actors(
                             z.rem_euclid(side) as u8,
                         )
                     })
-                    .and_then(|id| collisions.block_identifier(stream.network_id_mode(), id));
-                if backing != Some("minecraft:mob_spawner") {
+                    .and_then(|id| {
+                        assets::facts::BlockEntityFacts::pinned().for_runtime(
+                            id,
+                            stream.network_id_mode(),
+                            stream.runtime_assets(),
+                        )
+                    });
+                if !backing.is_some_and(|fact| {
+                    fact.entity.renderer == assets::facts::BlockEntityRenderer::MobSpawner
+                }) {
                     continue;
                 }
                 if display_center(request.position).distance_squared(eye)

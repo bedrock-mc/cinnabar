@@ -440,3 +440,10 @@ Window closure and handled SIGINT/SIGTERM cancel unfinished startup and terminat
 later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,
 Android lifecycle and rendered Video acceptance remain incomplete as recorded in `plan.md`.
 No parity or performance completion entry advances.
+
+## Generated block-entity routing
+
+Registry generation now supplies the shared backing and renderer table used by
+block-entity admission, spawner displays, portal scans and visual diagnostics.
+Unsupported and provisional routes remain explicit. This changes no completion
+status; the remaining renderer and live acceptance gates stay open in `plan.md`.

@@ -155,7 +155,8 @@ fn table_domain(file: &str) -> &'static str {
         | "block-entities-v1001.json"
         | "visual-coverage-v1001.json"
         | "visual-invisible-v1001.json" => "legacy_block",
-        "block-item-routes-v2193.json"
+        "block-entities-v2193.json"
+        | "block-item-routes-v2193.json"
         | "native-materials.json"
         | "block-family-routing.json"
         | "registry-policy.json" => "block",
