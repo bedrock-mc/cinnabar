@@ -601,6 +601,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
+    GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
+        [], [SettingsGroup::Video], None, None;
     FarTerrain => "far_terrain", dropdown("Far Terrain (LOD)", FAR_TERRAIN_CHOICES, render_api::far_terrain::FarTerrainMode::Auto.index()),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),

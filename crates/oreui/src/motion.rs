@@ -18,6 +18,7 @@ pub(super) enum Surface {
     Screen(MenuScreen),
     Settings(u8),
     ResourcePack(u128, bool),
+    Mod(u64, bool),
     Wardrobe(bool),
     Play(u8),
     ServerDetails(usize, bool),

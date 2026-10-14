@@ -100,6 +100,8 @@ pub struct FrozenMiningTarget {
     pub position: [i32; 3],
     pub face: u8,
     pub relative_hit: [f32; 3],
+    /// Unclamped world-space intercept used for actor occlusion.
+    pub hit_world: [f32; 3],
     pub runtime_id: u32,
     pub identity: WorldCollisionIdentity,
 }

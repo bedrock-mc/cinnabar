@@ -1,4 +1,3 @@
-#[cfg(feature = "local-mods")]
 use crate::modding::interaction::{block_pick_reach, effective_reach};
 use protocol::PlayerInputMode;
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
@@ -33,11 +32,8 @@ pub(super) fn resolve_crosshair(
     } else {
         survival_reach(input_mode)
     };
-    #[cfg(feature = "local-mods")]
     let actor_reach = effective_reach(reach, context.mod_interaction.as_deref());
-    #[cfg(not(feature = "local-mods"))]
-    let actor_reach = reach;
-    #[cfg(feature = "local-mods")]
+
     let reach = block_pick_reach(reach, actor_reach);
     let origin = ray.origin().to_array();
     // Vanilla picks against the world it holds, where unreadable space is empty; an
@@ -67,13 +63,7 @@ pub(super) fn resolve_crosshair(
             }
         }
     });
-    let block_distance = observed.map(|observed| {
-        gameplay::melee::block_pick_distance(
-            origin,
-            observed.target.position,
-            observed.target.relative_hit,
-        )
-    });
+    let block_distance = observed.map(|observed| observed.hit_distance());
     let authority = stream.authority();
     let actor = gameplay::melee::pick_actor_by(
         authority.remote_actors().filter(|actor| {

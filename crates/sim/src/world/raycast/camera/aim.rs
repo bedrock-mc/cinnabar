@@ -13,13 +13,14 @@ impl PaletteWorld<'_> {
         outlines: bool,
         liquids: bool,
     ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
-        let delta = end - origin;
-        let distance = delta.length_squared().sqrt();
-        let direction = validate_ray(origin, delta, distance)?;
-        let mut state = TraversalState::new(origin, direction)?;
-        if let Some(hit) =
-            self.camera_aim_halo(&state, origin, direction, distance, outlines, liquids)?
-        {
+        let origin = origin.rounded();
+        let end = end.rounded();
+        let direction = end - origin;
+        let length = f64::from((direction.length_squared() as f32).sqrt());
+        validate_ray(origin, direction, length)?;
+        // Preserve the supplied endpoint instead of rebuilding it from a normalized ray.
+        let mut state = TraversalState::new(origin, direction, 1.0)?;
+        if let Some(hit) = self.camera_aim_halo(&state, origin, direction, outlines, liquids)? {
             return Ok(Some(hit));
         }
         let end_cell = [
@@ -38,16 +39,11 @@ impl PaletteWorld<'_> {
             } else {
                 2
             };
-            if state.next[axis] > distance {
+            if state.next[axis] > 1.0 {
                 break;
             }
-            state.cell[axis] = state.cell[axis]
-                .checked_add(state.step[axis])
-                .ok_or(WorldQueryError::CoordinateOutOfRange)?;
-            state.next[axis] += state.delta[axis];
-            if let Some(hit) =
-                self.camera_aim_halo(&state, origin, direction, distance, outlines, liquids)?
-            {
+            state.advance_axis(axis)?;
+            if let Some(hit) = self.camera_aim_halo(&state, origin, direction, outlines, liquids)? {
                 return Ok(Some(hit));
             }
         }
@@ -60,23 +56,28 @@ impl PaletteWorld<'_> {
         state: &TraversalState,
         origin: Vec3,
         direction: Vec3,
-        distance: f64,
         outlines: bool,
         liquids: bool,
     ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
         if !outlines {
-            return self.camera_aim_cell(state.cell, origin, direction, distance, false, liquids);
+            return self.camera_aim_cell(state.cell, origin, direction, 1.0, false, liquids);
         }
         let halo = self.registry.selection_ray_halo();
         // Only intercepts in this traversed cell can finish the step-bounded scan.
-        let distance = distance.min(state.next_crossing());
+        let max_fraction = state.next_crossing().min(1.0);
         let mut best: Option<CameraBlockHit> = None;
         for x in halo[0].0..=halo[0].1 {
             for y in halo[1].0..=halo[1].1 {
                 for z in halo[2].0..=halo[2].1 {
                     let block = checked_offset(state.cell, [x, y, z])?;
-                    let Some(hit) =
-                        self.camera_aim_cell(block, origin, direction, distance, true, liquids)?
+                    let Some(hit) = self.camera_aim_cell(
+                        block,
+                        origin,
+                        direction,
+                        max_fraction,
+                        true,
+                        liquids,
+                    )?
                     else {
                         continue;
                     };
@@ -97,6 +98,7 @@ impl PaletteWorld<'_> {
 
     /// Liquid targeting is disabled when the cached eye occupies a primary liquid block.
     pub fn camera_eye_in_liquid(&self, eye: Vec3) -> Result<bool, WorldQueryError> {
+        let eye = eye.rounded();
         validate_ray(eye, Vec3::ONE, 1.0)?;
         let block = [
             eye.x.floor() as i32,
@@ -140,7 +142,7 @@ impl PaletteWorld<'_> {
         block: [i32; 3],
         origin: Vec3,
         direction: Vec3,
-        distance: f64,
+        max_fraction: f32,
         outlines: bool,
         liquids: bool,
     ) -> Result<Option<CameraBlockHit>, WorldQueryError> {
@@ -207,14 +209,17 @@ impl PaletteWorld<'_> {
         {
             return Ok(None);
         }
-        let Some((distance, face, point)) = ray_box(
+        let Some((fraction, distance, face, point)) = ray_box(
             origin,
             direction,
-            distance,
+            1.0,
             if initial || outlines { outline } else { cube },
         ) else {
             return Ok(None);
         };
+        if crossing_order(fraction, max_fraction).is_gt() {
+            return Ok(None);
+        }
         Ok(Some(CameraBlockHit {
             block_pos: block,
             face,

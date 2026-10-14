@@ -272,10 +272,6 @@ fn route_press(
 
 /// Reserves vanilla container keys from mod declarations. While a mod view hides the
 /// container, only the inventory key and Escape stay reserved.
-#[cfg_attr(
-    not(feature = "local-mods"),
-    allow(dead_code, reason = "only player mods declare keys")
-)]
 pub(crate) fn inventory_consumes_key(
     menu: Option<&client_shell::menu::MenuRuntime>,
     key: KeyCode,

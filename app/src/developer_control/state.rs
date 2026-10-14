@@ -290,10 +290,8 @@ pub(super) fn snapshot(world: &World) -> Value {
             "sign_in_fixture": menu.sign_in_fixture_state(),
         })
     });
-    #[cfg(feature = "local-mods")]
     let local_mods = crate::modding::developer_state(world);
-    #[cfg(not(feature = "local-mods"))]
-    let local_mods: Option<Value> = None;
+
     json!({
         "in_world": stream.is_some(),
         "immobile": world.get_resource::<client_state::PlayerRuntime>()

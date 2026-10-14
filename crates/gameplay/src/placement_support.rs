@@ -112,9 +112,7 @@ pub(crate) fn attachment_states(
         set_state(&mut states, "facing_direction", Value::from(input.face))?;
         set_state(&mut states, "button_pressed_bit", Value::from(0))?;
     } else if known_keys(canonical, &["hanging"]) {
-        if state_bit(canonical, "hanging").is_none() {
-            return None;
-        }
+        state_bit(canonical, "hanging")?;
         let below = supports[0]?;
         let hanging = !below || (input.face == 0 && supports[1]?);
         if hanging && !supports[1]? {

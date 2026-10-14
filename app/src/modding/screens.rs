@@ -39,6 +39,29 @@ pub(super) struct ScreenState {
     data_change: Option<ModEvent>,
 }
 
+impl ScreenState {
+    /// Keeps cached layout and pending notifications attached to their reordered instance.
+    pub(super) fn swap_hosts(&mut self, left: usize, right: usize) {
+        if self.owner == Some(left) {
+            self.owner = Some(right);
+        } else if self.owner == Some(right) {
+            self.owner = Some(left);
+        }
+    }
+    /// Releases a departing owner without dispatching its events to the shifted successor.
+    pub(super) fn remove_host(&mut self, index: usize) {
+        if self.owner == Some(index) {
+            self.owner = None;
+            self.layout = None;
+            self.data_change = None;
+        } else if let Some(owner) = self.owner.as_mut()
+            && *owner > index
+        {
+            *owner -= 1;
+        }
+    }
+}
+
 #[derive(SystemParam)]
 pub(super) struct ScreenInput<'w, 's> {
     keyboard: MessageReader<'w, 's, KeyboardInput>,
@@ -238,13 +261,15 @@ fn drive_owner(
         input.buttons.clear();
         input.wheel.clear();
     }
-    if !events.is_empty()
-        && let Err(error) = host.dispatch(events)
-    {
+    let result = if close_view {
+        host.dispatch_and_close_view(events)
+    } else if !events.is_empty() {
+        host.dispatch(events).map(|_| ())
+    } else {
+        Ok(())
+    };
+    if let Err(error) = result {
         eprintln!("Cinnabar mod event refused: {error:#}");
-    }
-    if close_view && let Err(error) = host.close_view() {
-        eprintln!("Cinnabar mod view-closed failed: {error:#}");
     }
     publish(host, presentation);
 }
@@ -475,7 +500,7 @@ fn key_code(name: &str) -> Option<KeyCode> {
 }
 
 /// Hands the host's committed screens to the presentation; a stopped mod draws nothing.
-fn publish(host: &ModHost, presentation: &mut UiPresentationRuntime) {
+pub(super) fn publish(host: &ModHost, presentation: &mut UiPresentationRuntime) {
     let (Some(package), true) = (host.package(), host.is_active()) else {
         presentation.set_mod_screens(None);
         return;

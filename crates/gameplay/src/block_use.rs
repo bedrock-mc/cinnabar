@@ -14,7 +14,7 @@ const SURVIVAL_REPEAT_FLOOR_MILLIS: u64 = 100;
 /// How far behind now a moving repeat's schedule may lag.
 const REPEAT_MAX_LAG_MILLIS: u64 = 180;
 /// Placement boxes shrink by this much per side before the actor test.
-const PLACEMENT_ACTOR_EPSILON: f64 = 1.0e-5;
+const PLACEMENT_ACTOR_EPSILON: f32 = 1.0e-5;
 
 /// Blocks a placement replaces in place. Provisional list; needs independent measurement.
 const REPLACEABLE_BLOCKS: &[&str] = &[
@@ -156,9 +156,9 @@ pub(crate) fn overlaps(
     (min, max): BoxBounds,
 ) -> bool {
     (0..3).all(|axis| {
-        let low = f64::from(cell[axis]) + local_min[axis] + PLACEMENT_ACTOR_EPSILON;
-        let high = f64::from(cell[axis]) + local_max[axis] - PLACEMENT_ACTOR_EPSILON;
-        low < max[axis] && min[axis] < high
+        let low = cell[axis] as f32 + local_min[axis] as f32 + PLACEMENT_ACTOR_EPSILON;
+        let high = cell[axis] as f32 + local_max[axis] as f32 - PLACEMENT_ACTOR_EPSILON;
+        low < max[axis] as f32 && (min[axis] as f32) < high
     })
 }
 

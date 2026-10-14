@@ -7,6 +7,7 @@ pub mod command_macros;
 pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
+pub mod graphics_api;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
@@ -72,8 +73,11 @@ impl OptionPreference {
 #[serde(default)]
 pub struct SettingsOptions {
     /// Version of the stored settings format.
+    #[serde(default = "persistence::legacy_schema")]
     schema: u32,
     values: BTreeMap<String, i32>,
+    /// Increments on Graphics API selections so choosing Auto can reset crash recovery.
+    graphics_api_revision: u64,
     #[serde(skip)]
     anti_aliasing_support: ui::AntiAliasingSupport,
     #[serde(skip)]
@@ -92,6 +96,7 @@ impl Default for SettingsOptions {
         Self {
             schema: SETTINGS_SCHEMA,
             values: BTreeMap::new(),
+            graphics_api_revision: 0,
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
@@ -166,6 +171,11 @@ impl SettingsOptions {
             .get(definition.name)
             .copied()
             .unwrap_or_else(|| self.option_default(definition));
+        if definition.id == SettingId::GraphicsApi
+            && !graphics_api::visible(value as usize, crate::graphics_backend::Platform::current())
+        {
+            return 0;
+        }
         if definition.id == SettingId::Msaa {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
         } else {
@@ -201,6 +211,11 @@ impl SettingsOptions {
         } else {
             value
         };
+        if definition.id == SettingId::GraphicsApi {
+            self.graphics_api_revision = self.graphics_api_revision.wrapping_add(1);
+            self.values.insert(definition.name.to_owned(), value);
+            return true;
+        }
         if self
             .values
             .get(definition.name)

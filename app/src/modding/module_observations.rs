@@ -91,13 +91,7 @@ pub(super) fn current_target(
     )
     .ok()?;
     let ray_origin = ray.origin().to_array();
-    let block_distance = observed.map(|block| {
-        gameplay::melee::block_pick_distance(
-            ray_origin,
-            block.target.position,
-            block.target.relative_hit,
-        )
-    });
+    let block_distance = observed.map(|block| block.hit_distance());
     let aim = context.aim.as_deref()?;
     let authority = stream.authority();
     let hit = gameplay::melee::pick_actor_by(

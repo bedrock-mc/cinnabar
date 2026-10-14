@@ -77,15 +77,10 @@ pub fn pick_actor_by<'a, Boxes>(
 where
     Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
 {
-    let length = direction
-        .into_iter()
-        .map(|axis| f64::from(axis).powi(2))
-        .sum::<f64>()
-        .sqrt();
-    if !length.is_finite() || length == 0.0 || !reach.is_finite() || reach < 0.0 {
+    if !reach.is_finite() || reach < 0.0 {
         return None;
     }
-    let direction = direction.map(|axis| (f64::from(axis) / length) as f32);
+    let direction = sim::normalize_direction(direction)?;
     let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
@@ -154,9 +149,8 @@ fn pick_box_point(
     closest.map(|(point, _)| point)
 }
 
-/// Reconstructs a block intercept before measuring it, matching actor occlusion rounding.
-pub fn block_pick_distance(origin: [f32; 3], block: [i32; 3], relative: [f32; 3]) -> f64 {
-    let point = std::array::from_fn(|axis| block[axis] as f32 + relative[axis]);
+/// Measures an unclamped world-space block intercept with actor occlusion rounding.
+pub fn block_pick_distance(origin: [f32; 3], point: [f32; 3]) -> f64 {
     f64::from(pick_distance(origin, point))
 }
 
@@ -211,6 +205,26 @@ pub fn ray_box_entry(
         }
     }
     Some(near)
+}
+
+/// Resolves actor occlusion from the rounded world intercept, ignoring cached ray distance.
+pub fn classify_block_hit(
+    actor: Option<ActorHit>,
+    origin: [f32; 3],
+    block: Option<&sim::BlockHit>,
+    reach: f64,
+) -> Crosshair {
+    let distance = block.map(|hit| {
+        block_pick_distance(
+            origin,
+            [
+                hit.hit_world.x as f32,
+                hit.hit_world.y as f32,
+                hit.hit_world.z as f32,
+            ],
+        )
+    });
+    classify(actor, distance, reach)
 }
 
 /// Resolves the press target; an actor wins only when clearly in front of the block.

@@ -82,6 +82,13 @@ impl ModUi {
         }
     }
 
+    /// Releases all panel catalogs and input when the last local instance leaves.
+    pub fn clear_mod_panels(&mut self) {
+        self.cancel_mod_hud_editor();
+        self.mod_panel = None;
+        self.prepared_panel_ui.clear();
+    }
+
     /// Publishes one owner's panel, retaining its open state across value updates.
     /// Passing no panel clears the selection only when it belongs to this owner.
     pub fn set_mod_panel(

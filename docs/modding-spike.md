@@ -15,14 +15,15 @@ cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/hello_mod.wasm /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe /tmp/cinnabar-hello.wasm
 cargo run -p mod-host --bin mod-host --locked -- bench /tmp/cinnabar-hello.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p cinnabar --features local-mods --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm cargo run -p cinnabar --locked
 ```
 
 Route local builds through the shared limiter as required by
 `docs/agents/multi-agent-workflow.md`. No Go core or server is needed for `probe`,
 `bench` or the tests. Launching the client still requires its normal pinned carriers.
-No mod is loaded without an environment selection or enabled local registration; builds without `local-mods`
-do not compile Wasmtime and ignore it with a warning.
+Every native build includes the mod host and Wasmtime, including builds with
+`--no-default-features`. The host has no optional execution feature. No guest is loaded
+without an environment selection or an enabled local registration.
 
 The last command opens the launcher. Select a server only in a separately
 authorized live session. To exercise the same startup switch, scheduled adapter,
@@ -30,7 +31,7 @@ window-focus check and F8 action entirely offline, run:
 
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-hello.wasm \
-  cargo test -p cinnabar --features local-mods --lib configured_sample_drives_the_app_adapter_offline --locked
+  cargo test -p cinnabar --lib configured_sample_drives_the_app_adapter_offline --locked
 ```
 
 During gameplay, F8 changes the label. UI focus and window focus suppress the
@@ -62,14 +63,13 @@ cargo build -p time-changer-mod --target wasm32-unknown-unknown --locked
 cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/time_changer_mod.wasm /tmp/cinnabar-time-changer.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe-environment /tmp/cinnabar-time-changer.wasm
-CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p cinnabar --features local-mods --locked
+CINNABAR_MOD_COMPONENT=/tmp/cinnabar-time-changer.wasm cargo run -p cinnabar --locked
 ```
 
 Use the shared build limiter for every cargo command, as for hello. The last
 command opens the launcher; the existing offline adapter and snapshot commands
 also accept this component. The dedicated offline cycle/no-packets test is
-`configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set and
-`--features local-mods`.
+`configured_time_changer_is_visual_only_offline` with `CINNABAR_MOD_COMPONENT` set.
 
 Vanilla time uses six presets, preset-table lookup and modulo 24000, including
 celestial time wrapping. The vanilla 1.26.50.4 pack's
@@ -131,7 +131,7 @@ default, independently of the visual time grant. Explicitly opt in at startup:
 ```sh
 CINNABAR_MOD_COMPONENT=/tmp/my-mod.wasm \
 CINNABAR_MOD_PLAYERS=1 CINNABAR_MOD_CAMERA=1 \
-  cargo run -p cinnabar --features local-mods --locked
+  cargo run -p cinnabar --locked
 ```
 
 On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
@@ -202,8 +202,7 @@ engine and compiled carrier. Guest strings never become JSON or binding expressi
 
 The app integration sits after semantic input finalization and before UI
 publication, between physical look and movement. Without an active selection it
-installs no guest runtime or gameplay output. A `local-mods` build watches its
-local registration on a background worker; default builds have no watcher.
+installs no guest runtime or gameplay output. Every native build watches its local registration on a background worker.
 Required vanilla carriers remain required. The extension adds no protocol types
 or dependencies on gameplay state to the component host.
 
@@ -413,7 +412,7 @@ cargo run -p mod-host --bin mod-host --locked -- pack \
   target/wasm32-unknown-unknown/debug/render_sample_mod.wasm /tmp/cinnabar-render.wasm
 cargo run -p mod-host --bin mod-host --locked -- probe-render /tmp/cinnabar-render.wasm
 CINNABAR_MOD_COMPONENT=/tmp/cinnabar-render.wasm CINNABAR_MOD_RENDER=1 CINNABAR_MOD_PLAYERS=1 \
-  cargo run -p cinnabar --features local-mods --locked
+  cargo run -p cinnabar --locked
 ```
 
 Replacing the component reloads it as for other mods. A rejected shader shows its error as
@@ -463,58 +462,82 @@ labels join with ` | `; commands and cues keep load order. Render passes merge b
 the earliest mod keeping a contested name, and passes
 and each primitive kind fill the single-mod budgets in load order. Each mod polls
 every mod's previous-frame cues. The set takes precedence over `CINNABAR_MOD_COMPONENT`;
-the registration watcher adds one independently managed local component.
+the registration watcher manages independently enabled components ahead of the environment set.
 
 ## Attach a local component to a running client
 
-A `local-mods` build watches `local-mod.json` in `InstallLayout.user_config_root`
-(on an installed Windows client, `%LOCALAPPDATA%/Cinnabar/`). Write it atomically:
+Every native build watches `local-mod.json` in `InstallLayout.user_config_root`
+(on an installed Windows client, `%LOCALAPPDATA%/Cinnabar/`). Settings › Mods owns an
+ordered list and writes it atomically:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "request_id": "local-request-1",
-  "enabled": true,
-  "component": "C:/Local/mod.component.wasm",
-  "font": "C:/Local/panel.ttf",
-  "ui": "C:/Local/panel-ui.json",
-  "grants": {
-    "environment": false,
-    "players": true,
-    "camera": true,
-    "controls": true,
-    "interaction": true,
-    "settings": true,
-    "render": false,
-    "render_depth": false,
-    "entities": false,
-    "commands": []
-  }
+  "mods": [
+    {"component": "C:/Local/camera.wasm", "enabled": true,
+     "font": "C:/Local/panel.ttf", "ui": "C:/Local/panel-ui.json",
+     "grants": {"camera": true, "controls": true}, "reload": 0},
+    {"component": "C:/Local/hud.wasm", "enabled": true,
+     "grants": {"hud": true}, "reload": 0}
+  ]
 }
 ```
 
-The registration is bounded to 16 KiB, paths must be absolute, and grants default
-to false. Component compilation, source polling, font rasterization, UI preparation and status
-writes run on the worker. The current generation is installed before physical
-input sampling; deleting, disabling or invalidating the registration revokes its
-runtime and restores input ownership. A request-ID-only change preserves guest
-state. Environment-selected components load first; registration adds a companion without
-replacing them. Replacing, disabling or revoking registration affects only that companion. The total
-loaded component count remains bounded by `mod_api::MAX_LOADED_MODS`.
+The original version-1 single selection is read losslessly and written as version 2
+on the next Settings command. Disabled entries retain their permissions until Remove.
+The file is bounded to 64 KiB, paths must be absolute, duplicate identities are rejected,
+and entries are bounded by `mod_api::MAX_LOADED_MODS`. Settings companions derive from
+component paths using the host's existing companion naming rule.
 
-`local-mod.status.json` reports the request ID, client PID and `loaded`, `error`
-or `disabled` state. The additive capability field `independent_registration: true`
-indicates that registration can attach, replace and revoke a component independently of
-environment-selected components. `loaded` acknowledges actual installation, rather than
-only successful compilation. The guest still has no filesystem or process access.
-This loader cannot be added to an executable that is already running without it;
-older clients require one update and restart.
+Import validates a `.wasm` component without executing it and never overwrites an
+existing filename. Enable adds a card to Active; Disable and Remove target that card's
+identity. Move up/down changes precedence without restarting guests. Registered mods
+run before environment-selected mods. Higher Active entries publishing camera or time output own that authority, and contested HUD card IDs refuse lower publications and count each
+refused import. Distinct HUD slots are merged within the shared presentation limit.
+Per-instance fuel, epoch deadlines, memory, host-copy and source limits remain in force.
+Regular frame callbacks share `mod_api::TOTAL_MOD_FRAME_FUEL`. Events retain their
+existing `CALLBACK_FUEL` allowance, and session-loading callbacks retain `LOAD_FUEL`.
+Separate bounded lanes admit one event and one loading callback per frame across all mods.
+A callback needing an unavailable lane defers rather than receiving a smaller guest limit.
+Latest layout, changed session sources and view-closure notifications remain queued and
+coalesced until delivery. Each declared edit control also retains one latest bounded text value
+for its current screen and view. Screen changes, view closure and host replacement discard
+old edits; key, click and wheel edges are not replayed. Frame-local camera and item-use
+policies reset even when a callback defers; retained presentation follows its existing contract.
+
+An authority revocation is distinct from a guest quarantine: restoring superseded grants
+rebuilds a revoked guest, while unrelated Settings changes preserve a trapped guest's
+quarantine and installed identity.
+
+Reload and Reload all work from Settings while in a world. Candidates re-read sources
+through the bounded admission path and initialize off-frame. An invalid reload keeps
+the previous instance, with its failure displayed on that card. A successful reload
+resets guest state and preserves current companion preferences. Hot replacement uses
+the same path. Permission changes reload only the affected mod; revoked authority is
+released before admission completes. A guest trap quarantines only that guest.
+
+Each expanded card has a Permissions section generated from `ModGrants`. Optional
+grants default off. A binary component may declare its requested grants as JSON in the
+optional top-level custom section `cinnabar:grants`; declarations never grant authority.
+For example, `{"camera":true,"controls":true,"commands":["ability"]}` marks those
+requests. Command permissions enable only the declared command names; undeclared
+components cannot gain unrestricted command authority through the toggle.
+
+`local-mod.status.json` uses version 2, reports the client PID and the
+`independent_registration` capability, and records per-component `loaded`, `error` or `reload-error` outcomes
+for the list's request ID. Source polling, compilation, font rasterization, UI preparation,
+status writes and final settings retirement run off-frame. Remove first clears the entry's
+grants and metadata, waits for its detached host's final settings writes, then deletes its
+component and unshared companion. Environment-loaded settings writers also protect their companions. A changed list or watcher generation cancels deletion.
+Resolved directory aliases agree on selection and companion ownership. The guest has
+no filesystem or process access.
 
 ## Verification and limits
 
 ```sh
 cargo test -p mod-host --locked
-cargo test -p cinnabar --features local-mods --lib modding --locked
+cargo test -p cinnabar --lib modding --locked
 cargo test -p cinnabar --lib mod_hud --locked
 ```
 
@@ -569,8 +592,7 @@ hidden-HUD test is not full visibility parity evidence.
 ## Mod packages and screens (world `player-mod`)
 
 A package is a directory: `mod.toml`, `mod.wasm` (a `player-mod` component), `ui/<name>.json`
-templates and `textures/`. `CINNABAR_MOD_PACKAGE=<dir>` loads it (with `--features
-local-mods`) and takes precedence over `CINNABAR_MOD_COMPONENT`. A set entry
+templates and `textures/`. `CINNABAR_MOD_PACKAGE=<dir>` loads it and takes precedence over `CINNABAR_MOD_COMPONENT`. A set entry
 `{"package": "/abs/dir", "grants": {...}}` loads one beside other mods. Its settings companion
 sits beside the directory, `<dir>.settings.json`, outside the hashed files.
 `examples/mods/screen-probe` is a complete package; the host tests build it.

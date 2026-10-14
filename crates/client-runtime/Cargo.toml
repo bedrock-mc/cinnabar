@@ -6,7 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [features]
-local-mods = []
 test-support = ["client-session/test-support"]
 
 [dependencies]

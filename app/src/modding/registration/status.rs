@@ -1,6 +1,6 @@
 //! Bounded extension status messages and atomic file publication.
 
-use super::Status;
+use serde::Serialize;
 use std::{
     fs::{self, OpenOptions},
     io::Write,
@@ -23,9 +23,9 @@ pub(super) fn bounded_message(message: &str) -> String {
     output
 }
 
-/// Replaces a status file atomically after flushing its complete serialized contents.
-pub(super) fn write_status(path: &Path, status: &Status) -> std::io::Result<()> {
-    let bytes = serde_json::to_vec(status)?;
+/// Replaces a JSON file atomically after flushing its complete serialized contents.
+pub(super) fn write_json(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
+    let bytes = serde_json::to_vec(value)?;
     let parent = path
         .parent()
         .ok_or_else(|| std::io::Error::other("status directory unavailable"))?;

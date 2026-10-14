@@ -76,24 +76,30 @@ impl Aabb {
     /// Fraction of the closed segment `origin..origin + delta` at which it first touches this box.
     #[must_use]
     pub fn segment_entry(self, origin: Vec3, delta: Vec3) -> Option<f64> {
-        let mut entry = 0.0_f64;
-        let mut exit = 1.0_f64;
+        let origin = origin.rounded();
+        let delta = (origin + delta) - origin;
+        let origin = [origin.x as f32, origin.y as f32, origin.z as f32];
+        let delta = [delta.x as f32, delta.y as f32, delta.z as f32];
+        let low = [self.min.x as f32, self.min.y as f32, self.min.z as f32];
+        let high = [self.max.x as f32, self.max.y as f32, self.max.z as f32];
+        let mut entry = 0.0_f32;
+        let mut exit = 1.0_f32;
         for axis in 0..3 {
-            if delta[axis].abs() <= f64::EPSILON {
-                if origin[axis] < self.min[axis] || origin[axis] > self.max[axis] {
+            if delta[axis] == 0.0 {
+                if origin[axis] < low[axis] || origin[axis] > high[axis] {
                     return None;
                 }
                 continue;
             }
-            let first = (self.min[axis] - origin[axis]) / delta[axis];
-            let second = (self.max[axis] - origin[axis]) / delta[axis];
+            let first = (low[axis] - origin[axis]) / delta[axis];
+            let second = (high[axis] - origin[axis]) / delta[axis];
             entry = entry.max(first.min(second));
             exit = exit.min(first.max(second));
             if entry > exit {
                 return None;
             }
         }
-        (exit >= 0.0 && entry <= 1.0).then_some(entry.clamp(0.0, 1.0))
+        (exit >= 0.0 && entry <= 1.0).then(|| f64::from(entry.clamp(0.0, 1.0)))
     }
 
     #[must_use]
@@ -301,6 +307,15 @@ pub fn depenetrate_player(
 #[cfg(test)]
 mod tests {
     use super::{Aabb, Vec3};
+
+    #[test]
+    fn segment_fraction_is_rounded_before_widening() {
+        let bounds = Aabb::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 1.0, 1.0));
+        assert_eq!(
+            bounds.segment_entry(Vec3::new(0.0, 0.5, 0.5), Vec3::new(3.0, 0.0, 0.0)),
+            Some(f64::from(1.0_f32 / 3.0))
+        );
+    }
 
     #[test]
     fn overlap_translation_matches_the_clip_against_overlap_branch() {
