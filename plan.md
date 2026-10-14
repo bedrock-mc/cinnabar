@@ -84,6 +84,17 @@ Incomplete: the far-terrain look (cell colours, height aggregation and water ble
 for owner review. Enhanced rendering lights far terrain with the vanilla path,
 and block light, clouds and weather do not reach it. No parity gate closes here.
 
+## Local terrain reads
+
+Local mods with the `terrain` grant poll small bounded regions as palette-indexed
+layers with canonical states, resolved collision/selection geometry and physics facts
+([docs/mod-terrain-api.md](docs/mod-terrain-api.md)); unchanged samples return only a stamp.
+Unknown cells and unavailable contextual geometry remain explicit. Existing mods receive no
+new permission by default.
+
+Incomplete: live acceptance on Windows has not been completed. No movement or interaction
+parity gate closes here.
+
 ## Experimental Android client
 
 `packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
@@ -8979,6 +8990,18 @@ identities come from the pinned registry rather than numeric ranges.
 Incomplete: the additional renderers for brushable blocks, trial spawners and
 vaults remain unsupported. New logical routes are provisional, and the existing
 renderer, visual and performance acceptance gates remain open.
+
+## Runtime visual fact consumers
+
+Actor contexts retain numeric item facts for both hands and worn armour. Tag and
+material queries use those facts; engine variables and particle math share symbol
+owners. Native particle routes use typed handles and retain pack override precedence.
+Hardcore heart roles and fixed native atlas paths have one shared definition. Java
+held-item presentation reads the admitted upright grip.
+
+Incomplete: event routes remain provisional. Authored material metadata, predicted
+audio cues, dynamic texture associations, particle filters and biome ambience need
+further admission work. Rendered comparison and performance acceptance remain open.
 
 ## Compiled pack render admission
 

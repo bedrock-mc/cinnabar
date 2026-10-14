@@ -26,7 +26,12 @@ thiserror.workspace = true
 world = { path = "../world" }
 
 [dev-dependencies]
+criterion.workspace = true
 test-alloc = { path = "../test-alloc" }
+
+[[bench]]
+name = "terrain_region"
+harness = false
 
 [lints]
 workspace = true

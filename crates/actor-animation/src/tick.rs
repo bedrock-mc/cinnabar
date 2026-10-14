@@ -44,6 +44,8 @@ pub struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
+    /// Negotiated facts for main hand and off hand, copied at context admission.
+    pub held_item_facts: [assets::facts::ItemFact; 2],
     /// Stack facts beside each hand's identifier whose change re-equips it.
     pub held_variants: [StackVariant; 2],
     /// The main-hand stack's data value.
@@ -110,6 +112,7 @@ pub struct ActorTickContext {
 #[derive(Clone, Debug)]
 pub struct WornArmor {
     pub item: Arc<str>,
+    pub fact: assets::facts::ItemFact,
     pub dye_rgb: Option<u32>,
 }
 

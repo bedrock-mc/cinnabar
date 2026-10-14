@@ -139,6 +139,35 @@ impl PalettedStorage {
         }
     }
 
+    /// Writes the palette indices of column `(x, z)` in Y order. [`u16::MAX`] marks a block whose
+    /// packed word is missing; callers still check every index against the palette length.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `x` or `z` is not below [`SUB_CHUNK_SIDE`].
+    pub fn column_palette_indices(&self, x: u8, z: u8, out: &mut [u16; SUB_CHUNK_SIDE]) {
+        assert!(usize::from(x) < SUB_CHUNK_SIDE && usize::from(z) < SUB_CHUNK_SIDE);
+        if self.bits_per_index == 0 {
+            out.fill(0);
+            return;
+        }
+        let bits = u32::from(self.bits_per_index);
+        let per_word = (32 / bits) as usize;
+        let mask = (1_u32 << bits) - 1;
+        let first = (usize::from(x) << 8) | (usize::from(z) << 4);
+        let (mut word, mut slot) = (first / per_word, first % per_word);
+        for value in out {
+            *value = self.words.get(word).map_or(u16::MAX, |packed| {
+                ((packed >> (slot as u32 * bits)) & mask) as u16
+            });
+            slot += 1;
+            if slot == per_word {
+                slot = 0;
+                word += 1;
+            }
+        }
+    }
+
     pub(crate) fn palette_index(&self, linear: usize) -> Option<usize> {
         if linear >= BLOCKS_PER_SUB_CHUNK {
             return None;
@@ -339,6 +368,31 @@ fn write_palette_index(words: &mut [u32], bits_per_index: u8, linear: usize, ind
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Column decoding agrees with per-block lookup at every width, including truncated words.
+    #[test]
+    fn column_indices_match_block_lookup() {
+        for bits in SUPPORTED_BITS {
+            let words = (0..word_count(bits))
+                .map(|index| (index as u32).wrapping_mul(0x9e37_79b9))
+                .take(word_count(bits).saturating_sub(3))
+                .collect();
+            let storage = PalettedStorage::new(bits, words, vec![0; 1 << bits.min(12)]);
+            let mut column = [0; SUB_CHUNK_SIDE];
+            for x in 0..16 {
+                for z in 0..16 {
+                    storage.column_palette_indices(x, z, &mut column);
+                    for (y, &index) in column.iter().enumerate() {
+                        let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | y;
+                        let expected = storage
+                            .palette_index(linear)
+                            .map_or(u16::MAX, |index| index as u16);
+                        assert_eq!(index, expected, "bits={bits} x={x} z={z} y={y}");
+                    }
+                }
+            }
+        }
+    }
 
     /// The counted single-update path must reproduce the batch path's canonical storage.
     #[test]

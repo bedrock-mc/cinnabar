@@ -12,6 +12,7 @@ mod prepared_settings;
 mod render;
 mod screens;
 mod security;
+mod terrain;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.

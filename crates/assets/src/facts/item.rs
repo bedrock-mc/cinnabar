@@ -144,6 +144,44 @@ pub enum ItemTier {
     Netherite,
 }
 
+/// Native armour texture materials that are absent from tool-tier tags.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArmourMaterial {
+    Leather,
+    Iron,
+    Gold,
+    Diamond,
+    Copper,
+    Netherite,
+}
+
+impl ArmourMaterial {
+    /// Maps supported tool-tier materials to their armour texture domain.
+    const fn from_tier(tier: ItemTier) -> Option<Self> {
+        Some(match tier {
+            ItemTier::Wood | ItemTier::Stone => return None,
+            ItemTier::Copper => Self::Copper,
+            ItemTier::Iron => Self::Iron,
+            ItemTier::Gold => Self::Gold,
+            ItemTier::Diamond => Self::Diamond,
+            ItemTier::Netherite => Self::Netherite,
+        })
+    }
+
+    /// Gives the native armour arrays one material-to-index mapping.
+    const fn texture_index(self) -> u8 {
+        match self {
+            Self::Leather => 1,
+            Self::Iron => 2,
+            Self::Gold => 3,
+            Self::Diamond => 4,
+            Self::Copper => 5,
+            Self::Netherite => 6,
+        }
+    }
+}
+
 /// An exact material identity or a pinned material tag used for anvil repair.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,6 +206,8 @@ pub struct ItemFact {
     /// Equipment admission can be known even when protection is unresolved.
     pub armour_slot: Option<ItemArmourSlot>,
     pub tier: Option<ItemTier>,
+    #[serde(default)]
+    pub armour_material: Option<ArmourMaterial>,
     pub repair: Option<ItemRepairMaterial>,
     pub repair_provisional: bool,
     pub durability: ItemDurability,
@@ -182,6 +222,29 @@ pub struct ItemFact {
     pub use_duration_ticks: Option<u32>,
 }
 impl ItemFact {
+    /// Reads the shared leather tag without guessing a material from its identifier.
+    pub fn is_leather(&self) -> bool {
+        static TAG: std::sync::OnceLock<ItemTag> = std::sync::OnceLock::new();
+        self.armour_material == Some(ArmourMaterial::Leather)
+            || self.tags.contains(*TAG.get_or_init(|| {
+                super::ItemFacts::builtin()
+                    .expect("valid pinned item facts")
+                    .tag("minecraft:leather_tier")
+                    .expect("pinned leather tag")
+            }))
+    }
+
+    /// Preserves the native armour texture order; unresolved materials use slot zero.
+    pub fn armor_texture_index(&self) -> u8 {
+        let material = if self.is_leather() {
+            Some(ArmourMaterial::Leather)
+        } else {
+            self.armour_material
+                .or_else(|| self.tier.and_then(ArmourMaterial::from_tier))
+        };
+        material.map_or(0, ArmourMaterial::texture_index)
+    }
+
     /// Tests an exact retail material or an admitted repair tag without parsing names.
     pub fn repairs_with(&self, material: &Self, retail_id: Option<i32>) -> bool {
         match self.repair {
@@ -205,6 +268,7 @@ impl Default for ItemFact {
             armour: ItemArmour::Unresolved,
             armour_slot: None,
             tier: None,
+            armour_material: None,
             repair: None,
             repair_provisional: false,
             durability: ItemDurability::Unresolved,

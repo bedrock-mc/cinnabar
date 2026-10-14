@@ -25,7 +25,6 @@ use super::{
 
 const PLAYER: &str = "minecraft:player";
 const FEET_PROBE_BELOW: f64 = 0.2;
-const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
@@ -64,8 +63,15 @@ pub fn identifier_at(
         .map(str::to_owned)
 }
 
-pub fn is_water(identifier: Option<&str>) -> bool {
-    identifier.is_some_and(|name| WATER_IDENTIFIERS.contains(&name))
+/// Checks ordinary water from numeric movement facts; bubble-column cues keep their own route.
+pub fn is_water(registry: &sim::CollisionRegistry, runtime_id: u32) -> bool {
+    registry.movement_facts(runtime_id).is_some_and(|fact| {
+        fact.flags.contains(sim::BlockPhysicsFlags::WATER)
+            && !matches!(
+                fact.surface_response,
+                sim::SurfaceResponse::BubbleUp | sim::SurfaceResponse::BubbleDown
+            )
+    })
 }
 
 #[derive(Default)]
@@ -503,7 +509,10 @@ pub fn drive_ambience(
                 eye.y.floor() as i32,
                 eye.z.floor() as i32,
             ];
-            is_water(identifier_at(&palette, collisions, mode, block).as_deref())
+            palette
+                .primary_runtime_id(block)
+                .ok()
+                .is_some_and(|id| is_water(collisions.registry(mode), id))
         }
         _ => false,
     };
