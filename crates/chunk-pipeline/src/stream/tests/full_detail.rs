@@ -318,6 +318,36 @@ fn interrupted_unlimited_transition_does_not_promote_new_outer_columns() {
     assert!(!stream.wants_mesh(ChunkKey::new(0, 2, 0)));
 }
 
+/// A dimension change during the first limit retires already visited old memberships too.
+#[test]
+fn initial_detail_scan_drops_membership_from_a_retired_dimension() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(16));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    stream
+        .submit(
+            2,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    test_time::eventually("detail after a dimension change", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 5, 0)));
+    assert!(stream.wants_mesh(ChunkKey::new(1, 0, 0)));
+}
+
 /// Radius changes, mode and render-distance changes (Auto crossing its threshold), block
 /// changes, uploads, resends and evictions in a scrambled order never leave a column that had
 /// a drawer without one: near terrain draws it once its meshes are published, and far terrain

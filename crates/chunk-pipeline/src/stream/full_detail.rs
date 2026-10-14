@@ -29,11 +29,10 @@ pub(super) struct FullDetail {
     scan_residents: bool,
     /// Columns drawn without a limit remain active until the scan reaches them.
     initial_generation: Option<u64>,
-    initial_cursor: Option<ChunkKey>,
+    demotion_cursor: Option<ChunkKey>,
 }
 
 struct DetailScan {
-    demotion_cursor: Option<ChunkKey>,
     demoting: bool,
     entering: Option<column_scan::EnteringColumns>,
 }
@@ -71,7 +70,7 @@ impl FullDetail {
     /// Includes unvisited columns that were full detail when the first limit was requested.
     fn contains_column(&self, column: ChunkKey, resident: &ColumnSubChunkSet) -> bool {
         self.columns.contains(&column)
-            || (self.initial_cursor.is_none_or(|cursor| column > cursor)
+            || (self.demotion_cursor.is_none_or(|cursor| column > cursor)
                 && self
                     .initial_generation
                     .is_some_and(|generation| resident.existed_at(column, generation)))
@@ -104,7 +103,7 @@ impl WorldStream {
         if radius.is_none() {
             self.full_detail.initial_generation = None;
         }
-        self.full_detail.initial_cursor = None;
+        self.full_detail.demotion_cursor = None;
         self.full_detail.scan_residents |= radius.is_none() || self.full_detail.radius.is_none();
         self.full_detail.radius = radius;
         self.full_detail.centre = None;
@@ -166,9 +165,8 @@ impl WorldStream {
                 })
                 .flatten();
             self.full_detail.centre = Some(centre);
-            self.full_detail.initial_cursor = None;
+            self.full_detail.demotion_cursor = None;
             self.full_detail.scan = Some(DetailScan {
-                demotion_cursor: None,
                 demoting: true,
                 entering: self.full_detail.radius.map(|radius| {
                     column_scan::EnteringColumns::new(
@@ -190,25 +188,15 @@ impl WorldStream {
             let _item =
                 tracing::info_span!("stream.service_item_max", kind = "full_detail").entered();
             if scan.demoting {
-                let column = if self.full_detail.scan_residents || self.full_detail.radius.is_none()
-                {
-                    self.resident.next_column(scan.demotion_cursor)
-                } else {
-                    self.full_detail
-                        .ordered_columns
-                        .range(column_scan::after(scan.demotion_cursor))
-                        .next()
-                        .copied()
-                };
+                let column = self.next_detail_column();
                 let Some(column) = column else {
                     scan.demoting = false;
                     self.full_detail.scan_residents = false;
                     self.full_detail.initial_generation = None;
-                    self.full_detail.initial_cursor = None;
+                    self.full_detail.demotion_cursor = None;
                     continue;
                 };
-                scan.demotion_cursor = Some(column);
-                self.full_detail.initial_cursor = Some(column);
+                self.full_detail.demotion_cursor = Some(column);
                 if let Some(radius) = self.full_detail.radius {
                     let disk = column_scan::Disk {
                         centre,
@@ -217,13 +205,14 @@ impl WorldStream {
                     let initial_member = self
                         .full_detail
                         .initial_generation
-                        .is_none_or(|generation| self.resident.existed_at(column, generation));
+                        .is_none_or(|generation| self.resident.existed_at(column, generation))
+                        || self.full_detail.columns.contains(&column);
                     if initial_member && disk.contains(column) {
                         if self.full_detail.scan_residents {
                             self.full_detail.insert_column(column);
                         } else {
                             let (_, last) = disk.row(column.x).expect("a kept column has a row");
-                            scan.demotion_cursor =
+                            self.full_detail.demotion_cursor =
                                 Some(ChunkKey::new(column.dimension, column.x, last));
                         }
                     } else if initial_member {
@@ -266,6 +255,27 @@ impl WorldStream {
             items += 1;
         }
         self.full_detail.scan = Some(scan);
+    }
+
+    /// Merges existing detail with residency during an initial limit; restoration needs only residency.
+    fn next_detail_column(&self) -> Option<ChunkKey> {
+        let cursor = self.full_detail.demotion_cursor;
+        let resident = if self.full_detail.scan_residents || self.full_detail.radius.is_none() {
+            self.resident.next_column(cursor)
+        } else {
+            None
+        };
+        if self.full_detail.radius.is_none() {
+            return resident;
+        }
+        self.full_detail
+            .ordered_columns
+            .range(column_scan::after(cursor))
+            .next()
+            .copied()
+            .into_iter()
+            .chain(resident)
+            .min()
     }
 
     /// Relights and remeshes every section a column already holds.
