@@ -11,7 +11,6 @@ pub(super) struct NearDrawn {
 
 impl WorldStream {
     /// Columns near terrain draws, and a revision that changes whenever the set does.
-    #[must_use]
     pub fn near_drawn_columns(&self) -> (u64, impl Iterator<Item = ChunkKey> + '_) {
         (
             self.near_drawn.revision,

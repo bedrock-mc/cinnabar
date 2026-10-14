@@ -105,7 +105,7 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
                     && node.alpha < 1.0
             })
             .fold((f64::MAX, f64::MIN), |(left, right), node| {
-                let (x, w) = (f64::from(node.dest.x), f64::from(node.dest.w));
+                let (x, w) = (node.dest.x, node.dest.w);
                 (left.min(x), right.max(x + w))
             });
         assert_eq!(

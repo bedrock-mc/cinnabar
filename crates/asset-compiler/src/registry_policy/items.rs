@@ -389,19 +389,19 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
             )?)),
             None => None,
         };
-        if let Selector::Tag(name) = &rule.selector {
-            if let Some(repair) = repair {
-                let definition = tags
-                    .iter_mut()
-                    .find(|tag| tag.name.as_ref() == name)
-                    .unwrap();
-                check(
-                    definition.repair.is_none() || definition.repair == Some(repair),
-                    "conflicting tag repair",
-                )?;
-                definition.repair = Some(repair);
-                definition.repair_provisional = matches!(rule.status, Status::Provisional);
-            }
+        if let Selector::Tag(name) = &rule.selector
+            && let Some(repair) = repair
+        {
+            let definition = tags
+                .iter_mut()
+                .find(|tag| tag.name.as_ref() == name)
+                .unwrap();
+            check(
+                definition.repair.is_none() || definition.repair == Some(repair),
+                "conflicting tag repair",
+            )?;
+            definition.repair = Some(repair);
+            definition.repair_provisional = matches!(rule.status, Status::Provisional);
         }
         for id in selected {
             let fact = &mut records.get_mut(&id).unwrap().fact;

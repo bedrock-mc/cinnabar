@@ -85,23 +85,6 @@ pub(super) fn named_resource(
     bounded_identifier(identifier)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::named_resource;
-
-    #[test]
-    fn malformed_explicit_defaults_do_not_use_controller_resources() {
-        for value in [
-            serde_json::json!(42),
-            serde_json::json!(""),
-            serde_json::json!("x".repeat(assets::MAX_EQUIPMENT_IDENTIFIER_BYTES + 1)),
-        ] {
-            let description = serde_json::json!({"geometry": {"default": value}});
-            assert!(named_resource(&description, "geometry", Some("geometry.retained")).is_err());
-        }
-    }
-}
-
 /// Retains every declared resource so native draws can select stages without running scripts.
 pub(super) fn aliases(
     description: &Value,
@@ -124,4 +107,21 @@ pub(super) fn aliases(
         geometry: table("geometry")?,
         textures: table("textures")?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::named_resource;
+
+    #[test]
+    fn malformed_explicit_defaults_do_not_use_controller_resources() {
+        for value in [
+            serde_json::json!(42),
+            serde_json::json!(""),
+            serde_json::json!("x".repeat(assets::MAX_EQUIPMENT_IDENTIFIER_BYTES + 1)),
+        ] {
+            let description = serde_json::json!({"geometry": {"default": value}});
+            assert!(named_resource(&description, "geometry", Some("geometry.retained")).is_err());
+        }
+    }
 }
