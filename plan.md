@@ -1778,6 +1778,10 @@ their generated inputs before selection and channel evaluation.
 CI execution and rendered acceptance remain pending; broader motion-query parity
 and interpolation mixed with active camera clips remain incomplete.
 
+Walk stride and speed queries interpolate to the frame fraction on both drawn endpoints, so
+the walk curve is evaluated per frame rather than blended between tick poses. Burning actors
+advance the walk cycle half again as fast; the jumping multiplier remains incomplete.
+
 Player head and body turns no longer start or restart the native walk cycle.
 Native and Java 1.7 player walking targets use horizontal position changes and
 keep their existing easing after movement stops. Rendered acceptance and native

@@ -220,7 +220,9 @@ pub(super) struct FrameState {
 
 impl FrameState {
     fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
-        (self.needs_swell_sampling(actor) || self.needs_rotation_sampling())
+        (self.needs_swell_sampling(actor)
+            || self.needs_rotation_sampling()
+            || self.needs_walk_sampling())
             && self
                 .motion
                 .sampling
@@ -245,6 +247,15 @@ impl FrameState {
             .as_ref()
             .is_some_and(|sampling| sampling.uses_rotation())
             && self.previous_rotation.rotation_changed(self.motion.input)
+    }
+
+    /// A changing stride or speed requires walk sampling between ticks.
+    fn needs_walk_sampling(&self) -> bool {
+        self.motion
+            .sampling
+            .as_ref()
+            .is_some_and(|sampling| sampling.uses_walk())
+            && self.previous_rotation.walk_changed(self.motion.input)
     }
 
     pub(super) fn hold_motion(&mut self) {
@@ -470,7 +481,8 @@ impl ActorAnimationStore {
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
-        let motion_changed = swell_changed || rotation_changed;
+        let walk_changed = frame.needs_walk_sampling();
+        let motion_changed = swell_changed || rotation_changed || walk_changed;
         if !state.samples_render_frames && !swing_changed && !motion_changed {
             return Some(completed());
         }
@@ -482,26 +494,25 @@ impl ActorAnimationStore {
             });
         let pose_inputs_changed = camera_inputs_changed
             || rotation_changed
+            || walk_changed
             || partial_tick != frame.motion.context.frame_alpha;
         let previous_motion = frame.previous_motion.as_ref().unwrap_or(&frame.motion);
-        let current_input = if rotation_changed {
-            frame.motion.input.sample_rotation(
-                frame.previous_rotation,
-                frame.motion.input,
-                partial_tick,
-            )
-        } else {
-            frame.motion.input
+        // Both endpoints read the frame's rotation and walk, retaining their other inputs.
+        let sample_frame = |input: ActorTickInput| {
+            let (previous, current) = (frame.previous_rotation, frame.motion.input);
+            let input = if rotation_changed {
+                input.sample_rotation(previous, current, partial_tick)
+            } else {
+                input
+            };
+            if walk_changed {
+                input.sample_walk(previous, current, partial_tick)
+            } else {
+                input
+            }
         };
-        let previous_input = if rotation_changed {
-            previous_motion.input.sample_rotation(
-                frame.previous_rotation,
-                frame.motion.input,
-                partial_tick,
-            )
-        } else {
-            previous_motion.input
-        };
+        let current_input = sample_frame(frame.motion.input);
+        let previous_input = sample_frame(previous_motion.input);
         let mut context = frame.motion.context.clone();
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;

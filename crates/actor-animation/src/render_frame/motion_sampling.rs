@@ -11,6 +11,7 @@ pub(super) const ROTATION_FRAME: u8 = 8;
 pub(crate) struct MotionSampling {
     uses_swell: bool,
     uses_rotation: bool,
+    uses_walk: bool,
     expressions: BTreeSet<u32>,
     weighted_symbols: BTreeSet<u32>,
     timed_symbols: BTreeSet<u32>,
@@ -52,6 +53,13 @@ impl MotionSampling {
                 _ => false,
             })
         });
+        let uses_walk = expressions.iter().any(|&expression| {
+            ops(assets, expression).iter().any(|op| match op {
+                MolangOp::LoadQuery(symbol) => super::rotation::is_walk_query(assets, *symbol),
+                MolangOp::CallQuery(call) => super::rotation::is_walk_query(assets, call.symbol),
+                _ => false,
+            })
+        });
         let mut queries = BTreeSet::new();
         let mut properties = false;
         for &expression in &expressions {
@@ -71,6 +79,7 @@ impl MotionSampling {
                 // Camera queries read each frame's live camera, never a frozen endpoint value.
                 if let Some(symbol) = symbol
                     && !super::rotation::is_query(assets, symbol)
+                    && !super::rotation::is_walk_query(assets, symbol)
                     && !super::camera::camera_symbol(assets, symbol, false)
                     && assets
                         .molang_symbols()
@@ -169,6 +178,7 @@ impl MotionSampling {
         Arc::new(Self {
             uses_swell,
             uses_rotation,
+            uses_walk,
             render_writes,
             queries,
             properties,
@@ -187,6 +197,11 @@ impl MotionSampling {
     /// Rotation consumers sample independently of swelling and camera queries.
     pub(crate) fn uses_rotation(&self) -> bool {
         self.uses_rotation
+    }
+
+    /// Walk stride and speed consumers sample at the frame fraction.
+    pub(crate) fn uses_walk(&self) -> bool {
+        self.uses_walk
     }
 
     /// Whether a retained dependency changes the authored uniform or axis scale.
@@ -375,6 +390,7 @@ fn is_swell(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
 fn is_presentation_query(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
     is_swell(assets, symbol)
         || super::rotation::is_query(assets, symbol)
+        || super::rotation::is_walk_query(assets, symbol)
         || assets
             .molang_symbols()
             .get(symbol as usize)

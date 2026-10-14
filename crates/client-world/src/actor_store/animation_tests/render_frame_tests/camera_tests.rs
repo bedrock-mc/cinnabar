@@ -364,8 +364,11 @@ fn inactive_camera_animation_preserves_walking_pose_interpolation() {
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
         for (layer, completed) in layers.iter().zip(&completed).skip(1) {
-            assert_eq!(layer.previous_pose, completed.previous_pose);
-            assert_eq!(layer.pose, completed.pose);
+            assert_drawn(
+                [&layer.previous_pose, &layer.pose],
+                [&completed.previous_pose, &completed.pose],
+                alpha,
+            );
         }
     }
 }
@@ -406,9 +409,16 @@ fn interpolated_walking_retains_channel_writes_for_render_colors() {
     for alpha in [0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
         for (layer, completed) in layers.iter().zip(&completed) {
-            assert_eq!(layer.color, completed.color);
-            assert_eq!(layer.previous_pose, completed.previous_pose);
-            assert_eq!(layer.pose, completed.pose);
+            // The tint follows the frame's stride, which started from rest last tick.
+            assert_rotation(layer.color, completed.color.map(|channel| channel * alpha));
+            // A completed body layer without its own pose draws the rig's tick pair.
+            let rig = store.actor_rig(1).unwrap();
+            let completed = if completed.pose.is_empty() {
+                [rig.previous, rig.current]
+            } else {
+                [&*completed.previous_pose, &*completed.pose]
+            };
+            assert_drawn([&layer.previous_pose, &layer.pose], completed, alpha);
         }
     }
 }
@@ -460,8 +470,7 @@ fn unused_camera_geometry_preserves_body_walking_endpoints() {
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
             for layer in &layers {
                 assert_eq!(layer.geometry, None);
-                assert_eq!(*layer.previous_pose.first().unwrap_or(&previous), previous);
-                assert_eq!(*layer.pose.first().unwrap_or(&current), current);
+                assert_drawn_root(layer, [previous, current], alpha);
             }
         }
     }
@@ -513,15 +522,16 @@ fn frame_geometry_selection_samples_new_pose_and_preserves_existing_endpoints() 
         assert!(rig.render.iter().all(|layer| layer.geometry.is_none()));
         for alpha in [0.25, 0.75] {
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-            assert_eq!(
-                *layers[0].previous_pose.first().unwrap_or(&previous),
-                previous
-            );
-            assert_eq!(*layers[0].pose.first().unwrap_or(&current), current);
+            assert_drawn_root(&layers[0], [previous, current], alpha);
             assert_eq!(layers[1].color, [alpha; 4]);
             for layer in &layers[1..] {
                 assert_eq!(layer.geometry, Some(1));
-                assert_eq!(layer.pose[1], current);
+                // Only the camera-capable rig keeps endpoints that sample the frame's stride.
+                if dormant_camera {
+                    assert_drawn([&layer.pose[1..2]; 2], [&[previous], &[current]], alpha);
+                } else {
+                    assert_eq!(layer.pose[1], current);
+                }
                 assert_eq!(layer.previous_pose, layer.pose);
             }
         }
@@ -654,6 +664,57 @@ fn camera_distance_pre_animation_updates_channel_variables_between_ticks() {
 }
 
 #[track_caller]
+/// Frame-sampled walk endpoints must draw what the completed tick pair blends to at `alpha`.
+fn assert_drawn(
+    sampled: [&[actor_animation::BoneTransform]; 2],
+    completed: [&[actor_animation::BoneTransform]; 2],
+    alpha: f32,
+) {
+    let drawn = |[previous, current]: [&[actor_animation::BoneTransform]; 2]| {
+        previous
+            .iter()
+            .zip(current)
+            .map(|(previous, current)| {
+                let rotation: [f32; 4] = std::array::from_fn(|axis| {
+                    previous.rotation[axis]
+                        + (current.rotation[axis] - previous.rotation[axis]) * alpha
+                });
+                let translation: [f32; 4] = std::array::from_fn(|axis| {
+                    previous.translation_scale[axis]
+                        + (current.translation_scale[axis] - previous.translation_scale[axis])
+                            * alpha
+                });
+                (rotation, translation)
+            })
+            .collect::<Vec<_>>()
+    };
+    let (sampled, completed) = (drawn(sampled), drawn(completed));
+    assert_eq!(sampled.len(), completed.len());
+    for ((rotation, translation), (expected_rotation, expected_translation)) in
+        sampled.into_iter().zip(completed)
+    {
+        assert_rotation(rotation, expected_rotation);
+        assert_rotation(translation, expected_translation);
+    }
+}
+
+/// A body layer's first bone draws as the completed pair blends; an empty layer draws the rig.
+fn assert_drawn_root(
+    layer: &actor_animation::RenderTextureLayer,
+    completed: [actor_animation::BoneTransform; 2],
+    alpha: f32,
+) {
+    let sampled = [
+        *layer.previous_pose.first().unwrap_or(&completed[0]),
+        *layer.pose.first().unwrap_or(&completed[1]),
+    ];
+    assert_drawn(
+        [&sampled[..1], &sampled[1..]],
+        [&completed[..1], &completed[1..]],
+        alpha,
+    );
+}
+
 fn assert_rotation(actual: [f32; 4], expected: [f32; 4]) {
     for (actual, expected) in actual.into_iter().zip(expected) {
         assert!((actual - expected).abs() < 1e-5, "{actual} != {expected}");

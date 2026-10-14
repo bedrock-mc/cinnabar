@@ -1,6 +1,6 @@
 //! Per-actor walk cycle, arm swing, fish phase, and body rotation that vanilla animations read through
 //! queries. Player walk cycles use horizontal movement; body turns remain independent.
-//! Specialized hurt/fire/jump multipliers and render-time query sampling remain incomplete.
+//! The jumping walk multiplier remains incomplete.
 use super::query::wrap_degrees;
 
 /// Ticks one arm swing takes without haste or fatigue.
@@ -10,6 +10,8 @@ const WALK_STEP_TARGET_MAX: f32 = 0.4;
 const WALK_TURN_GAIN: f32 = 0.02;
 const WALK_TURN_TARGET_MAX: f32 = 0.2;
 const WALK_SPEED_RETAIN: f32 = 0.6;
+/// Burning actors walk their limb cycle half again as fast.
+const WALK_ON_FIRE_SCALE: f32 = 1.5;
 const PLAYER_FACING_STEP: f32 = 0.05;
 const PLAYER_BODY_FOLLOW: f32 = 0.3;
 const PLAYER_HEAD_LIMIT: f32 = 75.0;
@@ -68,6 +70,7 @@ pub(super) struct MotionInput {
     pub(super) player: bool,
     pub(super) yaw: f32,
     pub(super) head_yaw: f32,
+    pub(super) on_fire: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -168,12 +171,15 @@ impl MotionState {
             self.speed = 0.0;
             return;
         }
-        let target = if step != 0.0 || input.player {
+        let mut target = if step != 0.0 || input.player {
             (WALK_STEP_GAIN * step).min(WALK_STEP_TARGET_MAX)
         } else {
             let turn = wrap_degrees(self.body_yaw - self.previous_body_yaw).abs();
             (WALK_TURN_GAIN * turn).min(WALK_TURN_TARGET_MAX)
         };
+        if input.on_fire {
+            target *= WALK_ON_FIRE_SCALE;
+        }
         self.speed = WALK_SPEED_RETAIN * self.speed + target;
         self.distance += self.speed;
     }
@@ -237,6 +243,7 @@ mod tests {
             player,
             yaw,
             head_yaw: yaw,
+            on_fire: false,
         }
     }
 
@@ -254,6 +261,21 @@ mod tests {
         });
         assert_eq!(motion.speed, 0.0);
         assert_eq!(motion.distance, distance);
+    }
+
+    /// Burning walkers settle one and a half times faster through the limb cycle.
+    #[test]
+    fn burning_walkers_advance_the_walk_cycle_half_again_as_fast() {
+        let (mut cool, mut burning) = (MotionState::default(), MotionState::default());
+        for _ in 0..40 {
+            cool.advance(&input([0.3, 0.0, 0.0], false, 0.0));
+            burning.advance(&MotionInput {
+                on_fire: true,
+                ..input([0.3, 0.0, 0.0], false, 0.0)
+            });
+        }
+        assert!((burning.speed - 1.5 * cool.speed).abs() < 1.0e-3);
+        assert!((burning.distance - 1.5 * cool.distance).abs() < 1.0e-3);
     }
 
     #[test]
