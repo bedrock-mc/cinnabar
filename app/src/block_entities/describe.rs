@@ -3,7 +3,7 @@
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
     block_entity_geometry::shulker_color_from_block_name,
-    facts::{BlockEntityBacking, BlockEntityMount, BlockEntityRenderer},
+    facts::{BlockEntityBacking, BlockEntityMount, BlockEntityRenderer, BlockProperty},
 };
 use std::sync::Arc;
 
@@ -100,7 +100,7 @@ pub(super) enum Template {
 /// Facing from either state spelling: `minecraft:cardinal_direction` or `facing_direction`.
 fn facing(state: &BlockState) -> Option<Facing> {
     state
-        .text("minecraft:cardinal_direction")
+        .text(BlockProperty::MinecraftCardinalDirection.name())
         .and_then(Facing::from_cardinal)
         .or_else(|| {
             state
@@ -201,7 +201,7 @@ fn banner(
 fn sign_mount(backing: BlockEntityBacking<'_>, state: &BlockState) -> Option<SignMount> {
     Some(match backing.mount {
         BlockEntityMount::Hanging => {
-            if state.int("attached_bit") == Some(1) {
+            if state.int(BlockProperty::AttachedBit.name()) == Some(1) {
                 SignMount::Hanging {
                     rotation_degrees: ground_rotation(state),
                 }
@@ -301,7 +301,7 @@ pub(super) fn describe(
         }
         BlockEntityRenderer::Bed => Some(Template::Static(BlockEntityKind::Bed(BedModel {
             color: bed_color(nbt.integer("color")?)?,
-            head: state.int("head_piece_bit") == Some(1),
+            head: state.int(BlockProperty::HeadPieceBit.name()) == Some(1),
             direction: u8::try_from(state.int("direction")?.rem_euclid(4)).ok()?,
         }))),
         BlockEntityRenderer::Banner => banner(backing, state, nbt),
