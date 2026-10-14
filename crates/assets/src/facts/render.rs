@@ -164,6 +164,7 @@ pub struct BlockRenderFact {
     pub fire_top: bool,
     #[serde(default)]
     pub flat_icon: bool,
+    /// Membership of the provisional sword-speed override in the destroy carrier.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fast_sword: bool,
 }

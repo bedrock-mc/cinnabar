@@ -55,6 +55,7 @@ pub enum VanillaItem {
     Shield,
     SlimeBall,
     Snowball,
+    SplashPotion,
     Spyglass,
 }
 impl VanillaItem {
@@ -71,6 +72,7 @@ impl VanillaItem {
             Self::Shield => "minecraft:shield",
             Self::SlimeBall => "minecraft:slime_ball",
             Self::Snowball => "minecraft:snowball",
+            Self::SplashPotion => "minecraft:splash_potion",
             Self::Spyglass => "minecraft:spyglass",
         }
     }

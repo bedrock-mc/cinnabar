@@ -1567,11 +1567,6 @@ reason = "Potion translation-key stem in the checked potion descriptor table."
 
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/potion.rs"
-literal = "minecraft:splash_potion"
-reason = "Exact sprite route request in the validated legacy icon schema."
-
-[[identifier_literal_exceptions]]
-path = "crates/assets/src/potion.rs"
 literal = "potion_bottle_splash"
 reason = "Sprite atlas key in the validated legacy icon schema."
 
