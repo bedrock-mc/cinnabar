@@ -75,8 +75,8 @@ fn drawn(stream: &WorldStream, x: i32) -> bool {
         .any(|column| column == ChunkKey::new(0, x, 0))
 }
 
-/// Uploads every mesh waiting in `column`.
-fn upload(stream: &mut WorldStream, x: i32) {
+/// Uploads every mesh waiting in `column`, returning the sections it acknowledged.
+fn upload(stream: &mut WorldStream, x: i32) -> Vec<SubChunkKey> {
     let column = ChunkKey::new(0, x, 0);
     let keys: Vec<SubChunkKey> = stream
         .resident
@@ -85,6 +85,7 @@ fn upload(stream: &mut WorldStream, x: i32) {
         .copied()
         .collect();
     let now = Instant::now();
+    let mut acknowledged = Vec::new();
     for key in keys {
         if let Some((revision, since)) = stream
             .revisions
@@ -92,8 +93,10 @@ fn upload(stream: &mut WorldStream, x: i32) {
             .map(|dirty| (dirty.revision, dirty.since))
         {
             stream.acknowledge_mesh_upload(key, revision, since, now);
+            acknowledged.push(key);
         }
     }
+    acknowledged
 }
 
 /// Limiting detail after running without a limit hands meshes already past the radius to far
@@ -210,6 +213,9 @@ fn covered_columns_always_keep_a_drawer() {
     let mut far_on = true;
     let mut far_summaries: HashSet<ChunkKey> = HashSet::new();
     let mut covered: HashSet<ChunkKey> = HashSet::new();
+    // Whether each section's last upload drew geometry or withdrew it. Near terrain draws these
+    // meshes whether or not far terrain tracks the column as drawn.
+    let mut on_screen: HashMap<SubChunkKey, bool> = HashMap::new();
     for step in 0..600 {
         let x = next(COLUMNS as u64) as i32;
         let column = ChunkKey::new(0, x, 0);
@@ -242,7 +248,12 @@ fn covered_columns_always_keep_a_drawer() {
                     stream.mark_changed_sources([key], Instant::now());
                 }
             }
-            3 | 4 => upload(&mut stream, x),
+            3 | 4 => {
+                let wanted = stream.wants_mesh(column);
+                for key in upload(&mut stream, x) {
+                    on_screen.insert(key, wanted);
+                }
+            }
             5 => {
                 stream.dispatch_far_summaries();
                 let mut delivered = Vec::new();
@@ -261,6 +272,7 @@ fn covered_columns_always_keep_a_drawer() {
                 stream.evict_column(column);
                 far_summaries.remove(&column);
                 covered.remove(&column);
+                on_screen.retain(|key, _| key.chunk() != column);
             }
         }
         if !far_on && stream.far_terrain_enabled() && stream.all_loaded_near_drawn() {
@@ -278,7 +290,15 @@ fn covered_columns_always_keep_a_drawer() {
                 covered.remove(&column);
                 continue;
             }
-            let near = drawn(&stream, x);
+            let near = stream
+                .resident
+                .column(column)
+                .chain(stream.known_air.column(column))
+                .all(|key| on_screen.get(key).copied().unwrap_or(false));
+            assert!(
+                near || !drawn(&stream, x),
+                "far terrain hides under {column:?} without its meshes at step {step}"
+            );
             let far = far_shown && far_summaries.contains(&column);
             if near || far {
                 covered.insert(column);
