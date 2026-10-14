@@ -358,3 +358,74 @@ fn session_preview_dense_hands_preserve_the_player_within_ui_budgets() {
         );
     }
 }
+
+#[test]
+fn preview_dense_sprite_reserves_surrounding_controls_and_repeated_player_nodes() {
+    use ui::{SafeArea, UiNode, UiNodeId, UiPoint, UiRect, UiScale, UiTree, UiVisual};
+    for previews in [1, 2] {
+        let mut presentation = presentation();
+        let mut art = dense_sprite(148);
+        let mut cleared = 0;
+        for pixel in art.rgba8.chunks_exact_mut(4) {
+            if pixel[3] != 0 && cleared < 48 {
+                pixel[3] = 0;
+                cleared += 1;
+            }
+        }
+        install(&mut presentation, vec![art]);
+        presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+        let region = IconRef {
+            page: u16::MAX,
+            uv: [0, 0, 96, 112],
+            glint: false,
+        };
+        presentation.player_preview_icon = Some(region);
+        let bounds = UiRect::new(
+            UiPoint::new(0.0, 0.0).unwrap(),
+            UiPoint::new(96.0, 112.0).unwrap(),
+        )
+        .unwrap();
+        let mut nodes = (0..previews)
+            .map(|index| {
+                UiNode::new(UiNodeId::new(index + 1), None, bounds).with_visual(UiVisual::Sprite {
+                    texture_page: region.page,
+                    uv: region.uv,
+                    color: [255; 4],
+                })
+            })
+            .collect::<Vec<_>>();
+        for index in 0..2 {
+            nodes.push(
+                UiNode::new(UiNodeId::new(previews + index + 1), None, bounds).with_visual(
+                    UiVisual::Solid {
+                        texture_page: 0,
+                        color: [255; 4],
+                    },
+                ),
+            );
+        }
+        presentation.apply_gui_models(&mut nodes);
+        for node in &nodes[..previews as usize] {
+            let UiVisual::Mesh(mesh) = node.visual() else {
+                panic!("the player must retain its model")
+            };
+            assert_eq!(
+                mesh.batches().len(),
+                1,
+                "only the dense held sprite is omitted"
+            );
+        }
+        assert!(
+            nodes[previews as usize..]
+                .iter()
+                .all(|node| matches!(node.visual(), UiVisual::Solid { .. }))
+        );
+        let mut tree = UiTree::new(nodes).unwrap();
+        tree.layout(bounds, UiScale::default(), SafeArea::ZERO)
+            .unwrap();
+        assert!(
+            tree.build_draw_list().is_ok(),
+            "surrounding inventory controls must still publish"
+        );
+    }
+}
