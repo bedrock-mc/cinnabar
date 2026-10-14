@@ -153,7 +153,8 @@ pub(in crate::compiler) fn bee_housing_material_descriptors(
 
     let mut descriptors = Vec::with_capacity(routes.len());
     for (key, expected_path) in routes {
-        let (path, state_variant) = if key.ends_with("_front") {
+        let (path, state_variant) = if key == T::BeeNestFront.key() || key == T::BeehiveFront.key()
+        {
             let paths = pack.terrain.get_exact_pair_plain(key)?;
             let index = paths.iter().position(|&path| path == expected_path)?;
             (paths[index], index as u32)

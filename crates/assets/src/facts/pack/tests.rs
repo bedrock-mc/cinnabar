@@ -431,11 +431,12 @@ fn pack_rules_preserve_selector_alias_cube_sources() {
             AliasCubeSource::Scalar("smooth_quartz".into()),
         ),
     ];
-    for name in block_names() {
+    let names = block_names();
+    for name in &names {
         assert_eq!(
             rules().alias_cube(&name),
             old.iter()
-                .find(|(old, _)| *old == name)
+                .find(|(old, _)| *old == name.as_str())
                 .map(|(_, source)| source),
             "{name}"
         );
@@ -444,7 +445,7 @@ fn pack_rules_preserve_selector_alias_cube_sources() {
             .then(|| name.strip_suffix("_cake").unwrap());
         assert_eq!(candle_companion(&name), companion);
         if let Some(companion) = companion {
-            assert!(block_names().contains(companion));
+            assert!(names.contains(companion));
         }
     }
     for (key, path) in [

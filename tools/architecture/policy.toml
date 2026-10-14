@@ -1528,11 +1528,6 @@ literal = "string"
 reason = "Canonical-state envelope type keyword."
 
 [[identifier_literal_exceptions]]
-path = "crates/pack-compiler/src/compiler/visuals/stairs.rs"
-literal = "string"
-reason = "Canonical-state envelope type keyword."
-
-[[identifier_literal_exceptions]]
 path = "crates/pack-compiler/src/compiler/visuals/state.rs"
 literal = "string"
 reason = "Canonical-state envelope type keyword."
@@ -1541,3 +1536,8 @@ reason = "Canonical-state envelope type keyword."
 path = "crates/pack-compiler/src/compiler/visuals/torches.rs"
 literal = "unknown"
 reason = "Value in the pinned torch_facing_direction state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/materials.rs"
+literal = ".skinning"
+reason = "Material declaration grammar suffix for a skinning variant of the same base."
