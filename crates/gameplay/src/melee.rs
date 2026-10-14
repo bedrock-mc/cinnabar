@@ -14,8 +14,8 @@ const ATTACK_BUILD_BLOCK_MILLIS: u64 = 200;
 mod painting_tests;
 mod target;
 pub use target::{
-    ActorHit, Crosshair, actor_is_pickable, classify, obstructs_placement, painting_pick_unique_id,
-    pick_actor, pick_actor_by, ray_box_entry,
+    ActorHit, Crosshair, actor_is_pickable, block_pick_distance, classify, obstructs_placement,
+    painting_pick_unique_id, pick_actor, pick_actor_by, pick_distance, ray_box_entry,
 };
 
 /// Bedrock swing length in ticks, with the stronger Haste or Conduit Power taking priority.
@@ -237,7 +237,7 @@ impl MeleeRuntime {
         }
         self.rejected_tick = None;
         let mut swing = |outcome: &mut MeleeOutcome, source| {
-            if swings.try_swing(press.tick, press.swing_duration) {
+            if swings.try_attack_swing(press.tick, press.swing_duration) {
                 outcome
                     .packets
                     .push(protocol::swing_arm_packet(press.local_runtime_id, source));
@@ -393,3 +393,7 @@ mod selection_tests;
 #[cfg(test)]
 #[path = "melee/item_attack_tests.rs"]
 mod item_attack_tests;
+
+#[cfg(test)]
+#[path = "melee/press_timing_tests.rs"]
+mod press_timing_tests;

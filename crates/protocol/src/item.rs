@@ -801,6 +801,17 @@ fn normalize_equipment_parts(
     })
 }
 
+/// Sends an actor's attack event through the same swing normalization as Animate packets.
+pub(crate) fn normalize_actor_attack(
+    runtime_id: ActorRuntimeID,
+) -> Result<ItemActorEvent, ItemPacketError> {
+    normalize_animate(AnimatePacket {
+        action: AnimatePacketAction::Swing,
+        target_actor_runtime_id: runtime_id,
+        ..Default::default()
+    })
+}
+
 pub(crate) fn normalize_animate(packet: AnimatePacket) -> Result<ItemActorEvent, ItemPacketError> {
     if !packet.data.0.is_finite() {
         return Err(ItemPacketError::NonFiniteActionField("data"));

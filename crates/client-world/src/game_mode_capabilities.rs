@@ -6,7 +6,7 @@ use protocol::{AbilitiesUpdate, AbilityLayersEvidence, PlayerGameMode};
 
 /// Documented survival/adventure melee reach from the eye.
 pub const SURVIVAL_ATTACK_REACH: f64 = 3.0;
-/// Creative melee reach. Needs independent measurement.
+/// Creative actor comparison cap; the input mode's shorter pick ray still applies.
 const CREATIVE_ATTACK_REACH: f64 = 7.0;
 
 /// Bedrock ability bit positions, per the pinned gophertunnel

@@ -411,6 +411,10 @@ impl Content<'_, '_> {
             "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
         } else if id == SettingId::UpdateChannel {
             "A slower channel waits until its version passes your installed build. Stable appears after its first signed release.".to_owned()
+        } else if id == SettingId::FarTerrain {
+            "Draw terrain you have already visited beyond the render distance, in less detail. Auto turns it on only at render distances past what this device draws in full detail.".to_owned()
+        } else if id == SettingId::FullDetailDistance {
+            "Chunks around you drawn with every block. Farther terrain inside the render distance is drawn simplified. Auto picks for this device.".to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if (id == SettingId::RenderClouds
@@ -450,6 +454,12 @@ impl Content<'_, '_> {
                     SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
+                    SettingId::FullDetailDistance => {
+                        launcher::menu::settings_options::full_detail_label(value, &|chunks| {
+                            self.word("options.renderDistanceFormat")
+                                .replace("%s", &chunks.to_string())
+                        })
+                    }
                     SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)

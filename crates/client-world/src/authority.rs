@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_movement;
 mod actors;
 mod biomes;
 mod block_events;

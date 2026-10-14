@@ -108,6 +108,11 @@ fn stem_colours_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("FAR_TERRAIN_TILE_CELLS", &format!("{}u", far_terrain::config::TILE_CELLS))
+        .replace("FAR_TERRAIN_FACE_POSITIVE_X", &format!("{}u", far_terrain::FACE_POSITIVE_X))
+        .replace("FAR_TERRAIN_FACE_NEGATIVE_X", &format!("{}u", far_terrain::FACE_NEGATIVE_X))
+        .replace("FAR_TERRAIN_FACE_POSITIVE_Z", &format!("{}u", far_terrain::FACE_POSITIVE_Z))
+        .replace("FAR_TERRAIN_FACE_NEGATIVE_Z", &format!("{}u", far_terrain::FACE_NEGATIVE_Z))
         .replace("// STEM_COLOURS", &stem_colours_source())
         .replace("MATERIAL_STEM_FLAG", &format!("{}u", assets::stem::MATERIAL_FLAG))
         .replace("ITEM_GLINT_UV_SCALE", &format!("{:?}", render_model::ITEM_GLINT_UV_SCALE))

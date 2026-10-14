@@ -25,6 +25,11 @@ const MAX_JOBS_IN_FLIGHT: usize = 4;
 pub struct FarColumnSummary {
     pub column: ChunkKey,
     pub summary: EncodedSummary,
+    /// Issue order of the job that took it; later issues saw later blocks.
+    pub generation: u64,
+    /// The column held blocks when its summary was delivered; far terrain keeps such
+    /// summaries whatever its memory budget, as nothing else may draw the column.
+    pub resident: bool,
 }
 
 type SharedColours = Arc<OnceLock<Arc<SurfaceColours>>>;
@@ -75,6 +80,11 @@ impl FarSummaryInbox {
         self.next_generation
     }
 
+    /// The generation of the latest job issued; any issued later saw later blocks.
+    pub(super) const fn issued_generation(&self) -> u64 {
+        self.next_generation
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
         while let Ok(finished) = self.rx.try_recv() {
@@ -107,8 +117,16 @@ impl FarSummaryInbox {
             out.push(FarColumnSummary {
                 column: finished.column,
                 summary: finished.summary,
+                generation: finished.generation,
+                resident: false,
             });
         }
+    }
+
+    /// True when finished summaries wait to be drained.
+    #[must_use]
+    pub fn has_finished(&self) -> bool {
+        !self.rx.is_empty()
     }
 
     /// True once every issued summary has been drained.
@@ -126,6 +144,8 @@ pub(super) struct FarTerrainFeed {
     queued: HashSet<ChunkKey>,
     /// Columns that left residency, with the blocks they held, awaiting a summary job.
     pub(super) retiring: VecDeque<(ChunkKey, ColumnSnapshot)>,
+    /// Columns that left residency since the last drain, whatever became of their summaries.
+    unloaded: Vec<ChunkKey>,
     jobs_in_flight: Arc<AtomicUsize>,
     inbox: FarSummaryInbox,
 }
@@ -138,6 +158,7 @@ impl Default for FarTerrainFeed {
             pending: VecDeque::new(),
             queued: HashSet::new(),
             retiring: VecDeque::new(),
+            unloaded: Vec::new(),
             jobs_in_flight: Arc::default(),
             inbox: FarSummaryInbox::default(),
         }
@@ -154,8 +175,10 @@ impl WorldStream {
             feed.pending.clear();
             feed.queued.clear();
             feed.retiring.clear();
+            feed.unloaded.clear();
+            self.clear_near_drawn();
         } else if !was_enabled {
-            // Columns already resident were never summarised while off.
+            // Columns already resident were never summarised or tracked as drawn while off.
             let columns: Vec<ChunkKey> = self.loaded_columns.iter().copied().collect();
             for column in columns {
                 self.note_far_column_complete(column);
@@ -163,9 +186,88 @@ impl WorldStream {
         }
     }
 
+    #[must_use]
+    pub const fn far_terrain_enabled(&self) -> bool {
+        self.far_terrain.enabled
+    }
+
+    /// The radius the server last said it sends, in chunks.
+    #[must_use]
+    pub const fn server_view_radius(&self) -> Option<i32> {
+        self.chunk_radius
+    }
+
+    /// The radius the client's chunk grid retains, once the server has confirmed one.
+    #[must_use]
+    pub fn retained_view_radius(&self) -> Option<i32> {
+        self.retained_radius()
+    }
+
+    /// The local player's column, which centres retention and far terrain.
+    #[must_use]
+    pub fn far_terrain_centre(&self) -> ChunkKey {
+        self.player_chunk()
+    }
+
+    /// True when finished summaries are waiting, so callers can borrow mutably only then.
+    #[must_use]
+    pub fn has_far_summaries(&self) -> bool {
+        self.far_terrain.inbox.has_finished()
+    }
+
+    /// The generation of the latest summary job issued.
+    pub(super) const fn far_terrain_issued_generation(&self) -> u64 {
+        self.far_terrain.inbox.issued_generation()
+    }
+
+    /// Appends columns that left residency since the last call and are still gone, so far
+    /// terrain stops keeping their summaries whatever their summaries' fate.
+    pub fn drain_far_unloaded(&mut self, out: &mut Vec<ChunkKey>) {
+        let unloaded = std::mem::take(&mut self.far_terrain.unloaded);
+        out.extend(
+            unloaded
+                .into_iter()
+                .filter(|column| !self.far_column_resident(*column)),
+        );
+    }
+
+    /// True once no far summary waits, runs or awaits draining, so a settled view has paid
+    /// for every summary it caused.
+    #[must_use]
+    pub fn far_summaries_idle(&self) -> bool {
+        let feed = &self.far_terrain;
+        feed.pending.is_empty()
+            && feed.retiring.is_empty()
+            && feed.jobs_in_flight.load(Ordering::Acquire) == 0
+            && feed.inbox.is_idle()
+    }
+
+    /// True when columns left residency since the last drain.
+    #[must_use]
+    pub fn has_far_unloaded(&self) -> bool {
+        !self.far_terrain.unloaded.is_empty()
+    }
+
+    /// Records columns leaving residency for [`WorldStream::drain_far_unloaded`].
+    pub(super) fn note_far_unloaded(&mut self, columns: &BTreeSet<ChunkKey>) {
+        if self.far_terrain.enabled {
+            self.far_terrain.unloaded.extend(columns.iter().copied());
+        }
+    }
+
+    /// True while the column holds blocks, including during a resend.
+    fn far_column_resident(&self, column: ChunkKey) -> bool {
+        self.loaded_columns.contains(&column) || self.resident.column(column).next().is_some()
+    }
+
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
+        let start = out.len();
         self.far_terrain.inbox.drain(out);
+        for summary in &mut out[start..] {
+            summary.resident = self.far_column_resident(summary.column);
+        }
+        self.note_far_summaries_delivered(&out[start..]);
     }
 
     /// Summarises every complete column before the stream is dropped, and hands over the
@@ -186,6 +288,7 @@ impl WorldStream {
 
     /// Queues a column whose every section has arrived, including a resend.
     pub(super) fn note_far_column_complete(&mut self, column: ChunkKey) {
+        self.note_near_drawn(column);
         let feed = &mut self.far_terrain;
         if feed.enabled && feed.queued.insert(column) {
             feed.pending.push_back(column);

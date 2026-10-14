@@ -179,8 +179,10 @@ pub(super) fn tick_mode(
                 NORMAL_GRAVITY,
                 super::NORMAL_GRAVITY_MULTIPLIER,
             );
-            next.velocity.x *= super::DEFAULT_AIR_FRICTION;
-            next.velocity.z *= super::DEFAULT_AIR_FRICTION;
+            let horizontal =
+                Vec3::new(next.velocity.x, 0.0, next.velocity.z) * super::DEFAULT_AIR_FRICTION;
+            next.velocity.x = horizontal.x;
+            next.velocity.z = horizontal.z;
         }
     }
     if input.mode == MovementMode::Swimming
