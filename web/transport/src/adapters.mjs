@@ -113,7 +113,9 @@ export function write(ch, bytes) {
     if (ch.writer) {
         await wait(ch, ch.writer.ready); await wait(ch, ch.writer.write(bytes));
     } else {
-        await drain(ch, ch.limit - bytes.byteLength); ch.socket.send(bytes);
+        await drain(ch, ch.limit - bytes.byteLength);
+        if (ch.failed || ch.socket.readyState !== WebSocket.OPEN) throw new Error("relay closed");
+        ch.socket.send(bytes);
     }
     })();
 }

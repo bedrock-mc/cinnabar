@@ -150,3 +150,16 @@ test("closed candidates reject channels without creating browser handles", async
     await assert.rejects(adapter.open(t, values.RELAY_CHANNEL_PLAY));
     assert.equal(Socket.instances.length, sockets);
 });
+
+test("WebSocket writes reject cancellation after an unthrottled drain", async () => {
+    for (const cancelTransport of [true, false]) {
+        const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
+        const ch = await adapter.open(t, config.control);
+        const ws = Socket.instances.at(-1);
+        const writing = adapter.write(ch, new Uint8Array([1]));
+        if (cancelTransport) adapter.close(t); else ws.close();
+        await assert.rejects(writing);
+        assert.equal(ws.sent.length, 0);
+        adapter.close(t);
+    }
+});

@@ -171,7 +171,7 @@ impl AsyncRead for BrowserStream {
             .min((this.buffer.length() - this.offset) as usize);
         this.buffer
             .subarray(this.offset, this.offset + count as u32)
-            .copy_to(&mut out.initialize_unfilled()[..count]);
+            .copy_to(out.initialize_unfilled_to(count));
         out.advance(count);
         this.offset += count as u32;
         Poll::Ready(Ok(()))
@@ -231,5 +231,36 @@ impl AsyncWrite for BrowserStream {
 impl Drop for BrowserStream {
     fn drop(&mut self) {
         close_channel(&self.handle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem::{ManuallyDrop, MaybeUninit};
+
+    #[test]
+    fn small_receive_initializes_only_delivered_bytes() {
+        let mut stream = ManuallyDrop::new(BrowserStream {
+            handle: JsValue::NULL,
+            buffer: Uint8Array::from(&[1, 2][..]),
+            offset: 0,
+            eof: false,
+            reading: None,
+            writing: None,
+            flushing: None,
+            shutting_down: None,
+            finished: false,
+            shutdown_started: false,
+        });
+        let mut storage = [MaybeUninit::uninit(); 4096];
+        let mut out = ReadBuf::uninit(&mut storage);
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        assert!(matches!(
+            Pin::new(&mut *stream).poll_read(&mut cx, &mut out),
+            Poll::Ready(Ok(()))
+        ));
+        assert_eq!(out.filled(), &[1, 2]);
+        assert_eq!(out.initialized().len(), 2);
     }
 }
