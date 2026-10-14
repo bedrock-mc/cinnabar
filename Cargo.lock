@@ -2187,6 +2187,7 @@ dependencies = [
  "resource-pack",
  "rich-presence",
  "rodio",
+ "sadness-generator",
  "semantic-input",
  "serde",
  "serde_json",

@@ -47,6 +47,7 @@ fn tools_list_names_every_tool() {
             "global_packs",
             "log_filter_set",
             "log_filter_get",
+            "crash",
             "state",
             "wait_for",
             "screenshot",

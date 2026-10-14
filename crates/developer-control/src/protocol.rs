@@ -236,6 +236,10 @@ pub enum Command {
     },
     /// Reports the active log filter as `{spec, effective}`.
     LogFilterGet,
+    /// Crashes the client on purpose, so crash capture and the crash window can be exercised.
+    Crash {
+        kind: CrashKind,
+    },
     State,
     WaitFor {
         condition: Condition,
@@ -247,6 +251,16 @@ pub enum Command {
     RecordStart(RecordSettings),
     RecordStop,
     Quit,
+}
+
+/// How [`Command::Crash`] ends the client.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrashKind {
+    Panic,
+    AccessViolation,
+    StackOverflow,
+    Abort,
 }
 
 /// A request line split into its envelope and still-unparsed command.

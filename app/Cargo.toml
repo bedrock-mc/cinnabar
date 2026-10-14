@@ -39,7 +39,7 @@ acceptance = ["dep:acceptance"]
 enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
-developer-control = ["dep:developer-control", "client-shell/developer-control"]
+developer-control = ["dep:developer-control", "dep:sadness-generator", "client-shell/developer-control"]
 # Records Bevy schedules, systems, render graph, submission and presentation spans as a
 # Chrome trace through the app's own subscriber layer.
 frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
@@ -81,6 +81,7 @@ acceptance = { path = "../crates/acceptance", optional = true }
 crash-report = { path = "../crates/crash-report" }
 diagnostics = { path = "../crates/diagnostics" }
 developer-control = { path = "../crates/developer-control", optional = true }
+sadness-generator = { version = "0.7", optional = true }
 client-presentation = { path = "../crates/client-presentation" }
 gameplay = { path = "../crates/gameplay" }
 client-session = { path = "../crates/client-session" }

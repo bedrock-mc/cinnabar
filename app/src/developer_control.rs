@@ -156,6 +156,10 @@ fn dispatch(world: &mut World) {
             Command::GlobalPacks { action } => global_packs(world, action),
             Command::LogFilterSet { spec } => log_filter_set(&spec),
             Command::LogFilterGet => log_filter_report(diagnostics::logging::filter()),
+            Command::Crash { kind } => {
+                reply.send(Ok(json!({ "crashing": kind })));
+                crash(kind);
+            }
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
@@ -265,6 +269,20 @@ fn chat(world: &mut World, text: &str) -> Result<Value, String> {
     Ok(json!({ "sent": text }))
 }
 
+/// Ends the client the way `kind` names, after the reply is queued.
+fn crash(kind: developer_control::protocol::CrashKind) -> ! {
+    use developer_control::protocol::CrashKind;
+    warn!("developer control: crashing the client ({kind:?})");
+    // SAFETY: Each fault deliberately ends this process, which is the command's purpose.
+    unsafe {
+        match kind {
+            CrashKind::Panic => panic!("developer-control crash command"),
+            CrashKind::AccessViolation => sadness_generator::raise_segfault(),
+            CrashKind::StackOverflow => sadness_generator::raise_stack_overflow(),
+            CrashKind::Abort => std::process::abort(),
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use bevy::{prelude::*, time::TimePlugin};
