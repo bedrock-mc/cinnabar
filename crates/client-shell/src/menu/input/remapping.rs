@@ -7,12 +7,32 @@ use bevy::{
     input::{
         ButtonState,
         gamepad::{Gamepad, GamepadButton},
-        keyboard::KeyboardInput,
+        keyboard::{Key, KeyboardInput},
     },
     prelude::{ButtonInput, KeyCode, MouseButton, Query},
 };
 use launcher::menu::settings_options::{GAMEPAD_OFFSET, macro_row};
 use semantic_input::{AxisDirection, PhysicalControl};
+
+/// Remembers layout characters from key presses without consuming navigation input.
+pub(super) fn observe_label(menu: &mut MenuRuntime, input: &KeyboardInput) {
+    if input.state != ButtonState::Pressed {
+        return;
+    }
+    let Some(usage) = keyboard_usage(input.key_code) else {
+        return;
+    };
+    match &input.logical_key {
+        Key::Character(text) => {
+            std::sync::Arc::make_mut(&mut menu.settings_options).set_key_label(usage, text);
+        }
+        Key::Dead(Some(character)) => {
+            std::sync::Arc::make_mut(&mut menu.settings_options)
+                .set_key_label(usage, &character.to_string());
+        }
+        _ => {}
+    }
+}
 
 /// Captures the selected device; Escape clears a keyboard row or cancels other captures.
 pub(super) fn capture(
@@ -35,6 +55,7 @@ pub(super) fn capture(
             break;
         }
         if !gamepad && let Some(code) = keyboard_usage(input.key_code) {
+            observe_label(menu, input);
             menu.capture_key(PhysicalControl::KeyboardUsage(code));
             break;
         }
@@ -92,6 +113,73 @@ mod tests {
         gamepads: Query<&Gamepad>,
     ) {
         capture(&mut menu, &mut messages, &mut keys, &mut mouse, &gamepads);
+    }
+
+    #[test]
+    fn azerty_capture_displays_the_logical_letter_and_saves_the_physical_key() {
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Hotbar1)
+            .unwrap();
+        let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+        menu.key_remap = Some(row as u16);
+        let mut app = App::new();
+        app.insert_resource(menu)
+            .add_message::<KeyboardInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, capture_input);
+        app.world_mut().write_message(KeyboardInput {
+            key_code: KeyCode::KeyQ,
+            logical_key: Key::Character("a".into()),
+            state: ButtonState::Pressed,
+            text: Some("a".into()),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+        let menu = app.world().resource::<MenuRuntime>();
+        let control = menu.settings_options.key_control(row).unwrap();
+        assert_eq!(control, PhysicalControl::KeyboardUsage(0x14));
+        assert_eq!(menu.settings_options.key_name(control), "A");
+        let loaded: SettingsOptions =
+            serde_json::from_str(&serde_json::to_string(&menu.settings_options).unwrap()).unwrap();
+        assert_eq!(loaded.key_control(row), Some(control));
+    }
+
+    #[test]
+    fn ordinary_key_presses_refresh_labels_without_dirtying_settings() {
+        let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
+        let saved = serde_json::to_value(&menu.settings_options).unwrap();
+        let mut input = KeyboardInput {
+            key_code: KeyCode::KeyQ,
+            logical_key: Key::Character("a".into()),
+            state: ButtonState::Pressed,
+            text: Some("a".into()),
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        };
+        observe_label(&mut menu, &input);
+        let q = PhysicalControl::KeyboardUsage(0x14);
+        assert_eq!(menu.settings_options.key_name(q), "A");
+        input.state = ButtonState::Released;
+        input.logical_key = Key::Character("q".into());
+        observe_label(&mut menu, &input);
+        assert_eq!(menu.settings_options.key_name(q), "A");
+        input.state = ButtonState::Pressed;
+        observe_label(&mut menu, &input);
+        assert_eq!(menu.settings_options.key_name(q), "Q");
+        input.key_code = KeyCode::Quote;
+        input.logical_key = Key::Dead(Some('^'));
+        observe_label(&mut menu, &input);
+        assert_eq!(
+            menu.settings_options
+                .key_name(PhysicalControl::KeyboardUsage(0x34)),
+            "^"
+        );
+        assert!(!menu.settings_dirty);
+        assert!(!menu.settings_apply);
+        assert_eq!(serde_json::to_value(&menu.settings_options).unwrap(), saved);
     }
 
     #[test]

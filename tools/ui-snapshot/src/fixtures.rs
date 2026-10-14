@@ -100,6 +100,18 @@ pub const STATES: &[State] = &[
         fixture: settings_keyboard,
     },
     State {
+        name: "settings-keyboard-physical-label",
+        size: [1280, 2000],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(false),
+    },
+    State {
+        name: "settings-keyboard-azerty",
+        size: [1280, 2000],
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(true),
+    },
+    State {
         name: "settings-mods",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -180,4 +192,23 @@ fn settings_video() -> Fixture {
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
+}
+
+/// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.
+fn settings_keyboard_layout(observed: bool) -> Fixture {
+    use launcher::menu::settings_options::{
+        BindingId, KEY_BINDINGS, control_bindings::decode_control,
+    };
+
+    let mut view = settings("keyboard_and_mouse_forced_index");
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == BindingId::Hotbar1.name())
+        .unwrap();
+    let settings = Arc::make_mut(&mut view.settings_options);
+    assert!(settings.remap(row, decode_control(0x14).unwrap()));
+    if observed {
+        settings.set_key_label(0x14, "a");
+    }
+    Fixture::Menu(Box::new(view))
 }
