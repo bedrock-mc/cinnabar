@@ -11,13 +11,16 @@
     }]
   },
   "scoped_content": {
-    "type": "stack_panel",
+    "type": "panel",
     "size": [240, 160],
-    "orientation": "vertical",
     "controls": [
-      {"caption": {"type": "label", "size": [240, 20], "text": "$caption"}},
+      {"caption": {
+        "type": "label", "size": [240, 20], "text": "$caption",
+        "anchor_from": "top_left", "anchor_to": "top_left"
+      }},
       {"server_form_factory": {
         "type": "factory",
+        "size": [0, 0],
         "control_ids": {
           "long_form": "server_form.selected_form",
           "custom_form": "server_form.selected_form"
