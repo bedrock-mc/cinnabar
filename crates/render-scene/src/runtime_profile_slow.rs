@@ -92,6 +92,7 @@ pub struct SlowFrameCounts {
     pub main: u64,
     pub render: u64,
     pub gpu: u64,
+    /// Completion callbacks beyond the full-frame slow threshold.
     pub gpu_latency: u64,
     pub hitches: u64,
     pub hard_hitches: u64,
@@ -180,8 +181,8 @@ impl Default for FrameWindow {
 }
 
 impl SlowFrameRecorder {
-    /// Adds a stage duration; returns the event when a read-back GPU frame is over budget,
-    /// which counts on its own because several can arrive within one main frame.
+    /// Counts GPU and callback-latency overruns separately from the current CPU frame.
+    /// GPU time uses its stage budget; latency uses the full-frame slow threshold.
     pub fn record(&self, stage: RuntimeStage, elapsed: Duration) -> Option<SlowFrameEvent> {
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         self.totals[stage as usize].fetch_add(nanos, Ordering::Relaxed);
@@ -197,14 +198,16 @@ impl SlowFrameRecorder {
             RuntimeStage::RenderFrame if elapsed > self.budgets().render_cpu => {
                 self.violations.fetch_or(RENDER, Ordering::Relaxed);
             }
-            RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency
-                if elapsed > self.budgets().gpu =>
-            {
-                let reason = if stage == RuntimeStage::GpuFrame {
-                    GPU
+            RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency => {
+                let budgets = self.budgets();
+                let (reason, limit) = if stage == RuntimeStage::GpuFrame {
+                    (GPU, budgets.gpu)
                 } else {
-                    GPU_LATENCY
+                    (GPU_LATENCY, budgets.slow)
                 };
+                if elapsed <= limit {
+                    return None;
+                }
                 let mut frame = self
                     .frame
                     .lock()
@@ -526,14 +529,14 @@ mod tests {
             recorder
                 .record(
                     RuntimeStage::GpuFrameCompletionLatency,
-                    Duration::from_millis(5)
+                    Duration::from_millis(8)
                 )
                 .is_none()
         );
         let event = recorder
             .record(
                 RuntimeStage::GpuFrameCompletionLatency,
-                Duration::from_millis(7),
+                Duration::from_millis(10),
             )
             .unwrap();
         assert_eq!(event.reasons(), "gpu_latency");
