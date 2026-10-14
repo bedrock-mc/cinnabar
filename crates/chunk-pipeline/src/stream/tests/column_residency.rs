@@ -235,4 +235,12 @@ fn captured_column_membership_survives_resends_but_not_eviction() {
     keys.replace_column(column, []);
     keys.insert(SubChunkKey::from_chunk(column, 0));
     assert!(!keys.existed_at(column, captured));
+    let captured = keys.column_generation();
+    let retired = keys.retire();
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    assert!(retired.existed_at(column, captured));
+    assert!(
+        !keys.existed_at(column, captured),
+        "full retirement preserves the membership clock"
+    );
 }

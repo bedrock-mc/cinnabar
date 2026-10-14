@@ -89,8 +89,8 @@ impl WorldStream {
         let old_connectivity_len = self.connectivity.len();
         let retired_indexes = removing_all.then(|| {
             (
-                std::mem::take(&mut self.resident),
-                std::mem::take(&mut self.known_air),
+                self.resident.retire(),
+                self.known_air.retire(),
                 std::mem::take(&mut self.applied_mesh_generations),
                 std::mem::take(&mut self.withdrawn_meshes),
                 std::mem::take(&mut self.mesh_dependency_masks),

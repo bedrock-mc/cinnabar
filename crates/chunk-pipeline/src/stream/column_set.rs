@@ -141,6 +141,13 @@ impl ColumnSubChunkSet {
             .is_some_and(|created| *created <= generation)
     }
 
+    /// Detaches storage while preserving the clock used by active membership checkpoints.
+    pub(super) fn retire(&mut self) -> Self {
+        let retired = std::mem::take(self);
+        self.column_generation = retired.column_generation;
+        retired
+    }
+
     /// Caches the legacy key-order witness until membership actually changes.
     pub(super) fn deterministic_hash(&self) -> u64 {
         *self.hash.get_or_init(|| {
