@@ -110,6 +110,7 @@ fn produce_use(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     before_flush: bool,
 ) {
+    movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
         movement.completed_tick(),
@@ -166,7 +167,6 @@ fn produce_use(
     runtime.set_delay_fix(delay_fix_enabled);
     runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
     runtime.observe_press(admitted && use_phase.pressed);
-    movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     if movement.has_held_release() {
         return;
     }

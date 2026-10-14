@@ -353,8 +353,8 @@ impl MovementTicker {
         });
     }
 
-    /// A frame-time interaction once every completed tick is on the wire: it reports the
-    /// newest admitted tick's position and precedes the next tick's input.
+    /// A frame-time interaction once every completed tick has entered the outbound FIFO.
+    /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
         if !self.outbox.is_empty() || self.held_release.is_some() {
             return None;
