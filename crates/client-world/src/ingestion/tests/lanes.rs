@@ -252,7 +252,7 @@ fn local_authority_waits_for_block_mutations_but_not_chunk_decode() {
 #[test]
 fn exhausted_heavy_budget_still_commits_light_events() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), false);
+    admit(&mut state, 1, level_chunk(1), false);
     state
         .insert_ready(1, PreparedWorldEvent::CommitOnly)
         .unwrap();
@@ -460,7 +460,7 @@ fn randomized_interleavings_match_strict_wire_order() {
 #[test]
 fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), false);
+    admit(&mut state, 1, level_chunk(1), false);
     for sequence in 2..=10_001 {
         admit(&mut state, sequence, actor_move(9), true);
         assert_eq!(commit_one(&mut state), Some(sequence));
@@ -486,9 +486,9 @@ fn finished_light_traffic_behind_a_stuck_decode_stays_bounded() {
 #[test]
 fn skipping_chunk_data_still_commits_what_a_ready_mutation_waits_behind() {
     let mut state = OrderedCommitState::new(1);
-    admit(&mut state, 1, level_chunk(0), true);
-    admit(&mut state, 2, block_update(0), true);
-    admit(&mut state, 3, level_chunk(1), true);
+    admit(&mut state, 1, level_chunk(1), true);
+    admit(&mut state, 2, block_update(1), true);
+    admit(&mut state, 3, level_chunk(2), true);
     admit(&mut state, 4, actor_move(9), true);
     let order =
         std::iter::from_fn(|| commit_within(&mut state, SKIP_CHUNK_DATA)).collect::<Vec<_>>();
