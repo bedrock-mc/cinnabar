@@ -6,7 +6,10 @@ mod out_of_game;
 
 use std::sync::Arc;
 
-use launcher::menu::{MenuScreen, MenuView};
+use launcher::menu::{
+    MenuAction, MenuScreen, MenuView, settings_options::SettingId,
+    settings_sections::SettingSection,
+};
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -192,6 +195,18 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
+        name: "settings-video-distance",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_video_option(SettingId::FarTerrain),
+    },
+    State {
+        name: "settings-video-full-detail",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_video_option(SettingId::FullDetailDistance),
+    },
+    State {
         name: "settings-keyboard",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -272,7 +287,17 @@ pub fn settings(section: &str) -> MenuView {
 
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
-    Fixture::Menu(Box::new(settings("video_forced_index")))
+    Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
+}
+
+/// Reveals the distance controls through the same focus scrolling as the client.
+fn settings_video_option(id: SettingId) -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        id.index() as u16,
+        view.settings_options.value(id),
+    ));
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows the keyboard options and command macro modifier without a live session.
