@@ -8,7 +8,7 @@ impl Console {
     pub fn write_synced(&self, stream: Stream, bytes: Vec<u8>) {
         lock(&self.files).write_plain(&AnsiFilter::default().strip(&bytes));
         if let Some(queue) = &self.queue
-            && let Err(Rejected::Full(_)) = queue.push(Message::WriteConsole(stream, bytes))
+            && let Err(Rejected::Full) = queue.push(Message::WriteConsole(stream, bytes))
         {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }

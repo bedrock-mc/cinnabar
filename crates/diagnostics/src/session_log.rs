@@ -62,7 +62,7 @@ impl Family {
         let mut found = Vec::new();
         let entries = match fs::read_dir(&self.dir) {
             Ok(entries) => entries,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(found),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error),
         };
         for entry in entries {
@@ -249,11 +249,10 @@ impl SessionLog {
     /// Creates the current file empty and writes the header. Writes append, so another writer
     /// appending to the same file, such as a fatal-signal drain, never gets overwritten.
     fn start(&mut self) -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(self.family.current())?;
-        file.set_len(0)?;
+        let path = self.family.current();
+        // Truncate through a write handle: Windows append-only handles cannot change the length.
+        File::create(&path)?;
+        let mut file = OpenOptions::new().append(true).open(&path)?;
         file.write_all(&self.header)?;
         self.bytes = self.header.len() as u64;
         self.file = Some(file);

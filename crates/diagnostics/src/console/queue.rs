@@ -55,9 +55,9 @@ pub(super) struct State {
     closed: bool,
 }
 
-/// Why a message was not queued; the message comes back to the caller.
+/// Why a message was not queued. A closed queue returns the message for an inline write.
 pub(super) enum Rejected {
-    Full(Message),
+    Full,
     Closed(Message),
 }
 
@@ -114,7 +114,7 @@ impl Queue {
             return Err(Rejected::Closed(message));
         }
         if !Self::admits(&state, priority) {
-            return Err(Rejected::Full(message));
+            return Err(Rejected::Full);
         }
         self.enqueue(state, message, true);
         Ok(())
@@ -133,7 +133,7 @@ impl Queue {
                 return Ok(());
             }
             if self.clock.now() >= deadline {
-                return Err(Rejected::Full(message));
+                return Err(Rejected::Full);
             }
             state = self.clock.wait(&self.space, state, deadline);
         }
@@ -239,7 +239,7 @@ mod tests {
         }
         assert!(matches!(
             queue.push(write("warn", Priority::Warn)),
-            Err(Rejected::Full(_))
+            Err(Rejected::Full)
         ));
     }
 
@@ -249,7 +249,7 @@ mod tests {
         let (queue, clock) = queue_with_jumping_clock();
         while queue.push(write("warn", Priority::Warn)).is_ok() {}
         let result = queue.push(write("error", Priority::Error));
-        assert!(matches!(result, Err(Rejected::Full(_))));
+        assert!(matches!(result, Err(Rejected::Full)));
         assert_eq!(*clock.now.lock().unwrap() - clock.start, ERROR_WAIT);
     }
 

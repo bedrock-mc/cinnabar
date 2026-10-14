@@ -218,7 +218,7 @@ impl Console {
             bytes,
         }) {
             Ok(()) => {}
-            Err(Rejected::Full(_)) => {
+            Err(Rejected::Full) => {
                 self.dropped.fetch_add(1, Ordering::Relaxed);
             }
             Err(Rejected::Closed(Message::Write { stream, bytes, .. })) => {

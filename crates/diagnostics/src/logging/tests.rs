@@ -214,7 +214,7 @@ fn logging_child() {
         Err(FilterError::Invalid(InvalidDirective { directive, .. })) if directive == "net=loud"
     ));
     assert_eq!(filter().unwrap().spec, "core=debug");
-    tracing::info!(target: "render", tracy.frame_mark = true, "frame mark");
+    tracing::info!(tracy.frame_mark = true, "frame mark");
     std::thread::Builder::new()
         .name("log-fixture".to_owned())
         .spawn(|| {
