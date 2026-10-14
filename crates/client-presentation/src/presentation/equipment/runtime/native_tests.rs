@@ -797,3 +797,110 @@ fn missing_pack_sprite_never_falls_back_to_a_startup_cube_uv_atlas() {
         .unwrap();
     assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 30);
 }
+
+#[test]
+fn version_five_carriers_without_aliases_use_pack_weapon_stage_textures() {
+    for (identifier, geometry, last_frame) in [
+        ("minecraft:bow", "geometry.bow_standby", 3),
+        ("minecraft:crossbow", "geometry.crossbow_standby", 5),
+    ] {
+        let (entities, catalog) = pack_catalog(fixture(identifier, geometry, 10, true));
+        let mut bindings = catalog.bindings().to_vec();
+        for binding in &mut bindings {
+            binding.resources = Default::default();
+        }
+        let bytes = assets::encode_equipment_catalog_with_textures(
+            catalog.source_manifest_sha256(),
+            catalog.entity_blob_sha256(),
+            &bindings,
+            catalog.textures(),
+        )
+        .unwrap();
+        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 5);
+        let legacy = Arc::new(assets::RuntimeEquipmentCatalog::decode(&bytes).unwrap());
+        assert!(
+            legacy
+                .binding(identifier)
+                .unwrap()
+                .resources
+                .textures
+                .is_empty()
+        );
+        let icons = Arc::new(
+            assets::RuntimeIconCatalog::decode(
+                &assets::encode_icon_catalog([0; 32], &[], &[]).unwrap(),
+            )
+            .unwrap(),
+        );
+        let (mut runtime, pages, _) = EquipmentRuntime::build(
+            Arc::clone(&entities),
+            Some(Arc::clone(&legacy)),
+            icons,
+            None,
+            None,
+            render_model::ActorArtworkPages::default(),
+        );
+        let (_, overlay) = pack_catalog(fixture(identifier, geometry, 80, true));
+        let textures = overlay
+            .binding(identifier)
+            .unwrap()
+            .resources
+            .textures
+            .iter()
+            .map(|(alias, path)| {
+                let mut texture = overlay.texture(path).unwrap().clone();
+                texture.identifier = if alias.as_ref() == "default" {
+                    legacy
+                        .binding(identifier)
+                        .unwrap()
+                        .texture
+                        .identifier
+                        .clone()
+                } else if alias.as_ref() == "crossbow_rocket" {
+                    "textures/items/crossbow_firework".into()
+                } else {
+                    format!("textures/items/{alias}").into_boxed_str()
+                };
+                texture
+            })
+            .collect();
+        let overlay = Arc::new(
+            assets::RuntimeEquipmentCatalog::from_parts([2; 32], vec![], textures).unwrap(),
+        );
+        let (pages, locations) =
+            pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&overlay));
+        runtime.set_pack_layer(Some((entities, Some(overlay), locations)));
+        assert!(runtime.uses_native_item_mesh(identifier));
+        let body = player_body(&mut runtime);
+        for frame in 0..=last_frame {
+            let draw = runtime
+                .first_person_item_with_use(
+                    &body,
+                    &item(identifier),
+                    FirstPersonHand {
+                        swing: 0.0,
+                        equip: 1.0,
+                        consume: None,
+                    },
+                    render_api::DEFAULT_COMBAT_VISUALS,
+                    AttachableAnimationInput {
+                        first_person: true,
+                        animation_frame: frame,
+                        use_elapsed_ticks: match frame {
+                            1 => Some(0),
+                            2 => Some(9),
+                            3 => Some(15),
+                            _ => None,
+                        },
+                        max_use_ticks: 100,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                selected_pixel(&pages, &draw.presentation)[0],
+                80 + frame as u8
+            );
+        }
+    }
+}

@@ -326,6 +326,19 @@ impl EquipmentRuntime {
                 .get(alias)
                 .cloned()
                 .or_else(|| (alias == "default").then(|| binding.texture.identifier.clone()))
+                .or_else(|| {
+                    (binding.resources.textures.is_empty()
+                        && alias != "default"
+                        && matches!(artwork.kind, NativeItem::Bow | NativeItem::Crossbow))
+                    .then(|| {
+                        let texture = if alias == "crossbow_rocket" {
+                            "crossbow_firework"
+                        } else {
+                            alias
+                        };
+                        format!("textures/items/{texture}").into_boxed_str()
+                    })
+                })
         };
         for identifier in path(binding).into_iter().chain(
             startup
