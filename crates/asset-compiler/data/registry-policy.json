@@ -2358,6 +2358,696 @@
         "Cube",
         "ChiseledBookshelf"
       ]
+    },
+    {
+      "id": "shape-barrier",
+      "fact": "shape:BARRIER",
+      "status": "provisional",
+      "members": [
+        "minecraft:barrier"
+      ]
+    },
+    {
+      "id": "shape-end-stone",
+      "fact": "shape:END_STONE",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_stone"
+      ]
+    },
+    {
+      "id": "shape-pale-moss",
+      "fact": "shape:PALE_MOSS",
+      "status": "provisional",
+      "members": [
+        "minecraft:pale_moss_carpet"
+      ]
+    },
+    {
+      "id": "shape-bubble-column",
+      "fact": "shape:BUBBLE_COLUMN",
+      "status": "provisional",
+      "members": [
+        "minecraft:bubble_column"
+      ]
+    },
+    {
+      "id": "shape-never-pick",
+      "fact": "shape:NEVER_PICK",
+      "status": "provisional",
+      "members": [
+        "minecraft:invisible_bedrock"
+      ]
+    },
+    {
+      "id": "shape-wall-banner",
+      "fact": "shape:WALL_BANNER",
+      "status": "provisional",
+      "members": [
+        "minecraft:wall_banner"
+      ]
+    },
+    {
+      "id": "shape-solid-flow",
+      "fact": "shape:SOLID_FLOW",
+      "status": "provisional",
+      "members": [
+        "minecraft:dirt",
+        "minecraft:grass_block",
+        "minecraft:ice",
+        "minecraft:packed_ice",
+        "minecraft:stone",
+        "minecraft:sand",
+        "minecraft:gravel"
+      ]
+    },
+    {
+      "id": "shape-bell",
+      "fact": "shape:BELL",
+      "status": "provisional",
+      "members": [
+        "minecraft:bell"
+      ]
+    },
+    {
+      "id": "shape-stonecutter",
+      "fact": "shape:STONECUTTER",
+      "status": "provisional",
+      "members": [
+        "minecraft:stonecutter_block"
+      ]
+    },
+    {
+      "id": "shape-flower-pot",
+      "fact": "shape:FLOWER_POT",
+      "status": "provisional",
+      "members": [
+        "minecraft:flower_pot"
+      ]
+    },
+    {
+      "id": "shape-sniffer-egg",
+      "fact": "shape:SNIFFER_EGG",
+      "status": "provisional",
+      "members": [
+        "minecraft:sniffer_egg"
+      ]
+    },
+    {
+      "id": "shape-waterlily",
+      "fact": "shape:WATERLILY",
+      "status": "provisional",
+      "members": [
+        "minecraft:waterlily"
+      ]
+    },
+    {
+      "id": "shape-heavy-core",
+      "fact": "shape:HEAVY_CORE",
+      "status": "provisional",
+      "members": [
+        "minecraft:heavy_core"
+      ]
+    },
+    {
+      "id": "shape-enchanting-table",
+      "fact": "shape:ENCHANTING_TABLE",
+      "status": "provisional",
+      "members": [
+        "minecraft:enchanting_table"
+      ]
+    },
+    {
+      "id": "shape-daylight-detector",
+      "fact": "shape:DAYLIGHT_DETECTOR",
+      "status": "provisional",
+      "members": [
+        "minecraft:daylight_detector",
+        "minecraft:daylight_detector_inverted"
+      ]
+    },
+    {
+      "id": "shape-decorated-pot",
+      "fact": "shape:DECORATED_POT",
+      "status": "provisional",
+      "members": [
+        "minecraft:decorated_pot"
+      ]
+    },
+    {
+      "id": "shape-dried-ghast",
+      "fact": "shape:DRIED_GHAST",
+      "status": "provisional",
+      "members": [
+        "minecraft:dried_ghast"
+      ]
+    },
+    {
+      "id": "shape-sculk-sensor",
+      "fact": "shape:SCULK_SENSOR",
+      "status": "provisional",
+      "members": [
+        "minecraft:sculk_sensor",
+        "minecraft:calibrated_sculk_sensor",
+        "minecraft:sculk_shrieker"
+      ]
+    },
+    {
+      "id": "shape-cake",
+      "fact": "shape:CAKE",
+      "status": "provisional",
+      "members": [
+        "minecraft:cake"
+      ]
+    },
+    {
+      "id": "shape-plant-unit",
+      "fact": "shape:PLANT_UNIT",
+      "status": "provisional",
+      "members": [
+        "minecraft:powder_snow",
+        "minecraft:structure_void",
+        "minecraft:firefly_bush"
+      ]
+    },
+    {
+      "id": "shape-frog-spawn",
+      "fact": "shape:FROG_SPAWN",
+      "status": "provisional",
+      "members": [
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
+      "id": "shape-petals",
+      "fact": "shape:PETALS",
+      "status": "provisional",
+      "members": [
+        "minecraft:pink_petals",
+        "minecraft:wildflowers"
+      ]
+    },
+    {
+      "id": "shape-leaf-litter",
+      "fact": "shape:LEAF_LITTER",
+      "status": "provisional",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
+      "id": "shape-sea-pickle",
+      "fact": "shape:SEA_PICKLE",
+      "status": "provisional",
+      "members": [
+        "minecraft:sea_pickle"
+      ]
+    },
+    {
+      "id": "shape-crimson-fungus",
+      "fact": "shape:CRIMSON_FUNGUS",
+      "status": "provisional",
+      "members": [
+        "minecraft:crimson_fungus"
+      ]
+    },
+    {
+      "id": "shape-warped-fungus",
+      "fact": "shape:WARPED_FUNGUS",
+      "status": "provisional",
+      "members": [
+        "minecraft:warped_fungus"
+      ]
+    },
+    {
+      "id": "shape-kelp",
+      "fact": "shape:KELP",
+      "status": "provisional",
+      "members": [
+        "minecraft:kelp"
+      ]
+    },
+    {
+      "id": "shape-grass",
+      "fact": "shape:GRASS",
+      "status": "provisional",
+      "members": [
+        "minecraft:short_grass",
+        "minecraft:fern",
+        "minecraft:seagrass",
+        "minecraft:bamboo_sapling",
+        "minecraft:deadbush"
+      ]
+    },
+    {
+      "id": "shape-flower",
+      "fact": "shape:FLOWER",
+      "status": "provisional",
+      "members": [
+        "minecraft:dandelion",
+        "minecraft:poppy",
+        "minecraft:blue_orchid",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:red_tulip",
+        "minecraft:orange_tulip",
+        "minecraft:white_tulip",
+        "minecraft:pink_tulip",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley",
+        "minecraft:wither_rose",
+        "minecraft:torchflower",
+        "minecraft:open_eyeblossom",
+        "minecraft:closed_eyeblossom",
+        "minecraft:golden_dandelion",
+        "minecraft:crimson_roots",
+        "minecraft:warped_roots"
+      ]
+    },
+    {
+      "id": "shape-pitcher-plant",
+      "fact": "shape:PITCHER_PLANT",
+      "status": "provisional",
+      "members": [
+        "minecraft:pitcher_plant"
+      ]
+    },
+    {
+      "id": "shape-hanging-roots",
+      "fact": "shape:HANGING_ROOTS",
+      "status": "provisional",
+      "members": [
+        "minecraft:hanging_roots"
+      ]
+    },
+    {
+      "id": "shape-spore-blossom",
+      "fact": "shape:SPORE_BLOSSOM",
+      "status": "provisional",
+      "members": [
+        "minecraft:spore_blossom"
+      ]
+    },
+    {
+      "id": "shape-berry-bush",
+      "fact": "shape:BERRY_BUSH",
+      "status": "provisional",
+      "members": [
+        "minecraft:sweet_berry_bush"
+      ]
+    },
+    {
+      "id": "shape-propagule",
+      "fact": "shape:PROPAGULE",
+      "status": "provisional",
+      "members": [
+        "minecraft:mangrove_propagule"
+      ]
+    },
+    {
+      "id": "shape-stem",
+      "fact": "shape:STEM",
+      "status": "provisional",
+      "members": [
+        "minecraft:pumpkin_stem",
+        "minecraft:melon_stem"
+      ]
+    },
+    {
+      "id": "shape-pitcher-crop",
+      "fact": "shape:PITCHER_CROP",
+      "status": "provisional",
+      "members": [
+        "minecraft:pitcher_crop"
+      ]
+    },
+    {
+      "id": "shape-short-dry-grass",
+      "fact": "shape:SHORT_DRY_GRASS",
+      "status": "provisional",
+      "members": [
+        "minecraft:short_dry_grass"
+      ]
+    },
+    {
+      "id": "shape-mushroom",
+      "fact": "shape:MUSHROOM",
+      "status": "provisional",
+      "members": [
+        "minecraft:brown_mushroom",
+        "minecraft:red_mushroom"
+      ]
+    },
+    {
+      "id": "shape-nether-sprouts",
+      "fact": "shape:NETHER_SPROUTS",
+      "status": "provisional",
+      "members": [
+        "minecraft:nether_sprouts"
+      ]
+    },
+    {
+      "id": "shape-cactus-flower",
+      "fact": "shape:CACTUS_FLOWER",
+      "status": "provisional",
+      "members": [
+        "minecraft:cactus_flower"
+      ]
+    },
+    {
+      "id": "shape-reeds",
+      "fact": "shape:REEDS",
+      "status": "provisional",
+      "members": [
+        "minecraft:reeds"
+      ]
+    },
+    {
+      "id": "shape-bush",
+      "fact": "shape:BUSH",
+      "status": "provisional",
+      "members": [
+        "minecraft:bush"
+      ]
+    },
+    {
+      "id": "shape-double-plant",
+      "fact": "shape:DOUBLE_PLANT",
+      "status": "provisional",
+      "members": [
+        "minecraft:tall_grass",
+        "minecraft:large_fern",
+        "minecraft:sunflower",
+        "minecraft:lilac",
+        "minecraft:rose_bush",
+        "minecraft:peony"
+      ]
+    },
+    {
+      "id": "shape-visual-unit",
+      "fact": "shape:VISUAL_UNIT",
+      "status": "provisional",
+      "members": [
+        "minecraft:border_block",
+        "minecraft:mud",
+        "minecraft:soul_sand",
+        "minecraft:red_shrub",
+        "minecraft:dragon_egg"
+      ]
+    },
+    {
+      "id": "shape-honey",
+      "fact": "shape:HONEY",
+      "status": "provisional",
+      "members": [
+        "minecraft:honey_block"
+      ]
+    },
+    {
+      "id": "shape-path",
+      "fact": "shape:PATH",
+      "status": "provisional",
+      "members": [
+        "minecraft:grass_path"
+      ]
+    },
+    {
+      "id": "shape-lectern",
+      "fact": "shape:LECTERN",
+      "status": "provisional",
+      "members": [
+        "minecraft:lectern"
+      ]
+    },
+    {
+      "id": "shape-conduit",
+      "fact": "shape:CONDUIT",
+      "status": "provisional",
+      "members": [
+        "minecraft:conduit"
+      ]
+    },
+    {
+      "id": "shape-end-portal-frame",
+      "fact": "shape:END_PORTAL_FRAME",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_portal_frame"
+      ]
+    },
+    {
+      "id": "shape-bamboo",
+      "fact": "shape:BAMBOO",
+      "status": "provisional",
+      "members": [
+        "minecraft:bamboo"
+      ]
+    },
+    {
+      "id": "shape-tall-dry-grass",
+      "fact": "shape:TALL_DRY_GRASS",
+      "status": "provisional",
+      "members": [
+        "minecraft:tall_dry_grass"
+      ]
+    },
+    {
+      "id": "shape-torchflower-crop",
+      "fact": "shape:TORCHFLOWER_CROP",
+      "status": "provisional",
+      "members": [
+        "minecraft:torchflower_crop"
+      ]
+    },
+    {
+      "id": "shape-turtle-egg",
+      "fact": "shape:TURTLE_EGG",
+      "status": "provisional",
+      "members": [
+        "minecraft:turtle_egg"
+      ]
+    },
+    {
+      "id": "shape-big-dripleaf",
+      "fact": "shape:BIG_DRIPLEAF",
+      "status": "provisional",
+      "members": [
+        "minecraft:big_dripleaf"
+      ]
+    },
+    {
+      "id": "shape-chorus-plant",
+      "fact": "shape:CHORUS_PLANT",
+      "status": "provisional",
+      "members": [
+        "minecraft:chorus_plant"
+      ]
+    },
+    {
+      "id": "shape-twisting-vines",
+      "fact": "shape:TWISTING_VINES",
+      "status": "provisional",
+      "members": [
+        "minecraft:twisting_vines"
+      ]
+    },
+    {
+      "id": "shape-weeping-vines",
+      "fact": "shape:WEEPING_VINES",
+      "status": "provisional",
+      "members": [
+        "minecraft:weeping_vines"
+      ]
+    },
+    {
+      "id": "shape-cave-vines",
+      "fact": "shape:CAVE_VINES",
+      "status": "provisional",
+      "members": [
+        "minecraft:cave_vines",
+        "minecraft:cave_vines_head_with_berries",
+        "minecraft:cave_vines_body_with_berries"
+      ]
+    },
+    {
+      "id": "shape-small-dripleaf",
+      "fact": "shape:SMALL_DRIPLEAF",
+      "status": "provisional",
+      "members": [
+        "minecraft:small_dripleaf_block"
+      ]
+    },
+    {
+      "id": "shape-wheat",
+      "fact": "shape:WHEAT",
+      "status": "provisional",
+      "members": [
+        "minecraft:wheat"
+      ]
+    },
+    {
+      "id": "shape-carrots",
+      "fact": "shape:CARROTS",
+      "status": "provisional",
+      "members": [
+        "minecraft:carrots"
+      ]
+    },
+    {
+      "id": "shape-root-crop",
+      "fact": "shape:ROOT_CROP",
+      "status": "provisional",
+      "members": [
+        "minecraft:potatoes",
+        "minecraft:beetroot"
+      ]
+    },
+    {
+      "id": "shape-nether-wart",
+      "fact": "shape:NETHER_WART",
+      "status": "provisional",
+      "members": [
+        "minecraft:nether_wart"
+      ]
+    },
+    {
+      "id": "shape-cactus",
+      "fact": "shape:CACTUS",
+      "status": "provisional",
+      "members": [
+        "minecraft:cactus"
+      ]
+    },
+    {
+      "id": "shape-brewing-stand",
+      "fact": "shape:BREWING_STAND",
+      "status": "provisional",
+      "members": [
+        "minecraft:brewing_stand"
+      ]
+    },
+    {
+      "id": "shape-hanging-moss",
+      "fact": "shape:HANGING_MOSS",
+      "status": "provisional",
+      "members": [
+        "minecraft:pale_hanging_moss"
+      ]
+    },
+    {
+      "id": "shape-anvil",
+      "fact": "shape:ANVIL",
+      "status": "provisional",
+      "members": [
+        "minecraft:anvil",
+        "minecraft:chipped_anvil",
+        "minecraft:damaged_anvil",
+        "minecraft:deprecated_anvil"
+      ]
+    },
+    {
+      "id": "shape-piston-arm",
+      "fact": "shape:PISTON_ARM",
+      "status": "provisional",
+      "members": [
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
+      ]
+    },
+    {
+      "id": "shape-moving-block",
+      "fact": "shape:MOVING_BLOCK",
+      "status": "provisional",
+      "members": [
+        "minecraft:moving_block"
+      ]
+    },
+    {
+      "id": "shape-redstone-wire",
+      "fact": "shape:REDSTONE_WIRE",
+      "status": "provisional",
+      "members": [
+        "minecraft:redstone_wire"
+      ]
+    },
+    {
+      "id": "shape-trip-wire",
+      "fact": "shape:TRIP_WIRE",
+      "status": "provisional",
+      "members": [
+        "minecraft:trip_wire"
+      ]
+    },
+    {
+      "id": "shape-tripwire-hook",
+      "fact": "shape:TRIPWIRE_HOOK",
+      "status": "provisional",
+      "members": [
+        "minecraft:tripwire_hook"
+      ]
+    },
+    {
+      "id": "shape-shelf-selector",
+      "fact": "shape:SHELF",
+      "status": "provisional",
+      "suffix": "_shelf"
+    },
+    {
+      "id": "shape-repeater-selector",
+      "fact": "shape:REPEATER",
+      "status": "provisional",
+      "state_property": "repeater_delay",
+      "suffix": "_comparator"
+    },
+    {
+      "id": "shape-candle-cake-selector",
+      "fact": "shape:CANDLE_CAKE",
+      "status": "provisional",
+      "suffix": "_candle_cake",
+      "members": [
+        "minecraft:candle_cake"
+      ]
+    },
+    {
+      "id": "shape-grass-selector",
+      "fact": "shape:GRASS",
+      "status": "provisional",
+      "suffix": "_sapling"
+    },
+    {
+      "id": "shape-coral-selector",
+      "fact": "shape:CORAL",
+      "status": "provisional",
+      "suffix": "_coral"
+    },
+    {
+      "id": "shape-coral-fan-selector",
+      "fact": "shape:CORAL_FAN",
+      "status": "provisional",
+      "suffix": "_coral_fan"
+    },
+    {
+      "id": "shape-coral-wall-fan-selector",
+      "fact": "shape:CORAL_WALL_FAN",
+      "status": "provisional",
+      "suffix": "_coral_wall_fan"
+    },
+    {
+      "id": "shape-visual-unit-web",
+      "fact": "shape:VISUAL_UNIT",
+      "status": "provisional",
+      "members": [
+        "minecraft:web"
+      ]
+    },
+    {
+      "id": "shape-end-gateway",
+      "fact": "shape:END_GATEWAY",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_gateway"
+      ]
     }
   ],
   "item_rules": [

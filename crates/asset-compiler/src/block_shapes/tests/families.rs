@@ -1,5 +1,6 @@
 use super::{compile, fixture};
 use assets::block_shapes::ShapeBox;
+use assets::facts::BlockProperty;
 
 #[test]
 fn class_visual_contracts_cover_passable_and_solid_families() {
@@ -204,8 +205,8 @@ fn stair_picking_ignores_corner_collision_state() {
         .collect();
     for record in matching {
         let state = super::super::state::State::read(record).unwrap();
-        let direction = state.number("weirdo_direction").unwrap();
-        let top = state.bit("upside_down_bit").unwrap();
+        let direction = state.number(BlockProperty::WeirdoDirection).unwrap();
+        let top = state.bit(BlockProperty::UpsideDownBit).unwrap();
         let shapes = compile(
             record,
             fixture().1.by_sequential_id(record.sequential_id).unwrap(),

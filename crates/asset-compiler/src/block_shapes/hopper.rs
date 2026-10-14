@@ -1,12 +1,14 @@
 use super::state::State;
+use assets::facts::BlockProperty;
+use assets::registry::BlockTraits;
 use assets::{RegistryRecord, block_shapes::ShapeBox};
 
 /// Compiles the hopper's three clipping pieces rather than its hollow movement bowl.
 pub(super) fn selection(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if record.name.as_ref() != "minecraft:hopper" {
+    if !record.traits.contains(BlockTraits::HOPPER) {
         return None;
     }
-    let (min, max) = match State::read(record)?.number("facing_direction")? {
+    let (min, max) = match State::read(record)?.number(BlockProperty::FacingDirection)? {
         2 => ([0.375, 0.25, 0.0], [0.625, 0.5, 0.25]),
         3 => ([0.375, 0.25, 0.75], [0.625, 0.5, 1.0]),
         4 => ([0.0, 0.25, 0.375], [0.25, 0.5, 0.625]),

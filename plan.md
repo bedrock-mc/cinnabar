@@ -1218,6 +1218,10 @@ acceptance gate.
   and chorus outlines, deterministic column offsets, and piston actor inputs.
   Geometry-bearing actor updates retire pick revisions and historical snapshots
   retain their original facts, including remote piston-owner dependencies.
+- Shape compilation reads block traits, model families, and validated shape
+  memberships from the registry policy. Numeric bounds stay in the geometry
+  compiler; the expansion records provisional memberships without closing a
+  parity gate. Thin connected blocks share the pane collision recipe.
 - Incomplete parity: client piston animation timing, legacy moving-block state
   migration, animated shulker outlines, remaining material/support bindings, and
   newer block identifiers using compatibility recipes. These do not close the

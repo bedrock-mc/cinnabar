@@ -1,6 +1,7 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
+pub mod shape;
 pub use block::{BlockFact, BlockFacts};
 
 pub(crate) mod family_routing;

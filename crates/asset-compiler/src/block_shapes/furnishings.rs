@@ -1,24 +1,25 @@
 use super::{selection::bounds, state::State};
+use assets::facts::BlockProperty;
 use assets::{ModelFamily, RegistryRecord, block_shapes::ShapeBox};
+use assets::{facts::shape::ShapeTraits, registry::BlockTraits};
 
 /// Compiles stored class bounds and state-only furniture overrides.
-pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
-    let name = record.name.strip_prefix("minecraft:")?;
+pub(super) fn shape(record: &RegistryRecord, shapes: ShapeTraits) -> Option<ShapeBox> {
     if record.model_family == ModelFamily::Slab {
         if super::state::is_double_slab(record) {
             return Some(super::UNIT);
         }
         let state = State::read(record)?;
         let top = state
-            .text("minecraft:vertical_half")
+            .text(BlockProperty::MinecraftVerticalHalf)
             .map(|half| half == "top")
-            .or_else(|| state.bit("top_slot_bit"))?;
+            .or_else(|| state.bit(BlockProperty::TopSlotBit))?;
         return Some(bounds(
             [0.0, if top { 0.5 } else { 0.0 }, 0.0],
             [1.0, if top { 1.0 } else { 0.5 }, 1.0],
         ));
     }
-    if name.ends_with("_shelf") {
+    if shapes.contains(ShapeTraits::SHELF) {
         let mut min = [0.0; 3];
         let mut max = [1.0; 3];
         match State::read(record)?.direction()? {
@@ -30,25 +31,39 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
         }
         return Some(bounds(min, max));
     }
-    Some(match name {
-        "bell" => bell(record)?,
-        "cocoa" => cocoa(record)?,
-        "bed" | "stonecutter_block" => bounds([0.0; 3], [1.0, 0.5625, 1.0]),
-        "flower_pot" => bounds([0.3125, 0.0, 0.3125], [0.6875, 0.375, 0.6875]),
-        "sniffer_egg" => bounds([0.0625, 0.0, 0.125], [0.9375, 1.0, 0.875]),
-        "waterlily" => bounds([0.0625, 0.0, 0.0625], [0.9375, 0.09375, 0.9375]),
-        "heavy_core" => bounds([0.25, 0.0, 0.25], [0.75, 0.5, 0.75]),
-        "end_portal" => bounds([0.0; 3], [1.0, 0.25, 1.0]),
-        "enchanting_table" => bounds([0.0; 3], [1.0, 0.75, 1.0]),
-        "daylight_detector" | "daylight_detector_inverted" => bounds([0.0; 3], [1.0, 0.375, 1.0]),
-        "decorated_pot" => bounds([0.0625, 0.0, 0.0625], [0.9375, 1.0, 0.9375]),
-        "dried_ghast" => bounds([0.1875, 0.0, 0.1875], [0.8125, 0.625, 0.8125]),
-        "sculk_sensor" | "calibrated_sculk_sensor" | "sculk_shrieker" => {
-            bounds([0.0; 3], [1.0, 0.5, 1.0])
+    Some(match () {
+        _ if shapes.contains(ShapeTraits::BELL) => bell(record)?,
+        _ if record.model_family == assets::ModelFamily::Cocoa => cocoa(record)?,
+        _ if record.model_family == assets::ModelFamily::Bed
+            || shapes.contains(ShapeTraits::STONECUTTER) =>
+        {
+            bounds([0.0; 3], [1.0, 0.5625, 1.0])
         }
-        "campfire" | "soul_campfire" => bounds([0.0; 3], [1.0, 0.4375, 1.0]),
-        "cake" => {
-            let bites = State::read(record)?.number("bite_counter")? as f32;
+        _ if shapes.contains(ShapeTraits::FLOWER_POT) => {
+            bounds([0.3125, 0.0, 0.3125], [0.6875, 0.375, 0.6875])
+        }
+        _ if shapes.contains(ShapeTraits::SNIFFER_EGG) => {
+            bounds([0.0625, 0.0, 0.125], [0.9375, 1.0, 0.875])
+        }
+        _ if shapes.contains(ShapeTraits::WATERLILY) => {
+            bounds([0.0625, 0.0, 0.0625], [0.9375, 0.09375, 0.9375])
+        }
+        _ if shapes.contains(ShapeTraits::HEAVY_CORE) => {
+            bounds([0.25, 0.0, 0.25], [0.75, 0.5, 0.75])
+        }
+        _ if record.traits.contains(BlockTraits::END_PORTAL) => bounds([0.0; 3], [1.0, 0.25, 1.0]),
+        _ if shapes.contains(ShapeTraits::ENCHANTING_TABLE) => bounds([0.0; 3], [1.0, 0.75, 1.0]),
+        _ if shapes.contains(ShapeTraits::DAYLIGHT_DETECTOR) => bounds([0.0; 3], [1.0, 0.375, 1.0]),
+        _ if shapes.contains(ShapeTraits::DECORATED_POT) => {
+            bounds([0.0625, 0.0, 0.0625], [0.9375, 1.0, 0.9375])
+        }
+        _ if shapes.contains(ShapeTraits::DRIED_GHAST) => {
+            bounds([0.1875, 0.0, 0.1875], [0.8125, 0.625, 0.8125])
+        }
+        _ if shapes.contains(ShapeTraits::SCULK_SENSOR) => bounds([0.0; 3], [1.0, 0.5, 1.0]),
+        _ if record.traits.contains(BlockTraits::CAMPFIRE) => bounds([0.0; 3], [1.0, 0.4375, 1.0]),
+        _ if shapes.contains(ShapeTraits::CAKE) => {
+            let bites = State::read(record)?.number(BlockProperty::BiteCounter)? as f32;
             bounds(
                 [(bites * 2.0 + 1.0) / 16.0, 0.0, 0.0625],
                 [0.9375, 0.5, 0.9375],
@@ -58,14 +73,12 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
         _ if record.model_family == ModelFamily::Statue => {
             bounds([0.1875, 0.0, 0.1875], [0.8125, 0.875, 0.8125])
         }
-        _ if name.ends_with("_repeater") || name.ends_with("_comparator") => {
-            bounds([0.0; 3], [1.0, 0.125, 1.0])
-        }
-        _ if name == "candle_cake" || name.ends_with("_candle_cake") => {
+        _ if shapes.contains(ShapeTraits::REPEATER) => bounds([0.0; 3], [1.0, 0.125, 1.0]),
+        _ if shapes.contains(ShapeTraits::CANDLE_CAKE) => {
             bounds([0.0625, 0.0, 0.0625], [0.9375, 0.5, 0.9375])
         }
-        _ if name == "candle" || name.ends_with("_candle") => {
-            let (min, max) = match State::read(record)?.number("candles")? {
+        _ if record.traits.contains(BlockTraits::CANDLE) => {
+            let (min, max) = match State::read(record)?.number(BlockProperty::Candles)? {
                 0 => ([0.4375, 0.0, 0.4375], [0.5625, 0.375, 0.5625]),
                 1 => ([0.3125, 0.0, 0.4375], [0.6875, 0.375, 0.625]),
                 2 => ([0.3125, 0.0, 0.375], [0.625, 0.375, 0.6875]),
@@ -82,7 +95,7 @@ pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
 fn bell(record: &RegistryRecord) -> Option<ShapeBox> {
     let state = State::read(record)?;
     let direction = state.direction()?;
-    let (min, max) = match state.text("attachment")? {
+    let (min, max) = match state.text(BlockProperty::Attachment)? {
         "standing" if direction % 2 == 0 => ([0.0, 0.0, 0.25], [1.0, 0.8125, 0.75]),
         "standing" => ([0.25, 0.0, 0.0], [0.75, 0.8125, 1.0]),
         "hanging" => ([0.25; 3], [0.75, 1.0, 0.75]),
@@ -103,7 +116,7 @@ fn bell(record: &RegistryRecord) -> Option<ShapeBox> {
 /// Compiles age-sized cocoa pods against their horizontal supporting face.
 fn cocoa(record: &RegistryRecord) -> Option<ShapeBox> {
     let state = State::read(record)?;
-    let age = state.number("age")? as f32;
+    let age = state.number(BlockProperty::Age)? as f32;
     let width = (age * 2.0 + 4.0) / 16.0;
     let bottom = 0.75 - (age * 2.0 + 5.0) / 16.0;
     let inset = 0.5 - width * 0.5;

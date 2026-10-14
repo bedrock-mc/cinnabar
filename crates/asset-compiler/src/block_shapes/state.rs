@@ -1,4 +1,6 @@
 use assets::RegistryRecord;
+use assets::facts::BlockProperty;
+use assets::registry::BlockTraits;
 
 /// Compiler-only access to the typed values in a canonical block state.
 pub(super) struct State(serde_json::Value);
@@ -29,30 +31,30 @@ impl State {
     }
 
     /// Reads an integer state value.
-    pub(super) fn number(&self, name: &str) -> Option<i64> {
-        self.0.get(name)?.get("value")?.as_i64()
+    pub(super) fn number(&self, key: BlockProperty) -> Option<i64> {
+        self.0.get(key.name())?.get("value")?.as_i64()
     }
 
     /// Reads a string state value.
-    pub(super) fn text(&self, name: &str) -> Option<&str> {
-        self.0.get(name)?.get("value")?.as_str()
+    pub(super) fn text(&self, key: BlockProperty) -> Option<&str> {
+        self.0.get(key.name())?.get("value")?.as_str()
     }
 
     /// Reads a byte-backed boolean state value.
-    pub(super) fn bit(&self, name: &str) -> Option<bool> {
-        self.number(name).map(|value| value != 0)
+    pub(super) fn bit(&self, key: BlockProperty) -> Option<bool> {
+        self.number(key).map(|value| value != 0)
     }
 
     /// Resolves the south, west, north, east order used by cardinal state families.
     pub(super) fn direction(&self) -> Option<i64> {
-        match self.text("minecraft:cardinal_direction") {
+        match self.text(BlockProperty::MinecraftCardinalDirection) {
             Some("south") => Some(0),
             Some("west") => Some(1),
             Some("north") => Some(2),
             Some("east") => Some(3),
             Some(_) => None,
             None => self
-                .number("direction")
+                .number(BlockProperty::Direction)
                 .filter(|value| (0..4).contains(value)),
         }
     }
@@ -61,6 +63,5 @@ impl State {
 /// Identifies full slab classes whose stored visual and support properties are a unit cube.
 pub(super) fn is_double_slab(record: &RegistryRecord) -> bool {
     record.model_family == assets::ModelFamily::Slab
-        && (record.name.ends_with("_double_slab")
-            || record.name.ends_with("double_cut_copper_slab"))
+        && record.traits.contains(BlockTraits::DOUBLE_SLAB)
 }
