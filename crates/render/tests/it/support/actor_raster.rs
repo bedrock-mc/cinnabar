@@ -252,7 +252,7 @@ pub(crate) fn raster_material_in_scene(
         &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
         wgpu::BufferUsages::UNIFORM,
     );
-    let affine = [
+    let affine: [[f32; 4]; 3] = [
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
