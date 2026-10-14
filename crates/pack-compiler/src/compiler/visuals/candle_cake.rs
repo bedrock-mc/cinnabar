@@ -49,7 +49,7 @@ pub(in crate::compiler) fn descriptors(
         .into_iter()
         .collect::<Vec<_>>();
     let mut candle = record.clone();
-    candle.name = record.name.strip_suffix("_cake")?.into();
+    candle.name = assets::facts::pack::candle_companion(&record.name)?.into();
     let TextureKey { key, rotate_uv } =
         resolve_texture_key(&pack.blocks, &candle, assets::BlockFace::Down);
     let key = key?;

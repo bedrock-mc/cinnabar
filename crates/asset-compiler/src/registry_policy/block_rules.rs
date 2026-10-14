@@ -81,6 +81,7 @@ pub(super) fn compile(
     policy: &super::Policy,
     legacy: &[RegistryRecord],
 ) -> Result<Vec<u8>> {
+    policy.pack_rules.validate()?;
     let families: Vec<_> = records.iter().map(|r| r.model_family).collect();
     let states: Vec<BTreeMap<String, Scalar>> = source
         .iter()

@@ -72,6 +72,7 @@ struct Policy {
     item_rules: Vec<items::ItemRule>,
     #[serde(default)]
     visual_events: events::Rules,
+    pack_rules: assets::facts::pack::PackRules,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,

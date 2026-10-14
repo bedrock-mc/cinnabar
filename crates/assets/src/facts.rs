@@ -54,3 +54,5 @@ pub use model_variant::{BlockModelVariant, ChestKind, CopperAge, LegacyBlockAlia
 
 mod identities_generated;
 pub use identities_generated::{VanillaBlock, VanillaEntity, VanillaItem};
+/// Pack texture selectors and native presentation contracts checked against pinned inputs.
+pub mod pack;

@@ -26,19 +26,7 @@ impl SpriteBaker {
         }
         let source = &compiled.sources[source_index as usize];
         let mut decoded = sprite_source(root, source)?;
-        if source
-            .path
-            .strip_prefix("textures/items/leather_")
-            .is_some_and(|suffix| {
-                let stem = suffix
-                    .strip_suffix(".png")
-                    .or_else(|| suffix.strip_suffix(".tga"));
-                matches!(
-                    stem,
-                    Some("helmet" | "chestplate" | "leggings" | "boots" | "horse_armor")
-                )
-            })
-        {
+        if assets::facts::pack::leather_sprite(&source.path) {
             let dye = assets::DEFAULT_LEATHER_RGB;
             let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
             for pixel in decoded.rgba8.as_chunks_mut::<4>().0 {

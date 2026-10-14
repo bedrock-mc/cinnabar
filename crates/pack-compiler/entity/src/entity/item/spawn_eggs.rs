@@ -45,7 +45,11 @@ pub(super) fn compile(
         let Some(identifier) = description.get("identifier").and_then(Value::as_str) else {
             continue;
         };
-        if !retail.contains(item_identifier(identifier).as_str()) {
+        if !retail.contains(
+            assets::facts::pack::rules()
+                .egg_identifier(identifier)
+                .as_str(),
+        ) {
             continue;
         }
         let minimum_version = version(
@@ -76,15 +80,16 @@ pub(super) fn compile(
     for (identifier, actor) in &actors {
         // The pinned retail catalog uses the current villager actors. Their old
         // compatibility definitions remain in the same pack under legacy IDs.
-        if matches!(
-            identifier.as_ref(),
-            "minecraft:villager" | "minecraft:zombie_villager"
-        ) && actors.contains_key(format!("{identifier}_v2").as_str())
+        if assets::facts::pack::rules()
+            .superseding_egg(identifier)
+            .is_some_and(|newer| actors.contains_key(newer))
         {
             continue;
         }
         let key = ItemVisualKey {
-            identifier: item_identifier(identifier).into(),
+            identifier: assets::facts::pack::rules()
+                .egg_identifier(identifier)
+                .into(),
             metadata: 0,
         };
         let route = resolve(actor.egg.as_ref(), texture_data, source_indices)?;
@@ -141,19 +146,6 @@ fn resolve(
             },
         },
     ))
-}
-
-fn item_identifier(actor: &str) -> String {
-    // Actor identifiers and retail item keys are distinct authorities. These four
-    // renames are witnessed by the pinned client entities and retail item registry.
-    let actor = match actor {
-        "minecraft:evocation_illager" => "minecraft:evoker",
-        "minecraft:tropicalfish" => "minecraft:tropical_fish",
-        "minecraft:villager_v2" => "minecraft:villager",
-        "minecraft:zombie_villager_v2" => "minecraft:zombie_villager",
-        value => value,
-    };
-    format!("{actor}_spawn_egg")
 }
 
 fn version(value: &str) -> Result<[u32; 3], AssetError> {
