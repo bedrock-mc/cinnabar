@@ -52,11 +52,13 @@ impl ActorStore {
             };
             let previous_fact = actor.entity_fact;
             let previous = actor.network_position_offset();
+            let previous_spawn = actor.spawn_network_offset();
             actor.entity_fact = fact;
             let offset = actor.network_position_offset();
-            if actor.is_falling_block() {
-                actor.shift_poses_y(previous - offset);
-            }
+            actor.shift_poses_y(
+                previous - offset,
+                previous_spawn - actor.spawn_network_offset(),
+            );
             self.effect_members.update(actor);
             if actor.entity_fact != previous_fact {
                 self.animation

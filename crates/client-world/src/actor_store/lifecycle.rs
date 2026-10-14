@@ -214,6 +214,7 @@ impl ActorStore {
         self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
+            y_origin: Default::default(),
             position: feed.position,
             pitch: feed.pitch,
             yaw: feed.yaw,
@@ -515,6 +516,14 @@ impl ActorStore {
                             }
                         }),
                     );
+                }
+                if movement.position[1].is_some_and(f32::is_finite) {
+                    received.y_origin =
+                        if movement.position_origin == ActorPositionOrigin::NetworkOffset {
+                            PoseYOrigin::NETWORK
+                        } else {
+                            PoseYOrigin::default()
+                        };
                 }
                 merge(&mut received.pitch, movement.pitch);
                 merge(&mut received.yaw, movement.yaw);

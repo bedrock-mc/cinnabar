@@ -88,12 +88,49 @@ pub(crate) enum ActorApplyResult {
 /// Steps a remote actor takes to reach each absolute movement target.
 pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
+/// Vertical origin contributions; default values describe collision-feet coordinates.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PoseYOrigin {
+    spawn: f32,
+    network: f32,
+}
+impl PoseYOrigin {
+    const SPAWN: Self = Self {
+        spawn: 1.0,
+        network: 0.0,
+    };
+    const NETWORK: Self = Self {
+        spawn: 0.0,
+        network: 1.0,
+    };
+
+    /// Blends origin contributions with the same fraction as the vertical position.
+    fn interpolate(self, target: Self, fraction: f32) -> Self {
+        Self {
+            spawn: self.spawn + (target.spawn - self.spawn) * fraction,
+            network: self.network + (target.network - self.network) * fraction,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
+    /// Retains which vertical offsets contributed to this pose.
+    pub y_origin: PoseYOrigin,
     pub position: [f32; 3],
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
+}
+
+impl ActorPose {
+    /// Applies only the offset deltas that contributed to this pose's vertical coordinate.
+    fn shift_y(&mut self, network_delta: f32, spawn_delta: f32) {
+        let delta = self.y_origin.network * network_delta + self.y_origin.spawn * spawn_delta;
+        if delta != 0.0 {
+            self.position[1] += delta;
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -202,6 +239,7 @@ impl ActorSnapshot {
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);
         let pose = ActorPose {
+            y_origin: PoseYOrigin::SPAWN,
             position,
             pitch,
             yaw: spawn.yaw,
@@ -242,10 +280,14 @@ impl ActorSnapshot {
             dragon_animation: None,
             hitboxes: None,
         };
+        snapshot.set_current_pose(pose);
         // A falling block's spawn position carries its network offset, which its box sets; the
         // vanilla offset comes off here and `apply_metadata` rebases onto the spawn's box.
         if snapshot.is_falling_block() {
-            snapshot.shift_poses_y(-snapshot.falling_block_network_offset());
+            snapshot.shift_poses_y(
+                -snapshot.falling_block_network_offset(),
+                -snapshot.falling_block_network_offset(),
+            );
         }
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -266,6 +308,7 @@ impl ActorSnapshot {
         feed: &LocalPlayerFeed,
     ) -> Self {
         let pose = ActorPose {
+            y_origin: PoseYOrigin::default(),
             position: feed.position,
             pitch: feed.pitch,
             yaw: feed.yaw,
@@ -354,6 +397,7 @@ impl ActorSnapshot {
 
     fn current_pose(&self) -> ActorPose {
         ActorPose {
+            y_origin: self.status.movement_interpolation.current_y_origin,
             position: self.position,
             pitch: self.pitch,
             yaw: self.yaw,
@@ -362,6 +406,7 @@ impl ActorSnapshot {
     }
 
     fn set_current_pose(&mut self, pose: ActorPose) {
+        self.status.movement_interpolation.current_y_origin = pose.y_origin;
         self.position = pose.position;
         self.pitch = pose.pitch;
         self.yaw = pose.yaw;
@@ -462,16 +507,27 @@ impl ActorSnapshot {
         self.entity_fact.native_class == NativeEntityClass::FallingBlock
     }
 
-    /// Moves every retained pose and interpolation target by `delta` blocks vertically.
-    fn shift_poses_y(&mut self, delta: f32) {
-        for position in [
-            &mut self.position,
-            &mut self.previous_pose.position,
-            &mut self.received_pose.position,
+    /// Rebases retained poses and queued targets without moving collision-feet inputs.
+    fn shift_poses_y(&mut self, network_delta: f32, spawn_delta: f32) {
+        let mut current = self.current_pose();
+        for pose in [
+            &mut current,
+            &mut self.previous_pose,
+            &mut self.received_pose,
         ] {
-            position[1] += delta;
+            pose.shift_y(network_delta, spawn_delta);
         }
-        self.shift_interpolation_targets_y(delta);
+        self.set_current_pose(current);
+        self.shift_interpolation_targets_y(network_delta, spawn_delta);
+    }
+
+    /// Spawn packets need vertical normalization only for falling-block constructors.
+    fn spawn_network_offset(&self) -> f32 {
+        if self.is_falling_block() {
+            self.network_position_offset()
+        } else {
+            0.0
+        }
     }
 
     fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
@@ -500,7 +556,7 @@ impl ActorSnapshot {
         if let Some(previous) = falling_block_offset {
             let offset = self.falling_block_network_offset();
             if offset != previous {
-                self.shift_poses_y(previous - offset);
+                self.shift_poses_y(previous - offset, previous - offset);
             }
         }
         let burning = self.is_on_fire();

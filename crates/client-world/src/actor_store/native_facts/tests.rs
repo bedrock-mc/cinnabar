@@ -140,3 +140,104 @@ fn unknown_bases_are_retained_unresolved_and_counted_once() {
     store.apply_actor_interactions(registry);
     assert_eq!(store.actor_identifier_skips, 1);
 }
+
+/// Admits a constructor from the real pinned inventory under a derived custom namespace.
+fn admit_base(store: &mut ActorStore, identifier: &str, base: &str) {
+    store.apply_actor_interactions(ActorIdentifierRegistry {
+        entries: Arc::from([ActorIdentifier {
+            identifier: identifier.into(),
+            base_identifier: base.into(),
+        }]),
+        skipped: 0,
+    });
+}
+
+/// Compares rendered endpoints, decoded targets and the native position after admission.
+fn same_positions(first: &ActorSnapshot, second: &ActorSnapshot) {
+    for (a, b) in [
+        (first.position, second.position),
+        (first.previous_pose.position, second.previous_pose.position),
+        (first.received_pose.position, second.received_pose.position),
+        (
+            first.last_received_pose().position,
+            second.last_received_pose().position,
+        ),
+        (first.native_position(), second.native_position()),
+    ] {
+        for (a, b) in a.into_iter().zip(b) {
+            assert!((a - b).abs() < 1.0e-5, "{a} differs from {b}");
+        }
+    }
+}
+
+#[test]
+fn late_bases_reconcile_spawn_teleport_and_queued_network_poses() {
+    use protocol::{ActorInterpolation, ActorPositionOrigin};
+    for record in EntityFacts::pinned()
+        .records
+        .iter()
+        .filter(|r| r.fact.network_y_offset > 0.0)
+    {
+        let base = record.identifier.as_ref();
+        let identifier = custom(base);
+        for origin in [
+            ActorPositionOrigin::NetworkOffset,
+            ActorPositionOrigin::Feet,
+        ] {
+            for history in ["spawn", "teleport", "queued"] {
+                let mut early = ActorStore::new(1, 0);
+                let mut late = ActorStore::new(1, 0);
+                admit_base(&mut early, &identifier, base);
+                for store in [&mut early, &mut late] {
+                    store.apply(1, 1, spawn(&identifier, 1));
+                }
+                let offset = early.actors[&1].network_position_offset();
+                if history != "spawn" {
+                    let wire_y = if origin == ActorPositionOrigin::NetworkOffset {
+                        64.0 + offset
+                    } else {
+                        64.0
+                    };
+                    let ActorEvent::Move(mut movement) =
+                        super::super::tests::network_move(1, wire_y, history == "teleport")
+                    else {
+                        unreachable!()
+                    };
+                    movement.position_origin = origin;
+                    movement.on_ground = None;
+                    movement.interpolation = ActorInterpolation {
+                        ticks: 3,
+                        force_completion: true,
+                    };
+                    for store in [&mut early, &mut late] {
+                        store.apply(1, 2, ActorEvent::Move(movement.clone()));
+                        if history == "queued" {
+                            store.advance_interpolation_ticks(1);
+                        }
+                    }
+                    if history == "queued" {
+                        movement.position[1] = Some(wire_y + 4.0);
+                        movement.interpolation.force_completion = false;
+                        for store in [&mut early, &mut late] {
+                            store.apply(1, 3, ActorEvent::Move(movement.clone()));
+                        }
+                        // A rotation-only feet packet must retain the buffered Y's original frame.
+                        movement.position = [None; 3];
+                        movement.position_origin = ActorPositionOrigin::Feet;
+                        movement.yaw = Some(45.0);
+                        for store in [&mut early, &mut late] {
+                            store.apply(1, 4, ActorEvent::Move(movement.clone()));
+                        }
+                    }
+                }
+                admit_base(&mut late, &identifier, base);
+                same_positions(&early.actors[&1], &late.actors[&1]);
+                for _ in 0..6 {
+                    early.advance_interpolation_ticks(1);
+                    late.advance_interpolation_ticks(1);
+                    same_positions(&early.actors[&1], &late.actors[&1]);
+                }
+            }
+        }
+    }
+}
