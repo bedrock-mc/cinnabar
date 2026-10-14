@@ -19,6 +19,12 @@ mod held;
 mod lighting;
 pub use fire::PreviewFire;
 
+/// Takes this test thread's held vertex projection work since its previous observation.
+#[cfg(test)]
+pub(in crate::ui_runtime::presentation) fn take_held_projection_work() -> usize {
+    held::PROJECTED_VERTICES.with(|count| count.replace(0))
+}
+
 /// The same native live-player/paper-doll projection as the retained frame,
 /// with the original skin and equipment texture regions. The frame's virtual
 /// coordinates are only a matrix basis; they impose no raster-size ceiling.

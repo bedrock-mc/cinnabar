@@ -408,7 +408,13 @@ fn preview_dense_sprite_reserves_surrounding_controls_and_repeated_player_nodes(
                 ),
             );
         }
+        player_preview::geometry::take_held_projection_work();
         presentation.apply_gui_models(&mut nodes);
+        assert_eq!(
+            player_preview::geometry::take_held_projection_work(),
+            0,
+            "frame-budget-rejected held vertices must never be projected"
+        );
         for node in &nodes[..previews as usize] {
             let UiVisual::Mesh(mesh) = node.visual() else {
                 panic!("the player must retain its model")
