@@ -140,17 +140,20 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
-    let motion_sampling = (actor.is_creeper() || matches!(actor.kind(), ActorKind::Player { .. }))
-        .then(|| {
-            super::render_frame::motion_sampling::MotionSampling::new(
-                assets,
-                layout,
-                rig_binding,
-                geometry_binding,
-                &controllers,
-                &[],
-            )
-        });
+    // Camera rigs keep tick endpoints so camera frames can blend motion.
+    let motion_sampling = (samples_camera_poses
+        || actor.is_creeper()
+        || matches!(actor.kind(), ActorKind::Player { .. }))
+    .then(|| {
+        super::render_frame::motion_sampling::MotionSampling::new(
+            assets,
+            layout,
+            rig_binding,
+            geometry_binding,
+            &controllers,
+            &[],
+        )
+    });
     Some(ActorRigState {
         placement_frame: rig.placement_frame,
         pack: false,
@@ -572,7 +575,8 @@ fn reselect_geometry_with_checkpoint(
         selected,
         &controllers,
     );
-    state.motion_sampling = (actor.is_creeper()
+    state.motion_sampling = (state.samples_camera_poses
+        || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
         super::render_frame::motion_sampling::MotionSampling::new(

@@ -479,6 +479,7 @@ pub(super) fn evaluate_state(
     let samples_motion = state.motion_sampling.as_ref().is_some_and(|sampling| {
         actor.is_creeper()
             || sampling.uses_rotation()
+            || state.samples_camera_poses
             || (context.is_local_player && state.samples_swing_poses)
     });
     let mut render_frame = (state.samples_render_frames

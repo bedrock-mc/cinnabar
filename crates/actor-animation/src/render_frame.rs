@@ -550,35 +550,49 @@ impl ActorAnimationStore {
         }
         tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let body_swing_changed = frame.samples_swing_poses && swing_changed;
+        // Camera-dependent channels resample both endpoints with the live camera, so a camera
+        // frame still blends tick motion instead of drawing one latest-tick pose.
+        let camera_resample = state.samples_camera_poses && camera_inputs_changed;
         let isolated_motion = frame.motion_poses.is_some()
-            && (motion_changed || body_swing_changed)
-            && !(frame.samples_camera_poses && camera_inputs_changed);
-        let mut endpoints: Option<(MotionEndpoint<'_>, MotionEndpoint<'_>)> = if isolated_motion {
-            let amount = actor.creeper_swell_amount(partial_tick);
-            let Ok(previous) = previous_motion.sample(
-                evaluation::Evaluator {
-                    input: &previous_input,
-                    ..evaluator
-                },
-                state,
-                amount,
-                swing,
-                false,
-                &mut budget,
-            ) else {
-                return Some(completed());
+            && (motion_changed || body_swing_changed || camera_resample);
+        let endpoint_contexts = isolated_motion.then(|| {
+            [previous_motion, &frame.motion].map(|motion| {
+                let mut context = motion.context.clone();
+                context.camera_rotation = camera_rotation;
+                context.camera_position = camera_position;
+                context
+            })
+        });
+        let mut endpoints: Option<(MotionEndpoint<'_>, MotionEndpoint<'_>)> =
+            if let Some([previous_context, current_context]) = endpoint_contexts.as_ref() {
+                let amount = actor.creeper_swell_amount(partial_tick);
+                let Ok(previous) = previous_motion.sample(
+                    evaluation::Evaluator {
+                        input: &previous_input,
+                        ..evaluator
+                    },
+                    state,
+                    (amount, swing),
+                    camera_resample.then_some(previous_context),
+                    false,
+                    &mut budget,
+                ) else {
+                    return Some(completed());
+                };
+                let Ok(current) = frame.motion.sample(
+                    evaluator,
+                    state,
+                    (amount, swing),
+                    camera_resample.then_some(current_context),
+                    true,
+                    &mut budget,
+                ) else {
+                    return Some(completed());
+                };
+                Some((previous, current))
+            } else {
+                None
             };
-            let Ok(current) =
-                frame
-                    .motion
-                    .sample(evaluator, state, amount, swing, true, &mut budget)
-            else {
-                return Some(completed());
-            };
-            Some((previous, current))
-        } else {
-            None
-        };
         let scale = if let Some((_, current)) = &endpoints {
             current.scale
         } else if motion_changed {
@@ -671,6 +685,9 @@ impl ActorAnimationStore {
             .then_some(state.motion_sampling.as_ref())
             .flatten()
             .map(|sampling| {
+                if camera_resample {
+                    return motion_sampling::full_mask(state.bone_names.len());
+                }
                 sampling.mask(
                     assets,
                     &state.bone_names,
@@ -812,18 +829,7 @@ impl ActorAnimationStore {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
                     {
-                        let layer_isolated = endpoints.is_none()
-                            || match camera::layer_motion_isolated(
-                                &evaluator,
-                                clips,
-                                geometry,
-                                camera_inputs_changed,
-                                &mut budget,
-                            ) {
-                                Ok(isolated) => isolated,
-                                Err(_) => return Some(completed()),
-                            };
-                        let layer_endpoints = endpoints.as_ref().filter(|_| layer_isolated);
+                        let layer_endpoints = endpoints.as_ref();
                         let (layer_evaluator, layer_variables) = layer_endpoints
                             .map_or((&evaluator, &variables), |(_, current)| {
                                 (&current.evaluator, &current.variables)
@@ -845,6 +851,9 @@ impl ActorAnimationStore {
                             .then_some(state.motion_sampling.as_ref())
                             .flatten()
                             .map(|sampling| {
+                                if camera_resample {
+                                    return motion_sampling::full_mask(skeleton.names.len());
+                                }
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,

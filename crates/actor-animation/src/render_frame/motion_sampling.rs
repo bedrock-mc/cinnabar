@@ -21,6 +21,11 @@ pub(crate) struct MotionSampling {
     rig_scale: bool,
 }
 
+/// Resamples every channel of `bones` from both endpoints.
+pub(super) fn full_mask(bones: usize) -> Vec<[u8; 3]> {
+    vec![[TRANSLATION | ROTATION | SCALE | ROTATION_FRAME; 3]; bones]
+}
+
 impl MotionSampling {
     /// Tracks sampled motion queries and their authored variable and channel dependencies.
     pub(crate) fn new(
