@@ -52,6 +52,22 @@ impl SkullKind {
         })
     }
 
+    /// Packed skull rigs exist exactly when the head has an atlas texture.
+    pub const fn packed_rig_index(self) -> Option<u8> {
+        if skull_texture(self as u8).is_some() {
+            Some(self as u8)
+        } else {
+            None
+        }
+    }
+
+    /// Iterates packed head models across the legacy byte ordinal domain.
+    pub fn packed_kinds() -> impl Iterator<Item = Self> {
+        (0..=u8::MAX)
+            .filter_map(|value| Self::from_nbt(i64::from(value)))
+            .filter(|kind| kind.packed_rig_index().is_some())
+    }
+
     /// The head's packed texture and the size its UVs were authored against.
     #[must_use]
     pub fn texture(self, atlas: &BlockEntityAtlas) -> Option<TextureRef> {

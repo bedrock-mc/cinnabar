@@ -23,7 +23,7 @@ fn equipment_fixture() -> (EquipmentRuntime, render_model::ActorArtworkPages) {
 fn equipment_fixture_with_native_bow(
     native_bow: bool,
 ) -> (EquipmentRuntime, render_model::ActorArtworkPages) {
-    let mut files = vec![
+    let mut files: Vec<(Box<str>, Vec<u8>)> = vec![
         ("models/entity/test.geo.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":16,"texture_height":16},"bones":[{"name":"item","pivot":[0,0,0],"texture_meshes":[{"texture":"default","position":[0,0,0],"rotation":[0,0,0]}]}]}]}"#.to_vec()),
         ("render_controllers/test.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"arrays":{"textures":{"Array.frames":["Texture.default","Texture.pull1","Texture.pull2","Texture.pull3"]}},"textures":["Array.frames[query.get_animation_frame]"]}}}"#.to_vec()),
     ];

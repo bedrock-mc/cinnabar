@@ -139,6 +139,7 @@ crates/assets/data/biome-registry-v2193.bin
 crates/assets/data/block-light-registry-v2193.bin
 crates/assets/data/block-physics-seed-v2193.bin
 crates/assets/data/block-registry-v2193.bin
+crates/assets/data/entity-facts-v2193.bin
 crates/assets/data/item-fuel-v2193.tsv
 crates/assets/data/item-glint-v2193.tsv
 crates/assets/data/item-grips-v2193.tsv

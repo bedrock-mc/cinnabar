@@ -331,6 +331,11 @@ mod carrier_tests {
         fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
         fs::write(entity_asset_path(&world), &entity).unwrap();
         fs::write(
+            world.with_file_name(assets::carriers::ENTITY_FACTS.output),
+            assets::facts::entity::SOURCE_BYTES,
+        )
+        .unwrap();
+        fs::write(
             actor_asset_path(&world),
             assets::encode_actor_catalog(&entity, &[], &[]).unwrap(),
         )
@@ -348,6 +353,7 @@ mod carrier_tests {
                 "audio",
                 "block entity",
                 "entity",
+                "entity facts",
                 "equipment",
                 "font",
                 "hud",

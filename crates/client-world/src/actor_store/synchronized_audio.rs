@@ -49,8 +49,8 @@ impl ActorStore {
     /// Reserves the spawn's audio admission credit until the rocket's first actor tick.
     pub(super) fn queue_rocket_launch_audio(&mut self, runtime_id: u64) {
         let actor = &self.actors[&runtime_id];
-        if !matches!(&actor.kind, protocol::ActorKind::Entity { identifier }
-            if identifier.as_ref() == FIREWORK_ROCKET_IDENTIFIER)
+        if actor.entity_fact.native_class
+            != assets::facts::entity::NativeEntityClass::FireworksRocket
         {
             return;
         }

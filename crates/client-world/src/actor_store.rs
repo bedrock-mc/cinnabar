@@ -1,18 +1,23 @@
+use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
 use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use protocol::ITEM_ACTOR_NETWORK_OFFSET;
 
 mod aim_assist;
 mod animated;
 mod appearance_preparation;
 mod effect_members;
+mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ITEM_ACTOR_NETWORK_OFFSET, ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
-    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
-    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -64,11 +69,7 @@ const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 /// A sleeping player's offset from its feet to its native actor-state position (its eye).
 pub const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 /// A vanilla falling block's network offset, for its vanilla box height.
-const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
 const FALLING_BLOCK_HEIGHT: f32 = 0.98;
-const MINECART_NETWORK_OFFSET: f32 = 0.5;
-const BOAT_NETWORK_OFFSET: f32 = 0.375;
-const DEFAULT_PRIMED_TNT_NETWORK_OFFSET: f32 = 0.49;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActorApplyResult {
@@ -104,6 +105,8 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    /// Native facts copied at actor admission from its declared constructor.
+    pub entity_fact: EntityFact,
     /// Resolved at packet admission; frame and ray paths read these numeric dispositions.
     pub interaction_traits: assets::interactions::EntityInteractionTraits,
     pub position: [f32; 3],
@@ -167,9 +170,7 @@ impl ActorSnapshot {
     }
 
     pub(crate) fn is_dying_dragon(&self) -> bool {
-        self.status.dead
-            && matches!(&self.kind, ActorKind::Entity { identifier }
-            if identifier.as_ref() == "minecraft:ender_dragon")
+        self.status.dead && self.entity_fact.native_class == NativeEntityClass::EnderDragon
     }
 
     /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
@@ -192,9 +193,12 @@ impl ActorSnapshot {
             .then_some(position)
     }
 
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
-        let terrain_interlock =
-            terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+    /// Builds retained state using the constructor facts resolved at admission.
+    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64, entity_fact: EntityFact) -> Self {
+        let terrain_interlock = terrain_interlock::TerrainInterlock::attached(
+            entity_fact.native_class,
+            std::time::Instant::now(),
+        );
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);
         let pose = ActorPose {
@@ -211,6 +215,7 @@ impl ActorSnapshot {
             movement_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
+            entity_fact,
             position,
             velocity: spawn.velocity,
             pitch,
@@ -274,6 +279,7 @@ impl ActorSnapshot {
             movement_revision: revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player { uuid, username },
+            entity_fact: EntityFacts::pinned().player(),
             position: feed.position,
             velocity: feed.velocity,
             pitch: feed.pitch,
@@ -432,11 +438,11 @@ impl ActorSnapshot {
             _ => FALLING_BLOCK_HEIGHT,
         };
         let offset =
-            FALLING_BLOCK_NETWORK_OFFSET * height * self.render_scale() / FALLING_BLOCK_HEIGHT;
+            self.entity_fact.network_y_offset * height * self.render_scale() / FALLING_BLOCK_HEIGHT;
         if offset.is_finite() {
             offset
         } else {
-            FALLING_BLOCK_NETWORK_OFFSET
+            self.entity_fact.network_y_offset
         }
     }
 
@@ -449,11 +455,11 @@ impl ActorSnapshot {
                 }
                 _ => None,
             })
-            .unwrap_or(DEFAULT_PRIMED_TNT_NETWORK_OFFSET)
+            .unwrap_or(self.entity_fact.network_y_offset)
     }
 
     fn is_falling_block(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
+        self.entity_fact.native_class == NativeEntityClass::FallingBlock
     }
 
     /// Moves every retained pose and interpolation target by `delta` blocks vertically.
@@ -697,8 +703,7 @@ pub(crate) struct ActorStore {
     player_game_mode_skips: u64,
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
-    custom_actor_traits:
-        HashMap<std::sync::Arc<str>, assets::interactions::EntityInteractionTraits>,
+    custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
     actors: HashMap<u64, ActorSnapshot>,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: HashMap<i64, u64>,

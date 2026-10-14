@@ -1,4 +1,7 @@
-use protocol::{ActorHandedness, ActorKind, ITEM_ACTOR_NETWORK_OFFSET};
+use assets::facts::entity::NativeEntityClass;
+#[cfg(test)]
+use protocol::ActorKind;
+use protocol::{ActorHandedness, ITEM_ACTOR_NETWORK_OFFSET};
 use std::{
     hash::{BuildHasher, Hash},
     sync::OnceLock,
@@ -124,10 +127,7 @@ impl ActorStore {
         if actor.status.pickup.is_some() {
             return None;
         }
-        let ActorKind::Entity { identifier } = &actor.kind else {
-            return None;
-        };
-        if identifier.as_ref() != "minecraft:item" {
+        if actor.entity_fact.native_class != NativeEntityClass::Item {
             return None;
         }
         let mut position = actor.position;
@@ -170,10 +170,7 @@ impl ActorStore {
     }
 
     fn dropped_item_view(&self, actor: &ActorSnapshot, alpha: f32) -> Option<DroppedItemView> {
-        let ActorKind::Entity { identifier } = &actor.kind else {
-            return None;
-        };
-        if identifier.as_ref() != "minecraft:item" {
+        if actor.entity_fact.native_class != NativeEntityClass::Item {
             return None;
         }
         let item = self

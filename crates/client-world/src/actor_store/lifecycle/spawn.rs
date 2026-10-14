@@ -53,9 +53,10 @@ impl ActorStore {
         let interaction_traits = Self::resolve_actor_interactions(
             &spawn.kind,
             self.entity_assets.as_deref(),
-            &self.custom_actor_traits,
+            &self.custom_actor_facts,
         );
-        let mut actor = ActorSnapshot::from_spawn(spawn, sequence);
+        let fact = self.resolve_entity_fact(&spawn.kind);
+        let mut actor = ActorSnapshot::from_spawn(spawn, sequence, fact);
         actor.interaction_traits = interaction_traits;
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);

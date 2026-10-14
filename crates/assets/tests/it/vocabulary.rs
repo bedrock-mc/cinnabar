@@ -69,6 +69,18 @@ impl Vocabulary {
             domains["actor"], actors,
             "actor vocabulary differs from its source projection"
         );
+        // Fact carriers may include reviewed compatibility constructors beyond sample metadata.
+        // Their declarations still undergo the independent actor-vocabulary check below.
+        let policy = json(&root.join("crates/asset-compiler/data/registry-policy.json"));
+        let mut fact_actors = actors.clone();
+        fact_actors.extend(
+            policy["entity_compatibility"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().to_owned()),
+        );
+        domains.insert("entity_actor".into(), fact_actors);
         for (version, block_domain, property_domain) in [
             ("v1001", "legacy_block", "legacy_property"),
             ("v2193", "registry_block", "registry_property"),
@@ -135,9 +147,7 @@ fn add(refs: &mut BTreeSet<Reference>, file: &str, path: &str, domain: &str, ide
 /// Selects the registry namespace for a JSON table, failing when a new table has no policy.
 fn table_domain(file: &str) -> &'static str {
     match file {
-        "entity-interactions.json" | "entity-placement-frame.json" | "mount-equipment.json" => {
-            "actor"
-        }
+        "entity-components-1.26.50.json" => "actor",
         "item-use-profiles.json"
         | "item-armour-v2193.json"
         | "item-durability-v2193.json"
@@ -189,6 +199,9 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                 }
                 let child_domain = match key.as_str() {
                     "identifier" if file.starts_with("block-item-routes-") => "item",
+                    "entity_rules" | "entity_compatibility" if file == "registry-policy.json" => {
+                        "actor"
+                    }
                     "twin" if file == "registry-policy.json" => "legacy_block",
                     "duration_alias" => "behavior_item",
                     "default_alias" => "item_texture",
@@ -256,7 +269,13 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                 }
             }
         }
-        Value::String(name) if name.starts_with("minecraft:") || name == "cinnabar:reserved" => {
+        Value::String(name)
+            if name.starts_with("minecraft:")
+                || name == "cinnabar:reserved"
+                || (file == "registry-policy.json"
+                    && (path.contains("/members/")
+                        || path.starts_with("/entity_compatibility/"))) =>
+        {
             add(refs, file, path, domain, name);
         }
         _ => {}
@@ -292,11 +311,17 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         | "item-grips-v2193.tsv"
         | "legacy-icon-routes-26.30.tsv" => "retail_item",
         "server-defined-blocks-v2193.tsv" | "block-destroy-v2193.tsv" => "block",
+        "entity-facts-expansion-v2193.tsv" => "entity_actor",
+        "item-name-identities-1.26.50.tsv" => "item",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
         .lines()
-        .filter(|line| !line.starts_with('#') && !line.is_empty())
+        .filter(|line| {
+            !line.starts_with('#')
+                && !line.is_empty()
+                && !(file == "entity-facts-expansion-v2193.tsv" && line.starts_with("identifier\t"))
+        })
         .enumerate()
     {
         let fields: Vec<_> = line.split('\t').collect();
@@ -325,6 +350,22 @@ fn references(root: &Path) -> BTreeSet<Reference> {
                 }
                 "tsv" if file == "vanilla-pack-vocabulary-1.26.50.tsv" => {}
                 "tsv" => tsv_refs(&mut refs, file, &fs::read_to_string(&path).unwrap()),
+                "bin" if file == assets::facts::entity::FILENAME => {
+                    let facts = assets::facts::entity::EntityFacts::decode(
+                        &fs::read(&path).unwrap(),
+                        assets::active_content_registry_protocol(),
+                    )
+                    .unwrap();
+                    for (index, record) in facts.records.iter().enumerate() {
+                        add(
+                            &mut refs,
+                            file,
+                            &format!("/{index}"),
+                            "entity_actor",
+                            &record.identifier,
+                        );
+                    }
+                }
                 // Light, physics and fallback carriers use checked block IDs, not identifier text.
                 "bin" if file.starts_with("block-registry-") => {
                     let legacy = file.contains("v1001");
@@ -440,14 +481,14 @@ fn pack_vocabulary_has_the_pinned_projection_fingerprint() {
 #[test]
 fn wrong_domains_and_stale_exceptions_are_rejected() {
     let vocabulary = Vocabulary::load(&root());
-    let document = json(&root().join("crates/assets/data/mount-equipment.json"));
+    let document = json(&root().join("crates/asset-compiler/data/registry-policy.json"));
     let mut collected = BTreeSet::new();
     walk(
         &mut collected,
-        "mount-equipment.json",
+        "registry-policy.json",
         &document,
         "",
-        "actor",
+        "block",
     );
     let mut reference = collected
         .iter()
@@ -502,27 +543,47 @@ fn twin_items_are_checked_against_the_positive_retail_surface() {
 #[test]
 fn every_pinned_actor_has_an_explicit_interaction_disposition() {
     let vocabulary = Vocabulary::load(&root());
-    let document = json(&root().join("crates/assets/data/entity-interactions.json"));
-    let entries = document["entries"].as_object().unwrap();
+    let document = json(&root().join("crates/asset-compiler/data/registry-policy.json"));
+    let declared: BTreeSet<_> = document["entity_rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|rule| rule["facts"].get("interactions").is_some())
+        .flat_map(|rule| {
+            rule["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| member.as_str().unwrap())
+        })
+        .collect();
     for actor in &vocabulary.domains["actor"] {
         assert!(
-            entries.contains_key(actor),
-            "missing explicit interaction disposition for {actor}"
+            declared.contains(actor.as_str()),
+            "missing explicit disposition for {actor}"
+        );
+        assert_ne!(
+            assets::facts::entity::EntityFacts::pinned()
+                .get(actor)
+                .class_key,
+            0,
+            "missing actor {actor}"
         );
     }
 }
 
 #[test]
-fn an_unqualified_actor_key_cannot_disappear_from_validation() {
+fn an_unqualified_actor_member_cannot_disappear_from_validation() {
     let vocabulary = Vocabulary::load(&root());
-    let mut document = json(&root().join("crates/assets/data/mount-equipment.json"));
-    let equipment = document["equipment"].as_object_mut().unwrap();
-    let actor = equipment.keys().next().unwrap().clone();
-    let profile = equipment.remove(&actor).unwrap();
+    let mut document = json(&root().join("crates/asset-compiler/data/registry-policy.json"));
+    let actor = document["entity_rules"][0]["members"][0]
+        .as_str()
+        .unwrap()
+        .to_owned();
     let bare = actor.strip_prefix("minecraft:").unwrap().to_owned();
-    equipment.insert(bare.clone(), profile);
+    document["entity_rules"][0]["members"][0] = Value::String(bare.clone());
     let mut refs = BTreeSet::new();
-    walk(&mut refs, "mount-equipment.json", &document, "", "actor");
+    walk(&mut refs, "registry-policy.json", &document, "", "block");
     assert!(
         refs.iter()
             .any(|reference| reference.identifier == bare && !vocabulary.contains(reference))

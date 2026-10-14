@@ -159,15 +159,15 @@ impl Slots {
 }
 
 /// Authored player pre-animation owns the pose whenever it assigns the spear gate itself.
-pub(super) fn needs_completion(assets: &RuntimeEntityAssets, binding: usize) -> bool {
+pub(super) fn needs_completion(
+    assets: &RuntimeEntityAssets,
+    binding: usize,
+    class: assets::facts::entity::NativeEntityClass,
+) -> bool {
     let Some(rig) = assets.rig_bindings().get(binding) else {
         return false;
     };
-    if assets.symbols()[rig.entity_symbol as usize]
-        .identifier
-        .as_ref()
-        != "minecraft:player"
-    {
+    if class != assets::facts::entity::NativeEntityClass::Player {
         return false;
     }
     let Some(script) = rig

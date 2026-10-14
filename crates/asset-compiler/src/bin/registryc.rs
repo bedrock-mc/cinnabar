@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, ValueEnum)]
 enum Kind {
+    Entities,
     Blocks,
     Physics,
     Biomes,
@@ -16,7 +17,9 @@ struct Args {
     #[arg(long)]
     root: PathBuf,
     #[arg(long)]
-    facts: PathBuf,
+    facts: Option<PathBuf>,
+    #[arg(long)]
+    archive: Option<PathBuf>,
     #[arg(long, value_enum)]
     kind: Kind,
     #[arg(long)]
@@ -40,8 +43,25 @@ struct Args {
 /// Dispatches a compiler pass or regenerates every carrier for an exact byte comparison.
 fn main() -> Result<()> {
     let args = Args::parse();
-    let facts = registry_policy::read_facts(&args.facts)?;
+    if matches!(args.kind, Kind::Entities) {
+        if let Some(archive) = &args.archive {
+            let bytes = registry_policy::entities::components_from_archive(archive)?;
+            let path = args.root.join(registry_policy::entities::COMPONENTS_PATH);
+            std::fs::create_dir_all(path.parent().ok_or("components parent missing")?)?;
+            std::fs::write(path, bytes)?;
+        }
+        return registry_policy::entities::compile(
+            &args.root,
+            &args.out,
+            &std::fs::read(
+                args.root
+                    .join("crates/asset-compiler/data/registry-policy.json"),
+            )?,
+        );
+    }
+    let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
+        Kind::Entities => unreachable!(),
         Kind::Blocks => registry_policy::blocks(
             &args.root,
             &facts,
@@ -160,7 +180,27 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         final_path.with_extension("sha256"),
         format!("{:x}\n", Sha256::digest(&final_bytes)),
     )?;
+    registry_policy::entities::compile(
+        &args.root,
+        &args.out,
+        &std::fs::read(
+            args.root
+                .join("crates/asset-compiler/data/registry-policy.json"),
+        )?,
+    )?;
     if args.check {
+        for path in [
+            assets::facts::entity::SOURCE_PATH,
+            assets::facts::entity::EXPANSION_PATH,
+        ] {
+            if std::fs::read(args.out.join(path))? != std::fs::read(args.root.join(path))? {
+                return Err(format!("regeneration changed {path}").into());
+            }
+        }
+        let sha = Path::new(assets::facts::entity::SOURCE_PATH).with_extension("sha256");
+        if std::fs::read(args.out.join(&sha))? != std::fs::read(args.root.join(&sha))? {
+            return Err("entity facts checksum changed".into());
+        }
         for path in [
             &block_path,
             &light_path,

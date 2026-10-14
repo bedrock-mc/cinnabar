@@ -2,7 +2,7 @@
 
 use protocol::{ParticleEvent, SpawnParticleEffectEvent};
 
-use super::{ActorKind, ActorStore};
+use super::ActorStore;
 
 pub(super) const DRAGON_DEATH_TICKS: u16 = 200;
 const FINAL_EXPLOSION_START: u16 = 180;
@@ -16,7 +16,8 @@ impl ActorStore {
         self.advance_dragon_fireball_particles();
         let dimension = u8::try_from(self.dimension).ok();
         for actor in self.actors.values_mut() {
-            if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
+            if actor.entity_fact.native_class
+                != assets::facts::entity::NativeEntityClass::EnderDragon
                 || !actor.status.dead
                 || actor.status.dragon_death_time >= DRAGON_DEATH_TICKS
             {

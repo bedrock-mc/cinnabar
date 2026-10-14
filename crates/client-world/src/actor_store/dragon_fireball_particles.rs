@@ -1,8 +1,9 @@
 //! Fixed-tick particle trail left by a dragon fireball.
+use assets::facts::entity::NativeEntityClass;
 
 use protocol::SpawnParticleEffectEvent;
 
-use super::{ActorKind, ActorStore};
+use super::ActorStore;
 
 const TRAIL_EFFECT: &str = "minecraft:dragon_breath_trail";
 const TRAIL_HEIGHT: f32 = 0.5;
@@ -13,8 +14,7 @@ impl ActorStore {
             return;
         };
         for actor in self.actors.values() {
-            if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:dragon_fireball")
-            {
+            if actor.entity_fact.native_class != NativeEntityClass::DragonFireball {
                 continue;
             }
             let mut position = actor.position;

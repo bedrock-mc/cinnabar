@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
-use protocol::{ActorBlockSyncMessage, ActorKind};
+use assets::facts::entity::NativeEntityClass;
+use protocol::ActorBlockSyncMessage;
 
 use super::ActorStore;
 
@@ -17,9 +18,8 @@ pub(super) enum TerrainInterlock {
 }
 
 impl TerrainInterlock {
-    pub(super) fn attached(kind: &ActorKind, now: Instant) -> Self {
-        if matches!(kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
-        {
+    pub(super) fn attached(class: NativeEntityClass, now: Instant) -> Self {
+        if class == NativeEntityClass::FallingBlock {
             Self::Pending { attached_at: now }
         } else {
             Self::Visible

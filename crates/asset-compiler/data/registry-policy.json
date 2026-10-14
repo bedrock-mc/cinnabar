@@ -665,5 +665,798 @@
     "unresolved": [
       "minecraft:soul_soil"
     ]
-  }
+  },
+  "entity_compatibility": [
+    "minecraft:balloon",
+    "minecraft:chalkboard",
+    "minecraft:elder_guardian_ghost",
+    "minecraft:evocation_fang",
+    "minecraft:falling_block",
+    "minecraft:ice_bomb",
+    "minecraft:item",
+    "minecraft:leash_knot",
+    "minecraft:moving_block",
+    "minecraft:painting",
+    "minecraft:shield"
+  ],
+  "entity_rules": [
+    {
+      "id": "entity-interactions-0",
+      "status": "provisional",
+      "members": [
+        "minecraft:agent",
+        "minecraft:allay",
+        "minecraft:armadillo",
+        "minecraft:armor_stand",
+        "minecraft:axolotl",
+        "minecraft:bat",
+        "minecraft:bee",
+        "minecraft:blaze",
+        "minecraft:boat",
+        "minecraft:bogged",
+        "minecraft:breeze",
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:cat",
+        "minecraft:cave_spider",
+        "minecraft:chest_boat",
+        "minecraft:chest_minecart",
+        "minecraft:chicken",
+        "minecraft:cod",
+        "minecraft:command_block_minecart",
+        "minecraft:copper_golem",
+        "minecraft:cow",
+        "minecraft:creaking",
+        "minecraft:creeper",
+        "minecraft:dolphin",
+        "minecraft:donkey",
+        "minecraft:drowned",
+        "minecraft:elder_guardian",
+        "minecraft:elder_guardian_ghost",
+        "minecraft:ender_dragon",
+        "minecraft:enderman",
+        "minecraft:endermite",
+        "minecraft:evocation_illager",
+        "minecraft:fox",
+        "minecraft:frog",
+        "minecraft:ghast",
+        "minecraft:glow_squid",
+        "minecraft:goat",
+        "minecraft:guardian",
+        "minecraft:happy_ghast",
+        "minecraft:hoglin",
+        "minecraft:hopper_minecart",
+        "minecraft:horse",
+        "minecraft:husk",
+        "minecraft:iron_golem",
+        "minecraft:llama",
+        "minecraft:magma_cube",
+        "minecraft:minecart",
+        "minecraft:mooshroom",
+        "minecraft:mule",
+        "minecraft:nautilus",
+        "minecraft:npc",
+        "minecraft:ocelot",
+        "minecraft:panda",
+        "minecraft:parched",
+        "minecraft:parrot",
+        "minecraft:phantom",
+        "minecraft:pig",
+        "minecraft:piglin",
+        "minecraft:piglin_brute",
+        "minecraft:pillager",
+        "minecraft:player",
+        "minecraft:polar_bear",
+        "minecraft:pufferfish",
+        "minecraft:rabbit",
+        "minecraft:ravager",
+        "minecraft:salmon",
+        "minecraft:sheep",
+        "minecraft:shulker",
+        "minecraft:silverfish",
+        "minecraft:skeleton",
+        "minecraft:skeleton_horse",
+        "minecraft:slime",
+        "minecraft:sniffer",
+        "minecraft:snow_golem",
+        "minecraft:spider",
+        "minecraft:squid",
+        "minecraft:stray",
+        "minecraft:strider",
+        "minecraft:sulfur_cube",
+        "minecraft:tadpole",
+        "minecraft:tnt_minecart",
+        "minecraft:trader_llama",
+        "minecraft:tripod_camera",
+        "minecraft:tropicalfish",
+        "minecraft:turtle",
+        "minecraft:vex",
+        "minecraft:villager",
+        "minecraft:villager_v2",
+        "minecraft:vindicator",
+        "minecraft:wandering_trader",
+        "minecraft:warden",
+        "minecraft:witch",
+        "minecraft:wither",
+        "minecraft:wither_skeleton",
+        "minecraft:wolf",
+        "minecraft:zoglin",
+        "minecraft:zombie",
+        "minecraft:zombie_horse",
+        "minecraft:zombie_nautilus",
+        "minecraft:zombie_pigman",
+        "minecraft:zombie_villager",
+        "minecraft:zombie_villager_v2"
+      ],
+      "facts": {
+        "interactions": {
+          "Provisional": {
+            "aim_assist": true,
+            "obstructs_placement": true,
+            "pickable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "entity-interactions-1",
+      "status": "provisional",
+      "members": [
+        "minecraft:area_effect_cloud",
+        "minecraft:arrow",
+        "minecraft:breeze_wind_charge_projectile",
+        "minecraft:dragon_fireball",
+        "minecraft:egg",
+        "minecraft:ender_pearl",
+        "minecraft:evocation_fang",
+        "minecraft:eye_of_ender_signal",
+        "minecraft:falling_block",
+        "minecraft:fireball",
+        "minecraft:fireworks_rocket",
+        "minecraft:fishing_hook",
+        "minecraft:item",
+        "minecraft:lightning_bolt",
+        "minecraft:lingering_potion",
+        "minecraft:llama_spit",
+        "minecraft:shulker_bullet",
+        "minecraft:small_fireball",
+        "minecraft:snowball",
+        "minecraft:splash_potion",
+        "minecraft:thrown_trident",
+        "minecraft:wind_charge_projectile",
+        "minecraft:wither_skull",
+        "minecraft:wither_skull_dangerous",
+        "minecraft:xp_bottle",
+        "minecraft:xp_orb"
+      ],
+      "facts": {
+        "interactions": {
+          "Provisional": {
+            "aim_assist": false,
+            "obstructs_placement": false,
+            "pickable": false
+          }
+        }
+      }
+    },
+    {
+      "id": "entity-interactions-2",
+      "status": "provisional",
+      "members": [
+        "minecraft:balloon",
+        "minecraft:chalkboard",
+        "minecraft:ender_crystal",
+        "minecraft:ice_bomb",
+        "minecraft:leash_knot",
+        "minecraft:moving_block",
+        "minecraft:ominous_item_spawner",
+        "minecraft:painting",
+        "minecraft:shield",
+        "minecraft:tnt"
+      ],
+      "facts": {
+        "interactions": {
+          "Provisional": {
+            "aim_assist": false,
+            "obstructs_placement": true,
+            "pickable": true
+          }
+        }
+      }
+    },
+    {
+      "id": "entity-interactions-3",
+      "status": "provisional",
+      "members": [
+        "minecraft:cushion"
+      ],
+      "facts": {
+        "interactions": "Unresolved"
+      }
+    },
+    {
+      "id": "entity-placement-frame-0",
+      "status": "provisional",
+      "members": [
+        "minecraft:arrow",
+        "minecraft:fireworks_rocket",
+        "minecraft:wither_skull",
+        "minecraft:wither_skull_dangerous"
+      ],
+      "facts": {
+        "placement": {
+          "Provisional": {
+            "placement": "Absolute",
+            "target_rotation": "Absolute"
+          }
+        }
+      }
+    },
+    {
+      "id": "entity-placement-frame-1",
+      "status": "provisional",
+      "members": [
+        "minecraft:dragon_fireball",
+        "minecraft:egg",
+        "minecraft:ender_pearl",
+        "minecraft:eye_of_ender_signal",
+        "minecraft:fireball",
+        "minecraft:lingering_potion",
+        "minecraft:small_fireball",
+        "minecraft:snowball",
+        "minecraft:splash_potion",
+        "minecraft:xp_bottle",
+        "minecraft:xp_orb"
+      ],
+      "facts": {
+        "placement": {
+          "Provisional": {
+            "placement": "Absolute",
+            "target_rotation": "Body"
+          }
+        }
+      }
+    },
+    {
+      "id": "mount-equipment-0",
+      "status": "provisional",
+      "members": [
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:donkey",
+        "minecraft:mule"
+      ],
+      "facts": {
+        "equipment": {
+          "Provisional": {
+            "body": "None",
+            "saddle": true
+          }
+        }
+      }
+    },
+    {
+      "id": "mount-equipment-1",
+      "status": "provisional",
+      "members": [
+        "minecraft:horse",
+        "minecraft:zombie_horse"
+      ],
+      "facts": {
+        "equipment": {
+          "Provisional": {
+            "body": "HorseArmor",
+            "saddle": true
+          }
+        }
+      }
+    },
+    {
+      "id": "mount-equipment-2",
+      "status": "provisional",
+      "members": [
+        "minecraft:llama",
+        "minecraft:trader_llama"
+      ],
+      "facts": {
+        "equipment": {
+          "Provisional": {
+            "body": "Carpet",
+            "saddle": false
+          }
+        }
+      }
+    },
+    {
+      "id": "mount-equipment-3",
+      "status": "provisional",
+      "members": [
+        "minecraft:nautilus",
+        "minecraft:zombie_nautilus"
+      ],
+      "facts": {
+        "equipment": {
+          "Provisional": {
+            "body": "NautilusArmor",
+            "saddle": true
+          }
+        }
+      }
+    },
+    {
+      "id": "mount-equipment-4",
+      "status": "provisional",
+      "members": [
+        "minecraft:skeleton_horse"
+      ],
+      "facts": {
+        "equipment": {
+          "Provisional": {
+            "body": "None",
+            "saddle": false
+          }
+        }
+      }
+    },
+    {
+      "id": "class-Arrow",
+      "status": "provisional",
+      "members": [
+        "minecraft:arrow"
+      ],
+      "facts": {
+        "native_class": "Arrow"
+      }
+    },
+    {
+      "id": "class-Boat",
+      "status": "provisional",
+      "members": [
+        "minecraft:boat",
+        "minecraft:chest_boat"
+      ],
+      "facts": {
+        "native_class": "Boat",
+        "shadow": {
+          "Fixed": 1.0
+        }
+      }
+    },
+    {
+      "id": "class-Minecart",
+      "status": "provisional",
+      "members": [
+        "minecraft:minecart",
+        "minecraft:hopper_minecart",
+        "minecraft:tnt_minecart",
+        "minecraft:chest_minecart",
+        "minecraft:command_block_minecart"
+      ],
+      "facts": {
+        "native_class": "Minecart",
+        "network_y_offset": 0.5
+      }
+    },
+    {
+      "id": "class-Horse",
+      "status": "provisional",
+      "members": [
+        "minecraft:horse",
+        "minecraft:donkey",
+        "minecraft:mule",
+        "minecraft:skeleton_horse",
+        "minecraft:zombie_horse"
+      ],
+      "facts": {
+        "native_class": "Horse",
+        "shadow": {
+          "Width": 0.6
+        },
+        "horse": true,
+        "living_mount": true
+      }
+    },
+    {
+      "id": "class-Player",
+      "status": "provisional",
+      "members": [
+        "minecraft:player"
+      ],
+      "facts": {
+        "native_class": "Player"
+      }
+    },
+    {
+      "id": "class-Creeper",
+      "status": "provisional",
+      "members": [
+        "minecraft:creeper"
+      ],
+      "facts": {
+        "native_class": "Creeper"
+      }
+    },
+    {
+      "id": "class-EnderDragon",
+      "status": "provisional",
+      "members": [
+        "minecraft:ender_dragon"
+      ],
+      "facts": {
+        "native_class": "EnderDragon",
+        "shadow": {
+          "Width": 0.3
+        }
+      }
+    },
+    {
+      "id": "class-EnderCrystal",
+      "status": "provisional",
+      "members": [
+        "minecraft:ender_crystal"
+      ],
+      "facts": {
+        "native_class": "EnderCrystal"
+      }
+    },
+    {
+      "id": "class-FallingBlock",
+      "status": "provisional",
+      "members": [
+        "minecraft:falling_block"
+      ],
+      "facts": {
+        "native_class": "FallingBlock",
+        "network_y_offset": 0.5
+      }
+    },
+    {
+      "id": "class-Tnt",
+      "status": "provisional",
+      "members": [
+        "minecraft:tnt"
+      ],
+      "facts": {
+        "native_class": "Tnt",
+        "network_y_offset": 0.49
+      }
+    },
+    {
+      "id": "class-FishingHook",
+      "status": "provisional",
+      "members": [
+        "minecraft:fishing_hook"
+      ],
+      "facts": {
+        "native_class": "FishingHook"
+      }
+    },
+    {
+      "id": "class-LightningBolt",
+      "status": "provisional",
+      "members": [
+        "minecraft:lightning_bolt"
+      ],
+      "facts": {
+        "native_class": "LightningBolt"
+      }
+    },
+    {
+      "id": "class-Item",
+      "status": "provisional",
+      "members": [
+        "minecraft:item"
+      ],
+      "facts": {
+        "native_class": "Item",
+        "network_y_offset": 0.125
+      }
+    },
+    {
+      "id": "class-XpOrb",
+      "status": "provisional",
+      "members": [
+        "minecraft:xp_orb"
+      ],
+      "facts": {
+        "native_class": "XpOrb"
+      }
+    },
+    {
+      "id": "class-Wolf",
+      "status": "provisional",
+      "members": [
+        "minecraft:wolf"
+      ],
+      "facts": {
+        "native_class": "Wolf"
+      }
+    },
+    {
+      "id": "class-SplashPotion",
+      "status": "provisional",
+      "members": [
+        "minecraft:splash_potion"
+      ],
+      "facts": {
+        "native_class": "SplashPotion"
+      }
+    },
+    {
+      "id": "class-LingeringPotion",
+      "status": "provisional",
+      "members": [
+        "minecraft:lingering_potion"
+      ],
+      "facts": {
+        "native_class": "LingeringPotion"
+      }
+    },
+    {
+      "id": "class-Tropicalfish",
+      "status": "provisional",
+      "members": [
+        "minecraft:tropicalfish"
+      ],
+      "facts": {
+        "native_class": "Tropicalfish"
+      }
+    },
+    {
+      "id": "class-DragonFireball",
+      "status": "provisional",
+      "members": [
+        "minecraft:dragon_fireball"
+      ],
+      "facts": {
+        "native_class": "DragonFireball"
+      }
+    },
+    {
+      "id": "class-FireworksRocket",
+      "status": "provisional",
+      "members": [
+        "minecraft:fireworks_rocket"
+      ],
+      "facts": {
+        "native_class": "FireworksRocket"
+      }
+    },
+    {
+      "id": "shadow-width-0",
+      "status": "provisional",
+      "members": [
+        "minecraft:ghast",
+        "minecraft:happy_ghast",
+        "minecraft:creaking"
+      ],
+      "facts": {
+        "shadow": {
+          "Width": 0.8
+        }
+      }
+    },
+    {
+      "id": "shadow-width-1",
+      "status": "provisional",
+      "members": [
+        "minecraft:spider",
+        "minecraft:cave_spider"
+      ],
+      "facts": {
+        "shadow": {
+          "Width": 0.7
+        }
+      }
+    },
+    {
+      "id": "shadow-width-2",
+      "status": "provisional",
+      "members": [
+        "minecraft:armadillo"
+      ],
+      "facts": {
+        "shadow": {
+          "Width": 0.575
+        }
+      }
+    },
+    {
+      "id": "shadow-width-5",
+      "status": "provisional",
+      "members": [
+        "minecraft:tadpole"
+      ],
+      "facts": {
+        "shadow": {
+          "Width": 0.5
+        }
+      }
+    },
+    {
+      "id": "shadow-baby-half",
+      "status": "provisional",
+      "members": [
+        "minecraft:iron_golem",
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "shadow": {
+          "BabyWidth": {
+            "adult": 0.5,
+            "baby": 0.25
+          }
+        }
+      }
+    },
+    {
+      "id": "shadow-turtle",
+      "status": "provisional",
+      "members": [
+        "minecraft:turtle"
+      ],
+      "facts": {
+        "shadow": {
+          "BabyWidth": {
+            "adult": 1.0,
+            "baby": 0.33
+          }
+        }
+      }
+    },
+    {
+      "id": "shadow-slime",
+      "status": "provisional",
+      "members": [
+        "minecraft:slime",
+        "minecraft:magma_cube",
+        "minecraft:sulfur_cube"
+      ],
+      "facts": {
+        "shadow": {
+          "Variant": 0.25
+        }
+      }
+    },
+    {
+      "id": "shadow-fixed-half",
+      "status": "provisional",
+      "members": [
+        "minecraft:tripod_camera",
+        "minecraft:ender_crystal"
+      ],
+      "facts": {
+        "shadow": {
+          "Fixed": 0.5
+        }
+      }
+    },
+    {
+      "id": "shadow-parrot",
+      "status": "provisional",
+      "members": [
+        "minecraft:parrot"
+      ],
+      "facts": {
+        "shadow": {
+          "RidingHidden": 1.0
+        }
+      }
+    },
+    {
+      "id": "shadow-none",
+      "status": "provisional",
+      "members": [
+        "minecraft:armor_stand",
+        "minecraft:area_effect_cloud",
+        "minecraft:cushion",
+        "minecraft:fishing_hook",
+        "minecraft:minecart",
+        "minecraft:hopper_minecart",
+        "minecraft:tnt_minecart",
+        "minecraft:chest_minecart",
+        "minecraft:command_block_minecart",
+        "minecraft:xp_orb",
+        "minecraft:leash_knot",
+        "minecraft:eye_of_ender_signal",
+        "minecraft:lightning_bolt",
+        "minecraft:tnt",
+        "minecraft:falling_block",
+        "minecraft:fireworks_rocket",
+        "minecraft:painting"
+      ],
+      "facts": {
+        "shadow": {
+          "Fixed": 0.0
+        }
+      }
+    },
+    {
+      "id": "shadow-ghast-drop",
+      "status": "provisional",
+      "members": [
+        "minecraft:ghast"
+      ],
+      "facts": {
+        "shadow_drop": -0.875
+      }
+    },
+    {
+      "id": "shadow-happy-ghast-drop",
+      "status": "provisional",
+      "members": [
+        "minecraft:happy_ghast"
+      ],
+      "facts": {
+        "shadow_drop": -0.5
+      }
+    },
+    {
+      "id": "projectile-native",
+      "status": "provisional",
+      "members": [
+        "minecraft:evocation_fang",
+        "minecraft:ice_bomb"
+      ],
+      "facts": {
+        "projectile": true
+      }
+    },
+    {
+      "id": "offset-boat",
+      "status": "provisional",
+      "members": [
+        "minecraft:boat"
+      ],
+      "facts": {
+        "network_y_offset": 0.375
+      }
+    },
+    {
+      "id": "mount-living",
+      "status": "provisional",
+      "members": [
+        "minecraft:player",
+        "minecraft:pig",
+        "minecraft:llama",
+        "minecraft:trader_llama",
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:strider",
+        "minecraft:happy_ghast"
+      ],
+      "facts": {
+        "living_mount": true
+      }
+    },
+    {
+      "id": "aquatic",
+      "status": "provisional",
+      "members": [
+        "minecraft:cod",
+        "minecraft:salmon",
+        "minecraft:pufferfish",
+        "minecraft:tropicalfish",
+        "minecraft:squid",
+        "minecraft:glow_squid",
+        "minecraft:guardian",
+        "minecraft:elder_guardian",
+        "minecraft:dolphin",
+        "minecraft:axolotl"
+      ],
+      "facts": {
+        "aquatic": true
+      }
+    },
+    {
+      "id": "class-Painting",
+      "status": "provisional",
+      "members": [
+        "minecraft:painting"
+      ],
+      "facts": {
+        "native_class": "Painting"
+      }
+    }
+  ]
 }

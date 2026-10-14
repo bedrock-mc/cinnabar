@@ -1,0 +1,62 @@
+use super::*;
+
+#[test]
+fn pinned_facts_preserve_classes_components_and_equipment() {
+    let facts = EntityFacts::pinned();
+    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_50.txt").lines() {
+        assert_ne!(facts.get(actor).class_key, 0, "missing actor {actor}");
+    }
+    assert_eq!(
+        facts
+            .get("minecraft:spider")
+            .shadow
+            .radius(2.0, false, 0, false),
+        1.4
+    );
+    assert!(facts.get("minecraft:arrow").projectile);
+    assert_eq!(
+        facts.get("minecraft:boat").native_class,
+        NativeEntityClass::Boat
+    );
+    assert!(
+        facts
+            .get("minecraft:horse")
+            .equipment
+            .slots()
+            .unwrap()
+            .saddle
+    );
+    assert_eq!(
+        facts.get("minecraft:splash_potion").native_class,
+        NativeEntityClass::SplashPotion
+    );
+    assert_eq!(
+        facts.get("minecraft:wolf").interactions.aim_assist(),
+        Some(true)
+    );
+    assert_eq!(
+        facts.get("minecraft:painting").native_class,
+        NativeEntityClass::Painting
+    );
+    assert_eq!(facts.get("fixture:unknown"), EntityFact::default());
+}
+
+#[test]
+fn corrupt_stale_or_trailing_carriers_are_rejected() {
+    let protocol = crate::active_content_registry_protocol();
+    assert!(EntityFacts::decode(SOURCE_BYTES, protocol + 1).is_err());
+    for index in [0, MAGIC.len(), SOURCE_BYTES.len() - 1] {
+        let mut bytes = SOURCE_BYTES.to_vec();
+        bytes[index] ^= 1;
+        assert!(EntityFacts::decode(&bytes, protocol).is_err());
+    }
+    let mut trailing = SOURCE_BYTES.to_vec();
+    trailing.push(0);
+    assert!(EntityFacts::decode(&trailing, protocol).is_err());
+    let mut forged = EntityFacts::decode(SOURCE_BYTES, protocol).unwrap();
+    forged.records.swap(0, 1);
+    assert!(forged.encode().is_err());
+    forged.records.swap(0, 1);
+    forged.records[0].fact.shadow = ShadowRadius::Width(-1.0);
+    assert!(forged.encode().is_err());
+}

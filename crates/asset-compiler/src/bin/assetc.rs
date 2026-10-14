@@ -188,6 +188,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::EntityFacts { out } => {
+            assets::facts::entity::EntityFacts::decode(
+                assets::facts::entity::SOURCE_BYTES,
+                assets::active_content_registry_protocol(),
+            )?;
+            write_blob_atomic(&out, assets::facts::entity::SOURCE_BYTES)?;
+        }
         Command::Vocabulary {
             archive,
             source_manifest,

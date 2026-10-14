@@ -11,6 +11,7 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
     let mut outputs: Vec<&Path> = Vec::new();
     let sidecar;
     match command {
+        EntityFacts { out } => outputs.push(out),
         Vocabulary {
             archive,
             source_manifest,

@@ -1,3 +1,4 @@
+use assets::facts::entity::NativeEntityClass;
 use assets::{MolangQuery as Q, MolangQueryHandler};
 use {
     super::{evaluation::MolangValue, *},
@@ -45,21 +46,6 @@ const KEY_TARGET: u32 = 6;
 const KEY_SWELL: u32 = 19;
 pub(super) const FLAG_STANDING: u32 = 39;
 pub(super) const FLAG_SWIMMING: u32 = 57;
-
-// Actors that swim in place, so airborne means in water; without a fluid sample this stands in
-// for the fish-on-land flop.
-const AQUATIC: [&str; 10] = [
-    "cod",
-    "salmon",
-    "pufferfish",
-    "tropicalfish",
-    "squid",
-    "glow_squid",
-    "guardian",
-    "elder_guardian",
-    "dolphin",
-    "axolotl",
-];
 
 /// The actor flag bit a flag query reads, from the query manifest.
 const fn flag_bit(query: Q) -> u32 {
@@ -490,7 +476,7 @@ pub(super) fn delta_time(context: &ActorTickContext) -> f32 {
 }
 
 pub(super) fn is_arrow(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:arrow")
+    actor.entity_fact().native_class == NativeEntityClass::Arrow
 }
 
 fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {
@@ -597,7 +583,7 @@ const KEY_ACTOR_VALUE: u32 = 15;
 
 /// Sprite frame of an experience orb, chosen by its XP value; other actors use frame 0.
 fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
-    let is_orb = matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:xp_orb");
+    let is_orb = actor.entity_fact().native_class == NativeEntityClass::XpOrb;
     if !is_orb {
         return 0.0;
     }
@@ -619,8 +605,7 @@ pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {
 /// and the Int mark variant selects one of six patterns within that base family.
 pub(super) fn tropical_fish_variables(actor: &dyn AnimatedActor) -> Option<[f32; 2]> {
     const PATTERNS_PER_FAMILY: i32 = 6;
-    if !matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:tropicalfish")
-    {
+    if actor.entity_fact().native_class != NativeEntityClass::Tropicalfish {
         return None;
     }
     // Unlike the numeric Molang queries, this native updater requires Int metadata.
@@ -651,13 +636,7 @@ fn in_water(actor: &dyn AnimatedActor, input: &ActorTickInput) -> bool {
     if let Some((water, _)) = actor.fluid() {
         return water;
     }
-    let aquatic = match actor.kind() {
-        ActorKind::Entity { identifier } => {
-            let name = identifier.as_ref();
-            AQUATIC.contains(&name.strip_prefix("minecraft:").unwrap_or(name))
-        }
-        ActorKind::Player { .. } => false,
-    };
+    let aquatic = actor.entity_fact().aquatic;
     actor_flag(actor, FLAG_SWIMMING) || (aquatic && !input.on_ground)
 }
 

@@ -1,0 +1,90 @@
+use super::*;
+
+/// Uses committed inventories without an installed resource pack.
+fn root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+#[test]
+fn entity_regeneration_preserves_every_byte() {
+    let scratch = tempfile::tempdir().unwrap();
+    compile(&root(), scratch.path(), super::super::POLICY).unwrap();
+    for path in [
+        assets::facts::entity::SOURCE_PATH,
+        assets::facts::entity::EXPANSION_PATH,
+    ] {
+        assert_eq!(
+            std::fs::read(scratch.path().join(path)).unwrap(),
+            std::fs::read(root().join(path)).unwrap()
+        );
+    }
+}
+
+#[test]
+fn native_rules_reject_unknown_empty_and_overlapping_members() {
+    let original: serde_json::Value = serde_json::from_slice(super::super::POLICY).unwrap();
+    for mutation in 0..6 {
+        let mut policy = original.clone();
+        let rule = &mut policy["entity_rules"][0];
+        match mutation {
+            0 => rule["members"][0] = serde_json::json!("minecraft:misspelled_actor"),
+            1 => rule["members"] = serde_json::json!([]),
+            3 => {
+                rule["facts"]["misspelled_field"] = serde_json::json!(true);
+            }
+            5 => {
+                rule["members"].as_array_mut().unwrap().remove(0);
+            }
+            4 => {
+                rule["facts"]["collision"] = serde_json::json!([1.0, 2.0]);
+            }
+            _ => {
+                let mut duplicate = rule.clone();
+                duplicate["id"] = serde_json::json!("duplicate");
+                policy["entity_rules"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(duplicate);
+            }
+        }
+        let scratch = tempfile::tempdir().unwrap();
+        assert!(
+            compile(
+                &root(),
+                scratch.path(),
+                &serde_json::to_vec(&policy).unwrap()
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn entity_components_regenerate_from_the_pinned_archive() {
+    let source = assets::vanilla_source();
+    let paths = source.local_paths(&root()).unwrap();
+    if !paths.archive.is_file() {
+        eprintln!(
+            "missing fixture: {}; skipping entity component regeneration",
+            paths.archive.display()
+        );
+        return;
+    }
+    assert_eq!(
+        components_from_archive(&paths.archive).unwrap(),
+        std::fs::read(root().join(COMPONENTS_PATH)).unwrap()
+    );
+}
+
+#[test]
+fn an_unpinned_archive_cannot_supply_entity_components() {
+    let scratch = tempfile::tempdir().unwrap();
+    let path = scratch.path().join("invalid.zip");
+    std::fs::write(&path, b"invalid archive").unwrap();
+    assert!(
+        components_from_archive(&path)
+            .unwrap_err()
+            .to_string()
+            .contains("hash mismatch")
+    );
+}

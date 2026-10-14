@@ -253,6 +253,7 @@ pub(super) fn command(carrier: &Carrier, context: &Context) -> Result<Command, B
     let manifest = || context.manifest(carrier);
     let read = |name| context.out.join(carriers::by_name(name).unwrap().output);
     Ok(match carrier.recipe {
+        Recipe::EntityFacts => Command::EntityFacts { out },
         Recipe::BlockPhysics => {
             let [registry, seed] = <[PathBuf; 2]>::try_from(context.files(carrier))
                 .map_err(|_| "the physics recipe takes a registry and its seed")?;

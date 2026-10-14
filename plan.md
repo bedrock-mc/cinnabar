@@ -1314,6 +1314,13 @@ acceptance gate.
 
 ## Entity shadows
 
+- Entity facts are compiled by `registryc` into a hash-checked carrier and installed by
+  `make assets`. Actor admission caches the advertised native base for shadows, offsets,
+  mount classification and native effects; unknown bases remain unresolved.
+- Incomplete parity: compatibility interaction, placement, equipment and native class rules
+  remain provisional. Chest-boat network origin and complete living-mount coverage remain
+  unverified. The pinned actor-name inventory still comes from sample metadata.
+
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
   by the encoded-colour multiplier (0.7 grey with a sky tint), once however many overlap. One
   instanced draw after opaque geometry; casters and parameters upload only when they change.

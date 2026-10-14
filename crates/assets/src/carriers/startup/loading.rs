@@ -8,7 +8,7 @@ use super::{
         load_atmosphere_assets, load_entity_assets, load_font_assets, load_material_keys,
         load_vanilla_entity_refs,
     },
-    world_provenance,
+    require_entity_facts, world_provenance,
 };
 use crate::RuntimeAssets;
 use serde::Deserialize;
@@ -56,7 +56,7 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
 }
 
 /// [`load_runtime_assets`], loading its four carriers in parallel through `observer`.
-/// Errors keep the serial order: world, atmosphere, entity, then font.
+/// Errors keep the serial order: world, atmosphere, entity, facts, then font.
 pub fn load_runtime_assets_observed(
     selection: AssetSelection,
     observer: &impl CarrierLoadObserver,
@@ -71,13 +71,14 @@ pub fn load_runtime_assets_observed(
         let world = observer.observe("world", || load_world_carrier(path));
         (world, join(atmosphere), join(entities), join(fonts))
     });
-    let Some(world) = world? else {
+    let world = world?;
+    // Preserve the existing required-carrier error order before checking the facts sibling.
+    let atmosphere = atmosphere?;
+    let entities = entities?;
+    observer.observe("entity facts", || require_entity_facts(path))?;
+    let Some(world) = world else {
         return Ok(diagnostic_assets(
-            selection,
-            source,
-            atmosphere?,
-            entities?,
-            fonts?,
+            selection, source, atmosphere, entities, fonts?,
         ));
     };
     let metrics = runtime_metrics(&world.runtime, source, world.blob_sha256);
@@ -85,8 +86,8 @@ pub fn load_runtime_assets_observed(
         runtime: world.runtime,
         material_keys: world.material_keys,
         vanilla_entity_refs: world.vanilla_entity_refs,
-        atmosphere: atmosphere?,
-        entities: entities?,
+        atmosphere,
+        entities,
         fonts: fonts?,
         metrics,
         selected_path: selection.path,

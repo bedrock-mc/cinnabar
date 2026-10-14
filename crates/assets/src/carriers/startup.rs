@@ -11,7 +11,9 @@ mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
 mod error;
 pub use error::AssetStartupError;
+mod entity_facts;
 mod loading;
+pub use entity_facts::require_entity_facts;
 pub use loading::{
     CarrierLoadObserver, atmosphere_asset_path, entity_asset_path, font_asset_path,
     load_runtime_assets, load_runtime_assets_observed, local_font_asset_path,
