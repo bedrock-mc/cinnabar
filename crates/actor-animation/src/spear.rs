@@ -167,7 +167,12 @@ pub(super) fn needs_completion(
     let Some(rig) = assets.rig_bindings().get(binding) else {
         return false;
     };
-    if class != assets::facts::entity::NativeEntityClass::Player {
+    if class != assets::facts::entity::NativeEntityClass::Player
+        || !assets
+            .symbols()
+            .get(rig.entity_symbol as usize)
+            .is_some_and(|symbol| symbol.kind == assets::EntityAssetKind::Entity)
+    {
         return false;
     }
     let Some(script) = rig

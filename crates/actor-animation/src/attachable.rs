@@ -508,3 +508,6 @@ mod activation_clock_tests;
 #[cfg(test)]
 #[path = "attachable/parent_frame_tests.rs"]
 mod parent_frame_tests;
+
+#[cfg(test)]
+mod spear_tests;
