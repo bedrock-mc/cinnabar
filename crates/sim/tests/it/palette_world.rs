@@ -866,12 +866,12 @@ fn camera_segment_stops_at_the_first_collider_including_shapes_rising_from_the_c
     let (wall, skipped) = world
         .camera_segment_entry(Vec3::new(0.5, 1.75, 3.5), Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
-    assert_eq!(wall, Some(0.45));
+    assert_eq!(wall, Some(f64::from((5.0_f32 - 0.5) / 10.0)));
     assert_eq!(skipped, sim::LenientSkipCounts::default());
     let (fence, _) = world
         .camera_segment_entry(Vec3::new(0.5, 1.25, 3.5), Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
-    assert_eq!(fence, Some(0.15));
+    assert_eq!(fence, Some(f64::from((2.0_f32 - 0.5) / 10.0)));
 }
 
 #[test]
