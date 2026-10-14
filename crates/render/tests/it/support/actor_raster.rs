@@ -399,6 +399,56 @@ pub(crate) fn raster_material_in_scene(
         blend: material.state.and_then(render::actor_material_blend_state),
         write_depth: material.state.is_none_or(|state| state.depth_write),
     }];
+    // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
+    let entries: Vec<_> = bindings
+        .iter()
+        .map(|entry| wgpu::BindGroupLayoutEntry {
+            binding: entry.binding,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: match &entry.resource {
+                wgpu::BindingResource::Buffer(binding) => wgpu::BindingType::Buffer {
+                    ty: if binding.buffer.usage().contains(wgpu::BufferUsages::UNIFORM) {
+                        wgpu::BufferBindingType::Uniform
+                    } else {
+                        wgpu::BufferBindingType::Storage { read_only: true }
+                    },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                wgpu::BindingResource::Sampler(_) => {
+                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
+                }
+                wgpu::BindingResource::TextureView(view) => wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: if std::ptr::eq(*view, &skin) {
+                        wgpu::TextureViewDimension::D2Array
+                    } else {
+                        wgpu::TextureViewDimension::D2
+                    },
+                    multisampled: false,
+                },
+                _ => panic!("unsupported actor fixture binding"),
+            },
+            count: None,
+        })
+        .collect();
+    let layout = gpu
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("actor fixture binding contract"),
+            entries: &entries,
+        });
+    let state = gpu_snapshot::RasterState {
+        layout: Some(
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("actor fixture pipeline"),
+                    bind_group_layouts: &[&layout],
+                    ..Default::default()
+                }),
+        ),
+        ..state
+    };
     if srgb {
         gpu.render_srgb_with_state(
             &source_with_definitions(gamma, definitions),
