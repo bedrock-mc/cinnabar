@@ -48,6 +48,17 @@ impl CappedFile {
     }
 }
 
+impl Drop for CappedFile {
+    /// Releases the writer lease even if a duplicated handle outlives the cache backend.
+    fn drop(&mut self) {
+        let _ = self
+            .file
+            .get_mut()
+            .unwrap_or_else(|error| error.into_inner())
+            .unlock();
+    }
+}
+
 impl StorageBackend for CappedFile {
     /// Returns the current physical allocation length.
     fn len(&self) -> io::Result<u64> {
@@ -89,5 +100,23 @@ impl StorageBackend for CappedFile {
         let mut file = self.file.lock().unwrap_or_else(|e| e.into_inner());
         file.seek(SeekFrom::Start(offset))?;
         file.write_all(data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A duplicated descriptor cannot extend the cache owner's writer lease after shutdown.
+    #[test]
+    fn blob_cache_drop_releases_lease_with_duplicated_handle() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("blobs");
+        let file = CappedFile::open(&path, 64).unwrap();
+        let duplicate = file.file.lock().unwrap().try_clone().unwrap();
+        drop(file);
+        let reopened = CappedFile::open(&path, 64).unwrap();
+        drop(reopened);
+        drop(duplicate);
     }
 }
