@@ -1,5 +1,7 @@
 use super::REGISTRY;
-use json_ui::{Catalog, Draw, HitKind, LayoutEnv, TextMeasure, TextureMeta, TextureSource};
+use json_ui::{
+    Catalog, Draw, HitKind, LayoutEnv, NineSlice, TextMeasure, TextureMeta, TextureSource,
+};
 use serde_json::json;
 
 struct Resources;
@@ -12,15 +14,29 @@ impl TextMeasure for Resources {
 }
 
 impl TextureSource for Resources {
-    /// Supplies a plain texture so layout can emit the shipped backdrops.
+    /// Stretches like the retail backdrop: a 2x2 image with one-pixel nine-slice borders.
     fn texture(&self, _: &str) -> Option<TextureMeta> {
-        Some(TextureMeta::plain([1.0; 2]))
+        Some(TextureMeta {
+            base_size: [2.0; 2],
+            nineslice: Some(NineSlice {
+                left: 1.0,
+                top: 1.0,
+                right: 1.0,
+                bottom: 1.0,
+            }),
+            pixels: [2.0; 2],
+        })
     }
 }
 
 #[test]
 fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
     let carrier = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/common.json","ui/chat_screen.json"]}"#.as_slice(),
+        ),
         (
             "ui/common.json",
             br#"{
@@ -80,13 +96,21 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
             "input must follow the configured chat width"
         );
         let draws = json_ui::emit(&laid, &env);
-        assert!(
-            draws.iter().any(|node| {
+        // The nine-slice quads of the translucent backdrop together span the chat width.
+        let (left, right) = draws
+            .iter()
+            .filter(|node| {
                 matches!(&node.draw, Draw::Sprite { texture, .. } if texture == "textures/ui/Black")
-                    && node.dest.w == width
                     && node.alpha > 0.0
                     && node.alpha < 1.0
-            }),
+            })
+            .fold((f64::MAX, f64::MIN), |(left, right), node| {
+                let (x, w) = (f64::from(node.dest.x), f64::from(node.dest.w));
+                (left.min(x), right.max(x + w))
+            });
+        assert_eq!(
+            right - left,
+            width,
             "the input must paint its shipped translucent backdrop"
         );
     }
