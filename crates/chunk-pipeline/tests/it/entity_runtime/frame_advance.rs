@@ -202,6 +202,20 @@ fn long_frame_advances_time_and_events_with_two_visual_evaluations() {
     assert_eq!(rig.current[0].translation_scale[2], 2.0);
 }
 
+/// An actor's state without its wall-clock terrain attachment, which separately built streams
+/// record at different instants before either advances.
+fn advanced_actor(stream: &WorldStream, runtime_id: u64) -> String {
+    let state = format!(
+        "{:?}",
+        stream.authority().actor(runtime_id).expect("spawned actor")
+    );
+    let Some(start) = state.find("attached_at: ") else {
+        return state;
+    };
+    let end = start + state[start..].find('}').expect("instant fields close") + 1;
+    format!("{}{}", &state[..start], &state[end..])
+}
+
 /// After initial presentation, single ticks keep exact poses, clocks, motion, and work.
 #[test]
 fn single_tick_frames_match_explicit_tick_snapshots() {
@@ -220,7 +234,7 @@ fn single_tick_frames_match_explicit_tick_snapshots() {
         assert_eq!(left.completed_tick, right.completed_tick);
         assert_eq!(left.body_yaw, right.body_yaw);
         assert_eq!(left.hand, right.hand);
-        assert_eq!(legacy.authority().actor(42), frame.authority().actor(42));
+        assert_eq!(advanced_actor(&legacy, 42), advanced_actor(&frame, 42));
         assert_eq!(
             legacy.authority().actor_animation_stats(),
             frame.authority().actor_animation_stats()
@@ -245,7 +259,7 @@ fn gap_preserves_motion_and_bounds_visual_work() {
     legacy.advance_actor_interpolation_ticks(20);
     frame.advance_actor_interpolation_frame(20);
     for id in 100..228 {
-        assert_eq!(legacy.authority().actor(id), frame.authority().actor(id));
+        assert_eq!(advanced_actor(&legacy, id), advanced_actor(&frame, id));
         let (left, right) = (
             legacy.authority().actor_rig(id).unwrap(),
             frame.authority().actor_rig(id).unwrap(),

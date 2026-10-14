@@ -197,7 +197,10 @@ impl WorldStream {
                 .resident
                 .column(column)
                 .chain(self.known_air.column(column))
-                .any(|key| self.applied_mesh_generations.contains_key(key));
+                .any(|key| {
+                    self.applied_mesh_generations.contains_key(key)
+                        && !self.withdrawn_meshes.contains(key)
+                });
         if on_screen {
             let handoff = self.pending_handoff();
             self.full_detail.handoffs.insert(column, handoff);

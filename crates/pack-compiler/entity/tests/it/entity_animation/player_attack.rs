@@ -56,6 +56,8 @@ fn player_pack_attack_roots_keep_custom_bones_and_engine_swing_reads() {
         "textures/entity/player.png",
         b"synthetic-raster",
     );
+    // A resource pack always carries the controller family, even when this entity uses none.
+    fs::create_dir_all(pack.path().join("animation_controllers")).unwrap();
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let rig = compiled.rig_bindings[0];
     assert_eq!(
@@ -78,5 +80,5 @@ fn player_pack_attack_roots_keep_custom_bones_and_engine_swing_reads() {
     assert_eq!(bones[channel.bone as usize].name.as_ref(), "strike_arm");
     assert_eq!(channel.property, EntityAnimationProperty::Rotation);
     assert!(compiled.molang_ops.iter().any(|op| matches!(op, MolangOp::LoadVariable(symbol) if compiled.molang_symbols[*symbol as usize].identifier.as_ref() == "variable.attack_time")));
-    assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
+    assets::RuntimeEntityAssets::from_compiled(compiled).unwrap();
 }
