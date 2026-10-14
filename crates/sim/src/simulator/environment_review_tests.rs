@@ -45,7 +45,7 @@ fn review_support_none_cannot_erase_an_overlapping_bubble_column() {
             ..plain()
         },
     };
-    let sampled = sample(&world, Vec3::new(0.05, 1.0, 0.5), Vec3::ZERO, 1.8, None).unwrap();
+    let sampled = sample(&world, Vec3::new(0.05, 1.0, 0.5), 1.8, None).unwrap();
     assert_eq!(sampled.movement.surface_response, SurfaceResponse::BubbleUp);
 }
 #[test]
@@ -65,14 +65,7 @@ fn review_swept_only_cells_cannot_apply_body_contact_effects() {
                 ..plain()
             },
         };
-        let sampled = sample(
-            &world,
-            Vec3::new(0.5, 1.0, 0.5),
-            Vec3::new(0.5, 0.0, 0.0),
-            1.8,
-            None,
-        )
-        .unwrap();
+        let sampled = sample(&world, Vec3::new(0.5, 1.0, 0.5), 1.8, None).unwrap();
         assert!(!sampled.movement.on_climbable);
         assert!(!sampled.movement.in_powder_snow);
         assert!(!sampled.movement.in_scaffolding);
@@ -114,7 +107,7 @@ impl CollisionWorld for ProbedCell {
 #[test]
 fn review_air_under_the_feet_probe_keeps_default_friction() {
     let friction = |world: &ProbedCell| {
-        sample(world, Vec3::new(0.5, 1.0, 0.5), Vec3::ZERO, 1.8, None)
+        sample(world, Vec3::new(0.5, 1.0, 0.5), 1.8, None)
             .unwrap()
             .friction
     };
