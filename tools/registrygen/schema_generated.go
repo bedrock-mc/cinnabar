@@ -4,7 +4,7 @@ package main
 import "encoding/binary"
 
 const (
-	registryHeader                 = "BREG1004"
+	registryHeader                 = "BREG1005"
 	previousRegistryHeader         = "BREG1003"
 	physicsRegistryHeader          = "PREG1001"
 	physicsRegistryActiveHeader    = "PREG1003"
@@ -17,7 +17,7 @@ const (
 	maxCollisionBoxesPerRecord     = 7
 	maxNameBytes                   = 65535
 	registryHeaderBytes            = 36
-	recordHeaderBytes              = 57
+	recordHeaderBytes              = 66
 	previousRecordHeaderBytes      = 56
 	collisionBoxBytes              = 24
 )
@@ -36,6 +36,72 @@ const (
 	ProvenancePrismarine uint8 = 1 << 2
 	ProvenanceValentine  uint8 = 1 << 3
 	allProvenance              = ProvenancePMMP | ProvenanceDragonfly | ProvenancePrismarine | ProvenanceValentine
+)
+
+const (
+	traitTorch                uint64 = 1 << 0
+	traitLanternLike          uint64 = 1 << 1
+	traitConnectsThin         uint64 = 1 << 2
+	traitConnectsFence        uint64 = 1 << 3
+	traitMultiface            uint64 = 1 << 4
+	traitDoor                 uint64 = 1 << 5
+	traitReplaceable          uint64 = 1 << 6
+	traitOpensContainer       uint64 = 1 << 7
+	traitTogglesByHand        uint64 = 1 << 8
+	traitUsesLocally          uint64 = 1 << 9
+	traitHumanoidWearable     uint64 = 1 << 10
+	traitSurvivalRule         uint64 = 1 << 11
+	traitVineSupport          uint64 = 1 << 12
+	traitFullTopSupport       uint64 = 1 << 13
+	traitBlockEntityDrawn     uint64 = 1 << 14
+	traitTranslucent          uint64 = 1 << 15
+	traitCutout               uint64 = 1 << 16
+	traitGrassTint            uint64 = 1 << 17
+	traitFoliageTint          uint64 = 1 << 18
+	traitWaterTint            uint64 = 1 << 19
+	traitOneWayCollidable     uint64 = 1 << 20
+	traitDoubleSlab           uint64 = 1 << 21
+	traitBodyRelativeFacing   uint64 = 1 << 22
+	traitOrientationSensitive uint64 = 1 << 23
+	traitMultipart            uint64 = 1 << 24
+	traitWater                uint64 = 1 << 25
+	traitLava                 uint64 = 1 << 26
+	traitLightBlock           uint64 = 1 << 27
+	traitRespawnAnchor        uint64 = 1 << 28
+	traitGlowstone            uint64 = 1 << 29
+	traitNetherBrickFence     uint64 = 1 << 30
+	traitInvisible            uint64 = 1 << 31
+	traitAir                  uint64 = 1 << 32
+	traitPortal               uint64 = 1 << 33
+	traitDripstoneOffset      uint64 = 1 << 34
+	traitChorusConnect        uint64 = 1 << 35
+	traitBuildIntention       uint64 = 1 << 36
+	traitFireFlammable        uint64 = 1 << 37
+	traitHead                 uint64 = 1 << 38
+	traitFrame                uint64 = 1 << 39
+	traitLadder               uint64 = 1 << 40
+	traitBanner               uint64 = 1 << 41
+	traitStandingSign         uint64 = 1 << 42
+	traitWallSign             uint64 = 1 << 43
+	traitHangingSign          uint64 = 1 << 44
+	traitHopper               uint64 = 1 << 45
+	traitCauldron             uint64 = 1 << 46
+	traitComposter            uint64 = 1 << 47
+	traitScaffolding          uint64 = 1 << 48
+	traitFire                 uint64 = 1 << 49
+	traitSnowLayer            uint64 = 1 << 50
+	traitPlant                uint64 = 1 << 51
+	traitCampfire             uint64 = 1 << 52
+	traitSpawner              uint64 = 1 << 53
+	traitEndPortal            uint64 = 1 << 54
+	traitEndGateway           uint64 = 1 << 55
+	traitPiston               uint64 = 1 << 56
+	traitShulkerBox           uint64 = 1 << 57
+	traitCandle               uint64 = 1 << 58
+	traitCoral                uint64 = 1 << 59
+	traitBlockEntityBacking   uint64 = 1 << 60
+	traitFarmland             uint64 = 1 << 61
+	allBlockTraits                   = traitTorch | traitLanternLike | traitConnectsThin | traitConnectsFence | traitMultiface | traitDoor | traitReplaceable | traitOpensContainer | traitTogglesByHand | traitUsesLocally | traitHumanoidWearable | traitSurvivalRule | traitVineSupport | traitFullTopSupport | traitBlockEntityDrawn | traitTranslucent | traitCutout | traitGrassTint | traitFoliageTint | traitWaterTint | traitOneWayCollidable | traitDoubleSlab | traitBodyRelativeFacing | traitOrientationSensitive | traitMultipart | traitWater | traitLava | traitLightBlock | traitRespawnAnchor | traitGlowstone | traitNetherBrickFence | traitInvisible | traitAir | traitPortal | traitDripstoneOffset | traitChorusConnect | traitBuildIntention | traitFireFlammable | traitHead | traitFrame | traitLadder | traitBanner | traitStandingSign | traitWallSign | traitHangingSign | traitHopper | traitCauldron | traitComposter | traitScaffolding | traitFire | traitSnowLayer | traitPlant | traitCampfire | traitSpawner | traitEndPortal | traitEndGateway | traitPiston | traitShulkerBox | traitCandle | traitCoral | traitBlockEntityBacking | traitFarmland
 )
 
 // Declared movement classification, with unresolved states distinct from ordinary behavior.
@@ -152,6 +218,65 @@ const (
 )
 const maxBeaconTint = BeaconTintBlack
 
+// Placement support rule; unresolved rules require server authority.
+type SurvivalRule uint8
+
+const (
+	SurvivalRuleNone       SurvivalRule = 0
+	SurvivalRuleUnresolved SurvivalRule = 1
+	SurvivalRuleTorch      SurvivalRule = 2
+	SurvivalRuleLantern    SurvivalRule = 3
+	SurvivalRuleButton     SurvivalRule = 4
+	SurvivalRuleCarpet     SurvivalRule = 5
+	SurvivalRuleDoor       SurvivalRule = 6
+	SurvivalRuleCandle     SurvivalRule = 7
+	SurvivalRuleSeaPickle  SurvivalRule = 8
+	SurvivalRuleSnowLayer  SurvivalRule = 9
+	SurvivalRuleVine       SurvivalRule = 10
+)
+const maxSurvivalRule = SurvivalRuleVine
+
+// modelFamilyByName resolves the shared compiler rule discriminator.
+var modelFamilyByName = map[string]ModelFamily{
+	"Unknown":           ModelFamilyUnknown,
+	"Air":               ModelFamilyAir,
+	"Cube":              ModelFamilyCube,
+	"Leaves":            ModelFamilyLeaves,
+	"Cross":             ModelFamilyCross,
+	"Crop":              ModelFamilyCrop,
+	"Liquid":            ModelFamilyLiquid,
+	"Slab":              ModelFamilySlab,
+	"Stair":             ModelFamilyStair,
+	"Door":              ModelFamilyDoor,
+	"Trapdoor":          ModelFamilyTrapdoor,
+	"Pane":              ModelFamilyPane,
+	"Fence":             ModelFamilyFence,
+	"Gate":              ModelFamilyGate,
+	"Chest":             ModelFamilyChest,
+	"Sign":              ModelFamilySign,
+	"Wall":              ModelFamilyWall,
+	"Bed":               ModelFamilyBed,
+	"Rail":              ModelFamilyRail,
+	"Torch":             ModelFamilyTorch,
+	"Button":            ModelFamilyButton,
+	"PressurePlate":     ModelFamilyPressurePlate,
+	"Carpet":            ModelFamilyCarpet,
+	"Layer":             ModelFamilyLayer,
+	"Decorative":        ModelFamilyDecorative,
+	"Statue":            ModelFamilyStatue,
+	"Cuboid":            ModelFamilyCuboid,
+	"Aquatic":           ModelFamilyAquatic,
+	"Cocoa":             ModelFamilyCocoa,
+	"Lever":             ModelFamilyLever,
+	"Invisible":         ModelFamilyInvisible,
+	"FlowerBed":         ModelFamilyFlowerBed,
+	"Vine":              ModelFamilyVine,
+	"GlowLichen":        ModelFamilyGlowLichen,
+	"SculkVein":         ModelFamilySculkVein,
+	"ChiseledBookshelf": ModelFamilyChiseledBookshelf,
+	"ResinClump":        ModelFamilyResinClump,
+}
+
 // ModelState is a typed block-registry value.
 type ModelState struct {
 	Mask   uint8
@@ -189,6 +314,8 @@ type Record struct {
 	CollisionSeed   CollisionSeed
 	Provenance      uint8
 	BeaconTint      BeaconTint
+	Traits          uint64
+	Survival        SurvivalRule
 }
 
 // RegistryMetadata is a typed block-registry value.
@@ -272,6 +399,8 @@ type RecordHeader struct {
 	StateLen        uint32
 	Values          [8]uint32
 	BeaconTint      uint8
+	RawTraits       uint64
+	Survival        uint8
 }
 
 // decodeRecordHeader reads a previously length-checked record prefix.
@@ -296,6 +425,12 @@ func decodeRecordHeader(data []byte, previous bool) RecordHeader {
 	if !previous {
 		value.BeaconTint = data[56]
 	}
+	if !previous {
+		value.RawTraits = binary.LittleEndian.Uint64(data[57:65])
+	}
+	if !previous {
+		value.Survival = data[65]
+	}
 	return value
 }
 
@@ -319,6 +454,12 @@ func appendRecordHeader(encoded []byte, record Record, previous bool) []byte {
 	}
 	if !previous {
 		encoded = append(encoded, uint8(record.BeaconTint))
+	}
+	if !previous {
+		encoded = binary.LittleEndian.AppendUint64(encoded, record.Traits)
+	}
+	if !previous {
+		encoded = append(encoded, uint8(record.Survival))
 	}
 	return encoded
 }

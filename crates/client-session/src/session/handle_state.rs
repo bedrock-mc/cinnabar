@@ -73,7 +73,7 @@ impl CapturedPackets {
 impl<P> NetworkHandle<P> {
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
-        let (commands, command_rx) = mpsc::channel(64);
+        let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
         handle.commands = commands;
         (
             handle,

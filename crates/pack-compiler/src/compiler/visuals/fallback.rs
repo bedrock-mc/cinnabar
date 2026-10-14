@@ -567,6 +567,9 @@ mod tests {
         for (hash, name) in entries {
             let record = RegistryRecord {
                 beacon_tint: assets::BeaconTint::Unresolved,
+                traits: assets::registry::BlockTraits::empty(),
+                survival: assets::registry::SurvivalRule::None,
+                properties: Box::new([]),
                 sequential_id: 0,
                 network_hash: *hash,
                 name: (*name).into(),
@@ -594,6 +597,9 @@ mod tests {
     fn synthetic_record(name: &str, hash: u32) -> RegistryRecord {
         RegistryRecord {
             beacon_tint: assets::BeaconTint::Unresolved,
+            traits: assets::registry::BlockTraits::empty(),
+            survival: assets::registry::SurvivalRule::None,
+            properties: Box::new([]),
             sequential_id: 7,
             network_hash: hash,
             name: name.into(),

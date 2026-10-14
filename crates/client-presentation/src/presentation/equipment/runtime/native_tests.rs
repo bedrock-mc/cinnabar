@@ -6,6 +6,9 @@ use crate::presentation::equipment::{FirstPersonHand, runtime::*};
 use actor_animation::AttachableAnimationInput;
 use render_model::equipment::{attach_to_bone, held_sprite_display};
 
+#[path = "native_geometry_tests.rs"]
+mod geometry;
+
 /// Reads the selected equipment image's first pixel from its retained artwork page.
 fn selected_pixel(
     pages: &render_model::ActorArtworkPages,

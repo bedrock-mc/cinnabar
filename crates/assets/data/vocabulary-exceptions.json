@@ -12,6 +12,15 @@
     },
     {
       "reference": {
+        "file": "facts-expansion-v2193.tsv",
+        "pointer": "/183/0",
+        "domain": "block",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its expanded facts remain provisional."
+    },
+    {
+      "reference": {
         "file": "block-item-routes-v1001.json",
         "pointer": "/routes/11/identifier",
         "domain": "item",
@@ -351,6 +360,42 @@
         "identifier": "compound"
       },
       "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/14/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:fence"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/26/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:carpet"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/28/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:tall_seagrass"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/28/compatibility_members/1",
+        "domain": "block",
+        "identifier": "minecraft:kelp_plant"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
     }
   ]
 }

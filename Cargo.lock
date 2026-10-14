@@ -454,6 +454,7 @@ dependencies = [
  "flate2",
  "glam",
  "lewton",
+ "png",
  "protocol-ids",
  "rayon",
  "rustix 1.1.4",
@@ -8652,6 +8653,21 @@ checksum = "5eba2ec791141b0bf4db542f6b038a8f9310cee33e076cb181245780b09a24ff"
 dependencies = [
  "cfg-if",
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "web-client"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "bridge",
+ "futures",
+ "js-sys",
+ "semantic-input",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-transport",
 ]
 
 [[package]]

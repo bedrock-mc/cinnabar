@@ -15,7 +15,7 @@ OWNER = ROOT / "crates/protocol-ids"
 
 def read_fields(data, offset, fields, name_key, type_key):
     """Read integer carrier fields in schema order and return the next offset."""
-    formats = {"u8": "B", "u16": "H", "u32": "I", "i32": "i", "u32[8]": "8I"}
+    formats = {"u8": "B", "u16": "H", "u32": "I", "u64": "Q", "i32": "i", "u32[8]": "8I"}
     values = {}
     for field in fields:
         format_string = "<" + formats[field[type_key]]

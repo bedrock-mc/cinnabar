@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Browser client setup</title>
+<style>
+body { margin: 2rem auto; padding: 0 1rem; max-width: 60rem; color: #eee; background: #182021; font: 1rem system-ui; }
+label { display: block; margin: 1rem 0; } input { width: min(90%, 32rem); padding: .5rem; }
+button { padding: .6rem 1rem; } canvas { display: block; width: 100%; height: 40vh; margin-top: 2rem; background: #0a1012; }
+a { color: #a9dad2; }
+</style>
+<h1>Browser client setup</h1>
+<p>This preview verifies assets and connects account controls. Gameplay is not available yet.</p>
+<label>Relay origin <input id="relay" type="url" placeholder="Uses this page's HTTPS origin"></label>
+<button id="connect">Connect relay</button>
+<button id="sign-in">Sign in</button> <button id="sign-out">Sign out</button>
+<p id="device" hidden>Open <a id="verification" target="_blank" rel="noopener noreferrer">the verification page</a> and enter <strong id="code"></strong>.</p>
+<label>Asset directory <input id="assets" type="url" placeholder="HTTPS directory ending in /"></label>
+<button id="prepare">Verify assets</button>
+<p id="status" role="status">Loading browser module…</p>
+<canvas id="game" aria-label="Client canvas"></canvas>
+<script type="module">
+import init, { Page, Carriers, BrowserInput, manifest_limit } from "./pkg/web_client.js";
+import { boundedBytes, canvasEdges, pageLifecycle } from "./edges.mjs";
+/** Finds a page control by its stable DOM identifier. */
+const element = (id) => document.getElementById(id);
+const status = element("status");
+
+/** Shows account state using text nodes; relay URLs never become HTML. */
+function observe(json) {
+  const event = JSON.parse(json);
+  if (event.state) status.textContent = event.state.replaceAll("_", " ");
+  const account = event.account;
+  element("device").hidden = !account?.user_code;
+  element("code").textContent = account?.user_code || "";
+  element("verification").removeAttribute("href");
+  if (account?.verification_uri) {
+    const url = new URL(account.verification_uri);
+    if (url.protocol === "https:") element("verification").href = url.href;
+  }
+  if (event.error) status.textContent = event.error;
+}
+
+/** Loads startup assets from an HTTPS directory using Rust's canonical names and validators. */
+async function prepare() {
+  const base = new URL(element("assets").value);
+  if (base.protocol !== "https:" || !base.pathname.endsWith("/")) throw new Error("Use an HTTPS asset directory ending in /");
+  const manifestResponse = await fetch(new URL("manifest.json", base), { credentials: "omit" });
+  if (!manifestResponse.ok) throw new Error("Delivery manifest unavailable");
+  const manifest = JSON.parse(new TextDecoder().decode(await boundedBytes(manifestResponse, manifest_limit(), false)));
+  const carriers = new Carriers(JSON.stringify(manifest));
+  try {
+    for (const [name, path] of JSON.parse(carriers.entries())) {
+      const entry = manifest.entries.find((entry) => entry.name === name);
+      const response = await fetch(new URL(path, base), { credentials: "omit" });
+      carriers.insert(name, await boundedBytes(response, entry.bytes));
+    }
+    carriers.validate();
+    status.textContent = "Assets verified. Gameplay integration is pending.";
+  } finally { carriers.free(); }
+}
+
+try {
+  await init();
+  let page;
+  element("connect").onclick = () => {
+    try {
+      const relay = new URL(element("relay").value || location.origin);
+      if (relay.protocol !== "https:") throw new Error("Relay requires HTTPS");
+      page?.free(); page = new Page(relay.origin, observe);
+    } catch (error) { status.textContent = error.message; }
+  };
+  element("sign-in").onclick = () => { try { page?.sign_in(); } catch (error) { status.textContent = error.message; } };
+  element("sign-out").onclick = () => { try { page?.sign_out(); } catch (error) { status.textContent = error.message; } };
+  element("prepare").onclick = async () => {
+    element("prepare").disabled = true;
+    try { await prepare(); } catch (error) { status.textContent = error.message; }
+    finally { element("prepare").disabled = false; }
+  };
+  const input = new BrowserInput();
+  const audio = new AudioContext();
+  const stop = canvasEdges(element("game"), input, audio);
+  pageLifecycle(input, audio, () => page, () => {
+    stop(); input.free(); page?.free(); audio.close().catch(() => {});
+  });
+} catch (error) { status.textContent = error.message; }
+
+</script>
+</html>

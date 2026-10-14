@@ -157,6 +157,9 @@ mod tests {
     fn leaf(name: &str, id: u32) -> RegistryRecord {
         RegistryRecord {
             beacon_tint: assets::BeaconTint::Unresolved,
+            traits: assets::registry::BlockTraits::empty(),
+            survival: assets::registry::SurvivalRule::None,
+            properties: Box::new([]),
             sequential_id: id,
             network_hash: id,
             name: name.into(),

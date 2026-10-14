@@ -183,7 +183,7 @@ fn native_pick_contexts_do_not_follow_collision_or_game_mode_alone() {
 fn multiface_clips_leave_the_unoccupied_centre_clear() {
     let mut record = record("minecraft:glow_lichen").clone();
     let input = fixture().1.by_sequential_id(record.sequential_id).unwrap();
-    record.canonical_state = r#"{"multi_face_direction_bits":{"type":"byte","value":6}}"#.into();
+    record.canonical_state = r#"{"multi_face_direction_bits":{"type":"int","value":6}}"#.into();
     let shapes = compile(&record, input).shapes.unwrap();
     assert_eq!(
         shapes.selection.as_ref(),

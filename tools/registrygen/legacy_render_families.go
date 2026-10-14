@@ -15,79 +15,23 @@ func classifyRecord(state SourceState) (Record, error) {
 	}
 	record := Record{Name: state.Name, StateJSON: canonical, ContributorRole: ContributorPrimary}
 	name := strings.TrimPrefix(state.Name, "minecraft:")
-	switch {
-	case name == "air":
-		record.ModelFamily = ModelFamilyAir
+	family, err := legacyModelFamily(state)
+	if err != nil {
+		return Record{}, err
+	}
+	record.ModelFamily = family
+	if family == ModelFamilyAir {
 		record.ContributorRole = ContributorAir
-	case name == "water" || name == "flowing_water" || name == "lava" || name == "flowing_lava":
-		record.ModelFamily = ModelFamilyLiquid
+	}
+	if family == ModelFamilyLiquid {
 		record.ContributorRole = ContributorLiquidAdditional
-	case strings.Contains(name, "copper_golem_statue"):
-		record.ModelFamily = ModelFamilyStatue
-	case name == "barrier":
-		record.ModelFamily = ModelFamilyInvisible
-	case name == "dragon_egg":
-		record.ModelFamily = ModelFamilyDecorative
-	case name == "soul_sand" || name == "mud":
-		record.ModelFamily = ModelFamilyCuboid
-	case isReviewedSelectorAliasCubeName(name), isGlazedTerracottaName(name):
-		record.ModelFamily = ModelFamilyCube
-	case strings.Contains(name, "trapdoor"):
-		record.ModelFamily = ModelFamilyTrapdoor
-	case strings.HasSuffix(name, "_door") || name == "wooden_door":
-		record.ModelFamily = ModelFamilyDoor
-	case strings.HasSuffix(name, "_stairs"):
-		record.ModelFamily = ModelFamilyStair
-	case strings.Contains(name, "slab"):
-		record.ModelFamily = ModelFamilySlab
-	case strings.Contains(name, "fence_gate"):
-		record.ModelFamily = ModelFamilyGate
-	case strings.HasSuffix(name, "_wall") || name == "cobblestone_wall":
-		record.ModelFamily = ModelFamilyWall
-	case strings.HasSuffix(name, "_fence") || name == "fence" || name == "nether_brick_fence":
-		record.ModelFamily = ModelFamilyFence
-	case strings.Contains(name, "glass_pane") || strings.HasSuffix(name, "_pane") || strings.HasSuffix(name, "_bars"):
-		record.ModelFamily = ModelFamilyPane
-	case strings.HasSuffix(name, "_bed") || name == "bed":
-		record.ModelFamily = ModelFamilyBed
-	case strings.Contains(name, "chest"):
-		record.ModelFamily = ModelFamilyChest
-	case strings.Contains(name, "sign"):
-		record.ModelFamily = ModelFamilySign
-	case strings.Contains(name, "rail"):
-		record.ModelFamily = ModelFamilyRail
-	case isTorchName(name):
-		record.ModelFamily = ModelFamilyTorch
-	case name == "lever":
-		record.ModelFamily = ModelFamilyLever
-	case strings.HasSuffix(name, "_button") || name == "stone_button":
-		record.ModelFamily = ModelFamilyButton
-	case strings.Contains(name, "pressure_plate"):
-		record.ModelFamily = ModelFamilyPressurePlate
-	case strings.HasSuffix(name, "_carpet") || name == "carpet":
-		record.ModelFamily = ModelFamilyCarpet
-	case name == "snow_layer" || name == "leaf_litter":
-		record.ModelFamily = ModelFamilyLayer
-	case isAquaticName(name):
-		record.ModelFamily = ModelFamilyAquatic
-	case name == "cocoa":
-		record.ModelFamily = ModelFamilyCocoa
-	case isCropName(name):
-		record.ModelFamily = ModelFamilyCrop
-	case name == "wildflowers" || name == "pink_petals":
-		record.ModelFamily = ModelFamilyFlowerBed
-	case name == "vine":
-		record.ModelFamily = ModelFamilyVine
-	case name == "glow_lichen":
-		record.ModelFamily = ModelFamilyGlowLichen
-	case name == "sculk_vein":
-		record.ModelFamily = ModelFamilySculkVein
+	}
+	switch {
 	case name == "chiseled_bookshelf":
 		books, direction, err := chiseledBookshelfSelectors(state.Properties)
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyChiseledBookshelf
 		record.ModelState.Set(ModelStateConnections, books)
 		record.ModelState.Set(ModelStateOrientation, direction)
 	case name == "bee_nest" || name == "beehive":
@@ -95,7 +39,6 @@ func classifyRecord(state SourceState) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyCube
 		record.ModelState.Set(ModelStateOrientation, direction)
 		record.ModelState.Set(ModelStateGrowth, honey)
 	case name == "resin_clump":
@@ -103,40 +46,33 @@ func classifyRecord(state SourceState) (Record, error) {
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyResinClump
 		record.ModelState.Set(ModelStateConnections, connections)
 	case name == "cactus":
 		age, err := cactusAgeSelector(state.Properties)
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, age)
 	case name == "cake":
 		bite, err := cakeBiteSelector(state.Properties)
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, bite)
 	case name == "farmland":
 		amount, err := farmlandMoistureSelector(state.Properties)
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateGrowth, amount)
 	case isShelfName(name):
 		direction, powered, shelfType, err := shelfSelectors(state.Properties)
 		if err != nil {
 			return Record{}, err
 		}
-		record.ModelFamily = ModelFamilyCuboid
 		record.ModelState.Set(ModelStateOrientation, direction)
 		record.ModelState.Set(ModelStateGrowth, shelfType)
 		record.ModelState.Set(ModelStateFlags, powered*modelFlagPowered)
-	case isCrossName(name):
-		record.ModelFamily = ModelFamilyCross
 	}
 	var connections uint32
 	var hasConnections bool

@@ -27,6 +27,24 @@ pub(super) struct HeldModel {
 }
 
 impl HeldModel {
+    /// Whether the held geometry follows an item sprite rather than authored or block geometry.
+    pub(super) const fn is_sprite(&self) -> bool {
+        self.sprite.is_some()
+    }
+
+    /// Changes a sprite's artwork and mask while retaining its hand placement and glint policy.
+    pub(super) fn with_sprite(
+        &self,
+        source: IconRef,
+        vertices: Arc<[render_model::ActorRigVertex]>,
+    ) -> PreviewHeldModel {
+        PreviewHeldModel {
+            source: source.with_glint(self.model.source.glint),
+            vertices,
+            ..self.model.clone()
+        }
+    }
+
     const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
@@ -148,7 +166,8 @@ pub(super) fn prepare(
     Ok(models)
 }
 
-fn player_hands(entities: &RuntimeEntityAssets) -> Option<[[f32; 3]; 2]> {
+/// Resolves the original player's right and left item bone pivots.
+pub(super) fn player_hands(entities: &RuntimeEntityAssets) -> Option<[[f32; 3]; 2]> {
     let binding = entities.rig_bindings().iter().find(|binding| {
         entities
             .symbols()
@@ -278,5 +297,7 @@ fn authored(
     }))
 }
 
+#[cfg(test)]
+mod session_tests;
 #[cfg(test)]
 mod tests;

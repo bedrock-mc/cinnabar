@@ -2,7 +2,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::Arc,
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use assets::texture::policy::{TexturePolicy, device_policy};
@@ -22,6 +22,8 @@ const MIN_PAGE_SIDE: u32 = render_model::UI_DYNAMIC_PAGE_SIDE;
 type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
+
+mod held;
 
 /// Resolves session overrides before vanilla artwork, retaining the variant-zero fallback.
 pub(super) fn lookup_icon(
@@ -64,6 +66,9 @@ pub struct SessionIcons {
 pub(super) struct SessionIconPage {
     source: Option<Arc<SessionIcons>>,
     refs: IconRefs,
+    /// Only admitted sprites get meshes; replacing the page replaces this lazy cache.
+    held_sprites: BTreeMap<IconKey, HeldSprite>,
+    held_meshes: Mutex<held::HeldMeshes>,
     /// GUI cubes of custom block items, keyed by their flat thumbnail as vanilla GUI models are.
     pub(super) models: BTreeMap<IconKey, Arc<UiMesh>>,
     pub(super) page: Option<UiTexturePage>,
@@ -73,6 +78,55 @@ pub(super) struct SessionIconPage {
 }
 
 impl SessionIconPage {
+    /// The original pixels of the admitted exact variant or its variant-zero fallback.
+    pub(super) fn sprite(&self, identifier: &str, metadata: u32) -> Option<&SessionIcon> {
+        let source = self.icon(identifier, metadata)?;
+        let held = self.held_sprites.get(&icon_key(source))?;
+        self.source.as_ref()?.icons.get(held.index)
+    }
+
+    /// Converts admitted pixels once per installed page for the compatibility CPU preview.
+    pub(super) fn sprite_pixels(&self, identifier: &str, metadata: u32) -> Option<Arc<[u8]>> {
+        let source = self.icon(identifier, metadata)?;
+        let held = self.held_sprites.get(&icon_key(source))?;
+        let sprite = self.source.as_ref()?.icons.get(held.index)?;
+        Some(Arc::clone(
+            held.pixels.get_or_init(|| Arc::from(&*sprite.rgba8)),
+        ))
+    }
+
+    /// Shares the inventory cell's region and lazily extrudes its admitted sprite's alpha edges.
+    pub(super) fn held_sprite(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> Option<(IconRef, Arc<[render_model::ActorRigVertex]>)> {
+        let source = self.icon(identifier, metadata)?;
+        let held = self.held_sprites.get(&icon_key(source))?;
+        if held.rejected.get().is_some() {
+            return None;
+        }
+        let mut cache = self.held_meshes.lock().ok()?;
+        if let Some(vertices) = cache.get(icon_key(source)) {
+            return Some((source, vertices));
+        }
+        let sprite = self.source.as_ref()?.icons.get(held.index)?;
+        let vertices = render_model::held_sprite_vertices(
+            sprite.width as usize,
+            sprite.height as usize,
+            &sprite.rgba8,
+            [0.0, 0.0, 1.0, 1.0],
+        )
+        .filter(|vertices| UiMesh::check_size(vertices.len(), vertices.len(), 1).is_ok());
+        let Some(vertices) = vertices else {
+            let _ = held.rejected.set(());
+            return None;
+        };
+        let vertices: Arc<[render_model::ActorRigVertex]> = vertices.into();
+        cache.insert(icon_key(source), Arc::clone(&vertices))?;
+        Some((source, vertices))
+    }
+
     /// Returns a session override for the requested variant, then variant zero.
     fn icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
         self.refs
@@ -80,6 +134,13 @@ impl SessionIconPage {
             .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
             .copied()
     }
+}
+
+/// A source index and mesh owned by the installed session page's generation.
+struct HeldSprite {
+    index: usize,
+    pixels: OnceLock<Arc<[u8]>>,
+    rejected: OnceLock<()>,
 }
 
 /// An icon set packing off the frame, and where its page lands.
@@ -251,9 +312,34 @@ fn install(
     let (page, refs) = packed.map_or((None, HashMap::new()), |(_, packed)| {
         (Some(packed.page), packed.refs)
     });
+    let mut held_sprites = BTreeMap::new();
+    if let Some(icons) = icons {
+        let policy = device_policy();
+        for (index, icon) in icons
+            .icons
+            .iter()
+            .enumerate()
+            .filter(|(_, icon)| valid_icon(icon, policy))
+        {
+            if let Some(source) = refs
+                .get(&icon.identifier)
+                .and_then(|variants| variants.get(&icon.metadata))
+            {
+                held_sprites
+                    .entry(icon_key(*source))
+                    .or_insert_with(|| HeldSprite {
+                        index,
+                        pixels: OnceLock::new(),
+                        rejected: OnceLock::new(),
+                    });
+            }
+        }
+    }
     runtime.session_icons = SessionIconPage {
         source: icons.cloned(),
         refs,
+        held_sprites,
+        held_meshes: Mutex::default(),
         models,
         page,
         generation: runtime.session_icons.generation.wrapping_add(1),

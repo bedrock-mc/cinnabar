@@ -232,6 +232,9 @@ fn visual_family_dispatch_uses_explicit_ordered_outcomes() {
 fn synthetic_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {
     RegistryRecord {
         beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
         sequential_id,
         network_hash,
         name: "minecraft:air".into(),

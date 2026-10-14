@@ -30,7 +30,7 @@ fn registry_reader_decodes_dragonfly_records_and_flags() {
             0x9123_4567,
             6,
             b"minecraft:stone",
-            br#"{"stone_type":"stone"}"#,
+            br#"{"stone_type":{"type":"string","value":"stone"}}"#,
         ),
     ]);
 
@@ -53,6 +53,10 @@ fn registry_reader_decodes_dragonfly_records_and_flags() {
     assert_eq!(
         records[1].flags,
         BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE
+    );
+    assert_eq!(
+        records[1].property(assets::facts::BlockProperty::StoneType),
+        Some(&assets::facts::StateValue::String("stone".into()))
     );
 }
 

@@ -139,6 +139,7 @@ pub(super) fn read_light_registry_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assets::registry::{BlockTraits, SurvivalRule};
     use sha2::{Digest, Sha256};
     use std::path::PathBuf;
 
@@ -182,6 +183,8 @@ mod tests {
         }
         if !legacy {
             bytes.push(assets::BeaconTint::NoTinting as u8);
+            bytes.extend_from_slice(&BlockTraits::AIR.bits().to_le_bytes());
+            bytes.push(SurvivalRule::None as u8);
         }
         bytes.extend_from_slice(b"minecraft:air");
         bytes.extend_from_slice(b"{}");
@@ -229,6 +232,8 @@ mod tests {
         assert_eq!(protocol, 2193);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].sequential_id, 13_629);
+        assert_eq!(records[0].traits, BlockTraits::AIR);
+        assert_eq!(records[0].survival, SurvivalRule::None);
 
         let lights = read_light_registry_input(
             Path::new("light.bin"),
