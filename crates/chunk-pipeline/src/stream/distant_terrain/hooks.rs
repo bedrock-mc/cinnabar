@@ -11,8 +11,8 @@ use lod_store::identity::Dimension;
 use world::{Chunk, ChunkKey, LightStoreSnapshot, SubChunkKey};
 
 use super::{
-    LOD_SETTLE_POLLS, LodIngest, MAX_LOD_BACKLOG, MAX_LOD_COLUMNS_EXAMINED_PER_POLL,
-    MAX_LOD_COLUMNS_PER_POLL, MAX_LOD_FINAL_CAPTURES_PER_POLL, MAX_LOD_PENDING_FINAL_CAPTURES,
+    LOD_SETTLE_POLLS, LodIngest, MAX_LOD_COLUMNS_EXAMINED_PER_POLL, MAX_LOD_COLUMNS_PER_POLL,
+    MAX_LOD_FINAL_CAPTURES_PER_POLL, MAX_LOD_PENDING_FINAL_CAPTURES,
     blocks::SessionBlocks,
     book::Verdict,
     hash::content_hash,
@@ -148,12 +148,15 @@ impl WorldStream {
     }
 
     /// Advances the settle count, keeps the fingerprints sample jobs reported for
-    /// resident columns, nudges a writer the store's full queue stopped, and, within this
-    /// poll's budget, takes up to [`MAX_LOD_COLUMNS_PER_POLL`] due columns. Those whose
-    /// content is unchanged are skipped; the rest are queued while fewer than
-    /// [`MAX_LOD_BACKLOG`] samples are outstanding, and dropped and counted beyond that.
-    /// A stream finishing ingestion takes its next resident columns as final captures
-    /// instead.
+    /// resident columns, marks the resident columns a full inbox handed back dirty again,
+    /// nudges a writer the store's full queue stopped, and, within this poll's budget,
+    /// takes as many due columns as there is room for ([`LodShared::room`]), up to
+    /// [`MAX_LOD_COLUMNS_PER_POLL`]. Those whose content is unchanged are skipped; the rest
+    /// are queued. Due columns beyond the room stay dirty and are taken on a later poll,
+    /// so a join backlog delays changed columns but never loses one. A stream finishing
+    /// ingestion takes its next resident columns as final captures instead.
+    ///
+    /// [`LodShared::room`]: super::shared::LodShared::room
     pub(in crate::stream) fn dispatch_lod_work(&mut self) {
         let Some(lod) = self.lod.as_deref_mut() else {
             return;
@@ -165,12 +168,19 @@ impl WorldStream {
                 lod.fingerprints.insert(column, fingerprint);
             }
         }
+        // An evicted column's final capture, or a finishing stream's, keeps its last state.
+        for (column, resample) in lod.shared.take_deferred() {
+            if lod.finishing.is_none() && terrain.chunk(column).is_some() {
+                lod.defer(column, resample);
+            }
+        }
         lod.shared.nudge_writer();
         if lod.finishing.is_some() {
             self.capture_final_columns(MAX_LOD_FINAL_CAPTURES_PER_POLL);
             return;
         }
-        if lod.dirty.is_empty() || self.poll_budget_exhausted() {
+        let room = lod.shared.room();
+        if lod.dirty.is_empty() || room == 0 || self.poll_budget_exhausted() {
             return;
         }
         let (resident, lighting) = (&self.resident, &self.lighting);
@@ -182,7 +192,7 @@ impl WorldStream {
         let Some(lod) = self.lod.as_deref_mut() else {
             return;
         };
-        let due = lod.take_due(light_settled);
+        let due = lod.take_due(room.min(MAX_LOD_COLUMNS_PER_POLL), light_settled);
         let mut blocks = lod.blocks.take();
         let inputs: Vec<ColumnInput> = due
             .into_iter()
@@ -195,9 +205,7 @@ impl WorldStream {
             return;
         };
         lod.blocks = blocks;
-        let shared = Arc::clone(&lod.shared);
-        let mut room = MAX_LOD_BACKLOG
-            .saturating_sub(shared.in_flight.load(Ordering::Acquire) + shared.queued());
+        // Each taken column needs at most one unit of the room, so none is refused here.
         let mut routed = Vec::with_capacity(inputs.len());
         for input in inputs {
             let column = input.chunk;
@@ -207,19 +215,8 @@ impl WorldStream {
             if let Some(fingerprint) = fingerprint {
                 lod.fingerprints.insert(column, fingerprint);
             }
-            match route {
-                Route::Skip(_) => {}
-                route if room > 0 => {
-                    room -= 1;
-                    routed.push(route);
-                }
-                _ => {
-                    // A final capture still needs to know the stored light is stale.
-                    if relit {
-                        lod.relit.insert(column);
-                    }
-                    Counters::bump(&shared.counters.dropped);
-                }
+            if !matches!(route, Route::Skip(_)) {
+                routed.push(route);
             }
         }
         let mut skipped = Vec::new();
@@ -397,8 +394,8 @@ impl LodIngest {
 
     /// Sends `routed` captures on: checks to the writer, samples as one batch of Lod jobs;
     /// skipped ones go to `skipped`. Final captures sent on count in
-    /// [`super::shared::LodShared::final_captures`] until written. A check the full inbox
-    /// refuses is dropped, counted.
+    /// [`super::shared::LodShared::final_captures`] until written. A changed check the full
+    /// inbox refuses goes back to the frame to be captured again.
     fn send(&mut self, routed: Vec<Route>, skipped: &mut Vec<Capture>) {
         let shared = &self.shared;
         let mut batch = WORKERS.batch(Lane::Lod);
@@ -414,7 +411,7 @@ impl LodIngest {
                 Route::Check(mut capture) => {
                     start(&mut capture);
                     if let Err(input) = shared.push(WriterInput::Check(Box::new(capture))) {
-                        jobs::count_drop(shared, input.kind());
+                        jobs::refused(shared, input);
                     }
                 }
                 Route::Sample(mut capture) => {
@@ -425,14 +422,32 @@ impl LodIngest {
         }
     }
 
-    /// Removes and returns up to [`MAX_LOD_COLUMNS_PER_POLL`] columns that have settled
-    /// and whose light `light_settled` reports done, checking at most
-    /// [`MAX_LOD_COLUMNS_EXAMINED_PER_POLL`] columns; those still waiting for light move
-    /// to the back.
-    fn take_due(&mut self, light_settled: impl Fn(ChunkKey) -> bool) -> Vec<ChunkKey> {
+    /// Marks `column`, which a full inbox handed back, dirty and due at once, ahead of the
+    /// other due columns; a `resample` column is sampled whatever its hash. A column
+    /// changed again meanwhile keeps its newer settle count.
+    pub(super) fn defer(&mut self, column: ChunkKey, resample: bool) {
+        if resample {
+            self.relit.insert(column);
+        }
+        if self.dirty.contains_key(&column) {
+            return;
+        }
+        let due = self.polls.saturating_sub(LOD_SETTLE_POLLS);
+        self.dirty.insert(column, due);
+        self.order.push_front((due, column));
+    }
+
+    /// Removes and returns up to `limit` columns that have settled and whose light
+    /// `light_settled` reports done, checking at most [`MAX_LOD_COLUMNS_EXAMINED_PER_POLL`]
+    /// columns; those still waiting for light move to the back.
+    fn take_due(
+        &mut self,
+        limit: usize,
+        light_settled: impl Fn(ChunkKey) -> bool,
+    ) -> Vec<ChunkKey> {
         let mut due = Vec::new();
         let mut examined = 0;
-        while due.len() < MAX_LOD_COLUMNS_PER_POLL && examined < MAX_LOD_COLUMNS_EXAMINED_PER_POLL {
+        while due.len() < limit && examined < MAX_LOD_COLUMNS_EXAMINED_PER_POLL {
             let Some(&(changed, column)) = self.order.front() else {
                 break;
             };

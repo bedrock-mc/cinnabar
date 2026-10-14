@@ -267,76 +267,37 @@ fn fill_depth(context: &mut RenderContext, depth: &ViewDepthStencilTexture, unco
     pass.draw(0..3, 0..1);
 }
 
-/// Runs the production Hi-Z seed directly on the same depth consumed by post effects.
+/// Runs the production Hi-Z builder on the same depth consumed by post effects and returns
+/// a 2×2 texture whose texel (0, 0) holds the pyramid's one level-0 texel, which covers the
+/// whole 2×2 target.
 fn hiz_seed(context: &mut RenderContext, depth: &ViewDepthStencilTexture) -> Texture {
-    let device = context.render_device();
     let destination = texture(
-        device,
+        context.render_device(),
         wgpu::TextureFormat::R32Float,
         1,
-        wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::COPY_SRC,
+        wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
     );
-    let view = destination.create_view(&Default::default());
-    let device = device.wgpu_device();
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("production Hi-Z fixture"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../chunk/gpu_cull/hiz.wgsl").into()),
-    });
-    let multi = depth.texture().sample_count() > 1;
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-        label: None,
-        layout: None,
-        module: &shader,
-        entry_point: Some(if multi {
-            "hiz_seed_multisampled"
-        } else {
-            "hiz_seed"
-        }),
-        compilation_options: Default::default(),
-        cache: None,
-    });
-    // The seed's source is the whole depth target and it builds every covering texel.
+    let device = context.render_device().wgpu_device().clone();
     let size = depth.texture().size();
-    let bounds = wgpu::util::DeviceExt::create_buffer_init(
-        device,
-        &wgpu::util::BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&[
-                size.width - 1,
-                size.height - 1,
-                size.width.div_ceil(2),
-                size.height.div_ceil(2),
-            ]),
-            usage: wgpu::BufferUsages::UNIFORM,
+    let kernels = crate::chunk::PyramidKernels::new(&device);
+    let pyramid = crate::chunk::HizPyramid::new(&device, [size.width, size.height]);
+    let bindings = kernels.bindings(
+        &device,
+        crate::scene_sampling::view_depth(depth),
+        depth.texture().sample_count() > 1,
+        &pyramid,
+    );
+    let encoder = context.command_encoder();
+    kernels.encode(encoder, &pyramid, &bindings);
+    encoder.copy_texture_to_texture(
+        pyramid.texture.as_image_copy(),
+        destination.as_image_copy(),
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
         },
     );
-    let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &pipeline.get_bind_group_layout(0),
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: u32::from(multi),
-                resource: wgpu::BindingResource::TextureView(crate::scene_sampling::view_depth(
-                    depth,
-                )),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: bounds.as_entire_binding(),
-            },
-        ],
-    });
-    let mut pass = context
-        .command_encoder()
-        .begin_compute_pass(&Default::default());
-    pass.set_pipeline(&pipeline);
-    pass.set_bind_group(0, &binding, &[]);
-    pass.dispatch_workgroups(1, 1, 1);
-    drop(pass);
     destination
 }
 

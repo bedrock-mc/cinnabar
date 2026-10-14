@@ -1340,7 +1340,12 @@ acceptance gate.
   per terrain family. DX12 compiles shaders with FXC at every launch, about 0.5 to 1.7 s per
   pipeline here, so a culled variant per family would lengthen the loading screen.
 - The Hi-Z pyramid builds only texels that cover a depth pixel, `ceil(depth / 2^(level + 1))`
-  per axis, passed per level in a bounds uniform; the cull reads no other texel.
+  per axis, passed in a bounds uniform; the cull reads no other texel. One dispatch builds
+  four levels: each 16×16 workgroup reduces a 32×32-texel tile of its first level and keeps
+  the tile's later levels in workgroup memory, so a 2016×1134 target takes three dispatches
+  instead of eleven (four storage textures per stage, the downlevel minimum). The GPU tests
+  check every texel against the CPU reference at display sizes. Its cost on hardware is
+  unmeasured (incomplete; the plan's target is at most 60 µs a frame on an M1).
 - The cull kernels skip wgpu's workgroup zero-fill. Each kernel writes its workgroup slots
   before reading them, and the fill made FXC spend about 7.5 s per kernel, which held DX12
   launch-to-HUD at about 23 s; it is now about 4 s.
@@ -8714,10 +8719,16 @@ and the native comparison.
 - Ingestion (`chunk-pipeline`, off unless a store client is attached; off costs one branch
   per hook): every block change marks its column dirty, and a dirty column is due
   `LOD_SETTLE_POLLS` polls after its last change once no light work is pending for it. Each
-  poll within its budget takes at most `MAX_LOD_COLUMNS_PER_POLL` due columns and queues
-  them as sample jobs on a background-only Lod lane while fewer than `MAX_LOD_BACKLOG`
-  samples are in flight or wait for the writer; due columns beyond that are dropped and
-  counted, because a final capture keeps every column's last state. Final captures are never
+  poll within its budget takes at most `MAX_LOD_COLUMNS_PER_POLL` due columns, and only as
+  many as keep fewer than `MAX_LOD_BACKLOG` samples in flight or waiting for the writer and
+  fit the writer inbox, and queues them as sample jobs on a background-only Lod lane; due
+  columns beyond that stay dirty for a later poll. A changed capture the full inbox still
+  refuses (final captures filled it) goes back to the frame, which marks the column dirty
+  and due again, to be sampled whatever its hash, and counts it as deferred. Earlier,
+  columns beyond the backlog were dropped and only re-captured at their next change or
+  eviction, so a join lost most of its view (a live M1 run: 261 sampled, 271 dropped);
+  now a join of settled columns behind a slow writer stores every one, as a test checks.
+  Final captures are never
   dropped for a full backlog or writer inbox: an eviction, including a full one, takes each
   retired column with the light of its sub-chunks before the light is removed, and a stream
   that stops ingesting (the setting turned off, leaving, or a dropped stream) takes every
@@ -8795,10 +8806,11 @@ and the native comparison.
   that writer merges nothing new meanwhile, instead of being dropped, since a dropped write
   would lose final captures that are never taken again; ingestion is not settled while
   anything is held, so sessions neither end nor begin ahead of it. A store that stays full
-  fills the inbox, which then drops changed columns only. A stopped store's refusals make
+  fills the inbox, which then refuses changed columns only, and they wait dirty. A stopped
+  store's refusals make
   the book forget those columns' hashes, and the owner makes the stream forget every hash
   and cached section after a failed request. Counters cover queued jobs, sampled, skipped,
-  superseded, dropped (changed and final), merged, stale merges, slabs handed between
+  superseded, deferred changed columns, dropped final captures, merged, stale merges, slabs handed between
   writers, unknown, unkeyed and registry-full ids, worker time and store errors.
   `crates/lod/benches/section_costs.rs` measures the merge and encoding of one column, and
   `chunk_costs` one sample job and the writers' throughput with one writer and with
@@ -9043,8 +9055,8 @@ and the native comparison.
   the pool (no first instance, base vertex or count draws; quad slots past a cluster's
   quads, dead sections and crack lists not drawn collapse to one point outside the clip
   volume): the scatter; pass A draws last frame's visible clusters; a depth pyramid over the
-  near terrain and pass A, built and tested with the terrain cull's `hiz.wgsl` layout and
-  the shared `hiz_test.wgsl`; culling tests every section box against the frustum and
+  near terrain and pass A, built and tested with the terrain cull's `hiz.wgsl` builder and
+  the shared `hiz_test.wgsl`, and skipped while no section slot is in use; culling tests every section box against the frustum and
   pyramid, hiding a section above level 0 whole when any chunk column under it is resident
   (a row of the mask is a word per 32 columns), then every cluster slot by its section, the
   crack list its neighbour level draws, its facing direction (hidden only when the eye is
@@ -9116,7 +9128,17 @@ and the native comparison.
   resident under a coarse section, that section is hidden whole until its level-0
   replacements arrive, leaving a hole beyond the resident columns meanwhile, and pass A
   still draws it in the one frame before culling sees the column. Pass A always draws when
-  sections exist, even when last frame drew nothing. The size bins project every visible
+  sections exist, even when last frame drew nothing. Live capture is incomplete: one short
+  M1 run (Honeykrisp, 2016×1134, Medium at 256 chunks, two minutes at spawn) measured
+  0.6–1.26 ms of distant terrain GPU time with almost nothing drawn, most of it the
+  one-dispatch-per-level pyramid (scatter 0.02–0.12, pass A 0.02–0.27, cull 0.11–0.21,
+  pass B and water 0.04–0.15 ms), before the four-level pyramid dispatches and the skip
+  without sections; neither is captured yet. The pyramid is still rebuilt after pass A
+  every drawing frame: Apple GPUs draw near terrain directly, with no per-frame terrain
+  pyramid to reuse, and the frame cannot know before encoding that pass A or pass B draw
+  nothing (their counts are GPU-side, read back frames later), so skipping either on a
+  stale count could hide a visible cluster. The join backlog fix (changed columns wait
+  dirty instead of being dropped) is likewise not yet live-captured. The size bins project every visible
   section and opaque cluster once more, unmeasured. Selection is untimed: no benchmark
   covers walks or the shown set's updates, which recompute every drawn section's neighbour
   levels whenever the shown set changes. A column evicted under an all-resident section

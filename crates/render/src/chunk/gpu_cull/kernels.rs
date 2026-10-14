@@ -11,7 +11,17 @@ use super::model::{
 
 const RECORD_BYTES: u64 = std::mem::size_of::<super::model::CullRecord>() as u64;
 const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
-const PYRAMID_WORKGROUP: u32 = 8;
+/// Threads per side of a pyramid workgroup; each reduces a tile of twice as many texels per
+/// side of its dispatch's first level.
+const PYRAMID_SIDE: u32 = 16;
+/// Levels one pyramid dispatch builds, one storage texture each, within the four storage
+/// textures per stage every compute-capable device offers.
+const PYRAMID_DISPATCH_LEVELS: usize = 4;
+
+// `hiz.wgsl` binds four levels and keeps the tile's later ones, down to a quarter of the
+// workgroup side, in workgroup memory.
+const _: () =
+    assert!(PYRAMID_DISPATCH_LEVELS == 4 && PYRAMID_SIDE.is_power_of_two() && PYRAMID_SIDE >= 4);
 
 /// The shared Hi-Z occlusion test; see `hiz_test.wgsl` for what the including shader declares.
 pub fn hiz_test_source() -> &'static str {
@@ -30,8 +40,11 @@ pub fn cull_shader_source() -> String {
         .replace("CULL_ABSOLUTE_SLACK", &float(FRUSTUM_ABSOLUTE_SLACK))
 }
 
-pub fn pyramid_shader_source() -> &'static str {
+/// The pyramid kernels' source with their Rust-owned constants substituted.
+pub fn pyramid_shader_source() -> String {
     include_str!("hiz.wgsl")
+        .replace("HIZ_SIDE", &format!("{PYRAMID_SIDE}u"))
+        .replace("HIZ_LEVELS", &format!("{PYRAMID_DISPATCH_LEVELS}u"))
 }
 
 /// GPU buffers for `capacity` record slots; `readback` adds copy-out for tests.
@@ -203,8 +216,11 @@ pub struct HizPyramid {
     mips: Vec<wgpu::TextureView>,
     sizes: Vec<[u32; 2]>,
     extents: Vec<[u32; 2]>,
-    /// Per level, the `HizBounds` uniform of `hiz.wgsl`: source last texel, covered extent.
+    /// Per dispatch, the `HizBounds` uniform of `hiz.wgsl`: the source's covered extent and
+    /// that of each level it builds.
     bounds: Vec<wgpu::Buffer>,
+    /// Bound in place of the levels the last dispatch does not build, which it never writes.
+    spare: Vec<wgpu::TextureView>,
 }
 
 impl HizPyramid {
@@ -236,26 +252,46 @@ impl HizPyramid {
             })
             .collect();
         let extents = pyramid_extents(depth_size);
-        let bounds = extents
-            .iter()
-            .enumerate()
-            .map(|(level, extent)| {
-                let source = if level == 0 {
-                    depth_size
+        let bounds = (0..extents.len())
+            .step_by(PYRAMID_DISPATCH_LEVELS)
+            .map(|base| {
+                let source = if base == 0 {
+                    depth_size.map(|side| side.max(1))
                 } else {
-                    extents[level - 1]
+                    extents[base - 1]
                 };
-                let words = [
-                    source[0].saturating_sub(1),
-                    source[1].saturating_sub(1),
-                    extent[0],
-                    extent[1],
-                ];
+                let mut words = vec![source[0], source[1], 0, 0];
+                for level in base..base + PYRAMID_DISPATCH_LEVELS {
+                    let extent = extents.get(level).copied().unwrap_or([0, 0]);
+                    words.extend([extent[0], extent[1], 0, 0]);
+                }
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("terrain hi-z level bounds"),
+                    label: Some("terrain hi-z dispatch bounds"),
                     contents: bytemuck::cast_slice(&words),
                     usage: wgpu::BufferUsages::UNIFORM,
                 })
+            })
+            .collect();
+        let unbuilt = extents.len().next_multiple_of(PYRAMID_DISPATCH_LEVELS) - extents.len();
+        // Separate textures, so no dispatch binds one subresource twice.
+        let spare = (0..unbuilt)
+            .map(|_| {
+                device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some("terrain hi-z spare level"),
+                        size: wgpu::Extent3d {
+                            width: 1,
+                            height: 1,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: PYRAMID_FORMAT,
+                        usage: wgpu::TextureUsages::STORAGE_BINDING,
+                        view_formats: &[],
+                    })
+                    .create_view(&Default::default())
             })
             .collect();
         Self {
@@ -266,7 +302,16 @@ impl HizPyramid {
             sizes,
             extents,
             bounds,
+            spare,
         }
+    }
+
+    /// The views a dispatch building levels from `base` writes, spares past the last level.
+    fn dispatch_levels(&self, base: usize) -> impl Iterator<Item = &wgpu::TextureView> {
+        self.mips[base..]
+            .iter()
+            .chain(&self.spare)
+            .take(PYRAMID_DISPATCH_LEVELS)
     }
 
     pub fn mip_count(&self) -> u32 {
@@ -279,14 +324,14 @@ impl HizPyramid {
     }
 }
 
-/// Bind groups that seed a pyramid from one depth view and reduce its mips.
+/// Bind groups that seed a pyramid from one depth view and reduce its mips, one per dispatch.
 pub struct PyramidBindings {
     multisampled: bool,
-    seed: wgpu::BindGroup,
-    reduce: Vec<wgpu::BindGroup>,
+    dispatches: Vec<wgpu::BindGroup>,
 }
 
-/// The kernels that build a [`HizPyramid`] from a depth view.
+/// The kernels that build a [`HizPyramid`] from a depth view, [`PYRAMID_DISPATCH_LEVELS`]
+/// levels per dispatch.
 pub struct PyramidKernels {
     seed: wgpu::ComputePipeline,
     seed_multisampled: wgpu::ComputePipeline,
@@ -322,12 +367,21 @@ impl PyramidKernels {
     pub fn new(device: &wgpu::Device) -> Self {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain hi-z"),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(pyramid_shader_source())),
+            source: wgpu::ShaderSource::Wgsl(Cow::Owned(pyramid_shader_source())),
         });
         Self {
             seed: kernel(device, &module, None, "hiz_seed"),
             seed_multisampled: kernel(device, &module, None, "hiz_seed_multisampled"),
             reduce: kernel(device, &module, None, "hiz_reduce"),
+        }
+    }
+
+    /// The pipeline of the dispatch building levels from `base`.
+    fn pipeline(&self, base: usize, multisampled: bool) -> &wgpu::ComputePipeline {
+        match (base, multisampled) {
+            (0, false) => &self.seed,
+            (0, true) => &self.seed_multisampled,
+            _ => &self.reduce,
         }
     }
 
@@ -339,63 +393,49 @@ impl PyramidKernels {
         multisampled: bool,
         pyramid: &HizPyramid,
     ) -> PyramidBindings {
-        let group = |pipeline: &wgpu::ComputePipeline, entries: &[wgpu::BindGroupEntry]| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("terrain hi-z bindings"),
-                layout: &pipeline.get_bind_group_layout(0),
-                entries,
-            })
-        };
-        let seed_pipeline = if multisampled {
-            &self.seed_multisampled
-        } else {
-            &self.seed
-        };
-        let seed = group(
-            seed_pipeline,
-            &[
-                wgpu::BindGroupEntry {
-                    binding: if multisampled { 1 } else { 0 },
-                    resource: wgpu::BindingResource::TextureView(depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&pyramid.mips[0]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: pyramid.bounds[0].as_entire_binding(),
-                },
-            ],
-        );
-        let reduce = pyramid
-            .mips
-            .windows(2)
-            .zip(&pyramid.bounds[1..])
-            .map(|(pair, bounds)| {
-                group(
-                    &self.reduce,
-                    &[
+        let dispatches =
+            pyramid
+                .bounds
+                .iter()
+                .enumerate()
+                .map(|(dispatch, bounds)| {
+                    let base = dispatch * PYRAMID_DISPATCH_LEVELS;
+                    let source = match (base, multisampled) {
+                        (0, false) => 0,
+                        (0, true) => 1,
+                        _ => 2,
+                    };
+                    let source_view = if base == 0 {
+                        depth
+                    } else {
+                        &pyramid.mips[base - 1]
+                    };
+                    let mut entries = vec![
                         wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&pair[0]),
+                            binding: source,
+                            resource: wgpu::BindingResource::TextureView(source_view),
                         },
                         wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::TextureView(&pair[1]),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 4,
+                            binding: 3 + PYRAMID_DISPATCH_LEVELS as u32,
                             resource: bounds.as_entire_binding(),
                         },
-                    ],
-                )
-            })
-            .collect();
+                    ];
+                    entries.extend(pyramid.dispatch_levels(base).zip(3..).map(
+                        |(view, binding)| wgpu::BindGroupEntry {
+                            binding,
+                            resource: wgpu::BindingResource::TextureView(view),
+                        },
+                    ));
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("terrain hi-z bindings"),
+                        layout: &self.pipeline(base, multisampled).get_bind_group_layout(0),
+                        entries: &entries,
+                    })
+                })
+                .collect();
         PyramidBindings {
             multisampled,
-            seed,
-            reduce,
+            dispatches,
         }
     }
 
@@ -410,19 +450,14 @@ impl PyramidKernels {
             label: Some("terrain hi-z"),
             timestamp_writes: None,
         });
-        let seed = if bindings.multisampled {
-            &self.seed_multisampled
-        } else {
-            &self.seed
-        };
-        let levels = std::iter::once((seed, &bindings.seed))
-            .chain(bindings.reduce.iter().map(|group| (&self.reduce, group)));
-        for ((pipeline, group), extent) in levels.zip(&pyramid.extents) {
-            pass.set_pipeline(pipeline);
+        for (dispatch, group) in bindings.dispatches.iter().enumerate() {
+            let base = dispatch * PYRAMID_DISPATCH_LEVELS;
+            let extent = pyramid.extents[base];
+            pass.set_pipeline(self.pipeline(base, bindings.multisampled));
             pass.set_bind_group(0, group, &[]);
             pass.dispatch_workgroups(
-                extent[0].div_ceil(PYRAMID_WORKGROUP),
-                extent[1].div_ceil(PYRAMID_WORKGROUP),
+                extent[0].div_ceil(PYRAMID_SIDE * 2),
+                extent[1].div_ceil(PYRAMID_SIDE * 2),
                 1,
             );
         }

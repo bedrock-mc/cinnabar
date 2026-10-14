@@ -39,7 +39,7 @@ pub(in crate::stream) fn queue(
 /// and a column whose stored hash the book does not know goes to the writer, which asks
 /// the store and sends it back here when it changed. A changed capture reports what its
 /// hash covered to the frame. The sample is then queued for the writer; a changed column
-/// finding the inbox full is dropped and counted.
+/// finding the inbox full goes back to the frame to be captured again ([`refused`]).
 pub(in crate::stream) fn sample(shared: &Arc<LodShared>, capture: Capture) {
     if !shared.enabled() {
         return;
@@ -85,7 +85,7 @@ fn sample_timed(shared: &Arc<LodShared>, mut capture: Capture) {
                 Verdict::Unknown => {
                     capture.checked_hash = Some(hash);
                     if let Err(input) = shared.push(WriterInput::Check(Box::new(capture))) {
-                        count_drop(shared, input.kind());
+                        refused(shared, input);
                     }
                     return;
                 }
@@ -109,16 +109,24 @@ fn sample_timed(shared: &Arc<LodShared>, mut capture: Capture) {
         _final: capture.final_capture.take(),
     };
     if let Err(input) = shared.push(WriterInput::Sampled(Box::new(column))) {
-        count_drop(shared, input.kind());
+        refused(shared, input);
     }
 }
 
-/// Counts a capture of `kind` the writer could not take while ingestion runs; only
-/// changed columns are ever refused then.
-pub(in crate::stream) fn count_drop(shared: &LodShared, kind: CaptureKind) {
-    if shared.enabled() && kind == CaptureKind::Changed {
-        Counters::bump(&shared.counters.dropped);
+/// Hands a changed `input` the writer inbox refused while ingestion runs back to the frame
+/// ([`LodShared::defer`]), so its column is captured again instead of losing its change.
+/// A sampled column was already found changed or relit, so it is sampled again whatever its
+/// hash; a check keeps its relit flag. Final captures are never refused while ingestion
+/// runs, and nothing is kept once it is off.
+pub(in crate::stream) fn refused(shared: &LodShared, input: WriterInput) {
+    if !shared.enabled() || input.kind() != CaptureKind::Changed {
+        return;
     }
+    let resample = match &input {
+        WriterInput::Check(capture) => capture.relit,
+        WriterInput::Sampled(_) => true,
+    };
+    shared.defer(input.chunk(), resample);
 }
 
 /// Samples `snapshot` at level 0 with its surface signature; `None` for a column outside

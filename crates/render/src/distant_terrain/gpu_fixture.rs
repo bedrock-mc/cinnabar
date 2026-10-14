@@ -84,6 +84,8 @@ pub(super) struct Fixture {
     pyramid: Option<LodPyramid>,
     /// Fog colour, start and end in blocks.
     pub(super) fog: ([f32; 3], f32, f32),
+    /// The reverse-Z depth the target clears to before each frame, 0 for the far plane.
+    pub(super) depth_clear: f32,
 }
 
 /// One frame's readout: the target's pixels, the culling counters and the statistics.
@@ -124,6 +126,50 @@ impl Fixture {
             .pyramid
             .bindings(&self.gpu.device, &self.depth, false, &pyramid);
         self.pyramid = Some(LodPyramid::new(pyramid, bindings));
+    }
+
+    /// The farthest depth of level-0 texel (0, 0) of the Hi-Z pyramid, as the last frame
+    /// left it; Hi-Z must be on.
+    pub(super) fn pyramid_corner(&self) -> f32 {
+        let prepared = self.pyramid.as_ref().expect("hi-z is on");
+        let device = &self.gpu.device;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("distant terrain fixture pyramid texel"),
+            size: 4,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &prepared.pyramid.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout::default(),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.gpu.queue.submit([encoder.finish()]);
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |result| {
+            result.expect("readback maps");
+        });
+        device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("the copy completes");
+        let bytes = buffer
+            .slice(..)
+            .get_mapped_range()
+            .expect("mapped")
+            .to_vec();
+        f32::from_le_bytes(bytes.try_into().expect("one texel"))
     }
 
     /// A fixture with a 16 MiB pool; `None`, after a named skip message, without a native
@@ -193,6 +239,7 @@ impl Fixture {
             first: true,
             pyramid: None,
             fog,
+            depth_clear: 0.0,
         })
     }
 
@@ -334,7 +381,7 @@ impl Fixture {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &self.depth,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0.0),
+                    load: wgpu::LoadOp::Clear(self.depth_clear),
                     store: wgpu::StoreOp::Store,
                 }),
                 stencil_ops: None,

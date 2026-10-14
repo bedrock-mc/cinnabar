@@ -5,7 +5,8 @@ use std::time::Duration;
 /// Distant terrain ingestion counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct DistantTerrainStats {
-    /// Columns waiting to settle.
+    /// Columns waiting to settle or for room in the backlog, including those the writer
+    /// inbox handed back.
     pub dirty_columns: usize,
     /// Captures queued and not yet sampled.
     pub in_flight: usize,
@@ -24,8 +25,9 @@ pub struct DistantTerrainStats {
     pub skipped_unchanged: u64,
     /// Captures dropped because a newer capture of their column was taken.
     pub superseded: u64,
-    /// Changed columns dropped for a full backlog or writer inbox.
-    pub dropped: u64,
+    /// Changed captures a full writer inbox refused; each column was marked dirty again
+    /// and is captured once there is room, so no change is lost.
+    pub deferred: u64,
     /// Evicted columns dropped beyond [`super::MAX_LOD_PENDING_FINAL_CAPTURES`].
     pub dropped_final_captures: u64,
     /// Columns merged into stored sections.
@@ -56,7 +58,7 @@ pub struct DistantTerrainStats {
 
 impl DistantTerrainStats {
     /// True when no sampled or captured column still waits to reach the store's queue;
-    /// dirty columns that have not settled do not count.
+    /// dirty columns do not count.
     #[must_use]
     pub const fn is_settled(&self) -> bool {
         self.in_flight == 0 && self.final_captures == 0 && self.queued == 0 && !self.writer_busy

@@ -5,9 +5,11 @@
 //! - Every block change marks its column dirty. A dirty column is due once it has gone
 //!   [`LOD_SETTLE_POLLS`] polls without another change and no light work is pending for
 //!   it. Each poll within its budget takes at most [`MAX_LOD_COLUMNS_PER_POLL`] due
-//!   columns and queues them as sample jobs on the background-only Lod lane while fewer
-//!   than [`MAX_LOD_BACKLOG`] samples are in flight or wait for the writer; due columns
-//!   that find the backlog full are dropped and counted, as a final capture keeps them.
+//!   columns, and no more than leave fewer than [`MAX_LOD_BACKLOG`] samples in flight or
+//!   waiting for the writer and fit the writer inbox, and queues them as sample jobs on the
+//!   background-only Lod lane. Due columns beyond that stay dirty for a later poll, and a
+//!   changed capture the full inbox still refuses is marked dirty again, so a join's
+//!   backlog delays columns but never loses one.
 //! - Final captures keep a column's last state: an eviction captures each retired column
 //!   with its light before the light is removed, and a stream that stops ingesting
 //!   captures every resident column, [`MAX_LOD_FINAL_CAPTURES_PER_POLL`] a poll (all at
@@ -81,13 +83,14 @@ pub const MAX_LOD_COLUMNS_PER_POLL: usize = 8;
 /// Settled columns one poll checks for pending light at most, so columns waiting for light
 /// never make a poll scan every dirty column.
 const MAX_LOD_COLUMNS_EXAMINED_PER_POLL: usize = 4 * MAX_LOD_COLUMNS_PER_POLL;
-/// Samples in flight or waiting for the writer at which changed columns are dropped.
+/// Samples in flight or waiting for the writer at which changed columns wait dirty.
 pub const MAX_LOD_BACKLOG: usize = 16;
 /// Unwritten final captures beyond which an eviction drops its columns and counts them.
 pub const MAX_LOD_PENDING_FINAL_CAPTURES: usize = 1024;
 /// Resident columns a stream that stops ingesting captures per poll.
 pub const MAX_LOD_FINAL_CAPTURES_PER_POLL: usize = 32;
-/// Items waiting for the writer beyond which changed columns are dropped and counted.
+/// Items waiting for the writer beyond which changed columns are refused and marked dirty
+/// again.
 pub(in crate::stream) const MAX_LOD_INBOX_COLUMNS: usize = 32;
 /// Columns one merge takes.
 const MERGE_BATCH_COLUMNS: usize = 8;
@@ -118,8 +121,9 @@ pub(super) struct LodIngest {
     pub(in crate::stream) shared: Arc<LodShared>,
     /// Dirty columns with the poll of their last change.
     dirty: HashMap<ChunkKey, u64>,
-    /// Dirty columns by the poll they were marked at, oldest first; an entry whose poll no
-    /// longer matches `dirty` is stale.
+    /// Dirty columns by the poll they were marked at, oldest first except that deferred
+    /// columns go to the front and columns waiting for light to the back; an entry whose
+    /// poll no longer matches `dirty` is stale.
     order: VecDeque<(u64, ChunkKey)>,
     polls: u64,
     /// The sequence number of the latest capture.

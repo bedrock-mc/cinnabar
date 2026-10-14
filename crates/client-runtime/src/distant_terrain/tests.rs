@@ -492,7 +492,7 @@ fn the_marker_line_names_the_state_and_every_counter() {
         "sampled=3",
         "skipped_unchanged=2",
         " store_errors=1",
-        "dropped=0",
+        "deferred=0",
         "dropped_final_captures=0",
         "jobs_queued=0",
         "superseded=0",

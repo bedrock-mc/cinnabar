@@ -3,7 +3,8 @@
 //! over the near terrain and pass A, culling and compaction, then pass B (newly visible
 //! clusters) and water in one render pass, with an encoder-level timestamp between each
 //! while timing is on. Every render pass loads and stores the whole target, which costs
-//! bandwidth on tiled GPUs, so there are only two, and none while nothing is drawn.
+//! bandwidth on tiled GPUs, so there are only two, and none, nor a pyramid, while nothing is
+//! drawn.
 
 use std::sync::atomic::Ordering;
 
@@ -183,7 +184,8 @@ pub(super) fn encode<'a>(
     };
     draw(encoder, &[Draw::A]);
     stamp(encoder);
-    if let Some(prepared) = pyramid {
+    // Nothing is culled against it without a section slot in use.
+    if drawing && let Some(prepared) = pyramid {
         gpu.pyramid
             .encode(encoder, &prepared.pyramid, &prepared.bindings);
     }

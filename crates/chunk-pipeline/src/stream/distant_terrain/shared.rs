@@ -23,7 +23,7 @@ use lod_store::{
 use world::{BiomeStorage, Chunk, ChunkKey, LightStoreSnapshot, SubChunk};
 
 use super::{
-    DistantTerrainStats, MAX_LOD_INBOX_COLUMNS,
+    DistantTerrainStats, MAX_LOD_BACKLOG, MAX_LOD_INBOX_COLUMNS,
     blocks::{ClassifierCounts, SessionBlocks},
     book::ColumnBook,
     fingerprint::Fingerprint,
@@ -36,7 +36,7 @@ pub(in crate::stream) struct Counters {
     pub(in crate::stream) sampled: AtomicU64,
     pub(in crate::stream) skipped_unchanged: AtomicU64,
     pub(in crate::stream) superseded: AtomicU64,
-    pub(in crate::stream) dropped: AtomicU64,
+    pub(in crate::stream) deferred: AtomicU64,
     pub(in crate::stream) dropped_final_captures: AtomicU64,
     pub(in crate::stream) merged_columns: AtomicU64,
     pub(in crate::stream) sections_written: AtomicU64,
@@ -79,8 +79,9 @@ impl Counters {
     }
 }
 
-/// Why a column was captured. Changed columns are dropped and counted when ingestion has
-/// no room for them; final captures never are, short of [`super::MAX_LOD_PENDING_FINAL_CAPTURES`].
+/// Why a column was captured. Changed columns wait dirty when ingestion has no room for
+/// them; final captures never wait and are dropped only beyond
+/// [`super::MAX_LOD_PENDING_FINAL_CAPTURES`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::stream) enum CaptureKind {
     /// A resident column that settled after a change.
@@ -172,7 +173,7 @@ impl WriterInput {
     }
 
     /// The captured column.
-    fn chunk(&self) -> ChunkKey {
+    pub(in crate::stream) fn chunk(&self) -> ChunkKey {
         match self {
             Self::Check(capture) => capture.input.chunk,
             Self::Sampled(column) => column.chunk,
@@ -291,6 +292,9 @@ pub(in crate::stream) struct LodShared {
     released: AtomicBool,
     /// Fingerprints sample jobs computed, for the frame to keep for resident columns.
     hashed: Mutex<Vec<(ChunkKey, Fingerprint)>>,
+    /// Changed columns the full inbox handed back, with whether they must be sampled
+    /// whatever their hash, for the frame to mark dirty again.
+    deferred: Mutex<Vec<(ChunkKey, bool)>>,
     inbox: Mutex<Inbox>,
     /// Signalled when the inbox gains work, the frame nudges a writer, or ingestion stops.
     ready: Condvar,
@@ -321,6 +325,7 @@ impl LodShared {
             enabled: AtomicBool::new(true),
             released: AtomicBool::new(false),
             hashed: Mutex::new(Vec::new()),
+            deferred: Mutex::new(Vec::new()),
             inbox: Mutex::new(Inbox::new(writers)),
             ready: Condvar::new(),
             book: Mutex::new(ColumnBook::default()),
@@ -392,6 +397,22 @@ impl LodShared {
         std::mem::take(&mut *self.hashed.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
+    /// Hands changed `column` back to the frame, which marks it dirty again so it is
+    /// captured once there is room, instead of losing its change; a `resample` column is
+    /// then sampled whatever its hash. Counted in [`Counters::deferred`].
+    pub(in crate::stream) fn defer(&self, column: ChunkKey, resample: bool) {
+        Counters::bump(&self.counters.deferred);
+        self.deferred
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((column, resample));
+    }
+
+    /// Takes the columns [`Self::defer`] handed back since the last call.
+    pub(in crate::stream) fn take_deferred(&self) -> Vec<(ChunkKey, bool)> {
+        std::mem::take(&mut *self.deferred.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+
     /// Turns ingestion off, wakes the writers so they stop, and releases queued work, which
     /// may hold retired chunks, on a background thread.
     pub(in crate::stream) fn disable(&self) {
@@ -452,6 +473,16 @@ impl LodShared {
     /// Sampled columns waiting for the writer.
     pub(in crate::stream) fn queued(&self) -> usize {
         self.lock_inbox().sampled
+    }
+
+    /// Changed captures the frame may send on now without one being refused: the room left
+    /// under [`MAX_LOD_BACKLOG`] outstanding samples and in the writer inbox.
+    pub(in crate::stream) fn room(&self) -> usize {
+        let inbox = self.lock_inbox();
+        let outstanding = self.in_flight.load(Ordering::Acquire) + inbox.sampled;
+        MAX_LOD_BACKLOG
+            .saturating_sub(outstanding)
+            .min(MAX_LOD_INBOX_COLUMNS.saturating_sub(inbox.items))
     }
 
     /// Queues `input` for the writer owning its column without ever waiting. A changed
@@ -573,12 +604,18 @@ impl LodShared {
             })
     }
 
-    /// The counters with the frame's own figures.
+    /// The counters with the frame's own figures; `dirty_columns` counts with the deferred
+    /// columns the frame has not taken back yet.
     pub(in crate::stream) fn stats(&self, dirty_columns: usize) -> DistantTerrainStats {
         let load = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         let counters = &self.counters;
+        let deferred = self
+            .deferred
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len();
         DistantTerrainStats {
-            dirty_columns,
+            dirty_columns: dirty_columns + deferred,
             in_flight: self.in_flight.load(Ordering::Relaxed),
             final_captures: self.final_captures.load(Ordering::Relaxed),
             queued: self.queued(),
@@ -586,7 +623,7 @@ impl LodShared {
             sampled: load(&counters.sampled),
             skipped_unchanged: load(&counters.skipped_unchanged),
             superseded: load(&counters.superseded),
-            dropped: load(&counters.dropped),
+            deferred: load(&counters.deferred),
             dropped_final_captures: load(&counters.dropped_final_captures),
             merged_columns: load(&counters.merged_columns),
             sections_written: load(&counters.sections_written),

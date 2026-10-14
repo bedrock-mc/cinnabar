@@ -224,3 +224,28 @@ fn clusters_spanning_planes_draw_while_the_eye_is_between_them() {
     );
     assert!(close(frame.centre(), STONE), "{:?}", frame.centre());
 }
+
+#[test]
+fn the_pyramid_is_built_only_while_sections_can_be_drawn() {
+    let Some(mut fixture) = Fixture::new("distant terrain pyramid skip") else {
+        return;
+    };
+    fixture.enable_hiz();
+    fixture.depth_clear = 0.5;
+    // No section slot is in use: nothing would read the pyramid, so it is left unbuilt.
+    let empty = fixture.frame(Some(update(Vec::new())), EYE, target(), None);
+    assert_eq!(empty.counters, [0; 4]);
+    assert_eq!(fixture.pyramid_corner(), 0.0, "never written");
+    let origin = SectionPos::new(0, 0, 0, 0).expect("origin");
+    fixture.frame(
+        Some(update(vec![section(origin, 4, 0)])),
+        EYE,
+        target(),
+        None,
+    );
+    assert_eq!(
+        fixture.pyramid_corner(),
+        0.5,
+        "built from the cleared depth once a section is drawn"
+    );
+}
