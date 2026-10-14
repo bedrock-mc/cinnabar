@@ -1,8 +1,9 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_cactus_name(name: &str) -> bool {
-    name == "minecraft:cactus"
+    block_render_fact(name).kind == R::Cactus
 }
 
 pub(in crate::compiler) fn exact_cactus_age(record: &RegistryRecord) -> Option<u32> {

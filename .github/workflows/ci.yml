@@ -334,7 +334,7 @@ jobs:
         with:
           language: go
       - name: Build release Go core
-        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
+        run: go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
       - name: Test and vet Go core
         env:
           GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
@@ -460,7 +460,7 @@ jobs:
       - name: Lint Rust workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Build release Go core
-        run: go build -trimpath -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
+        run: go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
       - name: Test Go local transport and credential storage
         run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
       - name: Test affected platform crates

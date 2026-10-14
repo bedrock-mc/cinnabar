@@ -1,5 +1,6 @@
 use super::context::{ModelStorage, RuleInputs, diagnostic_visual, push_model_template};
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Fixed-point inset of an ordinary nine-tenths-width plant sprite.
@@ -26,7 +27,7 @@ pub(in crate::compiler) fn compile_rule(
     if !is_cross_visual(record) {
         return Ok(CompileRuleResult::NoMatch);
     }
-    if record.name.as_ref() == "minecraft:sweet_berry_bush"
+    if block_render_fact(&record.name).kind == R::BerryBush
         && canonical_state_u32(&record.canonical_state, "growth")
             .filter(|&growth| growth <= 7)
             .is_none()
@@ -47,11 +48,10 @@ pub(in crate::compiler) fn compile_rule(
         )
     {
         let materials = [material_a, material_b];
-        let geometry = match record.name.as_ref() {
-            "minecraft:wheat" | "minecraft:carrots" | "minecraft:potatoes"
-            | "minecraft:beetroot" => Geometry::CropRows,
-            "minecraft:torchflower_crop" | "minecraft:torchflower" => Geometry::Torchflower,
-            "minecraft:sweet_berry_bush" => Geometry::BerryBush,
+        let geometry = match block_render_fact(&record.name).kind {
+            R::CropRows => Geometry::CropRows,
+            R::Torchflower => Geometry::Torchflower,
+            R::BerryBush => Geometry::BerryBush,
             _ => Geometry::Diagonal,
         };
         let key = (materials, geometry);

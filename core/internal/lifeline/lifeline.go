@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"runtime/pprof"
@@ -15,13 +16,15 @@ import (
 	"time"
 )
 
-// Config selects the shutdown triggers; zero fields take the process defaults.
+// Config selects the shutdown triggers; zero fields take the process defaults. A nil Log records
+// through slog.Default() as it stands at each record, so a default installed after Start applies.
 type Config struct {
 	Stdin      io.Reader       // EOF cancels; nil when the parent does not pipe stdin
 	ParentGone <-chan struct{} // closed once the parent process has died
 	Signals    <-chan os.Signal
 	Grace      time.Duration // after cancellation, how long shutdown may run before a hard exit
-	Stderr     io.Writer
+	Log        *slog.Logger  // records why shutdown began and why the process hard-exits
+	Stderr     io.Writer     // receives the goroutine dump when shutdown outlives its grace
 	Exit       func(int)
 }
 
@@ -104,6 +107,15 @@ func (l *line) run(ctx context.Context, stdinEOF <-chan struct{}) {
 	}
 }
 
+// log is the configured logger, else the process default at the time of the call, so a default
+// installed after Start still receives shutdown records.
+func (l *line) log() *slog.Logger {
+	if l.cfg.Log != nil {
+		return l.cfg.Log
+	}
+	return slog.Default()
+}
+
 // begin arms the hard-exit timer on the first trigger.
 func (l *line) begin(reason string) {
 	l.mu.Lock()
@@ -111,7 +123,7 @@ func (l *line) begin(reason string) {
 	if l.stopped || l.timer != nil {
 		return
 	}
-	_, _ = fmt.Fprintf(l.cfg.Stderr, "core shutting down: %s\n", reason)
+	l.log().Info("core shutting down", "reason", reason)
 	l.timer = time.AfterFunc(l.cfg.Grace, func() { l.exit("shutdown exceeded its grace period", true) })
 }
 
@@ -122,7 +134,7 @@ func (l *line) exit(reason string, dump bool) {
 		return
 	}
 	l.stopped = true
-	_, _ = fmt.Fprintf(l.cfg.Stderr, "core exiting: %s\n", reason)
+	l.log().Error("core exiting", "reason", reason)
 	if dump {
 		// Names the wait that wedged shutdown.
 		_ = pprof.Lookup("goroutine").WriteTo(l.cfg.Stderr, 1)

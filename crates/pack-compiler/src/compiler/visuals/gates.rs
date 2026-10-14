@@ -29,7 +29,8 @@ pub(in crate::compiler) fn compile_rule(
             orientation: orientation as u8,
             open: open != 0,
             in_wall: flags != 0,
-            bamboo: record.name.as_ref() == "minecraft:bamboo_fence_gate",
+            bamboo: assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::BambooGate,
         };
         let template = if let Some(&template) = templates.get(&key) {
             template

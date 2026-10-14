@@ -102,6 +102,12 @@ fn every_pinned_lantern_samples_its_sprite_after_carrier_roundtrip() {
         );
         let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
         let face = runtime.model_quads()[template.quad_start as usize];
+        assert_ne!(
+            runtime.material(face.material).flags & assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+            0,
+            "{} keeps its transparent sprite pixels out of the model",
+            record.name,
+        );
         let uv = [0, 1].map(|axis| face.uvs.iter().map(|uv| u32::from(uv[axis])).sum::<u32>() / 4);
         let [x, y] = uv.map(|value| value * TILE_SIZE / 4096);
         let offset = ((y * TILE_SIZE + x) * 4) as usize;

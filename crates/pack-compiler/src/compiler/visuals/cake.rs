@@ -1,7 +1,8 @@
 use super::super::*;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_cake_name(name: &str) -> bool {
-    name == "minecraft:cake"
+    block_render_fact(name).kind == R::Cake
 }
 
 pub(in crate::compiler) fn exact_cake_bite(record: &RegistryRecord) -> Option<u32> {
