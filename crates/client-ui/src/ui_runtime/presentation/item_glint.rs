@@ -1,6 +1,6 @@
 //! Immutable base and optional-pack item glint artwork.
 
-use std::{io::Cursor, sync::Arc};
+use std::sync::Arc;
 
 use render_model::UiTexturePage;
 
@@ -24,16 +24,8 @@ impl super::UiPresentationRuntime {
 pub(in crate::ui_runtime) fn carrier_texture(
     assets: &assets::RuntimeUiAssets,
 ) -> Option<Arc<UiTexturePage>> {
-    let path = format!("{}.png", assets::entity::ITEM_GLINT_TEXTURE_IDENTIFIER);
-    let bytes = assets.ui_file(&path)?;
-    let mut reader = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Png);
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(render_model::MAX_UI_TEXTURE_SIDE);
-    limits.max_image_height = Some(render_model::MAX_UI_TEXTURE_SIDE);
-    limits.max_alloc = Some(assets::MAX_UI_CARRIER_BYTES as u64);
-    reader.limits(limits);
-    let image = reader.decode().ok()?.into_rgba8();
-    UiTexturePage::owned([image.width(), image.height()], image.into_raw().into())
+    let image = assets.item_glint_raster().ok()?;
+    UiTexturePage::owned([image.width, image.height], image.rgba8)
         .ok()
         .map(Arc::new)
 }
@@ -41,6 +33,7 @@ pub(in crate::ui_runtime) fn carrier_texture(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn startup_carrier_decodes_the_retained_item_glint_pixels() {

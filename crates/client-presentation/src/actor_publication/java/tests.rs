@@ -634,7 +634,7 @@ fn displayed_stack_keeps_its_data_value_through_the_dip() {
     assert_eq!(shown.map(|item| item.metadata), Some(0));
 }
 
-/// Java's body reaches its side during the fourteenth tick, while the native curve is still falling.
+/// Java's body reaches its side during the fourteenth tick without moving its feet.
 #[test]
 fn death_body_reaches_java_angle_without_moving_its_feet() {
     use crate::presentation::actors::death_tilted;

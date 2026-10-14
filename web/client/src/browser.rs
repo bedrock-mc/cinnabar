@@ -5,10 +5,14 @@ use futures::{
     channel::{mpsc, oneshot},
 };
 use js_sys::{Function, Promise};
-use std::time::Duration;
+use std::{cell::Cell, rc::Rc, time::Duration};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
-use web_transport::{AccountOperation, BrowserTransport, CloseReason, ControlEvent, Session};
+use web_transport::{
+    CloseReason,
+    browser::BrowserTransport,
+    session::{AccountOperation, ControlEvent, Session},
+};
 
 #[wasm_bindgen(module = "/../site/edges.mjs")]
 extern "C" {
@@ -28,66 +32,103 @@ async fn deadline() {
 #[wasm_bindgen]
 pub struct Page {
     commands: mpsc::Sender<AccountOperation>,
+    lifecycle: mpsc::Sender<()>,
+    suspended: Rc<Cell<bool>>,
     _cancel: oneshot::Sender<()>,
 }
+
 #[wasm_bindgen]
 impl Page {
     /// Opens QUIC first and falls back through the existing transport selector.
     #[wasm_bindgen(constructor)]
     pub fn new(origin: &str, observe: Function) -> Result<Page, JsError> {
-        let quic = BrowserTransport::new(origin, true).ok();
-        let socket =
-            BrowserTransport::new(origin, false).map_err(|_| JsError::new("relay unavailable"))?;
+        let origin = origin.to_owned();
         let (commands, mut pending) = mpsc::channel(4);
+        let (lifecycle, mut changed) = mpsc::channel(1);
+        let suspended = Rc::new(Cell::new(false));
+        let paused = Rc::clone(&suspended);
         let (cancel, cancelled) = oneshot::channel();
         spawn_local(async move {
             let mut session = Session::new();
-            let run = {
-                let drive = async {
-                    web_transport::select(&mut session, quic, || socket, now, deadline).await?;
-                    loop {
-                        let command = {
-                            let event = session.next_event(now).fuse();
-                            let command = pending.next().fuse();
-                            futures::pin_mut!(event, command);
-                            futures::select! {
-                                command = command => command,
-                                event = event => {
-                                    match event? {
-                                        ControlEvent::Account(value) => {
-                                            let account: bridge::contract::AuthState = serde_json::from_value(value["state"].clone()).map_err(|_| CloseReason::Protocol)?;
-                                            emit(&observe, serde_json::json!({"state": account, "account": value}));
-                                        }
-                                        ControlEvent::Connect(value) => emit(&observe, serde_json::json!({"connect": value})),
-                                        ControlEvent::Error(_) => emit(&observe, serde_json::json!({"error": "relay refused request"})),
-                                        ControlEvent::Keepalive => {}
-                                    }
-                                    continue;
-                                }
-                            }
-                        };
-                        match command {
-                            Some(mut operation) => {
-                                while let Ok(next) = pending.try_recv() {
-                                    operation = next;
-                                }
-                                session.desire_account(operation);
-                                session.flush_account().await?;
-                            }
-                            None => return Ok::<(), CloseReason>(()),
+            let mut cancelled = cancelled.fuse();
+            let mut parked = false;
+            loop {
+                if paused.get() || parked {
+                    futures::select_biased! {
+                        _ = cancelled => break,
+                        signal = changed.next().fuse() => {
+                            if signal.is_none() { break; }
+                            while changed.try_recv().is_ok() {}
+                            parked = false;
+                            continue;
                         }
                     }
+                }
+                let run = {
+                    let drive = async {
+                        let quic = BrowserTransport::new(&origin, true).ok();
+                        let socket = BrowserTransport::new(&origin, false)?;
+                        web_transport::select(&mut session, quic, || socket, now, deadline).await?;
+                        while let Ok(operation) = pending.try_recv() {
+                            session.desire_account(operation);
+                        }
+                        session.flush_account().await?;
+                        loop {
+                            let command = {
+                                let event = session.next_event(now).fuse();
+                                let command = pending.next().fuse();
+                                futures::pin_mut!(event, command);
+                                futures::select! {
+                                    command = command => command,
+                                    event = event => {
+                                        match event? {
+                                            ControlEvent::Account(value) => {
+                                                let account: bridge::contract::AuthState = serde_json::from_value(value["state"].clone()).map_err(|_| CloseReason::Protocol)?;
+                                                emit(&observe, serde_json::json!({"state": account, "account": value}));
+                                            }
+                                            ControlEvent::Connect(value) => emit(&observe, serde_json::json!({"connect": value})),
+                                            ControlEvent::Error(_) => emit(&observe, serde_json::json!({"error": "relay refused request"})),
+                                            ControlEvent::Keepalive => {}
+                                        }
+                                        continue;
+                                    }
+                                }
+                            };
+                            match command {
+                                Some(mut operation) => {
+                                    while let Ok(next) = pending.try_recv() {
+                                        operation = next;
+                                    }
+                                    session.desire_account(operation);
+                                    session.flush_account().await?;
+                                }
+                                None => return Ok::<(), CloseReason>(()),
+                            }
+                        }
+                    };
+                    futures::pin_mut!(drive);
+                    futures::select_biased! {
+                        _ = cancelled => break,
+                        signal = changed.next().fuse() => {
+                            if signal.is_none() { break; }
+                            while changed.try_recv().is_ok() {}
+                            None
+                        },
+                        result = drive.fuse() => Some(result),
+                    }
                 };
-                futures::pin_mut!(drive);
-                futures::select! { result = drive.fuse() => Some(result), _ = cancelled.fuse() => None }
-            };
-            session.close(CloseReason::Cancelled);
-            if run.is_some_and(|result| result.is_err()) {
-                emit(&observe, serde_json::json!({"state": "disconnected"}));
+                session.close(CloseReason::Transport);
+                if run.is_some() {
+                    parked = true;
+                    emit(&observe, serde_json::json!({"state": "disconnected"}));
+                }
             }
+            session.close(CloseReason::Cancelled);
         });
         Ok(Page {
             commands,
+            lifecycle,
+            suspended,
             _cancel: cancel,
         })
     }
@@ -99,6 +140,16 @@ impl Page {
     pub fn sign_out(&mut self) -> Result<(), JsError> {
         self.command(AccountOperation::SignOut)
     }
+
+    /// Retains resume capability while cached navigation closes the live relay transport.
+    pub fn suspend(&mut self) {
+        self.set_suspended(true);
+    }
+
+    /// Reopens relay control after restoration without freeing this page object.
+    pub fn resume(&mut self) {
+        self.set_suspended(false);
+    }
 }
 impl Page {
     /// Refuses additional UI actions while the controller's command slot is full.
@@ -106,6 +157,12 @@ impl Page {
         self.commands
             .try_send(operation)
             .map_err(|_| JsError::new("relay busy or disconnected"))
+    }
+
+    /// Coalesces lifecycle changes even when the bounded wake slot is already occupied.
+    fn set_suspended(&mut self, suspended: bool) {
+        self.suspended.set(suspended);
+        let _ = self.lifecycle.try_send(());
     }
 }
 /// Emits bounded presentation data without exposing transport exception details.

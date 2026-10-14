@@ -21,7 +21,7 @@ a { color: #a9dad2; }
 <canvas id="game" aria-label="Client canvas"></canvas>
 <script type="module">
 import init, { Page, Carriers, BrowserInput, manifest_limit } from "./pkg/web_client.js";
-import { boundedBytes, canvasEdges } from "./edges.mjs";
+import { boundedBytes, canvasEdges, pageLifecycle } from "./edges.mjs";
 /** Finds a page control by its stable DOM identifier. */
 const element = (id) => document.getElementById(id);
 const status = element("status");
@@ -80,7 +80,9 @@ try {
   const input = new BrowserInput();
   const audio = new AudioContext();
   const stop = canvasEdges(element("game"), input, audio);
-  addEventListener("pagehide", () => { stop(); input.free(); page?.free(); audio.close(); }, { once: true });
+  pageLifecycle(input, audio, () => page, () => {
+    stop(); input.free(); page?.free(); audio.close().catch(() => {});
+  });
 } catch (error) { status.textContent = error.message; }
 
 </script>

@@ -537,9 +537,9 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
         };
         let mut budget = EvalBudget {
-            actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+            actor_left: MAX_MOLANG_OPS_PER_ACTOR_FRAME,
             world_left: remaining_ops,
-            work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
+            work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME,
             transitions_left: 0,
             used: 0,
             stack: Vec::new(),

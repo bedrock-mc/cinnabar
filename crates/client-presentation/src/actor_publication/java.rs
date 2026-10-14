@@ -352,8 +352,8 @@ pub(super) fn apply_pose(
 fn death_tilt(mut rows: [[f32; 4]; 3], native_progress: f32, death_ticks: f32) -> [[f32; 4]; 3] {
     let java_progress =
         ((death_ticks - 1.0) / f32::from(client_world::DEATH_DURATION_TICKS) * 1.6).clamp(0.0, 1.0);
-    let angle = (java_progress.sqrt() - native_progress.clamp(0.0, 1.0).sqrt())
-        * std::f32::consts::FRAC_PI_2;
+    let angle =
+        (java_progress.sqrt() - native_progress.clamp(0.0, 1.0)) * std::f32::consts::FRAC_PI_2;
     let (sine, cosine) = angle.sin_cos();
     for row in &mut rows {
         let (x, y) = (row[0], row[1]);
