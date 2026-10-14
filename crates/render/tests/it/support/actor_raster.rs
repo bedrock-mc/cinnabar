@@ -443,7 +443,7 @@ pub(crate) fn raster_material_in_scene(
             gpu.device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("actor fixture pipeline"),
-                    bind_group_layouts: &[&layout],
+                    bind_group_layouts: &[Some(&layout)],
                     ..Default::default()
                 }),
         ),
