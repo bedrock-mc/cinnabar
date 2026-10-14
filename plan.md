@@ -1,3 +1,11 @@
+## Repeated container delivery acknowledgements
+
+Repeated opens of the current non-dynamic chest retain its contents and send the warning
+acknowledgement used by server menu dispatchers before subsequent clicks. Compatibility
+tests cover transport pressure and a dispatcher timeout. Incomplete: version-matched
+vanilla capture of the warning's diagnostic text and live PMMP acceptance remain pending;
+these tests do not close a Bedrock parity gate.
+
 ## Browser portability
 
 Connection framing can prepare a bounded writer for a host executor, and deadlines accept a

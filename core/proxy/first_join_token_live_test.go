@@ -65,7 +65,7 @@ func TestFirstJoinTokenLive(t *testing.T) {
 	if err != nil {
 		t.Fatal("validate cached authentication fixture")
 	}
-	account := authcache.NewAccount(ctx, authcache.DerivedCachePath(path), source, os.Stderr)
+	account := authcache.NewAccount(ctx, authcache.DerivedCachePath(path), source, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	defer account.Close()
 	t.Logf("TOKEN_PROFILE stage=account_open duration_ms=%.1f", time.Since(started).Seconds()*1000)
 	if idle, err := time.ParseDuration(os.Getenv("CINNABAR_JOIN_PROFILE_KEEP_WARM")); err == nil {
