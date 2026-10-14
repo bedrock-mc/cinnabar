@@ -18,3 +18,18 @@ fn packed_vertex_flags_preserve_near_cap_draw_admission() {
         ),
     );
 }
+
+#[test]
+fn aggregate_mesh_batches_are_rejected_before_frame_emission() {
+    let batches = UiLimits::MAX_DRAW_BATCHES + 1;
+    let counts = DrawCounts {
+        mesh_vertices: batches * 3,
+        mesh_indices: batches * 3,
+        mesh_batches: batches,
+        ..Default::default()
+    };
+    assert!(matches!(
+        counts.budget(),
+        Err(UiError::DrawBatchLimitExceeded { .. })
+    ));
+}
