@@ -33,10 +33,10 @@ fn separate_attack_presses_can_swing_before_the_same_tick() {
         let outcome = runtime.resolve(target, &press(100), &mut swings);
         assert_eq!(outcome.packets.len(), 2);
         assert_eq!(
-            outcome.packets[0].kind(),
+            outcome.packets[1].kind(),
             protocol::swing_arm_packet(42, SwingSource::Attack).kind()
         );
-        assert!(protocol::is_aim_assist_rotation_action(&outcome.packets[1]));
+        assert!(protocol::is_aim_assist_rotation_action(&outcome.packets[0]));
         assert_eq!(
             swings.take_started(),
             Some(actor_animation::ACTOR_SWING_TICKS)
@@ -94,10 +94,10 @@ fn a_second_press_retains_its_swing_when_admission_waits_past_the_tick() {
     );
     assert_eq!(packets.len(), 2);
     assert_eq!(
-        packets[0].kind(),
+        packets[1].kind(),
         protocol::swing_arm_packet(42, SwingSource::Attack).kind()
     );
-    assert!(protocol::is_aim_assist_rotation_action(&packets[1]));
+    assert!(protocol::is_aim_assist_rotation_action(&packets[0]));
 }
 
 #[test]

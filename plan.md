@@ -526,6 +526,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
+  interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
+  and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart
+  association remains incomplete and does not close shader parity.
 - Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
   vanilla coverage parity. Matched hardware performance and native foliage comparison remain
   incomplete; no parity or performance gate closes from these changes.

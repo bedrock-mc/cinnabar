@@ -268,6 +268,7 @@ impl MeleeRuntime {
             ) else {
                 return outcome;
             };
+            outcome.packets.push(packet);
             if !on_cooldown {
                 swing(&mut outcome, SwingSource::Attack);
                 if let Some(cooldown) = attack.cooldown.as_ref() {
@@ -278,14 +279,13 @@ impl MeleeRuntime {
                 }
             }
             self.last_attack_millis = Some(press.now_millis);
-            outcome.packets.push(packet);
             return outcome;
         }
         match crosshair {
             Crosshair::Actor(hit) => {
-                swing(&mut outcome, SwingSource::Attack);
                 self.last_attack_millis = Some(press.now_millis);
                 let Some(selection) = press.selection.clone() else {
+                    swing(&mut outcome, SwingSource::Attack);
                     return outcome;
                 };
                 if let Ok(packet) = protocol::use_actor_packet(ActorUseRequest {
@@ -298,6 +298,7 @@ impl MeleeRuntime {
                 }) {
                     outcome.packets.push(packet);
                 }
+                swing(&mut outcome, SwingSource::Attack);
             }
             Crosshair::Block => swing(&mut outcome, SwingSource::Mine),
             Crosshair::Miss => {
