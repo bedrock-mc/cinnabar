@@ -304,6 +304,44 @@ mod tests {
     }
 
     #[test]
+    fn animation_facts_follow_numeric_registry_replacements_and_retail_fallback() {
+        use assets::facts::ItemTraits;
+        let entries = protocol::vanilla_item_registry();
+        let sword = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:iron_sword")
+            .unwrap();
+        let mut spear = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:wooden_spear")
+            .unwrap()
+            .clone();
+        spear.network_id = sword.network_id;
+        let mut store = ItemStateStore::diagnostic();
+        assert!(
+            store
+                .animation_fact(sword.network_id)
+                .traits
+                .contains(ItemTraits::SWORD)
+        );
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([spear]),
+        }));
+        let replacement = store.animation_fact(sword.network_id);
+        assert!(replacement.traits.contains(ItemTraits::SPEAR));
+        assert!(!replacement.traits.contains(ItemTraits::SWORD));
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([]),
+        }));
+        assert!(
+            store
+                .animation_fact(sword.network_id)
+                .traits
+                .contains(ItemTraits::SWORD)
+        );
+    }
+
+    #[test]
     fn numeric_animation_admission_clears_when_the_registry_identity_changes() {
         let mut store = ItemStateStore::diagnostic();
         assert!(store.apply_registry(protocol::ItemRegistryEvent {

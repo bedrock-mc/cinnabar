@@ -666,6 +666,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 	}
 	dialer := newUpstreamDialerForAdmission(downstream, tokenSource, cache, packAdmission, clientCache)
 	dialer.HTTPClient = connections.httpClient
+	dialer.ErrorLog = secretSafeResourcePackLogger(connections.logger)
 	if target.clientData != nil {
 		target.clientData(&dialer.ClientData)
 	}

@@ -1,4 +1,6 @@
-use crate::{EmptyWorld, LevelParticle, ParticleSystem, classify_level_event, named_request};
+use crate::{
+    EmptyWorld, LevelParticle, ParticleSystem, classify_level_event, named_request, native_request,
+};
 
 fn system() -> ParticleSystem {
     let mut system = ParticleSystem::default();
@@ -48,7 +50,7 @@ fn level_and_legacy_explosions_emit_then_fully_retire() {
         let mut system = system();
         assert!(
             system
-                .spawn(&named_request(effect, [0.0; 3], spell_color))
+                .spawn(&native_request(effect, [0.0; 3], spell_color))
                 .is_some(),
             "explosion trigger {event}/{data} must resolve its authored definition"
         );

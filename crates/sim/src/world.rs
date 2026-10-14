@@ -14,9 +14,15 @@ mod current;
 mod door;
 mod flow;
 mod selection;
+mod terrain;
 pub use camera_collision::CameraShapeCache;
 pub use contracts::CollisionWorld;
 pub use flow::FlowBlockFacts;
+pub use terrain::{
+    TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry, TerrainSample,
+    TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding, TerrainShapeOverride,
+    TerrainState,
+};
 mod liquid_probe;
 pub(crate) use liquid_probe::liquid_probe_bounds;
 mod primary_lookup;
