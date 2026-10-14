@@ -65,7 +65,11 @@ pub(super) fn negotiated_max_stack_size(bytes: &[u8]) -> Option<u8> {
 const MAX_DECLARED_TAGS: usize = 64;
 const MAX_TAG_BYTES: usize = 256;
 
-/// Item tags a component-based entry declares at `components.item_tags`.
+pub(super) const ITEM_TAGS_FIELD: &str = "item_tags";
+pub(super) const TAGS_COMPONENT: &str = "minecraft:tags";
+pub(super) const TAGS_LIST: &str = "tags";
+
+/// Unions the supported legacy and authored component tag declarations.
 /// Unusable shapes declare nothing rather than failing admission.
 pub(super) fn declared_item_tags(bytes: &[u8]) -> Vec<std::sync::Arc<str>> {
     let mut reader = Reader::new(bytes);
@@ -81,32 +85,61 @@ pub(super) fn declared_item_tags(bytes: &[u8]) -> Vec<std::sync::Arc<str>> {
             &mut evidence,
             b"components",
             10,
-            |reader, evidence| {
-                find_child(reader, evidence, b"item_tags", 9, |reader, _| {
-                    if reader.read_u8()? != 8 {
-                        return Err(());
-                    }
-                    let length = reader.read_length()?;
-                    if length > MAX_DECLARED_TAGS {
-                        return Err(());
-                    }
-                    for _ in 0..length {
-                        let tag = reader.read_string()?;
-                        let tag = std::str::from_utf8(tag).map_err(|_| ())?;
-                        if tag.len() > MAX_TAG_BYTES || !tag.contains(':') {
-                            return Err(());
-                        }
-                        tags.push(std::sync::Arc::from(tag));
-                    }
-                    Ok(())
-                })
-            },
+            |reader, evidence| read_component_tags(reader, evidence, &mut tags),
         )
     })();
     if found.is_err() {
         tags.clear();
     }
     tags
+}
+
+/// Reads the first declaration of each tag encoding within one component compound.
+fn read_component_tags(
+    reader: &mut Reader<'_>,
+    evidence: &mut Evidence,
+    tags: &mut Vec<std::sync::Arc<str>>,
+) -> Result<(), ()> {
+    let mut legacy = false;
+    let mut authored = false;
+    loop {
+        let child = reader.read_u8()?;
+        if child == 0 {
+            return Ok(());
+        }
+        evidence.visit_tag()?;
+        let name = reader.read_string()?;
+        if child == 9 && name == ITEM_TAGS_FIELD.as_bytes() && !legacy {
+            legacy = true;
+            read_tag_list(reader, tags)?;
+        } else if child == 10 && name == TAGS_COMPONENT.as_bytes() && !authored {
+            authored = true;
+            find_child(reader, evidence, TAGS_LIST.as_bytes(), 9, |reader, _| {
+                read_tag_list(reader, tags)
+            })?;
+        } else {
+            scan_payload(child, reader, evidence, Scope::Other, 1)?;
+        }
+    }
+}
+
+/// Retains bounded namespaced strings, applying the entry limit across both encodings.
+fn read_tag_list(reader: &mut Reader<'_>, tags: &mut Vec<std::sync::Arc<str>>) -> Result<(), ()> {
+    if reader.read_u8()? != 8 {
+        return Err(());
+    }
+    let length = reader.read_length()?;
+    if length > MAX_DECLARED_TAGS - tags.len() {
+        return Err(());
+    }
+    for _ in 0..length {
+        let tag = std::str::from_utf8(reader.read_string()?).map_err(|_| ())?;
+        if tag.len() > MAX_TAG_BYTES || !tag.contains(':') {
+            return Err(());
+        }
+        tags.push(std::sync::Arc::from(tag));
+    }
+    Ok(())
 }
 
 /// Scans one compound body for the first child `name` of type `tag`, handing
@@ -350,6 +383,13 @@ mod tests {
         out.extend_from_slice(value.as_bytes());
     }
 
+    /// Writes a nonnegative list length through the production network-NBT codec.
+    fn list_length(out: &mut Vec<u8>, count: usize) {
+        bedrock_protocol_1_26_51::wire::Writer::new(out)
+            .write_zigzag_i32(i32::try_from(count).unwrap())
+            .unwrap();
+    }
+
     fn component_data(tags: &[&str]) -> Vec<u8> {
         let mut out = vec![10, 0];
         out.push(10);
@@ -360,7 +400,7 @@ mod tests {
         out.push(9);
         string(&mut out, "item_tags");
         out.push(8);
-        out.push((tags.len() as u8) << 1);
+        list_length(&mut out, tags.len());
         for tag in tags {
             string(&mut out, tag);
         }
@@ -380,6 +420,46 @@ mod tests {
         assert!(declared_item_tags(&component_data(&["no_namespace"])).is_empty());
         assert!(declared_item_tags(CANONICAL_EMPTY_COMPONENT_DATA).is_empty());
         let mut truncated = component_data(&["minecraft:planks"]);
+        truncated.truncate(truncated.len() - 3);
+        assert!(declared_item_tags(&truncated).is_empty());
+    }
+
+    /// Adds authored tags beside the legacy list in an original network-NBT fixture.
+    fn both_encodings(legacy: &[&str], authored: &[&str]) -> Vec<u8> {
+        let mut bytes = component_data(legacy);
+        bytes.truncate(bytes.len() - 2);
+        bytes.push(10);
+        string(&mut bytes, TAGS_COMPONENT);
+        bytes.push(9);
+        string(&mut bytes, TAGS_LIST);
+        bytes.push(8);
+        list_length(&mut bytes, authored.len());
+        for tag in authored {
+            string(&mut bytes, tag);
+        }
+        bytes.extend([0, 0, 0]);
+        bytes
+    }
+
+    #[test]
+    fn both_component_tag_encodings_share_admission_and_entry_bounds() {
+        let bytes = both_encodings(&["minecraft:is_sword"], &["minecraft:is_spear"]);
+        assert_eq!(
+            declared_item_tags(&bytes)
+                .iter()
+                .map(AsRef::as_ref)
+                .collect::<Vec<_>>(),
+            ["minecraft:is_sword", "minecraft:is_spear"]
+        );
+        assert!(declared_item_tags(&both_encodings(&[], &["no_namespace"])).is_empty());
+        assert!(
+            declared_item_tags(&both_encodings(
+                &vec!["minecraft:is_sword"; MAX_DECLARED_TAGS],
+                &["minecraft:is_spear"]
+            ))
+            .is_empty()
+        );
+        let mut truncated = bytes;
         truncated.truncate(truncated.len() - 3);
         assert!(declared_item_tags(&truncated).is_empty());
     }
