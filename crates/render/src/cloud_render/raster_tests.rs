@@ -1,9 +1,7 @@
 use super::*;
 use meshing::cloud_viewport::mesh_cloud_viewport;
 
-#[path = "../../tests/it/support/gpu_snapshot.rs"]
-mod gpu_snapshot;
-use gpu_snapshot::{Draw, Gpu, RasterState, SNAPSHOT_SIDE};
+use crate::gpu_snapshot::{self, Draw, Gpu, RasterState, SNAPSHOT_SIDE};
 
 /// Draws the production shader using either original or retained cloud records.
 fn draw(gpu: &Gpu, records: &wgpu::Buffer, count: u32, eye: Vec3) -> Vec<u8> {

@@ -37,7 +37,7 @@ fn runtime_with_cloud_mask(seed: u8, patterned: bool) -> Arc<RuntimeAtmosphereAs
     .map(|(index, (role, path, width, height))| {
         let mut rgba8 = vec![seed; (width * height * 4) as usize];
         if patterned && role == AtmosphereRole::Clouds {
-            for (index, texel) in rgba8.chunks_exact_mut(4).enumerate() {
+            for (index, texel) in rgba8.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let x = index % width as usize;
                 let z = index / width as usize;
                 if (x / 4 + z / 4).is_multiple_of(2) {
