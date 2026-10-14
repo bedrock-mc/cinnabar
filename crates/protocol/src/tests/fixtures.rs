@@ -7,8 +7,8 @@
 //! re-encode to the identical bytes.
 
 use bedrock_protocol_1_26_51::enums::{
-    GameType, InputData, InputMode, NewInteractionModel, PacketCompressionAlgorithm,
-    PlayerPermissionLevel, PlayerPositionModeComponentPositionMode,
+    GameType, InputData, InputMode, ItemUseInventoryTransactionTriggerType, NewInteractionModel,
+    PacketCompressionAlgorithm, PlayerPermissionLevel, PlayerPositionModeComponentPositionMode,
 };
 use bedrock_protocol_1_26_51::packets::{self, PacketId};
 use bedrock_protocol_1_26_51::types::{
@@ -593,7 +593,7 @@ fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
 }
 
 #[test]
-fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
+fn player_auth_input_builder_embeds_destroy_without_placement_fields() {
     use sha2::{Digest, Sha256};
     use std::sync::Arc;
 
@@ -642,10 +642,8 @@ fn player_auth_input_builder_embeds_creative_break_byte_exactly() {
     built.header.to_subclient = 2;
     assert_eq!(
         encode(&built).expect("encode built PlayerAuthInput"),
-        PLAYER_AUTH_INPUT_BREAK_BLOCK,
-        "the embedded break-block transaction must produce the pinned \
-         gophertunnel bytes, including the derived PerformItemInteraction flag \
-         and the absent inner action list"
+        encode(&expected_destroy_input(PLAYER_AUTH_INPUT_BREAK_BLOCK)).unwrap(),
+        "destroy preserves the fixture's selection, pose and interaction flag"
     );
 }
 
@@ -668,6 +666,23 @@ fn directly_asserted_interaction_flags_are_rejected() {
 
 const PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK: &[u8] =
     include_bytes!("../../fixtures/player_auth_input_block_actions_and_break_block.bin");
+
+/// Keeps the fixture's movement and stack while clearing fields used only for placement.
+fn expected_destroy_input(bytes: &'static [u8]) -> protocol::Packet {
+    let mut packet = decode_one(bytes, PacketId::PlayerAuthInput);
+    let packets::Packet::PlayerAuthInput(input) = &mut *packet.data else {
+        panic!("expected movement input");
+    };
+    let transaction = &mut input
+        .item_use_transaction
+        .as_mut()
+        .unwrap()
+        .item_use_transaction;
+    transaction.trigger_type = ItemUseInventoryTransactionTriggerType::Unknown;
+    transaction.click_position = [0.0; 3].into();
+    transaction.target_block_id = wire::VarUInt(0);
+    packet
+}
 
 /// The verified selected item carried by the break-block fixtures.
 fn fixture_break_block_item() -> protocol::VerifiedNetworkItemStack {
@@ -716,7 +731,7 @@ fn fixture_break_block_request() -> protocol::BlockUseRequest {
 /// PerformItemInteraction (34) before PerformBlockActions (35) and the
 /// item-use transaction precedes the block-action list on the wire.
 #[test]
-fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactly() {
+fn player_auth_input_combined_interactions_preserve_actions_and_clear_placement_fields() {
     let fixture = decode_one(
         PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK,
         PacketId::PlayerAuthInput,
@@ -752,8 +767,11 @@ fn player_auth_input_combined_interactions_fixture_and_builder_match_byte_exactl
     built.header.to_subclient = 2;
     assert_eq!(
         encode(&built).expect("encode built PlayerAuthInput"),
-        PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK,
-        "both carriers must produce the pinned gophertunnel bytes in the pinned order"
+        encode(&expected_destroy_input(
+            PLAYER_AUTH_INPUT_BLOCK_ACTIONS_AND_BREAK_BLOCK
+        ))
+        .unwrap(),
+        "both carriers preserve their order while destroy clears placement fields"
     );
 }
 

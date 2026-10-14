@@ -34,7 +34,10 @@ fn engine(control: serde_json::Value) -> FormEngine {
         .unwrap()
         .extend(control.as_object().unwrap().clone());
     // An allow-listed screen name hosts the control.
-    let (namespace, name) = json_ui::CROSSHAIR_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     let screen = serde_json::json!({
         "namespace": namespace,
         (name): {"type": "screen", "controls": [{"effects": definition}]}
@@ -82,7 +85,7 @@ fn draw(engine: &FormEngine, effects: usize, size: [u32; 2]) -> (Vec<EffectBound
     let mut next = 1;
     engine
         .render_screen(
-            json_ui::CROSSHAIR_SCREEN,
+            json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
             &DataSource::default(),
             &Context::default(),
             &ViewState::default(),

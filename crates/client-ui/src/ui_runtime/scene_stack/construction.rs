@@ -78,10 +78,12 @@ impl UiRuntime {
         if self.session_id() != 0 && host.over_world {
             visit(Scene::Gameplay, gameplay_settings());
             // The HUD screens are JSON scenes; without their definitions nothing draws them.
-            if let Some(settings) = table.get(json_ui::CROSSHAIR_SCREEN) {
+            if let Some(settings) =
+                table.get(json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str())
+            {
                 visit(Scene::Crosshair, settings);
             }
-            if let Some(settings) = table.get(json_ui::HUD_SCREEN) {
+            if let Some(settings) = table.get(json_ui::vanilla::Reference::HudHudScreen.as_str()) {
                 visit(Scene::Hud, settings);
             }
         }

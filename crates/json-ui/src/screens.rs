@@ -6,6 +6,7 @@ use crate::catalog::Catalog;
 use crate::form::{CatalogLibrary, FormRender, finish};
 use crate::layout::LayoutEnv;
 use crate::state::ViewState;
+use crate::vanilla::Reference;
 use crate::{Context, ResolvedControl, resolve};
 
 /// A rendered engine screen: bound tree, draw nodes, hit regions, scroll report.
@@ -13,54 +14,54 @@ pub type ScreenRender = FormRender;
 
 /// Every `namespace.name` screen the engine renders.
 pub const ENGINE_SCREENS: &[&str] = &[
-    crate::hud::HUD_SCREEN,
-    crate::hud::CROSSHAIR_SCREEN,
-    "server_form.third_party_server_screen",
-    "server_form.long_form",
-    "server_form.custom_form",
-    "popup_dialog.modal_dialog_popup",
-    "rating_prompt.rating_prompt_screen",
-    "crafting.inventory_screen",
-    "crafting.crafting_screen",
-    "chest.small_chest_screen",
-    "chest.large_chest_screen",
-    "chest.ender_chest_screen",
-    "chest.barrel_screen",
-    "chest.shulker_box_screen",
-    "furnace.furnace_screen",
-    "blast_furnace.blast_furnace_screen",
-    "smoker.smoker_screen",
-    "anvil.anvil_screen",
-    "enchanting.enchanting_screen",
-    "brewing_stand.brewing_stand_screen",
-    "grindstone.grindstone_screen",
-    "loom.loom_screen",
-    "smithing_table.smithing_table_screen",
-    "cartography.cartography_screen",
-    "stonecutter.stonecutter_screen",
-    "beacon.beacon_screen",
-    "redstone.hopper_screen",
-    "redstone.dispenser_screen",
-    "redstone.dropper_screen",
-    "redstone.crafter_screen",
-    "horse.horse_screen",
-    "book.book_screen",
-    "npc_interact.npc_screen",
-    "pause.pause_screen",
-    "invite.invite_screen",
-    "chat.chat_screen",
-    "start.start_screen",
-    "play.play_screen",
-    "add_external_server.add_external_server_screen_new",
-    "settings.screen_controls_and_settings",
-    "pack_settings.screen",
-    "death.death_screen",
-    "progress.progress_screen",
-    "progress.world_convert_modal_progress_screen",
-    "progress.world_loading_progress_screen",
-    "progress.realms_stories_loading_progress_screen",
-    "disconnect.disconnect_screen",
-    "xbl_console_signin.xbl_console_signin",
+    crate::vanilla::Reference::HudHudScreen.as_str(),
+    crate::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
+    Reference::ServerFormThirdPartyServerScreen.as_str(),
+    Reference::ServerFormLongForm.as_str(),
+    Reference::ServerFormCustomForm.as_str(),
+    Reference::PopupDialogModalDialogPopup.as_str(),
+    Reference::RatingPromptRatingPromptScreen.as_str(),
+    Reference::CraftingInventoryScreen.as_str(),
+    Reference::CraftingCraftingScreen.as_str(),
+    Reference::ChestSmallChestScreen.as_str(),
+    Reference::ChestLargeChestScreen.as_str(),
+    Reference::ChestEnderChestScreen.as_str(),
+    Reference::ChestBarrelScreen.as_str(),
+    Reference::ChestShulkerBoxScreen.as_str(),
+    Reference::FurnaceFurnaceScreen.as_str(),
+    Reference::BlastFurnaceBlastFurnaceScreen.as_str(),
+    Reference::SmokerSmokerScreen.as_str(),
+    Reference::AnvilAnvilScreen.as_str(),
+    Reference::EnchantingEnchantingScreen.as_str(),
+    Reference::BrewingStandBrewingStandScreen.as_str(),
+    Reference::GrindstoneGrindstoneScreen.as_str(),
+    Reference::LoomLoomScreen.as_str(),
+    Reference::SmithingTableSmithingTableScreen.as_str(),
+    Reference::CartographyCartographyScreen.as_str(),
+    Reference::StonecutterStonecutterScreen.as_str(),
+    Reference::BeaconBeaconScreen.as_str(),
+    Reference::RedstoneHopperScreen.as_str(),
+    Reference::RedstoneDispenserScreen.as_str(),
+    Reference::RedstoneDropperScreen.as_str(),
+    Reference::RedstoneCrafterScreen.as_str(),
+    Reference::HorseHorseScreen.as_str(),
+    Reference::BookBookScreen.as_str(),
+    Reference::NpcInteractNpcScreen.as_str(),
+    Reference::PausePauseScreen.as_str(),
+    Reference::InviteInviteScreen.as_str(),
+    Reference::ChatChatScreen.as_str(),
+    Reference::StartStartScreen.as_str(),
+    Reference::PlayPlayScreen.as_str(),
+    Reference::AddExternalServerAddExternalServerScreenNew.as_str(),
+    Reference::SettingsScreenControlsAndSettings.as_str(),
+    Reference::PackSettingsScreen.as_str(),
+    Reference::DeathDeathScreen.as_str(),
+    Reference::ProgressProgressScreen.as_str(),
+    Reference::ProgressWorldConvertModalProgressScreen.as_str(),
+    Reference::ProgressWorldLoadingProgressScreen.as_str(),
+    Reference::ProgressRealmsStoriesLoadingProgressScreen.as_str(),
+    Reference::DisconnectDisconnectScreen.as_str(),
+    Reference::XblConsoleSigninXblConsoleSignin.as_str(),
 ];
 
 pub fn is_engine_screen(reference: &str) -> bool {
@@ -200,16 +201,20 @@ mod tests {
 
     #[test]
     fn the_gameplay_hud_is_an_engine_screen() {
-        assert!(is_engine_screen("hud.hud_screen"));
-        assert!(is_engine_screen("hud_crosshair.hud_crosshair_screen"));
+        assert!(is_engine_screen(Reference::HudHudScreen.as_str()));
+        assert!(is_engine_screen(
+            Reference::HudCrosshairHudCrosshairScreen.as_str()
+        ));
         assert!(!is_engine_screen("hud.hud_content"));
     }
 
     #[test]
     fn vanilla_join_progress_screens_are_engine_screens() {
-        assert!(is_engine_screen("progress.world_loading_progress_screen"));
         assert!(is_engine_screen(
-            "progress.realms_stories_loading_progress_screen"
+            Reference::ProgressWorldLoadingProgressScreen.as_str()
+        ));
+        assert!(is_engine_screen(
+            Reference::ProgressRealmsStoriesLoadingProgressScreen.as_str()
         ));
     }
 }

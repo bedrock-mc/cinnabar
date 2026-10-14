@@ -133,16 +133,14 @@ pub(crate) fn produce_melee(
             .is_none()
             .then(|| runtime.between_ticks_press(&movement))
             .flatten();
-    // Fresh block presses wait for a tick committed in this frame.
+    // A frame with ticks sends the press before its first input, using the preceding pose.
     let sample = between_ticks.or_else(|| {
-        runtime
-            .press_sample(
-                crosshair,
-                &movement,
-                context.effects.recent_tick_count(),
-                now_millis,
-            )
-            .map(Into::into)
+        runtime.press_sample(
+            crosshair,
+            &movement,
+            context.effects.recent_tick_count(),
+            now_millis,
+        )
     });
     let Some(sample) = sample else {
         return;

@@ -581,12 +581,15 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
 }
 
 #[cfg(any(test, feature = "test-support"))]
-use launcher::menu::SETTINGS_SCREEN;
+use json_ui::vanilla::Reference;
 
 /// Supplies the production settings context for offline layout checks.
 #[cfg(any(test, feature = "test-support"))]
 pub fn settings_target() -> (&'static str, Context) {
-    (SETTINGS_SCREEN, settings_context(base_context()))
+    (
+        Reference::SettingsScreenControlsAndSettings.as_str(),
+        settings_context(base_context()),
+    )
 }
 
 /// Every launcher screen's context before its own vars.

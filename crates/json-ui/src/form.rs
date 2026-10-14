@@ -10,6 +10,7 @@
 //! its title/body/button texts fed as the popup's global values. Binding names are
 //! read from the vanilla pack's `server_form.json`/`popup_dialog.json`.
 
+use crate::vanilla::{Binding, Button, Control, Reference, Variable};
 use std::sync::Arc;
 
 use crate::bind::{BindState, CollectionItem, ControlLibrary, DataSource, bind_stateful};
@@ -152,11 +153,6 @@ pub struct FormRender {
     pub root_panel: Option<RectOut>,
 }
 
-const LONG_FORM: &str = "server_form.long_form";
-const CUSTOM_FORM: &str = "server_form.custom_form";
-const MODAL_POPUP: &str = "popup_dialog.modal_dialog_popup";
-const FORM_SCREEN: (&str, &str) = ("server_form", "third_party_server_screen");
-
 /// The `server_form_factory` id the screen controller selects for a model; a
 /// modal form opens the popup instead.
 pub fn form_factory_id(model: &FormModel) -> Option<&'static str> {
@@ -170,8 +166,10 @@ pub fn form_factory_id(model: &FormModel) -> Option<&'static str> {
 /// The form screen's `$screen_content` (a resource pack may repoint it), the
 /// control whose factory picks the long or custom form.
 fn screen_content(catalog: &Catalog) -> Option<String> {
-    let (screen, _) =
-        crate::merge::flatten_def(catalog, FORM_SCREEN.0, FORM_SCREEN.1, &mut Vec::new())?;
+    let (namespace, name) = Reference::ServerFormThirdPartyServerScreen
+        .as_str()
+        .split_once('.')?;
+    let (screen, _) = crate::merge::flatten_def(catalog, namespace, name, &mut Vec::new())?;
     ["$screen_content", "$screen_content|default"]
         .iter()
         .find_map(|key| screen.props.get(*key)?.as_str().map(str::to_owned))
@@ -180,15 +178,18 @@ fn screen_content(catalog: &Catalog) -> Option<String> {
 /// Where the form screen routes `button.menu_cancel` (Escape), from its own
 /// global mappings, which sit above the content a form renders.
 pub fn form_screen_cancel(catalog: &Catalog) -> Option<String> {
-    let (screen, _) =
-        crate::merge::flatten_def(catalog, FORM_SCREEN.0, FORM_SCREEN.1, &mut Vec::new())?;
+    let (namespace, name) = Reference::ServerFormThirdPartyServerScreen
+        .as_str()
+        .split_once('.')?;
+    let (screen, _) = crate::merge::flatten_def(catalog, namespace, name, &mut Vec::new())?;
     screen
         .props
         .get("button_mappings")?
         .as_array()?
         .iter()
         .find(|mapping| {
-            mapping["from_button_id"] == "button.menu_cancel" && mapping["mapping_type"] == "global"
+            mapping["from_button_id"] == Button::MenuCancel.as_str()
+                && mapping["mapping_type"] == "global"
         })?
         .get("to_button_id")?
         .as_str()
@@ -198,9 +199,9 @@ pub fn form_screen_cancel(catalog: &Catalog) -> Option<String> {
 /// The `namespace.name` of the vanilla template a model renders through.
 pub fn form_template(model: &FormModel) -> &'static str {
     match model {
-        FormModel::Action(_) => LONG_FORM,
-        FormModel::Modal(_) => MODAL_POPUP,
-        FormModel::Custom(_) => CUSTOM_FORM,
+        FormModel::Action(_) => Reference::ServerFormLongForm.as_str(),
+        FormModel::Modal(_) => Reference::PopupDialogModalDialogPopup.as_str(),
+        FormModel::Custom(_) => Reference::ServerFormCustomForm.as_str(),
     }
 }
 
@@ -210,22 +211,22 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
     let mut context = base.clone();
     if matches!(model, FormModel::Modal(_)) {
         for (flag, value) in [
-            ("two_buttons_visible", true),
-            ("no_buttons_visible", false),
-            ("single_button_visible", false),
-            ("single_button_checkbox_visible", false),
-            ("two_buttons_checkbox_visible", false),
-            ("destructive_two_buttons_visible", false),
-            ("three_buttons_visible", false),
-            ("destructive_three_buttons_visible", false),
-            ("show_close_button", false),
+            (Variable::TwoButtonsVisible.key(), true),
+            (Variable::NoButtonsVisible.key(), false),
+            (Variable::SingleButtonVisible.key(), false),
+            (Variable::SingleButtonCheckboxVisible.key(), false),
+            (Variable::TwoButtonsCheckboxVisible.key(), false),
+            (Variable::DestructiveTwoButtonsVisible.key(), false),
+            (Variable::ThreeButtonsVisible.key(), false),
+            (Variable::DestructiveThreeButtonsVisible.key(), false),
+            (Variable::ShowCloseButton.key(), false),
         ] {
             context = context.with_flag(flag, value);
         }
         // The popup's button labels read their text from the controller, as a
         // screen hosting this popup selects.
         context = context.with_var(
-            "button_text_binding_type",
+            Variable::ButtonTextBindingType.key(),
             serde_json::Value::from("global"),
         );
     }
@@ -233,7 +234,6 @@ pub fn form_context(model: &FormModel, base: &Context) -> Context {
 }
 
 /// The popup panel `popup_dialog.modal_dialog_popup`'s text views read.
-const MODAL_SOURCE: &str = "modal_bg_buttons";
 
 const PACK_TEXTURE_FS: &str = "InUserPackage";
 const DOWNLOADED_TEXTURE_FS: &str = "RawPath";
@@ -252,19 +252,30 @@ fn image_bindings(image: Option<&ButtonImage>) -> (&str, &str) {
 pub fn form_data_source(model: &FormModel) -> DataSource {
     let mut data = DataSource::new();
     // Server packs may inherit the shared container-only overlay in form content.
-    data.set_global("#is_container_screen", Scalar::Bool(false));
+    data.set_global(Binding::IsContainerScreen.as_str(), Scalar::Bool(false));
     // Forms take pointer input, so gamepad-only chrome (focus outlines) stays hidden.
-    data.set_global("#is_using_gamepad", Scalar::Bool(false));
+    data.set_global(Binding::IsUsingGamepad.as_str(), Scalar::Bool(false));
     match model {
         FormModel::Action(form) => long_form_source(&mut data, form),
         FormModel::Modal(form) => {
             let text = |value: &str| Scalar::Text(value.to_owned());
             // The dialog's text views read the panel the controller fills.
-            data.set_control_value(MODAL_SOURCE, "#modal_title_text", text(&form.title));
-            data.set_control_value(MODAL_SOURCE, "#modal_label_text", text(&form.body));
-            data.set_global("#modal_left_button_text", text(&form.button1));
-            data.set_global("#modal_middle_button_text", text(""));
-            data.set_global("#modal_rightcancel_button_text", text(&form.button2));
+            data.set_control_value(
+                Control::ModalBgButtons.as_str(),
+                Binding::ModalTitleText.as_str(),
+                text(&form.title),
+            );
+            data.set_control_value(
+                Control::ModalBgButtons.as_str(),
+                Binding::ModalLabelText.as_str(),
+                text(&form.body),
+            );
+            data.set_global(Binding::ModalLeftButtonText.as_str(), text(&form.button1));
+            data.set_global(Binding::ModalMiddleButtonText.as_str(), text(""));
+            data.set_global(
+                Binding::ModalRightcancelButtonText.as_str(),
+                text(&form.button2),
+            );
         }
         FormModel::Custom(form) => custom_form_source(&mut data, form),
     }
@@ -272,15 +283,24 @@ pub fn form_data_source(model: &FormModel) -> DataSource {
 }
 
 fn long_form_source(data: &mut DataSource, form: &ActionForm) {
-    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
-    data.set_creation_value("#form_text", Scalar::Text(form.body.clone()));
-    data.set_global("#title_text", Scalar::Text(form.title.clone()));
-    data.set_global("#form_text", Scalar::Text(form.body.clone()));
+    data.set_creation_value(
+        Binding::TitleText.as_str(),
+        Scalar::Text(form.title.clone()),
+    );
+    data.set_creation_value(Binding::FormText.as_str(), Scalar::Text(form.body.clone()));
+    data.set_global(
+        Binding::TitleText.as_str(),
+        Scalar::Text(form.title.clone()),
+    );
+    data.set_global(Binding::FormText.as_str(), Scalar::Text(form.body.clone()));
     let length = Scalar::Num(form.elements.len() as f64);
     data.set_global("#form_button_length", length);
-    data.set_global("#submit_button_visible", Scalar::Bool(true));
+    data.set_global(Binding::SubmitButtonVisible.as_str(), Scalar::Bool(true));
     let text_item = |role: &str, text: &str| {
-        CollectionItem::new(role).with("#form_button_text", Scalar::Text(text.to_owned()))
+        CollectionItem::new(role).with(
+            Binding::FormButtonText.as_str(),
+            Scalar::Text(text.to_owned()),
+        )
     };
     let items: Vec<_> = form
         .elements
@@ -289,9 +309,12 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
             ActionElement::Button(button) => {
                 let (path, file_system) = image_bindings(button.image.as_ref());
                 text_item("button", &button.text)
-                    .with("#form_button_texture", Scalar::Text(path.to_owned()))
                     .with(
-                        "#form_button_texture_file_system",
+                        Binding::FormButtonTexture.as_str(),
+                        Scalar::Text(path.to_owned()),
+                    )
+                    .with(
+                        Binding::FormButtonTextureFileSystem.as_str(),
                         Scalar::Text(file_system.to_owned()),
                     )
             }
@@ -309,7 +332,7 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
         })
         .collect();
     data.set_global(
-        "#form_button_contents",
+        Binding::FormButtonContents.as_str(),
         Scalar::Json(serde_json::Value::Array(contents)),
     );
     data.set_collection("form_buttons", items);
@@ -317,20 +340,35 @@ fn long_form_source(data: &mut DataSource, form: &ActionForm) {
 
 fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
     let (icon, file_system) = image_bindings(form.icon.as_ref());
-    data.set_global("#server_icon", Scalar::Text(icon.to_owned()));
-    data.set_global("#server_outline_icon", Scalar::Text(icon.to_owned()));
+    data.set_global(Binding::ServerIcon.as_str(), Scalar::Text(icon.to_owned()));
     data.set_global(
-        "#server_icon_file_system",
+        Binding::ServerOutlineIcon.as_str(),
+        Scalar::Text(icon.to_owned()),
+    );
+    data.set_global(
+        Binding::ServerIconFileSystem.as_str(),
         Scalar::Text(file_system.to_owned()),
     );
-    data.set_creation_value("#title_text", Scalar::Text(form.title.clone()));
-    data.set_global("#title_text", Scalar::Text(form.title.clone()));
+    data.set_creation_value(
+        Binding::TitleText.as_str(),
+        Scalar::Text(form.title.clone()),
+    );
     data.set_global(
-        "#custom_form_length",
+        Binding::TitleText.as_str(),
+        Scalar::Text(form.title.clone()),
+    );
+    data.set_global(
+        Binding::CustomFormLength.as_str(),
         Scalar::Num(form.elements.len() as f64),
     );
-    data.set_global("#submit_text", Scalar::Text(form.submit_text.clone()));
-    data.set_global("#submit_button_visible", Scalar::Bool(form.submit_visible));
+    data.set_global(
+        Binding::SubmitText.as_str(),
+        Scalar::Text(form.submit_text.clone()),
+    );
+    data.set_global(
+        Binding::SubmitButtonVisible.as_str(),
+        Scalar::Bool(form.submit_visible),
+    );
     let items = form.elements.iter().map(custom_item).collect();
     data.set_collection("custom_form", items);
     for (parent, element) in form.elements.iter().enumerate() {
@@ -350,8 +388,8 @@ fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
                     option_items(
                         options,
                         "checkbox",
-                        "#custom_multiselect_text",
-                        "#custom_multiselect_toggled",
+                        Binding::CustomMultiselectText.as_str(),
+                        Binding::CustomMultiselectToggled.as_str(),
                         |index| selected.contains(&(index as i32)),
                     ),
                 );
@@ -363,8 +401,8 @@ fn custom_form_source(data: &mut DataSource, form: &CustomForm) {
                 option_items(
                     options,
                     "radio",
-                    "#custom_radio_text",
-                    "#custom_radio_toggled",
+                    Binding::CustomRadioText.as_str(),
+                    Binding::CustomRadioToggled.as_str(),
                     |position| position as i32 == *index,
                 ),
             ),
@@ -396,10 +434,10 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
     let text = |value: &str| Scalar::Text(value.to_owned());
     match element {
         CustomElement::Label { text: label } => {
-            CollectionItem::new("label").with("#custom_text", text(label))
+            CollectionItem::new("label").with(Binding::CustomText.as_str(), text(label))
         }
         CustomElement::Header { text: label } => {
-            CollectionItem::new("header").with("#custom_text", text(label))
+            CollectionItem::new("header").with(Binding::CustomText.as_str(), text(label))
         }
         CustomElement::Divider => CollectionItem::new("divider"),
         CustomElement::Toggle {
@@ -407,37 +445,43 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             on,
             tooltip,
         } => CollectionItem::new("toggle")
-            .with("#custom_text", text(label))
-            .with("#custom_toggle_state", Scalar::Bool(*on))
-            .with("#custom_toggle_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(Binding::CustomText.as_str(), text(label))
+            .with(Binding::CustomToggleState.as_str(), Scalar::Bool(*on))
+            .with(Binding::CustomToggleEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Slider {
             text: label,
             fraction,
             timeout,
             tooltip,
         } => CollectionItem::new("slider")
-            .with("#custom_slider_text", text(label))
-            .with("#custom_slider_text_value", text(label))
+            .with(Binding::CustomSliderText.as_str(), text(label))
+            .with(Binding::CustomSliderTextValue.as_str(), text(label))
             .with(
-                "#custom_slider_value",
+                Binding::CustomSliderValue.as_str(),
                 Scalar::Num(fraction.clamp(0.0, 1.0)),
             )
-            .with("#custom_slider_timeout", Scalar::Num(*timeout))
-            .with("#custom_slider_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(Binding::CustomSliderTimeout.as_str(), Scalar::Num(*timeout))
+            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::StepSlider {
             text: label,
             steps,
             index,
             tooltip,
         } => CollectionItem::new("step_slider")
-            .with("#custom_slider_step_text", text(label))
-            .with("#custom_slider_step_text_value", text(label))
-            .with("#custom_slider_step_value", Scalar::Num(*index as f64))
-            .with("#custom_slider_steps", Scalar::Num((*steps).max(1) as f64))
-            .with("#custom_slider_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(Binding::CustomSliderStepText.as_str(), text(label))
+            .with(Binding::CustomSliderStepTextValue.as_str(), text(label))
+            .with(
+                Binding::CustomSliderStepValue.as_str(),
+                Scalar::Num(*index as f64),
+            )
+            .with(
+                Binding::CustomSliderSteps.as_str(),
+                Scalar::Num((*steps).max(1) as f64),
+            )
+            .with(Binding::CustomSliderEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Dropdown {
             text: label,
             options,
@@ -445,15 +489,18 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             open,
             tooltip,
         } => CollectionItem::new("dropdown")
-            .with("#custom_text", text(label))
+            .with(Binding::CustomText.as_str(), text(label))
             .with(
-                "#dropdown_option_text",
+                Binding::DropdownOptionText.as_str(),
                 text(options.get(*index as usize).map_or("", String::as_str)),
             )
             .with("#custom_dropdown", Scalar::Bool(*open))
-            .with("#custom_dropdown_length", Scalar::Num(options.len() as f64))
-            .with("#custom_toggle_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(
+                Binding::CustomDropdownLength.as_str(),
+                Scalar::Num(options.len() as f64),
+            )
+            .with(Binding::CustomToggleEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::MultiSelect {
             text: label,
             options,
@@ -461,25 +508,25 @@ fn custom_item(element: &CustomElement) -> CollectionItem {
             tooltip,
             ..
         } => CollectionItem::new("multiselect")
-            .with("#custom_text", text(label))
-            .with("#custom_multiselect", Scalar::Bool(*open))
+            .with(Binding::CustomText.as_str(), text(label))
+            .with(Binding::CustomMultiselect.as_str(), Scalar::Bool(*open))
             .with(
-                "#custom_multiselect_length",
+                Binding::CustomMultiselectLength.as_str(),
                 Scalar::Num(options.len() as f64),
             )
-            .with("#custom_toggle_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(Binding::CustomToggleEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
         CustomElement::Input {
             text: label,
             value,
             placeholder,
             tooltip,
         } => CollectionItem::new("input")
-            .with("#custom_text", text(label))
-            .with("#custom_input_text", text(value))
-            .with("#custom_placeholder_text", text(placeholder))
-            .with("#custom_input_enabled", Scalar::Bool(true))
-            .with("#custom_tooltip_text", text(tooltip)),
+            .with(Binding::CustomText.as_str(), text(label))
+            .with(Binding::CustomInputText.as_str(), text(value))
+            .with(Binding::CustomPlaceholderText.as_str(), text(placeholder))
+            .with(Binding::CustomInputEnabled.as_str(), Scalar::Bool(true))
+            .with(Binding::CustomTooltipText.as_str(), text(tooltip)),
     }
 }
 
@@ -774,7 +821,7 @@ fn lay_out_and_emit(
             },
             hit_regions(&laid).into(),
             report,
-            global_mapping(&laid, "button.menu_cancel"),
+            global_mapping(&laid, Button::MenuCancel.as_str()),
             find_rect(&laid, "root_panel"),
         )
     };

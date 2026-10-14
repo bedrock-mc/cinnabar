@@ -769,7 +769,10 @@ fn pack_hud_visibility_controls_diagnostic_eligibility_without_allocations() {
     let runtime = UiRuntime::new(1);
     let mut presentation = mini_engine_presentation();
     let base = presentation.pack_catalog_base().unwrap();
-    let (namespace, name) = json_ui::HUD_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudHudScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     for render_game_behind in [false, true] {
         let definition = serde_json::to_vec(&serde_json::json!({
             "namespace": namespace,

@@ -124,3 +124,74 @@ fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
         ["AnimatePacket", "InventoryTransactionPacket"]
     );
 }
+
+/// Catch-up movement follows the attack's preceding pose, with a miss carried only by the first input.
+#[test]
+fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
+    for crosshair in [ZOMBIE, Crosshair::Miss] {
+        let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+        let mut ticker = gameplay::test_support::survival_mining::ticker_with_ticks(0);
+        let anchor = ticker.build_action_state().unwrap().position;
+        for tick in 101..=103 {
+            let mut sample = gameplay::test_support::survival_mining::completed(tick);
+            sample.position[0] += (tick - 100) as f32 * 0.25;
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+        let mut runtime = MeleeRuntime::default();
+        runtime.observe_input(true, false);
+        let sample = runtime.press_sample(crosshair, &ticker, 3, 1).unwrap();
+        let press = PressContext {
+            tick: sample.tick,
+            player_position: sample.position,
+            ..press(PlayerInputMode::Mouse)
+        };
+        let missed = resolve_and_send(
+            &mut runtime,
+            &mut SwingTracker::default(),
+            crosshair,
+            &press,
+            1,
+            |packets| network.send_inventory_packets(packets),
+        );
+        if missed {
+            ticker.mark_missed_swing(sample.tick);
+        }
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut ticker,
+            8,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+        let packets = captured.drain();
+        assert_eq!(kinds(&packets[..1]), ["AnimatePacket"]);
+        let first_input = if crosshair == ZOMBIE {
+            let expected = protocol::use_actor_packet(protocol::ActorUseRequest {
+                actor_runtime_id: 9,
+                action: protocol::ActorUseAction::Attack,
+                selected_slot: press.selection.as_ref().unwrap().slot,
+                selected_item: press.selection.as_ref().unwrap().item.clone(),
+                player_position: anchor,
+                hit_position: [0.0, 1.5, -2.0],
+            })
+            .unwrap();
+            assert_eq!(
+                protocol::encode(&packets[1]).unwrap(),
+                protocol::encode(&expected).unwrap()
+            );
+            2
+        } else {
+            1
+        };
+        assert_eq!(packets.len(), first_input + 3);
+        for (offset, packet) in packets[first_input..].iter().enumerate() {
+            let input = protocol::player_auth_input_trace_sample(packet).unwrap();
+            assert_eq!(input.tick, 101 + offset as u64);
+            assert_eq!(input.position[0], anchor[0] + (offset + 1) as f32 * 0.25);
+            assert_eq!(
+                input.flag_names.contains(&"MissedSwing"),
+                missed && offset == 0
+            );
+        }
+    }
+}
