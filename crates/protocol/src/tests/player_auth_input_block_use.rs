@@ -102,6 +102,61 @@ fn independently_authored_empty_hand_use_is_one_embedded_pai_interaction() {
 }
 
 #[test]
+fn embedded_destroy_clears_placement_fields_and_preserves_selection_and_pose() {
+    let packet = player_auth_input_with_interactions(
+        movement(),
+        &PlayerAuthInputInteractions {
+            block_actions: protocol::BlockActions::new(),
+            block_interaction: Some(BlockItemInteraction::Destroy(request())),
+        },
+    )
+    .unwrap();
+    let encoded = protocol::encode(&packet).unwrap();
+    let decoded = protocol::decode_batch(encoded).unwrap().remove(0);
+    let packets::Packet::PlayerAuthInput(input) = *decoded.data else {
+        panic!("expected movement input");
+    };
+    assert!(
+        input
+            .input_data
+            .contains(&InputData::Performiteminteraction)
+    );
+    let packed = input.item_use_transaction.unwrap();
+    assert_eq!(packed.legacy_request_id.0, 0);
+    assert!(packed.legacy_set_item_slots.is_none());
+    let transaction = packed.item_use_transaction;
+    assert_eq!(
+        transaction.action_type,
+        ItemUseInventoryTransactionActionType::Destroy
+    );
+    assert_eq!(
+        transaction.trigger_type,
+        ItemUseInventoryTransactionTriggerType::Unknown
+    );
+    assert_eq!(transaction.click_position.to_array(), [0.0; 3]);
+    assert_eq!(transaction.target_block_id.0, 0);
+    assert_eq!(
+        transaction.from_position.to_array(),
+        request().player_position
+    );
+    assert_eq!(transaction.position.x.0, request().block_position[0]);
+    assert_eq!(transaction.position.y.0, request().block_position[1]);
+    assert_eq!(transaction.position.z.0, request().block_position[2]);
+    assert_eq!(transaction.face.0, request().face);
+    assert_eq!(transaction.slot.0, i32::from(request().selected_slot));
+    assert_eq!(transaction.item.id.0, 0);
+    assert!(transaction.actions.actions.is_empty());
+    assert_eq!(
+        transaction.client_interact_prediction,
+        ItemUseInventoryTransactionPredictedResult::Failure
+    );
+    assert_eq!(
+        transaction.client_cooldown_state,
+        ItemUseInventoryTransactionClientCooldownState::Off
+    );
+}
+
+#[test]
 fn destroy_and_use_are_one_mutually_exclusive_payload_slot() {
     let use_interaction = BlockItemInteraction::Use(request());
     let destroy_interaction = BlockItemInteraction::Destroy(request());

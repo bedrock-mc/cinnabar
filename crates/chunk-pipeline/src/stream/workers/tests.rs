@@ -32,6 +32,7 @@ fn pool_sizing_leaves_frame_cores_and_foreground_threads() {
 }
 
 /// Saturating every light worker leaves both latency-sensitive lanes available.
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn saturated_lighting_cannot_queue_ahead_of_mesh_or_decode() {
     let pool = WorldPool::new(PoolSize::for_cores(8));
@@ -122,7 +123,7 @@ fn lowered_workers_publish_results_at_normal_priority() {
 }
 
 /// Pushes `queued` lanes at `queued_at` and drains them at `now` in worker order.
-fn take_order(background: bool, queued: &[Lane], queued_at: Instant, now: Instant) -> Vec<Lane> {
+fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment) -> Vec<Lane> {
     let mut queues = Queues::default();
     let (order_tx, order_rx) = crossbeam_channel::unbounded();
     for &lane in queued {
@@ -143,7 +144,7 @@ fn take_order(background: bool, queued: &[Lane], queued_at: Instant, now: Instan
 #[test]
 fn fresh_work_follows_lane_priority() {
     let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
-    let at = Instant::now();
+    let at = Moment::default();
     assert_eq!(
         take_order(true, &queued, at, at),
         [Lane::Mesh, Lane::Mesh, Lane::Decode, Lane::Light]
@@ -158,13 +159,13 @@ fn fresh_work_follows_lane_priority() {
 #[test]
 fn overdue_lower_lanes_jump_a_mesh_flood() {
     let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
-    let at = Instant::now();
-    let decode_late = at + DECODE_MAX_WAIT;
+    let at = Moment::default();
+    let decode_late = at.checked_add(DECODE_MAX_WAIT).unwrap();
     assert_eq!(
         take_order(true, &queued, at, decode_late),
         [Lane::Decode, Lane::Mesh, Lane::Mesh, Lane::Light]
     );
-    let light_late = at + LIGHT_MAX_WAIT;
+    let light_late = at.checked_add(LIGHT_MAX_WAIT).unwrap();
     assert_eq!(
         take_order(true, &queued, at, light_late),
         [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh]
@@ -196,7 +197,7 @@ fn dispatch_batch_publishes_independent_jobs_together() {
     let mut queues = pool.shared.lock();
     assert_eq!(queues.mesh.len(), 16);
     let mut scratch = world::LightSolverScratch::default();
-    while let Some(job) = queues.take(false, Instant::now()) {
+    while let Some(job) = queues.take(false, Moment::default()) {
         job(&mut scratch);
     }
     assert_eq!(
@@ -220,4 +221,26 @@ fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
     assert_eq!(threads, PoolSize::for_cores(cores).threads());
     // A join compile must not wait behind unrelated background processes.
     assert!(lowered.iter().all(|lowered| !*lowered), "{lowered:?}");
+}
+
+/// Draining returns immediately on an empty queue and executes only one accepted job.
+#[test]
+fn local_driver_runs_one_job_and_reuses_the_native_queue_order() {
+    let shared = Shared::default();
+    let now = Moment::default();
+    let mut scratch = world::LightSolverScratch::default();
+    assert!(!run_one(&shared, now, &mut scratch));
+    let (sent, received) = crossbeam_channel::bounded(3);
+    for lane in [Lane::Light, Lane::Decode, Lane::Mesh] {
+        let sent = sent.clone();
+        shared
+            .lock()
+            .push(lane, now, Box::new(move |_| sent.try_send(lane).unwrap()));
+    }
+    for expected in [Lane::Mesh, Lane::Decode, Lane::Light] {
+        assert!(run_one(&shared, now, &mut scratch));
+        assert_eq!(received.try_recv().unwrap(), expected);
+        assert!(received.try_recv().is_err());
+    }
+    assert!(!run_one(&shared, now, &mut scratch));
 }

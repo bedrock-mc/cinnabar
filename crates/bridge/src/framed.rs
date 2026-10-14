@@ -6,11 +6,12 @@ use std::task::{Context, Poll};
 
 use bytes::{Bytes, BytesMut};
 use futures::{Sink, SinkExt, Stream};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite, LengthDelimitedCodec};
 
 use crate::BridgeError;
-use crate::endpoint::{PlatformReadHalf, PlatformStream, PlatformWriteHalf};
+use crate::endpoint::{PlatformReadHalf, PlatformStream};
 
 pub(crate) struct BridgeCodec {
     inner: LengthDelimitedCodec,
@@ -127,13 +128,24 @@ const QUEUED_FRAMES: usize = 16;
 /// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
+    let (reader, frames, writer) = crate::tasks::prepare_connection(read, write, maximum);
+    tokio::spawn(writer);
+    (reader, frames)
+}
+
+/// Builds the shared framing task without choosing a host executor or stream implementation.
+pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    read: R,
+    write: W,
+    maximum: usize,
+) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
     let failure = Arc::new(OnceLock::new());
-    tokio::spawn(write_queued_frames(
+    let writer = write_queued_frames(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),
-    ));
+    );
     (
         FramedReader {
             inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
@@ -143,15 +155,16 @@ pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, F
             failure,
             maximum,
         },
+        writer,
     )
 }
 
 /// The read half of a queued game connection.
-pub struct FramedReader {
-    inner: FramedRead<PlatformReadHalf, BridgeCodec>,
+pub struct FramedReader<R = PlatformReadHalf> {
+    inner: FramedRead<R, BridgeCodec>,
 }
 
-impl Stream for FramedReader {
+impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     type Item = Result<Bytes, BridgeError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -230,8 +243,8 @@ fn broken_pipe(reason: &str) -> BridgeError {
 
 /// Writes queued frames in order, coalescing whatever is already queued into one flush, and
 /// acknowledges each frame only after that flush.
-async fn write_queued_frames(
-    mut writer: FramedWrite<PlatformWriteHalf, BridgeCodec>,
+async fn write_queued_frames<W: AsyncWrite + Unpin>(
+    mut writer: FramedWrite<W, BridgeCodec>,
     mut frames: mpsc::Receiver<QueuedFrame>,
     failure: Arc<OnceLock<String>>,
 ) {

@@ -25,6 +25,7 @@ pub(super) fn compile(
         .ok_or("missing font rasterization policy")?;
     let config = OutlineFontConfig {
         synthesize_mathematical_letters: false,
+        include_original_symbols: false,
         space_advance_64: None,
         ascii_bearing: None,
         pixel_height: required_u32(raster, "pixel_height")?,
@@ -176,6 +177,7 @@ fn compile_grid(
             }),
             atlas_side: 2048,
             synthesize_mathematical_letters: face.is_some(),
+            include_original_symbols: face.is_some(),
             space_advance_64: face.and_then(|face| face.space_advance_64()),
             ascii_bearing: face.and_then(|face| face.ascii_bearing),
             ..OutlineFontConfig::default()

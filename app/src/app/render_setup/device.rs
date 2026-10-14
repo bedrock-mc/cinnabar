@@ -6,6 +6,11 @@ use launcher::graphics_backend::{Adapter, Backend};
 
 /// Applies renderer limits and compiler policy to Bevy's defaults.
 pub(super) fn configure_render_settings(settings: &mut WgpuSettings) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        settings.priority = WgpuSettingsPriority::WebGPU;
+        settings.backends = Some(wgpu::Backends::BROWSER_WEBGPU);
+    }
     // Shipping installs use FXC; a DLL in the launch directory must not change that.
     settings.dx12_shader_compiler = wgpu::Dx12Compiler::Fxc;
     settings.limits.max_storage_buffers_per_shader_stage = settings

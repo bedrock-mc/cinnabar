@@ -125,7 +125,8 @@ bevy = { version = "=0.20.0", default-features = false, features = [
 # The noop backend only runs when an instance explicitly enables it (render tests).
 wgpu = { version = "30.0.1", default-features = false, features = ["noop", "wgsl"] }
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tga"] }
-tokio = { version = "1.52", features = ["fs", "io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "time"] }
+# Native bridge and session composition add OS I/O and the multithreaded runtime.
+tokio = { version = "1.52", features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = "0.7"
 bytes = "1"
 futures = "0.3"
