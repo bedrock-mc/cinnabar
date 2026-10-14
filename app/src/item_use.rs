@@ -259,7 +259,7 @@ fn produce_use(
     }
 }
 
-/// Admits item use, holding an assisted release behind the completed input carrying its facing.
+/// Admits use on its logical clock, holding assisted release behind its completed facing input.
 #[allow(clippy::too_many_arguments)]
 fn admit_with_action_aim(
     runtime: &mut gameplay::item_use::ItemUseRuntime,
@@ -273,19 +273,21 @@ fn admit_with_action_aim(
     network: &NetworkHandle<PackApplication>,
 ) {
     // Keep the use active until a completed using tick can carry the release facing.
-    if aim_rotation.is_some()
-        && runtime.is_using()
-        && !frame.held
-        && movement.unsent_sample_at(frame.tick).is_none()
-    {
+    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !frame.held;
+    if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
         return;
     }
+    // Facing uses a completed input; elapsed use time includes that tick.
+    let duration_frame = assisted_release.then(|| UseFrame {
+        tick: movement.completed_tick().saturating_add(1),
+        ..frame.clone()
+    });
     let mut assisted = None;
     admit_on_tick(
         runtime,
         swings,
         movement,
-        frame,
+        duration_frame.as_ref().unwrap_or(frame),
         local_runtime_id,
         swing_duration,
         |packets| {

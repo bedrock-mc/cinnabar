@@ -23,6 +23,9 @@ mod actor_use_tests;
 #[path = "published_tests/item_use.rs"]
 mod item_use_tests;
 
+#[path = "published_tests/attack_swing.rs"]
+mod attack_swing_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
