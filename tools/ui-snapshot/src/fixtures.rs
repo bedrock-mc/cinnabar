@@ -21,7 +21,7 @@ pub enum Fixture {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
         messages: std::collections::VecDeque<ui::ChatMessage>,
-        options: launcher::menu::settings_options::SettingsOptions,
+        options: Arc<launcher::menu::settings_options::SettingsOptions>,
     },
 }
 
@@ -142,7 +142,7 @@ fn chat_background(percent: i32) -> Fixture {
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
-        options,
+        options: Arc::new(options),
     }
 }
 

@@ -164,7 +164,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             editor.set_text(draft);
             frame.now = CAPTURE_SECONDS;
             let mut screen = ChatScreen::default();
-            screen.settings.set_snapshot((Arc::new(options), None));
+            screen.settings.set_snapshot((options, None));
             for now in [0.0, CAPTURE_SECONDS] {
                 frame.nodes.clear();
                 *frame.next = 1;
