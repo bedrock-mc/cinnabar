@@ -1,6 +1,7 @@
 use super::*;
 use crate::tick::WeightedClip;
 use assets::{EntityAnimationProperty, RuntimeEntityAssets};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 mod frame_tests;
 
@@ -218,12 +219,12 @@ fn modern_and_special_postures_keep_the_authored_attack() {
         assert_eq!(sample(context, &actor, 0.5, None)[2].rotation, expected);
     }
     for flag in [
-        query::FLAG_SWIMMING,
-        query::FLAG_BLOCKING,
-        query::FLAG_USING_ITEM,
-        query::FLAG_GLIDING,
-        query::FLAG_CRAWLING,
-        query::FLAG_EMOTING,
+        ActorFlag::Swimming.wire_value(),
+        ActorFlag::Blocking.wire_value(),
+        ActorFlag::UsingItem.wire_value(),
+        ActorFlag::Gliding.wire_value(),
+        ActorFlag::Crawling.wire_value(),
+        ActorFlag::Emoting.wire_value(),
     ] {
         let mut actor = player();
         if flag < 64 {
@@ -232,7 +233,7 @@ fn modern_and_special_postures_keep_the_authored_attack() {
                 .insert(0, ActorMetadataValue::Flags(1u64 << flag));
         } else {
             actor.metadata.insert(
-                crate::test_actor::EXTENDED_FLAGS_METADATA_KEY,
+                ActorDataKey::FlagsTwo.wire_value(),
                 ActorMetadataValue::FlagsExtended(1u64 << (flag - 64)),
             );
         }

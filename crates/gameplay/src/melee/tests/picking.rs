@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorDataKey;
 
 #[test]
 fn ordered_hitboxes_use_the_first_intersection_within_reach() {
@@ -22,11 +23,11 @@ fn advertised_projectile_base_excludes_picking_and_placement_obstruction() {
         [0.0, 0.0, -2.0],
         HashMap::from([
             (
-                BOUNDING_BOX_WIDTH_METADATA_KEY,
+                ActorDataKey::Width.wire_value(),
                 ActorMetadataValue::Float(0.6),
             ),
             (
-                BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                ActorDataKey::Height.wire_value(),
                 ActorMetadataValue::Float(2.0),
             ),
         ]),
@@ -89,7 +90,7 @@ fn actor_with_raised_hitbox(identifier: &str, base: Option<&str>, feet: [f32; 3]
         base,
         feet,
         HashMap::from([(
-            client_world::HITBOX_METADATA_KEY,
+            ActorDataKey::HitBox.wire_value(),
             ActorMetadataValue::Compound(Arc::from(bytes)),
         )]),
     )
@@ -174,8 +175,10 @@ fn a_positive_actor_scale_expands_the_pick_box() {
         Some((0.6, 1.0)),
     );
     assert_eq!(pick_actor([&npc].into_iter(), None, EYE, NORTH, 3.0), None);
-    npc.metadata
-        .insert(SCALE_METADATA_KEY, ActorMetadataValue::Float(2.0));
+    npc.metadata.insert(
+        ActorDataKey::Scale.wire_value(),
+        ActorMetadataValue::Float(2.0),
+    );
     let hit = pick_actor([npc].iter(), None, EYE, NORTH, 3.0)
         .expect("the ray intersects the scaled actor above its unscaled height");
     assert_eq!(hit.runtime_id, 71);

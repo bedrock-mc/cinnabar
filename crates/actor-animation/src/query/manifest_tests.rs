@@ -1,6 +1,7 @@
 use super::*;
 use crate::attachable::AttachableQueryContext;
 use assets::{MOLANG_QUERY_DESCRIPTORS, MolangQuerySupport};
+use protocol_ids::ActorFlag;
 
 #[test]
 fn every_admitted_query_has_a_dispatch_or_an_explicit_idle_disposition() {
@@ -51,9 +52,10 @@ fn typed_attachable_item_use_queries_preserve_timing_and_arguments() {
 /// Checks item timing and all supported argument forms in the selected query context.
 fn check_typed_item_use_queries(attachable: bool) {
     let mut actor = crate::tests::actor_with_metadata(HashMap::new());
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << FLAG_USING_ITEM));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+    );
     let input = ActorTickInput {
         item_use_ticks: 6,
         ..Default::default()

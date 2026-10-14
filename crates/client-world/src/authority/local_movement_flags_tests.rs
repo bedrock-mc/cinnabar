@@ -1,5 +1,5 @@
 use super::*;
-use crate::actor_store::ACTOR_FLAG_IMMOBILE;
+use protocol_ids::{ActorFlag, Attribute};
 
 fn metadata(runtime_id: u64, dimension: i32, flags: u64) -> WorldEvent {
     WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
@@ -35,14 +35,14 @@ fn immobile_control_is_local_and_dimension_scoped_before_the_actor_exists() {
     for (sequence, runtime_id, dimension) in [(1, 72, 2), (2, 41, 0)] {
         authority
             .apply_ordered_event(
-                metadata(runtime_id, dimension, 1 << ACTOR_FLAG_IMMOBILE),
+                metadata(runtime_id, dimension, 1 << ActorFlag::NoAI.wire_value()),
                 Some(sequence),
             )
             .unwrap();
     }
     assert!(authority.take_committed_controls().is_empty());
     authority
-        .apply_ordered_event(metadata(41, 2, 1 << ACTOR_FLAG_IMMOBILE), Some(3))
+        .apply_ordered_event(metadata(41, 2, 1 << ActorFlag::NoAI.wire_value()), Some(3))
         .unwrap();
     assert!(matches!(
         authority.take_committed_controls().as_slice(),
@@ -77,7 +77,7 @@ fn air_drag(current: f32, tick: u64) -> WorldEvent {
         dimension: 2,
         runtime_id: 41,
         attributes: Arc::from([ActorAttribute {
-            name: Arc::from(crate::AIR_DRAG_MODIFIER_ATTRIBUTE),
+            name: Arc::from(Attribute::AirDragModifier.wire_name()),
             min: 0.0,
             max: f32::MAX,
             current,

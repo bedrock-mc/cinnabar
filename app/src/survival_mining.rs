@@ -240,18 +240,15 @@ fn observe_destroy_target(
             .destroy(),
     );
     let item = &observed.selection.item;
-    let identifier = (item.network_id() != 0)
-        .then(|| {
-            ui.inventory_ledger(player_runtime)
-                .negotiated_item_entry(item.network_id())
-        })
-        .flatten()
-        .map(|entry| entry.identifier.as_ref());
+    let fact = ui
+        .inventory_ledger(player_runtime)
+        .item_facts()
+        .get(item.network_id());
     let instant = caps.instant_break;
-    if instant && !destroys_in_creative(identifier) {
+    if instant && !destroys_in_creative(fact) {
         return None;
     }
-    let tool = identifier.and_then(HeldTool::from_identifier);
+    let tool = HeldTool::from_facts(fact);
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(mode),

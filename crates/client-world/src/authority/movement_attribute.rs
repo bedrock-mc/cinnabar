@@ -1,9 +1,5 @@
 use protocol::ActorAttribute;
 
-/// UUID of the current-value sprint speed modifier.
-pub const SPRINT_SPEED_MODIFIER_ID: &str = "d208fc00-42aa-4aad-9276-d5446530de43";
-pub const AIR_DRAG_MODIFIER_ATTRIBUTE: &str = "minecraft:air_drag_modifier";
-
 /// Effective movement current and the defaults needed to recalculate a sprint edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MovementSpeedAttribute {
@@ -96,7 +92,9 @@ impl MovementSpeedAttribute {
 
 /// Identifies the native current-value sprint modifier independently of its label.
 fn is_sprint(modifier: &protocol::ActorAttributeModifier) -> bool {
-    modifier.id.eq_ignore_ascii_case(SPRINT_SPEED_MODIFIER_ID)
+    modifier
+        .id
+        .eq_ignore_ascii_case(protocol_ids::SPRINT_SPEED_MODIFIER_ID)
         && modifier.operation == 2
         && modifier.operand == 2
 }
@@ -132,12 +130,13 @@ pub(super) fn effective_speed(attribute: &ActorAttribute) -> Option<(f64, Option
 mod tests {
     use super::*;
     use protocol::ActorAttributeModifier;
+    use protocol_ids::Attribute;
     use std::sync::Arc;
 
     /// Builds a received movement attribute with a distinct current and default.
     fn packet(current: f32, default: f32, modifiers: &[ActorAttributeModifier]) -> ActorAttribute {
         ActorAttribute {
-            name: Arc::from("minecraft:movement"),
+            name: Arc::from(Attribute::Movement.wire_name()),
             min: 0.0,
             max: f32::MAX,
             current,
@@ -150,7 +149,7 @@ mod tests {
     fn modifier(amount: f32, operation: i32, sprint: bool) -> ActorAttributeModifier {
         ActorAttributeModifier {
             id: Arc::from(if sprint {
-                SPRINT_SPEED_MODIFIER_ID
+                protocol_ids::SPRINT_SPEED_MODIFIER_ID
             } else {
                 "custom"
             }),

@@ -1,4 +1,3 @@
-use super::potion::AUX_VALUE_METADATA_KEY as AUX;
 use super::*;
 
 /// Evaluates the appearance query with an unrelated held potion in the player context.
@@ -49,7 +48,10 @@ fn thrown_potion_variant_uses_its_aux_value_instead_of_generic_variant_or_held_i
             (46, 29),
         ] {
             let mut actor = crate::tests::actor_with_metadata(HashMap::from([
-                (AUX, ActorMetadataValue::Short(aux)),
+                (
+                    protocol_ids::ActorDataKey::AuxValueData.wire_value(),
+                    ActorMetadataValue::Short(aux),
+                ),
                 (variant_key(), ActorMetadataValue::Int(12)),
             ]));
             actor.kind = ActorKind::Entity {
@@ -74,13 +76,16 @@ fn potion_variant_defaults_wrong_types_and_bounds_unknown_auxiliary_values() {
     };
     assert_eq!(variant(&actor, 21), 30.0);
     for value in [ActorMetadataValue::Int(21), ActorMetadataValue::Float(21.0)] {
-        actor.metadata.insert(AUX, value);
+        actor
+            .metadata
+            .insert(protocol_ids::ActorDataKey::AuxValueData.wire_value(), value);
         assert_eq!(variant(&actor, 21), 30.0);
     }
     for auxiliary in [-1, 47, 63, 64, i16::MAX] {
-        actor
-            .metadata
-            .insert(AUX, ActorMetadataValue::Short(auxiliary));
+        actor.metadata.insert(
+            protocol_ids::ActorDataKey::AuxValueData.wire_value(),
+            ActorMetadataValue::Short(auxiliary),
+        );
         assert_eq!(variant(&actor, 21), 0.0);
     }
     actor.kind = ActorKind::Entity {
@@ -122,7 +127,7 @@ fn pinned_potion_controller_selects_the_projectiles_own_effect_texture() {
     assert!(!sprites.is_empty(), "pinned potion item routes");
     for (auxiliary, texture_source) in sprites {
         let mut actor = crate::tests::actor_with_metadata(HashMap::from([(
-            AUX,
+            protocol_ids::ActorDataKey::AuxValueData.wire_value(),
             ActorMetadataValue::Short(auxiliary),
         )]));
         actor.kind = ActorKind::Entity {
@@ -156,8 +161,10 @@ fn pinned_potion_controller_selects_the_projectiles_own_effect_texture() {
 #[test]
 fn a_custom_potion_base_keeps_its_auxiliary_appearance() {
     let base = "minecraft:splash_potion";
-    let mut actor =
-        crate::tests::actor_with_metadata(HashMap::from([(AUX, ActorMetadataValue::Short(21))]));
+    let mut actor = crate::tests::actor_with_metadata(HashMap::from([(
+        protocol_ids::ActorDataKey::AuxValueData.wire_value(),
+        ActorMetadataValue::Short(21),
+    )]));
     actor.kind = ActorKind::Entity {
         identifier: base.into(),
     };

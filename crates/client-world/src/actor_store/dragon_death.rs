@@ -1,8 +1,9 @@
 //! Frame state for the dragon's death rays, separate from authored dissolve layers.
 
 use protocol::ActorMetadataValue;
+use protocol_ids::ActorDataKey;
 
-use super::{ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, dragon_particles::DRAGON_DEATH_TICKS};
+use super::{ActorStore, dragon_particles::DRAGON_DEATH_TICKS};
 
 const RAY_SEED: u32 = 432;
 // The vanilla dragon definition supplies this height before metadata overrides it.
@@ -34,7 +35,7 @@ impl ActorStore {
                     return None;
                 }
                 let owner_position = actor.interpolated_position(partial_tick)?;
-                let height = match actor.metadata.get(&BOUNDING_BOX_HEIGHT_METADATA_KEY) {
+                let height = match actor.metadata.get(&ActorDataKey::Height.wire_value()) {
                     Some(ActorMetadataValue::Float(height))
                         if height.is_finite() && *height > 0.0 =>
                     {
@@ -80,7 +81,7 @@ mod tests {
             || Arc::<[ActorMetadata]>::from([]),
             |height| {
                 Arc::from([ActorMetadata {
-                    key: BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                    key: ActorDataKey::Height.wire_value(),
                     value: ActorMetadataValue::Float(height),
                 }])
             },

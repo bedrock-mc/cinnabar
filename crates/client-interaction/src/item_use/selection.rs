@@ -2,7 +2,8 @@
 use assets::item_use::ItemUseRequirement as Needs;
 use chunk_pipeline::WorldStream;
 use client_ui::ui_runtime::UiRuntime;
-use gameplay::item_use::{AirUse, QUICK_CHARGE_ENCHANTMENT_ID, classify};
+use gameplay::item_use::{AirUse, classify};
+use protocol_ids::Enchantment;
 
 /// The selected stack's authoritative air use, if supported.
 pub fn selected_air_use(
@@ -20,9 +21,11 @@ pub fn selected_air_use_with_projectile(
 ) -> Option<AirUse> {
     let stack = player_runtime.selected_stack()?;
     let canonical = stream.authority().canonical_item_stack(stack)?;
-    let quick_charge =
-        protocol::item_enchantment_level(&stack.extra_data, QUICK_CHARGE_ENCHANTMENT_ID)
-            .unwrap_or(0);
+    let quick_charge = protocol::item_enchantment_level(
+        &stack.extra_data,
+        i16::from(Enchantment::Quickcharge.wire_value()),
+    )
+    .unwrap_or(0);
     let profile = stream.authority().item_use_profile(stack.network_id);
     classify(
         profile,

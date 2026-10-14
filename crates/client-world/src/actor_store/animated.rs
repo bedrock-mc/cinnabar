@@ -1,4 +1,5 @@
 //! Supplies each tracked actor's authoritative state to the animation runtime.
+use protocol_ids::Attribute;
 use std::{collections::HashMap, sync::Arc};
 
 use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, GameModeUpdate};
@@ -68,7 +69,7 @@ impl AnimatedActor for ActorSnapshot {
     }
 
     fn health(&self) -> Option<&ActorAttribute> {
-        self.attributes.get("minecraft:health")
+        self.attributes.get(Attribute::Health.wire_name())
     }
 
     fn int_properties(&self) -> &HashMap<u32, i32> {
@@ -179,7 +180,7 @@ impl AnimatedActor for ActorSnapshot {
         let dead = self.status.dead
             || self
                 .attributes
-                .get("minecraft:health")
+                .get(Attribute::Health.wire_name())
                 .is_some_and(|health| health.current <= 0.0);
         Some(state.historical_frame(offset, dead))
     }

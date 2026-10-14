@@ -1,6 +1,7 @@
 //! Stateful controller and geometry inputs retain one original local evaluation per tick.
 use super::*;
 use assets::*;
+use protocol_ids::ActorFlag;
 
 /// Adds a terminal controller transition whose entry script increments the retained counter.
 fn controller(compiled: &mut CompiledEntityAssets) {
@@ -210,7 +211,7 @@ fn local_refresh_changed_geometry_seeds_ui_from_original_authored_inputs() {
     let (mut actors, mut store) = local_fixture_with(true, true, changing_geometry);
     actors.get_mut(&LOCAL).unwrap().metadata.insert(
         0,
-        protocol::ActorMetadataValue::Flags(1 << crate::query::FLAG_BABY),
+        protocol::ActorMetadataValue::Flags(1 << ActorFlag::Baby.wire_value()),
     );
     refresh_swing(&actors, &mut store);
     for _ in 0..2 {

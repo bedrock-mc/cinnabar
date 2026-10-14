@@ -25,18 +25,15 @@ pub enum RideKind {
 }
 
 impl RideKind {
-    /// Classifies a mount by entity identifier substring.
+    /// Uses the actor's admitted native class, including a custom entity's base.
     #[must_use]
-    pub fn from_identifier(identifier: &str) -> Self {
-        let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-        if name.contains("boat") || name.contains("raft") {
-            Self::Boat
-        } else if name.contains("minecart") {
-            Self::Minecart
-        } else if name.contains("horse") || matches!(name, "donkey" | "mule") {
-            Self::Horse
-        } else {
-            Self::Other
+    pub const fn from_native_class(class: assets::facts::entity::NativeEntityClass) -> Self {
+        use assets::facts::entity::NativeEntityClass;
+        match class {
+            NativeEntityClass::Boat => Self::Boat,
+            NativeEntityClass::Minecart => Self::Minecart,
+            NativeEntityClass::Horse => Self::Horse,
+            _ => Self::Other,
         }
     }
 }
@@ -677,11 +674,10 @@ mod tests {
     }
 
     #[test]
-    fn rides_classify_by_identifier() {
+    fn rides_classify_by_native_facts() {
         for (id, kind) in [
             ("minecraft:boat", RideKind::Boat),
             ("minecraft:chest_boat", RideKind::Boat),
-            ("minecraft:chest_raft", RideKind::Boat),
             ("minecraft:minecart", RideKind::Minecart),
             ("minecraft:hopper_minecart", RideKind::Minecart),
             ("minecraft:horse", RideKind::Horse),
@@ -690,7 +686,89 @@ mod tests {
             ("minecraft:pig", RideKind::Other),
             ("minecraft:strider", RideKind::Other),
         ] {
-            assert_eq!(RideKind::from_identifier(id), kind, "{id}");
+            assert_eq!(
+                RideKind::from_native_class(
+                    assets::facts::entity::EntityFacts::pinned()
+                        .get(id)
+                        .native_class
+                ),
+                kind,
+                "{id}"
+            );
+        }
+    }
+
+    /// A registered custom mount inherits steering from its pinned native base.
+    #[test]
+    fn registered_native_base_controls_mount_class() {
+        use protocol::{
+            ActorEvent, ActorIdentifier, ActorIdentifierRegistry, ActorKind, ActorSpawnEvent,
+            WorldEvent,
+        };
+        use std::sync::Arc;
+        for (base, expected) in [
+            ("minecraft:boat", RideKind::Boat),
+            ("minecraft:horse", RideKind::Horse),
+            ("minecraft:minecart", RideKind::Minecart),
+        ] {
+            let class_key = assets::facts::entity::EntityFacts::pinned()
+                .get(base)
+                .class_key;
+            assert_ne!(class_key, 0);
+            let identifier: Arc<str> = format!("fixture:{class_key}").into();
+            let mut authority = client_world::WorldAuthority::new(
+                protocol::WorldBootstrap {
+                    dimension: 0,
+                    local_player_runtime_id: 1,
+                    local_player_unique_id: 1,
+                    player_position: [0.; 3],
+                    world_spawn_position: [0; 3],
+                    air_network_id: 0,
+                    block_network_ids_are_hashes: false,
+                },
+                Arc::new(assets::RuntimeAssets::diagnostic()),
+                None,
+                [0.; 3],
+                None,
+            );
+            authority
+                .apply_ordered_event(
+                    WorldEvent::Actor(ActorEvent::Identifiers(ActorIdentifierRegistry {
+                        entries: Arc::from([ActorIdentifier {
+                            identifier: identifier.clone(),
+                            base_identifier: base.into(),
+                        }]),
+                        skipped: 0,
+                    })),
+                    Some(1),
+                )
+                .unwrap();
+            authority
+                .apply_ordered_event(
+                    WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: 2,
+                        runtime_id: 2,
+                        kind: ActorKind::Entity { identifier },
+                        position: [0.; 3],
+                        velocity: [0.; 3],
+                        pitch: 0.,
+                        yaw: 0.,
+                        head_yaw: 0.,
+                        body_yaw: 0.,
+                        held_item: Default::default(),
+                        metadata: Arc::from([]),
+                        attributes: Arc::from([]),
+                        properties: Arc::from([]),
+                        links: Arc::from([]),
+                    })),
+                    Some(2),
+                )
+                .unwrap();
+            assert_eq!(
+                RideKind::from_native_class(authority.actor(2).unwrap().entity_fact.native_class),
+                expected
+            );
         }
     }
 

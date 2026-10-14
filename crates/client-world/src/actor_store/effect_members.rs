@@ -1,5 +1,6 @@
 //! Ordered candidate membership for actor effects, retained at ingress.
 
+use protocol_ids::ActorDataKey;
 use std::collections::BTreeSet;
 
 use assets::facts::entity::NativeEntityClass;
@@ -47,7 +48,7 @@ impl EffectMembers {
             &mut self.ropes,
             runtime,
             class == NativeEntityClass::FishingHook
-                || entities::metadata_i64(actor, entities::LEASH_HOLDER_METADATA_KEY)
+                || entities::metadata_i64(actor, ActorDataKey::LeashHolder.wire_value())
                     .is_some_and(|holder| holder != entities::INVALID_LEASH_HOLDER_ID),
         );
     }

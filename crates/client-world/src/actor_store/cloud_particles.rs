@@ -1,15 +1,10 @@
 //! Particle presentation of server-owned lingering dragon breath clouds.
 
 use protocol::{ActorMetadataValue, SpawnParticleEffectEvent};
+use protocol_ids::ActorDataKey;
 
 use super::{ActorKind, ActorSnapshot, ActorStore};
 
-const RADIUS_KEY: u32 = 61;
-const PARTICLE_KEY: u32 = 63;
-const DURATION_KEY: u32 = 95;
-const CHANGE_RATE_KEY: u32 = 97;
-const CHANGE_ON_PICKUP_KEY: u32 = 98;
-const PICKUP_COUNT_KEY: u32 = 99;
 const DRAGON_BREATH_PARTICLE: i32 = 49;
 const EMISSION_TICKS: u32 = 5;
 const MIN_RADIUS: f32 = 0.5;
@@ -72,28 +67,37 @@ impl ActorStore {
 
 fn cloud_presentation(actor: &ActorSnapshot, elapsed: u32) -> CloudPresentation {
     if !matches!(
-        actor.metadata.get(&PARTICLE_KEY),
+        actor.metadata.get(&ActorDataKey::DataParticle.wire_value()),
         Some(ActorMetadataValue::Int(DRAGON_BREATH_PARTICLE))
     ) {
         return CloudPresentation::Unavailable;
     }
-    let Some(ActorMetadataValue::Int(duration)) = actor.metadata.get(&DURATION_KEY) else {
+    let Some(ActorMetadataValue::Int(duration)) =
+        actor.metadata.get(&ActorDataKey::DataDuration.wire_value())
+    else {
         return CloudPresentation::Unavailable;
     };
     let duration = if *duration < -1 { 0 } else { *duration };
     if duration != -1 && elapsed > duration as u32 {
         return CloudPresentation::Expired;
     }
-    let Some(ActorMetadataValue::Float(initial)) = actor.metadata.get(&RADIUS_KEY) else {
+    let Some(ActorMetadataValue::Float(initial)) =
+        actor.metadata.get(&ActorDataKey::DataRadius.wire_value())
+    else {
         return CloudPresentation::Unavailable;
     };
-    let Some(rate) = float_metadata(actor, CHANGE_RATE_KEY, -1.0) else {
+    let Some(rate) = float_metadata(actor, ActorDataKey::DataChangeRate.wire_value(), -1.0) else {
         return CloudPresentation::Unavailable;
     };
-    let Some(change_on_pickup) = float_metadata(actor, CHANGE_ON_PICKUP_KEY, -0.5) else {
+    let Some(change_on_pickup) =
+        float_metadata(actor, ActorDataKey::DataChangeOnPickup.wire_value(), -0.5)
+    else {
         return CloudPresentation::Unavailable;
     };
-    let pickups = match actor.metadata.get(&PICKUP_COUNT_KEY) {
+    let pickups = match actor
+        .metadata
+        .get(&ActorDataKey::DataPickupCount.wire_value())
+    {
         Some(ActorMetadataValue::Int(count)) => (*count).max(0),
         _ => 0,
     };

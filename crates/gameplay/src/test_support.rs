@@ -2,10 +2,6 @@
 
 pub mod survival_mining;
 
-/// The retained enchantment identity used by movement owner fixtures.
-pub const DEPTH_STRIDER_ENCHANTMENT_ID: i16 =
-    crate::movement::local_facts::DEPTH_STRIDER_ENCHANTMENT_ID;
-
 /// Builds a movement packet with explicit current, default and sprint authority.
 #[cfg(test)]
 pub(crate) fn movement_speed_attribute(
@@ -15,7 +11,7 @@ pub(crate) fn movement_speed_attribute(
 ) -> client_world::MovementSpeedAttribute {
     let modifiers = factor
         .map(|factor| protocol::ActorAttributeModifier {
-            id: std::sync::Arc::from(client_world::SPRINT_SPEED_MODIFIER_ID),
+            id: std::sync::Arc::from(protocol_ids::SPRINT_SPEED_MODIFIER_ID),
             name: std::sync::Arc::from("sprint"),
             amount: factor - 1.0,
             operation: 2,

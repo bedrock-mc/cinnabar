@@ -1,6 +1,7 @@
 //! Reuses only frame-independent controller results with explicitly bounded inputs.
 use super::*;
 use assets::{MolangFunction, MolangOp};
+use protocol_ids::ActorFlag;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Value {
@@ -60,7 +61,7 @@ impl Inputs {
             off_hand: input.off_hand,
             paperdoll: input.is_paperdoll,
             worn: input.worn,
-            blocking: query::actor_flag(owner, query::FLAG_BLOCKING),
+            blocking: query::actor_flag(owner, ActorFlag::Blocking.wire_value()),
             target: query::has_target(owner),
             elapsed: input.use_elapsed_ticks,
             duration: input.max_use_ticks,
