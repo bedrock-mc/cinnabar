@@ -203,6 +203,33 @@ fn dump_lists_headers_by_name_and_summarises_samples() {
     );
 }
 
+/// A crash on the thread updating the samples must not hang the dump.
+#[test]
+fn dumps_never_wait_for_samples_another_caller_holds() {
+    let log = fresh_log();
+    let start = log.record(
+        PacketDirection::Clientbound,
+        9,
+        1,
+        0,
+        PacketOutcome::Accepted,
+    );
+    log.reject(start, 9, PacketOutcome::Failed, &[1]);
+    let held = log.lock_samples();
+    let mut out = Vec::new();
+    log.dump(&mut out).unwrap();
+    let text = String::from_utf8(out).unwrap();
+    assert!(text.contains(" failed "), "{text}");
+    assert!(
+        text.ends_with("rejected packet samples: unavailable while being updated\n"),
+        "{text}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    assert_eq!(log.dump_samples(&dir.path().join("packets")).unwrap(), 0);
+    drop(held);
+    assert_eq!(log.dump_samples(&dir.path().join("packets")).unwrap(), 1);
+}
+
 #[test]
 fn dump_samples_writes_each_body_and_an_index() {
     let log = fresh_log();

@@ -14,7 +14,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
 use protocol::packet_tap::{
@@ -95,7 +95,8 @@ impl PacketLog {
     }
 
     /// Writes the retained headers as a text table, oldest first, followed by a summary of the
-    /// rejected-packet samples.
+    /// rejected-packet samples. Never waits: samples another thread is updating, as when the
+    /// crash interrupted it, are reported as unavailable.
     pub fn dump(&self, out: &mut impl Write) -> io::Result<()> {
         let recorded = self.ring.recorded();
         writeln!(
@@ -125,7 +126,12 @@ impl PacketLog {
             }
         });
         result?;
-        let samples = self.lock_samples();
+        let Some(samples) = self.try_lock_samples() else {
+            return writeln!(
+                out,
+                "rejected packet samples: unavailable while being updated"
+            );
+        };
         writeln!(
             out,
             "rejected packet samples: {} kept ({} bytes), {} withheld as credential-bearing, {} over the bounds",
@@ -137,9 +143,15 @@ impl PacketLog {
     }
 
     /// Writes each kept sample's body to `dir` as `<sequence>-<packet name>.bin`, with an
-    /// `index.txt` describing them, and returns how many bodies were written.
+    /// `index.txt` describing them, and returns how many bodies were written. Like
+    /// [`Self::dump`], never waits for a thread updating the samples; it then writes none.
     pub fn dump_samples(&self, dir: &Path) -> io::Result<usize> {
-        let samples = self.samples();
+        let Some(samples) = self
+            .try_lock_samples()
+            .map(|samples| samples.samples().to_vec())
+        else {
+            return Ok(0);
+        };
         fs::create_dir_all(dir)?;
         let mut index = Vec::new();
         for sample in &samples {
@@ -161,6 +173,14 @@ impl PacketLog {
 
     fn lock_samples(&self) -> MutexGuard<'_, FailureSamples> {
         self.samples.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn try_lock_samples(&self) -> Option<MutexGuard<'_, FailureSamples>> {
+        match self.samples.try_lock() {
+            Ok(samples) => Some(samples),
+            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(TryLockError::WouldBlock) => None,
+        }
     }
 }
 
