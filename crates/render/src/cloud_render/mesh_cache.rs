@@ -157,7 +157,6 @@ impl CloudMeshCache {
                             (CLOUD_TOP_Y * 1_000.0) as i32,
                         )
                         .expect("validated cloud geometry satisfies the diagnostic contract");
-                        bevy::log::info!("CLOUD_GEOMETRY_EVIDENCE {}", diagnostic.marker_fields());
                         diagnostic
                     });
                     Arc::new(CloudMesh {

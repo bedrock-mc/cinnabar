@@ -244,6 +244,9 @@ pub(crate) fn prepare_cloud_records(
             prepared.record_count =
                 u32::try_from(records.len()).expect("bounded cloud records fit u32");
             prepared.geometry_diagnostic = mesh.diagnostic.clone();
+            if let Some(diagnostic) = &prepared.geometry_diagnostic {
+                bevy::log::info!("CLOUD_GEOMETRY_EVIDENCE {}", diagnostic.marker_fields());
+            }
             prepared.prepared_identity = Some(identity);
             prepared.viewport = viewport;
             work.rebuilds += 1;
