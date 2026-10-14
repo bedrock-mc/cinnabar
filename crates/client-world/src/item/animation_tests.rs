@@ -1,5 +1,5 @@
 use super::*;
-use assets::facts::{ArmourMaterial, ItemTraits};
+use assets::facts::ItemTraits;
 
 /// Clones a pinned retail declaration without changing its admission evidence.
 fn retail_entry(identifier: &str) -> ItemRegistryEntry {
@@ -31,7 +31,10 @@ fn large_server_registries_keep_animation_facts_and_retail_fallbacks() {
             let fact = store.animation_fact(10_000 + index as i32);
             match index % templates.len() {
                 0 => assert!(fact.traits.contains(ItemTraits::SWORD)),
-                1 => assert_eq!(fact.armour_material, Some(ArmourMaterial::Leather)),
+                1 => {
+                    assert!(fact.is_leather());
+                    assert_eq!(fact.armor_texture_index(), 1);
+                }
                 2 => assert!(fact.traits.contains(ItemTraits::GLIDER)),
                 _ => unreachable!(),
             }
