@@ -1378,56 +1378,6 @@ baselines = [
     { path = "crates/mod-host/src/runtime/exports.rs", max = 1 },
     { path = "crates/mod-render/src/shader.rs", max = 2 },
     { path = "crates/oreui/src/images/dimensions.rs", max = 3 },
-    { path = "crates/pack-compiler/entity/src/actor.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/block_entity.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/entity/animation/clip.rs", max = 2 },
-    { path = "crates/pack-compiler/entity/src/entity/animation/render/material_groups.rs", max = 3 },
-    { path = "crates/pack-compiler/entity/src/entity/attachable/item_attack.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/entity/geometry.rs", max = 2 },
-    { path = "crates/pack-compiler/entity/src/entity/geometry/locator.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/entity/geometry/texture_mesh.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/entity/item.rs", max = 5 },
-    { path = "crates/pack-compiler/entity/src/entity/item/spawn_eggs.rs", max = 9 },
-    { path = "crates/pack-compiler/entity/src/entity/materials.rs", max = 9 },
-    { path = "crates/pack-compiler/entity/src/entity/native_held_items.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/entity/sanitize.rs", max = 5 },
-    { path = "crates/pack-compiler/entity/src/icon/blocks.rs", max = 1 },
-    { path = "crates/pack-compiler/entity/src/icon/sprites.rs", max = 5 },
-    { path = "crates/pack-compiler/input/src/pack/block.rs", max = 9 },
-    { path = "crates/pack-compiler/input/src/pack/model_selectors.rs", max = 46 },
-    { path = "crates/pack-compiler/src/compiler.rs", max = 3 },
-    { path = "crates/pack-compiler/src/compiler/classification.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/anvil.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/bee_housing.rs", max = 26 },
-    { path = "crates/pack-compiler/src/compiler/visuals/bookshelf.rs", max = 14 },
-    { path = "crates/pack-compiler/src/compiler/visuals/brewing_stand.rs", max = 3 },
-    { path = "crates/pack-compiler/src/compiler/visuals/bubble_column.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/cactus.rs", max = 7 },
-    { path = "crates/pack-compiler/src/compiler/visuals/cake.rs", max = 12 },
-    { path = "crates/pack-compiler/src/compiler/visuals/campfire.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/candle_cake.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/crystals.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/dispatcher.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/doors.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/end_portal_frame.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/exact.rs", max = 5 },
-    { path = "crates/pack-compiler/src/compiler/visuals/fallback.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/farmland.rs", max = 12 },
-    { path = "crates/pack-compiler/src/compiler/visuals/flower_pot.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/hollow_containers.rs", max = 3 },
-    { path = "crates/pack-compiler/src/compiler/visuals/lever.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/mineral_cubes.rs", max = 4 },
-    { path = "crates/pack-compiler/src/compiler/visuals/pitcher_crop.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/resin_clump.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/sea_pickle.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/selector_alias.rs", max = 37 },
-    { path = "crates/pack-compiler/src/compiler/visuals/shelf.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/snowy_grass.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/stairs.rs", max = 2 },
-    { path = "crates/pack-compiler/src/compiler/visuals/state.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/torches.rs", max = 1 },
-    { path = "crates/pack-compiler/src/compiler/visuals/tripwire_hook.rs", max = 2 },
     { path = "crates/particles/src/ambient.rs", max = 1 },
     { path = "crates/particles/src/ambient/fire.rs", max = 1 },
     { path = "crates/particles/src/dragon_egg.rs", max = 1 },
@@ -1496,3 +1446,98 @@ reason = "Portal axis value from the pinned block-state domain."
 path = "crates/asset-compiler/src/block_shapes/visual.rs"
 literal = "tip"
 reason = "Dripstone thickness value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/block_entity.rs"
+literal = "sign"
+reason = "Pack filename grammar marker for flat sign and hanging-sign texture stems."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/animation/clip.rs"
+literal = "rotation"
+reason = "Animation channel and relative-frame field in the entity animation schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/geometry.rs"
+literal = "rotation"
+reason = "Bone and cube rotation field in the entity geometry schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/geometry/locator.rs"
+literal = "rotation"
+reason = "Object locator rotation field in the entity geometry schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/geometry/texture_mesh.rs"
+literal = "rotation"
+reason = "Texture mesh rotation field in the entity geometry schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/sanitize.rs"
+literal = "rotation"
+reason = "Rotation field retained by the geometry schema sanitizer."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "direction"
+reason = "Canonical-state field-name grammar used to reject unsupported rotations."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "rotation"
+reason = "Canonical-state field-name grammar used to reject unsupported rotations."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "string"
+reason = "Canonical-state envelope type keyword."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/model_selectors.rs"
+literal = "jungle"
+reason = "Value in the retained legacy sapling_type state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs"
+literal = "hanging"
+reason = "Value in the pinned grindstone attachment state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/hollow_containers.rs"
+literal = "water"
+reason = "Value in the pinned cauldron_liquid state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/hollow_containers.rs"
+literal = "lava"
+reason = "Value in the pinned cauldron_liquid state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/hollow_containers.rs"
+literal = "powder_snow"
+reason = "Value in the pinned cauldron_liquid state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/shelf.rs"
+literal = "minecraft:cardinal_direction"
+reason = "Serde field spelling in the exact shelf state schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/shelf.rs"
+literal = "string"
+reason = "Canonical-state envelope type keyword."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/stairs.rs"
+literal = "string"
+reason = "Canonical-state envelope type keyword."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/state.rs"
+literal = "string"
+reason = "Canonical-state envelope type keyword."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/torches.rs"
+literal = "unknown"
+reason = "Value in the pinned torch_facing_direction state domain."
