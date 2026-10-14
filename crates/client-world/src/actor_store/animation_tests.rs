@@ -9,6 +9,7 @@ mod cape_tests;
 mod creeper_tests;
 mod dragon_tests;
 mod hurt_tests;
+mod registry_tag_tests;
 mod render_frame_tests;
 mod rig_input_tests;
 mod server_tests;

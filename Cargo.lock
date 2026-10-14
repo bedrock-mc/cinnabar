@@ -435,6 +435,7 @@ dependencies = [
  "pack-compiler",
  "pack-entity-compiler",
  "pack-font-compiler",
+ "protocol-ids",
  "reqwest",
  "same-file",
  "serde",
@@ -2514,6 +2515,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "wgpu",
+ "winit",
  "zip",
 ]
 
@@ -2589,6 +2591,7 @@ dependencies = [
  "assets",
  "bytes",
  "hashbrown 0.16.1",
+ "inventory 0.1.20",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -5090,6 +5093,7 @@ name = "mod-host"
 version = "0.1.20"
 dependencies = [
  "anyhow",
+ "criterion",
  "experience-sdk",
  "mod-api",
  "mod-render",
@@ -5100,6 +5104,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-alloc",
  "test-time",
  "ui",
  "wasm-metadata",
@@ -5108,6 +5113,7 @@ dependencies = [
  "wat",
  "windows-sys 0.61.2",
  "wit-component",
+ "wit-parser 0.247.0",
 ]
 
 [[package]]
@@ -7107,6 +7113,7 @@ version = "0.1.20"
 dependencies = [
  "assets",
  "block-transform",
+ "criterion",
  "serde",
  "serde_json",
  "sha2",
