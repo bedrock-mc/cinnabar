@@ -89,13 +89,13 @@ pub fn write(out: &Path) -> Result<()> {
         &mut text,
         "LEGACY_PARTICLES",
         "(i32, ParticleEffect)",
-        rules.legacy_particles.into_iter(),
+        rules.legacy_particles,
     )?;
     emit(
         &mut text,
         "LEVEL_PARTICLES",
         "(i32, ParticleEffect)",
-        level_particles.into_iter(),
+        level_particles,
     )?;
     emit(&mut text, "LEVEL_SOUNDS", "(i32, &str, &str)", level_sounds)?;
     emit(
