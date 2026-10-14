@@ -26,8 +26,8 @@ pub(crate) struct FarTerrain {
     drained: Vec<FarColumnSummary>,
     unloaded: Vec<::world::ChunkKey>,
     near: Arc<NearMask>,
-    /// Centre column and drawn-set revision the mask was built for.
-    near_view: Option<([i32; 2], u64)>,
+    /// Centre column, near radius and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], i32, u64)>,
     /// When turning far terrain off began waiting for near terrain to cover its columns.
     drain_since: Option<Instant>,
     published: Option<u64>,
@@ -133,13 +133,10 @@ impl FarTerrain {
 /// Longest far terrain stays after being turned off while near terrain catches up.
 const FAR_DRAIN_LIMIT: Duration = Duration::from_secs(10);
 
-/// Finest tiles are kept built this far either side of the drawn columns' edge, so a column
-/// changing drawer already has its far tile.
-const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
-
-/// The world the cache was last pointed at, so unchanged frames skip the identity hash.
+/// The world and session the cache was last pointed at, so unchanged frames skip the
+/// identity hash.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, u64, i32)>);
+pub(crate) struct ActiveWorld(Option<(String, u64, i32, u64)>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -169,9 +166,13 @@ pub(crate) fn feed_far_terrain(
     let wanted = video
         .far_terrain
         .enabled(u32::from(video.render_distance_chunks), tier);
-    let destination = session
-        .as_deref()
-        .and_then(SessionController::destination_identity);
+    // A transfer or rejoin to the same address is a new session and so a fresh visit: the
+    // lobby behind it may be another instance under the same identity.
+    let destination = session.as_deref().and_then(|session| {
+        session
+            .destination_identity()
+            .map(|destination| (destination, session.generation()))
+    });
     let now = Instant::now();
     // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
     // every column it covered.
@@ -190,11 +191,12 @@ pub(crate) fn feed_far_terrain(
         .as_ref()
         .zip(destination)
         .filter(|_| wanted || draining)
-        .map(|(stream, destination)| {
+        .map(|(stream, (destination, generation))| {
             (
                 destination,
                 world.level_identity,
                 stream.current_dimension(),
+                generation,
             )
         });
     let enabled = target.is_some();
@@ -210,17 +212,20 @@ pub(crate) fn feed_far_terrain(
     let current = active
         .0
         .as_ref()
-        .map(|(destination, level, dimension)| (destination.as_str(), *level, *dimension));
+        .map(|(destination, level, dimension, generation)| {
+            (destination.as_str(), *level, *dimension, *generation)
+        });
     if current != target {
         match target {
-            Some((destination, level, dimension)) => {
-                far.cache.enter_world(destination, level, dimension);
+            Some((destination, level, dimension, _)) => {
+                far.cache.begin_visit(destination, level, dimension);
             }
             None => far.cache.leave_world(),
         }
         far.tiles.clear();
-        active.0 = target
-            .map(|(destination, level, dimension)| (destination.to_owned(), level, dimension));
+        active.0 = target.map(|(destination, level, dimension, generation)| {
+            (destination.to_owned(), level, dimension, generation)
+        });
     }
     far.drain_retiring(now);
     if world
@@ -289,9 +294,12 @@ pub(crate) fn feed_far_terrain(
         loaded.max(0) as u32,
         tier,
     ) as i32;
-    // Far terrain hides under exactly the columns near terrain has drawn.
+    // Near terrain owns everything within the full-detail radius, or all it is sent without
+    // one, even before its meshes load; past that far terrain hides under the columns near
+    // terrain draws, such as those handing over to it.
+    let near_radius = full_detail.unwrap_or(loaded);
     let (drawn_revision, _) = stream.near_drawn_columns();
-    let near_view = ([centre.x, centre.z], drawn_revision);
+    let near_view = ([centre.x, centre.z], near_radius, drawn_revision);
     let near_changed = far.near_view != Some(near_view);
     if near_changed {
         let drawn = stream
@@ -299,10 +307,14 @@ pub(crate) fn feed_far_terrain(
             .1
             .filter(|column| column.dimension == centre.dimension)
             .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::from_columns(near_view.0, loaded + reach, drawn));
+        far.near = Arc::new(NearMask::around(
+            near_view.0,
+            loaded + reach,
+            near_radius,
+            drawn,
+        ));
         far.near_view = Some(near_view);
     }
-    let horizon_blocks = ((loaded + reach) * 16) as f32;
     far.cache
         .set_memory_budget(summary_budget_bytes(loaded + reach));
     far.cache
@@ -310,20 +322,12 @@ pub(crate) fn feed_far_terrain(
     far.cache.poll(now);
     let changed = far.cache.store().take_changed();
     far.tiles.mark_changed(&changed);
-    // Only finest tiles, which hide per column, reach the drawn columns and a margin past
-    // them, so a coarser tile is replaced before near terrain takes any of its columns. Tiles
-    // wholly inside the drawn disc, short of a margin kept ready for columns leaving it, are
-    // left out.
-    // Columns leaving full detail need their far tiles built, so the skipped disc stays
-    // inside the radius.
-    let near_blocks = far.near.outer_blocks() + EDGE_MARGIN_BLOCKS;
-    let skip_blocks = full_detail.map_or(f32::INFINITY, |radius| (radius * 16) as f32);
-    far.tiles.set_view(TileView {
-        centre: [centre.x as f32 * 16.0 + 8.0, centre.z as f32 * 16.0 + 8.0],
-        near_blocks,
-        skip_blocks: (far.near.inner_blocks().min(skip_blocks) - EDGE_MARGIN_BLOCKS).max(0.0),
-        far_blocks: (horizon_blocks - near_blocks).max(0.0),
-    });
+    far.tiles.set_view(TileView::around(
+        [centre.x, centre.z],
+        &far.near,
+        near_radius,
+        loaded + reach,
+    ));
     far.tiles.update(far.cache.store(), now);
     // Columns leaving full detail keep their meshes until their far tiles are built.
     let store = far.cache.store();

@@ -15,10 +15,11 @@ use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,
     SummaryStore, Versioned, WorldKey,
     config::{
-        MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_PROBE_COLUMNS,
-        WORLD_PROBE_TIMEOUT,
+        MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS,
+        WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY, WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
     },
     disk::{DiskBounds, DiskCache, DiskEvent},
+    identity::surface_similarity,
     region::{REGION_SIDE, RegionPos, region_index},
 };
 
@@ -104,6 +105,11 @@ pub struct FarTerrainCache {
     /// Bumped on every world change, so a resolution for an earlier visit is ignored.
     entry: u64,
     next_version: u64,
+    /// First version stamped this visit; anything older in memory came from disk.
+    visit_start: u64,
+    /// Cached columns compared with live ones this visit, and how many differed.
+    compared: u32,
+    mismatched: u32,
 }
 
 impl FarTerrainCache {
@@ -133,6 +139,9 @@ impl FarTerrainCache {
             focus: None,
             entry: 0,
             next_version: version_base,
+            visit_start: version_base,
+            compared: 0,
+            mismatched: 0,
         }
     }
 
@@ -144,14 +153,24 @@ impl FarTerrainCache {
             dimension,
             level,
         };
-        if self.world == Some(world) {
-            return;
+        if self.world != Some(world) {
+            self.begin_visit(destination, level, dimension);
         }
+    }
+
+    /// Starts a fresh visit to `dimension` of `level` on `destination`, even of the world
+    /// already entered, as after a transfer: nothing from the previous visit stays shown,
+    /// and its namespace is resolved again from new probes.
+    pub fn begin_visit(&mut self, destination: &str, level: u64, dimension: i32) {
         self.end_entry();
         if let Some((root, bounds)) = self.disk_root.take() {
             self.disk = DiskCache::spawn(root, bounds);
         }
-        self.world = Some(world);
+        self.world = Some(WorldKey {
+            server: ServerKey::from_destination(destination),
+            dimension,
+            level,
+        });
     }
 
     /// Leaves the current world, as on disconnect, after writing what is waiting.
@@ -187,6 +206,9 @@ impl FarTerrainCache {
             (None, None) => None,
         };
         self.entry += 1;
+        self.visit_start = self.next_version + 1;
+        self.compared = 0;
+        self.mismatched = 0;
         self.store.clear();
         self.unresolved.clear();
         self.probes.clear();
@@ -247,6 +269,11 @@ impl FarTerrainCache {
             return;
         }
         if let Some(namespace) = self.namespace {
+            if self.verify(pos, &column) {
+                self.diverge();
+                self.admit(dimension, pos, column.summary, now);
+                return;
+            }
             self.store.admit_versioned(pos, column.clone());
             self.queue_write(namespace, pos, column, now);
             return;
@@ -431,6 +458,75 @@ impl FarTerrainCache {
             .into_iter()
             .chain(self.writing.get(&(namespace, pos)))
             .any(|queued| queued.version >= version)
+    }
+
+    /// Compares a live column with the cached one it replaces, for the first
+    /// [`WORLD_VERIFY_COLUMNS`] of a visit; true once enough differ that the cache must hold
+    /// another map under this identity.
+    fn verify(&mut self, pos: ColumnPos, live: &Versioned) -> bool {
+        if self.compared >= WORLD_VERIFY_COLUMNS
+            || self
+                .store
+                .version(pos)
+                .is_none_or(|version| version >= self.visit_start)
+        {
+            return false;
+        }
+        let (Some(Ok(cached)), Ok(live)) = (
+            self.store
+                .encoded(pos)
+                .map(|cached| ColumnSummary::decode(&cached.bytes)),
+            ColumnSummary::decode(&live.summary.bytes),
+        ) else {
+            return false;
+        };
+        self.compared += 1;
+        if surface_similarity(&cached, &live) < WORLD_PROBE_SIMILARITY {
+            self.mismatched += 1;
+        }
+        self.mismatched >= WORLD_DIVERGED_COLUMNS && self.mismatched * 4 >= self.compared
+    }
+
+    /// Drops what the cache showed for this visit and starts a new epoch for it, keeping
+    /// every live column, which is written there once it resolves.
+    fn diverge(&mut self) {
+        let (Some(world), Some(namespace), Some(disk)) =
+            (self.world, self.namespace.take(), &self.disk)
+        else {
+            return;
+        };
+        self.store.retain_since(self.visit_start);
+        let keys: Vec<(NamespaceKey, RegionPos)> = self
+            .dirty
+            .keys()
+            .copied()
+            .filter(|(written, _)| *written == namespace)
+            .collect();
+        for key in keys {
+            let Some(dirty) = self.dirty.get_mut(&key) else {
+                continue;
+            };
+            let visit = self.visit_start;
+            let (live, older): (BTreeMap<_, _>, BTreeMap<_, _>) =
+                std::mem::take(&mut dirty.columns)
+                    .into_iter()
+                    .partition(|(_, column)| column.version >= visit);
+            dirty.columns = older;
+            if dirty.columns.is_empty() {
+                self.dirty.remove(&key);
+            }
+            for (pos, column) in live {
+                if self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
+                    self.unresolved.push((pos, column));
+                }
+            }
+        }
+        self.entry += 1;
+        self.resolving = true;
+        self.requested.clear();
+        self.reread.clear();
+        self.compared = WORLD_VERIFY_COLUMNS;
+        disk.resolve_fresh(world, self.entry);
     }
 
     fn stamp(&mut self) -> u64 {

@@ -482,3 +482,49 @@ fn changes_in_the_skirt_ring_rebuild_the_neighbour() {
     tiles.mark_changed(&store.take_changed());
     assert!(!tiles.ready(inside), "the tile beside the change rebuilds");
 }
+
+/// On a warm join, while near meshes arrive ring by ring, far terrain never shows inside the
+/// near radius: every tile column there is masked, and only finest tiles reach it.
+#[test]
+fn warm_joins_draw_nothing_far_inside_the_near_radius() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -40..40 {
+        for z in -40..40 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let (centre, near_radius, horizon) = ([0, 0], 8, 32);
+    let mut tiles = FarTiles::default();
+    let mut drawn = Vec::new();
+    let now = Instant::now();
+    let mut far_tiles_seen = false;
+    for frame in 0..48 {
+        if frame % 4 == 3 {
+            let ring = frame / 4;
+            drawn.extend(
+                (-ring..=ring)
+                    .flat_map(|x| (-ring..=ring).map(move |z| ColumnPos::new(x, z)))
+                    .filter(|column| column.x * column.x + column.z * column.z <= ring * ring),
+            );
+        }
+        let mask = NearMask::around(centre, horizon, near_radius, drawn.iter().copied());
+        tiles.set_view(TileView::around(centre, &mask, near_radius, horizon));
+        tiles.update(&mut store, now);
+        for mesh in tiles.drawn() {
+            far_tiles_seen = true;
+            for column in mesh.key.columns() {
+                if column.x * column.x + column.z * column.z <= near_radius * near_radius {
+                    assert!(
+                        mask.contains(column),
+                        "far terrain over {column:?} at frame {frame}"
+                    );
+                    assert_eq!(
+                        mesh.key.level, 0,
+                        "coarse tile near the player at frame {frame}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(far_tiles_seen);
+}

@@ -21,6 +21,14 @@ pub const WORLD_PROBE_COLUMNS: usize = 4;
 /// Share of a probe column's cells that must match the cache for the world to be the same.
 pub const WORLD_PROBE_SIMILARITY: f32 = 0.9;
 
+/// Cached columns compared with their live summaries each visit after the namespace resolves,
+/// catching a different map whose probe area matched, such as another lobby instance.
+pub const WORLD_VERIFY_COLUMNS: u32 = 64;
+
+/// Of the cached columns compared, at least this many, and at least a quarter, differing from
+/// what arrives live means the cache holds another map.
+pub const WORLD_DIVERGED_COLUMNS: u32 = 4;
+
 /// Most recent epochs of one world identity compared against the probes.
 pub const WORLD_PROBE_EPOCHS: usize = 3;
 
@@ -40,6 +48,10 @@ pub const LEVEL_COUNT: u8 = 5;
 /// A tile splits into four finer ones while it is closer to the near-terrain edge than this
 /// many of its own widths.
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
+
+/// Finest tiles are kept built this far either side of the near-terrain edge, so a column
+/// changing drawer already has its far tile.
+pub const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
 
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;

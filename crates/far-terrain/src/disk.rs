@@ -63,6 +63,10 @@ enum Command {
         entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
     },
+    ResolveFresh {
+        world: WorldKey,
+        entry: u64,
+    },
     ResolveWrite {
         world: WorldKey,
         entry: u64,
@@ -133,6 +137,12 @@ impl DiskCache {
             entry,
             probes,
         });
+    }
+
+    /// Gives visit `entry` to `world` a new epoch of its own, as when its cached columns turned
+    /// out to be another map's.
+    pub fn resolve_fresh(&self, world: WorldKey, entry: u64) {
+        self.send(Command::ResolveFresh { world, entry });
     }
 
     /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
@@ -239,6 +249,16 @@ impl Worker {
                 probes,
             } => {
                 let epoch = self.resolve_entry(world, entry, &probes);
+                let _ = self.events.send(DiskEvent::Resolved {
+                    world,
+                    entry,
+                    epoch,
+                });
+            }
+            Command::ResolveFresh { world, entry } => {
+                let epoch = self.fresh_epoch(world);
+                self.claim(world.namespace(epoch));
+                self.visits.insert((world, entry), epoch);
                 let _ = self.events.send(DiskEvent::Resolved {
                     world,
                     entry,
@@ -378,6 +398,20 @@ impl Worker {
         } else {
             newest
         }
+    }
+
+    /// An epoch past every one of `world` on disk or handed out this run.
+    fn fresh_epoch(&self, world: WorldKey) -> u32 {
+        fs::read_dir(self.root.join(world.server.to_string()))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| NamespaceKey::parse(world.server, entry.file_name().to_str()?))
+            .chain(self.claimed.iter().copied())
+            .filter(|namespace| namespace.world() == world)
+            .map(|namespace| namespace.epoch + 1)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Reserves `namespace` before it is acknowledged, on disk as well as for this run.

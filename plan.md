@@ -12,16 +12,20 @@ Summaries persist under the user data root in 32×32-column region files, namesp
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
 Before reusing a namespace, the first non-empty columns received are compared with it (or
 whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
-reuse coordinates for different maps keep them apart. Columns show from memory before that, a
-disk read never replaces a newer column, and a retired session's late summaries never replace
-a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+reuse coordinates for different maps keep them apart. Only live columns show before that.
+Afterwards the first cached columns replaced by live ones are compared too: when enough
+differ, as for another lobby instance under the same identity, the visit drops the cached map
+and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
+summaries never replace a later visit's. Every session, including a transfer to the same
+address, and every dimension change starts a fresh visit. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
 The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
-1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
-near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
-ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+1 to 16 blocks wide, finer toward the near edge. It never draws within the full-detail radius
+(or, without one, what the server sends), which loads in as without far terrain; past it, far
+terrain hides over the columns near terrain has drawn, such as those handing over to it:
+finest quads whole, coarser ones per fragment. Only finest tiles reach the near edge. Tile
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
