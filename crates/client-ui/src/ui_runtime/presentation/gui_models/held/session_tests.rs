@@ -41,6 +41,79 @@ fn presentation() -> UiPresentationRuntime {
 }
 
 #[test]
+fn preview_projects_body_once_for_base_and_session_items() {
+    use ui::{UiLimits, UiNode, UiNodeId, UiVisual};
+    for session in [false, true] {
+        let mut presentation = presentation();
+        if session {
+            install(&mut presentation, vec![sword(0, [220, 80, 12])]);
+        }
+        presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
+        let custom = render_model::standard_biped_vertices().repeat(3);
+        presentation.menu_preview_model.vertices = Some(custom.clone().into());
+        let preview = IconRef {
+            page: u16::MAX,
+            uv: [0, 0, 96, 112],
+            glint: false,
+        };
+        presentation.player_preview_icon = Some(preview);
+        let bounds = crate::ui_runtime::presentation::rect(0.0, 0.0, 96.0, 112.0).unwrap();
+        for view in [
+            player_preview::PreviewView::Hud,
+            player_preview::PreviewView::Live { offset: [0.0; 2] },
+        ] {
+            presentation.player_preview_view = view;
+            let body_vertices = if view == player_preview::PreviewView::Hud {
+                render_model::standard_biped_vertices().len()
+                    + render_model::standard_biped_overlay_vertices().len()
+            } else {
+                custom.len()
+            };
+            for surrounding in [0, UiLimits::MAX_DRAW_BATCHES] {
+                for frame in 0..2 {
+                    presentation.player_preview_bob = frame as f32;
+                    let mut nodes = (0..surrounding)
+                        .map(|index| {
+                            UiNode::new(UiNodeId::new(index as u32 + 1), None, bounds).with_visual(
+                                UiVisual::Solid {
+                                    texture_page: 0,
+                                    color: [255; 4],
+                                },
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    nodes.extend((0..2).map(|index| {
+                        UiNode::new(
+                            UiNodeId::new((surrounding + index + 1) as u32),
+                            None,
+                            bounds,
+                        )
+                        .with_visual(UiVisual::Sprite {
+                            texture_page: preview.page,
+                            uv: preview.uv,
+                            color: [255; 4],
+                        })
+                    }));
+                    player_preview::geometry::take_body_projection_work();
+                    presentation.apply_gui_models(&mut nodes);
+                    assert_eq!(
+                        player_preview::geometry::take_body_projection_work(),
+                        body_vertices,
+                        "one body projection serves both preview nodes in each animated frame"
+                    );
+                    for node in &nodes[surrounding..] {
+                        let UiVisual::Mesh(mesh) = node.visual() else {
+                            panic!("the preview must retain its model");
+                        };
+                        assert_eq!(mesh.batches().len(), 2, "the held item remains admitted");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn preview_held_sword_uses_session_icon_texels_and_alpha_edges() {
     let mut presentation = presentation();
     let art = sword(0, [12, 38, 96]);

@@ -396,7 +396,10 @@ impl UiPresentationRuntime {
         if !nodes.iter().any(|node| is_preview(node.visual())) {
             return;
         }
-        let Some(body) = self.gui_player_mesh_with_models([const { None }; 2]) else {
+        let Some(sources) = self.gui_player_sources() else {
+            return;
+        };
+        let Some((body_indices, body_batches)) = sources.counts() else {
             return;
         };
         let held = self.preview_held_models([true; 2]);
@@ -408,8 +411,8 @@ impl UiPresentationRuntime {
         let admitted = [[true; 2], [true, false], [false, true], [false; 2]]
             .into_iter()
             .find(|mask| {
-                let mut indices = body.indices().len();
-                let mut batches = body.batches().len();
+                let mut indices = body_indices;
+                let mut batches = body_batches;
                 let mut hand_batches = 0usize;
                 for (index, model) in held.iter().enumerate() {
                     if mask[index]
@@ -439,12 +442,13 @@ impl UiPresentationRuntime {
                     Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
                     Ok(_) => {
                         let actual = baseline_batches.get_or_init(|| {
+                            let probe = sources.batch_probe()?;
                             let mut baseline = nodes.to_vec();
                             replace_model_icons(
                                 &mut baseline,
                                 preview,
                                 &self.gui_models.faded_thumbnails,
-                                || Some(Arc::clone(&body)),
+                                || Some(probe),
                                 |_| None,
                             );
                             RetainedDraw::build(
@@ -467,18 +471,15 @@ impl UiPresentationRuntime {
                     Err(_) => false,
                 }
             });
-        let player = admitted.map(|mask| {
-            if mask == [false; 2] {
-                return Arc::clone(&body);
-            }
+        let player = admitted.and_then(|mask| {
             let models =
                 std::array::from_fn(|index| mask[index].then(|| held[index].clone()).flatten());
-            if models.iter().all(Option::is_none) {
-                Arc::clone(&body)
-            } else {
-                self.gui_player_mesh_with_models(models)
-                    .unwrap_or_else(|| Arc::clone(&body))
-            }
+            let has_held = models.iter().any(Option::is_some);
+            self.project_gui_player_mesh(&sources, models).or_else(|| {
+                has_held
+                    .then(|| self.project_gui_player_mesh(&sources, [const { None }; 2]))
+                    .flatten()
+            })
         });
         replace_model_icons(
             nodes,
@@ -547,11 +548,17 @@ impl UiPresentationRuntime {
         })
     }
 
-    /// Projects only the hand models admitted for this frame's available storage.
+    /// Builds a test preview directly from prepared source layers and selected hand models.
+    #[cfg(test)]
     fn gui_player_mesh_with_models(
         &self,
         held: [Option<player_preview::PreviewHeldModel>; 2],
     ) -> Option<Arc<UiMesh>> {
+        self.project_gui_player_mesh(&self.gui_player_sources()?, held)
+    }
+
+    /// Resolves unprojected skin, cape, armor and flame sources once for this frame.
+    fn gui_player_sources(&self) -> Option<player_preview::geometry::MeshSources<'_>> {
         let skin = self.gui_models.skin.as_ref()?;
         let [width, height] = skin.dimensions();
         let skin = IconRef {
@@ -588,23 +595,34 @@ impl UiPresentationRuntime {
             self.menu_artwork_icon(key)
                 .map(|icon| (player_preview::cape::rest_vertices(), icon))
         });
-        player_preview::geometry::mesh_with_cape(
+        Some(player_preview::geometry::MeshSources::new(
             body,
-            self.player_preview_pose.unwrap_or_default(),
-            self.player_preview_view,
-            self.player_preview_bob,
             skin,
             &self.player_preview_gear,
             armor,
+            self.gui_fire_frame(),
+            cape,
+        ))
+    }
+
+    /// Projects the prepared body and only the hand models admitted for this frame.
+    fn project_gui_player_mesh(
+        &self,
+        sources: &player_preview::geometry::MeshSources<'_>,
+        held: [Option<player_preview::PreviewHeldModel>; 2],
+    ) -> Option<Arc<UiMesh>> {
+        player_preview::geometry::mesh_from_sources(
+            sources,
+            self.player_preview_pose.unwrap_or_default(),
+            self.player_preview_view,
+            self.player_preview_bob,
             held.each_ref().map(Option::as_ref),
             true, // Current desktop default is the native Fancy material group.
-            self.gui_fire_frame(),
             if self.player_preview_view == player_preview::PreviewView::Hud {
                 self.gui_models.live_player.overlay_color
             } else {
                 [0.0; 4]
             },
-            cape,
         )
     }
 }
