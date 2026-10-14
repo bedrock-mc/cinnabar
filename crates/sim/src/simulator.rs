@@ -108,7 +108,7 @@ impl Simulator {
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
-        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        let mut sampled = sample(world, position, height, None)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
@@ -185,7 +185,6 @@ impl Simulator {
         let mut sampled = sample(
             world,
             next.position,
-            next.velocity,
             input.mode.hitbox_height(input.sneaking),
             input.liquid_contact_height,
         )?;
