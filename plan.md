@@ -1393,9 +1393,10 @@ acceptance gate.
   bites do not double; other players' crumbs come from feed events for admitted foods.
 - Arm poses, sounds and crumbs use the effective consumption after server and pack overrides.
   A food overridden to drink plays drinking presentation without emitting crumbs.
-- Provisional: the engine sets both variables natively and no version-matched witness is
-  recorded; the 4-tick rise, the 4-tick sine bob and the first-person crumb point (0.45 ahead,
-  0.15 below the camera) are approximations.
+- The progress follows the use's remaining ticks: the arm rises until 25 ticks remain, then
+  bobs in quarter steps of the remaining ticks modulo four, the 1.12-era formula.
+- Provisional: no version-matched witness of the current engine's values is recorded, and the
+  first-person crumb point (0.45 ahead, 0.15 below the camera) is an approximation.
 
 ## Read-back terrain occlusion on direct-draw devices
 

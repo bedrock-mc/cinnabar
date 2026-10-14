@@ -801,7 +801,9 @@ pub(super) fn apply_engine_variables(
         .main_hand
         .as_ref()
         .and_then(|_| crate::consumables::consume_animation(context.main_hand_consumption))
-        .map_or((0.0, 0.0), |_| use_item_progress(input.item_use_ticks));
+        .map_or((0.0, 0.0), |_| {
+            use_item_progress(input.item_use_ticks, context.main_hand_max_use_ticks)
+        });
     variables.set(engine.use_item_startup_progress, startup);
     variables.set(engine.use_item_interval_progress, interval);
     variables.set(engine.swim_amount, input.swim_amount);
@@ -847,27 +849,25 @@ pub(super) fn apply_engine_variables(
     }
 }
 
-/// Ticks the arm takes to rise to the mouth once eating or drinking starts. Provisional: the
-/// engine sets this variable natively and no version-matched witness is recorded yet.
-const USE_ITEM_STARTUP_TICKS: f32 = 4.0;
-/// Ticks of one eating or drinking bob, matching the four-tick cadence of the eat events servers
-/// send; provisional like [`USE_ITEM_STARTUP_TICKS`].
-const USE_ITEM_INTERVAL_TICKS: f32 = 4.0;
+/// Remaining use ticks above which the arm is still rising to the mouth.
+const USE_ITEM_STARTUP_REMAINING: u32 = 25;
+/// Remaining-tick period of one eat or drink bob.
+const USE_ITEM_INTERVAL_TICKS: u32 = 4;
 
-/// The `variable.use_item_startup_progress` and `variable.use_item_interval_progress` an
-/// eat or drink use of `use_ticks` consecutive ticks publishes: the arm rises over the startup,
-/// then bobs once per interval. Both are zero while nothing is in use.
-pub(super) fn use_item_progress(use_ticks: u32) -> (f32, f32) {
+/// The `variable.use_item_startup_progress` and `variable.use_item_interval_progress` an eat or
+/// drink use publishes after `use_ticks` of a `max_ticks` use; both are zero while nothing is in use.
+pub(super) fn use_item_progress(use_ticks: u32, max_ticks: u32) -> (f32, f32) {
     if use_ticks == 0 {
         return (0.0, 0.0);
     }
-    let ticks = use_ticks as f32;
-    let startup = (ticks / USE_ITEM_STARTUP_TICKS).min(1.0);
-    let bobbing = (ticks - USE_ITEM_STARTUP_TICKS).max(0.0);
-    let interval = (std::f32::consts::PI * (bobbing % USE_ITEM_INTERVAL_TICKS)
-        / USE_ITEM_INTERVAL_TICKS)
-        .sin();
-    (startup, interval)
+    let remaining = max_ticks.saturating_sub(use_ticks);
+    if remaining >= USE_ITEM_STARTUP_REMAINING {
+        let span = max_ticks.saturating_sub(USE_ITEM_STARTUP_REMAINING).max(1) as f32;
+        let startup = 1.0 - (remaining - USE_ITEM_STARTUP_REMAINING) as f32 / span;
+        return (startup, 0.0);
+    }
+    let interval = (remaining % USE_ITEM_INTERVAL_TICKS) as f32 / USE_ITEM_INTERVAL_TICKS as f32;
+    (1.0, interval)
 }
 
 /// Uses the authored rotation factor when the pack leaves its item-specific factor unassigned.
