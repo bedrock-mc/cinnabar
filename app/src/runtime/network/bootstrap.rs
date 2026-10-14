@@ -233,7 +233,11 @@ pub(super) fn apply(
         );
     }
     client_world.pending_surface_spawn = resolved.surface_anchor;
-    client_world.stream = Some(stream);
+    client_world.world_identity = Some((session_generation, world_identity));
+    // A stream this bootstrap replaces captures its distant terrain as it drops.
+    if let Some(replaced) = client_world.stream.replace(stream) {
+        client_runtime::session::release_off_frame(replaced);
+    }
     timings.mark(bootstrap_timing::BootstrapPhase::WorldStream);
     if !super::equipment::publish_bootstrap_equipment(
         &mut player_runtime,

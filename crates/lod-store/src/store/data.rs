@@ -31,6 +31,23 @@ impl Store {
         Ok(false)
     }
 
+    /// Replaces `out` with the record of `key` in `dimension`'s session epoch itself, never
+    /// read through to a stored epoch; false when it stores none.
+    pub fn get_own_into(
+        &mut self,
+        dimension: Dimension,
+        key: SectionKey,
+        out: &mut Vec<u8>,
+        now: Minute,
+    ) -> Result<bool, StoreError> {
+        let epoch = self.session_epoch(dimension)?;
+        if !self.files(epoch)?.regions.get_into(key, out)? {
+            return Ok(false);
+        }
+        self.touch(epoch, RegionId::of_key(key).0, now);
+        Ok(true)
+    }
+
     /// Stores a section record in `dimension`'s session epoch and returns its key.
     pub fn put(
         &mut self,

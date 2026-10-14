@@ -2,11 +2,50 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use super::*;
 
+/// The persistent identity of one server-custom block state: its block name and its state
+/// values as canonical text, `axis=value` pairs in the block's axis order joined by commas.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomBlockState {
+    pub name: Arc<str>,
+    pub states: Box<str>,
+}
+
+impl CustomBlockState {
+    /// The state of `block` with `values`, one per state axis.
+    fn new(block: &protocol::CustomBlock, values: &[protocol::CustomStateValue]) -> Self {
+        use protocol::CustomStateValue;
+        use std::fmt::Write;
+
+        let mut states = String::new();
+        for (axis, value) in block.visual.state_axes.iter().zip(values) {
+            if !states.is_empty() {
+                states.push(',');
+            }
+            let _ = match value {
+                CustomStateValue::String(value) => write!(states, "{}={value}", axis.name),
+                CustomStateValue::Int(value) => write!(states, "{}={value}", axis.name),
+                CustomStateValue::Bool(value) => write!(states, "{}={value}", axis.name),
+            };
+        }
+        Self {
+            name: Arc::clone(&block.name),
+            states: states.into(),
+        }
+    }
+}
+
 impl WorldAuthority {
+    /// Persistent identities of the admitted custom block states by internal id.
+    #[must_use]
+    pub fn custom_block_states(&self) -> &Arc<HashMap<u32, CustomBlockState>> {
+        &self.custom_block_states
+    }
+
     /// Retains canonical custom state identities independently of visual pack compilation.
     /// Sequential identities require the admitted internal range; hashed identities use their hash.
     pub fn set_custom_block_identities(&mut self, definitions: &CustomBlocks) {
         let mut identities = HashMap::new();
+        let mut states_by_id = HashMap::new();
         self.block_names.clear_custom();
         let mut next = self.custom_block_ids.start;
         let mut skipped = 0_usize;
@@ -39,6 +78,9 @@ impl WorldAuthority {
                     NetworkIdMode::Hashed => state.hash,
                 };
                 identities.entry(state.hash).or_insert(internal);
+                states_by_id
+                    .entry(internal)
+                    .or_insert_with(|| CustomBlockState::new(block, &state.values));
                 if self.network_id_mode == NetworkIdMode::Hashed {
                     self.block_names
                         .custom
@@ -55,6 +97,7 @@ impl WorldAuthority {
             identities.len(),
         );
         self.custom_block_identities = Arc::new(identities);
+        self.custom_block_states = Arc::new(states_by_id);
     }
 }
 

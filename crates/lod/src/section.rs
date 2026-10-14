@@ -1,9 +1,10 @@
 //! The stored section: position, packed voxels, biome grid and child existence.
 
 use crate::{
-    biome_grid::BiomeGrid,
-    geometry::{Octant, SectionPos},
+    biome_grid::{BiomeGrid, UNKNOWN_BIOME},
+    geometry::{Octant, SECTION_SIDE, SectionPos},
     storage::{DenseSection, PackScratch, PackedVoxels, StorageError},
+    voxel::Voxel,
 };
 
 /// What is known about one child section.
@@ -211,6 +212,47 @@ impl Section {
     }
 }
 
+/// `over` laid on `under`, two records of the same position: every voxel column `over`
+/// knows (its biome cell is known, so it was sampled or mipped from a sampled child) and
+/// every child state it knows replace `under`'s; the rest stays `under`'s. Coarse columns
+/// that both mipped from different children keep `over`'s alone.
+///
+/// # Panics
+///
+/// When the two sections lie at different positions.
+#[must_use]
+pub fn overlay(over: &Section, under: &Section, scratch: &mut PackScratch) -> Section {
+    assert_eq!(
+        over.pos, under.pos,
+        "overlaid sections share their position"
+    );
+    let mut top = DenseSection::filled(Voxel::AIR, UNKNOWN_BIOME);
+    over.expand_into(&mut top);
+    let mut out = DenseSection::filled(Voxel::AIR, UNKNOWN_BIOME);
+    under.expand_into(&mut out);
+    for z in 0..SECTION_SIDE {
+        for x in 0..SECTION_SIDE {
+            let biome = top.biomes().get(x, z);
+            if biome == UNKNOWN_BIOME {
+                continue;
+            }
+            out.biomes_mut().set(x, z, biome);
+            for y in 0..SECTION_SIDE {
+                out.set(x, y, z, top.get(x, y, z));
+            }
+        }
+    }
+    let mut children = under.children;
+    for octant in Octant::ALL {
+        let state = over.children.get(octant);
+        if state != ChildState::Unknown {
+            children.set(octant, state);
+        }
+    }
+    Section::from_dense(over.pos, &out, children, scratch)
+        .expect("the overlay keeps the shared position's mask rule")
+}
+
 /// Rejects a child mask on a level-0 section.
 fn check_children(pos: SectionPos, children: ChildMask) -> Result<(), StorageError> {
     if pos.level() == 0 && children != ChildMask::UNKNOWN {
@@ -223,10 +265,44 @@ fn check_children(pos: SectionPos, children: ChildMask) -> Result<(), StorageErr
 mod tests {
     use super::*;
     use crate::{
-        biome_grid::UNKNOWN_BIOME,
         storage::PackScratch,
-        voxel::{Light, Voxel},
+        voxel::{Light, MaterialId, Voxel},
     };
+
+    #[test]
+    fn an_overlay_keeps_the_columns_and_children_only_the_lower_record_knows() {
+        let mut scratch = PackScratch::default();
+        let pos = SectionPos::new(1, 0, 0, 0).expect("in range");
+        let stone = Voxel::new(MaterialId::FIRST_BLOCK, Light::DARK, 7, false);
+        let dirt = Voxel::new(MaterialId::new(2).expect("block id"), Light::DARK, 7, false);
+        let mut half = |voxel: Voxel, biome: u32, from_x: usize, octant: usize, state| {
+            let mut dense = DenseSection::filled(Voxel::AIR, UNKNOWN_BIOME);
+            for z in 0..SECTION_SIDE {
+                for x in from_x..from_x + SECTION_SIDE / 2 {
+                    dense.biomes_mut().set(x, z, biome);
+                    for y in 0..SECTION_SIDE {
+                        dense.set(x, y, z, voxel);
+                    }
+                }
+            }
+            let mut mask = ChildMask::UNKNOWN;
+            mask.set(Octant::ALL[octant], state);
+            Section::from_dense(pos, &dense, mask, &mut scratch).expect("level 1")
+        };
+        let under = half(stone, 3, 0, 0, ChildState::NonEmpty);
+        let over = half(dirt, 5, SECTION_SIDE / 2, 1, ChildState::Empty);
+        let merged = overlay(&over, &under, &mut scratch);
+        let mut dense = DenseSection::filled(Voxel::AIR, UNKNOWN_BIOME);
+        merged.expand_into(&mut dense);
+        assert_eq!((dense.get(0, 9, 0), dense.biomes().get(0, 0)), (stone, 3));
+        assert_eq!(
+            (dense.get(31, 9, 31), dense.biomes().get(31, 31)),
+            (dirt, 5)
+        );
+        assert_eq!(merged.children().get(Octant::ALL[0]), ChildState::NonEmpty);
+        assert_eq!(merged.children().get(Octant::ALL[1]), ChildState::Empty);
+        assert_eq!(merged.children().get(Octant::ALL[2]), ChildState::Unknown);
+    }
 
     #[test]
     fn child_mask_tracks_three_states_and_reports_bubbling_changes() {

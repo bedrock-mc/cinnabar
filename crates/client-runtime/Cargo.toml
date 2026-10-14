@@ -21,6 +21,7 @@ client-ui = { path = "../client-ui" }
 client-world = { path = "../client-world" }
 diagnostics = { path = "../diagnostics" }
 launcher-host = { path = "../launcher-host" }
+lod-store = { path = "../lod-store" }
 meshing = { path = "../meshing" }
 pack-runtime = { path = "../pack-runtime" }
 protocol = { path = "../protocol" }
@@ -32,6 +33,8 @@ tokio.workspace = true
 
 [dev-dependencies]
 client-session = { path = "../client-session", features = ["test-support"] }
+tempfile = "3"
+test-time = { path = "../test-time" }
 
 [lints]
 workspace = true

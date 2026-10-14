@@ -2044,6 +2044,8 @@ dependencies = [
  "crossbeam-channel",
  "hashbrown 0.16.1",
  "libc",
+ "lod",
+ "lod-store",
  "meshing",
  "mimalloc",
  "protocol",
@@ -2052,12 +2054,14 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "tempfile",
  "test-alloc",
  "test-time",
  "thiserror 2.0.18",
  "tracing",
  "windows-sys 0.61.2",
  "world",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -2125,6 +2129,7 @@ dependencies = [
  "launcher",
  "launcher-host",
  "libc",
+ "lod-store",
  "meshing",
  "mimalloc",
  "mod-api",
@@ -2426,6 +2431,7 @@ dependencies = [
  "diagnostics",
  "env-compat",
  "launcher-host",
+ "lod-store",
  "meshing",
  "pack-runtime",
  "protocol",
@@ -2433,6 +2439,8 @@ dependencies = [
  "render-api",
  "render-scene",
  "simulation-clock",
+ "tempfile",
+ "test-time",
  "tokio",
 ]
 

@@ -116,13 +116,6 @@ impl SessionController {
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
-    #[cfg_attr(
-        not(feature = "local-mods"),
-        expect(
-            dead_code,
-            reason = "part of the distant terrain store key, which no client code opens yet"
-        )
-    )]
     pub(crate) fn destination_identity(&self) -> Option<&str> {
         self.destination_identity.as_deref()
     }
@@ -324,6 +317,7 @@ impl SessionResources<'_> {
             self.client_world.session_items.take(),
         ));
         self.client_world.pending_surface_spawn = None;
+        self.client_world.world_identity = None;
         self.client_world.fatal_error = None;
         self.client_world.transfer_notice = None;
         quiesce_local_player(

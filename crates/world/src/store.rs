@@ -528,8 +528,12 @@ impl ChunkStore {
         self.detach_chunks(&BTreeSet::from([key])).0
     }
 
-    /// Removes column authority together and returns owned data for deferred destruction.
-    pub fn detach_chunks(&mut self, keys: &BTreeSet<ChunkKey>) -> (Vec<SubChunkKey>, Vec<Chunk>) {
+    /// Removes column authority together and returns each retired column with its key, for
+    /// deferred destruction.
+    pub fn detach_chunks(
+        &mut self,
+        keys: &BTreeSet<ChunkKey>,
+    ) -> (Vec<SubChunkKey>, Vec<(ChunkKey, Chunk)>) {
         let mut removed = Vec::new();
         let mut retired = Vec::new();
         if !keys.is_empty() {
@@ -546,7 +550,7 @@ impl ChunkStore {
                         .keys()
                         .map(|&y| SubChunkKey::from_chunk(key, y)),
                 );
-                retired.push(chunk);
+                retired.push((key, chunk));
             }
         }
         (removed, retired)

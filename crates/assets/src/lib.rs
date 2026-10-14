@@ -254,8 +254,8 @@ pub use physics_registry::{
     read_physics_registry_for_protocol, read_physics_registry_seed_for_protocol,
 };
 pub use pinned_content::{
-    active_content_registry_protocol, pinned_block_registry_bytes, pinned_block_sequential_id,
-    pinned_world_provenance,
+    active_content_registry_protocol, pinned_block_network_hash, pinned_block_registry_bytes,
+    pinned_block_sequential_id, pinned_world_provenance,
 };
 pub use potion::{
     POTION_DESCRIPTORS, PotionDescriptor, PotionEffect, potion_descriptor, vanilla_potion_variant,

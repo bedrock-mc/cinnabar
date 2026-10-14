@@ -654,6 +654,68 @@ fn custom_identity_snapshots_preserve_incomplete_offsets_and_survive_replacement
 }
 
 #[test]
+fn custom_block_states_name_each_state_by_block_and_canonical_values() {
+    use protocol::{CustomBlockVisuals, CustomStateAxis, CustomStateValue};
+
+    let mut axes = plain_identity_block("example:lamp");
+    axes.state_count = 4;
+    axes.visual = Arc::new(CustomBlockVisuals {
+        state_axes: Box::new([
+            CustomStateAxis {
+                name: "example:lit".into(),
+                values: Box::new([CustomStateValue::Bool(false), CustomStateValue::Bool(true)]),
+            },
+            CustomStateAxis {
+                name: "example:tier".into(),
+                values: Box::new([CustomStateValue::Int(0), CustomStateValue::Int(1)]),
+            },
+        ]),
+        ..Default::default()
+    });
+    let definitions = CustomBlocks {
+        blocks: Arc::from([plain_identity_block("example:plain"), axes]),
+        skipped: 0,
+        ..Default::default()
+    };
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let mut authority = custom_identity_authority(mode);
+        authority.set_custom_block_ids(if mode == NetworkIdMode::Sequential {
+            10..15
+        } else {
+            0..0
+        });
+        authority.set_custom_block_identities(&definitions);
+        let states = Arc::clone(authority.custom_block_states());
+        assert_eq!(states.len(), 5, "{mode:?}");
+        let mut named: Vec<_> = states
+            .values()
+            .map(|state| format!("{}[{}]", state.name, state.states))
+            .collect();
+        named.sort();
+        assert_eq!(
+            named,
+            [
+                "example:lamp[example:lit=false,example:tier=0]",
+                "example:lamp[example:lit=false,example:tier=1]",
+                "example:lamp[example:lit=true,example:tier=0]",
+                "example:lamp[example:lit=true,example:tier=1]",
+                "example:plain[]",
+            ],
+            "{mode:?}"
+        );
+        if mode == NetworkIdMode::Sequential {
+            assert_eq!(states[&10].name.as_ref(), "example:plain");
+            assert_eq!(
+                states[&12].states.as_ref(),
+                "example:lit=true,example:tier=0"
+            );
+        }
+        authority.set_custom_block_ids(0..0);
+        assert!(authority.custom_block_states().is_empty());
+    }
+}
+
+#[test]
 fn custom_identity_registry_stops_at_admitted_range_and_offset_overflow() {
     use world::BlockIds;
 

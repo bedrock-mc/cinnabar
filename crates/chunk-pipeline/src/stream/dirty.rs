@@ -103,6 +103,7 @@ impl WorldStream {
             cells,
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
+        self.mark_lod_dirty(&sources);
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);
         }

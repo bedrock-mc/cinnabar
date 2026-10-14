@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use super::*;
 
 /// Mesh can use every world thread while light stays on the background share.
@@ -173,6 +175,19 @@ fn overdue_lower_lanes_jump_a_mesh_flood() {
         take_order(false, &queued, at, light_late),
         [Lane::Decode, Lane::Mesh, Lane::Mesh]
     );
+}
+
+/// Distant terrain work runs last, only on background workers, and never jumps a lane
+/// however long it waited.
+#[test]
+fn distant_terrain_work_takes_only_idle_background_time() {
+    let queued = [Lane::Lod, Lane::Light, Lane::Decode, Lane::Mesh];
+    let at = Instant::now();
+    let late = at + LIGHT_MAX_WAIT + DECODE_MAX_WAIT;
+    for now in [at, late] {
+        assert_eq!(take_order(true, &queued, at, now).last(), Some(&Lane::Lod));
+        assert!(!take_order(false, &queued, at, now).contains(&Lane::Lod));
+    }
 }
 
 /// A batch becomes visible together while each job retains the pool's lane ordering.

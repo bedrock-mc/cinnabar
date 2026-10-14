@@ -593,6 +593,7 @@ impl WorldStream {
         self.stats.accepted_light_jobs = self.stats.accepted_light_jobs.saturating_add(1);
         self.stats.value_changed_light_jobs = self.stats.value_changed_light_jobs.saturating_add(1);
         self.stats.light_mesh_invalidations = self.stats.light_mesh_invalidations.saturating_add(1);
+        self.mark_lod_relit(completion.key.chunk());
         self.mark_changed_light_mesh_dependents(
             completion.key,
             changed_faces,

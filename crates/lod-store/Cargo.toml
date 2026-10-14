@@ -11,6 +11,8 @@ platform-specific = ["windows"]
 [features]
 # Bench binaries allocate through mimalloc, as the client does.
 benchmark-mimalloc = []
+# Lets other crates' tests pause the store thread to fill its queue.
+test-support = []
 
 [dependencies]
 # Frame and index checksums.

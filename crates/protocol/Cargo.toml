@@ -42,7 +42,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid = { workspace = true, features = ["v4"] }
-xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
+xxhash-rust.workspace = true
 bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
 
 [dev-dependencies]

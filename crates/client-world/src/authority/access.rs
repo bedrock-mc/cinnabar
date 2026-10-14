@@ -103,6 +103,7 @@ impl WorldAuthority {
     pub fn set_custom_block_ids(&mut self, ids: std::ops::Range<u32>) {
         self.custom_block_ids = ids;
         self.custom_block_identities = Arc::default();
+        self.custom_block_states = Arc::default();
         self.block_names.clear_custom();
     }
     /// Retains the single wire-to-internal sequential palette mapping.

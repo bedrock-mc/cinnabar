@@ -36,8 +36,8 @@ pub use chunk_grid::{CHUNK_VIEW_SLACK, chunk_in_view, chunk_view_distance};
 pub use dimension::dimension_loading_fallback_y;
 pub use error::{CollisionRevisionError, DecodeError, MutationError};
 pub use light::{
-    LIGHT_SAMPLES_PER_SUB_CHUNK, LightChannel, LightNibbleStorage, LightStorageError, LightStore,
-    LightStoreSnapshot, LightSubChunkKind, SubChunkLight,
+    LIGHT_SAMPLES_PER_SUB_CHUNK, LightChannel, LightNibbleStorage, LightNibbles, LightStorageError,
+    LightStore, LightStoreSnapshot, LightSubChunkKind, SubChunkLight,
 };
 pub use light_solver::{
     BlockPos, BoundaryLightSample, DimensionLightProfile, EmptyLight, LightBlockAccess,

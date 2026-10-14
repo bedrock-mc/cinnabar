@@ -1,31 +1,24 @@
 mod priority;
+mod queues;
 
 use std::cell::Cell;
-use std::collections::VecDeque;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crossbeam_channel::Sender;
+
+pub(super) use self::queues::Lane;
+#[cfg(test)]
+use self::queues::{DECODE_MAX_WAIT, LIGHT_MAX_WAIT};
+use self::queues::{Job, Queues};
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
 const MIN_WORLD_THREADS: usize = 3;
-/// A lower lane's oldest job jumps the priority order after waiting this long, so
-/// sustained mesh load cannot starve the decode and light work that mesh depends on.
-const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
-const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
 /// Windows lowers workers only during jobs so queue locks retain normal priority.
 /// Other platforms keep workers lowered because they cannot restore their niceness.
 const LOWER_PER_JOB: bool = cfg!(windows);
-
-/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Lane {
-    Mesh,
-    Decode,
-    Light,
-}
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,56 +39,6 @@ impl PoolSize {
 
     pub(super) const fn threads(self) -> usize {
         self.foreground + self.background
-    }
-}
-
-type Job = Box<dyn FnOnce(&mut world::LightSolverScratch) + Send + 'static>;
-type Queue = VecDeque<(Instant, Job)>;
-
-#[derive(Default)]
-struct Queues {
-    /// Work for a block the local player just changed, with its lane. Every worker takes it
-    /// before any lane's backlog, so the change shows at once.
-    urgent: VecDeque<(Lane, Job)>,
-    mesh: Queue,
-    decode: Queue,
-    light: Queue,
-    shutdown: bool,
-}
-
-impl Queues {
-    fn push(&mut self, lane: Lane, queued_at: Instant, job: Job) {
-        let queue = match lane {
-            Lane::Mesh => &mut self.mesh,
-            Lane::Decode => &mut self.decode,
-            Lane::Light => &mut self.light,
-        };
-        queue.push_back((queued_at, job));
-    }
-
-    /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
-    /// Urgent work comes first on any thread.
-    fn take(&mut self, background: bool, now: Instant) -> Option<Job> {
-        if let Some((_, job)) = self.urgent.pop_front() {
-            return Some(job);
-        }
-        let overdue = |queue: &Queue, limit| {
-            queue
-                .front()
-                .is_some_and(|(queued, _)| now.saturating_duration_since(*queued) >= limit)
-        };
-        let lane = if background && overdue(&self.light, LIGHT_MAX_WAIT) {
-            &mut self.light
-        } else if overdue(&self.decode, DECODE_MAX_WAIT) || self.mesh.is_empty() {
-            if self.decode.is_empty() && background {
-                &mut self.light
-            } else {
-                &mut self.decode
-            }
-        } else {
-            &mut self.mesh
-        };
-        lane.pop_front().map(|(_, job)| job)
     }
 }
 
@@ -123,8 +66,9 @@ impl Shared {
     }
 }
 
-/// One world pool: threads prefer mesh, then decode, then light, unless a lower lane is
-/// overdue. Light runs only on the lowered-priority background threads.
+/// One world pool: threads prefer mesh, then decode, then light, then distant terrain, unless
+/// decode or light is overdue. Light and distant terrain run only on the lowered-priority
+/// background threads.
 pub(super) struct WorldPool {
     shared: Arc<Shared>,
     size: PoolSize,
@@ -177,11 +121,13 @@ impl WorldPool {
     }
 
     pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
+        #[cfg(test)]
+        note_queued(lane, 1);
         self.shared
             .lock()
             .push(lane, Instant::now(), Box::new(move |_| job()));
-        // A foreground waiter cannot take light, so light wakes everyone.
-        if lane == Lane::Light {
+        // A foreground waiter cannot take light or distant terrain work, so they wake everyone.
+        if matches!(lane, Lane::Light | Lane::Lod) {
             self.shared.ready.notify_all();
         } else {
             self.shared.ready.notify_one();
@@ -226,6 +172,8 @@ impl Drop for DispatchBatch<'_> {
         if self.jobs.is_empty() {
             return;
         }
+        #[cfg(test)]
+        note_queued(self.lane, self.jobs.len());
         let mut queues = self.pool.shared.lock();
         for (at, urgent, job) in self.jobs.drain(..) {
             if urgent {
@@ -276,6 +224,29 @@ fn work(shared: &Shared, name: &str, background: bool) {
         }
         restore_lowered_job();
         queues = shared.lock();
+    }
+}
+
+/// Lowers the calling thread, which runs beside the pool, to the background workers'
+/// priority for good; a failure is logged and leaves it at normal priority.
+pub(super) fn lower_beside_pool(name: &str) {
+    if let Err(error) = priority::lower() {
+        eprintln!("{name}: could not lower thread priority: {error}");
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Distant terrain jobs this thread queued on the Lod lane.
+    pub(super) static LOD_JOBS_QUEUED: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Counts `count` jobs this thread queued on `lane` in [`LOD_JOBS_QUEUED`] when it is the
+/// Lod lane.
+#[cfg(test)]
+fn note_queued(lane: Lane, count: usize) {
+    if lane == Lane::Lod {
+        LOD_JOBS_QUEUED.with(|queued| queued.set(queued.get() + count));
     }
 }
 

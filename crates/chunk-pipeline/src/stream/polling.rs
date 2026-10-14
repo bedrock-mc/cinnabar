@@ -157,6 +157,7 @@ impl WorldStream {
             .max(dispatch_budget);
         report.mesh_jobs_dispatched =
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
+        self.dispatch_lod_work();
         self.poll_deadline = None;
         self.polling = false;
         self.chunk_data_offloaded = false;

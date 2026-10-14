@@ -499,6 +499,17 @@ fn supported_liquid_material_family(
     }
 }
 
+/// True for a water block: a liquid whose every face material is water, not lava or
+/// another depth-writing liquid.
+#[must_use]
+pub fn is_water_block(assets: &RuntimeAssets, block: assets::ResolvedBlock) -> bool {
+    block.kind() == VisualKind::Liquid
+        && supported_liquid_material_family(
+            assets,
+            assets::BlockFace::ALL.map(|face| block.face(face).material_id()),
+        ) == Some(false)
+}
+
 fn water_material(assets: &RuntimeAssets, material: u32) -> bool {
     let required = MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT;
     assets.material(material).flags & required == required

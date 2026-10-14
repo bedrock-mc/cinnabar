@@ -17,11 +17,13 @@ use {
 mod committed_ui;
 mod control_apply;
 mod dimension;
+mod distant_terrain;
 mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
 use committed_ui::refresh_player_list_cache_for_controls;
 pub(crate) use dimension::advance_dimension_transfer;
+pub(crate) use distant_terrain::configure_distant_terrain;
 #[cfg(test)]
 mod player_list_tests;
 mod service;
@@ -122,6 +124,8 @@ pub(crate) struct ClientWorld {
     /// The session's custom item facts and pack icons for held and worn items.
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
+    /// The session generation and StartGame identity that key its distant terrain store.
+    pub(crate) world_identity: Option<(u64, protocol::StartupWorldIdentity)>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
     pub(crate) fatal_error: Option<String>,
@@ -148,6 +152,7 @@ impl ClientWorld {
             prepared_actor_artwork: None,
             session_items: None,
             pending_surface_spawn: None,
+            world_identity: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
             fatal_error: None,

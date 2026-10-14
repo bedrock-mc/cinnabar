@@ -63,6 +63,12 @@ mod decode;
 mod diagnostics;
 mod dimension_transfer;
 mod dirty;
+mod distant_terrain;
+pub use distant_terrain::{
+    DistantTerrainLink, DistantTerrainStats, DistantTerrainUnavailable, LOD_SETTLE_POLLS,
+    MAX_LOD_BACKLOG, MAX_LOD_COLUMNS_PER_POLL, MAX_LOD_FINAL_CAPTURES_PER_POLL,
+    MAX_LOD_PENDING_FINAL_CAPTURES,
+};
 mod entity_occlusion;
 mod helpers;
 mod light_diagnostics;
@@ -410,6 +416,8 @@ pub struct WorldStream {
     last_retention_radius: Option<i32>,
     local_player_chunk: Option<ChunkKey>,
     stats: WorldStreamStats,
+    /// Distant terrain ingestion; `None` while it is off.
+    lod: Option<Box<distant_terrain::LodIngest>>,
 }
 
 #[cfg(test)]

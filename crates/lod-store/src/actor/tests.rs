@@ -7,7 +7,7 @@ use crate::{
     epochs::{EpochId, EpochRef},
     region_id::RegionId,
     store::{EpochStatus, StoreOptions},
-    test_support::{flip_byte, key, record},
+    test_support::{flip_byte, key, record, surface},
 };
 
 const OVERWORLD: Dimension = Dimension(0);
@@ -286,6 +286,7 @@ fn a_stopped_thread_fails_outstanding_reads_and_hands_requests_back() {
         .expect("open")
         .registry();
     let mut actor = StoreActor {
+        clients: Arc::new(client::ClientSlot::new(commands.clone())),
         commands: Some(commands),
         shutdown_time: Arc::default(),
         results,
@@ -386,6 +387,107 @@ fn chunk_hashes_are_read_through_the_actor() {
 }
 
 #[test]
+fn a_failed_section_write_keeps_the_chunk_hashes_under_it_cleared() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(1),
+        },
+    );
+    // A directory where the level-1 region file belongs makes every write there fail.
+    let lost = key(1, 0, 0, 0);
+    let epoch = EpochRef {
+        dimension: OVERWORLD,
+        id: EpochId(0),
+    };
+    let store_dir = StoreRoot::new(dir.path()).store_dir(&store_key());
+    std::fs::create_dir_all(
+        epoch
+            .dir(&store_dir)
+            .join(RegionId::of_key(lost).0.file_name()),
+    )
+    .expect("blocking directory");
+    submit(&mut actor, put(OVERWORLD, record(lost, 1, 2)));
+    let hash = |x, z| Request::ChunkHash {
+        dimension: OVERWORLD,
+        x,
+        z,
+        hash: Some(7),
+    };
+    // Chunks 0..4 lie under the level-1 section at the origin; chunk 4 does not.
+    for (x, z) in [(0, 0), (3, 3), (4, 0)] {
+        submit(&mut actor, hash(x, z));
+    }
+    wait_for_event(&mut actor, "the failed write", |event| {
+        matches!(event, ActorEvent::RequestFailed { .. })
+    });
+    for (x, z, expected) in [(0, 0, None), (3, 3, None), (4, 0, Some(7))] {
+        let ticket = actor
+            .try_read_chunk_hash(OVERWORLD, x, z, Minute::new(1))
+            .expect("read");
+        assert_eq!(
+            result_of(&mut actor, ticket),
+            ReadOutcome::ChunkHash(expected),
+            "chunk ({x}, {z})"
+        );
+    }
+    // A later hash under the lost section stays cleared until the session begins again.
+    submit(&mut actor, hash(1, 2));
+    let ticket = actor
+        .try_read_chunk_hash(OVERWORLD, 1, 2, Minute::new(1))
+        .expect("read");
+    assert_eq!(result_of(&mut actor, ticket), ReadOutcome::ChunkHash(None));
+    actor.shutdown(Minute::new(2));
+}
+
+#[test]
+fn clients_write_and_read_from_other_threads_until_the_handle_closes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let actor = spawn(dir.path(), ActorConfig::default());
+    let client = actor.client();
+    let target = key(0, 2, 0, -1);
+    let worker = std::thread::spawn({
+        let client = client.clone();
+        move || {
+            client
+                .try_submit(Request::Begin {
+                    dimension: OVERWORLD,
+                    now: Minute::new(1),
+                })
+                .expect("queued");
+            client
+                .try_submit(put(OVERWORLD, record(target, 4, 3)))
+                .expect("queued");
+            client
+                .read(OVERWORLD, ReadTarget::Section(target), Minute::new(1))
+                .expect("answered")
+        }
+    });
+    assert_eq!(
+        worker.join().expect("client thread"),
+        ReadOutcome::Found(record(target, 4, 3)),
+        "a client read sees the client's earlier write"
+    );
+    let closing = actor.close(Minute::new(2));
+    assert!(matches!(
+        client.read(OVERWORLD, ReadTarget::Section(target), Minute::new(2)),
+        Err(SubmitError::Stopped(()))
+    ));
+    assert!(matches!(
+        client.try_submit(Request::End {
+            dimension: OVERWORLD
+        }),
+        Err(SubmitError::Stopped(_))
+    ));
+    eventually("the closed store, though a client remains", || {
+        closing.is_finished()
+    });
+}
+
+#[test]
 fn shutting_down_never_blocks_on_a_full_queue() {
     let (commands, queue) = mpsc::sync_channel(1);
     commands
@@ -425,6 +527,9 @@ fn a_thread_whose_channel_closed_closes_the_store_at_the_handles_time() {
         dropped_events: Arc::default(),
         shutdown_time: Arc::clone(&shutdown_time),
         batch: 4,
+        unwritten: Default::default(),
+        changes: Arc::default(),
+        seen: SessionEpoch(0),
     };
     let now = Minute::new(1 + crate::root::STORE_EXPIRY_MINUTES + 1);
     shutdown_time.set(Some(now));
@@ -470,4 +575,119 @@ fn a_sync_request_commits_queued_writes_while_the_thread_runs() {
         set.get(target).ok().flatten() == Some(record(target, 4, 2))
     });
     actor.shutdown(Minute::new(3));
+}
+
+/// Reads `target` through `client` after every earlier write.
+fn own_section(client: &StoreClient, target: lod::geometry::SectionKey) -> ReadOutcome {
+    client
+        .read(OVERWORLD, ReadTarget::OwnSection(target), Minute::new(1))
+        .expect("read queued")
+}
+
+#[test]
+fn epoch_writes_prepared_before_a_session_change_are_refused() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    let client = actor.client();
+    let begin = Request::Begin {
+        dimension: OVERWORLD,
+        now: Minute::new(1),
+    };
+    let before = client.session_epoch();
+    submit(&mut actor, begin.clone());
+    let begun = client.session_epoch();
+    assert!(begun > before, "a queued begin is a change at once");
+    let (first, second) = (key(0, 1, 0, 1), key(0, 2, 0, 2));
+    assert!(matches!(
+        client.write_in_epoch(begun, vec![put(OVERWORLD, record(first, 1, 2))]),
+        Ok(EpochWrite::Taken)
+    ));
+    submit(
+        &mut actor,
+        Request::End {
+            dimension: OVERWORLD,
+        },
+    );
+    submit(&mut actor, begin);
+    assert!(matches!(
+        client.write_in_epoch(begun, vec![put(OVERWORLD, record(second, 2, 2))]),
+        Ok(EpochWrite::Stale)
+    ));
+    assert_eq!(own_section(&client, second), ReadOutcome::Missing);
+    assert!(matches!(
+        client.write_in_epoch(
+            client.session_epoch(),
+            vec![put(OVERWORLD, record(second, 2, 2))]
+        ),
+        Ok(EpochWrite::Taken)
+    ));
+    assert!(matches!(
+        own_section(&client, second),
+        ReadOutcome::Found(_)
+    ));
+    actor.shutdown(Minute::new(2));
+}
+
+#[test]
+fn a_merge_the_thread_decides_refuses_writes_prepared_in_the_candidate() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    {
+        let mut actor = spawn(dir.path(), ActorConfig::default());
+        submit(
+            &mut actor,
+            Request::Begin {
+                dimension: OVERWORLD,
+                now: Minute::new(1),
+            },
+        );
+        submit_world(&mut actor);
+        actor.shutdown(Minute::new(1));
+    }
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    let client = actor.client();
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(2),
+        },
+    );
+    let candidate = client.session_epoch();
+    submit_world(&mut actor);
+    wait_for_event(&mut actor, "the candidate to merge", |event| {
+        matches!(
+            event,
+            ActorEvent::Store(StoreEvent::Epoch {
+                status: EpochStatus::Merged { .. },
+                ..
+            })
+        )
+    });
+    assert!(client.session_epoch() > candidate);
+    let target = key(0, 3, 0, 3);
+    assert!(matches!(
+        client.write_in_epoch(candidate, vec![put(OVERWORLD, record(target, 3, 2))]),
+        Ok(EpochWrite::Stale)
+    ));
+    assert_eq!(own_section(&client, target), ReadOutcome::Missing);
+    actor.shutdown(Minute::new(2));
+}
+
+/// Records one world's surface over enough signature regions for a merge vote.
+fn submit_world(actor: &mut StoreActor) {
+    for region in 0..12 {
+        for chunk in 0..16 {
+            let (x, z) = (region * 4 + chunk % 4, chunk / 4);
+            submit(
+                actor,
+                Request::Surface {
+                    dimension: OVERWORLD,
+                    chunk_x: x,
+                    chunk_z: z,
+                    surface: Box::new(surface(1, x, z)),
+                    now: Minute::new(1),
+                },
+            );
+        }
+    }
 }

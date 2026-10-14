@@ -71,18 +71,57 @@ pub const fn pinned_block_registry_bytes() -> &'static [u8] {
     BLOCK_REGISTRY_BYTES
 }
 
+/// The pinned registry's identities in both directions, parsed once.
+struct PinnedBlockIds {
+    sequential_by_hash: std::collections::HashMap<u32, u32>,
+    /// Network hashes indexed by sequential id; ids the registry skips hold `None`.
+    hash_by_sequential: Box<[Option<u32>]>,
+}
+
+/// The parsed pinned registry; the checkout validates it, so a parse failure is a bug.
+fn pinned_block_ids() -> &'static PinnedBlockIds {
+    static IDS: OnceLock<PinnedBlockIds> = OnceLock::new();
+    IDS.get_or_init(|| {
+        let records = crate::read_registry_for_protocol(
+            BLOCK_REGISTRY_BYTES,
+            active_content_registry_protocol(),
+        )
+        .expect("validated pinned block registry");
+        let len = records
+            .iter()
+            .map(|record| record.sequential_id as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let mut hash_by_sequential = vec![None; len].into_boxed_slice();
+        for record in records.iter() {
+            hash_by_sequential[record.sequential_id as usize] = Some(record.network_hash);
+        }
+        PinnedBlockIds {
+            sequential_by_hash: records
+                .iter()
+                .map(|record| (record.network_hash, record.sequential_id))
+                .collect(),
+            hash_by_sequential,
+        }
+    })
+}
+
 /// Resolves pinned identities when the optional world carrier is unavailable.
 pub fn pinned_block_sequential_id(network_hash: u32) -> Option<u32> {
-    static IDS: OnceLock<std::collections::HashMap<u32, u32>> = OnceLock::new();
-    IDS.get_or_init(|| {
-        crate::read_registry_for_protocol(BLOCK_REGISTRY_BYTES, active_content_registry_protocol())
-            .expect("validated pinned block registry")
-            .iter()
-            .map(|record| (record.network_hash, record.sequential_id))
-            .collect()
-    })
-    .get(&network_hash)
-    .copied()
+    pinned_block_ids()
+        .sequential_by_hash
+        .get(&network_hash)
+        .copied()
+}
+
+/// The pinned registry's network hash of `sequential_id`, the inverse of
+/// [`pinned_block_sequential_id`]; `None` for ids the registry does not assign.
+pub fn pinned_block_network_hash(sequential_id: u32) -> Option<u32> {
+    pinned_block_ids()
+        .hash_by_sequential
+        .get(sequential_id as usize)
+        .copied()
+        .flatten()
 }
 
 /// The exact world-carrier identity this checkout pins: the canonical
@@ -96,4 +135,20 @@ pub fn pinned_world_provenance() -> &'static BlobProvenance {
         light_registry_sha256: Sha256::digest(LIGHT_REGISTRY_BYTES).into(),
         biome_registry_sha256: Sha256::digest(BIOME_REGISTRY_BYTES).into(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_network_hashes_invert_sequential_ids() {
+        let ids = pinned_block_ids();
+        assert!(!ids.sequential_by_hash.is_empty());
+        for (&hash, &sequential) in &ids.sequential_by_hash {
+            assert_eq!(pinned_block_network_hash(sequential), Some(hash));
+            assert_eq!(pinned_block_sequential_id(hash), Some(sequential));
+        }
+        assert_eq!(pinned_block_network_hash(u32::MAX), None);
+    }
 }

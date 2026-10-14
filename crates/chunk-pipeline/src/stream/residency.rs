@@ -87,6 +87,8 @@ impl WorldStream {
         }
         let (removed, retired) = self.authority.detach_chunks(&columns);
         changed.extend(removed);
+        // Before the light below is removed; captures that sample a column release it.
+        let retired = self.capture_lod_eviction(retired, &changed);
         let old_connectivity_len = self.connectivity.len();
         let retired_indexes = removing_all.then(|| {
             (

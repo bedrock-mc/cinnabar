@@ -2,8 +2,10 @@
 
 use crate::{
     classify::{MaterialClasses, voxel_class},
-    geometry::{Face, SECTION_SIDE, SectionPos},
+    geometry::{Face, SECTION_SIDE, SectionPos, voxel_index},
+    section::Section,
     storage::DenseSection,
+    voxel::Voxel,
 };
 
 const _: () = assert!(SECTION_SIDE == u32::BITS as usize);
@@ -30,12 +32,35 @@ impl FacePlane {
     /// touches that face.
     #[must_use]
     pub fn across(face: Face, neighbour: &DenseSection, classes: &impl MaterialClasses) -> Self {
+        Self::touching(face, classes, |[x, y, z]| neighbour.get(x, y, z))
+    }
+
+    /// [`Self::across`] for a neighbour in its packed form, without expanding it.
+    #[must_use]
+    pub fn across_section(face: Face, neighbour: &Section, classes: &impl MaterialClasses) -> Self {
+        let voxels = neighbour.voxels();
+        Self::touching(face, classes, |[x, y, z]| voxels.get(voxel_index(x, y, z)))
+    }
+
+    /// The plane of the neighbour whose voxels `voxel` reads, on its side that touches
+    /// `face` of the section being mipped.
+    fn touching(
+        face: Face,
+        classes: &impl MaterialClasses,
+        voxel: impl Fn([usize; 3]) -> Voxel,
+    ) -> Self {
         let touching = face.opposite();
         let mut plane = Self::CLOSED;
+        let mut last = None;
         for v in 0..SECTION_SIDE {
             for u in 0..SECTION_SIDE {
-                let [x, y, z] = touching.voxel_at([u, v]);
-                if voxel_class(classes, neighbour.get(x, y, z)).exposes_neighbours() {
+                let word = voxel(touching.voxel_at([u, v]));
+                let exposes = match last {
+                    Some((previous, exposes)) if previous == word => exposes,
+                    _ => voxel_class(classes, word).exposes_neighbours(),
+                };
+                last = Some((word, exposes));
+                if exposes {
                     plane.rows[v] |= 1 << u;
                 }
             }
@@ -124,6 +149,18 @@ mod tests {
         let mut neighbour = DenseSection::filled(stone(), 0);
         neighbour.set(0, 3, 9, Voxel::AIR);
         let plane = FacePlane::across(Face::PosX, &neighbour, &classes);
+        let packed = Section::from_dense(
+            SectionPos::new(0, 1, 0, 0).expect("pos"),
+            &neighbour,
+            crate::section::ChildMask::UNKNOWN,
+            &mut crate::storage::PackScratch::default(),
+        )
+        .expect("level-0 section");
+        assert_eq!(
+            FacePlane::across_section(Face::PosX, &packed, &classes),
+            plane,
+            "packed and dense neighbours give the same plane"
+        );
         assert!(plane.exposes([3, 9]));
         assert!(!plane.exposes([9, 3]));
         assert_eq!(

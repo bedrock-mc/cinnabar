@@ -43,6 +43,15 @@ pub struct LightNibbleStorage {
     representation: LightNibbleRepresentation,
 }
 
+/// A light channel's content, borrowed from [`LightNibbleStorage::nibbles`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightNibbles<'a> {
+    /// Every sample holds this value.
+    Uniform(u8),
+    /// Packed samples, two per byte.
+    Packed(&'a [u8]),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum LightNibbleRepresentation {
     Uniform(u8),
@@ -128,6 +137,16 @@ impl LightNibbleStorage {
         validate_light(value)?;
         self.representation = LightNibbleRepresentation::Uniform(value);
         Ok(())
+    }
+
+    /// The channel's content: one value when uniform, else its packed nibbles in Bedrock
+    /// order, two samples per byte with the even index in the low nibble.
+    #[must_use]
+    pub fn nibbles(&self) -> LightNibbles<'_> {
+        match &self.representation {
+            LightNibbleRepresentation::Uniform(value) => LightNibbles::Uniform(*value),
+            LightNibbleRepresentation::Packed(bytes) => LightNibbles::Packed(&bytes[..]),
+        }
     }
 
     /// Returns whether the channel currently uses its allocation-free form.
@@ -222,6 +241,22 @@ mod packing_tests {
         assert_eq!(light.channel(LightChannel::Block).allocated_bytes(), 0);
         assert_eq!(light.channel(LightChannel::Sky).allocated_bytes(), 0);
         assert_eq!(light.get(LightChannel::Sky, 15, 15, 15), Some(15));
+    }
+
+    #[test]
+    fn nibbles_expose_uniform_and_packed_content() {
+        let mut light = SubChunkLight::uniform(0, 9, 1).unwrap();
+        assert_eq!(
+            light.channel(LightChannel::Sky).nibbles(),
+            LightNibbles::Uniform(9)
+        );
+        light.set(LightChannel::Sky, 0, 1, 0, 4).unwrap();
+        let LightNibbles::Packed(bytes) = light.channel(LightChannel::Sky).nibbles() else {
+            panic!("a differing sample packs the channel");
+        };
+        assert_eq!(bytes.len(), LIGHT_SAMPLES_PER_SUB_CHUNK / 2);
+        // Local (0, 1, 0) is linear index 1, the high nibble of the first byte.
+        assert_eq!(bytes[0], 0x49);
     }
 
     #[test]

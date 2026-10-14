@@ -2,7 +2,8 @@
 
 Criterion covers palette/column decode, full light solves, cube meshing, biome records,
 bounded streaming bursts, dispatch-input capture, settled polling and metadata-only cohort
-scans. Fixtures are synthetic and require no carriers, server, window or GPU.
+scans, and distant terrain sample jobs. Fixtures are synthetic and require no carriers,
+server, window or GPU.
 
 ```sh
 cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipeline/benchmark-support --bench chunk_costs -- --test
@@ -24,6 +25,13 @@ Preflight CPU-step percentiles are not game-frame percentiles. Metadata scans ha
 no terrain. Resident-slot and stale-work counters include boundary setup; production
 logs remain enabled. Decode and meshing timings include output destruction.
 
+`pipeline/lod_sample_job` runs one opt-in distant terrain sample job on a resident column
+of 4 or 24 mixed-palette sub-chunks with solved light: input capture, the content hash of
+blocks, biomes and solved-light sub-chunks, material assignment, level-0 sampling and the
+surface signature. The column book's check and the writer's merge are excluded;
+`section_costs` below times the merge. On an Apple M1 under Asahi Linux one job took
+71 µs for 4 sub-chunks and 422 µs for 24.
+
 `pipeline/dispatch_inputs` captures 4/16/64/871 overlapping light or mesh inputs,
 including handle release but excluding worker scheduling and execution. Its
 `DISPATCH_INPUTS` records count allocations on the dispatch thread. The `_reused`
@@ -43,8 +51,10 @@ cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipe
 
 `section_costs` times the opt-in distant terrain (LOD) foundation on synthetic fixture
 columns: level-0 sampling of one column with fallback or solved light, the local L0–L4 mip
-chain for a new and an unchanged sub-chunk, a full re-mip from eight children, and
-section packing and record encode/decode. Mips run without neighbour planes.
+chain for a new and an unchanged sub-chunk, a full re-mip from eight children,
+section packing and record encode/decode, and the ingestion writer's merge and encoding
+of one column, first alone and then beside a stored neighbour. Chain mips run without
+neighbour planes; the merge reads its neighbours' planes.
 
 ```sh
 cargo bench --locked -p lod --features lod/benchmark-mimalloc --bench section_costs -- --test

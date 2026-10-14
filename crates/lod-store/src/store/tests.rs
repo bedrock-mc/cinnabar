@@ -251,6 +251,112 @@ fn the_same_world_merges_into_its_stored_epoch() {
     assert_eq!(reopened.catalog().entries().len(), 1, "the merge persisted");
 }
 
+/// A level-0 record of `key` that knows only the block columns from `from_x` up to half
+/// the section's width, filled with material `material` under biome `biome`.
+fn half_record(
+    key: lod::geometry::SectionKey,
+    from_x: usize,
+    material: u32,
+    biome: u32,
+) -> Vec<u8> {
+    use lod::{
+        biome_grid::UNKNOWN_BIOME,
+        geometry::SECTION_SIDE,
+        section::{ChildMask, Section},
+        storage::{DenseSection, PackScratch},
+        voxel::{FULL_COVERAGE, Light, MaterialId, Voxel},
+    };
+    let voxel = Voxel::new(
+        MaterialId::new(material).expect("block material"),
+        Light::DARK,
+        FULL_COVERAGE,
+        false,
+    );
+    let mut dense = DenseSection::filled(Voxel::AIR, UNKNOWN_BIOME);
+    for z in 0..SECTION_SIDE {
+        for x in from_x..from_x + SECTION_SIDE / 2 {
+            dense.biomes_mut().set(x, z, biome);
+            for y in 0..SECTION_SIDE {
+                dense.set(x, y, z, voxel);
+            }
+        }
+    }
+    let section = Section::from_dense(
+        key.pos(),
+        &dense,
+        ChildMask::UNKNOWN,
+        &mut PackScratch::default(),
+    )
+    .expect("level 0");
+    lod::codec::SectionCodec::new().encode(&section)
+}
+
+#[test]
+fn a_candidate_writes_only_its_own_terrain_and_merges_it_over_the_stored_records() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    seeded_store(dir.path(), 12);
+    // The seeded record knows every column of its section.
+    let shared = key(0, 1, 2, 3);
+    let decode = |bytes: &[u8]| {
+        let section = lod::codec::SectionCodec::new()
+            .decode_expecting(bytes, shared)
+            .expect("valid record");
+        let mut dense = lod::mip::unknown_section();
+        section.expand_into(&mut dense);
+        dense
+    };
+    let stored = decode(&record(shared, 1, 4));
+    let mut store = open(dir.path(), 10);
+    assert!(
+        store
+            .begin_session(OVERWORLD, Minute::new(10))
+            .expect("begin")
+            .is_candidate()
+    );
+    let mut out = Vec::new();
+    assert!(
+        !store
+            .get_own_into(OVERWORLD, shared, &mut out, Minute::new(10))
+            .expect("get"),
+        "a writer merging into the candidate never sees the stored epoch's record"
+    );
+    assert!(
+        store
+            .get_into(OVERWORLD, shared, &mut out, Minute::new(10))
+            .expect("get")
+    );
+    let sampled = half_record(shared, 16, 5, 6);
+    store
+        .put(OVERWORLD, &sampled, Minute::new(10))
+        .expect("put");
+    assert!(
+        store
+            .get_own_into(OVERWORLD, shared, &mut out, Minute::new(10))
+            .expect("get")
+    );
+    assert_eq!(out, sampled, "the candidate holds only its own columns");
+    assert!(matches!(
+        record_world(&mut store, OVERWORLD, 1, 12),
+        EpochStatus::Merged { .. }
+    ));
+    assert!(
+        store
+            .get_into(OVERWORLD, shared, &mut out, Minute::new(10))
+            .expect("get")
+    );
+    let merged = decode(&out);
+    for x in [0, 15] {
+        assert_eq!(merged.get(x, 9, 4), stored.get(x, 9, 4), "stored half kept");
+        assert_eq!(merged.biomes().get(x, 4), stored.biomes().get(x, 4));
+    }
+    assert_eq!(
+        merged.get(31, 9, 4).material().raw(),
+        5,
+        "sampled half laid over"
+    );
+    assert_eq!(merged.biomes().get(31, 4), 6);
+}
+
 #[test]
 fn an_undecided_session_reads_stored_records_through_but_never_hashes() {
     let dir = tempfile::tempdir().expect("temp dir");

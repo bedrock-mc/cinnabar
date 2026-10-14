@@ -62,6 +62,7 @@ mod tests;
 mod world_spawn_tests;
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
+pub use block_identities::CustomBlockState;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};
 pub use contracts::{
     CommittedAudioEvent, CommittedCameraEvent, CommittedControlEvent, CommittedParticleEvent,
@@ -106,6 +107,7 @@ pub struct WorldAuthority {
     runtime_assets: Arc<RuntimeAssets>,
     custom_block_ids: std::ops::Range<u32>,
     custom_block_identities: Arc<std::collections::HashMap<u32, u32>>,
+    custom_block_states: Arc<std::collections::HashMap<u32, CustomBlockState>>,
     block_names: block_identities::BlockNames,
     id_remap: Arc<assets::SequentialIdRemap>,
     decode_diagnostics: Arc<crate::ingestion::DecodeDiagnostics>,
@@ -186,6 +188,7 @@ impl WorldAuthority {
             runtime_assets,
             custom_block_ids: 0..0,
             custom_block_identities: Arc::default(),
+            custom_block_states: Arc::default(),
             block_names: block_identities::BlockNames::new(network_id_mode),
             id_remap: Arc::default(),
             decode_diagnostics: Arc::default(),

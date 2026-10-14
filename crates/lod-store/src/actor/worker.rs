@@ -1,7 +1,7 @@
 //! The actor thread: batches, coalescing and the order writes reach the store.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -9,10 +9,14 @@ use std::{
     },
 };
 
-use lod::{epoch::ChunkSurface, geometry::SectionKey};
+use lod::{
+    epoch::ChunkSurface,
+    geometry::{LEVEL_COUNT, SectionKey},
+};
 
 use super::{
-    ActorEvent, Command, ReadOutcome, ReadResult, ReadTarget, ReadTicket, Request, ShutdownTime,
+    ActorEvent, Command, EpochWrite, ReadOutcome, ReadResult, ReadTarget, ReadTicket, Request,
+    SessionEpoch, ShutdownTime, client::SessionChanges,
 };
 use crate::{
     error::{RegionError, StoreError},
@@ -35,6 +39,49 @@ pub(super) struct Worker {
     /// The close time of a handle that closed the channel instead of queueing a shutdown.
     pub(super) shutdown_time: Arc<ShutdownTime>,
     pub(super) batch: usize,
+    /// Footprints of section writes that failed in each dimension's current session; a
+    /// chunk hash inside one is stored cleared, so it never vouches for a lost section.
+    pub(super) unwritten: HashSet<Footprint>,
+    /// The count submitters bump as they queue a begin or end, and this thread as it
+    /// decides a change.
+    pub(super) changes: SessionChanges,
+    /// The session changes this thread has served or decided, in queue order: what an
+    /// epoch write sent behind them must have been prepared in.
+    pub(super) seen: SessionEpoch,
+}
+
+/// The chunk columns one section covers: its dimension, level and section `x`, `z`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct Footprint {
+    dimension: Dimension,
+    level: u8,
+    x: i32,
+    z: i32,
+}
+
+impl Footprint {
+    /// The columns under `key` in `dimension`.
+    fn of(dimension: Dimension, key: SectionKey) -> Self {
+        let pos = key.pos();
+        Self {
+            dimension,
+            level: pos.level(),
+            x: pos.x(),
+            z: pos.z(),
+        }
+    }
+
+    /// The footprint at `level` holding chunk `(x, z)` of `dimension`; a level-0 section
+    /// spans two chunks a side and each level doubles that.
+    fn containing(dimension: Dimension, level: u8, x: i32, z: i32) -> Self {
+        let at_level = |chunk: i32| chunk.div_euclid(2) >> level;
+        Self {
+            dimension,
+            level,
+            x: at_level(x),
+            z: at_level(z),
+        }
+    }
 }
 
 /// A section write after coalescing.
@@ -43,9 +90,17 @@ enum SectionWrite {
     Remove,
 }
 
+/// Where a read's answer goes.
+enum Answer {
+    /// The handle's result queue.
+    Ticket(ReadTicket),
+    /// A client's own channel.
+    Reply(SyncSender<ReadOutcome>),
+}
+
 /// A read waiting for the writes before it.
 struct PendingRead {
-    ticket: ReadTicket,
+    answer: Answer,
     dimension: Dimension,
     target: ReadTarget,
     now: Minute,
@@ -81,7 +136,40 @@ impl Worker {
                         target,
                         now,
                     } => pending.reads.push(PendingRead {
-                        ticket,
+                        answer: Answer::Ticket(ticket),
+                        dimension,
+                        target,
+                        now,
+                    }),
+                    Command::EpochWrites {
+                        epoch,
+                        requests,
+                        reply,
+                    } => {
+                        let verdict = if epoch == self.seen {
+                            for request in requests {
+                                self.request(request, &mut pending, &mut last_now);
+                            }
+                            EpochWrite::Taken
+                        } else {
+                            EpochWrite::Stale
+                        };
+                        // Never blocks: each reply channel holds its one answer.
+                        let _ = reply.send(verdict);
+                    }
+                    #[cfg(any(test, feature = "test-support"))]
+                    Command::Pause { paused, resume } => {
+                        self.apply(&mut pending);
+                        let _ = paused.send(());
+                        let _ = resume.recv();
+                    }
+                    Command::ReadReply {
+                        dimension,
+                        target,
+                        now,
+                        reply,
+                    } => pending.reads.push(PendingRead {
+                        answer: Answer::Reply(reply),
                         dimension,
                         target,
                         now,
@@ -147,14 +235,18 @@ impl Worker {
             Request::Begin { dimension, now } => {
                 *last_now = Some(now);
                 self.apply(pending);
+                self.forget_unwritten(dimension);
                 let result = self.store().begin_session(dimension, now);
+                self.seen.0 += 1;
                 if let Err(error) = result {
                     self.failed("begin session", error);
                 }
             }
             Request::End { dimension } => {
                 self.apply(pending);
+                self.forget_unwritten(dimension);
                 self.store().end_session(dimension);
+                self.seen.0 += 1;
             }
             Request::Flush { now } => {
                 *last_now = Some(now);
@@ -183,14 +275,26 @@ impl Worker {
         }
     }
 
+    /// Forgets the failed section writes of `dimension`'s session, which is ending or
+    /// beginning again.
+    fn forget_unwritten(&mut self, dimension: Dimension) {
+        self.unwritten
+            .retain(|footprint| footprint.dimension != dimension);
+    }
+
     /// Applies coalesced writes in order (records, then hashes, then surfaces, whose
-    /// votes may merge the records just written) and answers the reads behind them.
+    /// votes may merge the records just written) and answers the reads behind them. A
+    /// chunk hash under a section whose write failed this session is stored cleared.
     fn apply(&mut self, pending: &mut Coalesced) {
         for ((dimension, key), write) in std::mem::take(&mut pending.sections) {
             let result = match write {
                 // The header was read when the request was coalesced.
                 SectionWrite::Put(record, now) => {
-                    self.store().put_record(dimension, key, &record, now)
+                    let result = self.store().put_record(dimension, key, &record, now);
+                    if result.is_err() {
+                        self.unwritten.insert(Footprint::of(dimension, key));
+                    }
+                    result
                 }
                 SectionWrite::Remove => self.store().remove(dimension, key).map(drop),
             };
@@ -199,21 +303,40 @@ impl Worker {
             }
         }
         for ((dimension, x, z), hash) in std::mem::take(&mut pending.hashes) {
+            let unwritten = !self.unwritten.is_empty()
+                && (0..LEVEL_COUNT as u8).any(|level| {
+                    self.unwritten
+                        .contains(&Footprint::containing(dimension, level, x, z))
+                });
+            let hash = hash.filter(|_| !unwritten);
             if let Err(error) = self.store().set_chunk_hash(dimension, x, z, hash) {
                 self.failed("chunk hash", error);
             }
         }
         for ((dimension, x, z), (surface, now)) in std::mem::take(&mut pending.surfaces) {
-            if let Err(error) = self.store().record_surface(dimension, x, z, *surface, now) {
-                self.failed("surface", error);
+            let before = self.store().epoch_status(dimension);
+            match self.store().record_surface(dimension, x, z, *surface, now) {
+                Ok(status) if Some(status) != before => self.decided_session_change(),
+                Ok(_) => {}
+                Err(error) => {
+                    if self.store().epoch_status(dimension) != before {
+                        self.decided_session_change();
+                    }
+                    self.failed("surface", error);
+                }
             }
         }
         let mut record = Vec::new();
         for read in pending.reads.drain(..) {
             let store = self.store.as_mut().expect("open until shutdown");
             let outcome = match read.target {
-                ReadTarget::Section(key) => {
-                    match store.get_into(read.dimension, key, &mut record, read.now) {
+                ReadTarget::Section(key) | ReadTarget::OwnSection(key) => {
+                    let found = if matches!(read.target, ReadTarget::Section(_)) {
+                        store.get_into(read.dimension, key, &mut record, read.now)
+                    } else {
+                        store.get_own_into(read.dimension, key, &mut record, read.now)
+                    };
+                    match found {
                         Ok(true) => ReadOutcome::Found(std::mem::take(&mut record)),
                         Ok(false) => ReadOutcome::Missing,
                         Err(StoreError::Region(RegionError::Corrupt { .. })) => {
@@ -227,14 +350,28 @@ impl Worker {
                     Err(error) => ReadOutcome::Failed(error.to_string()),
                 },
             };
-            // Never blocks: the handle keeps reads in flight within the queue's capacity.
-            let _ = self.results.send(ReadResult {
-                ticket: read.ticket,
-                dimension: read.dimension,
-                target: read.target,
-                outcome,
-            });
+            match read.answer {
+                // Never blocks: the handle keeps reads in flight within the queue's capacity.
+                Answer::Ticket(ticket) => {
+                    let _ = self.results.send(ReadResult {
+                        ticket,
+                        dimension: read.dimension,
+                        target: read.target,
+                        outcome,
+                    });
+                }
+                // Never blocks: each reply channel holds its one answer.
+                Answer::Reply(reply) => {
+                    let _ = reply.send(outcome);
+                }
+            }
         }
+    }
+
+    /// Counts a session change this thread decided: a candidate merged or established.
+    fn decided_session_change(&mut self) {
+        self.seen.0 += 1;
+        self.changes.fetch_add(1, Ordering::AcqRel);
     }
 
     /// Closes the store and forwards its last events.

@@ -73,7 +73,10 @@ impl WorldAuthority {
         self.terrain.commit_sub_chunk(key, decoded)
     }
     /// Removes retained columns and returns their keys and owned storage.
-    pub fn detach_chunks(&mut self, keys: &BTreeSet<ChunkKey>) -> (Vec<SubChunkKey>, Vec<Chunk>) {
+    pub fn detach_chunks(
+        &mut self,
+        keys: &BTreeSet<ChunkKey>,
+    ) -> (Vec<SubChunkKey>, Vec<(ChunkKey, Chunk)>) {
         self.terrain.detach_chunks(keys)
     }
     /// Records that a column is loaded, updating collision revisions.

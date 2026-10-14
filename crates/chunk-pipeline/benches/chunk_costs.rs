@@ -381,6 +381,8 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[path = "chunk_costs/dispatch.rs"]
 mod dispatch;
+#[path = "chunk_costs/distant_terrain.rs"]
+mod distant_terrain;
 
 /// A loaded block of columns resent with every section swapped for a block of the same light
 /// inputs, as a server applying a bulk replace sends them; measures the resend's drain alone.
@@ -437,6 +439,7 @@ criterion_group!(
     streaming_benches,
     resend_benches,
     cohort_benches,
-    dispatch::benches
+    dispatch::benches,
+    distant_terrain::benches
 );
 criterion_main!(benches);

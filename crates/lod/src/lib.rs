@@ -14,6 +14,7 @@
 //! - [`classify`]: block classes and the caller-supplied classifier traits.
 //! - [`mip_policy`], [`mip`]: the 2×2×2 policy, the local L0..L4 chain and full re-mips.
 //! - [`exposure`]: neighbour face planes the mip reads to judge exposure.
+//! - [`ingest`]: merging sampled columns into the stored sections they share.
 //! - [`registry`]: the persistent block-state key → material id table.
 //! - [`codec`]: checksummed, compressed section records.
 //! - [`epoch`]: surface signatures and voting that tell worlds behind one server apart.
@@ -26,6 +27,7 @@ pub mod exposure;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixtures;
 pub mod geometry;
+pub mod ingest;
 pub mod mip;
 pub mod mip_policy;
 pub mod registry;

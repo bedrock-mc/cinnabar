@@ -5,7 +5,12 @@
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use std::{collections::BTreeMap, hint::black_box, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    convert::Infallible,
+    hint::black_box,
+    sync::Arc,
+};
 
 use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_main};
 use lod::{
@@ -13,7 +18,8 @@ use lod::{
     codec::SectionCodec,
     exposure::Neighbourhood,
     fixtures::{biome_column, fixture_classifier, terrain_column},
-    geometry::VoxelBox,
+    geometry::{SectionKey, SectionPos, VoxelBox},
+    ingest::{SectionSource, merge_columns},
     mip::{ChildInput, LOCAL_MIP_TOP_LEVEL, mip_chain, remip_from_children, unknown_section},
     sampler::{ColumnSample, ColumnSnapshot, SampledSubChunk, sample_column},
     section::{ChildMask, ChildState, Section},
@@ -226,5 +232,54 @@ fn records(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, sampling, mipping, records);
+/// Stored sections in memory, standing in for the store the writer reads.
+#[derive(Clone, Default)]
+struct Memory(HashMap<SectionKey, Section>);
+
+impl SectionSource for Memory {
+    type Error = Infallible;
+
+    fn load(&mut self, pos: SectionPos) -> Result<Option<Section>, Infallible> {
+        Ok(self.0.get(&pos.key()).cloned())
+    }
+}
+
+/// One column's merge into the sections it shares and the encoding of every section it
+/// rewrote: the writer's work per column after sampling.
+fn ingest(c: &mut Criterion) {
+    let classes = fixture_classifier();
+    let first = Column::new(3, -2).sample(3, -2, None, &mut fixture_classifier());
+    let beside = Column::new(4, -2).sample(4, -2, None, &mut fixture_classifier());
+    let mut stored = Memory::default();
+    let Ok(merged) = merge_columns([&first], &mut stored, &classes);
+    for section in merged.sections {
+        stored.0.insert(section.pos().key(), section);
+    }
+    let mut codec = SectionCodec::new();
+    let mut out = Vec::new();
+    let mut group = c.benchmark_group("ingest");
+    group.throughput(Throughput::Elements(1));
+    for (name, base) in [
+        ("first_column", Memory::default()),
+        ("beside_stored", stored),
+    ] {
+        let column = if base.0.is_empty() { &first } else { &beside };
+        group.bench_function(format!("merge_and_encode_{name}"), |b| {
+            b.iter_batched(
+                || base.clone(),
+                |mut source| {
+                    let Ok(merged) = merge_columns([column], &mut source, &classes);
+                    for section in &merged.sections {
+                        codec.encode_into(section, &mut out);
+                    }
+                    merged.stats
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, sampling, mipping, records, ingest);
 criterion_main!(benches);

@@ -1,6 +1,7 @@
 //! Bevy runtime ownership for transport, world work and session boundaries.
 
 pub mod blob_cache;
+pub mod distant_terrain;
 pub mod endpoint;
 pub mod ingress;
 pub mod inventory;

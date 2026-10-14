@@ -111,6 +111,7 @@ mod column_residency;
 mod commit_budget;
 mod dimension_ranges;
 mod dimension_transfer;
+mod distant_terrain;
 mod job_snapshots;
 mod light_scheduler;
 mod local_retention;
@@ -206,7 +207,7 @@ fn uniform_sub_chunk(runtime_id: u32) -> SubChunk {
     SubChunk::decode(&bytes, &RawBlockIds { air: 0 })
 }
 
-fn camera_medium_assets() -> RuntimeAssets {
+pub(in crate::stream) fn camera_medium_assets() -> RuntimeAssets {
     let visual = |kind, role, faces, variant| BlockVisual {
         native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         support: assets::VisualSupport::Exact,

@@ -14,7 +14,10 @@
 //! epoch, the most recently used one that has not split, so a revisit shows its stored
 //! terrain at once; a different world shows the stored one's until enough of it is seen
 //! to split. Chunk content hashes are never read through: a candidate must sample every
-//! chunk it is sent, because those samples are its votes.
+//! chunk it is sent, because those samples are its votes. Writers merge into a candidate
+//! through own-epoch reads ([`crate::actor::ReadTarget::OwnSection`]), so it holds only
+//! terrain it sampled and splits off clean; a merge lays its records over the stored
+//! ones.
 
 use std::collections::HashSet;
 
@@ -287,7 +290,9 @@ impl Store {
     }
 
     /// Moves the candidate's records, chunk hashes and signatures into `into`, newer
-    /// over older, then deletes the candidate. A read-only store only drops it.
+    /// over older, then deletes the candidate. A record both store is laid over the
+    /// stored one column by column ([`lod::section::overlay`]), as the candidate holds
+    /// only what it sampled. A read-only store only drops it.
     fn merge_epoch(
         &mut self,
         candidate: EpochRef,
@@ -375,10 +380,14 @@ fn copy_region(
     };
     let keys: Vec<_> = source.keys().collect();
     let mut record = Vec::new();
+    let mut overlay = Overlay::default();
     let mut unvouched = Vec::new();
     for key in keys {
         match source.get_into(key, &mut record) {
-            Ok(true) => target.put_record(key, &record)?,
+            Ok(true) => {
+                let merged = overlay.onto_stored(key, &record, target)?;
+                target.put_record(key, merged.unwrap_or(&record[..]))?;
+            }
             Ok(false) => {}
             Err(crate::error::RegionError::Corrupt { .. }) => {
                 unvouched.extend(RegionId::of_key(key).1.chunk_slots());
@@ -401,6 +410,43 @@ fn copy_region(
         }
     }
     Ok(())
+}
+
+/// Lays a merging candidate's records on the target epoch's, reusing its buffers.
+#[derive(Default)]
+struct Overlay {
+    codec: lod::codec::SectionCodec,
+    scratch: lod::storage::PackScratch,
+    stored: Vec<u8>,
+    merged: Vec<u8>,
+}
+
+impl Overlay {
+    /// `record` of `key` laid on the record `target` stores there ([`lod::section::overlay`]),
+    /// since a candidate never reads its target's records and knows only what it sampled;
+    /// `None` keeps `record` as it is, when nothing is stored there or either record does
+    /// not decode.
+    fn onto_stored(
+        &mut self,
+        key: lod::geometry::SectionKey,
+        record: &[u8],
+        target: &mut RegionSet,
+    ) -> Result<Option<&[u8]>, StoreError> {
+        match target.get_into(key, &mut self.stored) {
+            Ok(true) => {}
+            Ok(false) | Err(crate::error::RegionError::Corrupt { .. }) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        }
+        let (Ok(over), Ok(under)) = (
+            self.codec.decode_expecting(record, key),
+            self.codec.decode_expecting(&self.stored, key),
+        ) else {
+            return Ok(None);
+        };
+        let merged = lod::section::overlay(&over, &under, &mut self.scratch);
+        self.codec.encode_into(&merged, &mut self.merged);
+        Ok(Some(&self.merged))
+    }
 }
 
 /// The column draw for one region's comparison with one stored epoch: varies per session,

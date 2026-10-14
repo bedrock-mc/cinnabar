@@ -198,6 +198,9 @@ pub struct VideoSettings {
     pub java_animations: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
+    /// Keeps and draws terrain already seen beyond the server's view distance: an opt-in
+    /// Cinnabar extension, off by default.
+    pub distant_terrain: bool,
 }
 
 impl Default for VideoSettings {
@@ -224,6 +227,7 @@ impl Default for VideoSettings {
             damage_bob: 1.0,
             java_animations: false,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
+            distant_terrain: false,
         }
     }
 }
@@ -328,6 +332,16 @@ mod antialiasing_tests {
         assert_eq!(support.select(7), 4);
         assert_eq!(support.select(32), 8);
         assert_eq!(AntiAliasingSupport::from_counts([]).select(0), 1);
+    }
+}
+
+#[cfg(test)]
+mod distant_terrain_tests {
+    use super::*;
+
+    #[test]
+    fn distant_terrain_defaults_off() {
+        assert!(!UserSettings::default().video.distant_terrain);
     }
 }
 

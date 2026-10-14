@@ -176,7 +176,7 @@ test_support_features = ["test-support"]
 name = "chunk-pipeline"
 path = "crates/chunk-pipeline"
 test_support_features = ["publication-test-support", "benchmark-support", "runtime-profile", "benchmark-mimalloc"]
-allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "test-time"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "client-world", "meshing", "assets", "world", "render-api", "lod", "lod-store", "test-time"]
 # Protocol is permitted only in fixtures; production consumes client-world's admitted contracts.
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "protocol", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
@@ -239,7 +239,7 @@ contract_only = true
 [[crates]]
 name = "client-runtime"
 path = "crates/client-runtime"
-allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock"]
+allowed_dependencies = ["env-compat", "bridge", "chunk-pipeline", "client-session", "client-state", "client-ui", "client-world", "diagnostics", "launcher-host", "lod-store", "meshing", "pack-runtime", "protocol", "render", "render-api", "render-scene", "simulation-clock", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-presentation", "client-audio", "client-interaction", "client-shell", "client-extensions", "acceptance", "asset-compiler"]
 test_support_features = ["test-support"]
 
@@ -371,7 +371,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "lod-store", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -821,6 +821,11 @@ consumer = "crates/acceptance/src/movement_evidence.rs"
 
 [[markers]]
 literal = "CINNABAR_ERROR_COUNTERS"
+kind = "log_only"
+producer = "crates/diagnostics/src/markers.rs"
+
+[[markers]]
+literal = "CINNABAR_LOD_INGEST"
 kind = "log_only"
 producer = "crates/diagnostics/src/markers.rs"
 

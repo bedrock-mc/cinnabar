@@ -395,6 +395,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    let lod_cache_dir = layout.lod_cache_dir();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     // Reclaim leftovers of crashed earlier sessions before this process
@@ -913,6 +914,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
+    crate::runtime::world::configure_distant_terrain(&mut app, &lod_cache_dir);
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }

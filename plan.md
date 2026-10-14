@@ -8659,51 +8659,152 @@ and the native comparison.
 - The first client takes the store's `store.lock` with an exclusive `try_lock` and is its
   only writer; another client on the same store opens it read-only, holds a shared
   `readers.lock` so the store is not removed under it, and writes nothing. A read-only
-  client's own session epochs live only in its memory.
-  Sessions begin per dimension, and again after every dimension change. With no
-  established epoch the session writes a new one at once; otherwise it writes a candidate
-  whose regions vote against each stored epoch, then merges into the matching epoch
-  (records, hashes and signatures, newer over older) or becomes a new epoch. While
-  undecided, record reads fall through to the most recently used stored epoch it has not
-  split from, so a revisit shows stored terrain at once; chunk hashes never fall
-  through, so every chunk sent is sampled and votes. Undecided candidates are deleted
-  when the session ends or at the next open. A store keeps at
-  most 8 established epochs, evicting the least recently used one that no session uses
-  or votes against. Signatures of epochs in use stay in memory and are written when the
-  epoch goes idle, its cache evicts them or the store closes. Quotas mirror the server
-  pack cache: 1 GiB per store and 8 GiB in total; stores unopened for 90 days are
-  removed, as are stores of older layout versions, while newer layouts count toward the
-  global cap; over the global cap whole stores go, least recently opened first, never one
-  another client holds open; then the open store deletes region files the player cannot
-  see (other dimensions, epochs no session uses) by last access minute, then its session
-  epochs' regions farthest from the player first. Each store records its last open in a
-  small file of its own; an unreadable one counts as opened now and is stamped so it can
-  still expire. Clearing the cache removes every store not held open, in every layout
-  version, and reports the rest. One
-  write-back thread per store is its only writer: a bounded request queue that hands
-  requests back when full, last-write-wins coalescing per key, reads of records and chunk
-  hashes that see earlier writes and get exactly one result each through a bounded queue
-  (a failure when the thread stops), caller-timed flushes and idle syncs, quota
-  enforcement on its own caller-chosen cadence, and a close that flushes, syncs and
-  signals when the store's lock is free again; closing or dropping the handle never
+  client's own session epochs live only in its memory. Sessions begin per dimension, and
+  again after every dimension change. With no established epoch the session writes a new one
+  at once; otherwise it writes a candidate whose regions vote against each stored epoch,
+  then merges into the matching epoch (hashes and signatures newer over older, and each
+  record laid over the stored one column by column, as the candidate holds only what it
+  sampled) or becomes a new epoch. While undecided, record reads fall through to the most
+  recently used stored epoch it has not split from, so a revisit shows stored terrain at
+  once; ingestion merges through own-epoch reads that never fall through, so a candidate
+  that splits off holds no stored terrain; chunk hashes never fall through, so every chunk
+  sent is sampled and votes. Undecided candidates are deleted when the session ends or at
+  the next open. A store keeps at most 8 established epochs, evicting the least recently
+  used one that no session uses or votes against. Signatures of epochs in use stay in memory
+  and are written when the epoch goes idle, its cache evicts them or the store closes.
+  Quotas mirror the server pack cache: 1 GiB per store and 8 GiB in total; stores unopened
+  for 90 days are removed, as are stores of older layout versions, while newer layouts count
+  toward the global cap; over the global cap whole stores go, least recently opened first,
+  never one another client holds open; then the open store deletes region files the player
+  cannot see (other dimensions, epochs no session uses) by last access minute, then its
+  session epochs' regions farthest from the player first. Each store records its last open
+  in a small file of its own; an unreadable one counts as opened now and is stamped so it
+  can still expire. Clearing the cache removes every store not held open, in every layout
+  version, and reports the rest. One write-back thread per store is its only writer: a
+  bounded request queue that hands requests back when full, last-write-wins coalescing per
+  key, reads of records and chunk hashes that see earlier writes and get exactly one result
+  each through a bounded queue (a failure when the thread stops), chunk hashes stored
+  cleared under a section whose write failed in the session, caller-timed flushes and idle
+  syncs, quota enforcement on its own caller-chosen cadence, and a close that flushes, syncs
+  and signals when the store's lock is free again; closing or dropping the handle never
   blocks, even on a full queue. `crates/lod-store/benches/region_store.rs` measures batched
-  inserts, hot and cold reads and compaction. StartGame's level id and seed reach the
-  client with the bootstrap event, which only logs them so far.
-- Incomplete: the client adapter from session block ids to registry keys, the session
-  adapter that opens a store and drives its write-back thread, ingestion hooks (including
-  dropping sections above a re-sent, shorter column and the chunk content hashes) and the
-  neighbour-plane scheduling they drive, LOD meshing (including a material for exposed
-  hidden voxels), rendering, fog, Video settings for the caps and the clear-cache action.
-  No app resource keeps the bootstrap's level id and seed for the store key yet. The
-  region index carries the chunk content hashes but not the planned per-region node
-  index (child mask, cluster count, visibility history); adding it bumps the region
-  format version, and writers then replace older files as unusable, so the cache is
-  sampled again. Flushes are bounded by rewritten bytes only, not by time, since the
-  store reads no clock.
-  Surface biomes ignore vertical biome changes within a column. Epoch rules are untested
-  on proxied lobby recordings and proxied networks. Storage is unmeasured on cold caches
-  and on Windows, macOS and Android devices; Android storage and Windows replacement of
-  open files are untested.
+  inserts, hot and cold reads and compaction. StartGame's level id and seed reach the client
+  with the bootstrap event, and the app keeps them with the session for the store key.
+- Ingestion (`chunk-pipeline`, off unless a store client is attached; off costs one branch
+  per hook): every block change marks its column dirty, and a dirty column is due
+  `LOD_SETTLE_POLLS` polls after its last change once no light work is pending for it. Each
+  poll within its budget takes at most `MAX_LOD_COLUMNS_PER_POLL` due columns and queues
+  them as sample jobs on a background-only Lod lane while fewer than `MAX_LOD_BACKLOG`
+  samples are in flight or wait for the writer; due columns beyond that are dropped and
+  counted, because a final capture keeps every column's last state. Final captures are never
+  dropped for a full backlog or writer inbox: an eviction, including a full one, takes each
+  retired column with the light of its sub-chunks before the light is removed, and a stream
+  that stops ingesting (the setting turned off, leaving, or a dropped stream) takes every
+  resident column, `MAX_LOD_FINAL_CAPTURES_PER_POLL` a poll so a large view never stalls
+  the frame (a dropped stream takes them all on the thread that releases it). The eviction's off-thread release moves into the Lod-lane job that
+  samples the column, instead of the shared rayon pool, so sampling never competes with
+  frame work there; the frame takes one light snapshot of the retired keys and clones
+  `Arc`s. Eviction captures beyond `MAX_LOD_PENDING_FINAL_CAPTURES` unwritten final
+  captures are dropped and counted, a deliberate bound on the retired chunk memory they hold
+  under the LOD memory cap; captures the column book skips count toward nothing. The final
+  capture of a stopping stream is exempt, as it holds memory the stream releases. Turning
+  ingestion off releases its queued work on a background thread, and a stream a bootstrap
+  replaces is released off the frame. Sub-chunks whose
+  light work is still pending are captured without light, so sampling lights them by the
+  heightmap. Every capture carries a sequence number, and a column book keeps the newest
+  capture accepted per column, so an older capture that finishes last is dropped and
+  counted.
+- Content hash: a 64-bit xxHash of each block layer's packed indices with its palette as
+  store materials and the biome storages, as planned, plus the set of sub-chunks that had
+  solved light, so a column first captured unlit is sampled again once lit. Light values are
+  left out: they depend on which neighbours were loaded, and hashing them would sample
+  unchanged columns again on every visit. Instead, a light job that changes the stored light
+  of a column captured since its last change (a neighbour arriving at the view's edge, a
+  torch or lava across a chunk border) marks it dirty and relit, with the same settle count,
+  and a relit capture is sampled whatever its hash; light solved before a column's first
+  capture rides along with it, so a revisit still skips stored columns. A job reports which sub-chunk and biome
+  allocations its hash covered; the world keeps an allocation for equal content, so the
+  frame reuses the hash for a later capture of the same allocations and skips a column the
+  book shows stored in the session's own epoch without queueing any job. Book hashes are
+  stamped with a generation that moves on with every store session change and failed
+  request, so a hash learned in an earlier session reads as unknown (hook re-marks and
+  evictions of sampled columns; equal resends mark nothing). A column first seen by a stream
+  costs one hash job, but no sample when the store holds its hash. A hash the book does not
+  know goes to the writer, which asks the store and sends changed columns to the Lod lane.
+  Deliberate deviation: Bedrock blob-cache hashes are not used; the client's own hash names
+  blocks by store material, so it survives id changes between sessions and servers, and
+  needs no blob ids carried through world events. Session block ids map to persistent keys
+  (vanilla states by network hash, sequential ids through the pinned registry's inverse map
+  in `assets`; server-custom states by name and canonical `axis=value` text) and to classes
+  from the runtime assets (air and invisible, water, other liquids opaque, leaf models, full
+  occluding cubes opaque, the rest see-through). Ids the assets do not know, visible ids
+  without a key and states a full registry cannot take are sampled as air and counted once
+  per column.
+- Writer: one thread, the only one that talks to the store, merges samples into the sections
+  they share: it writes each sub-chunk's octant into its level-0 section, mips L0–L4 with
+  the neighbour planes stored at each level, and mips again the facing slab of every present
+  neighbour of a created or face-changed section, so columns merged one at a time, in either
+  order, or together store the same sections. It reads the session's own epoch only, through
+  a cache of `LOD_SECTION_CACHE_ENTRIES` sections whose store reads see every earlier write,
+  and submits sections, then each column's surface and content hash, without blocking. The
+  store counts session changes in a `SessionEpoch`: a begin or end the moment its request
+  is queued, a merge, establishment or dropped candidate when its thread decides it. The
+  writer drops its cache whenever the epoch moved on and sends each merge with the epoch it
+  was prepared in; the store refuses a merge whose epoch is no longer current, so a
+  candidate's sections never overwrite the stored epoch it merged into and an old epoch's
+  sections never reach a fresh candidate, and the writer merges those columns again.
+  Deliberate deviation: a merge a full store queue hands back is held, with every later
+  column, until the next poll's nudge, and nothing new is merged meanwhile, instead of being
+  dropped, since a dropped write would lose final captures that are never taken again;
+  ingestion is not settled while anything is held, so sessions neither end nor begin ahead
+  of it. A store that stays full fills the inbox, which then drops changed columns only. A
+  stopped store's refusals make the book forget those columns' hashes, and the owner makes
+  the stream forget every hash and cached section after a failed request. Counters cover
+  queued jobs, sampled, skipped, superseded, dropped (changed and final), merged, stale
+  merges, unknown, unkeyed and registry-full ids, worker time and store errors. `crates/lod/benches/section_costs.rs`
+  measures the merge and encoding of one column, and `chunk_costs` one sample job (see
+  `docs/benchmarks.md`).
+- Sessions (`client-runtime`, driven by the app once a frame): while the Video setting
+  `distant_terrain` is on (off by default, no UI yet) and a session has its destination
+  identity and StartGame level id and seed, a thread opens the store under
+  `InstallLayout::lod_cache_dir()` and starts its write-back thread, so the frame never
+  waits for the disk; a store that cannot open is not retried for that session. The adapter
+  begins the session of the stream's dimension, attaches the stream (a read-only store held
+  by another client ingests nothing; a writer thread that cannot start is its own state,
+  counted as a store error) and stamps the wall-clock minute the app reads; while the
+  setting is off and no store is open or closing, the app reads no clock. Every
+  dimension change begins a session again, since a proxy may switch worlds behind it: a
+  change to another dimension begins that dimension's session at once and ends the old one
+  once no sample, final capture or held-back write is pending, since evictions at the change
+  still write into it; a change into the same dimension, or back into one whose old session
+  has not ended yet, ends and begins its session again once they are written. A new world's
+  column settles `LOD_SETTLE_POLLS` polls after it arrives, so it normally reaches the store
+  after them; one sampled while a slow backlog still holds the old world's columns is
+  written into the old session. The adapter queues a flush every `FLUSH_INTERVAL_MINUTES`,
+  quotas around the player every `QUOTA_INTERVAL_MINUTES`, and a sync once ingestion is idle
+  after writing. Turning the setting off, a new session or leaving makes the stream capture
+  its resident columns, and the store closes once every stream that wrote into it has
+  stopped and its captures are queued, or after `FINISH_LIMIT` of the app's monotonic
+  uptime, which drops what is left; the next store opens only after the closed one has released its lock, so the same
+  client opens it as its writer again. The `CINNABAR_LOD_INGEST` log line reports the
+  store's state and the counters when they change, at most once per the app's
+  `REPORT_INTERVAL`; an unchanged report is not formatted.
+- Incomplete: dropping sections above a re-sent, shorter column; re-mipping L5–L6 and
+  rebuilding a missing mip under a vouched chunk; parallel writers (one thread merges at
+  roughly 300 columns a second); the column book empties only when ingestion is idle once it
+  passes `MAX_LOD_BOOK_COLUMNS`; LOD meshing (including a material for exposed hidden
+  voxels), rendering, fog, Video settings UI and persistence for the toggle, the caps and
+  the clear-cache action. Quitting the client while a store waits for final captures drops
+  them, and they are sampled on a later visit. A new dimension's session request that waits
+  for a full store queue can arrive after the first writes of that dimension, which then
+  fail and are sampled again later. The region index carries the chunk content hashes but
+  not the planned per-region node index (child mask, cluster count, visibility history);
+  adding it bumps the region format version, and writers then replace older files as
+  unusable, so the cache is sampled again. Flushes are bounded by rewritten bytes only, not
+  by time, since the store reads no clock. Surface biomes ignore vertical biome changes
+  within a column. Epoch rules are untested on proxied lobby recordings and proxied
+  networks. Storage is unmeasured on cold caches and on Windows, macOS and Android devices;
+  Android storage and Windows replacement of open files are untested.
 - Provisional store behaviour: sessions on flat or void maps never vote, so after the
   first visit they show the stored terrain but their own new terrain is dropped each
   session; a returning player who explores only land the stored epochs never recorded,
@@ -8713,8 +8814,10 @@ and the native comparison.
   world's terrain wherever it has not sampled its own until it splits, and must split
   (more than 100 mismatching regions) before any of its terrain persists; a crash loses
   the surface signatures recorded since the session's epoch was last idle.
-- Provisional approximations: across a face whose neighbour is unknown, the mip exposes
-  non-hidden voxels and never hidden ones. After the parent-group fallback, exposed
-  all-hidden groups also try the nearest exposed material in their own columns. The water
-  surface rule fires when more than half of the non-air top-layer children are water,
+- Provisional approximations: where a candidate merges into a stored epoch, a coarse voxel
+  column mipped from children of both epochs keeps the candidate's, which saw only its own
+  children, until those columns are sampled again. Across a face whose neighbour is unknown,
+  the mip exposes non-hidden voxels and never hidden ones. After the parent-group fallback,
+  exposed all-hidden groups also try the nearest exposed material in their own columns. The
+  water surface rule fires when more than half of the non-air top-layer children are water,
   looser than a fully water top layer. No parity or performance gate closes from this work.

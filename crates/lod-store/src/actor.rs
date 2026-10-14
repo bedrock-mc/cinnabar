@@ -13,8 +13,16 @@
 //! store, when it sends [`Request::EnforceQuotas`], each with the caller's time. Closing
 //! flushes, enforces the quotas and syncs; [`Closing`] reports when the store's lock is
 //! released, so the same store can be opened again as its writer. Neither closing nor
-//! dropping the handle ever blocks its thread.
+//! dropping the handle ever blocks its thread. A [`StoreClient`] lets background threads
+//! submit requests and wait for reads of their own until the handle closes.
+//!
+//! Every session change bumps a [`SessionEpoch`]: a begun or ended session as soon as its
+//! request is queued, and a candidate that merges, becomes established or is dropped when
+//! the thread decides it. Writes prepared from what one epoch held are sent with it
+//! ([`StoreClient::write_in_epoch`]) and refused when the thread has seen a change since, so
+//! terrain merged from one epoch's sections never lands in another.
 
+mod client;
 mod closing;
 #[cfg(test)]
 mod tests;
@@ -34,7 +42,7 @@ use std::{
 
 use foldhash::fast::FixedState;
 
-pub use self::closing::Closing;
+pub use self::{client::StoreClient, closing::Closing};
 use lod::{epoch::ChunkSurface, geometry::SectionKey};
 
 use crate::{
@@ -121,6 +129,20 @@ pub enum SubmitError<T> {
     Stopped(T),
 }
 
+/// How many session changes a store has seen: a count that only grows. See the module
+/// documentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SessionEpoch(pub u64);
+
+/// What the thread did with writes sent in a [`SessionEpoch`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EpochWrite {
+    /// Queued behind every earlier write, in the epoch they were prepared in.
+    Taken,
+    /// Refused: a session changed after they were prepared; nothing was written.
+    Stale,
+}
+
 /// Identifies one read's result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ReadTicket(u64);
@@ -128,8 +150,11 @@ pub struct ReadTicket(u64);
 /// What one read asks for, in a dimension's session epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReadTarget {
-    /// A section record.
+    /// A section record, read through to a stored epoch while the session is undecided.
     Section(SectionKey),
+    /// A section record of the session's own epoch only, as ingestion merges into it, so
+    /// an undecided candidate never copies a stored epoch's terrain into its own.
+    OwnSection(SectionKey),
     /// A level-0 chunk's content hash, which ingestion compares before sampling.
     ChunkHash { x: i32, z: i32 },
 }
@@ -181,6 +206,26 @@ enum Command {
         target: ReadTarget,
         now: Minute,
     },
+    /// Writes applied only in the session epoch they were prepared in; see
+    /// [`StoreClient::write_in_epoch`].
+    EpochWrites {
+        epoch: SessionEpoch,
+        requests: Vec<Request>,
+        reply: SyncSender<EpochWrite>,
+    },
+    /// Holds the thread until `resume` disconnects, after acknowledging on `paused`.
+    #[cfg(any(test, feature = "test-support"))]
+    Pause {
+        paused: SyncSender<()>,
+        resume: Receiver<()>,
+    },
+    /// A [`StoreClient`] read answered on its own channel.
+    ReadReply {
+        dimension: Dimension,
+        target: ReadTarget,
+        now: Minute,
+        reply: SyncSender<ReadOutcome>,
+    },
     Shutdown {
         now: Option<Minute>,
     },
@@ -221,6 +266,7 @@ fn request_shutdown(commands: SyncSender<Command>, now: Option<Minute>, time: &S
 #[derive(Debug)]
 pub struct StoreActor {
     commands: Option<SyncSender<Command>>,
+    clients: Arc<client::ClientSlot>,
     shutdown_time: Arc<ShutdownTime>,
     results: Receiver<ReadResult>,
     events: Receiver<ActorEvent>,
@@ -247,7 +293,10 @@ impl StoreActor {
         let dropped_events = Arc::new(AtomicU64::new(0));
         let shutdown_time = Arc::new(ShutdownTime::default());
         let (registry, access) = (store.registry(), store.access());
+        let clients = Arc::new(client::ClientSlot::new(commands.clone()));
         let worker = worker::Worker {
+            changes: clients.changes(),
+            seen: SessionEpoch(0),
             store: Some(store),
             root,
             quotas,
@@ -257,12 +306,14 @@ impl StoreActor {
             dropped_events: Arc::clone(&dropped_events),
             shutdown_time: Arc::clone(&shutdown_time),
             batch: config.batch.get(),
+            unwritten: Default::default(),
         };
         let thread = std::thread::Builder::new()
             .name("lod-store".into())
             .spawn(move || worker.run())?;
         Ok(Self {
             commands: Some(commands),
+            clients,
             shutdown_time,
             results,
             events,
@@ -288,11 +339,19 @@ impl StoreActor {
         self.access
     }
 
-    /// Queues `request` without blocking.
+    /// A client for other threads, which stops working once this handle closes or drops.
+    #[must_use]
+    pub fn client(&self) -> StoreClient {
+        StoreClient::new(Arc::clone(&self.clients), self.registry(), self.access)
+    }
+
+    /// Queues `request` without blocking. A queued begin or end bumps the
+    /// [`SessionEpoch`].
     pub fn try_submit(&mut self, request: Request) -> Result<(), SubmitError<Request>> {
         let Some(commands) = &self.commands else {
             return Err(SubmitError::Stopped(request));
         };
+        let changes_session = request.changes_session();
         commands
             .try_send(Command::Request(request))
             .map_err(|error| match error {
@@ -301,7 +360,35 @@ impl StoreActor {
                     SubmitError::Stopped(request)
                 }
                 _ => unreachable!("a request was sent"),
-            })
+            })?;
+        if changes_session {
+            self.clients.bump_session_epoch();
+        }
+        Ok(())
+    }
+
+    /// The session changes queued or decided so far.
+    #[must_use]
+    pub fn session_epoch(&self) -> SessionEpoch {
+        self.clients.session_epoch()
+    }
+
+    /// Holds the thread once it has served everything queued before, until the returned
+    /// guard drops, so tests can fill its queue. Blocks until the thread holds.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pause(&mut self) -> Paused {
+        let (paused, acknowledged) = mpsc::sync_channel(1);
+        let (resume, held) = mpsc::sync_channel(1);
+        if let Some(commands) = &self.commands {
+            commands
+                .send(Command::Pause {
+                    paused,
+                    resume: held,
+                })
+                .expect("the thread runs");
+            acknowledged.recv().expect("the thread pauses");
+        }
+        Paused { _resume: resume }
     }
 
     /// Queues a read of `key` in `dimension`'s session epoch without blocking. Fails when
@@ -405,6 +492,7 @@ impl StoreActor {
     /// waiting, even while the request queue is full. Outstanding reads are answered
     /// first; their results are dropped.
     pub fn close(mut self, now: Minute) -> Closing {
+        self.clients.detach();
         if let Some(commands) = self.commands.take() {
             request_shutdown(commands, Some(now), &self.shutdown_time);
         }
@@ -420,8 +508,31 @@ impl StoreActor {
     }
 }
 
+/// Keeps the thread paused by [`StoreActor::pause`] until dropped.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug)]
+pub struct Paused {
+    _resume: SyncSender<()>,
+}
+
+impl Request {
+    /// True for requests that begin or end a session.
+    fn changes_session(&self) -> bool {
+        matches!(self, Self::Begin { .. } | Self::End { .. })
+    }
+
+    /// True for requests that only write data: sections, chunk hashes and surfaces.
+    fn writes_data(&self) -> bool {
+        matches!(
+            self,
+            Self::Put { .. } | Self::Remove { .. } | Self::ChunkHash { .. } | Self::Surface { .. }
+        )
+    }
+}
+
 impl Drop for StoreActor {
     fn drop(&mut self) {
+        self.clients.detach();
         if let Some(commands) = self.commands.take() {
             request_shutdown(commands, None, &self.shutdown_time);
         }
