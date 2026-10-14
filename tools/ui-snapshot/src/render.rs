@@ -226,7 +226,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let mut pixels = canvas.into_rgba();
     if !menu {
         // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             let alpha = f32::from(pixel[3]) / 255.0;
             for (channel, background) in [70.0, 90.0, 110.0].into_iter().enumerate() {
                 pixel[channel] =
