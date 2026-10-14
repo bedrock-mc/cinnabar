@@ -169,7 +169,7 @@ impl Console {
     pub fn report(&self, stream: Stream, report: Box<dyn std::fmt::Display + Send>) {
         if self
             .reports
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
                 (count < QUEUED_REPORTS).then_some(count + 1)
             })
             .is_err()
