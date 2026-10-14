@@ -97,8 +97,8 @@ fn airborne() -> ModeObservation {
         pitch: 0.0,
         yaw: 0.0,
         liquid_attach_height: protocol::STANDING_PLAYER_EYE_HEIGHT,
-        jumping: false,
         jump_edge: false,
+        jump_down: false,
     }
 }
 
@@ -164,6 +164,7 @@ fn pick(tracker: &mut ModeTracker, intent: ModeIntent, observed: ModeObservation
 fn pressed(observed: ModeObservation) -> ModeObservation {
     ModeObservation {
         jump_edge: true,
+        jump_down: true,
         ..observed
     }
 }
@@ -226,8 +227,9 @@ fn review_riding_does_not_query_swimming_or_pose_fit() {
     );
 }
 
+/// Vanilla keeps flying on the ground; only a double-tap or an ability update ends it.
 #[test]
-fn flight_toggles_on_and_off_and_lands_when_grounded_and_idle() {
+fn flight_toggles_on_and_off_and_survives_the_ground() {
     let mut tracker = ModeTracker::default();
     let intent = ModeIntent {
         can_fly: true,
@@ -246,11 +248,54 @@ fn flight_toggles_on_and_off_and_lands_when_grounded_and_idle() {
         on_ground: true,
         ..airborne()
     };
-    assert_eq!(pick(&mut tracker, intent, landed), MovementMode::Walking);
-
-    double_tap(&mut tracker, intent, airborne());
+    assert_eq!(pick(&mut tracker, intent, landed), MovementMode::Flying);
+    assert_eq!(
+        double_tap(&mut tracker, intent, landed),
+        MovementMode::Walking
+    );
     assert_eq!(
         double_tap(&mut tracker, intent, airborne()),
+        MovementMode::Flying
+    );
+}
+
+/// A server resync that repeats the previous flying value still overwrites local flight.
+#[test]
+fn every_ability_update_overwrites_local_flight() {
+    let mut tracker = ModeTracker::default();
+    let update = |sequence, server_flying| ModeIntent {
+        can_fly: true,
+        server_flying,
+        ability_sequence: Some(sequence),
+        ..ModeIntent::default()
+    };
+    assert_eq!(
+        pick(&mut tracker, update(1, true), airborne()),
+        MovementMode::Flying
+    );
+    assert_eq!(
+        double_tap(&mut tracker, update(1, true), airborne()),
+        MovementMode::Walking
+    );
+    assert_eq!(
+        pick(&mut tracker, update(1, true), airborne()),
+        MovementMode::Walking
+    );
+    assert_eq!(
+        pick(&mut tracker, update(2, true), airborne()),
+        MovementMode::Flying
+    );
+    assert_eq!(
+        pick(&mut tracker, update(2, true), pressed(airborne())),
+        MovementMode::Flying
+    );
+    // The update lands first, so the second press starts flight instead of stopping it.
+    assert_eq!(
+        pick(&mut tracker, update(3, false), pressed(airborne())),
+        MovementMode::Flying
+    );
+    assert_eq!(
+        pick(&mut tracker, update(4, false), airborne()),
         MovementMode::Walking
     );
 }

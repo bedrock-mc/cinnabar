@@ -21,6 +21,19 @@ The existing protocol carries those wire start/stop edges from the simulated
 mode. Its `PosDelta` uses end-of-tick motion, matching the vanilla send path;
 that lane does not require a flight-specific change.
 
+## Flight toggle and server resync
+
+- The double-tap reads the per-tick jump lanes the client sends: a press is
+  `JumpDown` on a tick whose previous tick sent no `Jumping`. Taps that begin
+  and end between two ticks therefore do not count, matching the server's replay
+  of the same input.
+- Only the double-tap emits `StartFlying`/`StopFlying`. Landing does not end
+  flight, and an ability update changes flight without a request flag.
+- Each ability update overwrites the local flying state when it arrives, even
+  when it repeats the previous value; a toggle on the same tick applies after it.
+  The server resends abilities when it rejects a request, so this resync is what
+  ends a disagreement instead of leaving the client predicting the other mode.
+
 ## Fixed mismatch
 
 An in-session snap called the same hard reanchor as a new session, which reset

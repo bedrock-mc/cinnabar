@@ -19,6 +19,7 @@ pub struct LocalMovementFacts {
     pub ride_seat: Option<[f32; 3]>,
     pub can_fly: bool,
     pub server_flying: bool,
+    pub ability_sequence: Option<u64>,
     pub fly_speed: Option<f64>,
     pub vertical_fly_speed: Option<f64>,
     pub creative_flight: bool,
@@ -98,6 +99,7 @@ pub fn read(
             .map(|(position, _)| position),
         can_fly,
         server_flying: capabilities.is_some_and(|capabilities| capabilities.flying),
+        ability_sequence: player.facts.local_abilities_sequence(),
         fly_speed: player.facts.local_abilities().and_then(|update| {
             flight_speed(update, ability_bit::FLY_SPEED, |layer| layer.fly_speed_bits)
         }),

@@ -337,6 +337,7 @@ impl LocalPhysicsController {
                 retained.grounded_before_tick = frame.grounded_before_tick;
                 retained.jump_repeated = frame.jump_repeated;
                 retained.processed.forced_sneak = frame.forced_sneak;
+                retained.processed.flight_request = frame.flight_request;
                 retained.processed.ride = frame.intent.ride;
                 if let Some(delta) = frame.ride_delta {
                     retained.movement = delta;

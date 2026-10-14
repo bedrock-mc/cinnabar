@@ -118,8 +118,8 @@ mod tests {
             pitch: 0.0,
             yaw: 0.0,
             liquid_attach_height: protocol::PLAYER_NETWORK_OFFSET,
-            jumping: false,
             jump_edge: false,
+            jump_down: false,
         }
     }
 
