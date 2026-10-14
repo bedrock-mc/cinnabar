@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use assets::{FontPixels, FontTexturePage, GlyphMetrics, RuntimeFontCatalog, encode_font_catalog};
 use render_model::FontAtlasFrame;
 use render_model::{
@@ -224,7 +225,7 @@ fn raster(
         usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    gpu.queue.write_texture(
+    gpu.queue.profiled_write_texture(
         texture.as_image_copy(),
         pixels,
         TexelCopyBufferLayout {
@@ -382,7 +383,7 @@ fn font_upload_burst_measurement() {
         atlas
             .prepare(&input, |_, origin, size, pixels| {
                 bytes_written += pixels.len();
-                gpu.queue.write_texture(
+                gpu.queue.profiled_write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &texture,
                         mip_level: 0,

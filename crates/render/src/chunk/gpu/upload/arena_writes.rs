@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use std::num::NonZeroU64;
 
 use crate::chunk::*;
@@ -176,7 +177,7 @@ fn queue_merged(
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.write_buffer(buffer, offset, bytes);
+            render_queue.profiled_write_buffer(buffer, offset, bytes);
         }
         return;
     }
@@ -187,7 +188,7 @@ fn queue_merged(
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.write_buffer(buffer, offset, bytes);
+            render_queue.profiled_write_buffer(buffer, offset, bytes);
             continue;
         }
         let size = run.iter().map(|(_, bytes)| bytes.len() as u64).sum();
@@ -200,7 +201,7 @@ fn queue_merged(
         )
         .entered();
         if let Some(size) = NonZeroU64::new(size)
-            && let Some(mut view) = render_queue.write_buffer_with(buffer, offset, size)
+            && let Some(mut view) = render_queue.profiled_write_buffer_with(buffer, offset, size)
         {
             let mut at = 0;
             for (_, bytes) in run {

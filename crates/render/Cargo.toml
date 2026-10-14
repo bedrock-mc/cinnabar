@@ -16,6 +16,8 @@ reads = [
 ]
 
 [features]
+# Counts allocation requests and labelled GPU writes for diagnostic runs.
+alloc-stats = ["render-scene/alloc-stats"]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.

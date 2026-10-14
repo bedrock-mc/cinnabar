@@ -1,4 +1,5 @@
 //! Player skin arrays mirroring the main world's slot residency; only changed layers upload.
+use crate::queue_writes::ProfiledQueue as _;
 use std::sync::Arc;
 
 use super::*;
@@ -151,7 +152,7 @@ impl GpuSkinArrays {
                     bytes = resident.texels.len(),
                 )
                 .entered();
-                queue.write_texture(
+                queue.profiled_write_texture(
                     TexelCopyTextureInfo {
                         texture,
                         mip_level: 0,

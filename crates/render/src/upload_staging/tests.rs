@@ -1,4 +1,5 @@
 use super::*;
+use crate::queue_writes::ProfiledQueue as _;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -66,7 +67,7 @@ fn batches_larger_than_the_pool_queue_only_the_overflow() {
     staging.write_batch_or(&device, &queue, &[(&target, 0, bytes.as_slice())], |rest| {
         queued.extend(rest.iter().map(|&(_, offset, bytes)| (offset, bytes.len())));
         for &(buffer, offset, bytes) in rest {
-            queue.write_buffer(buffer, offset, bytes);
+            queue.profiled_write_buffer(buffer, offset, bytes);
         }
     });
     assert_eq!(queued, [(CAPACITY as u64, OVERSIZED - CAPACITY)]);
@@ -146,7 +147,7 @@ fn custom_fallback_runs_after_older_overlapping_copies() {
     staging.write_batch_or(&device, &queue, &[(&target, 8, &[2; 8])], |rest| {
         fallbacks += 1;
         assert_eq!(rest.len(), 1);
-        queue.write_buffer(&target, rest[0].1, rest[0].2);
+        queue.profiled_write_buffer(&target, rest[0].1, rest[0].2);
     });
     assert_eq!(fallbacks, 1);
     let bytes = finish(&device, &queue, &staging, &target);

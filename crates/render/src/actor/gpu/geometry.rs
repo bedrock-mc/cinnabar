@@ -1,5 +1,6 @@
 //! Retained GPU storage for immutable geometry pages.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor},
     renderer::{RenderDevice, RenderQueue},
@@ -155,7 +156,7 @@ impl SegmentedVertexBuffer {
                 bytes = vertices.segments[index].len() * stride,
             )
             .entered();
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 buffer,
                 (vertices.offsets[index] * stride) as u64,
                 bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices.segments[index]),

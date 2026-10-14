@@ -1,6 +1,7 @@
 //! Native raster fixtures share the production tile reduction and exposure shader.
 
 use super::*;
+use crate::queue_writes::ProfiledQueue as _;
 
 impl Raster {
     pub(super) fn new(name: &str) -> Option<Self> {
@@ -222,7 +223,7 @@ impl Raster {
             1,
             wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         );
-        self.gpu.queue.write_texture(
+        self.gpu.queue.profiled_write_texture(
             scene.as_image_copy(),
             input,
             wgpu::TexelCopyBufferLayout {

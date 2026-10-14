@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -241,7 +242,7 @@ fn prepare_cloud_colour(
     if gpu.colour == native {
         return;
     }
-    render_queue.write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
+    render_queue.profiled_write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
     gpu.colour = native;
     #[cfg(test)]
     {

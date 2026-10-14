@@ -1,5 +1,6 @@
 //! One retained uniform and two texture bindings implement target highlight drawing.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -236,7 +237,7 @@ fn prepare(
     if let Some(target) = scene.target.filter(|_| gpu.selected.is_some()) {
         let record = target.record();
         if gpu.record != Some(record) {
-            queue.write_buffer(&gpu.record_buffer, 0, bytemuck::cast_slice(&record));
+            queue.profiled_write_buffer(&gpu.record_buffer, 0, bytemuck::cast_slice(&record));
             gpu.record = Some(record);
             gpu.uniform_uploads += 1;
         }

@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use bevy::{
@@ -92,7 +93,7 @@ fn prepare_lightning_records(
     let count = scene.records.len().min(MAX_BOLT_RECORDS);
     gpu.record_count = u32::try_from(count).expect("bounded bolt record count");
     if count > 0 {
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             &gpu.record_buffer,
             0,
             bytemuck::cast_slice::<BoltRecord, u8>(&scene.records[..count]),

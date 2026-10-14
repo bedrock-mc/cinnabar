@@ -1,4 +1,5 @@
 use super::*;
+use crate::queue_writes::ProfiledQueue as _;
 
 #[test]
 fn warm_actor_history_uploads_do_not_stage_unchanged_bytes() {
@@ -8,11 +9,11 @@ fn warm_actor_history_uploads_do_not_stage_unchanged_bytes() {
     let mut storage = MotionBuffer::new(device, 64);
     let bytes = [3u8; 64];
     storage.upload(device, &bytes, |buffer, bytes| {
-        queue.write_buffer(buffer, 0, bytes)
+        queue.profiled_write_buffer(buffer, 0, bytes)
     });
     let before = test_alloc::thread_allocations();
     storage.upload(device, &bytes, |buffer, bytes| {
-        queue.write_buffer(buffer, 0, bytes)
+        queue.profiled_write_buffer(buffer, 0, bytes)
     });
     assert_eq!(
         test_alloc::thread_allocations(),
