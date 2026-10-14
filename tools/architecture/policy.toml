@@ -1532,3 +1532,8 @@ reason = "Portal axis value from the pinned block-state domain."
 path = "crates/asset-compiler/src/block_shapes/visual.rs"
 literal = "tip"
 reason = "Dripstone thickness value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/diagnostics/src/session.rs"
+literal = "unknown"
+reason = "Commit placeholder for builds without CINNABAR_BUILD_COMMIT; not a block-state value."
