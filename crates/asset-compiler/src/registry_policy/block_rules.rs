@@ -158,7 +158,7 @@ pub(super) fn compile(
             applied.insert("block-entity-backings".into());
         }
         for rule in &policy.block_rules {
-            if !rule.matches(&block.name, &state, record.model_family) {
+            if !rule.matches(&block.name, state, record.model_family) {
                 continue;
             }
             applied.insert(rule.id.clone());
