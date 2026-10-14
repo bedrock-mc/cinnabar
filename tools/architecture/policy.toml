@@ -1292,8 +1292,7 @@ vocabularies = [
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
-    { path = "app/src/block_entities/describe.rs", max = 25 },
-    { path = "app/src/block_entities/spawner.rs", max = 1 },
+    { path = "app/src/block_entities/describe.rs", max = 1 },
     { path = "app/src/block_use.rs", max = 1 },
     { path = "app/src/developer_control/state.rs", max = 1 },
     { path = "app/src/environment/profile_lookup.rs", max = 3 },

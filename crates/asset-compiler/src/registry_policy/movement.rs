@@ -249,6 +249,7 @@ mod tests {
             entity_compatibility: Vec::new(),
             entity_rules: Vec::new(),
             block_rules: Vec::new(),
+            block_entity_rules: Vec::new(),
             model_family_rules: Vec::new(),
             item_rules: Vec::new(),
             twins: BTreeMap::new(),

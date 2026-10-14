@@ -113,6 +113,7 @@ pub(crate) struct BlockEntityFont(pub(crate) Arc<RuntimeFontCatalog>);
 struct BlockInfo {
     name: Arc<str>,
     state: BlockState,
+    backing: Option<assets::facts::BlockEntityBacking<'static>>,
 }
 
 #[derive(Resource)]
@@ -265,6 +266,7 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
     }
 }
 
+/// Caches the canonical state and generated route for one admitted runtime identity.
 fn block_info(
     runtime: &mut BlockEntityRuntime,
     collisions: &PhysicsCollisionRegistries,
@@ -283,6 +285,11 @@ fn block_info(
             Some(Arc::new(BlockInfo {
                 name: Arc::from(name),
                 state,
+                backing: assets::facts::BlockEntityFacts::pinned().for_registry(
+                    runtime_id,
+                    mode,
+                    collisions.breg_sha256(),
+                ),
             }))
         })
         .clone()
@@ -317,15 +324,18 @@ fn second_crack_part(
 
 /// The portal surface `runtime_id` draws, if any.
 fn portal_kind(
-    runtime: &mut BlockEntityRuntime,
     collisions: &PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
     runtime_id: u32,
 ) -> Option<BlockEntityKind> {
-    let info = block_info(runtime, collisions, mode, runtime_id)?;
-    match info.name.as_ref() {
-        assets::END_PORTAL_IDENTIFIER => Some(BlockEntityKind::EndPortal),
-        assets::END_GATEWAY_IDENTIFIER => Some(BlockEntityKind::EndGateway),
+    let backing = assets::facts::BlockEntityFacts::pinned().for_registry(
+        runtime_id,
+        mode,
+        collisions.breg_sha256(),
+    )?;
+    match backing.entity.renderer {
+        assets::facts::BlockEntityRenderer::EndPortal => Some(BlockEntityKind::EndPortal),
+        assets::facts::BlockEntityRenderer::EndGateway => Some(BlockEntityKind::EndGateway),
         _ => None,
     }
 }
@@ -500,7 +510,7 @@ pub(crate) fn update_block_entity_scene(
                 columns::ColumnScan::is_current,
                 |previous| {
                     let portals = portals::column_cells(chunk_key, chunk, |id| {
-                        portal_kind(runtime, &collisions, mode, id)
+                        portal_kind(&collisions, mode, id)
                     });
                     let entities = columns::routed_entities(
                         chunk,
@@ -509,7 +519,14 @@ pub(crate) fn update_block_entity_scene(
                             block_info(runtime, &collisions, mode, runtime_id)
                                 .zip(nbt.parse())
                                 .and_then(|(info, root)| {
-                                    describe(id, &info.name, &info.state, &root, position)
+                                    describe(
+                                        id,
+                                        info.backing?,
+                                        &info.name,
+                                        &info.state,
+                                        &root,
+                                        position,
+                                    )
                                 })
                         },
                     );

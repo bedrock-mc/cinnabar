@@ -12,6 +12,7 @@ use std::{
 };
 
 mod biomes;
+pub mod block_entities;
 mod block_rules;
 mod carriers;
 pub mod entities;
@@ -61,6 +62,7 @@ struct Policy {
     entity_rules: Vec<entities::Rule>,
     model_family_rules: Vec<block_rules::Rule>,
     block_rules: Vec<block_rules::Rule>,
+    block_entity_rules: Vec<block_entities::Rule>,
     item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,

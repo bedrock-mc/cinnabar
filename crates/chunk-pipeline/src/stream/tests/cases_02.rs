@@ -25,7 +25,9 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
     assert_eq!(stream.take_requests().len(), 1);
 
     let mut payload = vec![9, 1, (-4_i8) as u8, 1];
-    payload.extend(zig_zag_i32(8_516));
+    payload.extend(zig_zag_i32(
+        block_entity_runtime_id("minecraft:jukebox") as i32
+    ));
     payload.extend(block_entity_nbt("Jukebox", position));
     stream
         .submit(
@@ -53,7 +55,11 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
     stream
         .submit(
             3,
-            inline_block_entity_event(1, 7_069, block_entity_nbt("Barrel", position)),
+            inline_block_entity_event(
+                1,
+                block_entity_runtime_id("minecraft:barrel"),
+                block_entity_nbt("Barrel", position),
+            ),
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
@@ -62,14 +68,22 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
     stream
         .submit(
             4,
-            inline_block_entity_event(2, 846, block_entity_nbt("Beacon", deferred_position)),
+            inline_block_entity_event(
+                2,
+                block_entity_runtime_id("minecraft:beacon"),
+                block_entity_nbt("Beacon", deferred_position),
+            ),
         )
         .unwrap();
     let unknown_position = [49, -63, 2];
     stream
         .submit(
             5,
-            inline_block_entity_event(3, 1_936, block_entity_nbt("Barrel", unknown_position)),
+            inline_block_entity_event(
+                3,
+                block_entity_runtime_id("minecraft:noteblock"),
+                block_entity_nbt("Barrel", unknown_position),
+            ),
         )
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
