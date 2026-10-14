@@ -83,7 +83,6 @@ fn assert_own_policy(world: &World) {
 /// Feeds completed local simulation positions through the actor authority's normal input.
 fn local_feed(position: Vec3) -> client_world::LocalPlayerFeed {
     client_world::LocalPlayerFeed {
-        held_variants: Default::default(),
         game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],

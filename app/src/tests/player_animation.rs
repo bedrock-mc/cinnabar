@@ -449,7 +449,6 @@ fn player_list_with(skin: u8, cape: Option<u8>, geometry: Option<(&str, &str)>) 
 
 fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
     LocalPlayerFeed {
-        held_variants: Default::default(),
         game_mode: None,
         uuid: [5; 16],
         prefer_client_skin: false,
