@@ -177,10 +177,9 @@ impl NearMask {
         let radius = near_radius.clamp(0, limit.max(0));
         let reach = i64::from(radius).pow(2);
         let disc = (-radius..=radius).flat_map(move |dz| {
-            (-radius..=radius).filter_map(move |dx| {
-                (i64::from(dx).pow(2) + i64::from(dz).pow(2) <= reach)
-                    .then(|| ColumnPos::new(centre[0] + dx, centre[1] + dz))
-            })
+            (-radius..=radius)
+                .filter(move |dx| i64::from(*dx).pow(2) + i64::from(dz).pow(2) <= reach)
+                .map(move |dx| ColumnPos::new(centre[0] + dx, centre[1] + dz))
         });
         Self::from_columns(centre, limit, disc.chain(drawn))
     }

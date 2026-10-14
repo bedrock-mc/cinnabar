@@ -376,7 +376,19 @@ fn close_and_channel_pressure_are_bounded() {
         window_type: 0,
         server_initiated: true,
     }));
+    // Confirm the server command once; it cannot acknowledge an unsent close.
+    assert_eq!(ledger.pending_batch().unwrap().unwrap().1, 1);
+    assert!(ledger.mark_transport_enqueued(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
     assert!(ledger.pending_batch().unwrap().is_none());
+    assert!(!ledger.mark_transport_enqueued(10 + INVENTORY_REQUEST_TIMEOUT_MILLIS));
+    ledger.apply(&InventoryEvent::Close(ContainerCloseEvent {
+        container: ContainerIdentity::window(1),
+        window_type: 0,
+        server_initiated: false,
+    }));
+    assert!(ledger.pending_batch().unwrap().is_none());
+    assert!(ledger.controls.storage.sent.is_none());
+    assert!(ledger.controls.storage.confirmed.is_none());
 
     // Structure-editor windows have no client screen.
     let mut unsupported = PlayerInventoryLedger::default();

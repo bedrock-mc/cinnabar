@@ -3,6 +3,8 @@
 import copy
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -12,12 +14,20 @@ from generate import ROOT, constant_value, declarations
 class ContractTests(unittest.TestCase):
     def setUp(self):
         """Load the real contract for each independent mutation."""
-        self.manifest = json.loads((ROOT / "crates/bridge/data/contract.json").read_text())
+        self.manifest = json.loads((ROOT / "crates/bridge/data/contract.json").read_text(encoding="utf-8"))
+
+    def test_check_never_uses_the_locale_encoding(self):
+        """Windows' locale encoding misreads the generated non-ASCII docs, so every file access must name UTF-8."""
+        result = subprocess.run(
+            [sys.executable, "-X", "warn_default_encoding", "-W", "error::EncodingWarning",
+             str(Path(__file__).with_name("generate.py")), "--check"],
+            capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_game_version_reads_updated_target(self):
         """A target update must change the resolved version without editing the contract."""
         row = next(row for row in self.manifest["constants"] if row["rust_name"] == "GAME_VERSION")
-        target = json.loads((ROOT / row["source"]["path"]).read_text())
+        target = json.loads((ROOT / row["source"]["path"]).read_text(encoding="utf-8"))
         target["game_version"] += ".updated"
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

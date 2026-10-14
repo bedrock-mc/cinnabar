@@ -256,12 +256,12 @@ impl FarTerrainCache {
                     let namespace = *namespace;
                     self.queue_write(namespace, pos, column, now);
                 }
-                Some(Retired::Unresolved { columns, .. }) => {
-                    if self.disk.is_some() && columns.len() < MAX_UNRESOLVED_COLUMNS {
-                        columns.push((pos, column));
-                    }
+                Some(Retired::Unresolved { columns, .. })
+                    if self.disk.is_some() && columns.len() < MAX_UNRESOLVED_COLUMNS =>
+                {
+                    columns.push((pos, column));
                 }
-                None => {}
+                Some(Retired::Unresolved { .. }) | None => {}
             }
             return;
         }
