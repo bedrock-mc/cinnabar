@@ -3350,6 +3350,8 @@ Texture-only bow, crossbow, spear and trident attachables use native held sprite
 meshes and hand transforms when every resolved geometry matches the startup weapon
 or stock item sprite. Their texture aliases follow native use stages; custom models
 keep authored attachable animation. This is an accepted presentation choice.
+Cube-based weapon textures are UV atlases, so those weapons use pack item icons,
+then startup item icons. Without an item icon, they retain model rendering.
 Provisional, incomplete: compilation, regression execution and rendered acceptance
 in both animation modes remain unverified. No parity gate is closed.
 Held pixel meshes and Java raster frames include

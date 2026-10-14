@@ -560,13 +560,13 @@ pub(super) fn hand_source(
         alpha,
         item_animation.as_ref(),
     );
+    let retained_equipment = ActorEquipmentInput {
+        main: main.clone(),
+        ..equipment_input.clone()
+    };
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
         equipment.is_vanilla_attachable(identifier)
     }) {
-        let retained_equipment = ActorEquipmentInput {
-            main: main.clone(),
-            ..equipment_input.clone()
-        };
         let progress = FirstPersonHand {
             swing: hand.swing,
             equip: hand.equip,
@@ -621,7 +621,7 @@ pub(super) fn hand_source(
                 item_animation
                     .map(|input| {
                         super::hand::attachable_hand_input(
-                            equipment_input,
+                            &retained_equipment,
                             owner_equipment,
                             input,
                             false,

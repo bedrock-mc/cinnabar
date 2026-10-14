@@ -16,7 +16,7 @@ pub type PackEquipmentLayer = (
 pub struct PackEquipment {
     pub(super) assets: Arc<RuntimeEntityAssets>,
     pub(super) catalog: Option<Arc<RuntimeEquipmentCatalog>>,
-    pub(super) native_items: BTreeMap<Box<str>, super::native::NativeItem>,
+    pub(super) native_items: BTreeMap<Box<str>, super::native::NativeArtwork>,
     pub(super) texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     pub(super) attachables: actor_animation::AttachablesRuntime,

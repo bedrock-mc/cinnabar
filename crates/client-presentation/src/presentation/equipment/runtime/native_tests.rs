@@ -492,3 +492,308 @@ fn an_extra_custom_stage_model_prevents_native_routing() {
     install(&mut runtime, pages, files);
     assert!(!runtime.uses_native_item_mesh("minecraft:bow"));
 }
+
+/// Replaces the fixture sprite geometry with an original cube model using a UV atlas.
+fn cube_fixture(identifier: &str, geometry: &str, color: u8) -> Vec<(Box<str>, Vec<u8>)> {
+    let mut files = fixture(identifier, geometry, color, false);
+    let (_, bytes) = files
+        .iter_mut()
+        .find(|(path, _)| path.as_ref() == "models/weapon.json")
+        .unwrap();
+    let mut model: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let bone = &mut model["minecraft:geometry"][0]["bones"][0];
+    bone.as_object_mut().unwrap().remove("texture_meshes");
+    bone["cubes"] = serde_json::json!([{"origin": [0, 0, 0], "size": [2, 3, 4], "uv": [0, 0]}]);
+    *bytes = serde_json::to_vec(&model).unwrap();
+    files
+}
+
+/// Builds a cube-backed startup attachable with an optional original item sprite.
+fn cube_runtime(
+    identifier: &str,
+    geometry: &str,
+    icon: Option<u8>,
+) -> (EquipmentRuntime, render_model::ActorArtworkPages) {
+    let (entities, catalog) = pack_catalog(cube_fixture(identifier, geometry, 10));
+    let sprites = icon
+        .into_iter()
+        .map(|color| assets::IconSprite {
+            width: 16,
+            height: 32,
+            rgba8: [color, 40, 60, 255].repeat(16 * 32).into(),
+        })
+        .collect::<Vec<_>>();
+    let entries = icon
+        .into_iter()
+        .map(|_| assets::IconEntry {
+            identifier: identifier.into(),
+            metadata: 0,
+            sprite: 0,
+        })
+        .collect::<Vec<_>>();
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog([0; 32], &sprites, &entries).unwrap(),
+        )
+        .unwrap(),
+    );
+    let (runtime, pages, _) = EquipmentRuntime::build(
+        entities,
+        Some(catalog),
+        icons,
+        None,
+        None,
+        render_model::ActorArtworkPages::default(),
+    );
+    (runtime, pages)
+}
+
+#[test]
+fn cube_backed_weapons_use_item_sprites_in_both_views_and_hands() {
+    for (identifier, geometry) in [
+        ("minecraft:trident", "geometry.trident"),
+        ("minecraft:iron_spear", "geometry.spear"),
+    ] {
+        for (startup_icon, pack_icon) in [(Some(30), None), (Some(30), Some(90)), (None, Some(90))]
+        {
+            let (mut runtime, pages) = cube_runtime(identifier, geometry, startup_icon);
+            let mut pages = install(&mut runtime, pages, cube_fixture(identifier, geometry, 80));
+            if let Some(color) = pack_icon {
+                let items = crate::session_assets::SessionItems {
+                    components: Arc::default(),
+                    icons: Some(Arc::new(
+                        client_ui::ui_runtime::presentation::SessionIcons {
+                            icons: vec![client_ui::ui_runtime::presentation::SessionIcon {
+                                identifier: identifier.into(),
+                                metadata: 0,
+                                width: 8,
+                                height: 24,
+                                rgba8: [color, 40, 60, 255].repeat(8 * 24).into(),
+                            }],
+                            ..Default::default()
+                        },
+                    )),
+                };
+                let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+                let (next, locations) = pages.with_equipment_rasters(staged.rasters());
+                pages = next;
+                runtime.set_session_items(Some(&items), Some(staged), locations);
+            }
+            assert!(runtime.uses_native_item_mesh(identifier));
+            assert!(!runtime.is_vanilla_attachable(identifier));
+            let item = item(identifier);
+            let body = player_body(&mut runtime);
+            assert_eq!(
+                runtime.native_sprite_dimensions(&item),
+                Some(if pack_icon.is_some() {
+                    [8, 24]
+                } else {
+                    [16, 32]
+                })
+            );
+            for input in [
+                AttachableAnimationInput::default(),
+                AttachableAnimationInput {
+                    use_elapsed_ticks: Some(0),
+                    ..Default::default()
+                },
+            ] {
+                let hand = FirstPersonHand {
+                    swing: 0.0,
+                    equip: 1.0,
+                    consume: None,
+                };
+                let native = runtime
+                    .first_person_item_with_use(
+                        &body,
+                        &item,
+                        hand,
+                        render_api::DEFAULT_COMBAT_VISUALS,
+                        input,
+                    )
+                    .unwrap();
+                let java = runtime
+                    .first_person_java_item_with_use(
+                        &body,
+                        &item,
+                        render_model::java_animation::JavaHand {
+                            swing: 0.0,
+                            equip: 1.0,
+                            using: None,
+                        },
+                        input,
+                    )
+                    .unwrap();
+                let off = runtime.first_person_offhand(&body, &item).unwrap();
+                for draw in [native, java, off] {
+                    assert_eq!(
+                        selected_pixel(&pages, &draw.presentation)[0],
+                        pack_icon.or(startup_icon).unwrap()
+                    );
+                }
+            }
+            let (_, bones) = runtime.body_bones_for(body.input.rig).unwrap();
+            for java in [None, Some(JavaGrip::default())] {
+                for off_hand in [false, true] {
+                    let mut layers = Vec::new();
+                    runtime.push_native_held(
+                        &body,
+                        &item,
+                        if off_hand { 2 } else { 1 },
+                        &bones,
+                        java,
+                        AttachableAnimationInput {
+                            off_hand,
+                            ..Default::default()
+                        },
+                        &mut layers,
+                    );
+                    assert_eq!(layers.len(), 1);
+                    assert_eq!(
+                        selected_pixel(&pages, &layers[0])[0],
+                        pack_icon.or(startup_icon).unwrap()
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cube_backed_weapons_keep_model_rendering_when_no_item_sprite_exists() {
+    for (identifier, geometry) in [
+        ("minecraft:trident", "geometry.trident"),
+        ("minecraft:iron_spear", "geometry.spear"),
+    ] {
+        let (mut runtime, pages) = cube_runtime(identifier, geometry, None);
+        let pages = install(&mut runtime, pages, cube_fixture(identifier, geometry, 80));
+        assert!(!runtime.uses_native_item_mesh(identifier));
+        assert!(runtime.is_vanilla_attachable(identifier));
+        let body = player_body(&mut runtime);
+        let owner = owner();
+        let names = [Box::from("rightItem")];
+        let rig = owner_rig(&owner, &names);
+        for first_person in [false, true] {
+            let draw = runtime
+                .first_person_attachable(
+                    &body,
+                    &item(identifier),
+                    &owner,
+                    &rig,
+                    AttachableAnimationInput {
+                        first_person,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap();
+            assert!(!draw.camera_space);
+            assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 80);
+            let mesh = runtime
+                .take_pending_geometries()
+                .into_iter()
+                .find(|mesh| mesh.id == draw.presentation.submission.input.rig);
+            if let Some(mesh) = mesh {
+                let (min, max) = mesh
+                    .vertices
+                    .iter()
+                    .map(|vertex| vertex.position[2])
+                    .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), z| {
+                        (min.min(z), max.max(z))
+                    });
+                assert!((max - min) > 1.0 / 16.0);
+            }
+        }
+    }
+}
+
+#[test]
+fn inherited_cube_geometry_uses_the_item_icon_for_a_texture_only_overlay() {
+    let identifier = "minecraft:trident";
+    let (mut runtime, pages) = cube_runtime(identifier, "geometry.trident", Some(30));
+    let mut texture = runtime.catalog.as_ref().unwrap().textures()[0].clone();
+    texture.rgba8 = [80, 40, 60, 255].repeat(32 * 32).into();
+    let catalog = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts([2; 32], vec![], vec![texture]).unwrap(),
+    );
+    let (pages, locations) =
+        pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
+    runtime.set_pack_layer(Some((
+        Arc::clone(&runtime.assets),
+        Some(catalog),
+        locations,
+    )));
+    assert!(runtime.uses_native_item_mesh(identifier));
+    let body = player_body(&mut runtime);
+    let draw = runtime
+        .first_person_item(
+            &body,
+            &item(identifier),
+            FirstPersonHand {
+                swing: 0.0,
+                equip: 1.0,
+                consume: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 30);
+}
+
+#[test]
+fn missing_pack_sprite_never_falls_back_to_a_startup_cube_uv_atlas() {
+    let identifier = "minecraft:trident";
+    let mut files = cube_fixture(identifier, "geometry.trident", 10);
+    let sprite_model = fixture(identifier, "geometry.item_sprite", 10, false)
+        .into_iter()
+        .find(|(path, _)| path.as_ref() == "models/weapon.json")
+        .unwrap()
+        .1;
+    files.push(("models/item_sprite.json".into(), sprite_model));
+    let (entities, catalog) = pack_catalog(files);
+    let icons = Arc::new(
+        assets::RuntimeIconCatalog::decode(
+            &assets::encode_icon_catalog(
+                [0; 32],
+                &[assets::IconSprite {
+                    width: 16,
+                    height: 16,
+                    rgba8: [30, 40, 60, 255].repeat(16 * 16).into(),
+                }],
+                &[assets::IconEntry {
+                    identifier: identifier.into(),
+                    metadata: 0,
+                    sprite: 0,
+                }],
+            )
+            .unwrap(),
+        )
+        .unwrap(),
+    );
+    let (mut runtime, pages, _) = EquipmentRuntime::build(
+        entities,
+        Some(catalog),
+        icons,
+        None,
+        None,
+        render_model::ActorArtworkPages::default(),
+    );
+    let overlay = fixture(identifier, "geometry.item_sprite", 10, false)
+        .into_iter()
+        .filter(|(path, _)| !path.ends_with(".png"))
+        .collect();
+    let pages = install(&mut runtime, pages, overlay);
+    assert!(runtime.uses_native_item_mesh(identifier));
+    let body = player_body(&mut runtime);
+    let draw = runtime
+        .first_person_item(
+            &body,
+            &item(identifier),
+            FirstPersonHand {
+                swing: 0.0,
+                equip: 1.0,
+                consume: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(selected_pixel(&pages, &draw.presentation)[0], 30);
+}

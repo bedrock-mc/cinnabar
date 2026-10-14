@@ -15,6 +15,11 @@ pub struct EquipmentResources {
 }
 
 impl EquipmentResources {
+    /// Omits absent aliases so existing equipment carriers keep their canonical encoding.
+    pub(super) fn is_empty(&self) -> bool {
+        self.geometry.is_empty() && self.textures.is_empty()
+    }
+
     /// Bounds both alias tables and validates each alias and resource identifier.
     pub(super) fn validate(&self) -> Result<(), AssetError> {
         for table in [&self.geometry, &self.textures] {

@@ -65,7 +65,7 @@ pub struct EquipmentBinding {
     pub geometry: EquipmentReference,
     pub texture: EquipmentReference,
     /// All authored geometry and texture aliases, retained independently of controllers.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "EquipmentResources::is_empty")]
     pub resources: EquipmentResources,
     pub material: Box<str>,
     /// Dye support resolved at compilation, with unknown material ancestry retained explicitly.

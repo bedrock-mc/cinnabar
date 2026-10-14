@@ -13,6 +13,14 @@ pub(super) enum NativeItem {
     Spear,
 }
 
+/// Recognized models retain whether their attachable artwork is a complete sprite.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NativeArtwork {
+    kind: NativeItem,
+    texture_is_sprite: bool,
+    startup_texture_is_sprite: bool,
+}
+
 impl NativeItem {
     /// Limits the presentation choice to the supported built-in weapon families.
     fn from_identifier(identifier: &str) -> Option<Self> {
@@ -79,7 +87,7 @@ pub(super) fn recognize(
     catalog: Option<&RuntimeEquipmentCatalog>,
     base: &RuntimeEntityAssets,
     startup: Option<&RuntimeEquipmentCatalog>,
-) -> BTreeMap<Box<str>, NativeItem> {
+) -> BTreeMap<Box<str>, NativeArtwork> {
     let Some(startup) = startup else {
         return BTreeMap::new();
     };
@@ -113,6 +121,13 @@ pub(super) fn recognize(
             let kind = NativeItem::from_identifier(&binding.identifier)?;
             let stock = startup.binding(&binding.identifier)?;
             let mut references = geometry_names(base, stock);
+            let startup_texture_is_sprite = references.iter().all(|name| {
+                find_geometry_index(base, name)
+                    .and_then(|index| {
+                        render_model::resolve_geometry_bones(base, index as usize).ok()
+                    })
+                    .is_some_and(|bones| sprite_artwork(&bones))
+            });
             references.retain(|name| match kind {
                 NativeItem::Bow => name.starts_with("geometry.bow_"),
                 NativeItem::Crossbow => name.starts_with("geometry.crossbow_"),
@@ -132,6 +147,7 @@ pub(super) fn recognize(
                 })
                 .collect::<Vec<_>>();
             let names = geometry_names(candidate_assets, binding);
+            let mut texture_is_sprite = true;
             let recognized = !names.is_empty()
                 && names.into_iter().all(|name| {
                     let Some(index) =
@@ -144,15 +160,31 @@ pub(super) fn recognize(
                     else {
                         return false;
                     };
+                    texture_is_sprite &= sprite_artwork(&bones);
                     stock_models.iter().any(|(width, height, stock_bones)| {
                         *width == geometry.texture_width
                             && *height == geometry.texture_height
                             && *stock_bones == bones
                     })
                 });
-            recognized.then(|| (binding.identifier.clone(), kind))
+            recognized.then(|| {
+                (
+                    binding.identifier.clone(),
+                    NativeArtwork {
+                        kind,
+                        texture_is_sprite,
+                        startup_texture_is_sprite,
+                    },
+                )
+            })
         })
         .collect()
+}
+
+/// Only texture-mesh models without cubes sample a complete sprite instead of a UV atlas.
+fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
+    bones.iter().all(|bone| bone.cubes.is_empty())
+        && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
 }
 
 /// Includes declared aliases and compiled candidates, including older startup carriers.
@@ -192,7 +224,17 @@ impl EquipmentRuntime {
     pub fn uses_native_item_mesh(&self, identifier: &str) -> bool {
         self.pack
             .as_ref()
-            .is_some_and(|pack| pack.native_items.contains_key(identifier))
+            .and_then(|pack| pack.native_items.get(identifier))
+            .is_some_and(|artwork| {
+                artwork.texture_is_sprite
+                    || self.session_sprite(identifier, 0).is_some()
+                    || self
+                        .icons
+                        .lookup_index(identifier, 0)
+                        .and_then(|index| self.placements.get(index).copied().flatten())
+                        .and_then(|placement| self.atlas_locations.get(placement.layer))
+                        .is_some_and(Option::is_some)
+            })
     }
 
     /// Generates the selected native sprite, falling back to the matching startup item frame.
@@ -201,7 +243,7 @@ impl EquipmentRuntime {
         item: &WornItem,
         input: AttachableAnimationInput<'_>,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool, [f32; 2])> {
-        let Some(kind) = self
+        let Some(artwork) = self
             .pack
             .as_ref()
             .and_then(|pack| pack.native_items.get(item.identifier.as_ref()))
@@ -209,6 +251,14 @@ impl EquipmentRuntime {
         else {
             return self.held_mesh(item, true);
         };
+        if !artwork.texture_is_sprite {
+            let sprite = WornItem {
+                kind: HeldKind::Sprite,
+                ..item.clone()
+            };
+            return self.held_mesh(&sprite, true);
+        }
+        let kind = artwork.kind;
         let frame = kind.frame(item, input);
         if let Some((texture, location)) = self.native_texture(item, kind.alias(frame)) {
             let key = (location.page(), location.layer());
@@ -256,6 +306,10 @@ impl EquipmentRuntime {
         alias: &str,
     ) -> Option<(assets::EquipmentTexture, ActorArtworkLocation)> {
         let pack = self.pack.as_ref()?;
+        let artwork = pack.native_items.get(item.identifier.as_ref())?;
+        if !artwork.texture_is_sprite {
+            return None;
+        }
         let startup = self
             .catalog
             .as_ref()
@@ -273,16 +327,21 @@ impl EquipmentRuntime {
                 .cloned()
                 .or_else(|| (alias == "default").then(|| binding.texture.identifier.clone()))
         };
-        for identifier in path(binding).into_iter().chain(startup.and_then(path)) {
+        for identifier in path(binding).into_iter().chain(
+            startup
+                .filter(|_| artwork.startup_texture_is_sprite)
+                .and_then(path),
+        ) {
             if let Some(texture) = pack.catalog.as_ref()?.texture(&identifier)
                 && let Some(location) = pack.texture_locations.get(&identifier)
             {
                 return Some((texture.clone(), *location));
             }
-            if let Some(texture) = self
-                .catalog
-                .as_ref()
-                .and_then(|catalog| catalog.texture(&identifier))
+            if artwork.startup_texture_is_sprite
+                && let Some(texture) = self
+                    .catalog
+                    .as_ref()
+                    .and_then(|catalog| catalog.texture(&identifier))
                 && let Some(location) = self.texture_locations.get(&identifier)
             {
                 return Some((texture.clone(), *location));
@@ -296,11 +355,19 @@ impl EquipmentRuntime {
 
     /// Native offhand placement uses the selected image's aspect ratio.
     pub(super) fn native_sprite_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
-        let kind = *self
+        let artwork = *self
             .pack
             .as_ref()?
             .native_items
             .get(item.identifier.as_ref())?;
+        if !artwork.texture_is_sprite {
+            let sprite = self
+                .session_sprite(&item.identifier, item.metadata)
+                .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+                .or_else(|| self.icons.sprites().get(self.held_icon_index(item)?))?;
+            return Some([sprite.width, sprite.height]);
+        }
+        let kind = artwork.kind;
         let frame = kind.frame(
             item,
             AttachableAnimationInput {
