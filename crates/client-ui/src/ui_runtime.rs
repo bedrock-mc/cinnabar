@@ -630,7 +630,7 @@ impl UiRuntime {
         self.emotes.reset();
         self.client_packets.clear();
         self.book_packets.clear();
-        self.screen = screen_state::ScreenState::default();
+        self.screen.reset_session();
         self.anvil_cache = Default::default();
         self.experiences.reset();
         self.server_lang = None;

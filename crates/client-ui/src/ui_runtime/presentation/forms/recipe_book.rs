@@ -11,14 +11,14 @@ use crate::ui_runtime::inventory_actions::recipe_book_entries;
 use ui::IconRef;
 use ui_screens::recipe_book::BookEntry;
 
-/// Whether the panel shows: creative opens on it and the toggle flips either way.
+/// Uses the mode's default until the player explicitly chooses a layout.
 pub fn recipe_book_shown(player_runtime: &player_state::PlayerState, runtime: &UiRuntime) -> bool {
     if ui_screens::furnace_book::active(player_runtime) {
         return runtime.screen_state().furnace_book_open;
     }
     let creative =
         player_runtime.facts.player_game_mode() == Some(protocol::PlayerGameMode::Creative);
-    creative != runtime.screen_state().book_open
+    runtime.screen_state().book_open.unwrap_or(creative)
 }
 
 /// The listed entries' icons, in list order.
