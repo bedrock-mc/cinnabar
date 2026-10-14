@@ -139,6 +139,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                             java_mode,
                             combat_visuals: Default::default(),
                             sampling_camera: None,
+                            aspect: 1.0,
                         },
                         None,
                     ),

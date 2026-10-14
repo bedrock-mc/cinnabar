@@ -1,15 +1,14 @@
 use super::{UNIT, state::State};
+use assets::facts::BlockProperty;
 use assets::{RegistryRecord, block_shapes::ShapeBox};
+use assets::{facts::shape::ShapeTraits, registry::BlockTraits};
 
 /// Compiles independent clipping pieces for six-face attachment classes.
 pub(super) fn multiface(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if !matches!(
-        record.name.as_ref(),
-        "minecraft:glow_lichen" | "minecraft:sculk_vein" | "minecraft:resin_clump"
-    ) {
+    if !record.traits.contains(BlockTraits::MULTIFACE) {
         return None;
     }
-    let bits = State::read(record)?.number("multi_face_direction_bits")?;
+    let bits = State::read(record)?.number(BlockProperty::MultiFaceDirectionBits)?;
     if !(0..64).contains(&bits) {
         return None;
     }
@@ -23,10 +22,10 @@ pub(super) fn multiface(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
 
 /// Compiles the union of the enabled side planes for a nonzero vine state.
 pub(super) fn vine(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if record.name.as_ref() != "minecraft:vine" {
+    if record.model_family != assets::ModelFamily::Vine {
         return None;
     }
-    let bits = State::read(record)?.number("vine_direction_bits")?;
+    let bits = State::read(record)?.number(BlockProperty::VineDirectionBits)?;
     if !(1..16).contains(&bits) {
         return None;
     }
@@ -65,19 +64,23 @@ fn slab(face: u8, thickness: f64) -> ShapeBox {
 }
 
 /// Compiles the pale moss floor and its tallest side into the visual box.
-pub(super) fn pale_moss(record: &RegistryRecord) -> Option<Box<[ShapeBox]>> {
-    if record.name.as_ref() != "minecraft:pale_moss_carpet" {
+pub(super) fn pale_moss(record: &RegistryRecord, shapes: ShapeTraits) -> Option<Box<[ShapeBox]>> {
+    if !shapes.contains(ShapeTraits::PALE_MOSS) {
         return None;
     }
     let state = State::read(record)?;
-    let mut height: f64 = if state.bit("upper_block_bit")? {
+    let mut height: f64 = if state.bit(BlockProperty::UpperBlockBit)? {
         0.0
     } else {
         1.0 / 16.0
     };
-    for side in ["north", "east", "south", "west"] {
-        let name = format!("pale_moss_carpet_side_{side}");
-        height = height.max(match state.text(&name)? {
+    for key in [
+        BlockProperty::PaleMossCarpetSideNorth,
+        BlockProperty::PaleMossCarpetSideEast,
+        BlockProperty::PaleMossCarpetSideSouth,
+        BlockProperty::PaleMossCarpetSideWest,
+    ] {
+        height = height.max(match state.text(key)? {
             "none" => 0.0,
             "short" => 0.625,
             "tall" => 1.0,

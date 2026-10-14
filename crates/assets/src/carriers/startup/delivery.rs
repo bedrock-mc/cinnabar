@@ -8,8 +8,6 @@ use crate::{
     active_content_registry_protocol, canonical_source_manifest_sha256,
     pinned_block_registry_bytes, read_physics_registry_for_protocol, read_registry_for_protocol,
 };
-#[cfg(test)]
-use crate::{UiFile, encode_ui_catalog, entity};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
@@ -258,6 +256,7 @@ fn missing(carrier: &Carrier) -> DeliveryError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{UiFile, encode_ui_catalog, entity};
 
     /// Builds a bounded delivery index over the same synthetic bytes for every carrier.
     fn manifest(bytes: &[u8]) -> DeliveryManifest {

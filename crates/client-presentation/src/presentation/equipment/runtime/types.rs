@@ -33,6 +33,8 @@ pub struct WornItem {
     pub dye_rgb: Option<u32>,
     /// Enables the resource pack's enchanted material on worn equipment.
     pub enchanted: bool,
+    /// Data value, block and tags whose change re-equips a held stack.
+    pub variant: actor_animation::StackVariant,
 }
 
 /// How a held stack is drawn.

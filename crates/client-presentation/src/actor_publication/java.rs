@@ -575,6 +575,7 @@ pub(super) fn hand_source(
                 super::hand::local_consume(item_animation.as_ref(), consume_ticks)
                     .or(hand_progress(rig.hand, consume_ticks, alpha).consume)
             },
+            aspect: inputs.aspect,
         };
         let mut source = vanilla_hand_source(
             HandInputs {

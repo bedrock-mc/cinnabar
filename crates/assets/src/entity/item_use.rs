@@ -12,6 +12,9 @@ pub const DEFAULT_USE_MOVEMENT_MODIFIER: f64 = 0.35;
 /// Compatibility maximum duration shared by long-held weapon actions and animation.
 pub const LONG_WEAPON_USE_TICKS: u32 = 72_000;
 
+/// Eat or drink duration for a consumable that declares none.
+pub const DEFAULT_CONSUME_USE_TICKS: u32 = 32;
+
 /// Compatibility crossbow charge before stack enchantments are applied.
 pub const CROSSBOW_CHARGE_TICKS: u32 = 25;
 /// Charge reduction for one admitted Quick Charge enchantment level.

@@ -246,6 +246,7 @@ fn fixture_with_binding(
     stream.advance_actor_interpolation_frame(6);
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -295,6 +296,7 @@ pub(super) fn hand_source_for_mode(
             artwork,
             motion: Mat4::IDENTITY,
             sampling_camera: Some(([0.0; 2], [0.0; 3])),
+            aspect: 1.0,
         },
         java_mode,
         equipment,
@@ -414,6 +416,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
             );
             if off_hand {
                 input.off = Some(crate::presentation::equipment::WornItem {
+                    variant: Default::default(),
                     charged_projectile: None,
                     use_facts: client_world::EffectiveItemUse::default(),
                     grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -575,6 +578,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     let (mut stream, mut equipment, artwork, mut input) = fixture(main);
     if off {
         input.off = Some(crate::presentation::equipment::WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -813,6 +817,7 @@ pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -870,6 +875,7 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
             artwork: &artwork,
             motion: Mat4::IDENTITY,
             sampling_camera: Some(([0.0; 2], [0.0; 3])),
+            aspect: 1.0,
         };
         let hand = hand_progress(rig.hand, None, alpha);
         let allocations = test_alloc::thread_allocations();
@@ -899,6 +905,7 @@ fn legacy_empty_main_arm_and_native_offhand_keep_separate_pose_stacks() {
         stream.sync_local_player_pose(&feed);
         stream.advance_actor_interpolation_frame(0);
         input.off = Some(crate::presentation::equipment::WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),

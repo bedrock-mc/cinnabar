@@ -339,6 +339,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let armor = ActorEquipmentInput {
         armor: [
@@ -397,6 +398,7 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
     ] {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
+                variant: Default::default(),
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip(identifier),
@@ -633,6 +635,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let worn = ActorEquipmentInput {
         armor: [Some(crown), None, None, None],
@@ -665,6 +668,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
@@ -719,6 +723,7 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let body = player_body(&mut runtime);
     let held = |identifier: &str| ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: if identifier == "test:blade" {
@@ -790,6 +795,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let mut items = session_items(
         vec![("test:controller", Default::default())],
@@ -833,6 +839,7 @@ const REST: FirstPersonHand = FirstPersonHand {
     swing: 0.0,
     equip: 1.0,
     consume: None,
+    aspect: 1.0,
 };
 
 /// Camera-space position of texel corner `(column, row)` of a 16-texel held sprite.
@@ -941,6 +948,7 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     body.overlay_rgba8 = 0x6600_00ff;
     let input = ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("test:gem"),
@@ -989,6 +997,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(
         vec![
@@ -1070,6 +1079,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();

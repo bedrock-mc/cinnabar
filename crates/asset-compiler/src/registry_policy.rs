@@ -1,5 +1,6 @@
 //! Client admission, movement rules and production registry carriers.
 
+use assets::facts::block::RESERVED_BLOCK_NAME;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -95,16 +96,20 @@ struct Scalar {
     value: serde_json::Value,
 }
 
-const RESERVED: &str = "cinnabar:reserved";
 const POLICY: &[u8] = include_bytes!("../data/registry-policy.json");
 const MAX_INPUT_BYTES: u64 = 128 * 1024 * 1024;
 
-/// Applies the shared support policy only to historical inputs lacking compiled block facts.
-pub(crate) fn block_support(record: &assets::RegistryRecord) -> assets::registry::BlockTraits {
+/// Resolves geometry memberships and supplies block traits for historical inputs.
+pub(crate) fn block_shape_facts(
+    record: &assets::RegistryRecord,
+) -> (
+    assets::registry::BlockTraits,
+    assets::facts::shape::ShapeTraits,
+) {
     static RULES: std::sync::OnceLock<Policy> = std::sync::OnceLock::new();
     let policy =
         RULES.get_or_init(|| serde_json::from_slice(POLICY).expect("valid registry policy"));
-    block_rules::support(record, &policy.block_rules)
+    block_rules::for_record(record, &policy.block_rules)
 }
 
 /// Reads a bounded source export without fetching or changing its catalog.

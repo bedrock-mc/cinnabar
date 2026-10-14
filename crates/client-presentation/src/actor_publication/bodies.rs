@@ -16,6 +16,8 @@ pub(super) struct PoseView {
     pub java_mode: bool,
     pub combat_visuals: render_api::CombatVisuals,
     pub sampling_camera: Option<([f32; 2], [f32; 3])>,
+    /// Viewport width over height the first-person hand reads.
+    pub aspect: f32,
 }
 
 /// Retained pose conversions and skin registration used while sampling bodies.
@@ -60,6 +62,7 @@ pub(super) fn sample<'a>(
             java_mode,
             combat_visuals,
             sampling_camera,
+            aspect: _,
         },
         cull_view,
     ) = view;

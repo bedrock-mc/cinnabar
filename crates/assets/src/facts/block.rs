@@ -5,6 +5,9 @@ use crate::{
     registry::{BlockTraits, ModelFamily, RegistryRecord, SurvivalRule},
 };
 
+/// Placeholder identity for a block state the client has not admitted.
+pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
+
 /// Compiled facts for one admitted block state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {

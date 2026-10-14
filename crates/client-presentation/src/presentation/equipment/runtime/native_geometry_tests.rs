@@ -122,6 +122,7 @@ fn full_texture_weapon_planes_use_sword_extrusion_for_every_stage_and_view() {
                             swing: 0.0,
                             equip: 1.0,
                             consume: None,
+                            aspect: 1.0,
                         },
                         render_api::DEFAULT_COMBAT_VISUALS,
                         input,
@@ -260,6 +261,7 @@ fn startup_full_texture_plane_supplies_missing_pull_stages() {
                 swing: 0.0,
                 equip: 1.0,
                 consume: None,
+                aspect: 1.0,
             },
             render_api::DEFAULT_COMBAT_VISUALS,
             AttachableAnimationInput {

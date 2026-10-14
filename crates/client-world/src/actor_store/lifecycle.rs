@@ -125,6 +125,7 @@ impl ActorStore {
             local_hands: [None, None],
             local_held_network_ids: [0; 2],
             local_main_metadata: 0,
+            local_held_variants: Default::default(),
             local_main_stack_id: None,
             local_main_slot: 0,
             local_item_use: LocalItemUse::Unpredicted,
@@ -207,6 +208,7 @@ impl ActorStore {
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         self.local_held_network_ids = feed.held_network_ids;
         self.local_main_metadata = feed.main_hand_metadata;
+        self.local_held_variants = feed.held_variants;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
         self.local_view_dirty |= self.local_item_use != feed.item_use;
@@ -868,16 +870,15 @@ impl ActorStore {
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
                     if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
-                        let java_ticks = self
+                        let effects = self
                             .actors
                             .get(&lifetime.runtime_id)
-                            .map_or(actor_animation::ACTOR_SWING_TICKS, |actor| {
-                                actor.status.swing_effects.ticks()
-                            });
+                            .map(|actor| actor.status.swing_effects)
+                            .unwrap_or_default();
                         self.animation.start_swing(
                             lifetime.runtime_id,
-                            actor_animation::ACTOR_SWING_TICKS,
-                            java_ticks,
+                            effects.bedrock_ticks(render_api::DEFAULT_COMBAT_VISUALS),
+                            effects.ticks(),
                         );
                     }
                     if applied && let Some(request) = prepared.as_ref() {

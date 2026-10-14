@@ -140,8 +140,9 @@ pub(super) fn resolve_binding(
         geometry_binding,
         &controllers,
     );
-    // Camera rigs keep tick endpoints so camera frames can blend motion.
+    // Camera and swing rigs keep tick endpoints so frame-sampled inputs still blend motion.
     let motion_sampling = (samples_camera_poses
+        || samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
@@ -191,8 +192,8 @@ pub(super) fn resolve_binding(
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         presentation_seeded: false,
         query_context: ActorTickContext::default(),
-        equipped_main: None,
-        equipped_off: None,
+        equipped_main: Default::default(),
+        equipped_off: Default::default(),
         // Vanilla starts both offhand observations at zero.
         off_hand_animation: [ItemAnimationState {
             attack_time: 0.0,
@@ -576,6 +577,7 @@ fn reselect_geometry_with_checkpoint(
         &controllers,
     );
     state.motion_sampling = (state.samples_camera_poses
+        || state.samples_swing_poses
         || actor.is_creeper()
         || matches!(actor.kind(), ActorKind::Player { .. }))
     .then(|| {
