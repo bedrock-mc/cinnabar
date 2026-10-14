@@ -6,7 +6,12 @@ use assets::{
 
 /// Supplies an attack clip alongside a tick-owned arm rotation.
 fn assets() -> Arc<RuntimeEntityAssets> {
-    let mut compiled = crate::test_support::counting_random_compiled("minecraft:player");
+    assets_for("minecraft:player")
+}
+
+/// The attack fixture under another entity identifier.
+fn assets_for(identifier: &str) -> Arc<RuntimeEntityAssets> {
+    let mut compiled = crate::test_support::counting_random_compiled(identifier);
     compiled.rig_bindings[0].initialize = None;
     compiled.rig_bindings[0].pre_animation = None;
     compiled.render.layers[0].color = None;
@@ -335,5 +340,50 @@ fn remote_swing_samples_the_attack_at_every_frame_fraction() {
                 }
             }
         }
+    }
+}
+
+/// An attacking mob keeps its ordinary tick motion on both drawn endpoints.
+#[test]
+fn attacking_mobs_keep_ordinary_motion_between_ticks() {
+    let identifier = "minecraft:zombie";
+    let actor = TestActor {
+        kind: ActorKind::Entity {
+            identifier: identifier.into(),
+        },
+        ..Default::default()
+    };
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut store = ActorAnimationStore::with_assets(assets_for(identifier));
+    store.insert(1, 0, &actor);
+    for _ in 0..3 {
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    store.start_swing(1, 6, 6);
+    for _ in 0..3 {
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let rig = store.get(1).unwrap();
+    assert!(rig.hand[1].attack_time > rig.hand[0].attack_time);
+    for alpha in [0.25, 0.5, 0.75] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let sampled = store
+            .render_layers(&actor, alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        let rig = store.get(1).unwrap();
+        let [previous, current] = match &sampled.render {
+            std::borrow::Cow::Owned(layers) if !layers[0].pose.is_empty() => {
+                [&*layers[0].previous_pose, &*layers[0].pose]
+            }
+            _ => [rig.previous, rig.current],
+        };
+        assert_ne!(
+            previous[2].rotation, current[2].rotation,
+            "the arm must keep both tick endpoints at {alpha}"
+        );
     }
 }
