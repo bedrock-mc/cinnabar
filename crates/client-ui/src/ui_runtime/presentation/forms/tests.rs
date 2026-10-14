@@ -564,9 +564,10 @@ fn connecting_screen_reports_the_pack_download() {
             received_bytes: 5 * 1024 * 1024,
             total_bytes: 20 * 1024 * 1024,
         }));
-    let words = oreui_texts(&view).join("\n");
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
     for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
-        assert!(words.contains(wanted), "{wanted}: {words}");
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
     }
 }
 
@@ -579,9 +580,10 @@ fn realm_join_screen_reports_the_realm_lookup() {
     view.feeds
         .join
         .observe(Some(launcher::menu::JoinStage::Realm));
-    let words = oreui_texts(&view).join("\n");
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
     for wanted in ["Joining Realm...", "This may take a few moments"] {
-        assert!(words.contains(wanted), "{wanted}: {words}");
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
     }
 }
 
@@ -594,13 +596,14 @@ fn local_world_loading_screen_names_the_stage() {
         fraction: Some(0.5),
         detail: "50.0 / 100.0 MB".to_owned(),
     });
-    let words = oreui_texts(&view).join("\n");
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
     for wanted in [
         "Starting World",
         "Downloading Bedrock Dedicated Server",
         "50.0 / 100.0 MB",
     ] {
-        assert!(words.contains(wanted), "{wanted}: {words}");
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
     }
 }
 
