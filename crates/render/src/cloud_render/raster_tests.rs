@@ -96,7 +96,7 @@ fn retained_worker_windows_match_original_pixels_above_inside_and_below() {
         ("inside", (CLOUD_UNDERSIDE_Y + CLOUD_TOP_Y) * 0.5),
         ("above", CLOUD_TOP_Y + 12.0),
     ] {
-        let eye = Vec3::new(-0.125, y, -0.125);
+        let eye = Vec3::new(-24.125, y, -24.125);
         world
             .get_mut::<ExtractedView>(view)
             .unwrap()
