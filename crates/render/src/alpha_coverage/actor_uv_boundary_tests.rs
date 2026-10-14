@@ -108,6 +108,23 @@ fn chart_texture(interior: [u8; 4], exterior: [u8; 4]) -> Vec<[u8; 4]> {
     texels
 }
 
+/// Saves original GPU controls and subject images only when a capture directory is requested.
+fn capture_chart(name: &str, pixels: &[u8]) {
+    let Some(directory) = std::env::var_os("CINNABAR_ACTOR_CHART_SNAPSHOT_DIR") else {
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    image::save_buffer(
+        directory.join(format!("{name}.png")),
+        pixels,
+        gpu_snapshot::SNAPSHOT_SIDE,
+        gpu_snapshot::SNAPSHOT_SIDE,
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+}
+
 #[test]
 fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
     let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
@@ -116,7 +133,7 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
         return;
     };
     let plane = chart_plane();
-    eprintln!("chart vertices: {plane:?}");
+
     let material = render_model::ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
@@ -163,7 +180,7 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
                         },
                         true,
                         false,
-                        render_model::pack_actor_light_without_lightmap(),
+                        0,
                         0,
                         0,
                         if coverage { &[super::SHADER_DEF] } else { &[] },
@@ -189,6 +206,12 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
                     "the selected face must actually draw: below={below} phase={phase} samples={samples} coverage={coverage} positive_pixels={positive_pixels}"
                 );
                 let subject = raster(&unrelated);
+                if !below && phase == 0.13 {
+                    let case = format!("samples-{samples}-coverage-{coverage}");
+                    capture_chart(&format!("{case}-background"), &background);
+                    capture_chart(&format!("{case}-opaque"), &positive);
+                    capture_chart(&format!("{case}-subject"), &subject);
+                }
                 let changed_pixels = subject
                     .chunks_exact(4)
                     .zip(background.chunks_exact(4))
