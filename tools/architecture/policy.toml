@@ -114,7 +114,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world"]
+allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -148,7 +148,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-world"
 path = "crates/client-world"
-allowed_dependencies = ["simulation-clock", "actor-animation", "render-api", "render-model", "assets", "protocol", "world", "test-time", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "render-api", "render-model", "assets", "protocol", "world", "test-time", "protocol-ids", "inventory"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "chunk-pipeline", "meshing", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "chunk-pipeline", "meshing", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -400,7 +400,7 @@ forbidden_dependencies = ["asset-compiler"]
 [[crates]]
 name = "sim"
 path = "crates/sim"
-allowed_dependencies = ["simulation-clock", "assets", "block-transform", "world"]
+allowed_dependencies = ["simulation-clock", "assets", "block-transform", "world", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -426,7 +426,7 @@ forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 [[crates]]
 name = "mod-host"
 path = "crates/mod-host"
-allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-time"]
+allowed_dependencies = ["experience-sdk", "mod-api", "mod-render", "server-experience", "ui", "test-alloc", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -1307,7 +1307,7 @@ baselines = [
     { path = "app/src/ui_runtime/presentation/publish.rs", max = 2 },
     { path = "app/src/ui_runtime/presentation/publish/menu_icons.rs", max = 4 },
     { path = "crates/actor-animation/src/legacy_swing.rs", max = 6 },
-    { path = "crates/actor-animation/src/query.rs", max = 6 },
+    { path = "crates/actor-animation/src/query.rs", max = 1 },
     { path = "crates/actor-animation/src/store.rs", max = 1 },
     { path = "crates/actor-animation/src/tick.rs", max = 4 },
     { path = "crates/asset-compiler/build_support/sources.rs", max = 1 },
@@ -1331,7 +1331,7 @@ baselines = [
     { path = "crates/client-audio/src/audio/predicted.rs", max = 2 },
     { path = "crates/client-audio/src/audio/route.rs", max = 1 },
     { path = "crates/client-audio/src/audio/settings.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/systems.rs", max = 3 },
+    { path = "crates/client-audio/src/audio/systems.rs", max = 1 },
     { path = "crates/client-presentation/src/actor_publication/java.rs", max = 2 },
     { path = "crates/client-presentation/src/camera/facts.rs", max = 2 },
     { path = "crates/client-presentation/src/camera/overlay_publish.rs", max = 1 },
@@ -1431,8 +1431,7 @@ baselines = [
     { path = "crates/particles/src/ambient.rs", max = 1 },
     { path = "crates/particles/src/ambient/fire.rs", max = 1 },
     { path = "crates/particles/src/dragon_egg.rs", max = 1 },
-    { path = "crates/particles/src/molang.rs", max = 1 },
-    { path = "crates/particles/src/triggers.rs", max = 9 },
+    { path = "crates/particles/src/triggers.rs", max = 7 },
     { path = "crates/particles/src/world.rs", max = 1 },
     { path = "crates/protocol/src/actor/painting.rs", max = 1 },
     { path = "crates/protocol/src/inventory/recipes/grammar.rs", max = 6 },
@@ -1443,8 +1442,7 @@ baselines = [
     { path = "crates/render-model/src/block_entity/held.rs", max = 3 },
     { path = "crates/render-model/src/block_entity/pot.rs", max = 1 },
     { path = "crates/render-model/src/block_entity/statue.rs", max = 5 },
-    { path = "crates/render-model/src/equipment/display.rs", max = 3 },
-    { path = "crates/render-model/src/java_animation.rs", max = 3 },
+    { path = "crates/render-model/src/java_animation.rs", max = 1 },
     { path = "crates/sim/src/conformance.rs", max = 3 },
     { path = "crates/ui-engine/src/engine/vector_icons.rs", max = 1 },
     { path = "crates/ui-screens/src/container_data.rs", max = 2 },

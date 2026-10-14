@@ -26,27 +26,9 @@ fn path(role: HudTextureRole) -> &'static str {
 
 /// The hardcore variant of a heart foreground, which lives in `textures/ui/hardcore/`.
 fn hardcore_path(role: HudTextureRole) -> Option<&'static str> {
-    Some(match role {
-        HudTextureRole::HeartFull => "textures/ui/hardcore/heart",
-        HudTextureRole::HeartHalf => "textures/ui/hardcore/heart_half",
-        HudTextureRole::HeartFlashFull => "textures/ui/hardcore/heart_flash",
-        HudTextureRole::HeartFlashHalf => "textures/ui/hardcore/heart_flash_half",
-        HudTextureRole::PoisonHeartFull => "textures/ui/hardcore/poison_heart",
-        HudTextureRole::PoisonHeartHalf => "textures/ui/hardcore/poison_heart_half",
-        HudTextureRole::PoisonHeartFlashFull => "textures/ui/hardcore/poison_heart_flash",
-        HudTextureRole::PoisonHeartFlashHalf => "textures/ui/hardcore/poison_heart_flash_half",
-        HudTextureRole::WitherHeartFull => "textures/ui/hardcore/wither_heart",
-        HudTextureRole::WitherHeartHalf => "textures/ui/hardcore/wither_heart_half",
-        HudTextureRole::WitherHeartFlashFull => "textures/ui/hardcore/wither_heart_flash",
-        HudTextureRole::WitherHeartFlashHalf => "textures/ui/hardcore/wither_heart_flash_half",
-        HudTextureRole::AbsorptionHeartFull => "textures/ui/hardcore/absorption_heart",
-        HudTextureRole::AbsorptionHeartHalf => "textures/ui/hardcore/absorption_heart_half",
-        HudTextureRole::FreezeHeartFull => "textures/ui/hardcore/freeze_heart",
-        HudTextureRole::FreezeHeartHalf => "textures/ui/hardcore/freeze_heart_half",
-        HudTextureRole::FreezeHeartFlashFull => "textures/ui/hardcore/freeze_heart_flash",
-        HudTextureRole::FreezeHeartFlashHalf => "textures/ui/hardcore/freeze_heart_flash_half",
-        _ => return None,
-    })
+    assets::hud_extras::HudExtraRole::for_heart(role)?
+        .source_path()
+        .strip_suffix(".png")
 }
 
 /// Health plus absorption in hearts, and the row pitch the stacked rows use.

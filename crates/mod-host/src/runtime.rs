@@ -46,6 +46,8 @@ mod player_mod;
 mod player_state;
 #[path = "render.rs"]
 mod render;
+#[path = "terrain_host.rs"]
+mod terrain_host;
 
 /// What a package declares that the host checks guest output and events against.
 #[derive(Clone, Debug, Default)]
@@ -57,6 +59,7 @@ pub(crate) struct Declared {
 
 struct State {
     exclusive: crate::exclusive::Exclusive,
+    terrain: crate::terrain::TerrainState,
     limits: StoreLimits,
     pressed: bool,
     label: Option<String>,
@@ -122,6 +125,7 @@ impl State {
                 .tables(2)
                 .trap_on_grow_failure(true)
                 .build(),
+            terrain: Default::default(),
             pressed: false,
             label: None,
             exclusive: Default::default(),
@@ -431,6 +435,7 @@ impl Instance {
     /// Clears transient outputs even when no guest callback can execute this frame.
     pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();
+        state.terrain.begin_frame();
         state.snapshot = None;
         state.movement = None;
         state.pending_jump = false;
@@ -650,6 +655,7 @@ impl Instance {
         state.label = None;
         state.hud = hud::HudState::default();
         state.player_state.revoke();
+        state.terrain = Default::default();
         state.pending_time = None;
         state.time_override = None;
         state.fullbright = false;
@@ -699,6 +705,20 @@ impl Instance {
     /// Consumes the committed jump request once.
     pub(super) fn take_jump_pulse(&mut self) -> bool {
         std::mem::take(&mut self.store.data_mut().jump_pulse)
+    }
+
+    pub(super) fn terrain_subscriptions(&self) -> usize {
+        self.store.data().terrain.subscriptions.len()
+    }
+    pub(super) fn refresh_terrain(
+        &mut self,
+        index: usize,
+        refresh: impl FnOnce(
+            &crate::TerrainQuery,
+            Option<&crate::TerrainRegion>,
+        ) -> crate::TerrainRefresh,
+    ) {
+        self.store.data_mut().terrain.refresh(index, refresh);
     }
 
     pub(super) fn camera_rig(&self) -> Option<GameplayCameraRig> {
@@ -877,6 +897,7 @@ fn commit(store: &mut Store<State>) {
     let state = store.data_mut();
     state.jump_cancel = std::mem::take(&mut state.pending_jump_cancel);
     state.jump_pulse = std::mem::take(&mut state.pending_jump) && !state.jump_cancel;
+    state.terrain.commit();
     state.render.commit();
     state.block_highlights.commit();
     state.world.commit();

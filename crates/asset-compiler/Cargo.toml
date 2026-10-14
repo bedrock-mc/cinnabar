@@ -32,6 +32,7 @@ reads = [
 ]
 
 [dependencies]
+protocol-ids = { path = "../protocol-ids" }
 world = { path = "../world" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }

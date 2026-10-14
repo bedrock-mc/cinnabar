@@ -1,6 +1,7 @@
 //! Maps protocol particle triggers to effect spawns: legacy particle ids, level events,
 //! block break/crack parameters and server-supplied Molang variable maps.
 
+use assets::facts::{ParticleEffect, legacy_particle_effect, level_particle_effect};
 use serde_json::Value;
 
 use super::{
@@ -18,112 +19,16 @@ pub const BLOCK_CRACK_PARTICLES: f32 = 1.0;
 /// Default item fragment count for icon-crack presentation.
 pub const ITEM_ICON_PARTICLES: u32 = 6;
 /// Basename of the pack-authored Totem activation emitter.
-pub const TOTEM_PARTICLE_EFFECT: &str = "totem_particle";
+pub const TOTEM_PARTICLE_EFFECT: &str = assets::facts::ParticleEffect::TotemParticle.name();
 /// Vanilla keeps hits this far from the edge and outside the selected face.
 const CRACK_FACE_INSET: f32 = 0.1;
-/// Huge explosions use the finite emitter despite its dragon-specific name.
-const HUGE_EXPLOSION_EFFECT: &str = "dragon_death_explosion_emitter";
-
-/// Effect identifier for a legacy particle type (`LevelEventParticleLegacyEvent | type`).
-#[must_use]
-pub fn legacy_particle_effect(particle_type: i32) -> Option<&'static str> {
-    Some(match particle_type {
-        1 => "basic_bubble_particle",           // Bubble
-        2 => "basic_bubble_particle_manual",    // BubbleManual
-        3 => "basic_crit_particle",             // Crit
-        5 => "basic_smoke_particle",            // Smoke
-        6 => "explosion_particle",              // Explode
-        7 => "water_evaporation_actor_emitter", // Evaporation
-        8 => "basic_flame_particle",            // Flame
-        9 => "lava_particle",                   // Lava
-        10 => "basic_smoke_particle",           // LargeSmoke
-        11 => "redstone_wire_dust_particle",    // RedDust
-        12 => "rising_border_dust_particle",    // RisingBorderDust
-        16 | 17 => HUGE_EXPLOSION_EFFECT,       // Huge explosions
-        18 => "heart_particle",                 // Heart
-        20 => "mycelium_dust_particle",         // TownAura
-        21 => "basic_portal_particle",          // Portal
-        22 => "mob_portal",                     // MobPortal
-        23 => "water_splash_particle",          // WaterSplash
-        24 => "water_splash_particle_manual",   // WaterSplashManual
-        25 => "water_wake_particle",            // WaterWake
-        26 => "water_drip_particle",            // DripWater
-        27 => "lava_drip_particle",             // DripLava
-        28 => "honey_drip_particle",            // DripHoney
-        29 => "stalactite_water_drip_particle", // StalactiteDripWater
-        30 => "stalactite_lava_drip_particle",  // StalactiteDripLava
-        31 => "falling_dust",                   // FallingDust
-        32 => "mobspell_emitter",               // MobSpell
-        33 => "mobspell_ambient",               // MobSpellAmbient
-        34 => "mobspell_emitter",               // MobSpellInstantaneous
-        35 => "ink_emitter",                    // Ink
-        37 => "rain_splash_particle",           // RainSplash
-        38 => "villager_angry",                 // VillagerAngry
-        39 => "villager_happy",                 // VillagerHappy
-        40 => "enchanting_table_particle",      // EnchantingTable
-        42 => "note_particle",                  // Note
-        43 => "witchspell_emitter",             // WitchSpell
-        44 => "crop_growth_emitter",            // CarrotBoost
-        46 => "endrod",                         // EndRod
-        47 => "dragon_breath_fire",             // DragonBreath
-        48 => "llama_spit_smoke",               // Spit
-        49 => TOTEM_PARTICLE_EFFECT,            // Totem
-        54 => "balloon_gas_particle",           // BalloonGas
-        55 => "colored_flame_particle",         // ColouredFlame
-        56 => "sparkler_emitter",               // Sparkler
-        57 => "conduit_particle",               // Conduit
-        58 => "bubble_column_up_particle",      // BubbleColumnUp
-        59 => "bubble_column_down_particle",    // BubbleColumnDown
-        60 => "sneeze",                         // Sneeze
-        61 => "shulker_bullet",                 // ShulkerBullet
-        62 => "bleach",                         // Bleach
-        63 => "dragon_destroy_block",           // DragonDestroyBlock
-        64 => "mycelium_dust_particle",         // MyceliumDust
-        65 => "falling_border_dust_particle",   // FallingBorderDust
-        66 => "campfire_smoke_particle",        // CampfireSmoke
-        67 => "campfire_tall_smoke_particle",   // CampfireSmokeTall
-        68 => "dragon_breath_fire",             // DragonBreathFire
-        69 => "dragon_breath_trail",            // DragonBreathTrail
-        70 => "blue_flame_particle",            // BlueFlame
-        71 => "soul_particle",                  // Soul
-        72 => "obsidian_tear_particle",         // ObsidianTear
-        73 => "portal_reverse_particle",        // PortalReverse
-        74 => "snowflake_particle",             // Snowflake
-        75 => "vibration_signal",               // VibrationSignal
-        76 => "sculk_sensor_redstone_particle", // SculkSensorRedstone
-        77 => "spore_blossom_shower_particle",  // SporeBlossomShower
-        78 => "spore_blossom_ambient_particle", // SporeBlossomAmbient
-        79 => "wax_particle",                   // Wax
-        80 => "electric_spark_particle",        // ElectricSpark
-        81 => "candle_flame_particle",          // CandleFlame
-        82 => "shriek_particle",                // Shriek
-        83 => "sculk_soul_particle",            // SculkSoul
-        84 => "sonic_explosion",                // SonicExplosion
-        86 => "cherry_leaves_particle",         // CherryLeaves
-        87 => "dust_plume",                     // DustPlume
-        88 => "white_smoke_particle",           // WhiteSmoke
-        89 => "wind_explosion_emitter",         // WindExplosion
-        90 => "breeze_wind_explosion_emitter",  // BreezeWindExplosion
-        91 => "vault_connection_particle",      // VaultConnection
-        94 => "creaking_crumble_body",          // CreakingCrumble
-        95 => "pale_oak_leaves_particle",       // PaleOakLeaves
-        96 => "eyeblossom_open",                // EyeblossomOpen
-        97 => "eyeblossom_close",               // EyeblossomClose
-        98 => "green_flame_particle",           // GreenFlame
-        99 => "pause_mob_growth",               // PauseMobGrowth
-        100 => "reset_mob_growth",              // ResetMobGrowth
-        101 => "sulfur_cube_goo",               // SulfurCube
-        _ => return None,
-    })
-}
-
 /// What a level event asks the particle system to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum LevelParticle {
     /// Dragon egg teleport trail, with the packed source-to-destination block offset decoded.
     DragonEggTeleport { displacement: [i32; 3] },
     Named {
-        effect: &'static str,
+        effect: ParticleEffect,
         spell_color: Option<[f32; 4]>,
     },
     /// Block break pieces textured from the block with this network runtime id.
@@ -158,7 +63,7 @@ fn argb(data: i32) -> [f32; 4] {
 /// Classifies a `LevelEvent` id; `None` for events with no particle presentation.
 #[must_use]
 pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
-    let named = |effect: &'static str| {
+    let named = |effect: ParticleEffect| {
         Some(LevelParticle::Named {
             effect,
             spell_color: None,
@@ -198,10 +103,9 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
             face: ((data >> 24) & 0x7) as u8,
         }),
         2002 => Some(LevelParticle::Named {
-            effect: "splash_spell_emitter",
+            effect: ParticleEffect::SplashSpellEmitter,
             spell_color: Some(argb(data)),
         }),
-        2003 => named("eyeofender_death_explode_particle"),
         2010 => {
             let bits = data as u32;
             Some(LevelParticle::DragonEggTeleport {
@@ -215,36 +119,13 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
                 }),
             })
         }
-        2004 => named("mob_block_spawn_emitter"),
-        2005 => named("crop_growth_emitter"),
-        2007 => named("death_explosion_emitter"),
         2009 if data & 0xffff == 15 => Some(LevelParticle::FixedItemIcon {
             identifier: "minecraft:snowball",
             count: 1,
         }),
         2009 => named(legacy_particle_effect(data & 0xffff)?),
-        2012 => named("critical_hit_emitter"),
-        2013 => named("mob_portal"),
-        2015 => named("basic_bubble_particle"),
-        2016 => named("water_evaporation_bucket_emitter"),
-        2018 | 2019 => named("egg_destroy_emitter"),
-        2020 => named("water_evaporation_actor_emitter"),
-        2022 => named("knockback_roar_particle"),
         2025 => named(legacy_particle_effect(if data < 2 { 16 } else { 17 })?),
-        2027 => named("vibration_signal"),
-        2029 => named("misc_fire_vapor_particle"),
-        2030 => named("wax_particle"),
-        2033 => named("electric_spark_particle"),
-        2035 => named("shriek_particle"),
-        2037 => named("sculk_charge_particle"),
-        2038 => named("sculk_charge_pop_particle"),
-        2039 => named("sonic_explosion"),
-        2040 => named("dust_plume"),
-        3609 => named("white_smoke_particle"),
-        3610 => named("breeze_wind_explosion_emitter"),
-        3611 => named("trial_spawner_detection"),
-        3614 => named("wind_explosion_emitter"),
-        _ => None,
+        _ => level_particle_effect(event_id).and_then(named),
     }
 }
 
@@ -453,6 +334,19 @@ pub fn block_crack_request(
     request
 }
 
+/// Starts a native route from its admitted handle, without resolving an effect name per tick.
+#[must_use]
+pub fn native_request(
+    effect: ParticleEffect,
+    position: [f32; 3],
+    spell_color: Option<[f32; 4]>,
+) -> SpawnRequest {
+    SpawnRequest {
+        native_effect: Some(effect),
+        ..named_request("", position, spell_color)
+    }
+}
+
 /// Spawn request for a named effect with potion-swirl colour queries.
 #[must_use]
 pub fn named_request(
@@ -571,9 +465,15 @@ mod tests {
 
     #[test]
     fn legacy_ids_map_to_vanilla_effects() {
-        assert_eq!(legacy_particle_effect(1), Some("basic_bubble_particle"));
-        assert_eq!(legacy_particle_effect(8), Some("basic_flame_particle"));
-        assert_eq!(legacy_particle_effect(60), Some("sneeze"));
+        assert_eq!(
+            legacy_particle_effect(1),
+            Some(ParticleEffect::BasicBubbleParticle)
+        );
+        assert_eq!(
+            legacy_particle_effect(8),
+            Some(ParticleEffect::BasicFlameParticle)
+        );
+        assert_eq!(legacy_particle_effect(60), Some(ParticleEffect::Sneeze));
         assert_eq!(legacy_particle_effect(0), None);
     }
 
@@ -586,7 +486,7 @@ mod tests {
         assert_eq!(
             classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 8, 0),
             Some(LevelParticle::Named {
-                effect: "basic_flame_particle",
+                effect: ParticleEffect::BasicFlameParticle,
                 spell_color: None
             })
         );
