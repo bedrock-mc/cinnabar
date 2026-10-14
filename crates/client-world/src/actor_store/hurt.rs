@@ -1,3 +1,4 @@
+use assets::facts::entity::NativeEntityClass;
 use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
@@ -250,8 +251,7 @@ impl ActorStore {
                 self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
-                if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
-                {
+                if actor.entity_fact.native_class == NativeEntityClass::EnderDragon {
                     actor.status.dead = true;
                     actor.status.dragon_death_time = 1;
                 } else if !actor.status.dead {

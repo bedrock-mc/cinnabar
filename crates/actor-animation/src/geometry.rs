@@ -58,9 +58,13 @@ pub(super) fn resolve_binding(
         stack: Vec::new(),
         static_draw: None,
     };
+    let placement_frame = match actor.entity_fact().placement {
+        assets::placement::EntityPlacementFrame::Unresolved => rig.placement_frame,
+        resolved => resolved,
+    };
     let mut candidate_offset = 0;
     let input = ActorTickInput {
-        placement_frame: rig.placement_frame,
+        placement_frame,
         position: actor.position(),
         velocity: actor.velocity(),
         on_ground: actor.on_ground(),
@@ -156,7 +160,7 @@ pub(super) fn resolve_binding(
         )
     });
     Some(ActorRigState {
-        placement_frame: rig.placement_frame,
+        placement_frame,
         pack: false,
         // The renderer needs the resolved geometry candidate, not only the
         // entity-level binding that may contain several candidates.
@@ -203,7 +207,11 @@ pub(super) fn resolve_binding(
         skin_layers: Vec::new(),
         variables,
         replay: None,
-        complete_spear_variables: super::spear::needs_completion(assets, rig_binding),
+        complete_spear_variables: super::spear::needs_completion(
+            assets,
+            rig_binding,
+            actor.entity_fact().native_class,
+        ),
         samples_render_frames: samples_camera_poses
             || super::render_frame::sampling::needs_frame_sampling(assets, rig_binding),
         samples_camera_poses,

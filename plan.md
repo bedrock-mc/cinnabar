@@ -1346,6 +1346,13 @@ acceptance gate.
 
 ## Entity shadows
 
+- Entity facts are compiled by `registryc` into a hash-checked carrier and installed by
+  `make assets`. Actor admission caches the advertised native base for shadows, offsets,
+  mount classification and native effects; unknown bases remain unresolved.
+- Incomplete parity: compatibility interaction, placement, equipment and native class rules
+  remain provisional. Chest-boat network origin and complete living-mount coverage remain
+  unverified. The pinned actor-name inventory still comes from sample metadata.
+
 - Vanilla blob shadows: a 13-sided volume under each caster darkens the opaque surface inside it
   by the encoded-colour multiplier (0.7 grey with a sky tint), once however many overlap. One
   instanced draw after opaque geometry; casters and parameters upload only when they change.
@@ -8920,7 +8927,7 @@ when the registry loads. Compiler selectors expand against the pinned palette an
 produce a reviewed membership table; provisional rules remain explicitly listed.
 
 Incomplete: native replacement and interaction membership, support-rule parity,
-complete survival coverage, and refreshed block-entity backings remain open.
+and complete survival coverage remain open.
 Gameplay, shape, rendering and session consumers still require migration onto the
 compiled facts. Adding this owner does not close those behavior gates.
 ## Compiled item facts
@@ -8939,3 +8946,14 @@ remain unresolved. Other consumer migrations and gameplay or rendering parity ga
 remain incomplete.
 Registered native filled maps retain provisional offhand admission at session admission;
 explicit component permissions take precedence.
+
+## Generated block-entity routing
+
+The active registry now generates one block-entity table for backing membership,
+NBT identity, renderer selection and sign/banner mounts. Renderer admission,
+spawner displays, portal scans and visual diagnostics share that table; state
+identities come from the pinned registry rather than numeric ranges.
+
+Incomplete: the additional renderers for brushable blocks, trial spawners and
+vaults remain unsupported. New logical routes are provisional, and the existing
+renderer, visual and performance acceptance gates remain open.

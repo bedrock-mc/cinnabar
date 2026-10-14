@@ -1,4 +1,5 @@
-use super::{ActorKind, ActorSnapshot};
+use super::ActorSnapshot;
+use assets::facts::entity::NativeEntityClass;
 
 const IGNITED_FLAG: u32 = 10;
 const MAX_SWELL_TICKS: u8 = 30;
@@ -30,7 +31,7 @@ impl CreeperSwell {
 
 impl ActorSnapshot {
     pub(crate) fn is_creeper(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:creeper")
+        self.entity_fact.native_class == NativeEntityClass::Creeper
     }
 
     pub(super) fn advance_creeper_swell(&mut self) {

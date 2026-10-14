@@ -42,6 +42,7 @@ pub enum Recipe {
     ItemFacts,
     Atmosphere,
     Entity,
+    EntityFacts,
     Font,
     Hud,
     Lang,
@@ -182,6 +183,17 @@ pub const ATMOSPHERE: Carrier = carrier(
     Some("atmosphere-assets.json"),
     true,
 );
+pub const ENTITY_FACTS: Carrier = Carrier {
+    inputs: &[Input::File(crate::facts::entity::SOURCE_PATH)],
+    ..carrier(
+        "entity-facts",
+        "Installing entity facts",
+        Recipe::EntityFacts,
+        crate::facts::entity::FILENAME,
+        None,
+        true,
+    )
+};
 pub const ENTITY: Carrier = Carrier {
     inputs: &[
         Input::Pack,
@@ -508,6 +520,7 @@ pub const CARRIERS: &[Carrier] = &[
     WORLD,
     ATMOSPHERE,
     ENTITY,
+    ENTITY_FACTS,
     FONT,
     FONT_TEN,
     FONT_SEVEN,

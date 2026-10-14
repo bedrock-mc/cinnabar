@@ -72,24 +72,14 @@ fn body_bones(names: Vec<Box<str>>) -> BodyBones {
 
 /// Equipment geometry index space reserved for worn skulls (above any entity geometry index).
 const SKULL_RIG_INDEX_BASE: u32 = 0x00ff_0000;
-const SKULL_KINDS: [SkullKind; 5] = [
-    SkullKind::Skeleton,
-    SkullKind::WitherSkeleton,
-    SkullKind::Zombie,
-    SkullKind::Player,
-    SkullKind::Creeper,
-];
-
+/// Reads the shared model ordinal for a packed head rig.
 fn kind_index(kind: SkullKind) -> u8 {
-    SKULL_KINDS
-        .iter()
-        .position(|candidate| *candidate == kind)
-        .map_or(u8::MAX, |index| index as u8)
+    kind.packed_rig_index().unwrap_or(u8::MAX)
 }
 
 /// The head an item identifier wears as, for the heads with a packed texture.
 pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
-    SkullKind::from_block_identifier(identifier).filter(|kind| SKULL_KINDS.contains(kind))
+    SkullKind::from_block_identifier(identifier).filter(|kind| kind.packed_rig_index().is_some())
 }
 
 /// Generated item meshes kept resident; further distinct items draw nothing.
@@ -255,8 +245,8 @@ impl EquipmentRuntime {
         let mut pending = Vec::new();
         let mut skulls = BTreeMap::new();
         if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
-            for (index, kind) in SKULL_KINDS.into_iter().enumerate() {
-                let id = equipment_rig_id(SKULL_RIG_INDEX_BASE + index as u32);
+            for kind in SkullKind::packed_kinds() {
+                let id = equipment_rig_id(SKULL_RIG_INDEX_BASE + u32::from(kind_index(kind)));
                 if let Some(geometry) = skull_geometry(id, atlas, kind) {
                     pending.push(geometry);
                     skulls.insert(kind_index(kind), (id, location));

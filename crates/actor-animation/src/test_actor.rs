@@ -14,6 +14,7 @@ pub(super) struct TestActor {
     pub runtime_id: u64,
     pub spawn_revision: u64,
     pub kind: ActorKind,
+    pub entity_fact_override: Option<assets::facts::entity::EntityFact>,
     pub position: [f32; 3],
     pub previous_position: [f32; 3],
     pub velocity: [f32; 3],
@@ -87,6 +88,7 @@ impl Default for TestActor {
             kind: ActorKind::Entity {
                 identifier: "minecraft:test".into(),
             },
+            entity_fact_override: None,
             position: [0.0; 3],
             previous_position: [0.0; 3],
             velocity: [0.0; 3],
@@ -115,6 +117,16 @@ impl TestActor {
 }
 
 impl AnimatedActor for TestActor {
+    fn entity_fact(&self) -> assets::facts::entity::EntityFact {
+        if let Some(fact) = self.entity_fact_override {
+            return fact;
+        }
+        let facts = assets::facts::entity::EntityFacts::pinned();
+        match self.kind() {
+            ActorKind::Player { .. } => facts.player(),
+            ActorKind::Entity { identifier } => facts.get(identifier),
+        }
+    }
     fn runtime_id(&self) -> u64 {
         self.runtime_id
     }

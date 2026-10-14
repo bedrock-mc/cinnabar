@@ -1,6 +1,8 @@
 //! The wolf-only native tail query and dye tint; authored clips retain ownership of the final pose.
-use super::{ActorKind, ActorMetadataValue, AnimatedActor, FLAG_ANGRY, FLAG_TAMED, actor_flag};
+use super::{ActorMetadataValue, AnimatedActor, FLAG_ANGRY, FLAG_TAMED, actor_flag};
+use assets::facts::entity::NativeEntityClass;
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) const WOLF_IDENTIFIER: &str = "minecraft:wolf";
 pub(crate) const COLOR_METADATA_KEY: u32 = 3;
 
@@ -47,7 +49,7 @@ pub(crate) fn default_render_color(actor: &dyn AnimatedActor) -> [f32; 4] {
 }
 
 fn is_wolf(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == WOLF_IDENTIFIER)
+    actor.entity_fact().native_class == NativeEntityClass::Wolf
 }
 
 #[cfg(test)]

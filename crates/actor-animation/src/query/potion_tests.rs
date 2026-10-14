@@ -152,3 +152,23 @@ fn pinned_potion_controller_selects_the_projectiles_own_effect_texture() {
         );
     }
 }
+
+#[test]
+fn a_custom_potion_base_keeps_its_auxiliary_appearance() {
+    let base = "minecraft:splash_potion";
+    let mut actor =
+        crate::tests::actor_with_metadata(HashMap::from([(AUX, ActorMetadataValue::Short(21))]));
+    actor.kind = ActorKind::Entity {
+        identifier: base.into(),
+    };
+    let expected = variant(&actor, 0);
+    assert_eq!(
+        expected,
+        f32::from(assets::vanilla_potion_variant(21).unwrap())
+    );
+    actor.entity_fact_override = Some(assets::facts::entity::EntityFacts::pinned().get(base));
+    actor.kind = ActorKind::Entity {
+        identifier: format!("fixture:{}", base.strip_prefix("minecraft:").unwrap()).into(),
+    };
+    assert_eq!(variant(&actor, 0), expected);
+}

@@ -1,18 +1,23 @@
+use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
 use std::collections::{HashMap, HashSet};
+
+#[cfg(test)]
+use protocol::ITEM_ACTOR_NETWORK_OFFSET;
 
 mod aim_assist;
 mod animated;
 mod appearance_preparation;
 mod effect_members;
+mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
     ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
     ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ITEM_ACTOR_NETWORK_OFFSET, ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES,
-    MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode,
-    PLAYER_NETWORK_OFFSET, PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
+    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
+    PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
 
 use crate::{
@@ -64,11 +69,7 @@ const ACTOR_FLAG_USES_UNIFORM_AIR_DRAG: u32 = 128;
 /// A sleeping player's offset from its feet to its native actor-state position (its eye).
 pub const SLEEPING_PLAYER_NETWORK_OFFSET: f32 = 0.2;
 /// A vanilla falling block's network offset, for its vanilla box height.
-const FALLING_BLOCK_NETWORK_OFFSET: f32 = 0.5;
 const FALLING_BLOCK_HEIGHT: f32 = 0.98;
-const MINECART_NETWORK_OFFSET: f32 = 0.5;
-const BOAT_NETWORK_OFFSET: f32 = 0.375;
-const DEFAULT_PRIMED_TNT_NETWORK_OFFSET: f32 = 0.49;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ActorApplyResult {
@@ -87,12 +88,49 @@ pub(crate) enum ActorApplyResult {
 /// Steps a remote actor takes to reach each absolute movement target.
 pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
+/// Vertical origin contributions; default values describe collision-feet coordinates.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PoseYOrigin {
+    spawn: f32,
+    network: f32,
+}
+impl PoseYOrigin {
+    const SPAWN: Self = Self {
+        spawn: 1.0,
+        network: 0.0,
+    };
+    const NETWORK: Self = Self {
+        spawn: 0.0,
+        network: 1.0,
+    };
+
+    /// Blends origin contributions with the same fraction as the vertical position.
+    fn interpolate(self, target: Self, fraction: f32) -> Self {
+        Self {
+            spawn: self.spawn + (target.spawn - self.spawn) * fraction,
+            network: self.network + (target.network - self.network) * fraction,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorPose {
+    /// Retains which vertical offsets contributed to this pose.
+    pub y_origin: PoseYOrigin,
     pub position: [f32; 3],
     pub pitch: f32,
     pub yaw: f32,
     pub head_yaw: f32,
+}
+
+impl ActorPose {
+    /// Applies only the offset deltas that contributed to this pose's vertical coordinate.
+    fn shift_y(&mut self, network_delta: f32, spawn_delta: f32) {
+        let delta = self.y_origin.network * network_delta + self.y_origin.spawn * spawn_delta;
+        if delta != 0.0 {
+            self.position[1] += delta;
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -104,6 +142,8 @@ pub struct ActorSnapshot {
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
+    /// Native facts copied at actor admission from its declared constructor.
+    pub entity_fact: EntityFact,
     /// Resolved at packet admission; frame and ray paths read these numeric dispositions.
     pub interaction_traits: assets::interactions::EntityInteractionTraits,
     pub position: [f32; 3],
@@ -167,9 +207,7 @@ impl ActorSnapshot {
     }
 
     pub(crate) fn is_dying_dragon(&self) -> bool {
-        self.status.dead
-            && matches!(&self.kind, ActorKind::Entity { identifier }
-            if identifier.as_ref() == "minecraft:ender_dragon")
+        self.status.dead && self.entity_fact.native_class == NativeEntityClass::EnderDragon
     }
 
     /// Vanilla velocity units (blocks/tick) for tick-driven engine animation.
@@ -192,12 +230,16 @@ impl ActorSnapshot {
             .then_some(position)
     }
 
-    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64) -> Self {
-        let terrain_interlock =
-            terrain_interlock::TerrainInterlock::attached(&spawn.kind, std::time::Instant::now());
+    /// Builds retained state using the constructor facts resolved at admission.
+    fn from_spawn(spawn: ActorSpawnEvent, spawn_revision: u64, entity_fact: EntityFact) -> Self {
+        let terrain_interlock = terrain_interlock::TerrainInterlock::attached(
+            entity_fact.native_class,
+            std::time::Instant::now(),
+        );
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);
         let pose = ActorPose {
+            y_origin: PoseYOrigin::SPAWN,
             position,
             pitch,
             yaw: spawn.yaw,
@@ -211,6 +253,7 @@ impl ActorSnapshot {
             movement_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
+            entity_fact,
             position,
             velocity: spawn.velocity,
             pitch,
@@ -237,10 +280,14 @@ impl ActorSnapshot {
             dragon_animation: None,
             hitboxes: None,
         };
+        snapshot.set_current_pose(pose);
         // A falling block's spawn position carries its network offset, which its box sets; the
         // vanilla offset comes off here and `apply_metadata` rebases onto the spawn's box.
         if snapshot.is_falling_block() {
-            snapshot.shift_poses_y(-snapshot.falling_block_network_offset());
+            snapshot.shift_poses_y(
+                -snapshot.falling_block_network_offset(),
+                -snapshot.falling_block_network_offset(),
+            );
         }
         snapshot.apply_metadata(&spawn.metadata);
         snapshot.apply_attributes(&spawn.attributes);
@@ -261,6 +308,7 @@ impl ActorSnapshot {
         feed: &LocalPlayerFeed,
     ) -> Self {
         let pose = ActorPose {
+            y_origin: PoseYOrigin::default(),
             position: feed.position,
             pitch: feed.pitch,
             yaw: feed.yaw,
@@ -274,6 +322,7 @@ impl ActorSnapshot {
             movement_revision: revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player { uuid, username },
+            entity_fact: EntityFacts::pinned().player(),
             position: feed.position,
             velocity: feed.velocity,
             pitch: feed.pitch,
@@ -348,6 +397,7 @@ impl ActorSnapshot {
 
     fn current_pose(&self) -> ActorPose {
         ActorPose {
+            y_origin: self.status.movement_interpolation.current_y_origin,
             position: self.position,
             pitch: self.pitch,
             yaw: self.yaw,
@@ -356,6 +406,7 @@ impl ActorSnapshot {
     }
 
     fn set_current_pose(&mut self, pose: ActorPose) {
+        self.status.movement_interpolation.current_y_origin = pose.y_origin;
         self.position = pose.position;
         self.pitch = pose.pitch;
         self.yaw = pose.yaw;
@@ -432,11 +483,11 @@ impl ActorSnapshot {
             _ => FALLING_BLOCK_HEIGHT,
         };
         let offset =
-            FALLING_BLOCK_NETWORK_OFFSET * height * self.render_scale() / FALLING_BLOCK_HEIGHT;
+            self.entity_fact.network_y_offset * height * self.render_scale() / FALLING_BLOCK_HEIGHT;
         if offset.is_finite() {
             offset
         } else {
-            FALLING_BLOCK_NETWORK_OFFSET
+            self.entity_fact.network_y_offset
         }
     }
 
@@ -449,23 +500,34 @@ impl ActorSnapshot {
                 }
                 _ => None,
             })
-            .unwrap_or(DEFAULT_PRIMED_TNT_NETWORK_OFFSET)
+            .unwrap_or(self.entity_fact.network_y_offset)
     }
 
     fn is_falling_block(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:falling_block")
+        self.entity_fact.native_class == NativeEntityClass::FallingBlock
     }
 
-    /// Moves every retained pose and interpolation target by `delta` blocks vertically.
-    fn shift_poses_y(&mut self, delta: f32) {
-        for position in [
-            &mut self.position,
-            &mut self.previous_pose.position,
-            &mut self.received_pose.position,
+    /// Rebases retained poses and queued targets without moving collision-feet inputs.
+    fn shift_poses_y(&mut self, network_delta: f32, spawn_delta: f32) {
+        let mut current = self.current_pose();
+        for pose in [
+            &mut current,
+            &mut self.previous_pose,
+            &mut self.received_pose,
         ] {
-            position[1] += delta;
+            pose.shift_y(network_delta, spawn_delta);
         }
-        self.shift_interpolation_targets_y(delta);
+        self.set_current_pose(current);
+        self.shift_interpolation_targets_y(network_delta, spawn_delta);
+    }
+
+    /// Spawn packets need vertical normalization only for falling-block constructors.
+    fn spawn_network_offset(&self) -> f32 {
+        if self.is_falling_block() {
+            self.network_position_offset()
+        } else {
+            0.0
+        }
     }
 
     fn apply_metadata(&mut self, metadata: &[protocol::ActorMetadata]) -> bool {
@@ -494,7 +556,7 @@ impl ActorSnapshot {
         if let Some(previous) = falling_block_offset {
             let offset = self.falling_block_network_offset();
             if offset != previous {
-                self.shift_poses_y(previous - offset);
+                self.shift_poses_y(previous - offset, previous - offset);
             }
         }
         let burning = self.is_on_fire();
@@ -699,8 +761,7 @@ pub(crate) struct ActorStore {
     player_game_mode_skips: u64,
     world_default_game_mode: Option<protocol::PlayerGameMode>,
     entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
-    custom_actor_traits:
-        HashMap<std::sync::Arc<str>, assets::interactions::EntityInteractionTraits>,
+    custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
     actors: HashMap<u64, ActorSnapshot>,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: HashMap<i64, u64>,

@@ -127,3 +127,23 @@ fn item_only_regeneration_does_not_need_a_block_export_or_fetched_pack() {
         String::from_utf8_lossy(&result.stderr)
     );
 }
+
+#[test]
+fn block_entity_only_regeneration_matches_the_committed_active_table() {
+    let root = root();
+    let scratch = tempfile::tempdir().unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_registryc"))
+        .arg("--root")
+        .arg(&root)
+        .args(["--kind", "block-entities", "--check", "--breg"])
+        .arg(root.join("crates/assets/data/block-registry-v2193.bin"))
+        .arg("--out")
+        .arg(scratch.path().join("block-entities.json"))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

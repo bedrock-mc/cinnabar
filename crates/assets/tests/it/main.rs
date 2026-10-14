@@ -5,6 +5,7 @@ mod biome_appearance;
 mod biome_registry;
 mod biome_registry_v2193;
 mod blob;
+mod block_entity_facts;
 mod block_facts;
 mod block_registry_v2193;
 mod entity;

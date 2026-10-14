@@ -17,6 +17,15 @@ impl ActorAnimationStore {
         let ActorKind::Entity { identifier } = actor.kind() else {
             return MountEquipment::Unresolved;
         };
+        let fact = actor.entity_fact();
+        if fact.class_key != 0
+            && assets::facts::entity::EntityFacts::pinned()
+                .get(identifier)
+                .class_key
+                == 0
+        {
+            return fact.equipment;
+        }
         let find = |assets: &RuntimeEntityAssets| {
             let mut matches = assets.symbols().iter().filter(|symbol| {
                 symbol.kind == assets::EntityAssetKind::Entity

@@ -1,6 +1,5 @@
 //! Fixed-tick dragon flap phase and the yaw/height history supplied to its authored rig.
-
-use protocol::ActorKind;
+use assets::facts::entity::NativeEntityClass;
 
 use super::{ACTOR_FLAG_SITTING, ActorStore};
 
@@ -79,8 +78,7 @@ impl State {
 impl ActorStore {
     pub(super) fn advance_dragon_animation(&mut self) {
         for actor in self.actors.values_mut() {
-            if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
-            {
+            if actor.entity_fact.native_class != NativeEntityClass::EnderDragon {
                 continue;
             }
             let dead = actor.status.dead

@@ -37,7 +37,11 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/java-hud/textures/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
-# Generated item metadata owned by assets, rather than runtime pack content.
+# Generated metadata owned by assets, rather than runtime pack content.
+[[owned_artifacts]]
+path = "crates/assets/data/entity-facts-v2193.bin"
+ownership_record = "docs/architecture/workspace.md"
+
 [[owned_artifacts]]
 path = "crates/assets/data/item-facts-v2193.bin"
 ownership_record = "docs/architecture/workspace.md"
@@ -1288,8 +1292,7 @@ vocabularies = [
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
-    { path = "app/src/block_entities/describe.rs", max = 25 },
-    { path = "app/src/block_entities/spawner.rs", max = 1 },
+    { path = "app/src/block_entities/describe.rs", max = 1 },
     { path = "app/src/block_use.rs", max = 1 },
     { path = "app/src/developer_control/state.rs", max = 1 },
     { path = "app/src/environment/profile_lookup.rs", max = 3 },

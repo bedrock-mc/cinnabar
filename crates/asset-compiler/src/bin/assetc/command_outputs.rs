@@ -12,6 +12,10 @@ pub(super) fn validate_command_outputs(command: &Command) -> Result<(), AssetErr
     let sidecar;
     let item_inputs;
     match command {
+        EntityFacts { source, out } => {
+            inputs.push(source);
+            outputs.push(out);
+        }
         ItemFacts { root, out } => {
             item_inputs = assets::facts::ITEM_FACTS_INPUTS
                 .iter()

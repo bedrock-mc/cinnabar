@@ -1,6 +1,7 @@
 //! End crystal effects are driven by the target in actor metadata, outside the JSON rig.
+use assets::facts::entity::NativeEntityClass;
 
-use protocol::{ActorKind, ActorMetadataValue};
+use protocol::ActorMetadataValue;
 
 use super::ActorStore;
 
@@ -22,27 +23,35 @@ impl ActorStore {
     /// Publishes crystal target beams and the dragons' retained healing beams.
     pub(crate) fn crystal_beams(&self, partial_tick: f32) -> Vec<CrystalBeamView> {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut beams = self.effect_members.crystals.iter().filter_map(|runtime| {
-            let actor = self.actors.get(runtime)?;
-            if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_crystal") {
-                return None;
-            }
-            let ActorMetadataValue::BlockPosition(target) = actor.metadata.get(&CRYSTAL_TARGET_METADATA_KEY)? else {
-                return None;
-            };
-            if *target == [0; 3] {
-                return None;
-            }
-            // Vanilla beam rendering offsets only the target Y by one
-            // and ends at the interpolated actor origin.
-            Some(CrystalBeamView {
-                runtime_id: actor.runtime_id,
-                owner_position: actor.interpolated_position(alpha)?,
-                target: [target[0] as f32, target[1] as f32 + 1.0, target[2] as f32],
-                crystal: actor.interpolated_position(alpha)?,
-                age_ticks: actor.status.age_ticks as f32 + alpha,
+        let mut beams = self
+            .effect_members
+            .crystals
+            .iter()
+            .filter_map(|runtime| {
+                let actor = self.actors.get(runtime)?;
+                if actor.entity_fact.native_class != NativeEntityClass::EnderCrystal {
+                    return None;
+                }
+                let ActorMetadataValue::BlockPosition(target) =
+                    actor.metadata.get(&CRYSTAL_TARGET_METADATA_KEY)?
+                else {
+                    return None;
+                };
+                if *target == [0; 3] {
+                    return None;
+                }
+                // Vanilla beam rendering offsets only the target Y by one
+                // and ends at the interpolated actor origin.
+                Some(CrystalBeamView {
+                    runtime_id: actor.runtime_id,
+                    owner_position: actor.interpolated_position(alpha)?,
+                    target: [target[0] as f32, target[1] as f32 + 1.0, target[2] as f32],
+                    crystal: actor.interpolated_position(alpha)?,
+                    age_ticks: actor.status.age_ticks as f32 + alpha,
+                })
             })
-        }).chain(self.dragon_healing_beams(alpha)).collect::<Vec<_>>();
+            .chain(self.dragon_healing_beams(alpha))
+            .collect::<Vec<_>>();
         beams.sort_unstable_by_key(|beam| beam.runtime_id);
         beams
     }
@@ -52,7 +61,7 @@ impl ActorStore {
 mod tests {
     use std::sync::Arc;
 
-    use protocol::{ActorEvent, ActorMetadata};
+    use protocol::{ActorEvent, ActorKind, ActorMetadata};
 
     use super::*;
 

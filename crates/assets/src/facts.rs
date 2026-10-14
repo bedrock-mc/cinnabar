@@ -13,6 +13,7 @@ pub(crate) use properties::decode;
 pub use properties::{PropertyDomain, StateValue};
 pub use properties_generated::BlockProperty;
 
+pub mod entity;
 mod item;
 mod item_carrier;
 pub use item::{
@@ -23,4 +24,11 @@ pub use item::{
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,
     ItemFacts, ItemFactsError, MAX_ITEM_FACTS_BYTES, encode_item_facts,
+};
+
+mod block_entity;
+pub use block_entity::{
+    BLOCK_ENTITY_FACTS_PATH, BlockEntityBacking, BlockEntityDiagnostic, BlockEntityEntry,
+    BlockEntityFacts, BlockEntityFactsPayload, BlockEntityGeometry, BlockEntityMount,
+    BlockEntityRenderer, BlockEntityState,
 };
