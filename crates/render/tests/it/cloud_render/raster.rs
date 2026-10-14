@@ -103,6 +103,7 @@ fn draw(
         "cloud_vertex",
         &draws,
         RasterState {
+            layout: None,
             primitive: wgpu::PrimitiveState {
                 front_face: wgpu::FrontFace::Ccw,
                 cull_mode,

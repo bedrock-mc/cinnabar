@@ -35,6 +35,7 @@ pub struct Draw<'a> {
 }
 
 pub struct RasterState {
+    pub layout: Option<wgpu::PipelineLayout>,
     pub primitive: wgpu::PrimitiveState,
     pub depth_compare: wgpu::CompareFunction,
     pub write_mask: wgpu::ColorWrites,
@@ -56,6 +57,7 @@ struct RasterConfiguration<'a> {
 impl Default for RasterState {
     fn default() -> Self {
         Self {
+            layout: None,
             primitive: Default::default(),
             depth_compare: wgpu::CompareFunction::GreaterEqual,
             write_mask: wgpu::ColorWrites::ALL,
@@ -396,7 +398,7 @@ impl Gpu {
                 .device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: None,
-                    layout: None,
+                    layout: state.layout.as_ref(),
                     vertex: wgpu::VertexState {
                         module: shader,
                         entry_point: Some(entry.map_or(vertex, |entry| entry.vertex)),

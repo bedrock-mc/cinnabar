@@ -48,8 +48,8 @@ fn standalone_attack_packets_precede_their_tick_player_auth_input() {
         (
             ZOMBIE,
             vec![
-                "AnimatePacket",
                 "InventoryTransactionPacket",
+                "AnimatePacket",
                 "PlayerAuthInputPacket",
             ],
         ),
@@ -121,7 +121,7 @@ fn a_full_queue_rolls_back_the_press_and_the_swing_together() {
     });
     assert_eq!(
         kinds(&sent),
-        ["AnimatePacket", "InventoryTransactionPacket"]
+        ["InventoryTransactionPacket", "AnimatePacket"]
     );
 }
 
@@ -164,7 +164,6 @@ fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
         )
         .unwrap();
         let packets = captured.drain();
-        assert_eq!(kinds(&packets[..1]), ["AnimatePacket"]);
         let first_input = if crosshair == ZOMBIE {
             let expected = protocol::use_actor_packet(protocol::ActorUseRequest {
                 actor_runtime_id: 9,
@@ -176,11 +175,16 @@ fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
             })
             .unwrap();
             assert_eq!(
-                protocol::encode(&packets[1]).unwrap(),
+                protocol::encode(&packets[0]).unwrap(),
                 protocol::encode(&expected).unwrap()
+            );
+            assert_eq!(
+                kinds(&packets[..2]),
+                ["InventoryTransactionPacket", "AnimatePacket"]
             );
             2
         } else {
+            assert_eq!(kinds(&packets[..1]), ["AnimatePacket"]);
             1
         };
         assert_eq!(packets.len(), first_input + 3);

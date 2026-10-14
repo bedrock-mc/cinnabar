@@ -240,8 +240,7 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
         return;
     };
     let bytes =
-        mod_host::local_files::read(std::path::Path::new(&path), mod_api::MAX_PANEL_FONT_BYTES)
-            .unwrap();
+        mod_host::local_files::read(std::path::Path::new(&path), font::MAX_SOURCE_BYTES).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("local.wasm");
     let first = component("First", Some(&bytes));

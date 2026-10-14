@@ -2,7 +2,7 @@ import bevy_render::view::View;
 import render::glint::glint_layer_uvs;
 import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
-import render::lighting::{CutoutSample, cutout_alpha_array};
+import render::lighting::{CutoutSample, cutout_alpha_array_region};
 
 struct GeometrySpan {
     first_vertex: u32,
@@ -48,14 +48,14 @@ struct MotionInstance {
 struct VertexOutput {
     @builtin(position) @invariant position: vec4<f32>,
     // xy samples the artwork; zw carries the item sprite or face origin.
-    @location(0) uv: vec4<f32>,
+    @location(0) @interpolate(perspective, centroid) uv: vec4<f32>,
     // Texture layer, geometry validity, optional glint instance index and UV wrapping.
     @location(1) @interpolate(flat) skin_info: vec4<u32>,
     @if(!ACTOR_MOTION)
     @location(2) world_normal: vec3<f32>,
     @if(ACTOR_MOTION)
     @location(2) current_clip: vec4<f32>,
-    @location(3) back_uv: vec2<f32>,
+    @location(3) @interpolate(perspective, centroid) back_uv: vec2<f32>,
     @location(4) @interpolate(flat) tint: u32,
     @location(5) @interpolate(flat) overlay: vec4<f32>,
     @location(7) @interpolate(flat) light: u32,
@@ -63,11 +63,68 @@ struct VertexOutput {
     @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
     @location(10) native_lighting: vec3<f32>,
     @location(11) @interpolate(flat) material: u32,
-    @location(12) @interpolate(flat) dissolve_multiplier: f32,
-    @location(13) @interpolate(flat) surface: u32,
+    // Stored float bits and surface kind share a slot within default motion interface limits.
+    @location(12) @interpolate(flat) material_parameters: vec2<u32>,
     @location(14) back_native_lighting: vec3<f32>,
+    @if(ALPHA_TO_COVERAGE)
+    @location(13) @interpolate(flat) chart_bounds: vec4<u32>,
     @if(ACTOR_MOTION)
     @location(6) previous_clip: vec4<f32>,
+}
+
+// Geometry texture dimensions use u16 coordinates; both charts fit one flat varying.
+@if(ALPHA_TO_COVERAGE)
+const ACTOR_CHART_BITS: u32 = ACTOR_CHART_COORDINATE_BITS;
+
+// Selects the physical raster used by this skin resolution class.
+@if(ALPHA_TO_COVERAGE)
+fn actor_texture_dimensions(layer: u32) -> vec2<f32> {
+    switch (layer >> 24u) {
+        case 1u: { return vec2<f32>(textureDimensions(skins_64, 0)); }
+        case 2u: { return vec2<f32>(textureDimensions(skins_128, 0)); }
+        case 3u: { return vec2<f32>(textureDimensions(skins_256, 0)); }
+        default: { return vec2<f32>(textureDimensions(skins, 0)); }
+    }
+}
+
+// Reads both UV maps from the existing geometry buffer.
+@if(ALPHA_TO_COVERAGE)
+fn actor_triangle_uv(vertex: u32) -> vec4<f32> {
+    let base = vertex * ACTOR_RIG_VERTEX_WORDS;
+    return vec4(
+        bitcast<f32>(vertex_words[base + 6u]), bitcast<f32>(vertex_words[base + 7u]),
+        bitcast<f32>(vertex_words[base + 8u]), bitcast<f32>(vertex_words[base + 9u]),
+    );
+}
+
+// Bounds texture taps to texels touched by the chart, including fractional border texels.
+@if(ALPHA_TO_COVERAGE)
+fn actor_chart_region(low: vec2<f32>, high: vec2<f32>, size: vec2<f32>) -> vec4<u32> {
+    let limit = vec2<i32>(size) - vec2(1);
+    let first = clamp(vec2<i32>(floor(clamp(low, vec2(0.0), vec2(1.0)) * size)), vec2(0), limit);
+    let last = max(first, clamp(vec2<i32>(ceil(clamp(high, vec2(0.0), vec2(1.0)) * size)) - vec2(1), vec2(0), limit));
+    return vec4<u32>(vec4(first, last));
+}
+
+// Packs independent front/back UV extents without growing the stored rig vertex.
+@if(ALPHA_TO_COVERAGE)
+fn actor_triangle_chart_bounds(first: u32, last: u32, layer: u32) -> vec4<u32> {
+    let a = actor_triangle_uv(first);
+    let b = actor_triangle_uv(min(first + 1u, last));
+    let c = actor_triangle_uv(min(first + 2u, last));
+    let low = min(min(a, b), c);
+    let high = max(max(a, b), c);
+    let size = actor_texture_dimensions(layer);
+    let front = actor_chart_region(low.xy, high.xy, size);
+    let back = actor_chart_region(low.zw, high.zw, size);
+    return front | (back << vec4(ACTOR_CHART_BITS));
+}
+
+// Selects the chart belonging to the rasterized side of the triangle.
+@if(ALPHA_TO_COVERAGE)
+fn actor_fragment_chart_bounds(packed: vec4<u32>, front: bool) -> vec4<i32> {
+    let mask = (1u << ACTOR_CHART_BITS) - 1u;
+    return vec4<i32>(select(packed >> vec4(ACTOR_CHART_BITS), packed & vec4(mask), front));
 }
 
 fn word_f32(index: u32) -> f32 {
@@ -131,13 +188,13 @@ fn actor_vertex(
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
     out.back_native_lighting = vec3(1.0);
-    out.surface = 0u;
+    out.material_parameters.y = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
     let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
     out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
-    out.dissolve_multiplier = word_f32(instance_base + 28u);
+    out.material_parameters.x = instance_words[instance_base + 28u];
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
@@ -156,6 +213,9 @@ fn actor_vertex(
         out.world_normal = vec3(0.0, 1.0, 0.0);
         return out;
     }
+
+    @if(ALPHA_TO_COVERAGE)
+    out.chart_bounds = actor_triangle_chart_bounds(span.first_vertex + (vertex_index / 3u) * 3u, span.first_vertex + span.vertex_count - 1u, texture_layer);
 
     // ActorRigVertex uses its Rust stride for both the actor and hand vertex pullers.
     let vertex_base = (span.first_vertex + vertex_index) * ACTOR_RIG_VERTEX_WORDS;
@@ -185,7 +245,7 @@ fn actor_vertex(
     // A one-sided plane's back keeps its sentinel so the fragment stage can discard it.
     out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
-    out.surface = vertex_words[vertex_base + 11u];
+    out.material_parameters.y = vertex_words[vertex_base + 11u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
     let posed = mix(previous, current, partial_tick);
@@ -225,7 +285,7 @@ fn actor_vertex(
     out.world_normal = world_normal;
     out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;
     out.back_native_lighting = out.native_lighting;
-    if (out.surface != 0u) {
+    if (out.material_parameters.y != 0u) {
         out.back_native_lighting = actor_lighting(out.light, -world_normal, out.overlay.a) * light_color_multiplier;
     }
     out.skin_info.y = 1u;
@@ -252,13 +312,14 @@ layer: u32, @if(ALPHA_TO_COVERAGE)
 dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
-repeat_uv: bool) -> CutoutSample {
+repeat_uv: bool, @if(ALPHA_TO_COVERAGE)
+region: vec4<i32>) -> CutoutSample {
     let index = i32(layer & 0xffffffu);
     switch (layer >> 24u) {
-        case 1u: { return cutout_alpha_array(skins_64, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
-        case 2u: { return cutout_alpha_array(skins_128, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
-        case 3u: { return cutout_alpha_array(skins_256, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
-        default: { return cutout_alpha_array(skins, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD); }
+        case 1u: { return cutout_alpha_array_region(skins_64, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD, region); }
+        case 2u: { return cutout_alpha_array_region(skins_128, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD, region); }
+        case 3u: { return cutout_alpha_array_region(skins_256, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD, region); }
+        default: { return cutout_alpha_array_region(skins, uv, index, dx, dy, sampled, repeat_uv, ACTOR_ALPHA_TEST_THRESHOLD, region); }
     }
 }
 
@@ -281,7 +342,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     }
     if (!front && authored && (input.material & ACTOR_MATERIAL_CULL_FLAG) != 0u) { discard; }
     let one_sided_material = material == ACTOR_MATERIAL_DRAGON || material == ACTOR_MATERIAL_DISSOLVE_DEPTH || material == ACTOR_MATERIAL_DISSOLVE_COLOR;
-    if (!front && one_sided_material && input.surface == 0u) {
+    if (!front && one_sided_material && input.material_parameters.y == 0u) {
         discard;
     }
     // Every uv_anim material vanilla and packs ship samples with repeat wrap (scrolling armor).
@@ -293,13 +354,13 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let texel = sample_actor_texture(uv, input.skin_info.x);
     var color = tint_to_gamma(texel);
     @if(ALPHA_TO_COVERAGE)
-    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u);
+    let cutout = actor_alpha_footprint(uv, input.skin_info.x, uv_dx, uv_dy, texel, input.skin_info.w != 0u, actor_fragment_chart_bounds(input.chart_bounds, front));
     @if(ALPHA_TO_COVERAGE)
     let coverage = cutout.coverage;
     @if(ALPHA_TO_COVERAGE)
     if (color.a < ACTOR_ALPHA_TEST_THRESHOLD && coverage > 0.0) { color = tint_to_gamma(cutout.colour); }
     if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
-        if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+        if (color.a * bitcast<f32>(input.material_parameters.x) < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
         return vec4(0.0);
     }
     if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
@@ -339,7 +400,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
-    let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
+    let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.material_parameters.y != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     var legacy_foil = vec3(0.0);
