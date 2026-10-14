@@ -1,19 +1,10 @@
 use assets::{
-    BlobProvenance, BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material,
-    ModelQuad, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray,
-    TextureMip, TexturePage, TextureRef, VisualKind, encode_blob,
+    BlockFlags, BlockVisual, CompiledAssets, CompiledBiomeAssets, Material, ModelQuad,
+    ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode, TextureArray, TextureMip,
+    TexturePage, TextureRef, VisualKind, encode_blob,
 };
 
 use super::{BackingBlockIdentity, BlockEntityVisualRoute, adjudicate_block_entity_visual};
-
-/// Complete synthetic identity for blobs that are decoded directly and never
-/// startup-validated. These bytes never match a real pinned expectation.
-const FIXTURE_PROVENANCE: BlobProvenance = BlobProvenance {
-    source_manifest_sha256: [0xA5; 32],
-    block_registry_sha256: [0x5A; 32],
-    light_registry_sha256: [0x33; 32],
-    biome_registry_sha256: [0x3C; 32],
-};
 
 /// Encodes a retained entity identity and bounded root fields.
 fn block_entity_nbt(id: Option<&str>, fields: &[(u8, &str, u8)]) -> world::BlockEntityNbt {
@@ -143,10 +134,7 @@ fn compiled_block_identity(
         animation_frames: Box::new([]),
         texture_pages: vec![TexturePage::new(TextureArray { layers: 1, mips })].into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
-        provenance: BlobProvenance {
-            block_registry_sha256: assets::pinned_world_provenance().block_registry_sha256,
-            ..FIXTURE_PROVENANCE
-        },
+        provenance: *assets::pinned_world_provenance(),
     }
 }
 
