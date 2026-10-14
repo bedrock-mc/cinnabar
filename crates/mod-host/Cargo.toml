@@ -33,6 +33,7 @@ mod-api = { path = "../mod-api" }
 mod-render = { path = "../mod-render" }
 ui = { path = "../ui" }
 anyhow.workspace = true
+png = "0.18"
 sha2 = { workspace = true }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
@@ -48,9 +49,17 @@ windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_S
 rustix = { version = "=1.1.4", features = ["fs"] }
 
 [dev-dependencies]
+criterion.workspace = true
+test-alloc = { path = "../test-alloc" }
 test-time = { path = "../test-time" }
 tempfile = "3"
+wasm-metadata = { version = "=0.247.0", default-features = false }
 wat = "1"
+wit-parser = "=0.247.0"
+
+[[bench]]
+name = "terrain_lowering"
+harness = false
 
 [lints]
 workspace = true

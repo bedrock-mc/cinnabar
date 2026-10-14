@@ -1,16 +1,17 @@
 use {
     super::*,
+    crate::paint::Canvas,
     crate::review_tests::paint,
     launcher::menu::MenuView,
     launcher::mods::{ActiveMod, Library, Permission},
     std::{collections::HashMap, sync::Arc},
+    ui::IconRef,
 };
 
 /// Supplies one card with a declared camera permission for interaction assertions.
 fn installed(id: u64, name: &str) -> InstalledMod {
     InstalledMod {
         id,
-        name: name.into(),
         file: format!("{name}.wasm"),
         bytes: 2048,
         permissions: vec![Permission {
@@ -19,16 +20,36 @@ fn installed(id: u64, name: &str) -> InstalledMod {
             enabled: false,
             requested: Some(true),
         }],
+        metadata: Default::default(),
     }
 }
 
 /// Paints the page and exposes its visible text and identity-scoped hit actions.
 fn render(snapshot: Snapshot) -> (Vec<MenuAction>, Vec<String>) {
+    let (hits, labels, _) = render_with(snapshot, &HashMap::new());
+    (hits, labels)
+}
+
+/// Paints the page over ready menu artwork, also returning its nodes.
+fn render_with(
+    snapshot: Snapshot,
+    artwork: &HashMap<String, IconRef>,
+) -> (Vec<MenuAction>, Vec<String>, Vec<ui::UiNode>) {
     let mut view = MenuView::new(true, "Player".into());
     view.mods = Arc::new(snapshot);
-    let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+    let (mut nodes, mut next, mut layouts) =
+        (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
+    let font = ui_engine::test_support::fixture_font();
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let hits = {
+        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+        canvas.artwork = Some(artwork);
         let mut content = Content {
-            canvas,
+            canvas: &mut canvas,
             view: &view,
             span: [100.0, 900.0],
             column_width: 800.0,
@@ -37,7 +58,8 @@ fn render(snapshot: Snapshot) -> (Vec<MenuAction>, Vec<String>) {
             nested: false,
         };
         draw(&mut content).unwrap();
-    });
+        std::mem::take(&mut canvas.hits)
+    };
     let labels = nodes
         .iter()
         .filter_map(|node| match node.visual() {
@@ -51,7 +73,11 @@ fn render(snapshot: Snapshot) -> (Vec<MenuAction>, Vec<String>) {
             _ => None,
         })
         .collect();
-    (hits.into_iter().map(|(action, _)| action).collect(), labels)
+    (
+        hits.into_iter().map(|(action, _)| action).collect(),
+        labels,
+        nodes,
+    )
 }
 
 /// Every native build exposes mod import without a feature availability branch.
@@ -161,4 +187,54 @@ fn selecting_the_registered_mods_section_opens_its_controls() {
         hits.iter()
             .any(|(action, _)| *action == command(Action::Import))
     );
+}
+
+#[test]
+fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
+    let mut item = installed(3, "zoom-plus");
+    item.metadata = ui::mod_metadata::ModMetadata {
+        name: Some("Zoom Plus".into()),
+        description: Some("Smooth zoom on any key.".into()),
+        version: Some("v1.2.0".into()),
+        authors: Some("Alex".into()),
+        licenses: Some("MIT".into()),
+        icon: Some(Arc::from([0u8].as_slice())),
+    };
+    let artwork = HashMap::from([(
+        item.icon_key().unwrap(),
+        IconRef {
+            page: 9,
+            uv: [0, 0, 32, 32],
+            glint: false,
+        },
+    )]);
+    let snapshot = Snapshot {
+        library: Library {
+            installed: vec![item.clone()],
+            ..Library::default()
+        },
+        details_expanded: Some(item.id),
+        ..Snapshot::default()
+    };
+    let (_, labels, nodes) = render_with(snapshot, &artwork);
+    for label in [
+        "Zoom Plus",
+        "Ready to enable · v1.2.0",
+        "Smooth zoom on any key.",
+        "By Alex",
+        "zoom-plus.wasm · 2.0 KB · MIT",
+    ] {
+        assert!(
+            labels.iter().any(|found| found == label),
+            "{label}: {labels:?}"
+        );
+    }
+    assert!(!labels.iter().any(|label| label == "zoom-plus"));
+    assert!(nodes.iter().any(|node| matches!(
+        node.visual(),
+        ui::UiVisual::Sprite {
+            texture_page: 9,
+            ..
+        }
+    )));
 }

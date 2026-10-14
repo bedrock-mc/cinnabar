@@ -376,6 +376,11 @@ impl FormEngine {
         &self.catalog
     }
 
+    /// The catalog before server UI layers, including registered built-in packs.
+    pub fn base_catalog(&self) -> &Arc<Catalog> {
+        &self.base
+    }
+
     /// Registered built-in screens resolve against the base catalog carrying pack filters;
     /// others use the pack stack.
     pub fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {

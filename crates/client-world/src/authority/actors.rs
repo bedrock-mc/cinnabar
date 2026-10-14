@@ -475,6 +475,12 @@ impl WorldAuthority {
             .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
     }
 
+    /// Solid actor bounds for local prediction, excluding the local player's mount.
+    pub fn movement_actor_colliders(&self) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
+        self.actors
+            .movement_colliders(self.local_player_runtime_id, self.local_player_unique_id)
+    }
+
     /// Every tracked actor except the local player, in no particular order.
     pub fn remote_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
         let local = self.local_player_runtime_id;

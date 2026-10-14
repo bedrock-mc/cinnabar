@@ -71,7 +71,10 @@ impl MotionSampling {
                         properties |= assets
                             .molang_symbols()
                             .get(call.symbol as usize)
-                            .is_some_and(|s| s.identifier.as_ref() == "query.property");
+                            .is_some_and(|s| {
+                                assets::MolangQuery::from_name(&s.identifier)
+                                    == Some(assets::MolangQuery::Property)
+                            });
                         None
                     }
                     _ => None,
@@ -86,13 +89,15 @@ impl MotionSampling {
                         .get(symbol as usize)
                         .is_some_and(|s| {
                             !matches!(
-                                s.identifier.as_ref(),
-                                "query.swell_amount"
-                                    | "query.frame_alpha"
-                                    | "query.anim_time"
-                                    | "query.all_animations_finished"
-                                    | "query.any_animation_finished"
-                                    | "query.state_time"
+                                assets::MolangQuery::from_name(&s.identifier),
+                                Some(
+                                    assets::MolangQuery::SwellAmount
+                                        | assets::MolangQuery::FrameAlpha
+                                        | assets::MolangQuery::AnimTime
+                                        | assets::MolangQuery::AllAnimationsFinished
+                                        | assets::MolangQuery::AnyAnimationFinished
+                                        | assets::MolangQuery::StateTime
+                                )
                             )
                         })
                 {

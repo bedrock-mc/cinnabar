@@ -4,14 +4,13 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::pack::PackTexture as T;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Names whose texture slots describe vessel parts instead of ordinary cube faces.
 pub(in crate::compiler) fn is_name(name: &str) -> bool {
-    matches!(
-        name,
-        "minecraft:composter" | "minecraft:cauldron" | "minecraft:lava_cauldron"
-    )
+    matches!(block_render_fact(name).kind, R::Composter | R::Cauldron)
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -28,19 +27,20 @@ pub(in crate::compiler) fn state(record: &RegistryRecord) -> Option<VesselState>
     }
     let values: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(&record.canonical_state).ok()?;
-    if record.name.as_ref() == "minecraft:composter" && values.len() == 1 {
+    if block_render_fact(&record.name).kind == R::Composter && values.len() == 1 {
         return Some(VesselState::Composter(super::state::exact_tagged_int(
-            values.get("composter_fill_level")?,
+            values.get(assets::facts::BlockProperty::ComposterFillLevel.name())?,
             8,
         )? as u8));
     }
-    if matches!(
-        record.name.as_ref(),
-        "minecraft:cauldron" | "minecraft:lava_cauldron"
-    ) && values.len() == 2
-    {
-        let level = super::state::exact_tagged_int(values.get("fill_level")?, 6)? as u8;
-        let liquid = match super::state::exact_tagged_string(values.get("cauldron_liquid")?)? {
+    if matches!(block_render_fact(&record.name).kind, R::Cauldron) && values.len() == 2 {
+        let level = super::state::exact_tagged_int(
+            values.get(assets::facts::BlockProperty::FillLevel.name())?,
+            6,
+        )? as u8;
+        let liquid = match super::state::exact_tagged_string(
+            values.get(assets::facts::BlockProperty::CauldronLiquid.name())?,
+        )? {
             "water" => 0,
             "lava" => 1,
             "powder_snow" => 2,
@@ -137,7 +137,7 @@ pub(in crate::compiler) fn descriptors(
                     let key: Box<str> = if liquid == 1 {
                         "still_lava"
                     } else {
-                        "powder_snow"
+                        T::PowderSnow.key()
                     }
                     .into();
                     let (path, state_variant) =

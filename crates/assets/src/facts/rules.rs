@@ -274,6 +274,11 @@ pub fn evaluate(
             if survival.is_none() {
                 survival = SurvivalRule::from_name(value);
             }
+        } else if rule.fact.starts_with("render:")
+            || rule.fact.starts_with("render_tint:")
+            || rule.fact.starts_with("render_flag:")
+        {
+            continue;
         } else {
             let fact = BlockTraits::from_name(&rule.fact).expect("valid block trait");
             if !decided.contains(fact) {

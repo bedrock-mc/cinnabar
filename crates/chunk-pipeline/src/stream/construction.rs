@@ -110,6 +110,7 @@ impl WorldStream {
             fatal_error: None,
             revisions: RevisionTracker::default(),
             applied_mesh_generations: HashMap::new(),
+            withdrawn_meshes: HashSet::new(),
             actor_block_syncs: actor_block_sync::ActorBlockSyncs::default(),
             mesh_dependency_masks: HashMap::new(),
             mesh_jobs: Default::default(),

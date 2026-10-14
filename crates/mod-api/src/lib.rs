@@ -1,6 +1,23 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
+/// Largest terrain query extent along each axis, in blocks.
+pub const MAX_TERRAIN_EXTENT: u8 = 16;
+/// Maximum cells in one terrain query.
+pub const MAX_TERRAIN_CELLS: usize = (MAX_TERRAIN_EXTENT as usize).pow(3);
+/// Maximum distinct terrain queries serviced for one mod per frame.
+pub const MAX_TERRAIN_QUERIES: usize = 4;
+/// Maximum terrain distance from the current player, along each axis.
+pub const MAX_TERRAIN_DISTANCE: i64 = 128;
+/// Cells re-sampled per frame across all mods; further changed queries wait a frame.
+pub const MAX_TERRAIN_FRAME_CELLS: usize = 2 * MAX_TERRAIN_CELLS;
+/// Distinct block-local boxes in one terrain region.
+pub const MAX_TERRAIN_BOXES: usize = 4096;
+/// Identifier, canonical-state and tag bytes in one terrain region.
+pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
+/// Guest-memory bytes of one lowered terrain region.
+pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
+
 mod guest;
 
 pub use guest::PlayerMod;
@@ -44,13 +61,19 @@ pub const MAX_MENU_LOGO_PIXELS: u64 = 4 * 1024 * 1024;
 pub const MAX_MENU_TITLE_BYTES: usize = 64;
 /// Retained license text has its own static source budget.
 pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
+/// Optional top-level PNG shown beside the component in the Mods library.
+pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
+pub const MAX_ICON_BYTES: usize = 256 * 1024;
+pub const MAX_ICON_SIDE: u32 = 256;
 /// Every versioned static section recognized by the local component loader.
-pub const COMPONENT_ASSET_SECTIONS: [&str; 5] = [
+pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     PANEL_BUNDLE_SECTION,
     PANEL_FONT_SECTION,
     MENU_LOGO_SECTION,
     MENU_TITLE_SECTION,
     NOTICES_SECTION,
+    ICON_SECTION,
 ];
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.

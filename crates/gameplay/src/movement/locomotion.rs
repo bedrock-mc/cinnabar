@@ -51,6 +51,8 @@ pub struct ModeIntent {
     pub can_fly: bool,
     /// The server's ability layers currently say the player is flying.
     pub server_flying: bool,
+    /// Arrival order of the server ability update behind `server_flying`.
+    pub ability_sequence: Option<u64>,
     /// Ability flight speed, when the server sent a usable one.
     pub fly_speed: Option<f64>,
     pub vertical_fly_speed: Option<f64>,
@@ -92,9 +94,10 @@ pub(super) struct ModeObservation {
     pub yaw: f32,
     /// Retained pre-tick pose offset, shared with swimming steering and replay.
     pub liquid_attach_height: f32,
-    pub jumping: bool,
     /// A fresh jump press arrived this tick.
     pub jump_edge: bool,
+    /// Jump state sent as `JumpDown` this tick, which the flight double-tap reads.
+    pub jump_down: bool,
 }
 
 impl ModeObservation {
@@ -117,12 +120,17 @@ pub(super) struct ModeChoice {
     pub mode: MovementMode,
     pub forced_sneak: bool,
     pub sprinting: bool,
+    /// The double-tap requested starting (true) or stopping (false) flight this tick.
+    pub flight_request: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
     last_server_flying: bool,
+    last_ability_sequence: Option<u64>,
+    /// `Jumping` sent on the previous tick; a flight press needs it clear.
+    previous_jumping: bool,
     sprinting: bool,
     sneaking: bool,
     previous_feet: Option<Vec3>,
@@ -165,6 +173,7 @@ impl ModeTracker {
 
     /// Captures the final primary controls for the next fixed tick's double-tap detector.
     pub(super) fn record_controls(&mut self, input: sim::MovementInput, sneak_down: bool) {
+        self.previous_jumping = input.jumping;
         self.sprint_trigger
             .record_controls(input.processed_controls().move_vector[1] as f32, sneak_down);
     }
@@ -198,6 +207,7 @@ impl ModeTracker {
                     .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
             self.last_server_flying = intent.server_flying;
+            self.last_ability_sequence = intent.ability_sequence;
             self.fly_countdown = 0;
             self.fall_fly_ticks = 0;
             self.previous_feet = Some(observed.feet);
@@ -206,11 +216,22 @@ impl ModeTracker {
                 mode: self.mode,
                 forced_sneak: false,
                 sprinting: self.sprinting,
+                flight_request: None,
             });
         }
-        let fly_toggle = self.fly_trigger(intent, observed.jump_edge);
+        // Every ability update overwrites local flight, even when it repeats the previous value.
+        let server_update = intent.server_flying != self.last_server_flying
+            || intent.ability_sequence != self.last_ability_sequence;
+        let held_flight = if server_update {
+            intent.server_flying
+        } else {
+            self.mode == MovementMode::Flying
+        };
+        let fly_toggle = self.fly_trigger(intent, held_flight, observed.jump_down);
+        let flight_request = fly_toggle.then_some(!held_flight);
         if intent.ride.is_some() {
             self.last_server_flying = intent.server_flying;
+            self.last_ability_sequence = intent.ability_sequence;
             self.mode = MovementMode::Riding;
             self.sprinting = false;
             self.sneaking = false;
@@ -220,20 +241,11 @@ impl ModeTracker {
                 mode: MovementMode::Riding,
                 forced_sneak: false,
                 sprinting: false,
+                flight_request,
             });
         }
-        // Server ability edges override locally retained flight.
-        let server_rise = intent.server_flying && !self.last_server_flying;
-        let server_fall = !intent.server_flying && self.last_server_flying;
-        let flying = intent.can_fly
-            && !server_fall
-            && intent.ride.is_none()
-            && match self.mode {
-                MovementMode::Flying => {
-                    !fly_toggle && (intent.server_flying || !observed.on_ground || observed.jumping)
-                }
-                _ => fly_toggle || server_rise,
-            };
+        // Flight persists on the ground; only a toggle or an ability update changes it.
+        let flying = intent.can_fly && held_flight != fly_toggle;
         let sampled = sim::Simulator::default().movement_environment(
             observed.feet,
             self.mode,
@@ -298,6 +310,7 @@ impl ModeTracker {
             (MovementMode::Walking, false)
         };
         self.last_server_flying = intent.server_flying;
+        self.last_ability_sequence = intent.ability_sequence;
         // Every glide entry counts from its own first tick.
         self.fall_fly_ticks = match (self.mode, mode) {
             (MovementMode::Gliding, MovementMode::Gliding) => self.fall_fly_ticks.saturating_add(1),
@@ -315,16 +328,17 @@ impl ModeTracker {
             mode,
             forced_sneak,
             sprinting: self.sprinting,
+            flight_request,
         })
     }
 
-    /// Vanilla's flight double-tap: every tick shortens the window, a fresh jump
-    /// press opens it, and a second press while it is open toggles and closes it.
-    fn fly_trigger(&mut self, intent: ModeIntent, jump_edge: bool) -> bool {
+    /// Vanilla's flight double-tap: every tick shortens the window, a press opens it,
+    /// and a second press while it is open toggles and closes it. A press is `JumpDown`
+    /// after a tick without `Jumping`, so the server replays the same toggles.
+    fn fly_trigger(&mut self, intent: ModeIntent, flying: bool, jump_down: bool) -> bool {
         self.fly_countdown = (self.fly_countdown - 1).max(0);
-        let eligible =
-            self.mode == MovementMode::Flying || (intent.can_fly && intent.ride.is_none());
-        if !eligible || !jump_edge {
+        let eligible = flying || (intent.can_fly && intent.ride.is_none());
+        if !eligible || !jump_down || self.previous_jumping {
             return false;
         }
         if self.fly_countdown < 1 {

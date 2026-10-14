@@ -2108,7 +2108,8 @@
         "minecraft:frame",
         "minecraft:glow_frame",
         "minecraft:lectern",
-        "minecraft:end_portal"
+        "minecraft:end_portal",
+        "minecraft:end_gateway"
       ],
       "suffix": "shulker_box"
     },
@@ -3086,6 +3087,760 @@
       "members": [
         "minecraft:end_gateway"
       ]
+    },
+    {
+      "id": "render-deprecatedpillar",
+      "fact": "render:DeprecatedPillar",
+      "status": "provisional",
+      "members": [
+        "minecraft:bone_block",
+        "minecraft:hay_block"
+      ]
+    },
+    {
+      "id": "render-tnt",
+      "fact": "render:Tnt",
+      "status": "provisional",
+      "members": [
+        "minecraft:tnt"
+      ]
+    },
+    {
+      "id": "render-chain",
+      "fact": "render:Chain",
+      "status": "provisional",
+      "suffix": "_chain"
+    },
+    {
+      "id": "render-crystal",
+      "fact": "render:Crystal",
+      "status": "provisional",
+      "members": [
+        "minecraft:amethyst_cluster",
+        "minecraft:small_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:large_amethyst_bud"
+      ]
+    },
+    {
+      "id": "render-ladder",
+      "fact": "render:Ladder",
+      "status": "provisional",
+      "members": [
+        "minecraft:ladder"
+      ]
+    },
+    {
+      "id": "render-seagrass",
+      "fact": "render:Seagrass",
+      "status": "provisional",
+      "members": [
+        "minecraft:seagrass"
+      ]
+    },
+    {
+      "id": "render-kelp",
+      "fact": "render:Kelp",
+      "status": "provisional",
+      "members": [
+        "minecraft:kelp"
+      ]
+    },
+    {
+      "id": "render-pale-moss-carpet",
+      "fact": "render:PaleMossCarpet",
+      "status": "provisional",
+      "members": [
+        "minecraft:pale_moss_carpet"
+      ]
+    },
+    {
+      "id": "render-clear-glass",
+      "fact": "render:ClearGlass",
+      "status": "provisional",
+      "members": [
+        "minecraft:glass"
+      ]
+    },
+    {
+      "id": "render-anvil",
+      "fact": "render:Anvil",
+      "status": "provisional",
+      "members": [
+        "minecraft:anvil",
+        "minecraft:chipped_anvil",
+        "minecraft:damaged_anvil"
+      ]
+    },
+    {
+      "id": "render-brewing-stand",
+      "fact": "render:BrewingStand",
+      "status": "provisional",
+      "members": [
+        "minecraft:brewing_stand"
+      ]
+    },
+    {
+      "id": "render-bubble-column",
+      "fact": "render:BubbleColumn",
+      "status": "provisional",
+      "members": [
+        "minecraft:bubble_column"
+      ]
+    },
+    {
+      "id": "render-campfire",
+      "fact": "render:Campfire",
+      "status": "provisional",
+      "members": [
+        "minecraft:campfire",
+        "minecraft:soul_campfire"
+      ]
+    },
+    {
+      "id": "render-dragon-egg",
+      "fact": "render:DragonEgg",
+      "status": "provisional",
+      "members": [
+        "minecraft:dragon_egg"
+      ]
+    },
+    {
+      "id": "render-end-rod",
+      "fact": "render:EndRod",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_rod"
+      ]
+    },
+    {
+      "id": "render-fire",
+      "fact": "render:Fire",
+      "status": "provisional",
+      "members": [
+        "minecraft:fire",
+        "minecraft:soul_fire"
+      ]
+    },
+    {
+      "id": "render-grindstone",
+      "fact": "render:Grindstone",
+      "status": "provisional",
+      "members": [
+        "minecraft:grindstone"
+      ]
+    },
+    {
+      "id": "render-lever",
+      "fact": "render:Lever",
+      "status": "provisional",
+      "members": [
+        "minecraft:lever"
+      ]
+    },
+    {
+      "id": "render-lily-pad",
+      "fact": "render:LilyPad",
+      "status": "provisional",
+      "members": [
+        "minecraft:waterlily"
+      ]
+    },
+    {
+      "id": "render-pitcher-crop",
+      "fact": "render:PitcherCrop",
+      "status": "provisional",
+      "members": [
+        "minecraft:pitcher_crop"
+      ]
+    },
+    {
+      "id": "render-sea-pickle",
+      "fact": "render:SeaPickle",
+      "status": "provisional",
+      "members": [
+        "minecraft:sea_pickle"
+      ]
+    },
+    {
+      "id": "render-stem",
+      "fact": "render:Stem",
+      "status": "provisional",
+      "members": [
+        "minecraft:melon_stem",
+        "minecraft:pumpkin_stem"
+      ]
+    },
+    {
+      "id": "render-tripwire-hook",
+      "fact": "render:TripwireHook",
+      "status": "provisional",
+      "members": [
+        "minecraft:tripwire_hook"
+      ]
+    },
+    {
+      "id": "render-barrel",
+      "fact": "render:Barrel",
+      "status": "provisional",
+      "members": [
+        "minecraft:barrel"
+      ]
+    },
+    {
+      "id": "render-composter",
+      "fact": "render:Composter",
+      "status": "provisional",
+      "members": [
+        "minecraft:composter"
+      ]
+    },
+    {
+      "id": "render-cauldron",
+      "fact": "render:Cauldron",
+      "status": "provisional",
+      "members": [
+        "minecraft:cauldron"
+      ]
+    },
+    {
+      "id": "render-cactus",
+      "fact": "render:Cactus",
+      "status": "provisional",
+      "members": [
+        "minecraft:cactus"
+      ]
+    },
+    {
+      "id": "render-cake",
+      "fact": "render:Cake",
+      "status": "provisional",
+      "members": [
+        "minecraft:cake"
+      ]
+    },
+    {
+      "id": "render-farmland",
+      "fact": "render:Farmland",
+      "status": "provisional",
+      "members": [
+        "minecraft:farmland"
+      ]
+    },
+    {
+      "id": "render-bee-housing",
+      "fact": "render:BeeHousing",
+      "status": "provisional",
+      "members": [
+        "minecraft:bee_nest",
+        "minecraft:beehive"
+      ]
+    },
+    {
+      "id": "render-resin-clump",
+      "fact": "render:ResinClump",
+      "status": "provisional",
+      "members": [
+        "minecraft:resin_clump"
+      ]
+    },
+    {
+      "id": "render-chiseled-bookshelf",
+      "fact": "render:ChiseledBookshelf",
+      "status": "provisional",
+      "members": [
+        "minecraft:chiseled_bookshelf"
+      ]
+    },
+    {
+      "id": "render-enchanting-table",
+      "fact": "render:EnchantingTable",
+      "status": "provisional",
+      "members": [
+        "minecraft:enchanting_table"
+      ]
+    },
+    {
+      "id": "render-azalea",
+      "fact": "render:Azalea",
+      "status": "provisional",
+      "members": [
+        "minecraft:azalea",
+        "minecraft:flowering_azalea"
+      ]
+    },
+    {
+      "id": "render-bamboo",
+      "fact": "render:Bamboo",
+      "status": "provisional",
+      "members": [
+        "minecraft:bamboo"
+      ]
+    },
+    {
+      "id": "render-roots",
+      "fact": "render:Roots",
+      "status": "provisional",
+      "members": [
+        "minecraft:crimson_roots",
+        "minecraft:warped_roots"
+      ]
+    },
+    {
+      "id": "render-grass",
+      "fact": "render:Grass",
+      "status": "provisional",
+      "members": [
+        "minecraft:grass_block"
+      ]
+    },
+    {
+      "id": "render-mycelium",
+      "fact": "render:Mycelium",
+      "status": "provisional",
+      "members": [
+        "minecraft:mycelium"
+      ]
+    },
+    {
+      "id": "render-grass-path",
+      "fact": "render:GrassPath",
+      "status": "provisional",
+      "members": [
+        "minecraft:grass_path"
+      ]
+    },
+    {
+      "id": "render-snow-layer",
+      "fact": "render:SnowLayer",
+      "status": "provisional",
+      "members": [
+        "minecraft:snow_layer"
+      ]
+    },
+    {
+      "id": "render-redstone-base",
+      "fact": "render:RedstoneBase",
+      "status": "provisional",
+      "members": [
+        "minecraft:unpowered_repeater",
+        "minecraft:powered_repeater",
+        "minecraft:unpowered_comparator",
+        "minecraft:powered_comparator"
+      ]
+    },
+    {
+      "id": "render-named-cube",
+      "fact": "render:NamedCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:sculk_catalyst",
+        "minecraft:chiseled_sulfur",
+        "minecraft:polished_sulfur",
+        "minecraft:sulfur_bricks",
+        "minecraft:chiseled_cinnabar",
+        "minecraft:polished_cinnabar",
+        "minecraft:cinnabar_bricks"
+      ]
+    },
+    {
+      "id": "render-respawn-anchor",
+      "fact": "render:RespawnAnchor",
+      "status": "provisional",
+      "members": [
+        "minecraft:respawn_anchor"
+      ]
+    },
+    {
+      "id": "render-end-portal-frame",
+      "fact": "render:EndPortalFrame",
+      "status": "provisional",
+      "members": [
+        "minecraft:end_portal_frame"
+      ]
+    },
+    {
+      "id": "render-selector-alias-cube",
+      "fact": "render:SelectorAliasCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:bone_block",
+        "minecraft:hay_block",
+        "minecraft:chiseled_quartz_block",
+        "minecraft:purpur_block",
+        "minecraft:quartz_block",
+        "minecraft:smooth_quartz",
+        "minecraft:tnt"
+      ]
+    },
+    {
+      "id": "render-mineral-cube",
+      "fact": "render:MineralCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:cinnabar",
+        "minecraft:sulfur"
+      ]
+    },
+    {
+      "id": "render-stained-glass",
+      "fact": "render:StainedGlass",
+      "status": "provisional",
+      "suffix": "_stained_glass",
+      "exclude_contains": "hard_"
+    },
+    {
+      "id": "render-copper-grate",
+      "fact": "render:CopperGrate",
+      "status": "provisional",
+      "suffix": "copper_grate"
+    },
+    {
+      "id": "render-candle-cake",
+      "fact": "render:CandleCake",
+      "status": "provisional",
+      "suffix": "candle_cake"
+    },
+    {
+      "id": "render-shelf",
+      "fact": "render:Shelf",
+      "status": "provisional",
+      "suffix": "_shelf"
+    },
+    {
+      "id": "render-lightning-rod",
+      "fact": "render:LightningRod",
+      "status": "provisional",
+      "suffix": "lightning_rod"
+    },
+    {
+      "id": "render-copper-bulb",
+      "fact": "render:CopperBulb",
+      "status": "provisional",
+      "suffix": "copper_bulb"
+    },
+    {
+      "id": "render-coral-wall-fan",
+      "fact": "render:CoralWallFan",
+      "status": "provisional",
+      "suffix": "_coral_wall_fan"
+    },
+    {
+      "id": "render-coral-fan",
+      "fact": "render:CoralFan",
+      "status": "provisional",
+      "suffix": "_coral_fan"
+    },
+    {
+      "id": "render-literal-cube",
+      "fact": "render:LiteralCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:redstone_lamp",
+        "minecraft:lit_redstone_lamp",
+        "minecraft:glowingobsidian",
+        "minecraft:lodestone",
+        "minecraft:cartography_table",
+        "minecraft:target",
+        "minecraft:netherreactor",
+        "minecraft:moss_block",
+        "minecraft:pale_moss_block",
+        "minecraft:mud",
+        "minecraft:soul_sand",
+        "minecraft:sculk",
+        "minecraft:dirt_with_roots",
+        "minecraft:budding_amethyst",
+        "minecraft:crimson_nylium",
+        "minecraft:warped_nylium",
+        "minecraft:allow",
+        "minecraft:deny"
+      ]
+    },
+    {
+      "id": "render-invisible",
+      "fact": "render:Invisible",
+      "status": "provisional",
+      "members": [
+        "minecraft:barrier",
+        "minecraft:structure_void",
+        "minecraft:invisible_bedrock",
+        "minecraft:moving_block"
+      ],
+      "prefix": "light_block_"
+    },
+    {
+      "id": "render-ice",
+      "fact": "render:Ice",
+      "status": "provisional",
+      "members": [
+        "minecraft:ice"
+      ]
+    },
+    {
+      "id": "render-frostedice",
+      "fact": "render:FrostedIce",
+      "status": "provisional",
+      "members": [
+        "minecraft:frosted_ice"
+      ]
+    },
+    {
+      "id": "render-slime",
+      "fact": "render:Slime",
+      "status": "provisional",
+      "members": [
+        "minecraft:slime"
+      ]
+    },
+    {
+      "id": "render-honey",
+      "fact": "render:Honey",
+      "status": "provisional",
+      "members": [
+        "minecraft:honey_block"
+      ]
+    },
+    {
+      "id": "render-tintedglass",
+      "fact": "render:TintedGlass",
+      "status": "provisional",
+      "members": [
+        "minecraft:tinted_glass"
+      ]
+    },
+    {
+      "id": "render-powdersnow",
+      "fact": "render:PowderSnow",
+      "status": "provisional",
+      "members": [
+        "minecraft:powder_snow"
+      ]
+    },
+    {
+      "id": "render-snow",
+      "fact": "render:Snow",
+      "status": "provisional",
+      "members": [
+        "minecraft:snow"
+      ]
+    },
+    {
+      "id": "render-berrybush",
+      "fact": "render:BerryBush",
+      "status": "provisional",
+      "members": [
+        "minecraft:sweet_berry_bush"
+      ]
+    },
+    {
+      "id": "render-defaultrail",
+      "fact": "render:DefaultRail",
+      "status": "provisional",
+      "members": [
+        "minecraft:rail"
+      ]
+    },
+    {
+      "id": "render-croprows",
+      "fact": "render:CropRows",
+      "status": "provisional",
+      "members": [
+        "minecraft:wheat",
+        "minecraft:carrots",
+        "minecraft:potatoes",
+        "minecraft:beetroot"
+      ]
+    },
+    {
+      "id": "render-torchflower",
+      "fact": "render:Torchflower",
+      "status": "provisional",
+      "members": [
+        "minecraft:torchflower_crop",
+        "minecraft:torchflower"
+      ]
+    },
+    {
+      "id": "render-tint-grass",
+      "fact": "render_tint:Grass",
+      "status": "provisional",
+      "members": [
+        "minecraft:grass_block",
+        "minecraft:short_grass",
+        "minecraft:tall_grass",
+        "minecraft:fern",
+        "minecraft:large_fern",
+        "minecraft:bush"
+      ]
+    },
+    {
+      "id": "render-tint-foliage",
+      "fact": "render_tint:Foliage",
+      "status": "provisional",
+      "members": [
+        "minecraft:oak_leaves",
+        "minecraft:dark_oak_leaves",
+        "minecraft:jungle_leaves",
+        "minecraft:acacia_leaves",
+        "minecraft:mangrove_leaves",
+        "minecraft:vine"
+      ]
+    },
+    {
+      "id": "render-tint-birch",
+      "fact": "render_tint:Birch",
+      "status": "provisional",
+      "members": [
+        "minecraft:birch_leaves"
+      ]
+    },
+    {
+      "id": "render-tint-evergreen",
+      "fact": "render_tint:Evergreen",
+      "status": "provisional",
+      "members": [
+        "minecraft:spruce_leaves"
+      ]
+    },
+    {
+      "id": "render-tint-dry",
+      "fact": "render_tint:Dry",
+      "status": "provisional",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
+      "id": "render-water",
+      "fact": "render:Water",
+      "status": "provisional",
+      "members": [
+        "minecraft:water",
+        "minecraft:flowing_water"
+      ]
+    },
+    {
+      "id": "render-lava",
+      "fact": "render:Lava",
+      "status": "provisional",
+      "members": [
+        "minecraft:lava",
+        "minecraft:flowing_lava"
+      ]
+    },
+    {
+      "id": "render-lantern",
+      "fact": "render:Lantern",
+      "status": "provisional",
+      "state_properties": [
+        "hanging"
+      ],
+      "exact_properties": true
+    },
+    {
+      "id": "render-flowerpot",
+      "fact": "render:FlowerPot",
+      "status": "provisional",
+      "members": [
+        "minecraft:flower_pot"
+      ]
+    },
+    {
+      "id": "render-bamboofence",
+      "fact": "render:BambooFence",
+      "status": "provisional",
+      "members": [
+        "minecraft:bamboo_fence"
+      ]
+    },
+    {
+      "id": "render-bamboogate",
+      "fact": "render:BambooGate",
+      "status": "provisional",
+      "members": [
+        "minecraft:bamboo_fence_gate"
+      ]
+    },
+    {
+      "id": "render-netherbrickfence",
+      "fact": "render:NetherBrickFence",
+      "status": "provisional",
+      "members": [
+        "minecraft:nether_brick_fence"
+      ]
+    },
+    {
+      "id": "render-stainedpane",
+      "fact": "render:StainedPane",
+      "status": "provisional",
+      "suffix": "_stained_glass_pane"
+    },
+    {
+      "id": "render-fire-flammable",
+      "fact": "render_flag:fire_flammable",
+      "status": "provisional",
+      "contains": "_wool"
+    },
+    {
+      "id": "render-fire-top",
+      "fact": "render_flag:fire_top",
+      "status": "provisional",
+      "members": [
+        "minecraft:stone",
+        "minecraft:netherrack",
+        "minecraft:glass",
+        "minecraft:soul_sand"
+      ]
+    },
+    {
+      "id": "render-standingsign",
+      "fact": "render:StandingSign",
+      "status": "provisional",
+      "suffix": "standing_sign"
+    },
+    {
+      "id": "render-wallsign",
+      "fact": "render:WallSign",
+      "status": "provisional",
+      "suffix": "wall_sign"
+    },
+    {
+      "id": "render-hangingsign",
+      "fact": "render:HangingSign",
+      "status": "provisional",
+      "suffix": "hanging_sign"
+    },
+    {
+      "id": "flat-icon-lantern",
+      "fact": "render_flag:flat_icon",
+      "status": "provisional",
+      "suffix": "lantern"
+    },
+    {
+      "id": "flat-icon-candle",
+      "fact": "render_flag:flat_icon",
+      "status": "provisional",
+      "suffix": "candle"
+    },
+    {
+      "id": "flat-icon-chain",
+      "fact": "render_flag:flat_icon",
+      "status": "provisional",
+      "suffix": "chain"
+    },
+    {
+      "id": "flat-icon-native-shapes",
+      "fact": "render_flag:flat_icon",
+      "status": "provisional",
+      "members": [
+        "minecraft:ladder",
+        "minecraft:waterlily",
+        "minecraft:end_rod",
+        "minecraft:sea_pickle",
+        "minecraft:spore_blossom",
+        "minecraft:bamboo",
+        "minecraft:bell"
+      ]
     }
   ],
   "item_rules": [
@@ -3838,6 +4593,83 @@
       "repair": {
         "item": "minecraft:armadillo_scute"
       }
+    },
+    {
+      "id": "animal-armour-material-leather",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:leather_horse_armor"
+        ]
+      },
+      "armour_material": "leather"
+    },
+    {
+      "id": "animal-armour-material-iron",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:iron_horse_armor",
+          "minecraft:iron_nautilus_armor"
+        ]
+      },
+      "armour_material": "iron"
+    },
+    {
+      "id": "animal-armour-material-gold",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:golden_horse_armor",
+          "minecraft:golden_nautilus_armor"
+        ]
+      },
+      "armour_material": "gold"
+    },
+    {
+      "id": "animal-armour-material-diamond",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:diamond_horse_armor",
+          "minecraft:diamond_nautilus_armor"
+        ]
+      },
+      "armour_material": "diamond"
+    },
+    {
+      "id": "animal-armour-material-copper",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:copper_horse_armor",
+          "minecraft:copper_nautilus_armor"
+        ]
+      },
+      "armour_material": "copper"
+    },
+    {
+      "id": "animal-armour-material-netherite",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:netherite_nautilus_armor",
+          "minecraft:netherite_horse_armor"
+        ]
+      },
+      "armour_material": "netherite"
+    },
+    {
+      "id": "spyglass",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:spyglass"
+        ]
+      },
+      "traits": [
+        "spyglass"
+      ]
     }
   ],
   "placement_rules": [
@@ -5135,5 +5967,503 @@
       ],
       "status": "provisional"
     }
-  ]
+  ],
+  "visual_events": {
+    "status": "provisional",
+    "legacy_particles": {
+      "1": "basic_bubble_particle",
+      "2": "basic_bubble_particle_manual",
+      "3": "basic_crit_particle",
+      "5": "basic_smoke_particle",
+      "6": "explosion_particle",
+      "7": "water_evaporation_actor_emitter",
+      "8": "basic_flame_particle",
+      "9": "lava_particle",
+      "10": "basic_smoke_particle",
+      "11": "redstone_wire_dust_particle",
+      "12": "rising_border_dust_particle",
+      "16": "dragon_death_explosion_emitter",
+      "17": "dragon_death_explosion_emitter",
+      "18": "heart_particle",
+      "20": "mycelium_dust_particle",
+      "21": "basic_portal_particle",
+      "22": "mob_portal",
+      "23": "water_splash_particle",
+      "24": "water_splash_particle_manual",
+      "25": "water_wake_particle",
+      "26": "water_drip_particle",
+      "27": "lava_drip_particle",
+      "28": "honey_drip_particle",
+      "29": "stalactite_water_drip_particle",
+      "30": "stalactite_lava_drip_particle",
+      "31": "falling_dust",
+      "32": "mobspell_emitter",
+      "33": "mobspell_ambient",
+      "34": "mobspell_emitter",
+      "35": "ink_emitter",
+      "37": "rain_splash_particle",
+      "38": "villager_angry",
+      "39": "villager_happy",
+      "40": "enchanting_table_particle",
+      "42": "note_particle",
+      "43": "witchspell_emitter",
+      "44": "crop_growth_emitter",
+      "46": "endrod",
+      "47": "dragon_breath_fire",
+      "48": "llama_spit_smoke",
+      "49": "totem_particle",
+      "54": "balloon_gas_particle",
+      "55": "colored_flame_particle",
+      "56": "sparkler_emitter",
+      "57": "conduit_particle",
+      "58": "bubble_column_up_particle",
+      "59": "bubble_column_down_particle",
+      "60": "sneeze",
+      "61": "shulker_bullet",
+      "62": "bleach",
+      "63": "dragon_destroy_block",
+      "64": "mycelium_dust_particle",
+      "65": "falling_border_dust_particle",
+      "66": "campfire_smoke_particle",
+      "67": "campfire_tall_smoke_particle",
+      "68": "dragon_breath_fire",
+      "69": "dragon_breath_trail",
+      "70": "blue_flame_particle",
+      "71": "soul_particle",
+      "72": "obsidian_tear_particle",
+      "73": "portal_reverse_particle",
+      "74": "snowflake_particle",
+      "75": "vibration_signal",
+      "76": "sculk_sensor_redstone_particle",
+      "77": "spore_blossom_shower_particle",
+      "78": "spore_blossom_ambient_particle",
+      "79": "wax_particle",
+      "80": "electric_spark_particle",
+      "81": "candle_flame_particle",
+      "82": "shriek_particle",
+      "83": "sculk_soul_particle",
+      "84": "sonic_explosion",
+      "86": "cherry_leaves_particle",
+      "87": "dust_plume",
+      "88": "white_smoke_particle",
+      "89": "wind_explosion_emitter",
+      "90": "breeze_wind_explosion_emitter",
+      "91": "vault_connection_particle",
+      "94": "creaking_crumble_body",
+      "95": "pale_oak_leaves_particle",
+      "96": "eyeblossom_open",
+      "97": "eyeblossom_close",
+      "98": "green_flame_particle",
+      "99": "pause_mob_growth",
+      "100": "reset_mob_growth",
+      "101": "sulfur_cube_goo"
+    },
+    "level_particles": {
+      "ParticlesEyeOfEnderDeath": "eyeofender_death_explode_particle",
+      "ParticlesMobBlockSpawn": "mob_block_spawn_emitter",
+      "ParticleCropGrowth": "crop_growth_emitter",
+      "ParticleDeathSmoke": "death_explosion_emitter",
+      "ParticlesCritical": "critical_hit_emitter",
+      "ParticlesTeleport": "mob_portal",
+      "ParticlesBubble": "basic_bubble_particle",
+      "ParticlesEvaporate": "water_evaporation_bucket_emitter",
+      "ParticlesBreakingEgg": "egg_destroy_emitter",
+      "ParticleDestroyEgg": "egg_destroy_emitter",
+      "ParticlesEvaporateWater": "water_evaporation_actor_emitter",
+      "ParticlesKnockbackRoar": "knockback_roar_particle",
+      "ParticlesVibrationSignal": "vibration_signal",
+      "ParticlesFizzEffect": "misc_fire_vapor_particle",
+      "WaxOn": "wax_particle",
+      "ParticlesElectricSpark": "electric_spark_particle",
+      "ParticleSculkShriek": "shriek_particle",
+      "SculkCharge": "sculk_charge_particle",
+      "SculkChargePop": "sculk_charge_pop_particle",
+      "SonicExplosion": "sonic_explosion",
+      "DustPlume": "dust_plume",
+      "ParticlesShootWhiteSmoke": "white_smoke_particle",
+      "ParticlesBreezeWindExplosion": "breeze_wind_explosion_emitter",
+      "ParticlesTrialSpawnerDetection": "trial_spawner_detection",
+      "ParticlesWindExplosion": "wind_explosion_emitter"
+    },
+    "level_sounds": [
+      [
+        "SoundClick",
+        "block.click",
+        "random.click"
+      ],
+      [
+        "SoundClickFail",
+        "block.click.fail",
+        "random.click"
+      ],
+      [
+        "SoundLaunch",
+        "launch",
+        "random.bow"
+      ],
+      [
+        "SoundFizz",
+        "fizz",
+        "random.fizz"
+      ],
+      [
+        "SoundFuse",
+        "",
+        "random.fuse"
+      ],
+      [
+        "SoundGhastWarning",
+        "",
+        "mob.ghast.charge"
+      ],
+      [
+        "SoundGhastFireball",
+        "",
+        "mob.ghast.fireball"
+      ],
+      [
+        "SoundBlazeFireball",
+        "",
+        "mob.blaze.shoot"
+      ],
+      [
+        "SoundZombieWoodenDoor",
+        "",
+        "mob.zombie.wood"
+      ],
+      [
+        "SoundZombieDoorCrash",
+        "",
+        "mob.zombie.woodbreak"
+      ],
+      [
+        "SoundZombieInfected",
+        "unfect",
+        "mob.zombie.unfect"
+      ],
+      [
+        "SoundZombieConverted",
+        "remedy",
+        "mob.zombie.remedy"
+      ],
+      [
+        "SoundEndermanTeleport",
+        "",
+        "mob.endermen.portal"
+      ],
+      [
+        "SoundAnvilBroken",
+        "",
+        "random.anvil_break"
+      ],
+      [
+        "SoundAnvilUsed",
+        "",
+        "random.anvil_use"
+      ],
+      [
+        "SoundAnvilLand",
+        "",
+        "random.anvil_land"
+      ],
+      [
+        "SoundInfinityArrowPickup",
+        "",
+        "random.pop"
+      ],
+      [
+        "SoundTeleportEnderPearl",
+        "",
+        "mob.endermen.portal"
+      ],
+      [
+        "SoundAddItem",
+        "",
+        "block.itemframe.add_item"
+      ],
+      [
+        "SoundItemFrameBreak",
+        "",
+        "block.itemframe.break"
+      ],
+      [
+        "SoundItemFramePlace",
+        "",
+        "block.itemframe.place"
+      ],
+      [
+        "SoundItemFrameRemoveItem",
+        "",
+        "block.itemframe.remove_item"
+      ],
+      [
+        "SoundItemFrameRotateItem",
+        "",
+        "block.itemframe.rotate_item"
+      ],
+      [
+        "SoundExperienceOrbPickup",
+        "",
+        "random.orb"
+      ],
+      [
+        "SoundTotemUsed",
+        "random.totem",
+        "random.totem"
+      ],
+      [
+        "SoundArmorStandBreak",
+        "",
+        "mob.armor_stand.break"
+      ],
+      [
+        "SoundArmorStandHit",
+        "",
+        "mob.armor_stand.hit"
+      ],
+      [
+        "SoundArmorStandLand",
+        "",
+        "mob.armor_stand.land"
+      ],
+      [
+        "SoundArmorStandPlace",
+        "",
+        "mob.armor_stand.place"
+      ]
+    ],
+    "note_instruments": [
+      "note.harp",
+      "note.bd",
+      "note.snare",
+      "note.hat",
+      "note.bassattack",
+      "note.flute",
+      "note.bell",
+      "note.guitar",
+      "note.chime",
+      "note.xylophone",
+      "note.iron_xylophone",
+      "note.cow_bell",
+      "note.didgeridoo",
+      "note.bit",
+      "note.banjo",
+      "note.pling",
+      "note.trumpet",
+      "note.trumpet_exposed",
+      "note.trumpet_weathered",
+      "note.trumpet_oxidized",
+      "note.zombie",
+      "note.skeleton",
+      "note.creeper",
+      "note.enderdragon",
+      "note.witherskeleton",
+      "note.piglin"
+    ]
+  },
+  "pack_rules": {
+    "textures": {
+      "PaleMossCarpetSide": "pale_moss_carpet_side",
+      "BambooFenceGate": "bamboo_fence_gate",
+      "BeaconCore": "beacon_core",
+      "BeaconShell": "beacon_shell",
+      "BeeNestSide": "bee_nest_side",
+      "BeeNestBottom": "bee_nest_bottom",
+      "BeeNestTop": "bee_nest_top",
+      "BeeNestFront": "bee_nest_front",
+      "BeehiveSide": "beehive_side",
+      "BeehiveTop": "beehive_top",
+      "BeehiveFront": "beehive_front",
+      "ChiseledBookshelfSide": "chiseled_bookshelf_side",
+      "ChiseledBookshelfTop": "chiseled_bookshelf_top",
+      "ChiseledBookshelfFront": "chiseled_bookshelf_front",
+      "CactusSide": "cactus_side",
+      "CactusBottom": "cactus_bottom",
+      "CactusTop": "cactus_top",
+      "CakeSide": "cake_side",
+      "CakeBottom": "cake_bottom",
+      "CakeTop": "cake_top",
+      "CakeWest": "cake_west",
+      "FarmlandSide": "farmland_side",
+      "Farmland": "farmland",
+      "GrassSide": "grass_side",
+      "MyceliumSide": "mycelium_side",
+      "ResinClump": "resin_clump",
+      "PowderSnow": "powder_snow"
+    },
+    "alpha_textures": [
+      "BambooFenceGate",
+      "BeaconCore",
+      "BeaconShell"
+    ],
+    "blocks": {
+      "BeeNest": "minecraft:bee_nest",
+      "Beehive": "minecraft:beehive",
+      "ChiseledBookshelf": "minecraft:chiseled_bookshelf",
+      "Cactus": "minecraft:cactus",
+      "Cake": "minecraft:cake",
+      "Farmland": "minecraft:farmland",
+      "ResinClump": "minecraft:resin_clump",
+      "Dirt": "minecraft:dirt",
+      "CobblestoneWall": "minecraft:cobblestone_wall",
+      "Air": "minecraft:air",
+      "Stone": "minecraft:stone"
+    },
+    "selectors": {
+      "door_lower": "Door",
+      "door_upper": "Door",
+      "red_flower": "Flower",
+      "sapling": "Sapling",
+      "repeater_up": "Powered",
+      "comparator_up": "Powered",
+      "frosted_ice": "FrostedIce",
+      "wheat": "Wheat",
+      "melon_stem": "Stem",
+      "pumpkin_stem": "Stem",
+      "carrots": "CropStages",
+      "potatoes": "CropStages",
+      "beetroot": "CropStages",
+      "torchflower_crop": "Torchflower"
+    },
+    "variants": {
+      "Door": [
+        "minecraft:wooden_door",
+        "minecraft:spruce_door",
+        "minecraft:birch_door",
+        "minecraft:jungle_door",
+        "minecraft:acacia_door",
+        "minecraft:dark_oak_door",
+        "minecraft:iron_door"
+      ],
+      "Flower": [
+        "minecraft:poppy",
+        "minecraft:blue_orchid",
+        "minecraft:allium",
+        "minecraft:azure_bluet",
+        "minecraft:red_tulip",
+        "minecraft:orange_tulip",
+        "minecraft:white_tulip",
+        "minecraft:pink_tulip",
+        "minecraft:oxeye_daisy",
+        "minecraft:cornflower",
+        "minecraft:lily_of_the_valley"
+      ],
+      "Sapling": [
+        "minecraft:oak_sapling",
+        "minecraft:spruce_sapling",
+        "minecraft:birch_sapling",
+        "minecraft:jungle_sapling",
+        "minecraft:acacia_sapling",
+        "minecraft:dark_oak_sapling"
+      ]
+    },
+    "mushrooms": {
+      "mushroom_brown_": "minecraft:brown_mushroom_block",
+      "mushroom_red_": "minecraft:red_mushroom_block",
+      "mushroom_stem_": "minecraft:mushroom_stem"
+    },
+    "powered_prefix": "powered",
+    "materials": {
+      "elytra": "UnmaskedArmor",
+      "skeleton": "AlphaTestNoCull",
+      "experience_orb": "AlphaTest",
+      "player_spectator": "AlphaBlend",
+      "slime_outer": "AlphaBlend",
+      "breeze_wind": "Wind",
+      "charged_creeper": "Charged",
+      "ender_dragon": "Dragon",
+      "entity_dissolve_layer0": "DissolveDepth",
+      "entity_dissolve_layer0.skinning": "DissolveDepth",
+      "entity_dissolve_layer1": "DissolveColor",
+      "entity_dissolve_layer1.skinning": "DissolveColor",
+      "entity_alphatest": "AlphaTestNoCull"
+    },
+    "egg_aliases": {
+      "minecraft:evocation_illager": "minecraft:evoker_spawn_egg",
+      "minecraft:tropicalfish": "minecraft:tropical_fish_spawn_egg",
+      "minecraft:villager_v2": "minecraft:villager_spawn_egg",
+      "minecraft:zombie_villager_v2": "minecraft:zombie_villager_spawn_egg"
+    },
+    "superseded_eggs": {
+      "minecraft:villager": "minecraft:villager_v2",
+      "minecraft:zombie_villager": "minecraft:zombie_villager_v2"
+    },
+    "minerals": [
+      {
+        "network_hash": 3181389413,
+        "identifier": "minecraft:cinnabar",
+        "key": "cinnabar",
+        "path": "textures/blocks/cinnabar"
+      },
+      {
+        "network_hash": 761630168,
+        "identifier": "minecraft:sulfur",
+        "key": "sulfur",
+        "path": "textures/blocks/sulfur"
+      }
+    ],
+    "item_visuals": {
+      "minecraft:banner": "BlockModel",
+      "minecraft:bed": "Sprite"
+    },
+    "alias_cubes": {
+      "minecraft:bone_block": {
+        "Pillar": [
+          "bone_block_top",
+          "bone_block_top",
+          "bone_block_side"
+        ]
+      },
+      "minecraft:chiseled_quartz_block": {
+        "Pillar": [
+          "chiseled_quartz_block_top",
+          "chiseled_quartz_block_top",
+          "chiseled_quartz_block_side"
+        ]
+      },
+      "minecraft:hay_block": {
+        "Pillar": [
+          "hayblock_top",
+          "hayblock_top",
+          "hayblock_side"
+        ]
+      },
+      "minecraft:quartz_block": {
+        "Pillar": [
+          "flattened_quartz_block_top",
+          "flattened_quartz_block_top",
+          "flattened_quartz_block_side"
+        ]
+      },
+      "minecraft:tnt": {
+        "Pillar": [
+          "flattened_tnt_bottom",
+          "flattened_tnt_top",
+          "flattened_tnt_side"
+        ]
+      },
+      "minecraft:purpur_block": {
+        "Scalar": "flattened_purpur_block"
+      },
+      "minecraft:smooth_quartz": {
+        "Scalar": "smooth_quartz"
+      }
+    },
+    "alias_paths": {
+      "bone_block_top": "textures/blocks/bone_block_top",
+      "bone_block_side": "textures/blocks/bone_block_side",
+      "chiseled_quartz_block_top": "textures/blocks/quartz_block_chiseled_top",
+      "chiseled_quartz_block_side": "textures/blocks/quartz_block_chiseled",
+      "hayblock_top": "textures/blocks/hay_block_top",
+      "hayblock_side": "textures/blocks/hay_block_side",
+      "flattened_purpur_block": "textures/blocks/purpur_block",
+      "flattened_quartz_block_top": "textures/blocks/quartz_block_top",
+      "flattened_quartz_block_side": "textures/blocks/quartz_block_side",
+      "smooth_quartz": "textures/blocks/quartz_block_bottom",
+      "flattened_tnt_bottom": "textures/blocks/tnt_bottom",
+      "flattened_tnt_side": "textures/blocks/tnt_side",
+      "flattened_tnt_top": "textures/blocks/tnt_top"
+    },
+    "empty_hand": "Air"
+  }
 }

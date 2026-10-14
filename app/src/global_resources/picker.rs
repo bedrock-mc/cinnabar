@@ -31,6 +31,8 @@ pub(super) fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
 }
 
 /// Shares filters and fallback tools while preserving each caller's selection mode.
+// Windows compiles only its own branch, so that branch's early return is the tail.
+#[cfg_attr(windows, allow(clippy::needless_return))]
 fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {
@@ -40,12 +42,12 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             launcher_host::desktop::windows::pick_file(filter.title, &windows_filter(filter))
                 .map(|path| path.into_iter().collect())
         };
-        return result.map_err(|code| {
+        result.map_err(|code| {
             format!(
                 "File picker failed (error {code:#x}). {}",
                 filter.unavailable_hint
             )
-        });
+        })
     }
     #[cfg(target_os = "linux")]
     {

@@ -1,8 +1,8 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
+mod declarations;
 mod grants;
-mod requested_grants;
-pub use requested_grants::{REQUESTED_GRANTS_SECTION, requested_grants};
+pub use declarations::{Declarations, REQUESTED_GRANTS_SECTION, declarations};
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod callback_budget;
@@ -21,6 +21,7 @@ mod runtime;
 mod screens;
 pub mod server;
 mod settings;
+mod terrain;
 pub use settings::settings_companion;
 
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
@@ -39,6 +40,19 @@ pub use runtime::cinnabar::extension::player_state::{
 };
 pub use runtime::cinnabar::extension::{
     events::Cue as ModCue, input::Controls as ControlFrame, panel::Event as ControlEvent,
+};
+
+pub use runtime::cinnabar::extension::terrain::{
+    BlockState as TerrainBlockState, ChunkRevision as TerrainChunkRevision,
+    Geometry as TerrainGeometry, Physics as TerrainPhysics, PhysicsFlags as TerrainPhysicsFlags,
+    Position as TerrainPosition, ReadError as TerrainReadError, ReadResult as TerrainReadResult,
+    Region as TerrainRegion, RegionQuery as TerrainQuery, ResolvedShape as TerrainShape,
+    ShapeBinding as TerrainShapeBinding, ShapeOverride as TerrainShapeOverride,
+    Stamp as TerrainStamp, SurfaceResponse as TerrainSurfaceResponse,
+};
+pub use terrain::{
+    TerrainCheck, TerrainDescriptors, TerrainMetadata, TerrainRefresh, TerrainScheduler,
+    TerrainSource, terrain_query_size, terrain_region_bytes,
 };
 
 /// Successfully committed local interaction requests, consumed once per frame.
@@ -70,6 +84,7 @@ pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
     + mod_api::MAX_MENU_LOGO_BYTES
     + mod_api::MAX_MENU_TITLE_BYTES
     + mod_api::MAX_NOTICES_BYTES
+    + mod_api::MAX_ICON_BYTES
     + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;

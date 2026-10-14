@@ -22,6 +22,7 @@ pub struct BlockFact {
     pub traits: BlockTraits,
     pub family: ModelFamily,
     pub survival: SurvivalRule,
+    pub render: super::BlockRenderFact,
     pub placement: super::PlacementRule,
     pub support: super::SupportKind,
     /// Sequential identity of the admitted double slab or matching sign.
@@ -38,6 +39,7 @@ impl Default for BlockFact {
             traits: BlockTraits::empty(),
             family: ModelFamily::Unknown,
             survival: SurvivalRule::Unresolved,
+            render: super::BlockRenderFact::default(),
             placement: super::PlacementRule::Unresolved,
             support: super::SupportKind::Unresolved,
             alternate: None,
@@ -93,6 +95,7 @@ impl BlockFacts {
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,
+                        render: super::block_render_fact(&r.name),
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();

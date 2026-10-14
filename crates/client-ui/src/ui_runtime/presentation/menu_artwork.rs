@@ -579,7 +579,8 @@ pub fn view_paths(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
         .collect()
 }
 
-/// The edited world first, or the worlds list's visible rows, within the atlas budget.
+/// The edited world first, the Mods tab's card icons, or the worlds list's visible rows, within
+/// the atlas budget.
 fn view_images(
     view: &launcher::menu::MenuView,
     hits: &[(launcher::menu::MenuAction, ui::UiRect)],
@@ -604,6 +605,20 @@ fn view_images(
             .find(|thumbnail| Some(&thumbnail.key) == edited.as_ref())
             .map(|thumbnail| (thumbnail.key.clone(), Arc::clone(&thumbnail.image)))
             .into_iter()
+            .collect();
+    }
+    if view.screen == MenuScreen::Settings
+        && view.settings_section
+            == launcher::menu::settings_sections::SettingSection::Mods
+                .definition()
+                .index
+    {
+        return view
+            .mods
+            .library
+            .installed
+            .iter()
+            .filter_map(|item| Some((item.icon_key()?, Arc::clone(item.metadata.icon.as_ref()?))))
             .collect();
     }
     if view.screen != MenuScreen::Play || view.local.screen != Screen::List {

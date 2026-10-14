@@ -20,9 +20,9 @@ pub mod entity;
 mod item;
 mod item_carrier;
 pub use item::{
-    ContainerRoles, FILLED_MAP_IDENTIFIER, ItemFact, ItemFactRecord, ItemFactsPayload,
-    ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet, ItemTier, ItemTraits,
-    ItemUseAnimationFact, TOTEM_IDENTIFIER,
+    ArmourMaterial, ContainerRoles, FILLED_MAP_IDENTIFIER, ItemFact, ItemFactRecord,
+    ItemFactsPayload, ItemRepairMaterial, ItemTag, ItemTagDefinition, ItemTagSet, ItemTier,
+    ItemTraits, ItemUseAnimationFact, TOTEM_IDENTIFIER,
 };
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,
@@ -35,3 +35,19 @@ pub use block_entity::{
     BlockEntityFacts, BlockEntityFactsPayload, BlockEntityGeometry, BlockEntityMount,
     BlockEntityRenderer, BlockEntityState,
 };
+
+mod events;
+mod events_generated;
+pub use events::{
+    legacy_particle_effect, level_event_sound, level_particle_effect, note_instrument,
+};
+pub use events_generated::ParticleEffect;
+
+mod render;
+pub use render::{
+    BlockRenderFact, BlockRenderKind, BlockRenderRoute, BlockRenderTint, PortalAxis,
+    block_render_fact,
+};
+
+/// Pack texture selectors and native presentation contracts checked against pinned inputs.
+pub mod pack;

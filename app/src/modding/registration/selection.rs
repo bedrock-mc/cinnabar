@@ -256,7 +256,9 @@ pub(in crate::modding) fn permission(
             .get(capability)
             .ok_or("Unknown capability.")?;
         let requested = if enabled {
-            mod_host::requested_grants(component).map_err(|error| error.to_string())?
+            mod_host::declarations(component)
+                .and_then(|declared| declared.requested)
+                .map_err(|error| error.to_string())?
         } else {
             None
         };

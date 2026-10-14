@@ -12,8 +12,8 @@ use particles::{
     ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
     block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
     critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
-    item_icon_request, named_request, parse_molang_variables, terrain_request, tiles::item_tile,
-    totem_activation_request,
+    item_icon_request, named_request, native_request, parse_molang_variables, terrain_request,
+    tiles::item_tile, totem_activation_request,
 };
 use protocol::{ActorStatusKind, ParticleEvent, SpawnParticleEffectEvent};
 use render_scene::{
@@ -243,7 +243,7 @@ fn route_level_event(
             effect,
             spell_color,
         }) => {
-            system.spawn(&named_request(effect, position, spell_color));
+            system.spawn(&native_request(effect, position, spell_color));
         }
         Some(LevelParticle::BlockBreak { runtime_id }) => {
             spawn_block_break(system, routing, runtime_id, floor_cell(position));

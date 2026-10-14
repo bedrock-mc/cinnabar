@@ -169,7 +169,7 @@ impl Raster {
     ) -> Vec<u8> {
         exposure.strength.z = if motion.is_some() { 1.0 } else { 0.0 };
         let mut source =
-            super::super::shader_source(include_str!("../../motion_blur.wgsl"), samples > 1);
+            super::super::shader::source(include_str!("../../motion_blur.wgsl"), samples > 1);
         source.push_str(r#"
 @fragment fn coverage_probe(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
@@ -405,8 +405,8 @@ impl Raster {
             .create_texture(&wgpu::TextureDescriptor {
                 label: Some("actor tile fixture"),
                 size: wgpu::Extent3d {
-                    width: SIDE.div_ceil(super::super::footprint::TILE_SIZE),
-                    height: SIDE.div_ceil(super::super::footprint::TILE_SIZE),
+                    width: SIDE.div_ceil(super::super::shader::TILE_SIZE),
+                    height: SIDE.div_ceil(super::super::shader::TILE_SIZE),
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,

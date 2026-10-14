@@ -567,6 +567,7 @@ impl LocalPhysicsController {
             input.liquid_contact_height = Some(self.modes.contact_height());
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
+            let mut flight_request = None;
             let mut mode_error = None;
             let previous_modes = self.modes;
             let [move_sideways, move_forward] = ModeObservation::input_vector(input);
@@ -585,8 +586,8 @@ impl LocalPhysicsController {
                 pitch: context.pitch,
                 yaw: input.yaw_degrees as f32,
                 liquid_attach_height: self.eye_offset.height(1.0),
-                jumping: input.jumping,
                 jump_edge: self.jump_edge_pending,
+                jump_down: context.input.jump.held || self.jump_pulse_pending,
             };
             if tick_index == 0 {
                 self.anchor_state.prepare_tick(
@@ -604,6 +605,7 @@ impl LocalPhysicsController {
                     input.sprinting = choice.sprinting;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
+                    flight_request = choice.flight_request;
                 }
                 Err(_) if input.immobile => {
                     // Missing terrain cannot turn an authoritative freeze into a blocked tick.
@@ -680,6 +682,7 @@ impl LocalPhysicsController {
                         eye_height: self.eye_offset.height(1.0),
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
+                        jump_down: observed.jump_down,
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
@@ -688,6 +691,7 @@ impl LocalPhysicsController {
                         sneak_override: None,
                         sprint_override: None,
                         forced_sneak,
+                        flight_request,
                         grounded_before_tick,
                         jump_repeated,
                         ride_delta,
@@ -713,6 +717,7 @@ impl LocalPhysicsController {
                     processed.mode = input.mode;
                     processed.ride = context.mode_intent.ride;
                     processed.forced_sneak = forced_sneak;
+                    processed.flight_request = flight_request;
                     if input.immobile || input.mode == sim::MovementMode::Riding {
                         // Frozen travel and mount-owned jumping cannot continue a local jump arc.
                         processed.jump_initiated = false;

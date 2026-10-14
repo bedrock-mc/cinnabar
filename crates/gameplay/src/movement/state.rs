@@ -28,6 +28,8 @@ pub struct ProcessedMovementState {
     pub forced_sneak: bool,
     /// The ridden mount class while `mode` is `Riding`.
     pub ride: Option<super::RideKind>,
+    /// Double-tap flight start (true) or stop (false); the only source of the wire flight edges.
+    pub flight_request: Option<bool>,
 }
 
 impl ProcessedMovementState {
@@ -54,6 +56,7 @@ impl ProcessedMovementState {
             mode: sim::MovementMode::Walking,
             forced_sneak: false,
             ride: None,
+            flight_request: None,
         }
     }
 }

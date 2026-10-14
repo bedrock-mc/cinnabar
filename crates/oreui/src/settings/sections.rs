@@ -106,8 +106,10 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.accessibility.description",
     )?;
     options(content, SettingPanel::VideoAccessibility)?;
-    content.heading("options.cinnabar.advanced", "")?;
-    options(content, SettingPanel::VideoAdvanced)?;
+    if SettingPanel::VideoAdvanced.options().next().is_some() {
+        content.heading("options.cinnabar.advanced", "")?;
+        options(content, SettingPanel::VideoAdvanced)?;
+    }
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 
@@ -232,7 +234,7 @@ fn draw_macro_binding(content: &mut Content<'_, '_>, slot: usize) -> Result<(), 
     } else {
         control.map_or_else(
             || content.word("controllerLayoutScreen.unassigned"),
-            key_name,
+            |control| content.view.settings_options.key_name(control),
         )
     };
     content
@@ -441,14 +443,14 @@ fn binding(
             .unwrap_or_else(|| content.word("controllerLayoutScreen.unassigned"))
     } else {
         let mut value = control
-            .map(key_name)
+            .map(|control| content.view.settings_options.key_name(control))
             .unwrap_or_else(|| content.word("controllerLayoutScreen.unassigned"));
         if let Some(secondary) = content.view.settings_options.secondary_key_control(
             launcher::menu::settings_options::BindingId::from_name(key)
                 .expect("registered binding row"),
         ) {
             value.push_str(" / ");
-            value.push_str(&key_name(secondary));
+            value.push_str(&content.view.settings_options.key_name(secondary));
         }
         value
     };

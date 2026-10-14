@@ -17,6 +17,7 @@ pub mod block_entities;
 mod block_rules;
 mod carriers;
 pub mod entities;
+pub mod events;
 mod format_generated;
 pub mod items;
 mod light;
@@ -67,6 +68,9 @@ struct Policy {
     placement_rules: Vec<Rule>,
     block_entity_rules: Vec<block_entities::Rule>,
     item_rules: Vec<items::ItemRule>,
+    #[serde(default)]
+    visual_events: events::Rules,
+    pack_rules: assets::facts::pack::PackRules,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,
@@ -201,7 +205,7 @@ pub fn blocks(
     let legacy = assets::read_registry(&read(legacy)?)?;
     let policy: Policy = serde_json::from_slice(POLICY)?;
     let (mut records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
-    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy)?;
+    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy, &legacy)?;
     let encoded = carriers::blocks(facts.protocol, &records)?;
     let lights = light::compile(&records, &facts.blocks)?;
     let light_bytes = carriers::lights(

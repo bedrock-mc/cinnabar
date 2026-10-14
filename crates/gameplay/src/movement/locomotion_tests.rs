@@ -4,6 +4,8 @@ include!("flight_replay_tests.rs");
 
 #[path = "flight_boundary_tests.rs"]
 mod flight_boundary_tests;
+#[path = "flight_toggle_tests.rs"]
+mod flight_toggle_tests;
 
 use std::time::Duration;
 
@@ -85,7 +87,11 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
         assert_eq!(flying.processed.mode, MovementMode::Flying);
         ticker.enqueue_completed_physics(flying.clone()).unwrap();
         let started = ticker.pop_pending().unwrap().snapshot;
-        assert!(has(started.flags, PlayerInputFlags::START_FLYING));
+        // Only the double-tap requests flight; server-set flight sends no start.
+        assert_eq!(
+            has(started.flags, PlayerInputFlags::START_FLYING),
+            !server_flying
+        );
         reconcile_candidate_physics_correction(
             &mut ticker,
             &mut physics,
@@ -140,7 +146,7 @@ fn in_session_snap_preserves_flight_and_server_ability_edges() {
             assert_eq!(stopped.processed.mode, MovementMode::Walking);
             ticker.enqueue_completed_physics(stopped).unwrap();
             let flags = ticker.pop_pending().unwrap().snapshot.flags;
-            assert!(has(flags, PlayerInputFlags::STOP_FLYING));
+            assert!(!has(flags, PlayerInputFlags::STOP_FLYING));
             assert!(!has(flags, PlayerInputFlags::START_FLYING));
         }
     }
@@ -324,6 +330,7 @@ fn flight_without_permission_never_starts() {
     assert_eq!(sample.processed.mode, MovementMode::Walking);
 }
 
+/// A server ability clear ends flight without echoing a stop request.
 #[test]
 fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
     let mut physics = grounded_controller();
@@ -355,7 +362,7 @@ fn server_clearing_flight_stops_an_airborne_player_with_jump_held() {
         &world,
     );
     assert_eq!(stopped.processed.mode, MovementMode::Walking);
-    assert!(has(
+    assert!(!has(
         input_flags(&stopped, HeldInput::from(&flying)),
         PlayerInputFlags::STOP_FLYING
     ));

@@ -205,9 +205,7 @@ pub fn is_personal_ui_inventory(identity: &ContainerIdentity) -> bool {
 }
 
 fn is_personal_ui_storage(identity: &ContainerIdentity) -> bool {
-    identity.window_id == Some(UI_INVENTORY_WINDOW_ID)
-        && identity.slot_type == Some(0)
-        && identity.dynamic_id.is_none()
+    identity.window_id == Some(UI_INVENTORY_WINDOW_ID) && identity.has_legacy_default_descriptor()
 }
 
 /// Selects the four personal input references from an exact UI storage snapshot.
@@ -406,7 +404,6 @@ mod tests {
         for invalid in [
             identity(0, Some(0)),
             identity(123, Some(0)),
-            identity(124, None),
             identity(124, Some(CONTAINER_NAME_CRAFT_INPUT)),
             ContainerIdentity {
                 window_id: None,
@@ -419,6 +416,26 @@ mod tests {
         ] {
             assert_eq!(personal_craft_content_indices(&invalid, 54), None);
             assert_eq!(personal_craft_slot_index(&invalid, 28), None);
+        }
+    }
+
+    #[test]
+    fn contextual_personal_inputs_accept_omitted_and_zero_default_descriptors() {
+        for slot_type in [None, Some(0)] {
+            for dynamic_id in [None, Some(0)] {
+                let identity = ContainerIdentity {
+                    window_id: Some(UI_INVENTORY_WINDOW_ID),
+                    slot_type,
+                    dynamic_id,
+                };
+                assert!(is_personal_ui_inventory(&identity));
+                assert_eq!(
+                    personal_craft_content_indices(&identity, 54),
+                    Some([28, 29, 30, 31])
+                );
+                assert_eq!(personal_craft_slot_index(&identity, 28), Some(0));
+                assert_eq!(personal_craft_slot_index(&identity, 0), None);
+            }
         }
     }
 

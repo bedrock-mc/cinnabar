@@ -193,7 +193,7 @@ func connectUpstream(
 	}()
 	started := time.Now()
 	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
-	upstream, err := dialFollowingTransfers(ctx, address, dial)
+	upstream, err := dialFollowingTransfers(ctx, address, logger, dial)
 	if err != nil {
 		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
 		return nil, err
@@ -217,6 +217,7 @@ func networkForAddress(target *resolvedUpstreamTarget, address string, trust min
 func dialFollowingTransfers(
 	ctx context.Context,
 	initialAddress string,
+	logger *slog.Logger,
 	dial func(context.Context, string) (upstreamSession, error),
 ) (upstreamSession, error) {
 	address := initialAddress
@@ -248,7 +249,7 @@ func dialFollowingTransfers(
 		if _, ok := seen[key]; ok {
 			return nil, fmt.Errorf("proxy: transfer cycle to %q: %w", next, err)
 		}
-		slog.Info("following pre-login server transfer", "from", address, "to", next, "hop", transfers+1)
+		logger.Info("following pre-login server transfer", "from", address, "to", next, "hop", transfers+1)
 		seen[key] = struct{}{}
 		address = next
 	}
@@ -295,7 +296,6 @@ func newUpstreamDialerForAdmission(
 		Handoff: minecraft.HandoffAtStartGame,
 		// A static opt-in, not the downstream status: the upstream login completes before it arrives.
 		EnableClientCache: enableUpstreamClientCache,
-		ErrorLog:          secretSafeResourcePackLogger(),
 		Protocol:          downstream.Proto(),
 		TokenSource:       tokenSource,
 		ResourcePackCache: resourcePackCache,

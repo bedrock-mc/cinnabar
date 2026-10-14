@@ -79,7 +79,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             let images = oreui::images::load_optional_oreui_images(dir)
                 .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
             let first = carriers.pages.len() as u16;
-            let artwork: HashMap<_, _> = images
+            let mut artwork: HashMap<_, _> = images
                 .sprites
                 .iter()
                 .map(|(key, sprite)| {
@@ -98,6 +98,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
             }));
+            mod_icons(&view, &mut artwork, &mut carriers.pages)?;
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
@@ -132,7 +133,12 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 }
             }
         }
-        Fixture::Chat { draft, suggestions } => {
+        Fixture::Chat {
+            draft,
+            suggestions,
+            messages,
+            options,
+        } => {
             let catalog = json_ui::Catalog::from_files(
                 carriers
                     .ui
@@ -159,6 +165,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             editor.set_text(draft);
             frame.now = CAPTURE_SECONDS;
             let mut screen = ChatScreen::default();
+            screen.settings.set_snapshot((options, None));
             for now in [0.0, CAPTURE_SECONDS] {
                 frame.nodes.clear();
                 *frame.next = 1;
@@ -168,7 +175,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                         &engine,
                         ChatInput {
                             editor: &editor,
-                            messages: &Default::default(),
+                            messages: &messages,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -217,16 +224,61 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
     canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
+    let mut pixels = canvas.into_rgba();
+    if !menu {
+        // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let alpha = f32::from(pixel[3]) / 255.0;
+            for (channel, background) in [70.0, 90.0, 110.0].into_iter().enumerate() {
+                pixel[channel] =
+                    (f32::from(pixel[channel]) * alpha + background * (1.0 - alpha)).round() as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(
-            &canvas.into_rgba(),
+            &pixels,
             state.size[0],
             state.size[1],
             image::ExtendedColorType::Rgba8,
         )
         .map_err(|error| error.to_string())?;
     Ok(png)
+}
+
+/// Gives each Mods-tab icon its own page under the key its card draws, as the client's
+/// artwork worker does.
+fn mod_icons(
+    view: &launcher::menu::MenuView,
+    artwork: &mut HashMap<String, ui::IconRef>,
+    pages: &mut Vec<Page>,
+) -> Result<(), Error> {
+    for item in &view.mods.library.installed {
+        let (Some(key), Some(png)) = (item.icon_key(), &item.metadata.icon) else {
+            continue;
+        };
+        let image = image::load_from_memory(png)
+            .map_err(|error| error.to_string())?
+            .to_rgba8();
+        let (width, height) = image.dimensions();
+        let page = u16::try_from(pages.len()).map_err(|error| error.to_string())?;
+        artwork.insert(
+            key,
+            ui::IconRef {
+                page,
+                uv: [0, 0, width as u16, height as u16],
+                glint: false,
+            },
+        );
+        pages.push(Page {
+            width,
+            height,
+            rgba: image.into_raw().into(),
+        });
+    }
+    Ok(())
 }
 
 /// Attaches the atlas to the sprite and nine-slice painters with the client's artwork look.

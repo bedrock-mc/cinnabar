@@ -4,11 +4,12 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies the terrain model independently of its provisional envelope.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:tripwire_hook"
+    block_render_fact(&record.name).kind == R::TripwireHook
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -21,9 +22,18 @@ fn pose(record: &RegistryRecord) -> Option<(u8, bool, bool)> {
         return None;
     }
     Some((
-        super::state::exact_tagged_int(state.get("direction")?, 3)? as u8,
-        super::state::exact_tagged_byte(state.get("attached_bit")?, 1)? != 0,
-        super::state::exact_tagged_byte(state.get("powered_bit")?, 1)? != 0,
+        super::state::exact_tagged_int(
+            state.get(assets::facts::BlockProperty::Direction.name())?,
+            3,
+        )? as u8,
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::AttachedBit.name())?,
+            1,
+        )? != 0,
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::PoweredBit.name())?,
+            1,
+        )? != 0,
     ))
 }
 

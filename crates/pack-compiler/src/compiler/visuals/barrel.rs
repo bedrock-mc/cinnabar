@@ -5,11 +5,12 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use super::state::{exact_tagged_byte, exact_tagged_int};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies the terrain-owned barrel without admitting similarly named custom blocks.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:barrel"
+    block_render_fact(&record.name).kind == R::Barrel
 }
 
 /// Reads the complete typed selector product; malformed selectors stay diagnostic.

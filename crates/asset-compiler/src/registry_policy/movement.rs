@@ -246,6 +246,9 @@ mod tests {
         let reviewed: String = names.iter().map(|name| format!("{name}\n")).collect();
         let owned = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
         Policy {
+            pack_rules: serde_json::from_slice::<Policy>(super::super::POLICY)
+                .unwrap()
+                .pack_rules,
             placement_rules: Vec::new(),
             entity_compatibility: Vec::new(),
             entity_rules: Vec::new(),
@@ -253,6 +256,7 @@ mod tests {
             block_entity_rules: Vec::new(),
             model_family_rules: Vec::new(),
             item_rules: Vec::new(),
+            visual_events: Default::default(),
             twins: BTreeMap::new(),
             unresolved_retail: Vec::new(),
             movement: vec![super::super::Movement {
