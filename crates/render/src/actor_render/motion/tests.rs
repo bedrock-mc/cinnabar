@@ -84,6 +84,20 @@ fn actor_velocity_shaders_validate_with_and_without_multisample_cutout_coverage(
     }
 }
 
+/// Selects enabled boolean definitions from a production shader stage.
+fn shader_definition_names(values: &[bevy::shader::ShaderDefVal]) -> Vec<&str> {
+    values
+        .iter()
+        .filter_map(|value| {
+            if let bevy::shader::ShaderDefVal::Bool(name, true) = value {
+                Some(name.as_str())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[test]
 fn production_motion_fragment_fits_default_device_interface_limits() {
     let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
@@ -124,28 +138,19 @@ fn production_motion_fragment_fits_default_device_interface_limits() {
                 &mut descriptor,
             )
             .unwrap();
-        let names = |values: &[bevy::shader::ShaderDefVal]| {
-            values
-                .iter()
-                .filter_map(|value| {
-                    if let bevy::shader::ShaderDefVal::Bool(name, true) = value {
-                        Some(name.as_str())
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>()
-        };
         let vertex = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("production actor motion vertex specialization"),
             source: wgpu::ShaderSource::Wgsl(
-                shader_source(&names(&descriptor.vertex.shader_defs)).into(),
+                shader_source(&shader_definition_names(&descriptor.vertex.shader_defs)).into(),
             ),
         });
         let fragment = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("production actor motion fragment specialization"),
             source: wgpu::ShaderSource::Wgsl(
-                shader_source(&names(&descriptor.fragment.as_ref().unwrap().shader_defs)).into(),
+                shader_source(&shader_definition_names(
+                    &descriptor.fragment.as_ref().unwrap().shader_defs,
+                ))
+                .into(),
             ),
         });
         let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
