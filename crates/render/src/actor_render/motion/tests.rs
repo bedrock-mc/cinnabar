@@ -90,7 +90,7 @@ fn shader_definition_names(values: &[bevy::shader::ShaderDefVal]) -> Vec<&str> {
         .iter()
         .filter_map(|value| {
             if let bevy::shader::ShaderDefVal::Bool(name, true) = value {
-                Some(name.as_str())
+                Some(name.as_ref())
             } else {
                 None
             }
