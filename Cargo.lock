@@ -3597,9 +3597,11 @@ dependencies = [
  "sha2",
  "tempfile",
  "test-time",
+ "tiny-skia",
  "tokio",
  "ui",
  "wgpu",
+ "windows-sys 0.61.2",
  "winit",
  "zip",
 ]

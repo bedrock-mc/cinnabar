@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 
 use prepare::prepare;
 use status::Status;
-pub use window::{SETUP_FLAG, run_setup_process};
+pub use window::{CrashSummary, EXIT_RESTART, SETUP_FLAG, run_crash_preview, run_setup_process};
 use {
     launcher::install_layout::InstallLayout,
     launcher_host::native_dialog::{Consent, NativePrompter, Prompter},
