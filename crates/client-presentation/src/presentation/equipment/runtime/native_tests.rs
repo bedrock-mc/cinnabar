@@ -280,13 +280,13 @@ fn missing_weapon_stage_textures_use_animation_icons_and_loaded_offhand_dimensio
             "minecraft:bow",
             "geometry.bow_standby",
             "minecraft:bow_pulling",
-            3,
+            3_u32,
         ),
         (
             "minecraft:crossbow",
             "geometry.crossbow_standby",
             "minecraft:crossbow_pulling",
-            5,
+            5_u32,
         ),
     ] {
         let (entities, catalog) = pack_catalog(fixture(identifier, geometry, 10, false));
