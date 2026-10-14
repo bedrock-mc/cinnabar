@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 /// Optional font selected for the personal controls panel.
 pub const FONT_ENV: &str = "CINNABAR_MOD_FONT";
 /// Upper bound on the local font source read by the registration worker.
-pub use mod_api::MAX_PANEL_FONT_BYTES as MAX_SOURCE_BYTES;
+pub const MAX_SOURCE_BYTES: usize = mod_api::MAX_PANEL_FONT_BYTES;
 const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
 const FONT_EM: f32 = 18.0;
 const RASTER_SCALE: u32 = 2;
