@@ -1,6 +1,6 @@
 //! The live particle world: emitter registry, spawn API, fixed-budget ticking.
 
-use std::sync::Arc;
+use std::{collections::VecDeque, sync::Arc};
 
 use assets::RuntimeParticleAssets;
 
@@ -54,13 +54,15 @@ pub struct ParticleSystem {
     pub actor_emitters: super::actor::ActorEffectTracker,
     library: EffectLibrary,
     atlas: ParticleAtlas,
-    emitters: Vec<Emitter>,
+    emitters: VecDeque<Emitter>,
     bookkeeping: Bookkeeping,
     sounds: Vec<ParticleSound>,
     next_id: u64,
     seed: u64,
     camera: [f32; 3],
     boxes: Vec<[f32; 6]>,
+    /// Reused draw-list building buffers.
+    pub(super) draw_scratch: super::draw::DrawScratch,
     /// Requests dropped for an unknown effect, distance or a full emitter table.
     pub dropped_spawns: u64,
 }
@@ -128,9 +130,10 @@ impl ParticleSystem {
         self.atlas.base()
     }
 
-    /// Borrows render expression state; callers must preserve emitter lifetimes and particle counts.
+    /// Borrows render expression state in creation order; callers must preserve emitter
+    /// lifetimes and particle counts.
     pub(super) fn emitters_mut(&mut self) -> &mut [Emitter] {
-        &mut self.emitters
+        self.emitters.make_contiguous()
     }
 
     fn resolve(&self, name: &str) -> Option<&Arc<super::def::EffectDef>> {
@@ -162,10 +165,13 @@ impl ParticleSystem {
             return None;
         }
         if self.emitters.len() >= MAX_EMITTERS {
-            let oldest = self.emitters.remove(0);
-            self.bookkeeping.remove(&oldest, &mut self.atlas);
+            // A full table drops its oldest emitter without shifting the rest.
+            if let Some(oldest) = self.emitters.pop_front() {
+                self.bookkeeping.remove(&oldest, &mut self.atlas);
+            }
         }
-        let mut request = request.clone();
+        // Only tile textures add variables; other requests are used as given.
+        let mut request = std::borrow::Cow::Borrowed(request);
         let texture = self.resolve_texture(&def.texture, &mut request);
         self.next_id += 1;
         let id = self.next_id;
@@ -176,7 +182,7 @@ impl ParticleSystem {
             ^ (u64::from(request.position[2].to_bits()) << 32);
         let emitter = Emitter::new(id, def, texture, &request, seed);
         self.bookkeeping.insert(&emitter, &mut self.atlas);
-        self.emitters.push(emitter);
+        self.emitters.push_back(emitter);
         Some(id)
     }
 
@@ -195,7 +201,11 @@ impl ParticleSystem {
     }
 
     /// Resolves pixels and appends tile aliases after caller variables.
-    fn resolve_texture(&mut self, source: &TextureSource, request: &mut SpawnRequest) -> Placement {
+    fn resolve_texture(
+        &mut self,
+        source: &TextureSource,
+        request: &mut std::borrow::Cow<'_, SpawnRequest>,
+    ) -> Placement {
         let fallback = self.atlas.fallback();
         match source {
             TextureSource::Path(path) => self.atlas.placement(path).unwrap_or(fallback),
@@ -203,15 +213,23 @@ impl ParticleSystem {
                 let Some(tile) = request.tile.as_ref() else {
                     return fallback;
                 };
+                // Pinning only affects tile-slot recycling, so it is refreshed right before it.
+                self.atlas.set_live_placements(
+                    self.emitters
+                        .iter()
+                        .filter(|emitter| !emitter.done || !emitter.particles.is_empty())
+                        .map(|emitter| emitter.texture),
+                );
                 let placement = self
                     .atlas
                     .tile(tile.key, tile.size, &tile.pixels)
                     .unwrap_or(fallback);
                 let [u, v, du, dv] = placement.normalized();
+                let variables = &mut request.to_mut().variables;
                 // Vanilla effects name the same tile rectangle several ways.
                 for names in TILE_VARIABLE_NAMES {
                     for (name, value) in names.into_iter().zip([u, v, du, dv]) {
-                        request.variables.push((name.to_owned(), value));
+                        variables.push((name.to_owned(), value));
                     }
                 }
                 placement
@@ -674,7 +692,7 @@ mod tests {
         let frames = 500;
         // The cap is 768; leave out the unbound comparison emitter so every slot is attached.
         let mut old = bound_system(MAX_EMITTERS as u64 - 1);
-        old.emitters.pop();
+        old.emitters.pop_back();
         old.spawn(&SpawnRequest {
             bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
             ..request("burst", 0.0)
@@ -685,7 +703,7 @@ mod tests {
         }
         let old_time = started.elapsed() / frames;
         let mut new = bound_system(MAX_EMITTERS as u64 - 1);
-        new.emitters.pop();
+        new.emitters.pop_back();
         new.spawn(&SpawnRequest {
             bound: Some((MAX_EMITTERS as u64 - 1, [1.0, 2.0, 3.0])),
             ..request("burst", 0.0)

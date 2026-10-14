@@ -1,4 +1,5 @@
 use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
+use hashbrown::HashMap as FastHashMap;
 use protocol_ids::{ActorDataKey, ActorFlag, PlayerFlag};
 use std::collections::{HashMap, HashSet};
 
@@ -749,8 +750,8 @@ pub(crate) struct ActorStore {
     custom_actor_facts: HashMap<std::sync::Arc<str>, EntityFact>,
     actors: HashMap<u64, ActorSnapshot>,
     effect_members: effect_members::EffectMembers,
-    unique_to_runtime: HashMap<i64, u64>,
-    rider_to_ridden: HashMap<i64, i64>,
+    unique_to_runtime: FastHashMap<i64, u64>,
+    rider_to_ridden: FastHashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     /// Appearances of spawned players removed from the roster, retained until despawn.
@@ -776,6 +777,8 @@ pub(crate) struct ActorStore {
     synthetic_local_uuid: Option<[u8; 16]>,
     /// Last client-fed appearance, separate from server replacements of its profile.
     synthetic_local_skin: Option<[u8; 32]>,
+    /// Avoids rehashing an unchanged client-fed skin on every pose feed.
+    local_skin_fingerprints: profiles::SkinFingerprintMemo,
     /// A client skin that could not fit the profile budget is retried on later feeds.
     synthetic_local_skin_pending: bool,
     /// Monotonic spawn/movement revision for the client-fed local player actor.
@@ -806,7 +809,7 @@ pub(crate) struct ActorStore {
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
     /// Seat descriptor per mount, for riders that stream no seat offset.
-    seat_bindings: HashMap<u64, Option<u32>>,
+    seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
     property_registry: properties::PropertyRegistry,
     /// Latest local-player knockback `(sequence, [x, z])`, for hurt direction inference.
