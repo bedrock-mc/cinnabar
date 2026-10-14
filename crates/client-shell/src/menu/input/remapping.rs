@@ -14,7 +14,7 @@ use bevy::{
 use launcher::menu::settings_options::{GAMEPAD_OFFSET, macro_row};
 use semantic_input::{AxisDirection, PhysicalControl};
 
-/// Remembers layout characters from key presses without consuming navigation input.
+/// Remembers characters from presses whose logical key is already unmodified.
 pub(super) fn observe_label(menu: &mut MenuRuntime, input: &KeyboardInput) {
     if input.state != ButtonState::Pressed {
         return;
@@ -55,7 +55,6 @@ pub(super) fn capture(
             break;
         }
         if !gamepad && let Some(code) = keyboard_usage(input.key_code) {
-            observe_label(menu, input);
             menu.capture_key(PhysicalControl::KeyboardUsage(code));
             break;
         }
@@ -97,7 +96,7 @@ mod tests {
     use super::*;
     use bevy::{
         input::keyboard::{Key, NativeKey},
-        prelude::{App, Entity, ResMut, Update},
+        prelude::{App, Entity, IntoScheduleConfigs, ResMut, Update},
     };
     use launcher::menu::settings_options::{
         KEY_BINDINGS, SettingsOptions, control_bindings::is_gamepad,
@@ -112,7 +111,139 @@ mod tests {
         mut mouse: ResMut<ButtonInput<MouseButton>>,
         gamepads: Query<&Gamepad>,
     ) {
-        capture(&mut menu, &mut messages, &mut keys, &mut mouse, &gamepads);
+        if menu.key_remap.is_some() {
+            capture(&mut menu, &mut messages, &mut keys, &mut mouse, &gamepads);
+        } else {
+            messages.clear();
+        }
+    }
+
+    /// Runs passive label learning, followed by optional physical binding capture.
+    fn label_input_app(capture: bool) -> App {
+        let mut app = App::new();
+        app.insert_resource(MenuRuntime::new(false, 2, "Bindings".into()))
+            .add_message::<KeyboardInput>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, super::super::context::observe_keyboard_labels);
+        if capture {
+            app.add_systems(
+                Update,
+                capture_input.after(super::super::context::observe_keyboard_labels),
+            );
+        }
+        app
+    }
+
+    /// Starts a hotbar remap after the modifier has already been pressed.
+    fn start_label_capture(app: &mut App) -> usize {
+        let row = KEY_BINDINGS
+            .iter()
+            .position(|(action, _)| *action == Action::Hotbar1)
+            .unwrap();
+        app.world_mut().resource_mut::<MenuRuntime>().key_remap = Some(row as u16);
+        row
+    }
+
+    /// Queues a logical key event without needing a native window or keyboard.
+    fn label_event(app: &mut App, key_code: KeyCode, logical_key: Key, state: ButtonState) {
+        app.world_mut().write_message(KeyboardInput {
+            key_code,
+            logical_key,
+            state,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+    }
+
+    #[test]
+    fn shift_combinations_do_not_replace_keyboard_labels() {
+        for capture in [false, true] {
+            let mut app = label_input_app(capture);
+            label_event(
+                &mut app,
+                KeyCode::ShiftLeft,
+                Key::Shift,
+                ButtonState::Pressed,
+            );
+            app.update();
+            let row = capture.then(|| start_label_capture(&mut app));
+            label_event(
+                &mut app,
+                KeyCode::Digit1,
+                Key::Character("!".into()),
+                ButtonState::Pressed,
+            );
+            label_event(
+                &mut app,
+                KeyCode::ShiftLeft,
+                Key::Shift,
+                ButtonState::Released,
+            );
+            app.update();
+            let menu = app.world().resource::<MenuRuntime>();
+            let control = PhysicalControl::KeyboardUsage(0x1e);
+            assert_eq!(menu.settings_options.key_name(control), "1");
+            if let Some(row) = row {
+                assert_eq!(menu.settings_options.key_control(row), Some(control));
+            }
+        }
+    }
+
+    #[test]
+    fn altgr_and_control_combinations_do_not_replace_keyboard_labels() {
+        for modifier in [KeyCode::AltRight, KeyCode::ControlLeft] {
+            for capture in [false, true] {
+                let mut app = label_input_app(capture);
+                label_event(
+                    &mut app,
+                    modifier,
+                    Key::Unidentified(NativeKey::Unidentified),
+                    ButtonState::Pressed,
+                );
+                app.update();
+                let row = capture.then(|| start_label_capture(&mut app));
+                label_event(
+                    &mut app,
+                    KeyCode::Digit2,
+                    Key::Character("@".into()),
+                    ButtonState::Pressed,
+                );
+                label_event(
+                    &mut app,
+                    modifier,
+                    Key::Unidentified(NativeKey::Unidentified),
+                    ButtonState::Released,
+                );
+                app.update();
+                let menu = app.world().resource::<MenuRuntime>();
+                let control = PhysicalControl::KeyboardUsage(0x1f);
+                assert_eq!(menu.settings_options.key_name(control), "2");
+                if let Some(row) = row {
+                    assert_eq!(menu.settings_options.key_control(row), Some(control));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unmodified_azerty_press_refreshes_the_passive_label() {
+        let mut app = label_input_app(false);
+        label_event(
+            &mut app,
+            KeyCode::KeyQ,
+            Key::Character("a".into()),
+            ButtonState::Pressed,
+        );
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<MenuRuntime>()
+                .settings_options
+                .key_name(PhysicalControl::KeyboardUsage(0x14)),
+            "A"
+        );
     }
 
     #[test]
@@ -128,7 +259,14 @@ mod tests {
             .add_message::<KeyboardInput>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
-            .add_systems(Update, capture_input);
+            .add_systems(
+                Update,
+                (
+                    super::super::context::observe_keyboard_labels,
+                    capture_input,
+                )
+                    .chain(),
+            );
         app.world_mut().write_message(KeyboardInput {
             key_code: KeyCode::KeyQ,
             logical_key: Key::Character("a".into()),
