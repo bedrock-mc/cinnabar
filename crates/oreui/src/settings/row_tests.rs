@@ -2,7 +2,7 @@ use crate::{review_tests::paint, test_support::solids};
 use std::collections::HashMap;
 use {
     super::*,
-    launcher::menu::settings_options::SETTINGS_OPTIONS,
+    launcher::menu::settings_options::{SETTINGS_OPTIONS, layout::SettingPanel},
     launcher::menu::{MenuAction, MenuView},
 };
 
