@@ -151,6 +151,7 @@ mod tests {
     fn ordinary_key_presses_refresh_labels_without_dirtying_settings() {
         let mut menu = MenuRuntime::new(false, 2, "Bindings".into());
         let saved = serde_json::to_value(&menu.settings_options).unwrap();
+        let initial_flags = (menu.settings_dirty, menu.settings_apply);
         let mut input = KeyboardInput {
             key_code: KeyCode::KeyQ,
             logical_key: Key::Character("a".into()),
@@ -177,8 +178,7 @@ mod tests {
                 .key_name(PhysicalControl::KeyboardUsage(0x34)),
             "^"
         );
-        assert!(!menu.settings_dirty);
-        assert!(!menu.settings_apply);
+        assert_eq!((menu.settings_dirty, menu.settings_apply), initial_flags);
         assert_eq!(serde_json::to_value(&menu.settings_options).unwrap(), saved);
     }
 
