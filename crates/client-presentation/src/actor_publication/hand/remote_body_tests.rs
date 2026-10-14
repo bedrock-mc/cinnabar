@@ -103,7 +103,8 @@ fn spawn_remotes(stream: &mut WorldStream) {
             .unwrap();
         sequence += 1;
     }
-    stream.advance_actor_interpolation_frame(1);
+    // Retain two evaluated samples after the appearance warmup.
+    stream.advance_actor_interpolation_frame(2);
 }
 
 #[test]
