@@ -192,6 +192,7 @@ jobs:
           bash "$tools/make-dmg.sh" .local/dist/macos-release/Cinnabar.app ".local/dist/macos-release/Cinnabar-$version.dmg"
           bash "$tools/sign-notarize.sh" ".local/dist/macos-release/Cinnabar-$version.dmg"
       - name: Collect release symbols
+        id: symbols
         # Each binary's .dSYM; the DMG holds only the stripped binaries.
         run: |
           python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect macos "${{ matrix.arch }}" \
@@ -241,7 +242,8 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
-      - uses: actions/upload-artifact@v7
+      - if: steps.symbols.outputs.archived == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: symbols-macos-${{ matrix.arch }}
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
@@ -323,6 +325,7 @@ jobs:
           mv .local/dist/windows-release/Cinnabar-*-x64.msi "$RUNNER_TEMP/$AUXILIARY_ASSET"
           mv .local/dist/windows-release/Cinnabar-*-x64-setup.exe "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Collect release symbols
+        id: symbols
         # Each executable's PDB; the MSI holds only the executables.
         run: |
           python "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect windows x86_64 \
@@ -386,7 +389,8 @@ jobs:
             ${{ runner.temp }}/${{ env.AUXILIARY_ASSET }}
             ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
-      - uses: actions/upload-artifact@v7
+      - if: steps.symbols.outputs.archived == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: symbols-windows-x64
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
@@ -474,6 +478,7 @@ jobs:
           BINARIES="$shipped" ASSETC="$shipped/assetc" bash "$GITHUB_WORKSPACE/release-tools/packaging/linux/build-appimage.sh"
           mv .local/dist/linux-release/Cinnabar-*-x86_64.AppImage "$RUNNER_TEMP/$RELEASE_ASSET"
       - name: Collect release symbols
+        id: symbols
         run: |
           python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" collect linux x86_64 \
             --version "${{ needs.prepare.outputs.version }}" --commit "${{ needs.prepare.outputs.commit }}" \
@@ -517,7 +522,8 @@ jobs:
           name: linux-x86_64
           path: ${{ runner.temp }}/${{ env.RELEASE_ASSET }}
           if-no-files-found: error
-      - uses: actions/upload-artifact@v7
+      - if: steps.symbols.outputs.archived == 'true'
+        uses: actions/upload-artifact@v7
         with:
           name: symbols-linux-x86_64
           path: ${{ runner.temp }}/${{ env.SYMBOLS_ASSET }}
@@ -599,7 +605,13 @@ jobs:
             > "$RUNNER_TEMP/$UPDATE_MANIFEST.partial"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST.partial" "$RUNNER_TEMP/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the release
-        run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist --version "$RELEASE_VERSION"
+        # An older source branch without split debug info publishes no symbol archives.
+        run: |
+          symbols=()
+          [[ "$(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" has-symbols)" == true ]] ||
+            symbols=(--without-symbols)
+          python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-downloads.py" checksums dist \
+            --version "$RELEASE_VERSION" "${symbols[@]}"
       - name: Prepare the tagged release
         id: prepare_publish
         if: needs.prepare.outputs.track == 'tagged'

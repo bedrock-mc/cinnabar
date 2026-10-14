@@ -5,19 +5,26 @@ Release builds keep line tables only in split files: a PDB on Windows, a `.dSYM`
 and, after `split`, a `.debug` file named by the binary's `.gnu_debuglink` on Linux. Symbolicators
 (`devtool symbolicate`) look for those beside the binary, so the archive pairs them. Installers
 never contain them: packagers stage binaries by name and check-payload.sh rejects other files.
+
+The release tools may package an older source branch (CINNABAR_SOURCE_ROOT), so the binary table
+and profile come from that checkout; a source whose release profile has no split debug info has no
+symbol archive, and `collect` warns instead of failing the release.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
 import sys
+import tomllib
 import uuid
 import zipfile
 
 HERE = Path(__file__).resolve().parent
-RUNTIME_BINARIES = HERE / "common" / "runtime-binaries.txt"
+# The runtime binary table, relative to the packaged source checkout.
+RUNTIME_BINARIES = Path("packaging/common/runtime-binaries.txt")
 # The prep-kit compiler `make package-binaries` builds beside the runtime binaries; installers ship it.
 PREP_KIT_COMPILER = "assetc"
 # The archive's build description; `devtool symbolicate` reads it under the same configured name.
@@ -26,19 +33,32 @@ MANIFEST_SCHEMA = 1
 LINUX_DEBUG_SUFFIX = ".debug"
 
 
-def runtime_binaries():
+def source_root():
+    """The packaged source checkout, as the packagers resolve it."""
+    return Path(os.environ.get("CINNABAR_SOURCE_ROOT") or HERE.parent).resolve()
+
+
+def has_symbols(source):
+    """Whether the source's release profile writes split debug info, so a symbol archive exists."""
+    with (source / "Cargo.toml").open("rb") as manifest:
+        profile = tomllib.load(manifest).get("profile", {}).get("release", {})
+    return (profile.get("split-debuginfo", "off") != "off"
+            and profile.get("debug", False) not in (False, 0, "none"))
+
+
+def runtime_binaries(source):
     """(name, built by Cargo) for each runtime binary; Go rows have no Cargo package."""
     rows = []
-    for line in RUNTIME_BINARIES.read_text().splitlines():
+    for line in (source / RUNTIME_BINARIES).read_text().splitlines():
         fields = line.split()
         if fields:
             rows.append((fields[0], fields[1] != "-"))
     return rows
 
 
-def rust_binaries():
+def rust_binaries(source):
     """Every shipped binary the release profile builds, so every one with split debug info."""
-    return [name for name, rust in runtime_binaries() if rust] + [PREP_KIT_COMPILER]
+    return [name for name, rust in runtime_binaries(source) if rust] + [PREP_KIT_COMPILER]
 
 
 def pe_codeview(data):
@@ -169,10 +189,15 @@ def linux_entry(binaries, name):
 ENTRIES = {"windows": windows_entry, "macos": macos_entry, "linux": linux_entry}
 
 
-def collect(platform, arch, version, commit, binaries, out):
-    """Writes the platform's symbol archive; every Rust release binary must have its debug file."""
+def collect(source, platform, arch, version, commit, binaries, out):
+    """Writes the platform's symbol archive and returns True; every Rust release binary must have
+    its debug file. A source without split debug info gets a workflow warning and no archive."""
+    if not has_symbols(source):
+        print(f"::warning::{source / 'Cargo.toml'} release profile has no split debug info; "
+              f"publishing {platform}-{arch} without a symbol archive")
+        return False
     files, records = [], []
-    for name in rust_binaries():
+    for name in rust_binaries(source):
         entry_files, record = ENTRIES[platform](binaries, name)
         files.extend(entry_files)
         records.append(record)
@@ -183,9 +208,10 @@ def collect(platform, arch, version, commit, binaries, out):
         archive.writestr(MANIFEST, json.dumps(manifest, indent=2) + "\n")
         for name, path in files:
             archive.write(path, name)
+    return True
 
 
-def split(binaries, out):
+def split(source, binaries, out):
     """Copies the runtime binaries and prep-kit compiler to `out`, moving each Rust binary's debug
     info into `<name>.debug` beside it, linked by `.gnu_debuglink`.
 
@@ -193,8 +219,8 @@ def split(binaries, out):
     `--strip-debug` at link time would also drop the line tables a packed `.dwp` depends on.
     """
     out.mkdir(parents=True, exist_ok=True)
-    rust = set(rust_binaries())
-    for name in [name for name, _ in runtime_binaries()] + [PREP_KIT_COMPILER]:
+    rust = set(rust_binaries(source))
+    for name in [name for name, _ in runtime_binaries(source)] + [PREP_KIT_COMPILER]:
         source = require(binaries / name, "build with make package-binaries")
         if name not in rust:
             shutil.copy2(source, out / name)
@@ -218,11 +244,19 @@ def main():
     collecting.add_argument("--commit", required=True)
     collecting.add_argument("--binaries", type=Path, required=True)
     collecting.add_argument("--out", type=Path, required=True)
+    commands.add_parser("has-symbols", help="print true when the source release build splits debug info")
     args = parser.parse_args()
+    source = source_root()
     if args.command == "split":
-        split(args.binaries, args.out)
+        split(source, args.binaries, args.out)
+    elif args.command == "has-symbols":
+        print("true" if has_symbols(source) else "false")
     else:
-        collect(args.platform, args.arch, args.version, args.commit, args.binaries, args.out)
+        archived = collect(source, args.platform, args.arch, args.version, args.commit, args.binaries,
+                           args.out)
+        if os.environ.get("GITHUB_OUTPUT"):
+            with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+                output.write(f"archived={'true' if archived else 'false'}\n")
 
 
 if __name__ == "__main__":

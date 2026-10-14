@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -13,6 +14,7 @@ import zipfile
 
 
 PACKAGING = Path(__file__).resolve().parents[1]
+SOURCE = PACKAGING.parent
 SCRIPT = PACKAGING / "release-symbols.py"
 SPEC = importlib.util.spec_from_file_location("release_symbols", SCRIPT)
 symbols = importlib.util.module_from_spec(SPEC)
@@ -82,11 +84,23 @@ class BuildIdTests(unittest.TestCase):
             with self.subTest(parse=parse.__name__):
                 self.assertIsNone(parse(b"#!/bin/sh\n" + bytes(64)))
 
+    def test_split_debug_info_follows_the_release_profile(self):
+        self.assertTrue(symbols.has_symbols(SOURCE))
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            for profile, expected in [("", False), ('debug = "line-tables-only"\n', False),
+                                      ('split-debuginfo = "packed"\n', False),
+                                      ('debug = false\nsplit-debuginfo = "packed"\n', False),
+                                      ('debug = 1\nsplit-debuginfo = "packed"\n', True)]:
+                with self.subTest(profile=profile):
+                    (source / "Cargo.toml").write_text("[profile.release]\n" + profile)
+                    self.assertEqual(symbols.has_symbols(source), expected)
+
     def test_every_cargo_runtime_binary_and_the_prep_kit_compiler_need_symbols(self):
-        cargo = [name for name, rust in symbols.runtime_binaries() if rust]
+        cargo = [name for name, rust in symbols.runtime_binaries(SOURCE) if rust]
         self.assertTrue(cargo)
-        self.assertEqual(symbols.rust_binaries(), cargo + [symbols.PREP_KIT_COMPILER])
-        self.assertFalse(set(symbols.rust_binaries()) & {name for name, rust in symbols.runtime_binaries() if not rust})
+        self.assertEqual(symbols.rust_binaries(SOURCE), cargo + [symbols.PREP_KIT_COMPILER])
+        self.assertFalse(set(symbols.rust_binaries(SOURCE)) & {name for name, rust in symbols.runtime_binaries(SOURCE) if not rust})
 
 
 class CollectTests(unittest.TestCase):
@@ -98,12 +112,17 @@ class CollectTests(unittest.TestCase):
         (self.binaries / "deps").mkdir(parents=True)
         self.out = self.root / "out" / "symbols.zip"
 
-    def collect(self, platform):
-        return subprocess.run(
+    def collect(self, platform, source=SOURCE):
+        output = self.root / "github-output"
+        output.write_text("")
+        result = subprocess.run(
             [sys.executable, str(SCRIPT), "collect", platform, "x86_64", "--version", "9.8.7",
              "--commit", "c0ffee", "--binaries", str(self.binaries), "--out", str(self.out)],
             text=True, capture_output=True,
+            env={**os.environ, "CINNABAR_SOURCE_ROOT": str(source), "GITHUB_OUTPUT": str(output)},
         )
+        self.archived = output.read_text()
+        return result
 
     def archive(self):
         with zipfile.ZipFile(self.out) as archive:
@@ -115,10 +134,10 @@ class CollectTests(unittest.TestCase):
         self.assertEqual((manifest["version"], manifest["commit"], manifest["platform"]),
                          ("9.8.7", "c0ffee", f"{platform}-x86_64"))
         self.assertEqual([record["name"] for record in manifest["binaries"]],
-                         [name + (".exe" if platform == "windows" else "") for name in symbols.rust_binaries()])
+                         [name + (".exe" if platform == "windows" else "") for name in symbols.rust_binaries(SOURCE)])
 
     def test_windows_archives_each_pdb_under_the_name_its_executable_records(self):
-        for name in symbols.rust_binaries():
+        for name in symbols.rust_binaries(SOURCE):
             linked = f"{name.replace('-', '_')}-0123abcd.pdb"
             (self.binaries / f"{name}.exe").write_bytes(pe_image(rf"D:\a\target\release\deps\{linked}"))
             (self.binaries / "deps" / linked).write_bytes(b"pdb for " + name.encode())
@@ -126,23 +145,35 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         names, manifest = self.archive()
         expected = {symbols.MANIFEST}
-        for name in symbols.rust_binaries():
+        for name in symbols.rust_binaries(SOURCE):
             expected |= {f"{name}.exe", f"{name.replace('-', '_')}-0123abcd.pdb"}
         self.assertEqual(names, expected)
         self.assert_manifest(manifest, "windows")
+        self.assertEqual(self.archived, "archived=true\n")
         for record in manifest["binaries"]:
             self.assertEqual((record["build_id"], record["build_id_kind"]), (BREAKPAD_ID, "pe-guid-age"))
 
     def test_windows_without_a_pdb_fails_naming_it(self):
-        for name in symbols.rust_binaries():
+        for name in symbols.rust_binaries(SOURCE):
             (self.binaries / f"{name}.exe").write_bytes(pe_image(f"{name}.pdb"))
         result = self.collect("windows")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn(f"{symbols.rust_binaries()[0]}.pdb", result.stderr)
+        self.assertIn(f"{symbols.rust_binaries(SOURCE)[0]}.pdb", result.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_a_source_without_split_debug_info_publishes_no_archive_with_a_warning(self):
+        source = self.root / "older-source"
+        (source / "packaging/common").mkdir(parents=True)
+        shutil.copyfile(SOURCE / symbols.RUNTIME_BINARIES, source / symbols.RUNTIME_BINARIES)
+        (source / "Cargo.toml").write_text('[profile.release]\ncodegen-units = 1\nlto = "thin"\n')
+        result = self.collect("macos", source)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("::warning::", result.stdout)
+        self.assertEqual(self.archived, "archived=false\n")
         self.assertFalse(self.out.exists())
 
     def test_macos_archives_each_dsym_beside_its_binary_under_the_binary_name(self):
-        for index, name in enumerate(symbols.rust_binaries()):
+        for index, name in enumerate(symbols.rust_binaries(SOURCE)):
             (self.binaries / name).write_bytes(macho_image())
             # Cargo may uplift a bundle with underscores; the archive renames it.
             bundle = name if index % 2 == 0 else name.replace("-", "_")
@@ -153,7 +184,7 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         names, manifest = self.archive()
         expected = {symbols.MANIFEST}
-        for index, name in enumerate(symbols.rust_binaries()):
+        for index, name in enumerate(symbols.rust_binaries(SOURCE)):
             bundle = name if index % 2 == 0 else name.replace("-", "_")
             expected |= {name, f"{name}.dSYM/Contents/Resources/DWARF/{bundle}-hash"}
         self.assertEqual(names, expected)
@@ -162,14 +193,14 @@ class CollectTests(unittest.TestCase):
                          {"10111213-1415-1617-1819-1A1B1C1D1E1F"})
 
     def test_linux_archives_split_binaries_and_their_debug_files(self):
-        for name in symbols.rust_binaries():
+        for name in symbols.rust_binaries(SOURCE):
             (self.binaries / name).write_bytes(elf_image())
             (self.binaries / f"{name}{symbols.LINUX_DEBUG_SUFFIX}").write_bytes(b"debug")
         result = self.collect("linux")
         self.assertEqual(result.returncode, 0, result.stderr)
         names, manifest = self.archive()
         expected = {symbols.MANIFEST}
-        for name in symbols.rust_binaries():
+        for name in symbols.rust_binaries(SOURCE):
             expected |= {name, f"{name}{symbols.LINUX_DEBUG_SUFFIX}"}
         self.assertEqual(names, expected)
         self.assert_manifest(manifest, "linux")
@@ -189,11 +220,12 @@ class SplitTests(unittest.TestCase):
             fixture = root / "fixture"
             subprocess.run(["objcopy", "--remove-section=.gnu_debuglink", str(executable), str(fixture)],
                            check=True)
-            names = [name for name, _ in symbols.runtime_binaries()] + [symbols.PREP_KIT_COMPILER]
+            names = [name for name, _ in symbols.runtime_binaries(SOURCE)] + [symbols.PREP_KIT_COMPILER]
             for name in names:
                 shutil.copyfile(fixture, binaries / name)
-            subprocess.run([sys.executable, str(SCRIPT), "split", str(binaries), str(out)], check=True)
-            rust = set(symbols.rust_binaries())
+            subprocess.run([sys.executable, str(SCRIPT), "split", str(binaries), str(out)], check=True,
+                           env={**os.environ, "CINNABAR_SOURCE_ROOT": str(SOURCE)})
+            rust = set(symbols.rust_binaries(SOURCE))
             for name in names:
                 with self.subTest(binary=name):
                     shipped = (out / name).read_bytes()

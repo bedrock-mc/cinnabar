@@ -37,17 +37,22 @@ def symbols_archive(config, version, platform, arch):
     return config["symbols"]["archive"].format(version=version, platform=platform, arch=arch)
 
 
-def checksum(directory, version):
+def checksum(directory, version, symbols=True):
+    """Checksums the release; `symbols` is False only for a source build without split debug info
+    (release-symbols.py has-symbols), which publishes no symbol archives."""
     config = manifest()
     expected = [name for arches in config["assets"].values() for name in arches.values()]
     expected.extend(name for arches in config["update_assets"].values() for name in arches.values())
-    expected.extend(symbols_archive(config, version, platform, arch)
-                    for platform, arches in config["assets"].items() for arch in arches)
+    if symbols:
+        expected.extend(symbols_archive(config, version, platform, arch)
+                        for platform, arches in config["assets"].items() for arch in arches)
     expected.append(config["install_script"])
     missing = [name for name in expected if not (directory / name).is_file()]
     if missing:
         raise ValueError("release is missing required assets: " + ", ".join(missing))
-    files = sorted(p for p in directory.iterdir() if p.is_file() and p.name != config["checksums"])
+    # By name, so the order is the same on case-insensitive Windows paths.
+    files = sorted((p for p in directory.iterdir() if p.is_file() and p.name != config["checksums"]),
+                   key=lambda p: p.name)
     lines = []
     for p in files:
         with p.open('rb') as source:
@@ -94,6 +99,8 @@ def main():
     checksums = commands.add_parser("checksums")
     checksums.add_argument("directory", type=Path)
     checksums.add_argument("--version", required=True, help="app version naming the symbol archives")
+    checksums.add_argument("--without-symbols", action="store_true",
+                           help="the source build has no split debug info, so no symbol archives")
     args = parser.parse_args()
     if args.command == "asset":
         print(manifest()["assets"][args.platform][args.arch])
@@ -126,7 +133,7 @@ def main():
         args.output.write_text(render_installer())
         args.output.chmod(0o755)
     else:
-        checksum(args.directory, args.version)
+        checksum(args.directory, args.version, symbols=not args.without_symbols)
 
 
 if __name__ == "__main__":

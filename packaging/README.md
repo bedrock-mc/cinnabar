@@ -136,7 +136,9 @@ rejects any other file. Each package job zips its Rust binaries with their debug
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
 the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
 print symbolized tracebacks themselves and have no symbol files. Android APKs are CI artifacts built
-with the `play` profile, which has no release debug info, so they have no archive.
+with the `play` profile, which has no release debug info, so they have no archive. Releasing an older
+source branch whose release profile has no split debug info publishes no archives, with a workflow
+warning; `release-symbols.py has-symbols` makes that decision for both the package and publish jobs.
 
 To symbolicate a user's crash, ask for the crash folder (`crashes/<UTC time>-<id>/` under the
 user data directory, or the `devtool diag` bundle that includes it), download the symbol

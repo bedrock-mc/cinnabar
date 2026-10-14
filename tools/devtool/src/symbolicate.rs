@@ -1,5 +1,10 @@
 //! Offline crash symbolication: walks a crash folder's minidump against a release symbol archive.
 //! Nothing here touches the network; symbols come only from the directory or zip the caller names.
+//! `wholesym` links an HTTP client, but only its symbol-server paths use it, and neither entry
+//! point here enables them: `SymbolManager::library_info_for_binary_at_path` only reads the file,
+//! and `DebugInfoSymbolProvider::new` builds `SymbolManagerConfig::new()`, whose defaults (0.8)
+//! configure no Windows, breakpad or debuginfod servers and ignore `_NT_SYMBOL_PATH` and
+//! `DEBUGINFOD_URLS`. Modules reach it only as archive paths, never as server lookups.
 use crate::DevtoolError;
 use crash_report::{
     folder::{self, DUMP_FILE, REPORT_FILE},
@@ -193,6 +198,7 @@ pub(crate) fn symbolicate_dump(dump: &Path, symbols: &Path) -> Result<Walked, De
             .get_stream::<MinidumpModuleList>()
             .unwrap_or_else(|_| MinidumpModuleList::new());
         let (local, notes) = match_modules(&modules, &index).await;
+        // Default wholesym config: local files only (see the module docs).
         let provider =
             DebugInfoSymbolProvider::new(&system_info, &MinidumpModuleList::from_modules(local))
                 .await;

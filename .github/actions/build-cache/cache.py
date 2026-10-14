@@ -237,6 +237,12 @@ def archive_roots(paths):
         yield index, root, matches
 
 
+def without_symlinks(member):
+    """Leave symbolic links out: restores refuse them, and Cargo recreates its uplift links (such
+    as a `.dSYM` pointing into `deps/`) for fresh units too."""
+    return None if member.issym() else member
+
+
 def pack(paths, archive):
     """Archive planned paths with their exact timestamps, which Cargo freshness depends on."""
     with tarfile.open(archive, "w:gz", compresslevel=1, format=tarfile.PAX_FORMAT) as tar:
@@ -244,7 +250,8 @@ def pack(paths, archive):
             # Hard links may only point within their own root.
             tar.inodes.clear()
             for match in matches:
-                tar.add(match, arcname=f"{index}/{match.relative_to(root).as_posix()}")
+                tar.add(match, arcname=f"{index}/{match.relative_to(root).as_posix()}",
+                        filter=without_symlinks)
 
 
 def cache_member(member, root):

@@ -114,6 +114,19 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(checksum.read_bytes(), first)
 
+    def test_only_a_release_without_split_debug_info_may_omit_symbol_archives(self):
+        self.populate()
+        archives = [self.symbol_archive(platform, arch)
+                    for platform, arches in self.config["assets"].items() for arch in arches]
+        for name in archives:
+            (self.dist / name).unlink()
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(archives[0], result.stderr)
+        result = self.run_helper("checksums", self.dist, "--version", self.version, "--without-symbols")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.dist / self.config["checksums"]).is_file())
+
     def test_symbol_archives_are_named_by_version_platform_and_arch(self):
         names = {self.symbol_archive(platform, arch)
                  for platform, arches in self.config["assets"].items() for arch in arches}
