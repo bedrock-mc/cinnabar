@@ -116,6 +116,7 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
         return;
     };
     let plane = chart_plane();
+    eprintln!("chart vertices: {plane:?}");
     let material = render_model::ActorMaterial {
         state: Some(assets::EntityRenderMaterialState {
             alpha_test: true,
@@ -185,7 +186,7 @@ fn actor_transparent_charts_remain_empty_at_perspective_multisample_edges() {
                     .count();
                 assert!(
                     positive_pixels > 2_000,
-                    "the selected face must actually draw"
+                    "the selected face must actually draw: below={below} phase={phase} samples={samples} coverage={coverage} positive_pixels={positive_pixels}"
                 );
                 let subject = raster(&unrelated);
                 let changed_pixels = subject
