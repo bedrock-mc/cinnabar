@@ -56,6 +56,8 @@ fn player_pack_attack_roots_keep_custom_bones_and_engine_swing_reads() {
         "textures/entity/player.png",
         b"synthetic-raster",
     );
+    // A resource pack always carries the controller family, even when this entity uses none.
+    fs::create_dir_all(pack.path().join("animation_controllers")).unwrap();
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let rig = compiled.rig_bindings[0];
     assert_eq!(
