@@ -41,7 +41,7 @@ fn orientation_facts_preserve_every_pinned_placement_classification() {
     let facts = BlockFacts::new(&records).unwrap();
     for record in &records {
         let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
-        // Attachment and rail orientation were added to the retained placement classes.
+        // GP-20: attachment and rail orientation were added to the retained placement classes.
         let attachment = [
             "rail_direction",
             "lever_direction",
@@ -223,9 +223,9 @@ fn interaction_and_replacement_facts_preserve_pinned_classification() {
         let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
         let traits = facts.get(record.sequential_id).traits;
         let interaction = earlier_interaction(name);
-        // The canonical trapdoor lacks the suffix used by the earlier switch list.
+        // GP-18: the canonical trapdoor lacks the suffix used by the earlier switch list.
         let switch = interaction == Some(Interaction::Switch) || name == "minecraft:trapdoor";
-        // Native replacement components and the state-dependent overrides are intentional additions.
+        // GP-15 / PC-29: native replacement components and the state-dependent overrides are intentional additions.
         let replacement = REPLACEABLE_BLOCKS.contains(&name)
             || components.contains(name)
             || record.model_family == assets::registry::ModelFamily::FlowerBed

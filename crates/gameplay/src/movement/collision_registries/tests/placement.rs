@@ -167,6 +167,74 @@ fn oriented_and_half_block_items_produce_local_predictions_immediately() {
 }
 
 #[test]
+fn cobweb_prediction_keeps_independent_support_in_both_identity_modes() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let store = store(mode);
+        let around = surroundings();
+        let result = predict("minecraft:web", &store, mode, &context(&around)).unwrap();
+        assert_eq!(result.position, [8, 9, 8]);
+        assert_eq!(
+            fixtures().1.block_identifier(mode, result.block),
+            Some("minecraft:web")
+        );
+    }
+}
+
+#[test]
+fn carpet_prediction_accepts_materialized_custom_support_in_both_identity_modes() {
+    let (records, _) = fixtures();
+    let protocol = active_content_registry_protocol();
+    let mut registries = bind(
+        BREG_V2193,
+        &synthetic_preg(protocol, BREG_V2193, records),
+        protocol,
+    )
+    .unwrap();
+    let mut custom =
+        protocol::CustomBlocks::from_definitions([("test:carpet_support", &[10, 0, 0][..])]);
+    custom.vanilla_blocks = assets::server_defined_blocks()
+        .iter()
+        .map(|block| block.name.into())
+        .collect();
+    let (range, _) = registries.begin_session_custom_blocks(&custom).unwrap();
+    assert_eq!(registries.begin_session_hashed_custom_blocks(&custom), 1);
+    for (mode, support) in [
+        (NetworkIdMode::Sequential, range.start),
+        (
+            NetworkIdMode::Hashed,
+            custom.blocks[0].hashed_states()[0].hash,
+        ),
+    ] {
+        let mut store = store(mode);
+        store
+            .update_block(
+                SubChunkKey::new(0, 0, 0, 0),
+                BlockUpdate::new(8, 8, 8, 0, support),
+                id(record("minecraft:air", &[]), mode),
+            )
+            .unwrap();
+        let mut around = surroundings();
+        around.clicked = registries.block_facts(mode, support);
+        around.clicked_canonical_state = None;
+        let world =
+            sim::PaletteWorld::new(&store, registries.registry(mode), 0, Default::default());
+        let result = predicted_placement(
+            &registries,
+            mode,
+            id(record("minecraft:white_carpet", &[]), mode),
+            &world,
+            &context(&around),
+        )
+        .unwrap();
+        assert_eq!(result.position, [8, 9, 8]);
+        assert_eq!(
+            registries.block_identifier(mode, result.block),
+            Some("minecraft:white_carpet")
+        );
+    }
+}
+
+#[test]
 fn a_matching_clicked_slab_predicts_its_double_in_the_same_cell() {
     use serde_json::json;
     for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {

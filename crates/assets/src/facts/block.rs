@@ -14,9 +14,11 @@ pub enum BlockStateIdentity<'a> {
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
-/// Compiled facts for one admitted block state.
+/// Identity, placement and support metadata for one runtime ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockFact {
+    /// Whether this runtime ID has readable block metadata, including custom and reserved entries.
+    pub readable: bool,
     pub traits: BlockTraits,
     pub family: ModelFamily,
     pub survival: SurvivalRule,
@@ -32,6 +34,7 @@ impl Default for BlockFact {
     /// Unknown runtime ids retain unresolved placement support.
     fn default() -> Self {
         Self {
+            readable: false,
             traits: BlockTraits::empty(),
             family: ModelFamily::Unknown,
             survival: SurvivalRule::Unresolved,
@@ -39,6 +42,17 @@ impl Default for BlockFact {
             support: super::SupportKind::Unresolved,
             alternate: None,
             identity: None,
+        }
+    }
+}
+
+impl BlockFact {
+    /// Retains readable custom support without inventing a compiled placement identity.
+    pub fn custom(identifier: &str) -> Self {
+        Self {
+            readable: true,
+            support: super::SupportKind::for_identifier(identifier),
+            ..Self::default()
         }
     }
 }
@@ -74,6 +88,7 @@ impl BlockFacts {
                 .iter()
                 .map(|r| {
                     let mut fact = BlockFact {
+                        readable: true,
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,

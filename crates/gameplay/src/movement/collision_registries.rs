@@ -374,7 +374,7 @@ impl PhysicsCollisionRegistries {
                     next,
                     InteractionBlock {
                         identifier: Arc::clone(&block.name),
-                        facts: assets::facts::BlockFact::default(),
+                        facts: assets::facts::BlockFact::custom(&block.name),
                         full_cube: effective.collides && effective.collision_boxes.is_none(),
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -426,7 +426,7 @@ impl PhysicsCollisionRegistries {
                         state.hash,
                         InteractionBlock {
                             identifier: Arc::clone(&block.name),
-                            facts: assets::facts::BlockFact::default(),
+                            facts: assets::facts::BlockFact::custom(&block.name),
                             full_cube: effective.collides && effective.collision_boxes.is_none(),
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),

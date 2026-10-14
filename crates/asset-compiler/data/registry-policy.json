@@ -1822,25 +1822,6 @@
       "suffix": "_chain"
     },
     {
-      "id": "survival-unresolved-80",
-      "fact": "survival:Unresolved",
-      "status": "provisional",
-      "model_family": [
-        "Cross",
-        "Crop",
-        "Aquatic",
-        "Rail",
-        "Sign",
-        "Bed",
-        "FlowerBed",
-        "Cocoa",
-        "GlowLichen",
-        "SculkVein",
-        "ResinClump",
-        "PressurePlate"
-      ]
-    },
-    {
       "id": "translucent-81",
       "fact": "TRANSLUCENT",
       "status": "provisional",
@@ -3824,22 +3805,6 @@
       "fact": "placement:Glazed",
       "status": "verified",
       "suffix": "_glazed_terracotta"
-    },
-    {
-      "id": "support-stone",
-      "fact": "support:Stone",
-      "status": "provisional",
-      "members": [
-        "minecraft:stone"
-      ]
-    },
-    {
-      "id": "support-powder-snow",
-      "fact": "support:PowderSnow",
-      "status": "provisional",
-      "members": [
-        "minecraft:powder_snow"
-      ]
     }
   ],
   "entity_compatibility": [

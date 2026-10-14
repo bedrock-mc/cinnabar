@@ -20,6 +20,7 @@ fn every_torch_and_connection_state_has_compiled_traits() {
     let mut connections = 0;
     for record in &records {
         let fact = facts.get(record.sequential_id);
+        assert!(fact.readable);
         assert_eq!(fact.traits, record.traits);
         assert_eq!(fact.family, record.model_family);
         assert_eq!(fact.survival, record.survival);
@@ -46,6 +47,7 @@ fn every_torch_and_connection_state_has_compiled_traits() {
     }
     assert!(torches > 0 && connections > 0);
     assert_eq!(facts.get(u32::MAX).survival, SurvivalRule::Unresolved);
+    assert!(!facts.get(u32::MAX).readable);
     assert_eq!(facts.len(), records.len());
 }
 

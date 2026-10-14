@@ -59,8 +59,27 @@ named_facts!(
 
 named_facts!(
     /// Support classifications retained by provisional placement prediction.
-    SupportKind { Stone, PowderSnow }
+    SupportKind { Stone, PowderSnow, Leaves, Water, Lava, Air, Fire, SnowLayer, Vanilla }
 );
+
+impl SupportKind {
+    /// Classifies readable support metadata once at registry or custom-block admission.
+    pub fn for_identifier(identifier: &str) -> Self {
+        match identifier {
+            "minecraft:stone" => Self::Stone,
+            "minecraft:powder_snow" => Self::PowderSnow,
+            "minecraft:air" => Self::Air,
+            "minecraft:water" | "minecraft:flowing_water" => Self::Water,
+            "minecraft:lava" | "minecraft:flowing_lava" => Self::Lava,
+            "minecraft:fire" | "minecraft:soul_fire" => Self::Fire,
+            "minecraft:snow_layer" => Self::SnowLayer,
+            "minecraft:leaves" | "minecraft:leaves2" => Self::Leaves,
+            name if name.ends_with("_leaves") => Self::Leaves,
+            name if name.starts_with("minecraft:") => Self::Vanilla,
+            _ => Self::Unresolved,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(super) struct PlacementEntry {

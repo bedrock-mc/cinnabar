@@ -29,11 +29,11 @@
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "ca0860bf11d256e9c14b0c35abe178e80e617b4f33733b007f1defd8976172a5"
+    "sha256": "34c3cb8ac5f69ac1e054efb7f0019492587b42fd49383d6fcb12408392419ab5"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "071cc3adda78fe8f62bbddc8ffd5929027fa3a9b81ab67882c97f7ad9d70b63c"
+    "sha256": "f8913c71c13bc688e99cae113c74332902b603da5e045c2e33aeded2305c4435"
   }
 }

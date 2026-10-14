@@ -186,13 +186,17 @@ pub(crate) fn support_requirement(
 
 /// Accepts full attachment support and carpet's non-air support using compiled facts.
 pub(crate) fn accepts_support(fact: BlockFact, support: BlockFact, full_cube: bool) -> bool {
+    if !support.readable {
+        return false;
+    }
     if fact.survival == S::Carpet {
-        return support.identity.is_some() && !support.traits.contains(T::AIR);
+        return support.support != SupportKind::Air;
     }
     full_cube
-        && support.family != F::Unknown
-        && support.family != F::Leaves
-        && support.support != SupportKind::PowderSnow
+        && !matches!(
+            support.support,
+            SupportKind::Unresolved | SupportKind::Leaves | SupportKind::PowderSnow
+        )
 }
 
 /// Preserves unresolved partial-shape support while removing identifier membership tests.
@@ -201,23 +205,26 @@ pub(crate) fn support_acceptance(
     support: BlockFact,
     full_cube: bool,
 ) -> Option<bool> {
-    if fact.survival == S::Carpet && support.identity.is_none() {
+    if !support.readable {
         return None;
     }
     if fact.placement == R::Vine {
         return match support.support {
             SupportKind::Stone => Some(true),
-            _ if support.traits.contains(T::AIR) => Some(false),
+            SupportKind::Air => Some(false),
             _ => None,
         };
     }
     if fact.placement == R::Snow {
         return if support.support == SupportKind::Stone
-            || support.family == F::Leaves
-            || (support.traits.contains(T::SNOW_LAYER) && full_cube)
+            || support.support == SupportKind::Leaves
+            || (support.support == SupportKind::SnowLayer && full_cube)
         {
             Some(true)
-        } else if support.traits.intersects(T::AIR | T::WATER | T::LAVA) {
+        } else if matches!(
+            support.support,
+            SupportKind::Air | SupportKind::Water | SupportKind::Lava
+        ) {
             Some(false)
         } else {
             None
@@ -227,11 +234,15 @@ pub(crate) fn support_acceptance(
         return Some(true);
     }
     if fact.survival == S::Carpet
-        || support.family == F::Leaves
-        || support.support == SupportKind::PowderSnow
-        || support
-            .traits
-            .intersects(T::AIR | T::WATER | T::LAVA | T::FIRE)
+        || matches!(
+            support.support,
+            SupportKind::Leaves
+                | SupportKind::PowderSnow
+                | SupportKind::Air
+                | SupportKind::Water
+                | SupportKind::Lava
+                | SupportKind::Fire
+        )
     {
         Some(false)
     } else {
@@ -679,7 +690,7 @@ mod tests {
         {
             assert_eq!(
                 super::support_acceptance(carpet, facts.get(record.sequential_id), true),
-                None
+                Some(true)
             );
         }
     }

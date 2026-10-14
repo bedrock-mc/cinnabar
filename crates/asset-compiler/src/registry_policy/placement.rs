@@ -105,12 +105,7 @@ pub(super) fn compile(
                 .fact
                 .strip_prefix("placement:")
                 .and_then(R::from_name)
-                .is_some()
-                || selector
-                    .fact
-                    .strip_prefix("support:")
-                    .and_then(SupportKind::from_name)
-                    .is_some(),
+                .is_some(),
             "unknown placement fact",
         )?;
     }
@@ -120,15 +115,7 @@ pub(super) fn compile(
         .iter()
         .filter(|r| r.name.as_ref() != assets::facts::block::RESERVED_BLOCK_NAME)
     {
-        let state = serde_json::from_str(&record.canonical_state)?;
-        let support = policy
-            .placement_rules
-            .iter()
-            .find(|r| {
-                r.fact.starts_with("support:")
-                    && r.matches(&record.name, &state, record.model_family)
-            })
-            .map_or("Unresolved", |r| r.fact.strip_prefix("support:").unwrap());
+        let support = SupportKind::for_identifier(&record.name);
         let compiled = rule(record, policy)?;
         let row = rows
             .entry(record.name.as_ref())
@@ -144,7 +131,7 @@ pub(super) fn compile(
     let mut text = String::from("identifier\tplacement\tsupport\talternate\n");
     for (name, (rule, support)) in rows {
         text.push_str(&format!(
-            "{name}\t{rule:?}\t{support}\t{}\n",
+            "{name}\t{rule:?}\t{support:?}\t{}\n",
             counterpart(name, rule, &names).as_deref().unwrap_or("-")
         ));
     }
