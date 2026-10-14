@@ -63,11 +63,11 @@ struct VertexOutput {
     @location(9) @interpolate(flat) multitexture_layers: vec2<u32>,
     @location(10) native_lighting: vec3<f32>,
     @location(11) @interpolate(flat) material: u32,
-    @location(12) @interpolate(flat) dissolve_multiplier: f32,
-    @location(13) @interpolate(flat) surface: u32,
+    // Stored float bits and surface kind share a slot within default motion interface limits.
+    @location(12) @interpolate(flat) material_parameters: vec2<u32>,
     @location(14) back_native_lighting: vec3<f32>,
     @if(ALPHA_TO_COVERAGE)
-    @location(15) @interpolate(flat) chart_bounds: vec4<u32>,
+    @location(13) @interpolate(flat) chart_bounds: vec4<u32>,
     @if(ACTOR_MOTION)
     @location(6) previous_clip: vec4<f32>,
 }
@@ -188,13 +188,13 @@ fn actor_vertex(
     out.light = instance_words[instance_base + 24u];
     out.native_lighting = vec3(1.0);
     out.back_native_lighting = vec3(1.0);
-    out.surface = 0u;
+    out.material_parameters.y = 0u;
     out.multitexture_layers = vec2(instance_words[instance_base + 25u], instance_words[instance_base + 26u]);
     out.material = instance_words[instance_base + 27u];
     if ((out.material & ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG) != 0u) { out.overlay = vec4(0.0); }
     let has_glint = (out.material & ACTOR_MATERIAL_KIND_MASK) == ACTOR_MATERIAL_GLINT || word_f32(instance_base + 35u) != 0.0;
     out.skin_info.z = select(0xffffffffu, instance_index, has_glint);
-    out.dissolve_multiplier = word_f32(instance_base + 28u);
+    out.material_parameters.x = instance_words[instance_base + 28u];
     let light_color_multiplier = word_f32(instance_base + 29u);
     // Render-controller uv_anim, applied as vanilla's entity shader does: offset + uv * scale.
     let uv_offset = vec2(word_f32(instance_base + 20u), word_f32(instance_base + 21u));
@@ -245,7 +245,7 @@ fn actor_vertex(
     // A one-sided plane's back keeps its sentinel so the fragment stage can discard it.
     out.back_uv = select(uv_offset + raw_back_uv * uv_scale, raw_back_uv, raw_back_uv.x < -1.0e8);
     let bone_index = vertex_words[vertex_base + 10u];
-    out.surface = vertex_words[vertex_base + 11u];
+    out.material_parameters.y = vertex_words[vertex_base + 11u];
     let previous = transform_point(previous_bones[previous_bone_base + bone_index], local);
     let current = transform_point(current_bones[current_bone_base + bone_index], local);
     let posed = mix(previous, current, partial_tick);
@@ -285,7 +285,7 @@ fn actor_vertex(
     out.world_normal = world_normal;
     out.native_lighting = actor_lighting(out.light, world_normal, out.overlay.a) * light_color_multiplier;
     out.back_native_lighting = out.native_lighting;
-    if (out.surface != 0u) {
+    if (out.material_parameters.y != 0u) {
         out.back_native_lighting = actor_lighting(out.light, -world_normal, out.overlay.a) * light_color_multiplier;
     }
     out.skin_info.y = 1u;
@@ -338,7 +338,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     }
     if (!front && authored && (input.material & ACTOR_MATERIAL_CULL_FLAG) != 0u) { discard; }
     let one_sided_material = material == ACTOR_MATERIAL_DRAGON || material == ACTOR_MATERIAL_DISSOLVE_DEPTH || material == ACTOR_MATERIAL_DISSOLVE_COLOR;
-    if (!front && one_sided_material && input.surface == 0u) {
+    if (!front && one_sided_material && input.material_parameters.y == 0u) {
         discard;
     }
     var uv = select(input.back_uv, input.uv.xy, front);
@@ -361,7 +361,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     @if(ALPHA_TO_COVERAGE)
     if (color.a < ACTOR_ALPHA_TEST_THRESHOLD && coverage > 0.0) { color = tint_to_gamma(cutout.colour); }
     if (material == ACTOR_MATERIAL_DISSOLVE_DEPTH) {
-        if (color.a * input.dissolve_multiplier < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
+        if (color.a * bitcast<f32>(input.material_parameters.x) < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
         return vec4(0.0);
     }
     if (material == ACTOR_MATERIAL_DISSOLVE_COLOR && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }
@@ -401,7 +401,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // Actor/Entity overlays blend BEFORE the shaded lightmap product. Vertex
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
-    let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.surface != 0u);
+    let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.material_parameters.y != 0u);
     let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     var legacy_foil = vec3(0.0);
