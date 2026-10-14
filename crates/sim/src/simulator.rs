@@ -455,6 +455,14 @@ impl Simulator {
         if stuck.is_some() {
             next.velocity = Vec3::ZERO;
         }
+        let bounced = motion.collisions.y && next.velocity.y > f64::from(f32::EPSILON);
+        let bounce_corrected_gravity = |gravity| {
+            if bounced {
+                effects::gravity_after_bounce(gravity, pre_collision_velocity.y, motion.resolved.y)
+            } else {
+                gravity
+            }
+        };
 
         let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
             && (motion.collisions.x || motion.collisions.z);
@@ -495,7 +503,12 @@ impl Simulator {
             } else {
                 0.02
             };
-            effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                bounce_corrected_gravity(gravity),
+                1.0,
+            );
         } else {
             let gravity = if sampled.descend_through && (scaffold.inside || scaffold.over) {
                 // Descending through scaffolding keeps only the vertical drag.
@@ -511,7 +524,7 @@ impl Simulator {
                 if auto_climb {
                     0.0
                 } else {
-                    vertical.gravity(gravity)
+                    bounce_corrected_gravity(vertical.gravity(gravity))
                 },
                 if auto_climb {
                     1.0

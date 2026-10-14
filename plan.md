@@ -716,6 +716,8 @@ these changes do not close the movement, camera, or actor parity gates.
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+  Slime and bed rebounds apply only the gravity remaining after impact, then
+  vertical drag; negligible clipped travel keeps ordinary gravity.
 - When collision data pauses local ticks, the camera holds the completed crouch
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
