@@ -1,17 +1,12 @@
-use crate as render_api;
-use crate::shader_source;
 use bevy::render::render_resource::Specializer;
 
-use crate::gpu_snapshot;
+use crate::{actor_raster, gpu_snapshot};
 use assets::{EntityRenderMaterial, EntityRenderMaterialState};
 use bevy::{prelude::Msaa, shader::ShaderDefVal};
 
 use super::super::{
     ActorPipelineKey, ActorPipelineSpecializer, actor_bind_group_layout, actor_pipeline_descriptor,
 };
-
-#[path = "../../tests/it/support/actor_raster.rs"]
-mod actor_raster;
 
 fn center(frame: &[u8]) -> &[u8] {
     let pixel = (gpu_snapshot::SNAPSHOT_SIDE as usize / 2 * gpu_snapshot::SNAPSHOT_SIDE as usize

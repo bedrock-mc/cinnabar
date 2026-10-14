@@ -48,7 +48,7 @@ fn every_pinned_lantern_samples_its_sprite_after_carrier_roundtrip() {
         .collect::<serde_json::Map<_, _>>();
     write(
         directory.path().join("blocks.json"),
-        &serde_json::to_string(&blocks).unwrap(),
+        serde_json::to_string(&blocks).unwrap(),
     );
     write(
         directory.path().join("textures/terrain_texture.json"),

@@ -480,7 +480,9 @@ mod tests {
         assert!(
             canvas
                 .into_rgba()
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .any(|pixel| pixel[3] != 0)
         );
     }

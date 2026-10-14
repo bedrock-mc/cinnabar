@@ -443,7 +443,7 @@ fn preview_dense_sprite_reserves_surrounding_controls_and_repeated_player_nodes(
         let mut presentation = presentation();
         let mut art = dense_sprite(148);
         let mut cleared = 0;
-        for pixel in art.rgba8.chunks_exact_mut(4) {
+        for pixel in art.rgba8.as_chunks_mut::<4>().0 {
             if pixel[3] != 0 && cleared < 48 {
                 pixel[3] = 0;
                 cleared += 1;

@@ -7,6 +7,7 @@ temp_root="$(mktemp -d "${TMPDIR:-/tmp}/rust-mcbe-acceptance.XXXXXX")"
 trap 'rm -rf "$temp_root"' EXIT
 
 python3 "$project_root/scripts/tests/test_gophertunnel_provenance.py"
+python3 "$project_root/scripts/tests/test_copy_workspace.py"
 
 bds_dir="$temp_root/bds source"
 metrics_out="$temp_root/metrics output/metrics.json"
@@ -53,12 +54,7 @@ source "$script"
 unset CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY
 
 protocol_fixture="$temp_root/protocol-provenance"
-mkdir -p "$protocol_fixture"
-cp "$project_root/Cargo.toml" "$protocol_fixture/Cargo.toml"
-cp "$project_root/Cargo.lock" "$protocol_fixture/Cargo.lock"
-cp -R "$project_root/app" "$project_root/crates" "$project_root/tools" "$project_root/examples" "$protocol_fixture/"
-mkdir -p "$protocol_fixture/packaging/android"
-cp -R "$project_root/packaging/android/client" "$protocol_fixture/packaging/android/"
+python3 "$project_root/scripts/tests/copy_workspace.py" "$project_root" "$protocol_fixture"
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
