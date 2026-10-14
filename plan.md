@@ -8969,3 +8969,13 @@ identities come from the pinned registry rather than numeric ranges.
 Incomplete: the additional renderers for brushable blocks, trial spawners and
 vaults remain unsupported. New logical routes are provisional, and the existing
 renderer, visual and performance acceptance gates remain open.
+
+## Server form screen variables
+
+Action and custom forms resolve their content reference in the form screen's
+variable scope, including defaults and selected conditional variables. An original
+resource-pack fixture checks title-selected panels through indexed pack overlays.
+
+Incomplete: the reported server form flash-close needs the affected pack and an
+ordered packet/input trace. The separate data-driven screen packet family remains
+unsupported. Live visual parity and performance acceptance remain open.

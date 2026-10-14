@@ -163,16 +163,17 @@ pub fn form_factory_id(model: &FormModel) -> Option<&'static str> {
     }
 }
 
-/// The form screen's `$screen_content` (a resource pack may repoint it), the
-/// control whose factory picks the long or custom form.
-fn screen_content(catalog: &Catalog) -> Option<String> {
+/// Resolves the content factory under the form screen's selected variables.
+fn screen_content(catalog: &Catalog, context: &Context) -> Option<ResolvedControl> {
     let (namespace, name) = Reference::ServerFormThirdPartyServerScreen
         .as_str()
         .split_once('.')?;
-    let (screen, _) = crate::merge::flatten_def(catalog, namespace, name, &mut Vec::new())?;
-    ["$screen_content", "$screen_content|default"]
-        .iter()
-        .find_map(|key| screen.props.get(*key)?.as_str().map(str::to_owned))
+    crate::Resolver::new(catalog).resolve_variable_content(
+        namespace,
+        name,
+        Variable::ScreenContent.as_str(),
+        &context.root_env(catalog),
+    )
 }
 
 /// Where the form screen routes `button.menu_cancel` (Escape), from its own
@@ -679,8 +680,7 @@ pub fn bind_form_over(
     // Action and custom forms open through the screen's content factory, so a
     // pack's screen override applies; the bare template is the fallback.
     let routed = form_factory_id(model).and_then(|id| {
-        let content = screen_content(catalog)?;
-        let root = resolve(catalog, &content, &context).control?;
+        let root = screen_content(catalog, &context)?;
         data.set_factory_id(id);
         Some(root)
     });
