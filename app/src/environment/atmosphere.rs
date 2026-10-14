@@ -1,7 +1,9 @@
 //! Per-frame atmosphere derivation: clock and weather into one shared GPU
 //! frame, overlaid with client fog profiles and explicit boss requests.
 
-use assets::{BiomeVisualProfile, FogMedium, FogProfile};
+use assets::{
+    BiomeVisualProfile, FogMedium, FogProfile, facts::presentation::dimension_fallback_biome,
+};
 use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,
@@ -15,8 +17,7 @@ use client_shell::ui_resources::UiRuntimeResource;
 
 use super::{
     CameraMediumState, EnvironmentContext, EnvironmentProfileRoute, LightningFlashState,
-    WeatherDisplay, WeatherState, WorldClock,
-    profile_lookup::{dimension_fallback_biome, find_biome_profile},
+    WeatherDisplay, WeatherState, WorldClock, profile_lookup::find_biome_profile,
     visual_world_time,
 };
 

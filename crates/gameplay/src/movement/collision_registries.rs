@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
-use assets::{RegistryRecord, facts::block::RESERVED_BLOCK_NAME};
 use assets::block_shapes::COLLISION_COORDINATE_SCALE;
+use assets::{RegistryRecord, facts::block::RESERVED_BLOCK_NAME};
 use sim::{
     Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, RegistryError, Vec3,
 };

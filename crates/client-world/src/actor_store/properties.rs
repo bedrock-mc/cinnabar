@@ -31,7 +31,9 @@ impl PropertyRegistry {
     pub(crate) fn for_kind(&self, kind: &protocol::ActorKind) -> Option<Arc<[PropertyDefinition]>> {
         let name = match kind {
             protocol::ActorKind::Entity { identifier } => identifier.as_ref(),
-            protocol::ActorKind::Player { .. } => "minecraft:player",
+            protocol::ActorKind::Player { .. } => assets::facts::entity::NativeEntityClass::Player
+                .identifier()
+                .expect("pinned player identity"),
         };
         self.get(name).cloned()
     }

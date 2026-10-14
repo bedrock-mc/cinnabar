@@ -351,7 +351,7 @@ impl ActorStore {
                         .get(&actor.unique_id)
                         .and_then(kind_of)
                         .map(|kind| match kind {
-                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
+                            ActorKind::Player { .. } => std::sync::Arc::from(assets::facts::entity::NativeEntityClass::Player.identifier().expect("pinned player identity")),
                             ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
                         }),
                     has_rider,

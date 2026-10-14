@@ -24,7 +24,7 @@ pub const MAGIC: &[u8; 8] = b"EFACT001";
 pub const MAX_BYTES: usize = 1024 * 1024;
 
 /// Native behavior families used by class-specific actor consumers.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum NativeEntityClass {
     #[default]
     Unresolved,
@@ -50,6 +50,29 @@ pub enum NativeEntityClass {
     Tropicalfish,
     DragonFireball,
     FireworksRocket,
+    AreaEffectCloud,
+}
+
+impl NativeEntityClass {
+    /// Returns the canonical asset identity only when this class has one pinned constructor.
+    pub fn identifier(self) -> Option<&'static str> {
+        static NAMES: OnceLock<std::collections::HashMap<NativeEntityClass, Option<&'static str>>> =
+            OnceLock::new();
+        NAMES
+            .get_or_init(|| {
+                let mut names = std::collections::HashMap::new();
+                for record in &EntityFacts::pinned().records {
+                    names
+                        .entry(record.fact.native_class)
+                        .and_modify(|name| *name = None)
+                        .or_insert(Some(record.identifier.as_ref()));
+                }
+                names
+            })
+            .get(&self)
+            .copied()
+            .flatten()
+    }
 }
 
 /// A class's radius formula, with state inputs supplied by the actor.

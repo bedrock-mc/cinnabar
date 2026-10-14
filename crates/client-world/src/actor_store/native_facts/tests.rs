@@ -41,6 +41,7 @@ fn custom_entities_inherit_native_class_shadow_offsets_and_effect_membership() {
         "minecraft:falling_block",
         "minecraft:splash_potion",
         "minecraft:wolf",
+        "minecraft:area_effect_cloud",
     ]
     .iter()
     .enumerate()

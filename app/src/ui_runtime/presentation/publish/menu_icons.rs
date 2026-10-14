@@ -3,10 +3,22 @@ use launcher::menu::MenuView;
 
 /// Resolves navigation artwork through canonical item identities.
 pub(super) fn install(presentation: &UiPresentationRuntime, view: &mut MenuView) {
-    view.featured_icon = presentation.item_icon("minecraft:compass", 0);
-    view.realm_icon = presentation.item_icon("minecraft:ender_pearl", 0);
-    view.friend_icon = presentation.item_icon("minecraft:heart_of_the_sea", 0);
-    view.saved_icon = presentation.item_icon("minecraft:book", 0);
+    view.featured_icon = presentation.item_icon(
+        assets::facts::presentation::UiItemIcon::Featured.identifier(),
+        0,
+    );
+    view.realm_icon = presentation.item_icon(
+        assets::facts::presentation::UiItemIcon::Realm.identifier(),
+        0,
+    );
+    view.friend_icon = presentation.item_icon(
+        assets::facts::presentation::UiItemIcon::Friend.identifier(),
+        0,
+    );
+    view.saved_icon = presentation.item_icon(
+        assets::facts::presentation::UiItemIcon::Book.identifier(),
+        0,
+    );
 }
 
 #[cfg(test)]

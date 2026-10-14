@@ -6,7 +6,7 @@ use std::{path::Path, sync::Arc};
 /// A dimension's loading backdrop and the block item its destination card shows.
 pub struct DimensionArt {
     pub background: &'static str,
-    pub block: &'static str,
+    pub icon: assets::facts::presentation::UiItemIcon,
     file: &'static str,
 }
 
@@ -14,17 +14,17 @@ pub struct DimensionArt {
 pub const DIMENSIONS: [DimensionArt; 3] = [
     DimensionArt {
         background: "@dimension/background/overworld",
-        block: "minecraft:grass_block",
+        icon: assets::facts::presentation::UiItemIcon::Overworld,
         file: "overworld.png",
     },
     DimensionArt {
         background: "@dimension/background/nether",
-        block: "minecraft:netherrack",
+        icon: assets::facts::presentation::UiItemIcon::Nether,
         file: "nether.png",
     },
     DimensionArt {
         background: "@dimension/background/end",
-        block: "minecraft:end_stone",
+        icon: assets::facts::presentation::UiItemIcon::End,
         file: "end.png",
     },
 ];
@@ -97,11 +97,15 @@ mod tests {
         let items = protocol::vanilla_item_registry();
         for dimension in 0..DIMENSIONS.len() as i32 {
             let art = destination(dimension).unwrap();
-            assert!(blocks.iter().any(|block| block.name.as_ref() == art.block));
+            assert!(
+                blocks
+                    .iter()
+                    .any(|block| block.name.as_ref() == art.icon.identifier())
+            );
             assert!(
                 items
                     .iter()
-                    .any(|item| item.identifier.as_ref() == art.block)
+                    .any(|item| item.identifier.as_ref() == art.icon.identifier())
             );
         }
     }
