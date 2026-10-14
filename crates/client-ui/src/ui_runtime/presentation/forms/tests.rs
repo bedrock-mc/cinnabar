@@ -564,21 +564,13 @@ fn connecting_screen_reports_the_pack_download() {
             received_bytes: 5 * 1024 * 1024,
             total_bytes: 20 * 1024 * 1024,
         }));
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping connecting_screen_reports_the_pack_download: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    let words = oreui_texts(&view).join("\n");
     for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
-        assert!(
-            texts.iter().any(|text| text == wanted),
-            "{wanted}: {texts:?}"
-        );
+        assert!(words.contains(wanted), "{wanted}: {words}");
     }
 }
 
-// A Realm join lays out vanilla's Realms loading screen with the lookup's words.
+// A Realm join reports the lookup in the launcher's progress screen.
 #[test]
 fn realm_join_screen_reports_the_realm_lookup() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
@@ -587,21 +579,13 @@ fn realm_join_screen_reports_the_realm_lookup() {
     view.feeds
         .join
         .observe(Some(launcher::menu::JoinStage::Realm));
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping realm_join_screen_reports_the_realm_lookup: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    let words = oreui_texts(&view).join("\n");
     for wanted in ["Joining Realm...", "This may take a few moments"] {
-        assert!(
-            texts.iter().any(|text| text == wanted),
-            "{wanted}: {texts:?}"
-        );
+        assert!(words.contains(wanted), "{wanted}: {words}");
     }
 }
 
-// Opening a local world shows vanilla's loading screen with the current stage and its bytes.
+// Opening a local world names the current stage and its bytes.
 #[test]
 fn local_world_loading_screen_names_the_stage() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
@@ -610,23 +594,14 @@ fn local_world_loading_screen_names_the_stage() {
         fraction: Some(0.5),
         detail: "50.0 / 100.0 MB".to_owned(),
     });
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping local_world_loading_screen_names_the_stage: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    assert!(
-        texts.iter().any(|text| text == "Starting World"),
-        "{texts:?}"
-    );
-    assert!(
-        texts
-            .iter()
-            .any(|text| text.contains("Downloading Bedrock Dedicated Server")
-                && text.contains("50.0 / 100.0 MB")),
-        "{texts:?}"
-    );
+    let words = oreui_texts(&view).join("\n");
+    for wanted in [
+        "Starting World",
+        "Downloading Bedrock Dedicated Server",
+        "50.0 / 100.0 MB",
+    ] {
+        assert!(words.contains(wanted), "{wanted}: {words}");
+    }
 }
 
 // Retail desktop settings show vanilla's section set; debug, edu, touch and
@@ -645,6 +620,7 @@ fn retail_settings_hide_debug_and_automation_sections() {
     ui_screens::menu_policy::apply(&mut catalog);
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
+    view.over_world = true;
     let settings = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
@@ -705,6 +681,7 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
     .unwrap();
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
+    view.over_world = true;
     let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
         .control

@@ -88,7 +88,7 @@ pub fn screen_data(
         let words = launcher::menu::disconnect::describe(error);
         data.set_global(
             "#title_text",
-            text(translated(translate, words.title, words.title)),
+            text(translated(translate, words.title.0, words.title.1)),
         );
         let body = match words.body {
             launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),

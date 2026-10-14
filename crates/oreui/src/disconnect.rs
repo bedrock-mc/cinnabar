@@ -20,12 +20,9 @@ pub(super) fn draw(
     error: &str,
     translate: Translate<'_>,
 ) -> Result<(), PaintError> {
-    let title = translated(
-        translate,
-        "disconnectionScreen.disconnected",
-        "Disconnected from Server",
-    );
-    let body = match disconnect::describe(error).body {
+    let words = disconnect::describe(error);
+    let title = translated(translate, words.title.0, words.title.1);
+    let body = match words.body {
         DisconnectBody::Key(key) => translated(translate, key, key),
         DisconnectBody::Server(reason) => reason,
     };

@@ -49,6 +49,16 @@ pub(super) fn disconnect_no_retry() -> Fixture {
     Fixture::Menu(view)
 }
 
+/// Shows an unreachable destination under the failed-connection title.
+pub(super) fn connect_failed() -> Fixture {
+    let Fixture::Menu(mut view) = disconnect() else {
+        unreachable!()
+    };
+    view.disconnect_message =
+        Some("bridge connection failed: Connection refused (os error 61)".into());
+    Fixture::Menu(view)
+}
+
 /// Shows the first-join trust question over progress.
 pub(super) fn server_trust() -> Fixture {
     let mut view = menu();
@@ -94,6 +104,20 @@ pub(super) fn storage_error() -> Fixture {
     };
     std::sync::Arc::make_mut(&mut view.storage).error =
         Some("The selected files could not be removed. Please try again.".into());
+    Fixture::Menu(view)
+}
+
+/// Shows a storage failure long enough that its body scrolls above pinned actions.
+pub(super) fn storage_error_long() -> Fixture {
+    let Fixture::Menu(mut view) = dialog(MenuDialog::StorageError) else {
+        unreachable!()
+    };
+    std::sync::Arc::make_mut(&mut view.storage).error = Some(
+        (1..=24)
+            .map(|line| format!("Line {line}: example.invalid/cache/pack-{line} could not be removed because another process holds it open."))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
     Fixture::Menu(view)
 }
 

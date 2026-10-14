@@ -98,6 +98,36 @@ fn a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement() {
     );
 }
 
+// An unreachable destination is titled as a failed connection, not a server disconnect.
+#[test]
+fn connection_failures_take_the_failed_connection_title() {
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.disconnect_message =
+        Some("bridge connection failed: Connection refused (os error 61)".into());
+    presentation.set_menu_view(Some(view));
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        DpiScale::new(1.0).unwrap(),
+        None,
+    );
+    let mut nodes = Vec::new();
+    presentation
+        .append_menu(
+            &UiRuntime::new(1),
+            &mut nodes,
+            &mut 1,
+            metrics,
+            1280.0,
+            720.0,
+        )
+        .unwrap();
+    let words = super::pack_harness::drawn_texts(&nodes).join(" ");
+    assert!(words.contains("Failed to connect to the server"), "{words}");
+    assert!(!words.contains("Disconnected from Server"), "{words}");
+}
+
 #[test]
 fn launcher_questions_draw_without_a_json_ui_carrier() {
     let mut presentation =

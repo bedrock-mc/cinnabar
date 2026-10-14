@@ -69,6 +69,12 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::disconnect_no_retry,
     },
     State {
+        name: "connect-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::connect_failed,
+    },
+    State {
         name: "server-trust",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -97,6 +103,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: out_of_game::storage_error,
+    },
+    State {
+        name: "storage-error-long",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_error_long,
     },
     State {
         name: "settings-help",
