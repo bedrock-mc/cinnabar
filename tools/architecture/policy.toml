@@ -1503,7 +1503,7 @@ reason = "Banner wire-code and texture-stem vocabulary, not actor or item member
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/block_entity_geometry.rs"
 literal = "_shulker_box"
-reason = "Extracts a texture colour whose canonical block spelling is checked against the generated Shulker renderer."
+reason = "Extracts texture colours once while indexing generated Shulker backing memberships."
 
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/compiled/block_destroy.rs"

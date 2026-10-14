@@ -266,25 +266,40 @@ pub const SHULKER_COLORS: [&str; 17] = [
 /// `light_gray` names the `silver` texture.
 #[must_use]
 pub fn shulker_color_from_block_name(name: &str) -> Option<&'static str> {
-    let stem = name
-        .strip_prefix("minecraft:")?
-        .strip_suffix("_shulker_box")?;
-    let stem = if stem == "light_gray" { "silver" } else { stem };
-    let color = SHULKER_COLORS
-        .iter()
+    use std::{collections::HashMap, sync::OnceLock};
+    static COLORS: OnceLock<HashMap<Box<str>, &'static str>> = OnceLock::new();
+    COLORS
+        .get_or_init(|| {
+            let mut colors = HashMap::new();
+            for entry in crate::facts::BlockEntityFacts::pinned()
+                .entries()
+                .iter()
+                .filter(|entry| entry.renderer == crate::facts::BlockEntityRenderer::Shulker)
+            {
+                for identifier in &entry.backing_blocks {
+                    let Some(stem) = identifier
+                        .strip_prefix("minecraft:")
+                        .and_then(|name| name.strip_suffix("_shulker_box"))
+                    else {
+                        continue;
+                    };
+                    let stem = if stem == "light_gray" { "silver" } else { stem };
+                    if let Some(color) = SHULKER_COLORS.iter().copied().find(|color| *color == stem)
+                    {
+                        colors.insert(identifier.clone().into_boxed_str(), color);
+                        if color == "silver" {
+                            colors.insert(
+                                format!("minecraft:{color}_shulker_box").into_boxed_str(),
+                                color,
+                            );
+                        }
+                    }
+                }
+            }
+            colors
+        })
+        .get(name)
         .copied()
-        .find(|color| *color == stem)?;
-    let canonical = if color == "silver" {
-        "light_gray"
-    } else {
-        color
-    };
-    let identifier = format!("minecraft:{canonical}_shulker_box");
-    (crate::facts::BlockEntityFacts::pinned()
-        .by_block_identifier(&identifier)?
-        .renderer
-        == crate::facts::BlockEntityRenderer::Shulker)
-        .then_some(color)
 }
 
 #[cfg(test)]
@@ -317,6 +332,23 @@ pub mod textures;
 
 #[cfg(test)]
 mod membership_tests {
+    #[test]
+    fn admitted_shulker_colour_lookups_allocate_nothing() {
+        assert_eq!(
+            super::shulker_color_from_block_name("minecraft:light_gray_shulker_box"),
+            Some("silver")
+        );
+        for name in [
+            "minecraft:light_gray_shulker_box",
+            "minecraft:silver_shulker_box",
+            "minecraft:undyed_shulker_box",
+        ] {
+            let (color, allocations) =
+                test_alloc::count(|| super::shulker_color_from_block_name(name));
+            assert!(color.is_some());
+            assert_eq!(allocations, 0, "{name}");
+        }
+    }
     #[test]
     fn compiled_shulker_renderer_preserves_every_pinned_colour_suffix() {
         for record in crate::read_registry_for_protocol(
