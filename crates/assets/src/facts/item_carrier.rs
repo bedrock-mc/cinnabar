@@ -1,4 +1,4 @@
-use super::{ItemFact, ItemFactsPayload, ItemRepairMaterial, ItemTag};
+use super::{ContainerRoles, ItemFact, ItemFactsPayload, ItemRepairMaterial, ItemTag};
 use crate::{
     item::{armour::ItemArmour, durability::ItemDurability, retail},
     item_use::ItemUseProfile,
@@ -28,7 +28,7 @@ pub const ITEM_FACTS_INPUTS: &[&str] = &[
     "crates/asset-compiler/data/registry-policy.json",
     "crates/assets/data/vocabulary-exceptions.json",
 ];
-const MAGIC: &[u8; 8] = b"IFAC0001";
+const MAGIC: &[u8; 8] = b"IFAC0002";
 const MAX_ID_SPAN: usize = 65_536;
 const MAX_PROFILES: usize = 512;
 
@@ -44,6 +44,7 @@ pub struct ItemFacts {
     first_id: i32,
     indices: Box<[Option<usize>]>,
     names: BTreeMap<Box<str>, usize>,
+    beacon_payments: Box<[usize]>,
 }
 
 impl ItemFacts {
@@ -100,15 +101,20 @@ impl ItemFacts {
         ensure((1..=MAX_ID_SPAN as i64).contains(&span), "item ID span")?;
         let mut indices = vec![None; span as usize];
         let mut names = BTreeMap::new();
+        let mut beacon_payments = Vec::new();
         for (index, record) in payload.records.iter().enumerate() {
             indices[(i64::from(record.network_id) - i64::from(first_id)) as usize] = Some(index);
             names.insert(record.identifier.clone(), index);
+            if record.fact.roles.contains(ContainerRoles::BEACON_PAYMENT) {
+                beacon_payments.push(index);
+            }
         }
         Ok(Self {
             payload,
             first_id,
             indices: indices.into_boxed_slice(),
             names,
+            beacon_payments: beacon_payments.into_boxed_slice(),
         })
     }
 
@@ -143,7 +149,7 @@ impl ItemFacts {
             .map(|index| ItemTag(index as u8))
     }
 
-    /// Compiles declared tag names into masks and their semantic contributions.
+    /// Adds declared tags while preserving pinned tier and exact repair overrides.
     pub fn apply_tags<'a>(&self, fact: &mut ItemFact, tags: impl IntoIterator<Item = &'a str>) {
         for name in tags {
             if let Some(tag) = self.tag(name) {
@@ -156,40 +162,57 @@ impl ItemFacts {
                 fact.provisional_roles.insert(definition.provisional_roles);
             }
         }
-        let mut repairs = self
-            .payload
-            .tags
-            .iter()
-            .enumerate()
-            .filter_map(|(index, tag)| {
-                fact.tags
-                    .contains(ItemTag(index as u8))
-                    .then_some(tag.repair)
-                    .flatten()
-            });
-        fact.repair = repairs.next();
-        fact.repair_provisional =
-            self.payload.tags.iter().enumerate().any(|(index, tag)| {
+        if fact.repair.is_none() {
+            let mut repairs = self
+                .payload
+                .tags
+                .iter()
+                .enumerate()
+                .filter_map(|(index, tag)| {
+                    fact.tags
+                        .contains(ItemTag(index as u8))
+                        .then_some(tag.repair)
+                        .flatten()
+                });
+            fact.repair = repairs.next();
+            fact.repair_provisional = self.payload.tags.iter().enumerate().any(|(index, tag)| {
                 fact.tags.contains(ItemTag(index as u8)) && tag.repair_provisional
             });
-        if repairs.any(|repair| Some(repair) != fact.repair) {
-            fact.repair = None;
+            if repairs.any(|repair| Some(repair) != fact.repair) {
+                fact.repair = None;
+            }
         }
-        let mut tiers = self
-            .payload
-            .tags
-            .iter()
-            .enumerate()
-            .filter_map(|(index, tag)| {
-                fact.tags
-                    .contains(ItemTag(index as u8))
-                    .then_some(tag.tier)
-                    .flatten()
-            });
-        fact.tier = tiers.next();
-        if tiers.next().is_some() {
-            fact.tier = None;
+        if fact.tier.is_none() {
+            let mut tiers = self
+                .payload
+                .tags
+                .iter()
+                .enumerate()
+                .filter_map(|(index, tag)| {
+                    fact.tags
+                        .contains(ItemTag(index as u8))
+                        .then_some(tag.tier)
+                        .flatten()
+                });
+            fact.tier = tiers.next();
+            if tiers.next().is_some() {
+                fact.tier = None;
+            }
         }
+    }
+
+    /// Borrows the cached payment icon routes, derived once from validated roles.
+    pub fn beacon_payments(&self) -> impl Iterator<Item = (i64, &str)> {
+        self.beacon_payments.iter().map(|&index| {
+            let record = &self.payload.records[index];
+            (
+                record
+                    .fact
+                    .beacon_payment_key
+                    .expect("validated beacon key"),
+                record.identifier.as_ref(),
+            )
+        })
     }
 
     /// Borrows a compiled use profile by its admitted numeric index.
@@ -267,6 +290,7 @@ fn validate(payload: &ItemFactsPayload) -> Result<(), ItemFactsError> {
         .iter()
         .map(|record| record.network_id)
         .collect();
+    let mut beacon_keys = BTreeSet::new();
     for (record, (&id, &name)) in payload.records.iter().zip(&retail) {
         ensure(
             record.network_id == id && record.identifier.as_ref() == name,
@@ -288,6 +312,14 @@ fn validate(payload: &ItemFactsPayload) -> Result<(), ItemFactsError> {
                 && !matches!(fact.durability, ItemDurability::Maximum { maximum: 0 }),
             "item values",
         )?;
+        ensure(
+            fact.roles.contains(ContainerRoles::BEACON_PAYMENT)
+                == fact.beacon_payment_key.is_some(),
+            "beacon icon coverage",
+        )?;
+        if let Some(key) = fact.beacon_payment_key {
+            ensure(key > 0 && beacon_keys.insert(key), "beacon icon identity")?;
+        }
         if let ItemArmour::Wearable { slot, .. } = fact.armour {
             ensure(fact.armour_slot == Some(slot), "armour slot mismatch")?;
         }

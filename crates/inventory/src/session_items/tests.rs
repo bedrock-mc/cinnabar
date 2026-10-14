@@ -48,6 +48,50 @@ fn registry_admission_copies_pinned_facts_after_id_remapping() {
 }
 
 #[test]
+fn filled_map_offhand_compatibility_respects_component_and_version_boundaries() {
+    let identifier = assets::facts::FILLED_MAP_IDENTIFIER;
+    assert!(assets::item::names::serialization_ids(identifier).is_some());
+    let mut item = entry("minecraft:empty_map");
+    item.identifier = identifier.into();
+    item.network_id += 10_000;
+    for (component_based, version, declared, permission, expected) in [
+        (false, ItemRegistryVersion::None, false, None, Some(true)),
+        (
+            false,
+            ItemRegistryVersion::Legacy,
+            true,
+            Some(false),
+            Some(false),
+        ),
+        (false, ItemRegistryVersion::Legacy, true, None, None),
+        (true, ItemRegistryVersion::DataDriven, false, None, None),
+        (
+            true,
+            ItemRegistryVersion::DataDriven,
+            true,
+            Some(true),
+            Some(true),
+        ),
+        (false, ItemRegistryVersion::Unknown(99), false, None, None),
+    ] {
+        item.component_based = component_based;
+        item.version = version;
+        item.components = Some(Arc::new(protocol::ItemComponents {
+            allow_off_hand_declared: declared,
+            allow_off_hand: permission,
+            ..Default::default()
+        }));
+        let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+        assert_eq!(facts.get(item.network_id).allow_off_hand, expected);
+        assert_eq!(
+            facts.get(item.network_id).offhand_provisional,
+            expected == Some(true) && !declared
+        );
+        assert_eq!(facts.retail_id(item.network_id), None);
+    }
+}
+
+#[test]
 fn component_entries_derive_tags_and_equipment_without_inheriting_their_names() {
     let mut custom = entry("minecraft:stick");
     let armour = *pinned().by_identifier("minecraft:iron_chestplate").unwrap();
@@ -279,4 +323,197 @@ fn registry_id_spans_are_bounded_and_sparse_gaps_stay_unresolved() {
     let facts = SessionItemFacts::from_registry(pinned(), &event(vec![last, first])).unwrap();
     assert_eq!(*facts.get(0), ItemFact::default());
     assert!(facts.get(-1).roles.contains(ContainerRoles::LOOM_BANNER));
+}
+
+#[test]
+fn declared_body_and_offhand_equipment_rows_are_cached() {
+    for (slot, row, offhand) in [
+        ("slot.armor.body", Some(4), None),
+        ("slot.weapon.offhand", None, Some(true)),
+    ] {
+        let mut item = entry("minecraft:stick");
+        item.component_based = true;
+        item.version = ItemRegistryVersion::DataDriven;
+        item.components = Some(Arc::new(protocol::ItemComponents {
+            wearable_declared: true,
+            wearable_slot: Some(Arc::from(slot)),
+            ..Default::default()
+        }));
+        let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+        assert_eq!(facts.armour_row(item.network_id), row);
+        assert_eq!(facts.get(item.network_id).allow_off_hand, offhand);
+    }
+}
+
+#[test]
+fn enchanted_book_output_tracks_the_negotiated_registry() {
+    let mut book = entry("minecraft:enchanted_book");
+    book.network_id += 10_000;
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![book.clone()])).unwrap();
+    assert_eq!(facts.enchanted_book_id(), Some(book.network_id));
+    book.component_based = true;
+    book.version = ItemRegistryVersion::DataDriven;
+    book.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![book])).unwrap();
+    assert_eq!(facts.enchanted_book_id(), None);
+}
+
+#[test]
+fn anvil_materials_use_session_tags_and_independent_retail_identity() {
+    let mut target = entry("minecraft:stick");
+    target.component_based = true;
+    target.version = ItemRegistryVersion::DataDriven;
+    target.item_tags = [
+        Arc::from("minecraft:wooden_tier"),
+        Arc::from("minecraft:is_pickaxe"),
+    ]
+    .into();
+    target.components = Some(Arc::new(protocol::ItemComponents {
+        durability_declared: true,
+        max_durability: Some(100),
+        ..Default::default()
+    }));
+    let mut planks = entry("minecraft:oak_planks");
+    planks.component_based = true;
+    planks.version = ItemRegistryVersion::DataDriven;
+    planks.item_tags = [Arc::from("minecraft:planks")].into();
+    planks.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let mut sword = entry("minecraft:diamond_sword");
+    let mut diamond = entry("minecraft:diamond");
+    sword.network_id += 10_000;
+    diamond.network_id += 10_000;
+    let facts = SessionItemFacts::from_registry(
+        pinned(),
+        &event(vec![
+            target.clone(),
+            planks.clone(),
+            sword.clone(),
+            diamond.clone(),
+        ]),
+    )
+    .unwrap();
+    let left = crate::AnvilItem {
+        kind: facts.kind(target.network_id),
+        retail_id: facts.retail_id(target.network_id),
+        fact: *facts.get(target.network_id),
+        max_damage: facts.get(target.network_id).durability.maximum(),
+        count: 1,
+        damage: 40,
+        ..Default::default()
+    };
+    let right = crate::AnvilItem {
+        kind: facts.kind(planks.network_id),
+        retail_id: facts.retail_id(planks.network_id),
+        fact: *facts.get(planks.network_id),
+        count: 2,
+        ..Default::default()
+    };
+    let outcome = crate::evaluate_anvil(&left, Some(&right), "", "", false).unwrap();
+    assert_eq!(outcome.damage, Some(0));
+    assert_eq!(outcome.material_used, 2);
+    assert_eq!(outcome.cost, 2);
+    assert!(facts.get(target.network_id).repairs_with(
+        facts.get(planks.network_id),
+        facts.retail_id(planks.network_id)
+    ));
+    assert!(facts.get(sword.network_id).repairs_with(
+        facts.get(diamond.network_id),
+        facts.retail_id(diamond.network_id)
+    ));
+    diamond.component_based = true;
+    diamond.version = ItemRegistryVersion::DataDriven;
+    diamond.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts =
+        SessionItemFacts::from_registry(pinned(), &event(vec![sword.clone(), diamond.clone()]))
+            .unwrap();
+    assert!(!facts.get(sword.network_id).repairs_with(
+        facts.get(diamond.network_id),
+        facts.retail_id(diamond.network_id)
+    ));
+}
+
+#[test]
+fn enchantment_slots_use_declared_classes_and_wearables() {
+    let mut item = entry("minecraft:stick");
+    item.component_based = true;
+    item.version = ItemRegistryVersion::DataDriven;
+    item.item_tags = [Arc::from("minecraft:is_sword")].into();
+    item.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+    assert_eq!(
+        crate::enchantments::item_slot(facts.get(item.network_id)),
+        crate::enchantments::slot::SWORD
+    );
+    item.item_tags = Arc::from([]);
+    item.components = Some(Arc::new(protocol::ItemComponents {
+        wearable_declared: true,
+        wearable_slot: Some(Arc::from("slot.armor.feet")),
+        ..Default::default()
+    }));
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+    assert_eq!(
+        crate::enchantments::item_slot(facts.get(item.network_id)),
+        crate::enchantments::slot::FEET
+    );
+    item.version = ItemRegistryVersion::Unknown(99);
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![item.clone()])).unwrap();
+    assert_eq!(
+        crate::enchantments::item_slot(facts.get(item.network_id)),
+        0
+    );
+    assert_eq!(facts.armour_row(item.network_id), None);
+}
+
+#[test]
+fn native_items_add_declared_roles_without_losing_exact_repair_overrides() {
+    let mut mace = entry("minecraft:mace");
+    mace.item_tags = [Arc::from("minecraft:horse_armor")].into();
+    let facts = SessionItemFacts::from_registry(pinned(), &event(vec![mace.clone()])).unwrap();
+    let fact = facts.get(mace.network_id);
+    assert!(fact.roles.contains(ContainerRoles::HORSE_ARMOUR));
+    assert_eq!(
+        fact.repair,
+        pinned().by_identifier(&mace.identifier).unwrap().repair
+    );
+    assert_eq!(
+        crate::enchantments::item_slot(fact),
+        crate::enchantments::slot::MACE
+    );
+}
+
+#[test]
+fn anvil_copy_combination_preserves_native_and_component_registry_aliases() {
+    for component_based in [false, true] {
+        let mut first = entry("minecraft:diamond_sword");
+        first.component_based = component_based;
+        if component_based {
+            first.version = ItemRegistryVersion::DataDriven;
+            first.components = Some(Arc::new(protocol::ItemComponents {
+                durability_declared: true,
+                max_durability: Some(200),
+                ..Default::default()
+            }));
+        }
+        let mut alias = first.clone();
+        alias.network_id += 10_000;
+        let facts =
+            SessionItemFacts::from_registry(pinned(), &event(vec![first.clone(), alias.clone()]))
+                .unwrap();
+        assert_eq!(facts.kind(first.network_id), facts.kind(alias.network_id));
+        let left = crate::AnvilItem {
+            kind: facts.kind(first.network_id),
+            fact: *facts.get(first.network_id),
+            max_damage: facts.get(first.network_id).durability.maximum(),
+            damage: 100,
+            count: 1,
+            ..Default::default()
+        };
+        let right = crate::AnvilItem {
+            kind: facts.kind(alias.network_id),
+            ..left.clone()
+        };
+        let outcome = crate::evaluate_anvil(&left, Some(&right), "", "", false).unwrap();
+        assert!(outcome.damage.unwrap() < left.damage);
+        assert_eq!(outcome.cost, 2);
+    }
 }

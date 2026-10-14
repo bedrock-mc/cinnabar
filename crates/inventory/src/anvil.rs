@@ -7,6 +7,7 @@
 //! nothing clears the result, whatever the name box holds. Renaming costs one more level.
 //! The total adds both items' prior-work penalties; a rename alone stays below 40 levels.
 
+use assets::facts::{ItemFact, ItemTraits};
 use std::collections::HashMap;
 
 use crate::enchantments::{applies_to, compatible, enchantment, item_slot};
@@ -17,7 +18,10 @@ pub const ANVIL_TOO_EXPENSIVE: i32 = 40;
 /// One anvil input, as read from its stack.
 #[derive(Clone, Debug, Default)]
 pub struct AnvilItem<'a> {
-    pub identifier: &'a str,
+    /// Compared only with inputs from the same registry snapshot.
+    pub kind: Option<crate::SessionItemKind>,
+    pub retail_id: Option<i32>,
+    pub fact: ItemFact,
     pub count: u16,
     pub damage: u32,
     /// Durability, for damageable items.
@@ -30,8 +34,8 @@ pub struct AnvilItem<'a> {
 /// What taking the anvil result does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AnvilOutcome {
-    /// A changed result kind; the client resolves its identity from the negotiated registry.
-    pub result_identifier: Option<&'static str>,
+    /// The result becomes the negotiated enchanted book.
+    pub enchant_book: bool,
     /// The result's new damage, when it changed.
     pub damage: Option<u32>,
     /// The result's enchantments, when they changed.
@@ -48,40 +52,6 @@ pub struct AnvilOutcome {
     pub too_expensive: bool,
 }
 
-/// Whether `material` repairs the damageable item `target`.
-///
-/// Provisional: follows vanilla repair materials by item name rather than each item's
-/// registered repair materials.
-#[must_use]
-pub fn repairs_with(target: &str, material: &str) -> bool {
-    let target = target.strip_prefix("minecraft:").unwrap_or(target);
-    let material = material.strip_prefix("minecraft:").unwrap_or(material);
-    let tier = target.split_once('_').map_or(target, |(tier, _)| tier);
-    match tier {
-        "wooden" => material.ends_with("_planks"),
-        "stone" => matches!(material, "cobblestone" | "cobbled_deepslate" | "blackstone"),
-        "iron" | "chainmail" => material == "iron_ingot",
-        "golden" => material == "gold_ingot",
-        "diamond" => material == "diamond",
-        "netherite" => material == "netherite_ingot",
-        "leather" => material == "leather",
-        "copper" => material == "copper_ingot",
-        _ => match target {
-            "turtle_helmet" => material == "turtle_scute",
-            "elytra" => material == "phantom_membrane",
-            "shield" => material.ends_with("_planks"),
-            "mace" => material == "breeze_rod",
-            "wolf_armor" => material == "armadillo_scute",
-            _ => false,
-        },
-    }
-}
-
-/// Whether `identifier` names an enchanted book.
-fn is_enchanted_book(identifier: &str) -> bool {
-    identifier.strip_prefix("minecraft:").unwrap_or(identifier) == "enchanted_book"
-}
-
 /// Merges `right`'s enchantments into `left`'s. Returns the merged list
 /// and the levels it costs, or `None` when nothing changes.
 fn merge_enchantments(
@@ -89,7 +59,7 @@ fn merge_enchantments(
     right: &AnvilItem<'_>,
     from_book: bool,
 ) -> Option<(Vec<(i16, i16)>, i32)> {
-    let slot = item_slot(left.identifier);
+    let slot = item_slot(&left.fact);
     let value = |enchantments: &[(i16, i16)]| -> i64 {
         enchantments
             .iter()
@@ -168,7 +138,7 @@ pub fn evaluate_anvil(
     let mut work: i32 = 0;
     if let Some(right) = right {
         let max = left.max_damage.filter(|max| *max > 0);
-        if let Some(max) = max.filter(|_| repairs_with(left.identifier, right.identifier)) {
+        if let Some(max) = max.filter(|_| left.fact.repairs_with(&right.fact, right.retail_id)) {
             let quarter = max / 4;
             let mut damage = left.damage;
             let mut repair = damage.min(quarter);
@@ -180,8 +150,9 @@ pub fn evaluate_anvil(
             }
             outcome.damage = (work > 0).then_some(damage);
         } else {
-            let book = is_enchanted_book(right.identifier) && !right.enchantments.is_empty();
-            if !book && (right.identifier != left.identifier || max.is_none()) {
+            let book = right.fact.traits.contains(ItemTraits::ENCHANTED_BOOK)
+                && !right.enchantments.is_empty();
+            if !book && (left.kind.is_none() || right.kind != left.kind || max.is_none()) {
                 return None;
             }
             if let (Some(max), false) = (max, book) {
@@ -196,13 +167,10 @@ pub fn evaluate_anvil(
             }
             if let Some((merged, cost)) = merge_enchantments(left, right, book) {
                 outcome.enchantments = Some(merged);
-                if left
-                    .identifier
-                    .strip_prefix("minecraft:")
-                    .unwrap_or(left.identifier)
-                    == "book"
+                if left.fact.traits.contains(ItemTraits::BOOK)
+                    && !left.fact.traits.contains(ItemTraits::ENCHANTED_BOOK)
                 {
-                    outcome.result_identifier = Some("minecraft:enchanted_book");
+                    outcome.enchant_book = true;
                 }
                 work = work.saturating_add(cost);
             }

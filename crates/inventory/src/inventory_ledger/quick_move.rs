@@ -1,5 +1,6 @@
 //! Whole-stack shift-click: every eligible destination in one request.
 
+use assets::facts::ContainerRoles;
 use protocol::{NetworkItemStack, WindowKind};
 
 use super::cells::{Cell, Held};
@@ -18,8 +19,28 @@ pub(super) struct QuickMoveRoute {
     window: WindowKind,
     network_id: i32,
     metadata: u32,
-    /// The chosen input slot; `None` used the window's fallback destinations.
-    slot: Option<u8>,
+    /// The chosen input cells; `None` used the window's fallback destinations.
+    input: Option<QuickMoveInput>,
+}
+
+/// Input destinations selected from the current item and recipe facts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QuickMoveInput {
+    Single(Cell),
+    StorageSlots(&'static [u8]),
+}
+
+impl QuickMoveInput {
+    /// Lists eligible cells before filtering for confirmed container content.
+    fn cells(self) -> impl Iterator<Item = Cell> {
+        let (single, slots): (Option<Cell>, &'static [u8]) = match self {
+            Self::Single(cell) => (Some(cell), &[]),
+            Self::StorageSlots(slots) => (None, slots),
+        };
+        single
+            .into_iter()
+            .chain(slots.iter().copied().map(Cell::Storage))
+    }
 }
 
 /// Cells that hold one item however large the item's stack size is.
@@ -224,18 +245,36 @@ impl PlayerInventoryLedger {
         network_id: i32,
         metadata: u32,
     ) -> Option<QuickMoveRoute> {
-        let slot = if crate::furnace_recipes::kind(window).is_some() {
+        let input = if crate::furnace_recipes::kind(window).is_some() {
             self.furnace_slot(window, network_id, metadata)
+                .map(Cell::Storage)
+                .map(QuickMoveInput::Single)
         } else {
-            let entry = self.negotiated_item_entry(network_id);
+            let fact = self.item_facts.get(network_id);
             match window {
-                WindowKind::Horse => entry
-                    .and_then(|entry| item_roles::horse_slot(&entry.identifier, &entry.item_tags)),
-                WindowKind::Loom => entry
-                    .and_then(|entry| item_roles::loom_slot(&entry.identifier, &entry.item_tags)),
-                WindowKind::Smithing => entry.and_then(|entry| {
-                    item_roles::smithing_slot(&entry.identifier, &entry.item_tags)
-                }),
+                WindowKind::Horse => item_roles::horse_slot(fact)
+                    .map(Cell::Storage)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Loom => item_roles::loom_slot(fact)
+                    .map(Cell::Craft)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Smithing => item_roles::smithing_slot(fact)
+                    .map(Cell::Craft)
+                    .map(QuickMoveInput::Single),
+                WindowKind::Brewing => Some(QuickMoveInput::StorageSlots(
+                    item_roles::brewing_slots(fact),
+                )),
+                WindowKind::Enchanting => Some(QuickMoveInput::Single(Cell::Craft(
+                    if fact.roles.contains(ContainerRoles::ENCHANTING_LAPIS) {
+                        15
+                    } else {
+                        14
+                    },
+                ))),
+                WindowKind::Beacon => fact
+                    .roles
+                    .contains(ContainerRoles::BEACON_PAYMENT)
+                    .then_some(QuickMoveInput::Single(Cell::Craft(27))),
                 _ => return None,
             }
         };
@@ -243,7 +282,7 @@ impl PlayerInventoryLedger {
             window,
             network_id,
             metadata,
-            slot,
+            input,
         })
     }
 
@@ -256,7 +295,7 @@ impl PlayerInventoryLedger {
         (fuel.eligible() == Some(true)).then(|| u8::from(fuel.ingredient_first() != Some(true)))
     }
 
-    /// Retires quick moves whose recipe, fuel or item tags now route them elsewhere.
+    /// Retires quick moves whose recipes or admitted item facts change their destinations.
     pub(super) fn retire_rerouted_quick_moves(&mut self) {
         let rerouted: Vec<i32> = self
             .queue
@@ -282,9 +321,6 @@ impl PlayerInventoryLedger {
         permits_storage: impl Fn(u8) -> bool,
     ) -> Vec<Cell> {
         let stack = &from.stack;
-        let id = self
-            .negotiated_item_entry(stack.network_id)
-            .map_or("", |entry| &*entry.identifier);
         let player = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .filter(|slot| self.known[usize::from(*slot)])
@@ -303,7 +339,7 @@ impl PlayerInventoryLedger {
             return cells;
         };
         let mut cells = match self.quick_move_window() {
-            Some(kind) => self.window_destinations(kind, id, stack.network_id, stack.metadata),
+            Some(kind) => self.window_destinations(kind, stack.network_id, stack.metadata),
             None => self.equipment_destinations(from),
         };
         cells.retain(|cell| !matches!(cell, Cell::Storage(slot) if !permits_storage(*slot)));
@@ -320,7 +356,7 @@ impl PlayerInventoryLedger {
     /// The first equipment cell that admits an empty placement or a compatible merge.
     fn equipment_destinations(&self, from: &Held) -> Vec<Cell> {
         let stack = &from.stack;
-        let admission = equipment_admission(self.negotiated_item_entry(stack.network_id));
+        let admission = equipment_admission(&self.item_facts, stack.network_id);
         admission
             .armor
             .map(Cell::Armor)
@@ -348,17 +384,11 @@ impl PlayerInventoryLedger {
             .collect()
     }
 
-    /// The window cells a stack of `id` shift-clicks into.
-    fn window_destinations(
-        &self,
-        kind: WindowKind,
-        id: &str,
-        network_id: i32,
-        metadata: u32,
-    ) -> Vec<Cell> {
-        let input_slot = self
+    /// The window cells a negotiated stack shift-clicks into.
+    fn window_destinations(&self, kind: WindowKind, network_id: i32, metadata: u32) -> Vec<Cell> {
+        let input = self
             .quick_move_input_route(kind, network_id, metadata)
-            .and_then(|route| route.slot);
+            .and_then(|route| route.input);
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range
                 .map(Cell::Storage)
@@ -378,28 +408,19 @@ impl PlayerInventoryLedger {
             | WindowKind::Dropper
             | WindowKind::Hopper
             | WindowKind::Crafter => storage(0..u8::MAX),
-            WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => {
-                input_slot.map_or_else(Vec::new, |slot| storage(slot..slot + 1))
-            }
-            WindowKind::Brewing => item_roles::brewing_slots(id)
-                .iter()
-                .map(|slot| Cell::Storage(*slot))
-                .filter(|cell| self.confirmed.contains(*cell))
-                .collect(),
-            WindowKind::Horse => match input_slot {
-                Some(slot) => storage(slot..slot + 1),
-                None => storage(2..u8::MAX),
-            },
+            WindowKind::Horse if input.is_none() => storage(2..u8::MAX),
             WindowKind::Anvil => ui(&[1, 2]),
-            WindowKind::Enchanting => ui(&[if item_roles::is_lapis(id) { 15 } else { 14 }]),
-            WindowKind::Beacon if item_roles::is_beacon_payment(id) => ui(&[27]),
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),
-            WindowKind::Cartography => ui(&[item_roles::cartography_slot(id)]),
-            WindowKind::Loom | WindowKind::Smithing => {
-                input_slot.map_or_else(Vec::new, |slot| ui(&[slot]))
-            }
-            WindowKind::Beacon | WindowKind::Workbench | WindowKind::Lectern => Vec::new(),
+            WindowKind::Cartography => ui(&[item_roles::cartography_slot(
+                self.negotiated_item_entry(network_id)
+                    .map_or("", |entry| &entry.identifier),
+            )]),
+            _ => input
+                .into_iter()
+                .flat_map(QuickMoveInput::cells)
+                .filter(|cell| self.confirmed.contains(*cell))
+                .collect(),
         }
     }
 }
@@ -437,17 +458,17 @@ mod fuel_tests {
             .fuel_facts
             .insert(10_002, ItemFuel::Session { burn_ticks: 0 });
         assert_eq!(
-            ledger.window_destinations(WindowKind::Furnace, "custom:shared_icon", 10_001, 0),
+            ledger.window_destinations(WindowKind::Furnace, 10_001, 0),
             vec![Cell::Storage(1)]
         );
         assert!(
             ledger
-                .window_destinations(WindowKind::Furnace, "custom:shared_icon", 10_002, 0)
+                .window_destinations(WindowKind::Furnace, 10_002, 0)
                 .is_empty()
         );
         assert!(
             ledger
-                .window_destinations(WindowKind::Furnace, "custom:oak_planks", 10_003, 0)
+                .window_destinations(WindowKind::Furnace, 10_003, 0)
                 .is_empty()
         );
         ledger.fuel_facts.insert(
@@ -455,7 +476,7 @@ mod fuel_tests {
             assets::item::fuel::builtin_item_fuel("minecraft:oak_log"),
         );
         assert_eq!(
-            ledger.window_destinations(WindowKind::Furnace, "unrelated:icon", 10_004, 0),
+            ledger.window_destinations(WindowKind::Furnace, 10_004, 0),
             vec![Cell::Storage(0)]
         );
         ledger.fuel_facts.insert(
@@ -464,7 +485,7 @@ mod fuel_tests {
         );
         assert!(
             ledger
-                .window_destinations(WindowKind::Furnace, "minecraft:coal", 10_005, 0)
+                .window_destinations(WindowKind::Furnace, 10_005, 0)
                 .is_empty()
         );
     }

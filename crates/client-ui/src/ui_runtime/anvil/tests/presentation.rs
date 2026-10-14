@@ -646,10 +646,7 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
         let preview = runtime.anvil_preview(&player).unwrap();
         assert_eq!(preview.stack.network_id, BOOK);
         assert_eq!(preview.stack.count, 1);
-        assert_eq!(
-            preview.outcome.result_identifier,
-            Some("minecraft:enchanted_book")
-        );
+        assert!(preview.outcome.enchant_book);
         assert_eq!(
             protocol::item_anvil_data(&preview.stack.extra_data)
                 .unwrap()
@@ -835,4 +832,119 @@ fn too_expensive_predictions_keep_costs_but_publish_no_result_or_hover() {
     );
     assert_eq!(runtime.anvil_output(&player), Some(authoritative.clone()));
     assert!(hovered_stack(&player, &runtime).is_some());
+}
+
+/// Opens an anvil with a registered component weapon and a sharpness book.
+fn component_weapon_anvil() -> (UiRuntime, player_state::PlayerState) {
+    let (mut runtime, mut player) = anvil();
+    let mut weapon = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:stick")
+        .unwrap()
+        .clone();
+    weapon.network_id = SWORD;
+    weapon.component_based = true;
+    weapon.version = ItemRegistryVersion::DataDriven;
+    weapon.item_tags = Arc::from([Arc::from("minecraft:is_sword")]);
+    weapon.components = Some(Arc::new(protocol::ItemComponents {
+        durability_declared: true,
+        max_durability: Some(200),
+        ..Default::default()
+    }));
+    runtime
+        .inventory_ledger_mut(&mut player)
+        .apply_registry(&ItemRegistryEvent {
+            entries: Arc::from([
+                weapon,
+                entry("minecraft:diamond", DIAMOND),
+                entry("minecraft:enchanted_book", BOOK),
+            ]),
+        });
+    place_book(&mut runtime, &mut player, vec![(9, 1)]);
+    (runtime, player)
+}
+
+#[test]
+fn component_weapon_preview_uses_its_declared_enchantment_class() {
+    let (mut runtime, player) = component_weapon_anvil();
+    runtime.sync_anvil_name(&player);
+    let preview = runtime.anvil_preview(&player).unwrap();
+    assert_eq!(preview.stack.network_id, SWORD);
+    assert_eq!(preview.outcome.enchantments, Some(vec![(9, 1)]));
+    assert_eq!(preview.outcome.cost, 1);
+}
+
+#[test]
+fn snapshot_component_weapon_anvil() {
+    use crate::ui_runtime::presentation::{UiPresentationRuntime, forms::snapshot};
+    let Some(directory) = std::env::var_os("CINNABAR_ANVIL_CAPTURE_CARRIER_DIR") else {
+        eprintln!(
+            "skipping snapshot_component_weapon_anvil: missing CINNABAR_ANVIL_CAPTURE_CARRIER_DIR"
+        );
+        return;
+    };
+    let Some(output) = std::env::var_os("CINNABAR_FORM_SNAPSHOT_DIR") else {
+        eprintln!("skipping snapshot_component_weapon_anvil: missing CINNABAR_FORM_SNAPSHOT_DIR");
+        return;
+    };
+    let directory = std::path::PathBuf::from(directory);
+    for carrier in [
+        assets::carriers::FONT,
+        assets::carriers::HUD,
+        assets::carriers::UI,
+        assets::carriers::LANG,
+    ] {
+        if !directory.join(carrier.output).is_file() {
+            eprintln!(
+                "skipping snapshot_component_weapon_anvil: missing {} fixture",
+                carrier.output
+            );
+            return;
+        }
+    }
+    let read =
+        |carrier: assets::carriers::Carrier| std::fs::read(directory.join(carrier.output)).unwrap();
+    let manifest = assets::canonical_source_manifest_sha256(
+        assets::carriers::FONT.font_face.unwrap().manifest,
+    );
+    let font = Arc::new(
+        assets::RuntimeFontCatalog::decode(&read(assets::carriers::FONT), manifest)
+            .unwrap()
+            .with_coverage_pages(),
+    );
+    let hud = Arc::new(assets::RuntimeHudCatalog::decode(&read(assets::carriers::HUD)).unwrap());
+    let ui = Arc::new(assets::RuntimeUiAssets::decode(&read(assets::carriers::UI)).unwrap());
+    let lang = Arc::new(assets::RuntimeLangCatalog::decode(&read(assets::carriers::LANG)).unwrap());
+    let mut presentation = UiPresentationRuntime::with_hud(font, hud).unwrap();
+    presentation.enable_json_ui(ui).unwrap();
+    presentation.set_gui_scale_preference(Some(2));
+    let (mut runtime, mut player) = component_weapon_anvil();
+    runtime.inventory_open = true;
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    runtime.set_lang_catalog(lang);
+    edit_input(
+        &mut runtime,
+        &mut player,
+        ANVIL_TARGET_SLOT,
+        protocol::ItemNbtEdit {
+            damage: Some(100),
+            custom_name: Some(Some("Tagged weapon".to_owned())),
+            ..Default::default()
+        },
+    );
+    runtime.sync_anvil_name(&player);
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    for now in [0, 500] {
+        presentation
+            .build(&player, &runtime, now, [1280, 720], dpi)
+            .unwrap();
+    }
+    let input = presentation
+        .build(&player, &runtime, 5_000, [1280, 720], dpi)
+        .unwrap();
+    assert!(!input.indices.is_empty());
+    std::fs::create_dir_all(output).unwrap();
+    snapshot::write(&input, "anvil-component-weapon");
 }

@@ -35,6 +35,7 @@ pub(super) struct ItemRule {
     tier: Option<ItemTier>,
     armour_slot: Option<ItemArmourSlot>,
     allow_off_hand: Option<bool>,
+    beacon_payment_key: Option<i64>,
     repair: Option<Repair>,
 }
 #[derive(Clone, Copy, Deserialize)]
@@ -331,7 +332,9 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
                     .position(|definition| definition.name.as_ref() == tag)
                     .ok_or("unknown rule tag")?;
                 check(
-                    rule.armour_slot.is_none() && rule.allow_off_hand.is_none(),
+                    rule.armour_slot.is_none()
+                        && rule.allow_off_hand.is_none()
+                        && rule.beacon_payment_key.is_none(),
                     "tag rule needs portable facts",
                 )?;
                 let definition = &mut tags[index];
@@ -427,6 +430,13 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
                     "conflicting armour slots",
                 )?;
                 fact.armour_slot = Some(slot);
+            }
+            if let Some(key) = rule.beacon_payment_key {
+                check(
+                    fact.beacon_payment_key.is_none() && key > 0,
+                    "conflicting beacon icon key",
+                )?;
+                fact.beacon_payment_key = Some(key);
             }
             if let Some(offhand) = rule.allow_off_hand {
                 check(

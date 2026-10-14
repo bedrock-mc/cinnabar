@@ -3478,20 +3478,69 @@
       "armour_slot": "head"
     },
     {
-      "id": "beacon-payment",
+      "id": "beacon-payment-iron_ingot",
       "status": "verified",
       "selector": {
         "members": [
-          "minecraft:iron_ingot",
-          "minecraft:gold_ingot",
-          "minecraft:emerald",
-          "minecraft:diamond",
+          "minecraft:iron_ingot"
+        ]
+      },
+      "roles": [
+        "beacon_payment"
+      ],
+      "beacon_payment_key": 17367040
+    },
+    {
+      "id": "beacon-payment-gold_ingot",
+      "status": "verified",
+      "selector": {
+        "members": [
+          "minecraft:gold_ingot"
+        ]
+      },
+      "roles": [
+        "beacon_payment"
+      ],
+      "beacon_payment_key": 17432576
+    },
+    {
+      "id": "beacon-payment-emerald",
+      "status": "verified",
+      "selector": {
+        "members": [
+          "minecraft:emerald"
+        ]
+      },
+      "roles": [
+        "beacon_payment"
+      ],
+      "beacon_payment_key": 25427968
+    },
+    {
+      "id": "beacon-payment-diamond",
+      "status": "verified",
+      "selector": {
+        "members": [
+          "minecraft:diamond"
+        ]
+      },
+      "roles": [
+        "beacon_payment"
+      ],
+      "beacon_payment_key": 17301504
+    },
+    {
+      "id": "beacon-payment-netherite_ingot",
+      "status": "verified",
+      "selector": {
+        "members": [
           "minecraft:netherite_ingot"
         ]
       },
       "roles": [
         "beacon_payment"
-      ]
+      ],
+      "beacon_payment_key": 48627712
     },
     {
       "id": "brewing-fuel",

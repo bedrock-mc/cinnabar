@@ -98,7 +98,7 @@ fn level_text(runtime: &UiRuntime, level: u8) -> String {
 pub(super) fn enchantment_name(runtime: &UiRuntime, id: i16, level: u8) -> String {
     let label = inventory::enchantments::enchantment(id)
         .map(|enchantment| enchantment.lang_key)
-        .and_then(|key| runtime.translation(&format!("enchantment.{key}")))
+        .and_then(|key| runtime.translation(key))
         .map_or_else(|| format!("Enchantment {id}"), |text| text.to_string());
     format!("{label} {}", level_text(runtime, level))
 }

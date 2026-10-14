@@ -8936,9 +8936,16 @@ A hash-checked item-facts carrier joins the pinned retail IDs, tags, capacities,
 armour, durability, fuel, glint, grips and use profiles. Startup requires its exact
 fingerprint; `make assets` rebuilds it. Registry admission caches server component
 facts by negotiated numeric ID and retires them on replacement or reconnect.
-The consumer migration remains incomplete. Native compatibility rules retain their
-provisional status, and identities absent from the retail table remain unresolved.
-This infrastructure does not close a gameplay or rendering parity gate.
+Inventory equipment, brewing, loom, smithing, beacon and horse routes, enchantment
+slots and anvil repair now read admitted item facts. Beacon payment icons share the
+compiled payment roles and renderer keys. Enchantment rows use checked protocol IDs.
+Cartography map routing retains its legacy fallback because filled-map identities are
+absent from the pinned retail carrier. Native compatibility rules remain provisional;
+missing identities, animal armor enchantment slots and complete repair membership
+remain unresolved. Other consumer migrations and gameplay or rendering parity gates
+remain incomplete.
+Registered native filled maps retain provisional offhand admission at session admission;
+explicit component permissions take precedence.
 
 ## Generated block-entity routing
 

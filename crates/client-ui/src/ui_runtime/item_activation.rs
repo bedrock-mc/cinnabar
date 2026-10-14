@@ -1,10 +1,11 @@
 //! Event-owned item snapshots for the camera's activation overlay.
 
+use assets::facts::TOTEM_IDENTIFIER;
 use std::hash::BuildHasher;
 use std::sync::Arc;
 
 use super::{UiRuntime, UiRuntimeError, gameplay_authority::MILLIS_PER_SERVER_TICK};
-use inventory::inventory_ledger::{InventoryTarget, PlayerInventorySlot, TOTEM_IDENTIFIER};
+use inventory::inventory_ledger::{InventoryTarget, PlayerInventorySlot};
 
 pub(super) const ACTIVATION_TICKS: u64 = 40;
 

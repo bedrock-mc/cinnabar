@@ -1,8 +1,8 @@
-//! Equipment admission from retained item declarations and stock defaults.
+//! Equipment admission from cached session item facts.
 
-use protocol::{ItemRegistryEntry, ItemRegistryVersion, NetworkItemStack};
+use protocol::NetworkItemStack;
 
-use super::{Cell, PlayerInventoryLedger, item_roles};
+use super::{Cell, PlayerInventoryLedger};
 
 /// Effective equipment roles; unresolved declarations do not grant admission.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -11,64 +11,21 @@ pub(super) struct EquipmentAdmission {
     pub offhand: Option<bool>,
 }
 
-/// Resolves declarations before stock compatibility, with offhand wearables
-/// admitting the offhand even when a separate permission says false.
-pub(super) fn equipment_admission(entry: Option<&ItemRegistryEntry>) -> EquipmentAdmission {
-    let Some(entry) = entry else {
-        return EquipmentAdmission::default();
-    };
-    if matches!(entry.version, ItemRegistryVersion::Unknown(_)) {
-        return EquipmentAdmission::default();
-    }
-    let components = entry.components.as_deref();
-    let wearable = components.and_then(|components| components.wearable_slot.as_deref());
-    let armor = match components.filter(|components| components.wearable_declared) {
-        Some(_) => match wearable {
-            Some("slot.armor.head") => Some(0),
-            Some("slot.armor.chest") => Some(1),
-            Some("slot.armor.legs") => Some(2),
-            Some("slot.armor.feet") => Some(3),
-            Some("slot.armor.body") => Some(4),
-            _ => None,
-        },
-        None if !entry.component_based && entry.identifier.starts_with("minecraft:") => {
-            item_roles::armor_row(&entry.identifier)
-        }
-        None => None,
-    };
-    let (offhand, _) = offhand_admission(Some(entry));
-    EquipmentAdmission { armor, offhand }
-}
-
-/// Resolves offhand precedence and whether permission came from stock compatibility.
-pub(crate) fn offhand_admission(entry: Option<&ItemRegistryEntry>) -> (Option<bool>, bool) {
-    let Some(entry) =
-        entry.filter(|entry| !matches!(entry.version, ItemRegistryVersion::Unknown(_)))
-    else {
-        return (None, false);
-    };
-    let components = entry.components.as_deref();
-    if components.and_then(|components| components.wearable_slot.as_deref())
-        == Some("slot.weapon.offhand")
-    {
-        (Some(true), false)
-    } else if let Some(components) =
-        components.filter(|components| components.allow_off_hand_declared)
-    {
-        (components.allow_off_hand, false)
-    } else if !entry.component_based && item_roles::stock_offhand(&entry.identifier) {
-        (Some(true), true)
-    } else {
-        (None, false)
+/// Reads equipment permission without reparsing an item declaration.
+pub(super) fn equipment_admission(
+    facts: &crate::SessionItemFacts,
+    network_id: i32,
+) -> EquipmentAdmission {
+    EquipmentAdmission {
+        armor: facts.armour_row(network_id),
+        offhand: facts.get(network_id).allow_off_hand,
     }
 }
 
 impl PlayerInventoryLedger {
-    /// How many items of `stack` may rest in `cell`: `Some(0)` when an armor
-    /// or offhand cell refuses the item, `Some(1)` for an armor cell that
-    /// admits it, and `None` when only the stack's own capacity applies.
+    /// Returns zero for refused equipment, one for admitted armor, or no extra stack limit.
     pub(super) fn equipment_capacity(&self, cell: Cell, stack: &NetworkItemStack) -> Option<u16> {
-        let admission = || equipment_admission(self.negotiated_item_entry(stack.network_id));
+        let admission = || equipment_admission(&self.item_facts, stack.network_id);
         match cell {
             Cell::Armor(slot) => Some(u16::from(admission().armor == Some(slot))),
             Cell::Offhand => (admission().offhand != Some(true)).then_some(0),
