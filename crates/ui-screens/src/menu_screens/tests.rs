@@ -9,6 +9,17 @@ use {
     launcher::menu::{MenuAction, MenuScreen, MenuView},
 };
 
+#[test]
+fn reconnect_regions_require_a_retryable_failure() {
+    let mut shown = view(MenuScreen::Play);
+    let button = region(HitKind::Button, Some("button.cinnabar_reconnect"));
+    assert_eq!(action_for(&shown, &button), None);
+    shown.disconnect_message = Some("network session failed: closed".into());
+    assert_eq!(action_for(&shown, &button), None);
+    shown.can_reconnect = true;
+    assert_eq!(action_for(&shown, &button), Some(MenuAction::Reconnect));
+}
+
 fn view(screen: MenuScreen) -> MenuView {
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.over_world = true;
@@ -103,10 +114,81 @@ fn menu_states_open_their_vanilla_screens() {
     );
     let mut connecting = view(MenuScreen::Play);
     connecting.connecting = true;
-    assert_eq!(reference(&connecting), None);
+    assert_eq!(
+        reference(&connecting),
+        Some("progress.world_loading_progress_screen")
+    );
+    connecting.feeds.join = launcher::menu::JoinProgress::new(launcher::menu::JoinKind::Realm);
+    assert_eq!(
+        reference(&connecting),
+        Some("progress.realms_stories_loading_progress_screen")
+    );
     let mut dropped = view(MenuScreen::Play);
     dropped.disconnect_message = Some("Kicked".into());
-    assert_eq!(reference(&dropped), None);
+    assert_eq!(reference(&dropped), Some("disconnect.disconnect_screen"));
+    let mut code = view(MenuScreen::Home);
+    code.auth_state = AuthState::AwaitingCode {
+        uri: "https://x".into(),
+        code: "ABC".into(),
+    };
+    assert_eq!(reference(&code), Some("start.start_screen"));
+}
+
+/// A local world's loading screen wins over the plain connecting screen and cancels the open.
+#[test]
+fn local_world_progress_opens_the_loading_screen_with_cancel() {
+    let mut opening = view(MenuScreen::Play);
+    opening.connecting = true;
+    opening.local.progress = Some(launcher::local_worlds::Progress::connecting("Home"));
+    assert_eq!(reference(&opening), Some(LOCAL_WORLD_PROGRESS_SCREEN));
+    let cancel = action_for(&opening, &region(HitKind::Button, Some("button.menu_exit")));
+    assert_eq!(
+        cancel,
+        Some(MenuAction::LocalWorld(
+            launcher::menu::LocalWorldAction::Back
+        ))
+    );
+}
+
+// The bar binds `#loading_bar_percentage` as its `#clip_ratio`, so the share it keeps is the share done.
+#[test]
+fn local_world_download_bar_fills_with_the_bytes_done() {
+    let files = [
+        ("ui/_global_variables.json", "{}"),
+        (
+            "ui/_ui_defs.json",
+            r#"{"ui_defs":["ui/progress_screen.json"]}"#,
+        ),
+        (
+            "ui/progress_screen.json",
+            r##"{"namespace":"progress","world_convert_modal_progress_screen":{"type":"panel","size":[100,5],"controls":[{"fill":{"type":"image","texture":"textures/ui/experiencebarfull","clip_direction":"left","clip_pixelperfect":false,"bindings":[{"binding_name":"#loading_bar_percentage","binding_name_override":"#clip_ratio"}]}}]}}"##,
+        ),
+    ];
+    let catalog =
+        json_ui::Catalog::from_files(files.iter().map(|(path, text)| (*path, text.as_bytes())))
+            .unwrap();
+    let mut opening = view(MenuScreen::Play);
+    opening.local.progress = Some(launcher::local_worlds::Progress {
+        stage: launcher::local_worlds::Stage::DownloadingServer,
+        fraction: Some(0.882),
+        detail: "72.2 / 81.8 MB".to_owned(),
+    });
+    let screen = screen_data(&opening, &|_| None, 0).unwrap();
+    let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
+        .control
+        .unwrap();
+    let library = json_ui::CatalogLibrary {
+        catalog: &catalog,
+        context: &screen.context,
+    };
+    let bound = json_ui::bind(&resolved, &screen.data, &library);
+    let env = json_ui::LayoutEnv {
+        text: &crate::test_support::FixedText,
+        textures: &crate::test_support::NoTextures,
+    };
+    let laid = json_ui::layout(&bound, [200.0, 100.0], &env);
+    let clipped = laid.children[0].clip_ratio.unwrap_or(0.0);
+    assert!((1.0 - clipped - 0.882).abs() < 1e-3, "clipped {clipped}");
 }
 
 #[test]
@@ -421,7 +503,6 @@ fn automatic_update_binding_uses_the_persisted_opt_out() {
     expected.set_global("#auto_update_enabled", json_ui::Scalar::Bool(false));
     assert_eq!(data, expected);
 }
-
 #[test]
 fn disconnect_is_never_a_json_ui_screen() {
     let mut shown = view(MenuScreen::Play);
@@ -429,6 +510,7 @@ fn disconnect_is_never_a_json_ui_screen() {
         "§cDisconnected\n§fTry again.",
     ));
     shown.can_reconnect = true;
+    shown.over_world = false;
     assert!(screen_data(&shown, &|_| None, 0).is_none());
 }
 
@@ -437,6 +519,9 @@ fn every_out_of_game_flow_rejects_json_ui_roots() {
     use launcher::menu::flow::MenuFlow;
     for &flow in MenuFlow::ALL {
         for &screen in MenuScreen::ALL {
+            if screen.requires_session() {
+                continue;
+            }
             let mut shown = view(screen);
             shown.over_world = false;
             match flow {
@@ -458,12 +543,23 @@ fn every_out_of_game_flow_rejects_json_ui_roots() {
                 MenuFlow::RealmMembership => shown.realm_membership = Some(Default::default()),
             }
             assert_eq!(shown.flow(), flow);
-            if flow != MenuFlow::Screen || !screen.requires_session() {
-                assert!(
-                    screen_data(&shown, &|_| None, 0).is_none(),
-                    "{flow:?}/{screen:?}"
-                );
-            }
+            assert!(shown.out_of_game());
+            assert!(
+                screen_data(&shown, &|_| None, 0).is_none(),
+                "{flow:?}/{screen:?}"
+            );
         }
+    }
+}
+
+#[test]
+fn session_menu_bindings_keep_their_existing_root_families() {
+    for &screen in MenuScreen::ALL {
+        let shown = view(screen);
+        assert!(!shown.out_of_game());
+        assert_eq!(
+            screen_data(&shown, &|_| None, 0).map(|data| data.reference),
+            launcher::menu::menu_reference(screen)
+        );
     }
 }

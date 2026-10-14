@@ -237,7 +237,7 @@ This move has not been compiled or executed and closes no parity gate.
 
 `oreui` owns client-owned out-of-game screens, including disconnect reasons, join progress and
 launcher popups, with their presentation state, artwork loading and shipped fonts. In-game
-screens that server packs can restyle use JSON-UI.
+screens retain their existing renderer and server-pack behavior.
 It depends on `ui-engine` and lower crates, never on `client-ui` or a sibling screen crate.
 `client-ui` adapters project menu, loading and bed state into its typed inputs. Shared pieces
 moved down: menu schemas and view projections to `launcher`, `LoadingStage` to `ui`, and
@@ -8370,13 +8370,14 @@ The dedicated server death-information packet supplies the localized reason to
 the death screen independently of chat. Reasons survive either arrival order
 around zero health and clear on authoritative health recovery or session replacement.
 Recovery reads positive actor health independently of the rounded HUD values.
-The default death screen uses the server-restylable JSON-UI renderer with literal
-wrapped reasons and the existing respawn and quit actions. Message, button, backdrop and loading animations have separate
+The default death screen uses the owned OreUI renderer with a radial world overlay,
+centered title and literal wrapped reason, Respawn and Game menu actions, and the
+HUD beneath it. Message, button, backdrop and loading animations have separate
 clocks. The prompt still waits before accepting actions when animations are disabled.
 Game menu returns to the same death presentation. Respawn retains progress until
 authoritative recovery; pending requests survive outbound backpressure. Forced
 death cancels hidden key capture, and formatted reason parameters remain literal.
-JSON-UI retains literal reason handling for server-authored controls.
+The legacy JSON-UI renderer retains literal reason handling for fallback controls.
 Ordinary first-person world damage rotation samples the actor's completed hurt
 and death counters independently of hand animation. Scripted captures retain
 their requested pose after those effects run.

@@ -93,7 +93,7 @@ impl UiPresentationRuntime {
 
     /// Resolves the menu and any popup above it; a popup cannot uncover an opaque parent.
     fn menu_settings(&self, runtime: &UiRuntime, view: &MenuView) -> ScreenSettings {
-        if view.json_ui_menu_reference().is_none() {
+        if view.out_of_game() {
             return ScreenSettings::default();
         }
         if view.screen == launcher::menu::MenuScreen::Death {

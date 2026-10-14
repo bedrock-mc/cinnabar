@@ -33,16 +33,17 @@ impl MenuView {
         }
     }
 
-    /// Only ordinary screens within play may resolve a server-restylable JSON-UI root.
+    /// Identifies client-owned flows outside a play session without changing session renderers.
+    pub fn out_of_game(&self) -> bool {
+        !self.over_world && !self.screen.requires_session()
+    }
+
+    /// Out-of-game flows never resolve a JSON-UI menu root; session bindings stay available.
     pub fn json_ui_menu_reference(&self) -> Option<&'static str> {
-        if self.flow() != MenuFlow::Screen {
-            return None;
-        }
-        let in_game = self.over_world || self.screen.requires_session();
-        if in_game {
-            menu_reference(self.screen)
-        } else {
+        if self.out_of_game() {
             None
+        } else {
+            menu_reference(self.screen)
         }
     }
 }

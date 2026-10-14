@@ -39,18 +39,6 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 
 pub const STATES: &[State] = &[
     State {
-        name: "pause",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: out_of_game::pause,
-    },
-    State {
-        name: "death",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: out_of_game::death,
-    },
-    State {
         name: "loading-connecting",
         size: SIZE,
         gui_scale: GUI_SCALE,

@@ -26,7 +26,29 @@ use ui_engine::scroll::ScrollArea;
 
 /// Whether this canvas can paint the requested route; presentation owns renderer selection.
 pub fn draws_menu(view: &MenuView) -> bool {
-    view.screen != MenuScreen::Invite || view.flow() != launcher::menu::flow::MenuFlow::Screen
+    if view.out_of_game() && view.flow() == launcher::menu::flow::MenuFlow::Disconnect {
+        return true;
+    }
+    let progress = view.connecting || view.local.progress.is_some();
+    let covered = view.disconnect_message.is_some();
+    !covered
+        && (progress
+            || view.sign_in_prompt_open()
+            || matches!(
+                view.screen,
+                MenuScreen::Home
+                    | MenuScreen::DressingRoom
+                    | MenuScreen::Settings
+                    | MenuScreen::Profile
+                    | MenuScreen::Inbox
+                    | MenuScreen::Friends
+                    | MenuScreen::Play
+                    | MenuScreen::Social
+                    | MenuScreen::Servers
+                    | MenuScreen::AddServer
+                    | MenuScreen::Pause
+                    | MenuScreen::Death
+            ))
 }
 
 /// What one OreUI menu paint reads.
@@ -222,7 +244,7 @@ impl Screen for OreUiScreen {
         let mut character_preview = None;
         let mut focus = None;
         let mut settings_input = false;
-        if view.flow() == launcher::menu::flow::MenuFlow::Disconnect {
+        if view.out_of_game() && view.flow() == launcher::menu::flow::MenuFlow::Disconnect {
             let error = view
                 .disconnect_message
                 .as_deref()

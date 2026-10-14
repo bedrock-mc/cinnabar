@@ -22,6 +22,82 @@ pub fn retail_context() -> Context {
 
 /// Vanilla start screen variables for a full-game, non-edu
 /// account: demo, edu and unlock controls stay ignored.
+const LOCAL_WORLD_PROGRESS_SCREEN: &str = "progress.world_convert_modal_progress_screen";
+
+/// The local-world loading screen: vanilla's "Starting World" title over the current stage,
+/// a determinate bar when the stage knows its total, and Cancel until the join starts.
+fn local_world_progress(
+    data: &mut DataSource,
+    translate: Translate<'_>,
+    progress: &launcher::local_worlds::Progress,
+) {
+    use launcher::local_worlds::Stage;
+    let (title, message) = match progress.stage {
+        Stage::StartingServer => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.building",
+                "Building terrain",
+            ),
+        ),
+        Stage::Connecting => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            translated(
+                translate,
+                "progressScreen.message.locating",
+                "Locating server",
+            ),
+        ),
+        stage => (
+            translated(
+                translate,
+                "progressScreen.title.connectingLocal",
+                "Starting World",
+            ),
+            stage.title().to_owned(),
+        ),
+    };
+    data.set_global("#title_text", text(title));
+    let detail = match progress.stage {
+        Stage::StartingServer | Stage::Connecting => message,
+        _ if progress.detail.is_empty() => message,
+        _ => format!("{message}\n{}", progress.detail),
+    };
+    data.set_global("#progress_text", text(detail));
+    match progress.fraction {
+        Some(fraction) => {
+            flags(data, &["#loading_bar_visible"]);
+            // The fancy bar binds this as its `#clip_ratio`: the share clipped away.
+            data.set_global(
+                "#loading_bar_percentage",
+                Scalar::Num(1.0 - f64::from(fraction)),
+            );
+            data.set_global("#loading_bar_total_amount", Scalar::Num(1000.0));
+            data.set_global(
+                "#loading_bar_current_amount",
+                Scalar::Num((f64::from(fraction) * 1000.0).round()),
+            );
+        }
+        None => flags(data, &["#bar_animation_visible"]),
+    }
+    if progress.stage != Stage::Connecting {
+        flags(data, &["#cancel_visible"]);
+        data.set_global(
+            "#cancel_button_text",
+            text(translated(translate, "gui.cancel", "Cancel")),
+        );
+    }
+}
+
 fn start_screen_vars(context: Context) -> Context {
     unlock_text(context)
         .with_flag("unlock_full_game_button_ignored", true)
@@ -62,18 +138,48 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
     }
 }
 
-/// The vanilla screen for `view`, or `None` for states without one (the
+use launcher::menu::menu_reference;
+
+/// The in-session screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them). `now_unix` is the wall-clock time in seconds.
 pub fn screen_data(
     view: &MenuView,
     translate: Translate<'_>,
     now_unix: i64,
 ) -> Option<MenuScreenData> {
+    if view.out_of_game() {
+        return None;
+    }
     let mut data = DataSource::new();
     data.set_strict(true);
     let mut context = base_context();
-    let reference = view.json_ui_menu_reference()?;
-    {
+    let reference = if let Some(progress) = &view.local.progress {
+        local_world_progress(&mut data, translate, progress);
+        // The world-modal progress panel the overworld loading screen also wraps; its dirt
+        // backdrop needs block textures the menu engine does not carry.
+        LOCAL_WORLD_PROGRESS_SCREEN
+    } else if view.connecting {
+        super::join_progress::bind(&view.feeds.join, &mut data, translate)
+    } else if let Some(error) = &view.disconnect_message {
+        let words = launcher::menu::disconnect::describe(error);
+        data.set_global(
+            "#title_text",
+            text(translated(translate, words.title, words.title)),
+        );
+        let body = match words.body {
+            launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
+            launcher::menu::disconnect::DisconnectBody::Server(message) => message,
+        };
+        data.set_global("#disconnect_text", text(body));
+        if view.can_reconnect {
+            context = context.with_flag("cinnabar_reconnect", true).with_var(
+                "cinnabar_reconnect_text",
+                Value::String(translated(translate, "cinnabar.reconnect", "Reconnect")),
+            );
+        }
+        "disconnect.disconnect_screen"
+    } else {
+        let reference = menu_reference(view.screen)?;
         match view.screen {
             MenuScreen::Death => {
                 data.set_global(
@@ -171,7 +277,8 @@ pub fn screen_data(
             | MenuScreen::Inbox
             | MenuScreen::Friends => return None,
         }
-    }
+        reference
+    };
     Some(MenuScreenData {
         reference,
         context,
@@ -446,6 +553,13 @@ pub fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
         };
     }
     Some(match region.pressed.as_deref()? {
+        "button.cinnabar_reconnect" if view.disconnect_message.is_some() && view.can_reconnect => {
+            MenuAction::Reconnect
+        }
+        // The local-world loading screen's Cancel closes the world.
+        "button.menu_exit" if view.local.progress.is_some() => {
+            MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Back)
+        }
         "button.menu_continue" if view.screen == MenuScreen::Pause => MenuAction::PauseResume,
         // Acknowledging a disconnect clears it (every action does).
         "button.menu_continue" | "button.menu_leave_screen" | "button.menu_select" => {
@@ -477,6 +591,8 @@ pub fn action_for(view: &MenuView, region: &HitRegion) -> Option<MenuAction> {
         "button.menu_profile" | "button.manage_account" => {
             MenuAction::Navigate(MenuScreen::Profile)
         }
+        // The join progress screen's cancel; the menu drops it where vanilla cannot cancel.
+        "button.menu_exit" if view.connecting => MenuAction::AddBack,
         "button.menu_cancel" if view.auth_state_awaiting_browser() => MenuAction::CancelSignIn,
         "button.menu_exit" if view.auth_state_awaiting_browser() => MenuAction::CancelSignIn,
         "button.menu_exit" => match view.screen {

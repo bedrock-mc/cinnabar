@@ -122,21 +122,3 @@ pub(super) fn reset_settings() -> Fixture {
         launcher::menu::settings_options::SettingsGroup::Video,
     ))
 }
-
-/// Shows the pause route over an anonymous session backdrop.
-pub(super) fn pause() -> Fixture {
-    let mut view = menu();
-    view.screen = MenuScreen::Pause;
-    view.over_world = true;
-    Fixture::Menu(Box::new(view))
-}
-
-/// Shows the death route after its action delay, with a literal reason.
-pub(super) fn death() -> Fixture {
-    let mut view = menu();
-    view.screen = MenuScreen::Death;
-    view.over_world = true;
-    view.death_reason = "Player fell from a high place".into();
-    view.death_controls_visible = true;
-    Fixture::Menu(Box::new(view))
-}

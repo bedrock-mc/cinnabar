@@ -1,4 +1,4 @@
-//! OreUI owns launcher flows; JSON-UI owns server-restylable session screens.
+//! OreUI owns launcher flows; session screens keep their existing renderers.
 
 use std::sync::Arc;
 
@@ -86,7 +86,7 @@ impl UiPresentationRuntime {
         };
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
-            Err(error) if shown.json_ui_menu_reference().is_none() => Err(error),
+            Err(error) if shown.out_of_game() => Err(error),
             Ok(None) | Err(_) => {
                 let owned_dialog = has_native_dialog(shown.dialog);
                 let fallback = owned_dialog.then(|| {
@@ -156,6 +156,15 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
+        if !view.out_of_game()
+            && self.engine.is_none()
+            && !matches!(
+                view.screen,
+                launcher::menu::MenuScreen::DressingRoom | launcher::menu::MenuScreen::Death
+            )
+        {
+            return Ok(None);
+        }
         // OreUI routes draw through the native canvas.
         let portrait = [
             &view.feeds.profile.picture_path,
@@ -163,17 +172,15 @@ impl UiPresentationRuntime {
         ]
         .into_iter()
         .find_map(|path| self.menu_artwork.refs.get(path).copied());
-        if view.json_ui_menu_reference().is_none()
-            && let Some(mut hits) = self.append_oreui_screen(
-                view,
-                nodes,
-                next,
-                metrics,
-                [width, height],
-                portrait,
-                &|key| runtime.translation(key),
-            )?
-        {
+        if let Some(mut hits) = self.append_oreui_screen(
+            view,
+            nodes,
+            next,
+            metrics,
+            [width, height],
+            portrait,
+            &|key| runtime.translation(key),
+        )? {
             let mut keys = Vec::new();
             let popup = self.append_dialog(
                 runtime,
@@ -186,18 +193,15 @@ impl UiPresentationRuntime {
             );
             if let Some(popup) = popup {
                 (hits, keys) = popup;
-                self.projections.menu_focus.clear();
-                for (action, _) in &hits {
-                    if !self.projections.menu_focus.contains(action) {
-                        self.projections.menu_focus.push(*action);
-                    }
-                }
                 self.projections.oreui_slider_tracks.clear();
                 self.projections.oreui_settings_input = false;
                 self.projections.menu_focus_geometry.clear();
                 self.projections.menu_focus_landmarks.clear();
             }
             if view.dialog.is_some() {
+                if !view.out_of_game() || has_native_dialog(view.dialog) {
+                    self.projections.menu_focus.clear();
+                }
                 self.projections.menu_focus_geometry.clear();
                 self.projections.menu_focus_landmarks.clear();
                 self.projections.oreui_slider_tracks.clear();
@@ -498,7 +502,7 @@ impl UiPresentationRuntime {
             (None, Some(name), _) => launcher::menu::dialogs::join_request(name, &translate),
             (None, None, dialog) => launcher::menu::dialogs::dialog(view, dialog?, &translate),
         };
-        if view.json_ui_menu_reference().is_none() {
+        if view.out_of_game() {
             return Some(
                 match self.append_oreui_popup(view, &popup, nodes, next, metrics, [width, height]) {
                     Ok(hits) => (hits, Vec::new()),

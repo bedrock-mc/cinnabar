@@ -66,7 +66,6 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     );
     let mut nodes = Vec::new();
     let mut next = 1;
-    let mut session_pages = HashMap::new();
     let mut layouts = TextLayoutCache::new(4096, 32 * 1024 * 1024);
     let translate = |key: &str| carriers.lang.lookup(key);
     let mut frame = PaintFrame {
@@ -84,17 +83,6 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         renderers: &mut [],
     };
     match fixture {
-        Fixture::Menu(view) if view.json_ui_menu_reference().is_some() => {
-            let data = ui_screens::menu_screens::screen_data(&view, frame.translate, 0)
-                .ok_or_else(|| Error::Invalid("session menu has no JSON-UI screen data".into()))?;
-            session_pages = session_menu(
-                &data,
-                &carriers.ui,
-                carriers.ui_page,
-                carriers.pages.len(),
-                &mut frame,
-            )?;
-        }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)
@@ -291,9 +279,9 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         .map_err(|error| error.to_string())?;
     let list = tree.build_draw_list().map_err(|error| error.to_string())?;
     if let Some(batch) = list.batches.iter().find(|batch| {
-        session_pages
-            .get(&batch.texture_page)
-            .or_else(|| carriers.pages.get(usize::from(batch.texture_page)))
+        carriers
+            .pages
+            .get(usize::from(batch.texture_page))
             .is_none()
     }) {
         return Err(Error::Invalid(format!(
@@ -303,11 +291,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         )));
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
-    canvas.draw(&list, |page| {
-        session_pages
-            .get(&page)
-            .or_else(|| carriers.pages.get(usize::from(page)))
-    });
+    canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
     let mut pixels = canvas.into_rgba();
     if !menu {
         // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
@@ -375,93 +359,3 @@ pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> or
 
 #[cfg(test)]
 mod tests;
-
-/// Paints an in-session menu and collects its logical texture pages without inventing missing images.
-fn session_menu(
-    data: &ui_screens::menu_screens::MenuScreenData,
-    assets: &Arc<assets::RuntimeUiAssets>,
-    ui_page: u16,
-    first_dynamic: usize,
-    frame: &mut PaintFrame<'_>,
-) -> Result<HashMap<u16, Page>, Error> {
-    let title = image::load_from_memory(launcher::branding::TITLE)
-        .map_err(|error| error.to_string())?
-        .to_rgba8();
-    let title_page = u16::try_from(first_dynamic).map_err(|error| error.to_string())?;
-    let artwork = HashMap::from([(
-        ui_engine::textures::TITLE_KEY.into(),
-        ui::IconRef {
-            page: title_page,
-            uv: [0, 0, title.width() as u16, title.height() as u16],
-            glint: false,
-        },
-    )]);
-    let first_dynamic = first_dynamic + 1;
-    let catalog = json_ui::Catalog::from_files(
-        assets
-            .ui_files()
-            .iter()
-            .map(|file| (&*file.path, &*file.bytes)),
-    )
-    .map_err(|error| error.to_string())?;
-    let mut engine = FormEngine::new(
-        Arc::clone(assets),
-        catalog,
-        ui_page,
-        &REGISTRY,
-        Arc::new(Offline),
-        ImageWork::inline(),
-    );
-    let first = u16::try_from(first_dynamic + ui_engine::pages::SERVER_UI_PAGE)
-        .map_err(|error| error.to_string())?;
-    engine.set_server_atlas(
-        ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
-            .with_image_work(ImageWork::inline()),
-        first,
-    );
-    frame.now = CAPTURE_SECONDS;
-    engine
-        .render_screen(
-            data.reference,
-            &data.data,
-            &data.context,
-            &json_ui::ViewState::default(),
-            ui_engine::engine::ScreenArt {
-                images: Some(&artwork),
-                ..Default::default()
-            },
-            frame,
-        )
-        .map_err(|error| error.to_string())?;
-    engine.take_server_pages();
-    let mut pages = HashMap::from([(
-        title_page,
-        Page {
-            width: title.width(),
-            height: title.height(),
-            rgba: title.into_raw().into(),
-        },
-    )]);
-    for (offset, sources) in [
-        (ui_engine::pages::SERVER_UI_PAGE, &engine.server_pages),
-        (
-            render_model::UI_NATIVE_SHEET_PAGE_OFFSET,
-            &engine.server_sheet_pages,
-        ),
-    ] {
-        for (index, page) in sources.iter().enumerate() {
-            let [width, height] = page.dimensions();
-            let logical =
-                u16::try_from(first_dynamic + offset + index).map_err(|error| error.to_string())?;
-            pages.insert(
-                logical,
-                Page {
-                    width,
-                    height,
-                    rgba: page.pixels().into(),
-                },
-            );
-        }
-    }
-    Ok(pages)
-}

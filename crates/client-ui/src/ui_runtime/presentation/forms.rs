@@ -44,6 +44,8 @@ mod preview_renderer;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
+#[cfg(test)]
+mod session_renderer_tests;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
 pub(crate) mod compatibility_tests;

@@ -39,6 +39,7 @@ fn compose() -> ScreenRegistry {
         Vec::new()
     });
     catalog.layer_builtin(ui_screens::loading_screen::install_brand_layout);
+    catalog.layer_builtin(ui_screens::disconnect_retry::install);
     catalog.layer_builtin(ui_screens::enhanced_setting::install);
     catalog.layer_builtin(ui_screens::chat_position::install);
     ui_screens::chat_screen::register(&mut registry);
