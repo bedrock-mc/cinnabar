@@ -501,7 +501,7 @@ mod tests {
             "the probe must detect the deliberately inherited socket"
         );
         let child = Children::new()
-            .spawn(&mut socket_probe(fd), Duration::ZERO)
+            .spawn(&mut socket_probe(fd), Duration::ZERO, false)
             .unwrap();
         assert!(fcntl_getfd(&socket).unwrap().contains(FdFlags::CLOEXEC));
         assert_eq!(
