@@ -1,6 +1,7 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
 mod minecraft_import;
+mod mods;
 
 use std::sync::Arc;
 
@@ -20,14 +21,36 @@ pub enum Fixture {
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
+        messages: std::collections::VecDeque<ui::ChatMessage>,
+        options: Arc<launcher::menu::settings_options::SettingsOptions>,
     },
 }
 
 const SIZE: [u32; 2] = [1280, 720];
 const GUI_SCALE: u8 = 2;
 const SMALL_SIZE: [u32; 2] = [360, 240];
+/// Fits an expanded card above two collapsed ones.
+const TALL_SIZE: [u32; 2] = [1280, 900];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "chat-background-transparent",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_background(0),
+    },
+    State {
+        name: "chat-background-half",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_background(50),
+    },
+    State {
+        name: "chat-background-opaque",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_background(100),
+    },
     State {
         name: "import-confirmation",
         size: SIZE,
@@ -76,6 +99,18 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: settings_keyboard,
     },
+    State {
+        name: "settings-mods",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::declared,
+    },
+    State {
+        name: "settings-mods-undeclared",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::undeclared,
+    },
 ];
 
 /// Exercises the native chat collection with an unfinished mention.
@@ -83,6 +118,8 @@ fn chat_mentions() -> Fixture {
     Fixture::Chat {
         draft: "@",
         suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
+        messages: Default::default(),
+        options: Default::default(),
     }
 }
 
@@ -91,6 +128,36 @@ fn chat_command_targets() -> Fixture {
     Fixture::Chat {
         draft: "/give @",
         suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
+        messages: Default::default(),
+        options: Default::default(),
+    }
+}
+
+/// Shows readable history and a draft under a selected background-opacity setting.
+fn chat_background(percent: i32) -> Fixture {
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ChatBackgroundOpacity.index(), percent);
+    let messages = [
+        format!("Chat background opacity: {percent}%"),
+        "The chat text stays visible.".into(),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, message)| ui::ChatMessage {
+        fifo_sequence: index as u64 + 1,
+        received_millis: 0,
+        kind: ui::ChatMessageKind::System,
+        source: None,
+        message: message.into(),
+        parameters: Arc::from([]),
+    })
+    .collect();
+    Fixture::Chat {
+        draft: "Typing a message",
+        suggestions: Vec::new(),
+        messages,
+        options: Arc::new(options),
     }
 }
 

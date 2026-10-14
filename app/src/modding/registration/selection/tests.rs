@@ -136,7 +136,7 @@ fn permission_revocation_survives_malformed_or_missing_component_metadata() {
         if missing {
             std::fs::remove_file(&component).unwrap();
         }
-        assert!(mod_host::requested_grants(&component).is_err());
+        assert!(mod_host::declarations(&component).is_err());
         for (index, capability) in ModGrants::CAPABILITIES.iter().enumerate() {
             let entry = Entry {
                 component: component.clone(),

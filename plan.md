@@ -2898,8 +2898,10 @@ Frame-local outputs reset even when execution defers. Superseded authority revoc
 rebuild; unrelated registration changes retain guest quarantine.
 Camera, time and contested HUD slots obey Active-list precedence with counted refusals.
 Modding and its Wasmtime host ship in every native build, including builds without default
-features. The host's execution modules and tests compile unconditionally. Incomplete:
-component icons and descriptions, owner visual review and native cross-platform acceptance.
+features. The host's execution modules and tests compile unconditionally. Cards show the
+name, version, authors, description and licenses from the component's standard metadata
+sections, else the file name, and an optional embedded PNG icon, read without
+instantiation. Incomplete: owner visual review and native cross-platform acceptance.
 See `docs/modding-spike.md`.
 
 2026-10-01 crouch, shield and crossbow follow-up: the local camera now consumes
