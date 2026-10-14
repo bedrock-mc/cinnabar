@@ -265,8 +265,12 @@ fn pick_box_inflation_rounds_before_intersection() {
         5.0,
     )
     .unwrap();
-    assert_eq!(hit.distance, f64::from(min[0] - 0.1_f32));
-    assert_eq!(hit.point[0], min[0] - 0.1_f32);
+    // The f32-inflated face is reached by the native float segment interpolation.
+    let plane = min[0] - 0.1_f32;
+    let delta = 5.0_f32 - EYE[0];
+    let fraction = (plane - EYE[0]) / delta;
+    assert_eq!(hit.point[0], EYE[0] + delta * fraction);
+    assert_eq!(hit.distance, f64::from(pick_distance(EYE, hit.point)));
 }
 
 #[test]
