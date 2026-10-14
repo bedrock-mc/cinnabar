@@ -2,6 +2,7 @@ use std::{collections::HashSet, str};
 
 use crate::AssetError;
 
+mod family_routing;
 mod schema;
 
 #[cfg(test)]
@@ -221,7 +222,7 @@ pub fn read_registry_for_protocol(
                 source,
             })?
             .into();
-        let model_family = crate::family_routing::resolve(
+        let model_family = family_routing::resolve(
             metadata.protocol == LEGACY_REGISTRY_PROTOCOL,
             &name,
             model_family,

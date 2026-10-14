@@ -37,6 +37,11 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "assets/java-hud/textures/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+# Generated item metadata owned by assets, rather than runtime pack content.
+[[owned_artifacts]]
+path = "crates/assets/data/item-facts-v2193.bin"
+ownership_record = "docs/architecture/workspace.md"
+
 # The vendored contract codec (`bedrock-protocol-1-26-51`) is a dependency of `protocol` only.
 [[vendored]]
 path = "crates/protocol/vendor/"
