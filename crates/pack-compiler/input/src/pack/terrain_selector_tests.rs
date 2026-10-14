@@ -97,9 +97,9 @@ fn unknown_model_arrays_use_first_entry_ignoring_unrelated_properties() {
     capture(root.path(), unknown, wheat);
     for properties in [
         "{}",
-        r#"{"growth":3}"#,
-        r#"{"growth_stage":3}"#,
-        r#"{"age":3}"#,
+        r#"{"growth":{"type":"int","value":3}}"#,
+        r#"{"growth_stage":{"type":"int","value":3}}"#,
+        r#"{"age":{"type":"int","value":3}}"#,
     ] {
         assert_eq!(
             terrain.get_for_model_record("test:array", &record(properties)),
@@ -118,13 +118,20 @@ fn model_array_ranges_are_declared_and_checked() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
     for growth in 0..8 {
-        let state = record(&format!(r#"{{"growth":{growth}}}"#));
+        let state = record(&format!(
+            r#"{{"growth":{{"type":"int","value":{growth}}}}}"#
+        ));
         assert_eq!(
             terrain.get_for_model_record("wheat", &state).unwrap().1,
             growth
         );
     }
-    for properties in ["{}", r#"{"growth":-1}"#, r#"{"growth":8}"#, r#"{"age":2}"#] {
+    for properties in [
+        "{}",
+        r#"{"growth":{"type":"int","value":-1}}"#,
+        r#"{"growth":{"type":"int","value":8}}"#,
+        r#"{"age":{"type":"int","value":2}}"#,
+    ] {
         assert_eq!(
             terrain.get_for_model_record("wheat", &record(properties)),
             None
@@ -138,7 +145,7 @@ fn model_array_ranges_are_declared_and_checked() {
     .unwrap();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
     assert_eq!(
-        terrain.get_for_model_record("wheat", &record(r#"{"growth":1}"#)),
+        terrain.get_for_model_record("wheat", &record(r#"{"growth":{"type":"int","value":1}}"#)),
         None
     );
 }

@@ -547,6 +547,8 @@ pub(super) fn registry_bytes_for_protocol(protocol: u32, records: &[RegistryReco
         }
         if !legacy {
             bytes.push(record.beacon_tint as u8);
+            bytes.extend_from_slice(&record.traits.bits().to_le_bytes());
+            bytes.push(record.survival as u8);
         }
         for collision_box in &record.collision_seed.boxes {
             for coordinate in [

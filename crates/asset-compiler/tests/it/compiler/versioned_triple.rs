@@ -10,6 +10,25 @@ use {
     tempfile::TempDir,
 };
 
+#[test]
+fn active_registry_fixture_preserves_compiled_block_facts() {
+    let protocol = assets::active_content_registry_protocol();
+    let records =
+        assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+            .unwrap();
+    let mut torch = records
+        .into_iter()
+        .find(|r| r.name.as_ref() == "minecraft:copper_torch")
+        .unwrap();
+    torch.provenance = RegistryProvenance::DRAGONFLY;
+    assert!(!torch.traits.is_empty());
+    let encoded = registry_bytes_for_protocol(protocol, std::slice::from_ref(&torch));
+    let decoded = assets::read_registry_for_protocol(&encoded, protocol).unwrap();
+    assert_eq!(decoded[0].traits, torch.traits);
+    assert_eq!(decoded[0].survival, torch.survival);
+    assert_eq!(decoded[0].properties, torch.properties);
+}
+
 /// One stone texture plus the biome fixture, the minimum pack surface the
 /// compile CLI consumes for a two-record registry.
 fn write_minimal_pack(resource_pack: &Path) {

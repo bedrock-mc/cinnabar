@@ -77,9 +77,9 @@ fn replacing_a_registry_replaces_its_typed_facts_without_reusing_old_ids() {
         .find(|record| record.name.as_ref() == "minecraft:crafter")
         .unwrap()
         .clone();
-    record.canonical_state = r#"{"triggered_bit":true}"#.into();
+    record.canonical_state = r#"{"triggered_bit":{"type":"byte","value":1}}"#.into();
     let first = BlockPresentationStates::from_records(&[record.clone()]);
-    record.canonical_state = r#"{"triggered_bit":false}"#.into();
+    record.canonical_state = r#"{"triggered_bit":{"type":"byte","value":0}}"#.into();
     let second = BlockPresentationStates::from_records(&[record.clone()]);
     assert_eq!(
         first
