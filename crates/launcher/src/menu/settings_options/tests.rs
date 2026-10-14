@@ -1,6 +1,8 @@
 use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
+use super::BindingId;
+use super::SettingId;
 #[test]
 fn interactive_sharing_preserves_active_late_defaults_across_reset_and_reload() {
     let hotbar = KEY_BINDINGS
@@ -110,14 +112,14 @@ fn existing_f_binding_survives_freelook_default() {
     let settings =
         SettingsOptions::decode(br#"{"keys":{"key.drop":9,"key.inventory":12}}"#).unwrap();
     assert_eq!(
-        settings.named_key_control("key.drop"),
+        settings.named_key_control(BindingId::Drop),
         Some(PhysicalControl::KeyboardUsage(9))
     );
     assert_eq!(
-        settings.named_key_control("key.inventory"),
+        settings.named_key_control(BindingId::Inventory),
         Some(PhysicalControl::KeyboardUsage(12))
     );
-    assert_eq!(settings.named_key_control("key.freelook"), None);
+    assert_eq!(settings.named_key_control(BindingId::Freelook), None);
     let controls = settings.controls().unwrap();
     assert!(
         !controls
@@ -168,14 +170,14 @@ fn open_notification_defaults_to_n_and_remaps_across_reload() {
         semantic_input::Action::InteractWithToast
     );
     assert_eq!(
-        settings.named_key_control(OPEN_NOTIFICATION_KEY),
+        settings.named_key_control(BindingId::InteractWithToast),
         Some(PhysicalControl::KeyboardUsage(0x11))
     );
     assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x08)));
     assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x0f)));
     let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
     assert_eq!(
-        loaded.named_key_control(OPEN_NOTIFICATION_KEY),
+        loaded.named_key_control(BindingId::InteractWithToast),
         Some(PhysicalControl::KeyboardUsage(0x0f))
     );
     let mut router = semantic_input::SemanticInputRouter::default();
@@ -198,10 +200,13 @@ fn open_notification_defaults_to_n_and_remaps_across_reload() {
 fn a_saved_layout_already_using_n_keeps_it_over_the_open_notification_default() {
     let settings = SettingsOptions::decode(br#"{"keys":{"key.drop":17}}"#).unwrap();
     assert_eq!(
-        settings.named_key_control("key.drop"),
+        settings.named_key_control(BindingId::Drop),
         Some(PhysicalControl::KeyboardUsage(0x11))
     );
-    assert_eq!(settings.named_key_control(OPEN_NOTIFICATION_KEY), None);
+    assert_eq!(
+        settings.named_key_control(BindingId::InteractWithToast),
+        None
+    );
     assert!(
         !settings
             .controls()
@@ -224,6 +229,9 @@ fn index(name: &str) -> usize {
 fn all_option_families_round_trip_and_reject_unknown_fields() {
     let mut settings = SettingsOptions::default();
     for (index, definition) in SETTINGS_OPTIONS.iter().enumerate() {
+        if matches!(definition.kind, SettingKind::Host) {
+            continue;
+        }
         assert_eq!(settings.get(index), definition.default);
         assert!(definition.min <= definition.default && definition.default <= definition.max);
         settings.set(index, definition.min);
@@ -233,9 +241,12 @@ fn all_option_families_round_trip_and_reject_unknown_fields() {
     let loaded =
         SettingsOptions::decode(br#"{"values":{"gamma":500,"field_of_view":-20,"unknown":100}}"#)
             .unwrap();
-    assert_eq!(loaded.value("gamma"), SETTINGS_OPTIONS[index("gamma")].max);
     assert_eq!(
-        loaded.value("field_of_view"),
+        loaded.value(SettingId::Gamma),
+        SETTINGS_OPTIONS[index("gamma")].max
+    );
+    assert_eq!(
+        loaded.value(SettingId::FieldOfView),
         SETTINGS_OPTIONS[index("field_of_view")].min
     );
     assert!(!loaded.values.contains_key("unknown"));
@@ -469,12 +480,12 @@ fn outline_selection_reaches_render_settings_after_persistence() {
 fn loaded_supplemental_bindings_can_share_gameplay_controls() {
     let loaded = SettingsOptions::decode(br#"{"keys":{"key.inventory":257}}"#).unwrap();
     assert_eq!(
-        loaded.named_key_control("key.inventory"),
+        loaded.named_key_control(BindingId::Inventory),
         Some(PhysicalControl::MouseButton(1))
     );
     assert_eq!(
-        loaded.named_key_control("key.attack"),
-        loaded.named_key_control("key.inventory")
+        loaded.named_key_control(BindingId::Attack),
+        loaded.named_key_control(BindingId::Inventory)
     );
 }
 
@@ -562,6 +573,24 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
 }
 
 #[test]
+fn extra_large_ui_persists_and_resets() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.extra_large_ui());
+    assert!(settings.set(index(EXTRA_LARGE_UI), 1));
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.extra_large_ui());
+    loaded.reset_group(SettingsGroup::Audio);
+    assert!(loaded.extra_large_ui());
+    loaded.reset_group(SettingsGroup::Video);
+    assert!(!loaded.extra_large_ui());
+    assert!(
+        !SettingsOptions::decode(br#"{"values":{}}"#)
+            .unwrap()
+            .extra_large_ui()
+    );
+}
+
+#[test]
 fn animations_default_to_bedrock_and_persist_both_choices() {
     let mut settings = SettingsOptions::default();
     let index = index("animations");
@@ -585,7 +614,7 @@ fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
     for (toggle, choice) in [(0, 1), (1, 0)] {
         let legacy = serde_json::json!({ "values": { "java_animations": toggle } });
         let loaded = SettingsOptions::decode(&serde_json::to_vec(&legacy).unwrap()).unwrap();
-        assert_eq!(loaded.value("animations"), choice);
+        assert_eq!(loaded.value(SettingId::Animations), choice);
         assert_eq!(loaded.user_settings().video.java_animations, toggle != 0);
         let saved = serde_json::to_value(&loaded).unwrap();
         assert!(saved["values"].get("java_animations").is_none());
@@ -594,7 +623,7 @@ fn animations_migrate_legacy_toggle_without_overriding_a_saved_selection() {
             "values": { "java_animations": toggle, "animations": toggle }
         });
         let loaded = SettingsOptions::decode(&serde_json::to_vec(&selected).unwrap()).unwrap();
-        assert_eq!(loaded.value("animations"), toggle);
+        assert_eq!(loaded.value(SettingId::Animations), toggle);
     }
 }
 
@@ -603,16 +632,16 @@ fn crosshair_preferences_persist_and_reset_without_changing_legacy_defaults() {
     use super::{INVERT_CROSSHAIR_OPTION, SettingsGroup, THIRD_PERSON_CROSSHAIR_OPTION};
     let mut options = SettingsOptions::decode(br#"{"values":{"gamma":40}}"#).unwrap();
     for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
-        assert_eq!(options.value(option.name), option.default);
+        assert_eq!(options.value(option.id), option.default);
         options.set(index(option.name), 1 - option.default);
     }
     let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&options).unwrap()).unwrap();
     for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
-        assert_eq!(loaded.value(option.name), 1 - option.default);
+        assert_eq!(loaded.value(option.id), 1 - option.default);
     }
     loaded.reset_group(SettingsGroup::Video);
     for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
-        assert_eq!(loaded.value(option.name), option.default);
+        assert_eq!(loaded.value(option.id), option.default);
     }
 }
 
@@ -648,7 +677,7 @@ fn frame_rate_missing_and_invalid_values_default_to_unlimited() {
             let settings = SettingsOptions::decode(&serde_json::to_vec(&saved).unwrap()).unwrap();
             assert_eq!(limit(&settings), Unlimited, "{saved}");
             assert_eq!(
-                settings.value("max_framerate"),
+                settings.value(SettingId::MaxFramerate),
                 FRAME_RATE_UNLIMITED,
                 "{saved}"
             );
@@ -743,7 +772,7 @@ fn vrr_preference_persists_and_old_settings_remain_automatic() {
 #[test]
 fn native_skybox_offset_defaults_on_and_persists_both_states() {
     let mut settings = super::SettingsOptions::default();
-    assert_eq!(settings.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name), 1);
+    assert_eq!(settings.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id), 1);
     assert!(settings.user_settings().video.native_skybox_offset);
     assert!(
         super::SettingsOptions::decode(b"{}")
@@ -760,16 +789,69 @@ fn native_skybox_offset_defaults_on_and_persists_both_states() {
         settings.set(index, enabled);
         let encoded = serde_json::to_vec(&settings).unwrap();
         let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
-        assert_eq!(
-            loaded.value(super::NATIVE_SKYBOX_OFFSET_OPTION.name),
-            enabled
-        );
+        assert_eq!(loaded.value(super::NATIVE_SKYBOX_OFFSET_OPTION.id), enabled);
         assert_eq!(
             loaded.user_settings().video.native_skybox_offset,
             enabled != 0
         );
         loaded.reset_group(super::SettingsGroup::Video);
         assert!(loaded.user_settings().video.native_skybox_offset);
+    }
+}
+
+/// The full-detail distance defaults to Auto and snaps to whole steps.
+#[test]
+fn full_detail_distance_defaults_to_auto_and_snaps() {
+    let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        render_api::far_terrain::FULL_DETAIL_AUTO
+    );
+    let index = super::SETTINGS_OPTIONS
+        .iter()
+        .position(|option| option.name == super::FULL_DETAIL_DISTANCE_OPTION.name)
+        .unwrap();
+    settings.set(index, 37);
+    assert_eq!(
+        settings.user_settings().video.full_detail_distance_chunks,
+        32
+    );
+    assert_eq!(
+        super::full_detail_label(0, &|chunks| chunks.to_string()),
+        "Auto"
+    );
+}
+
+/// Far terrain defaults to Auto in the registry, which the video settings default matches,
+/// persists another mode, and returns to Auto with a Video reset.
+#[test]
+fn far_terrain_defaults_to_auto_persists_and_resets() {
+    use render_api::far_terrain::FarTerrainMode;
+    let default = FarTerrainMode::from_index(super::FAR_TERRAIN_OPTION.default);
+    assert_eq!(default, FarTerrainMode::Auto);
+    assert_eq!(ui::VideoSettings::default().far_terrain, default);
+    let mut settings = super::SettingsOptions::decode(b"{}").unwrap();
+    assert_eq!(settings.user_settings().video.far_terrain, default);
+    let index = super::FAR_TERRAIN_OPTION.id.index();
+    settings.set(index, FarTerrainMode::Off.index());
+    let encoded = serde_json::to_vec(&settings).unwrap();
+    let mut loaded = super::SettingsOptions::decode(&encoded).unwrap();
+    assert_eq!(
+        loaded.user_settings().video.far_terrain,
+        FarTerrainMode::Off
+    );
+    loaded.reset_group(super::SettingsGroup::Video);
+    assert_eq!(loaded.user_settings().video.far_terrain, default);
+}
+
+/// A far-terrain setting saved as on/off reads as On and Auto.
+#[test]
+fn saved_far_terrain_booleans_migrate_to_on_and_auto() {
+    use render_api::far_terrain::FarTerrainMode;
+    for (saved, mode) in [(1, FarTerrainMode::On), (0, FarTerrainMode::Auto)] {
+        let bytes = format!(r#"{{"values":{{"far_terrain":{saved}}}}}"#);
+        let settings = super::SettingsOptions::decode(bytes.as_bytes()).unwrap();
+        assert_eq!(settings.user_settings().video.far_terrain, mode);
     }
 }
 

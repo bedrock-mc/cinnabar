@@ -355,7 +355,7 @@ fn actual_drain_retains_session_scoped_evidence_across_dimension_but_rejects_old
             local_player_unique_id: 1,
             player_position: [0.0, 70.0, 0.0],
             world_spawn_position: [0, 70, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         }));
     app.world_mut()
@@ -518,7 +518,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     local_player_unique_id: 1,
                     player_position: [0.0, 70.0, 0.0],
                     world_spawn_position: [0, 70, 0],
-                    air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+                    air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
                     block_network_ids_are_hashes: false,
                 },
                 environment: protocol::WorldEnvironmentBootstrap {
@@ -548,6 +548,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 death_rules: protocol::DeathRules::default(),
                 packs: crate::runtime::network::resource_packs::PackApplication::default(),
                 terrain_before_spawn: true,
+                level_identity: 0,
             })
             .unwrap();
         app.insert_resource(handle);

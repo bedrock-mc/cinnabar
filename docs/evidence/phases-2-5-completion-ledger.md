@@ -74,6 +74,10 @@ incomplete. This change closes no parity or performance gate.
 
 ## P3-MOVEMENT
 
+Remaining double intermediates in processed controls, block-height contact, support
+offsets, climb requests and fallback travel drag now use f32 operations. Precision
+regressions await CI; full numeric and trajectory parity remains open.
+
 Spectator regressions cover forced flight without MayFly, solid and unloaded
 terrain traversal, and embedded server anchors. The full native trajectory,
 platform, and performance gates remain open.
@@ -250,7 +254,7 @@ argument completion, and live visual acceptance remain incomplete.
 | Review commit | Recorded by the placement follow-up PR. |
 | Live/native witness | Headless stair comparison and door pair before server confirmation; broader family visual parity remains open. |
 | Performance/resource witness | Paused-server stair recording: first visible/staged +3 frames, observed upload +5; bounded late worker service. Click-frame and full hardware budgets remain open. |
-| Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. |
+| Final status | Open: remaining placement families and the wider interaction/inventory gate are incomplete. Combat reach, float clipping, movement rounding and snapping, minimum collision dimensions, actor/latency commit ordering and fresh-press swings have regression coverage pending CI. Pose-dependent reach, per-entity pick radii, specialized actor motion, native-origin rounding, terrain availability during asynchronous ingestion, catch-up-frame attack positions and full batch/latency timing remain open. |
 
 ## P5.6-FORMS
 

@@ -136,6 +136,7 @@ pub fn spawn_network<P: Send + 'static>(
                         death_rules: settings.death_rules,
                         packs,
                         terrain_before_spawn: session.terrain_before_spawn(),
+                        level_identity: game_data.level_identity,
                     },
                 )
                 .await

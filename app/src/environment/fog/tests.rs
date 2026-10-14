@@ -22,7 +22,7 @@ fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
         local_player_unique_id: 1,
         player_position: [0.5, 129.0, 0.5],
         world_spawn_position: [0, 64, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let bindings = FogBindings::for_profiles(

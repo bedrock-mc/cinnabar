@@ -4,6 +4,9 @@ use crate::{
 
 use super::{AxisCollisions, COLLISION_EPSILON, STEP_HEIGHT};
 
+/// Sneak support extends slightly below the ordinary step height, rounded before translation.
+const SNEAK_SUPPORT_DEPTH: f64 = (STEP_HEIGHT as f32 * 1.01_f32) as f64;
+
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedMotion {
     pub aabb: Aabb,
@@ -133,7 +136,7 @@ pub(super) fn clip_sneak_edge(
     let mut identity: Option<WorldCollisionIdentity> = None;
     for axis in [0, 2] {
         while clipped[axis] != 0.0 {
-            let mut probe = Vec3::new(0.0, -STEP_HEIGHT * 1.01, 0.0);
+            let mut probe = Vec3::new(0.0, -SNEAK_SUPPORT_DEPTH, 0.0);
             probe[axis] = clipped[axis];
             let query = bounded_collision_boxes(world, player.translated(probe))?;
             identity = Some(match identity {
@@ -149,7 +152,7 @@ pub(super) fn clip_sneak_edge(
     while clipped.x != 0.0 || clipped.z != 0.0 {
         let query = bounded_collision_boxes(
             world,
-            player.translated(Vec3::new(clipped.x, -STEP_HEIGHT * 1.01, clipped.z)),
+            player.translated(Vec3::new(clipped.x, -SNEAK_SUPPORT_DEPTH, clipped.z)),
         )?;
         identity = Some(match identity {
             None => query.identity,

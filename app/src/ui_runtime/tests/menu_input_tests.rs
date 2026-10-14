@@ -11,6 +11,7 @@ use bevy::{
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
+use launcher::menu::settings_options::SettingId;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -443,7 +444,7 @@ fn chat_focus_loss_preserves_draft_and_does_not_open_pause() {
     let mut menu = MenuRuntime::new(false, 2, "test".into());
     let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .position(|option| option.id == SettingId::PauseMenuOnFocusLost)
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 1));
     let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
@@ -710,7 +711,7 @@ fn retained_overlay_loss_opens_pause_and_focus_gain_keeps_it_open() {
     let mut menu = MenuRuntime::new(false, 2, "test".into());
     let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .position(|option| option.id == SettingId::PauseMenuOnFocusLost)
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 1));
     app.insert_resource(menu);
@@ -739,7 +740,7 @@ fn disabled_focus_pause_still_leaves_overlay_input_released() {
     let mut menu = MenuRuntime::new(false, 2, "test".into());
     let pause = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "pause_menu_on_focus_lost")
+        .position(|option| option.id == SettingId::PauseMenuOnFocusLost)
         .unwrap();
     menu.activate(MenuAction::SettingsOption(pause as u16, 0));
     app.insert_resource(menu);

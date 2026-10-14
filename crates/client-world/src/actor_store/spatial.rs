@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// Collision dimensions retain a small positive extent after server scaling.
+const MIN_COLLISION_DIMENSION: f32 = 0.005;
+
 impl ActorSnapshot {
     /// Feet-anchored `(min, max)` box with server scale applied once.
     /// Omitted dimensions retain the generic actor defaults independently.
@@ -34,25 +37,27 @@ impl ActorSnapshot {
         }
         let player = matches!(self.kind, ActorKind::Player { .. });
         let dimension = |key, default| match self.metadata.get(&key) {
-            Some(ActorMetadataValue::Float(value)) if value.is_finite() && *value > 0.0 => {
-                Some(*value)
-            }
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
             Some(ActorMetadataValue::Float(_)) => player.then_some(default),
             _ => Some(default),
         };
-        let scale = self.render_scale();
-        let half_width = dimension(
+        let scale = match self.metadata.get(&SCALE_METADATA_KEY) {
+            Some(ActorMetadataValue::Float(value)) => *value,
+            _ => 1.0,
+        };
+        let width = dimension(
             BOUNDING_BOX_WIDTH_METADATA_KEY,
             DEFAULT_ACTOR_COLLISION_WIDTH,
-        )? * scale
-            * 0.5;
+        )? * scale;
         let height = dimension(
             BOUNDING_BOX_HEIGHT_METADATA_KEY,
             DEFAULT_ACTOR_COLLISION_HEIGHT,
         )? * scale;
-        if !half_width.is_finite() || !height.is_finite() {
+        if !width.is_finite() || !height.is_finite() {
             return None;
         }
+        let half_width = width.max(MIN_COLLISION_DIMENSION) * 0.5;
+        let height = height.max(MIN_COLLISION_DIMENSION);
         let [x, y, z] = position;
         Some((
             [x - half_width, y, z - half_width],
@@ -141,3 +146,7 @@ impl ActorSnapshot {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "spatial_tests.rs"]
+mod tests;

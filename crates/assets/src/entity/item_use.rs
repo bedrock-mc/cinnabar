@@ -55,6 +55,7 @@ pub enum ItemUseKind {
     Throw,
     Crossbow,
     None,
+    GlideRocket,
 }
 
 /// Stack-dependent duration rules contain no identifier routing.

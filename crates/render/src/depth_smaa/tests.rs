@@ -2,7 +2,7 @@ use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
 #[path = "raster_tests.rs"]
-mod raster_tests;
+pub(crate) mod raster_tests;
 
 #[test]
 fn depth_smaa_unchanged_filter_sync_allocates_nothing() {

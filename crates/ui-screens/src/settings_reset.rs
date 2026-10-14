@@ -1,7 +1,7 @@
 //! Host routing for the pack's three reset_settings buttons.
 
 use json_ui::HitRegion;
-use launcher::menu::settings_sections::SETTINGS_SECTIONS;
+use launcher::menu::settings_sections::SettingSection;
 use launcher::menu::{MenuAction, MenuView, settings_options::SettingsGroup};
 use ui_engine::engine::screen::{Translate, translated};
 
@@ -10,16 +10,12 @@ pub(super) fn action(view: &MenuView, region: &HitRegion) -> Option<MenuAction> 
     if region.pressed.as_deref() != Some("button.reset_settings") {
         return None;
     }
-    let section = SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*index == view.settings_section).then_some(*name));
-    let group = match section {
-        Some("video_forced_index") => SettingsGroup::Video,
-        None if view.settings_section == 0 => SettingsGroup::Video,
-        Some("accessibility_forced_index") => SettingsGroup::Accessibility,
-        Some("sound_forced_index") => SettingsGroup::Audio,
-        _ => return None,
+    let section = if view.settings_section == 0 {
+        SettingSection::Video
+    } else {
+        SettingSection::from_index(view.settings_section)?
     };
+    let group = section.definition().reset_group?;
     Some(MenuAction::SettingsResetGroup(group))
 }
 

@@ -2,6 +2,8 @@ use super::*;
 use crate::tick::WeightedClip;
 use assets::{EntityAnimationProperty, RuntimeEntityAssets};
 
+mod frame_tests;
+
 /// A player double with no item use or special posture.
 fn player() -> TestActor {
     TestActor {
@@ -68,6 +70,7 @@ fn sample(
     };
     let evaluator = Evaluator {
         assets: &assets,
+        pack: false,
         layout: &layout,
         program: None,
         actor,

@@ -4,6 +4,7 @@ use crate::{
     audio_ingress::SequencedAudioEvent, named_audio::AudioDevice,
     observations::CollisionLookup as PhysicsCollisionRegistries,
 };
+use assets::audio_category::AudioCategory;
 
 use std::collections::HashSet;
 
@@ -19,7 +20,7 @@ use super::{
     engine::{AudioEngine, LoopSpec, SoundRequest},
     local::{LocalCue, LocalMotion, MotionSample},
     route,
-    settings::{AudioCategory, AudioSettings},
+    settings::AudioSettings,
 };
 
 const PLAYER: &str = "minecraft:player";
@@ -232,7 +233,18 @@ pub fn ingest_audio_events(
                 let request = engine
                     .bank()
                     .and_then(|bank| route::level_sound_request(bank.tables(), level, &lookup));
-                if request.is_some() && !admit_level_echo(&mut engine, level) {
+                let admitted = request.is_none()
+                    || if event.client_generated {
+                        engine.admit_echo(
+                            EchoOrigin::Client,
+                            level.sound_event.as_ref(),
+                            launch_subject(level),
+                            ACTOR_ECHO_SECONDS,
+                        )
+                    } else {
+                        admit_level_echo(&mut engine, level)
+                    };
+                if request.is_some() && !admitted {
                     continue;
                 }
                 if level.sound_event.as_ref() == "thunder" {
@@ -279,6 +291,16 @@ fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent)
             EchoSubject::Cell(cell),
             BLOCK_ECHO_SECONDS,
         )
+    } else if name == client_world::ROCKET_LAUNCH_EVENT
+        && (level.actor_identifier.is_empty()
+            || level.actor_identifier.as_ref() == client_world::FIREWORK_ROCKET_IDENTIFIER)
+    {
+        engine.admit_echo(
+            EchoOrigin::Packet,
+            name,
+            launch_subject(level),
+            ACTOR_ECHO_SECONDS,
+        )
     } else if ECHOED_ACTOR_EVENTS.contains(&name) {
         engine.admit_echo(
             EchoOrigin::Packet,
@@ -288,6 +310,16 @@ fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent)
         )
     } else {
         true
+    }
+}
+
+/// Keeps launch echoes tied to a named actor, or exact coordinates for anonymous packets.
+fn launch_subject(level: &protocol::LevelAudioEvent) -> EchoSubject {
+    EchoSubject::ActorAt {
+        unique_id: level.actor_unique_id,
+        position: level
+            .position
+            .map(|axis| if axis == 0.0 { 0 } else { axis.to_bits() }),
     }
 }
 
@@ -739,6 +771,7 @@ mod tests {
 
     fn event(sequence: u64, dimension: i32, dimension_epoch: u64) -> SequencedAudioEvent {
         SequencedAudioEvent {
+            client_generated: false,
             actor_synchronization: None,
             origin_stream_session_id: 1,
             sequence,
@@ -749,6 +782,88 @@ mod tests {
                 stop_all_sounds: false,
                 stop_music_legacy: false,
             }),
+        }
+    }
+
+    #[test]
+    fn rocket_launch_audio_pairs_client_and_packet_without_suppressing_packet_repeats() {
+        let mut engine = AudioEngine::default();
+        let mut launch = protocol::LevelAudioEvent {
+            sound_event: "launch".into(),
+            position: [1.0, 2.0, 3.0],
+            data: -1,
+            actor_identifier: "minecraft:fireworks_rocket".into(),
+            is_baby: false,
+            is_global: false,
+            actor_unique_id: 17,
+            fire_at_position: None,
+        };
+        assert!(engine.admit_echo(
+            EchoOrigin::Client,
+            "launch",
+            EchoSubject::Actor(17),
+            ACTOR_ECHO_SECONDS
+        ));
+        assert!(
+            !admit_level_echo(&mut engine, &launch),
+            "the packet copy must not replay the actor cue"
+        );
+        assert!(
+            admit_level_echo(&mut engine, &launch),
+            "the consumed echo must preserve packet repeats"
+        );
+        assert!(
+            !engine.admit_echo(
+                EchoOrigin::Client,
+                "launch",
+                EchoSubject::Actor(17),
+                ACTOR_ECHO_SECONDS
+            ),
+            "packet-first delivery also pairs"
+        );
+        launch.actor_unique_id = 18;
+        assert!(admit_level_echo(&mut engine, &launch));
+        assert!(admit_level_echo(&mut engine, &launch));
+    }
+
+    #[test]
+    fn rocket_launch_audio_pairs_anonymous_packets_at_exact_positions_in_either_order() {
+        for packet_first in [false, true] {
+            let mut engine = AudioEngine::default();
+            let launch = protocol::LevelAudioEvent {
+                sound_event: client_world::ROCKET_LAUNCH_EVENT.into(),
+                position: [1.0, 2.0, 3.0],
+                data: -1,
+                actor_identifier: "".into(),
+                is_baby: false,
+                is_global: false,
+                actor_unique_id: -1,
+                fire_at_position: None,
+            };
+            let mut client = launch.clone();
+            client.actor_unique_id = 17;
+            let mut nearby = launch.clone();
+            nearby.position[0] += 0.125;
+            assert!(admit_level_echo(&mut engine, &nearby));
+            if packet_first {
+                assert!(admit_level_echo(&mut engine, &launch));
+                assert!(!engine.admit_echo(
+                    EchoOrigin::Client,
+                    client_world::ROCKET_LAUNCH_EVENT,
+                    launch_subject(&client),
+                    ACTOR_ECHO_SECONDS
+                ));
+            } else {
+                assert!(engine.admit_echo(
+                    EchoOrigin::Client,
+                    client_world::ROCKET_LAUNCH_EVENT,
+                    launch_subject(&client),
+                    ACTOR_ECHO_SECONDS
+                ));
+                assert!(!admit_level_echo(&mut engine, &launch));
+            }
+            assert!(admit_level_echo(&mut engine, &launch));
+            assert!(admit_level_echo(&mut engine, &launch));
         }
     }
 

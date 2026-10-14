@@ -10,6 +10,8 @@ use bevy::math::Mat4;
 use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 
 #[cfg(test)]
+mod item_switch_tests;
+#[cfg(test)]
 mod lighting_tests;
 mod native_pose;
 #[cfg(test)]
@@ -390,6 +392,9 @@ pub(super) fn source(
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
+    let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
+    let rig = inputs.stream.authority().actor_rig(runtime_id)?;
+    cache.remember(&rig, inputs.equipment_input.main.as_ref());
     if java_mode
         && let Some(source) = java::hand_source(
             HandInputs {
@@ -402,26 +407,38 @@ pub(super) fn source(
     {
         return Some(source);
     }
-    let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
-    let hand = inputs.stream.authority().actor_rig(runtime_id).map_or(
-        FirstPersonHand {
-            swing: 0.0,
-            equip: 1.0,
-            consume: None,
+    let mut hand = hand_progress(rig.hand, inputs.consume_ticks, inputs.alpha);
+    let alpha = rig.java.local_swing_alpha.unwrap_or(inputs.alpha);
+    hand.swing = hand_progress(rig.hand, None, alpha).swing;
+    hand.consume =
+        local_consume(inputs.item_animation.as_ref(), inputs.consume_ticks).or(hand.consume);
+    let rendered = ActorEquipmentInput {
+        main: cache
+            .native_displayed_main(rig.main_hand_equipped, inputs.equipment_input.main.as_ref()),
+        ..inputs.equipment_input.clone()
+    };
+    if rendered.main.as_ref().map(|item| &item.identifier)
+        != inputs
+            .owner_equipment
+            .main
+            .as_ref()
+            .map(|item| &item.identifier)
+    {
+        hand.consume = None;
+    }
+    vanilla_hand_source(
+        HandInputs {
+            equipment_input: &rendered,
+            ..inputs
         },
-        |rig| {
-            let mut hand = hand_progress(rig.hand, inputs.consume_ticks, inputs.alpha);
-            let alpha = rig.java.local_swing_alpha.unwrap_or(inputs.alpha);
-            hand.swing = hand_progress(rig.hand, None, alpha).swing;
-            hand.consume = local_consume(inputs.item_animation.as_ref(), inputs.consume_ticks)
-                .or(hand.consume);
-            hand
-        },
-    );
-    vanilla_hand_source(inputs, equipment, hand, &mut cache.native_pose, java_mode)
+        equipment,
+        hand,
+        &mut cache.native_pose,
+        java_mode,
+    )
 }
 
-type AnimationFrameKey = (u32, Option<u32>, u32, bool);
+type AnimationFrameKey = (u32, Option<u32>, u32, bool, u32);
 
 /// Local hand source inputs whose changes require reselection after interaction admission.
 #[derive(PartialEq)]
@@ -431,6 +448,7 @@ pub(super) struct SourceKey {
     hand: [actor_animation::HandPhase; 2],
     java: actor_animation::JavaMotion,
     sampled_swing: [f32; 2],
+    sampled_equip: [f32; 2],
     /// The eat or drink position moves every frame, between the ticks the other fields follow.
     sampled_consume: Option<(f32, f32)>,
     sampled_body_yaw: f32,
@@ -458,6 +476,10 @@ pub(super) fn source_key(
             hand_progress(rig.hand, None, swing_alpha).swing,
             rig.java.swing_progress(alpha),
         ],
+        sampled_equip: [
+            hand_progress(rig.hand, None, alpha).equip,
+            rig.java.equip[0] + (rig.java.equip[1] - rig.java.equip[0]) * alpha,
+        ],
         sampled_consume: local_consume(animation.as_ref(), consume),
         lifetime: rig.actor,
         bones: [rig.previous, rig.current].map(|bones| (bones.as_ptr() as usize, bones.len())),
@@ -472,6 +494,7 @@ pub(super) fn source_key(
                     input.use_elapsed_ticks,
                     input.max_use_ticks,
                     input.hand_charged,
+                    input.frame_alpha.to_bits(),
                 )
             }),
         ),

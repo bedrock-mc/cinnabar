@@ -9,7 +9,10 @@ use ui::UiAction;
 use super::*;
 
 #[path = "../../tests/support/ui_events.rs"]
-#[allow(dead_code, reason = "shared with the integration target, which uses more fixtures")]
+#[allow(
+    dead_code,
+    reason = "shared with the integration target, which uses more fixtures"
+)]
 mod fixtures;
 use fixtures::{envelope, raw_text_event};
 
@@ -78,5 +81,6 @@ mod chat_tests;
 mod container_address_tests;
 mod gameplay_hud_tests;
 mod inventory_overlay_tests;
+mod inventory_timeout_tests;
 mod localized_text_tests;
 mod retained_bounds_tests;

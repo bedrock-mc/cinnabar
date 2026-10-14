@@ -1,6 +1,7 @@
 //! Physical modifiers survive gameplay-button resets while chat or mod screens own input.
 use super::*;
 
+use launcher::menu::settings_options::BindingId;
 const MODIFIERS: [KeyCode; 8] = [
     KeyCode::ControlLeft,
     KeyCode::ControlRight,
@@ -60,9 +61,9 @@ pub(crate) fn command_key(
     input: &KeyboardInput,
 ) -> bool {
     use client_shell::menu::settings_options::control_bindings::named_control;
-    binding_key(menu, "key.command", input.key_code)
+    binding_key(menu, BindingId::Command, input.key_code)
         || (input.text.as_deref() == Some("/")
-            && named_control(menu, "key.command") == named_control(None, "key.command"))
+            && named_control(menu, BindingId::Command) == named_control(None, BindingId::Command))
 }
 
 /// Whether `key` edits chat by whole words when the word-edit modifier is held.

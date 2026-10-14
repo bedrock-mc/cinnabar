@@ -12,6 +12,7 @@ use client_runtime::network::NetworkHandle;
 use client_runtime::session::{
     begin_session, format_transfer_address, release_off_frame, transfer_handoff_address,
 };
+use launcher::menu::settings_options::SettingId;
 use launcher_host::{
     core_process::{CoreProcessGuard, spawn_core_for_address},
     server_trust::SessionTrust,
@@ -116,7 +117,6 @@ impl SessionController {
     }
 
     /// Stable selected destination, kept independent from invites and transient session ids.
-    #[cfg(feature = "local-mods")]
     pub(crate) fn destination_identity(&self) -> Option<&str> {
         self.destination_identity.as_deref()
     }
@@ -285,6 +285,7 @@ pub(crate) struct SessionResources<'w> {
     actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
+    far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
 }
 
 impl SessionResources<'_> {
@@ -311,6 +312,11 @@ impl SessionResources<'_> {
         let generation = controller.next_generation();
         self.resource_packs.begin_generation(generation);
         begin_session(&mut self.runtime, &mut self.player_runtime, generation);
+        if let (Some(far), Some(stream)) =
+            (self.far_terrain.as_mut(), self.client_world.stream.as_mut())
+        {
+            far.retire_stream(stream);
+        }
         release_off_frame((
             self.client_world.stream.take(),
             self.client_world.pack_entities.take(),
@@ -510,8 +516,8 @@ pub(crate) fn login_settings(
             }),
         gui_scale_offset: menu.gui_scale_offset(),
         memory_tier: protocol::login_memory_tier(launcher_host::memory::physical_bytes()),
-        graphics_mode: u8::from(menu.settings_snapshot().0.value("graphics_mode") != 0),
-        filter_profanity: menu.settings_snapshot().0.value("filter_profanity") != 0,
+        graphics_mode: u8::from(menu.settings_snapshot().0.value(SettingId::GraphicsMode) != 0),
+        filter_profanity: menu.settings_snapshot().0.value(SettingId::FilterProfanity) != 0,
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
     }
 }
@@ -751,7 +757,7 @@ mod tests {
 
         let index = SETTINGS_OPTIONS
             .iter()
-            .position(|option| option.name == "filter_profanity")
+            .position(|option| option.id == SettingId::FilterProfanity)
             .unwrap();
         for filter_profanity in [false, true] {
             let layout =

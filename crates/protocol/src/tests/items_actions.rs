@@ -1,8 +1,9 @@
-use bedrock_protocol_1_26_51::enums::AnimateAction as AnimatePacketAction;
+use bedrock_protocol_1_26_51::enums::{ActorEventType, AnimateAction as AnimatePacketAction};
 use bedrock_protocol_1_26_51::packets::{
-    AddActor as AddActorPacket, AddPlayer as AddPlayerPacket, Animate as AnimatePacket,
-    AnimateEntity as AnimateEntityPacket, ItemRegistry as ItemRegistryPacket,
-    MobEquipment as MobEquipmentPacket, NetworkSettings as NetworkSettingsPacket,
+    ActorEvent as ActorEventPacket, AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
+    Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
+    ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
+    NetworkSettings as NetworkSettingsPacket,
 };
 use bedrock_protocol_1_26_51::types::{
     ActorRuntimeID, ItemData, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
@@ -251,7 +252,51 @@ fn animate_known_row_and_unknown_actions_are_attributed() {
         assert_eq!(action.actor_runtime_ids.as_ref(), &[42]);
         assert_eq!(action.kind, expected);
         assert_eq!(action.data, 0.25);
+        assert_eq!(action.swing_source.as_deref(), Some("attack"));
     }
+}
+
+#[test]
+fn actor_attack_events_reach_the_shared_swing_path() {
+    for id in [42, u64::MAX] {
+        let packet = ActorEventPacket {
+            target_runtime_id: ActorRuntimeID(id),
+            event_id: ActorEventType::StartAttacking,
+            data: wire::ZigZag32(i32::MAX),
+            ..Default::default()
+        };
+        let bytes = protocol::encode(&protocol::Packet::new(packet)).unwrap();
+        let packet = protocol::decode_batch(bytes).unwrap().remove(0);
+        let WorldEvent::ItemActor(ItemActorEvent::Action(action)) =
+            into_world_event(packet, 0).unwrap().unwrap()
+        else {
+            panic!("expected arm swing from attack event");
+        };
+        assert_eq!(action.actor_runtime_ids.as_ref(), &[id]);
+        assert_eq!(action.kind, ActorActionKind::SwingArm);
+        assert_eq!(action.data, 0.0);
+        assert_eq!(action.swing_source, None);
+    }
+    for event_id in [ActorEventType::StopAttacking, ActorEventType::Unknown(200)] {
+        let packet = ActorEventPacket {
+            target_runtime_id: ActorRuntimeID(42),
+            event_id,
+            ..Default::default()
+        };
+        assert_eq!(
+            into_world_event(protocol::Packet::new(packet), 0).unwrap(),
+            None
+        );
+    }
+}
+
+#[test]
+fn actor_attack_events_reject_zero_runtime_ids() {
+    let packet = ActorEventPacket {
+        event_id: ActorEventType::StartAttacking,
+        ..Default::default()
+    };
+    assert!(into_world_event(protocol::Packet::new(packet), 0).is_err());
 }
 
 #[test]

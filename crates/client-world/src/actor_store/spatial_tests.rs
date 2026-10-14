@@ -1,0 +1,57 @@
+use super::*;
+use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent};
+
+#[test]
+fn zero_dimensions_and_scale_keep_the_minimum_collision_box() {
+    for player in [false, true] {
+        for (width, height, scale) in [
+            (0.0, 0.0, 1.0),
+            (0.6, 1.8, 0.0),
+            (0.6, 1.8, -1.0),
+            (-1.0, -2.0, 1.0),
+        ] {
+            let ActorEvent::Spawn(mut spawn) = super::super::tests::spawn(1, 1) else {
+                unreachable!();
+            };
+            spawn.position = [0.0; 3];
+            if player {
+                spawn.kind = ActorKind::Player {
+                    uuid: [1; 16],
+                    username: "Remote".into(),
+                };
+            }
+            let mut store = ActorStore::new(1, 0);
+            store.apply(1, 1, ActorEvent::Spawn(spawn));
+            store.apply(
+                1,
+                2,
+                ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: [
+                        ActorMetadata {
+                            key: BOUNDING_BOX_WIDTH_METADATA_KEY,
+                            value: ActorMetadataValue::Float(width),
+                        },
+                        ActorMetadata {
+                            key: BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                            value: ActorMetadataValue::Float(height),
+                        },
+                        ActorMetadata {
+                            key: SCALE_METADATA_KEY,
+                            value: ActorMetadataValue::Float(scale),
+                        },
+                    ]
+                    .into(),
+                    properties: [].into(),
+                    tick: 0,
+                }),
+            );
+            let actor = store.get(1).unwrap();
+            let half = MIN_COLLISION_DIMENSION * 0.5;
+            let expected = ([-half, 0.0, -half], [half, MIN_COLLISION_DIMENSION, half]);
+            assert_eq!(actor.bounding_box(), Some(expected));
+            assert_eq!(actor.hit_boxes().collect::<Vec<_>>(), [expected]);
+        }
+    }
+}

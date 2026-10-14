@@ -1,3 +1,53 @@
+## Far terrain (LOD)
+
+`far-terrain` summarises each column the server sent: the height of every cell's highest
+visible block, its average texture colour tinted by biome, and any water depth, with water
+blended over its floor. World workers summarise a column when all of its sections have arrived,
+including a resend, and again as it retires, so local edits are kept. Summaries hash their
+content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
+compressed under a byte budget and drops the least recently used first. All bounds live in
+`far_terrain::config`.
+
+Summaries persist under the user data root in 32×32-column region files, namespaced by a
+hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
+Before reusing a namespace, the first non-empty columns received are compared with it (or
+whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
+reuse coordinates for different maps keep them apart. Columns show from memory before that, a
+disk read never replaces a newer column, and a retired session's late summaries never replace
+a later visit's. Transfers and dimension changes switch namespace. An IO thread writes each region in
+batches and evicts the least recently used regions past the per-server (64 MiB) and global
+(512 MiB) caps.
+
+The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
+1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
+near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
+ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
+the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
+keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
+the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
+terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
+far the player sees: far terrain fills the gap between what the server sends and the render
+distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
+Terrain (LOD) is Auto (the default), On or Off. Auto runs it only when the render distance
+exceeds the tier's automatic full-detail radius; below that nothing of it runs. An earlier
+saved on/off reads as On/Auto.
+
+With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
+the rest of what the server sends keeps its block data and is drawn by far terrain from its
+summary. The radius is Auto by device tier (24, 32 or 48 chunks) or set under Video › Advanced
+(16–64), capped at the render distance, so large render distances cost far tiles rather than
+meshes. A column is promoted (relit and remeshed) inside the radius and demoted two chunks past
+it. Both hand-overs are two-phase: a promoted column passes to near terrain only once its
+meshes are published, and a demoted one keeps its meshes until its fresh summary is delivered
+and its far tile is built. Block changes re-summarise their column, and turning far terrain off
+keeps it shown until near terrain draws every loaded column, so no change opens a hole. Entities keep their 12-chunk render distance, inside the smallest
+radius.
+
+Incomplete: the far-terrain look (cell colours, height aggregation and water blending) is held
+for owner review. Enhanced rendering lights far terrain with the vanilla path,
+and block light, clouds and weather do not reach it. No parity gate closes here.
+
 ## Experimental Android client
 
 `packaging/android/build-apk.sh` builds an arm64-v8a APK holding the client library, the Go
@@ -426,8 +476,16 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   visual extension; classic Bedrock has no motion blur. Gameplay and network state do not change.
 - Depth reprojection blurs camera rotation/translation before nametags, projected UI, hands and HUD.
   Exposure uses elapsed frame time; explicit reanchors suppress the discontinuity frame.
-- Per-object blur remains incomplete and needs motion vectors from every world renderer.
-  Hardware GPU cost and frame-budget acceptance remain unmeasured; no performance gate closes.
+  Spatial anti-aliasing follows exposure so filtered silhouette colour retains the actor's sharp edge.
+- Depth-writing actors retain their previous rendered root and interpolated bone pose for object
+  exposure. Actor texels establish visible motion footprints in the background while
+  retaining stationary actor edges and nearer occluders. The motion pass preserves camera depth ranges.
+  Mixed MSAA texels with nearer non-actor samples retain their resolved colour at the source;
+  separating the actor's colour for exposure remains incomplete.
+- Per-object blur remains incomplete for blended actors and other world renderers. Hidden background
+  reconstruction, competing object velocities in a search neighbourhood, and matched flight acceptance
+  remain open. Enabled views retain a reduced actor velocity target. Hardware GPU cost and frame-budget
+  acceptance remain unmeasured; no performance gate closes.
 
 ## Item frames
 
@@ -478,6 +536,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   Home fits short windows without scrolling; Pause scales its controls when needed. Geometry
   regressions are written; CI and owner visual acceptance of the sizing change remain pending.
 - Persistent Dark Mode defaults off, updates immediately and strengthens backdrop dimming.
+  Extra large new UI applies an additional scale step to menu geometry, text and hit targets,
+  independently of the ordinary GUI preference. Incomplete: exact-target sizing parity and
+  rendered/input acceptance remain unverified.
   Optional Screen animations controls quick hover/press feedback, selection, glimmers, text edits,
   screen changes, modal exits, pack accordions, scrolling and interpolated loading progress. Selected
   segmented choices remain lowered; hit targets remain stable and input applies immediately.
@@ -806,6 +867,10 @@ acceptance gate.
   profile takes precedence for view bob, hurt/death motion and glint. Third person: Java's
   biped pose, body yaw, limb swing with the hurt flail, held-item grips, the cape's chasing
   swing and the sneak drops; armour flashes red, held items do not.
+- Local eating and bow draw pair gameplay use ticks with the physics frame fraction;
+  bow artwork reads the same counter. Regression coverage checks frames between ticks,
+  differing actor fractions, stopping use and retained items. Compilation, test execution
+  and rendered motion validation for this correction remain incomplete.
 - Every hurt event immediately resets the limb boost, including consecutive hits; movement
   still contributes to the phase, and death alone does not trigger a flail.
   Fourteen focused hurt tests pass. macOS/Metal captures at 1920×1080, DPI 1, GUI scale 2
@@ -6244,6 +6309,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Rocket launch audio has a first-tick actor request with packet echo pairing. Integrated
+  audio acceptance, offhand air use and a comparison of boost timing and flight speed remain
+  incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
@@ -6710,6 +6778,20 @@ visual authority from the merge fix alone.
 
 Entity combat is part of this tranche and is strictly vanilla:
 
+Pick ranges, box inflation and the strict attack/occlusion margin use the native
+float limits. Personal reach requests can only shorten those limits. Fresh attack
+presses may each swing before the next tick advances the animation counter.
+The attack click is the world-space intercept of a float segment with the inflated
+pick box. Remote movement steps multiply by the rounded reciprocal tick count.
+Forced MoveActor updates below half a block interpolate in resident terrain;
+missing target columns snap. Scaled collision dimensions retain a 0.005 minimum.
+Latency probes share actor commit ordering, including parked movement and metadata.
+Incomplete: full pose-dependent reach, per-entity pick radii, catch-up-frame attack
+positions, specialized actor motion, and complete batch/latency timing still need
+end-to-end verification. Terrain availability during asynchronous chunk ingestion
+and native-origin rounding also remain unverified. These
+changes do not close the combat parity gate.
+
 - sample one immutable local eye/look pose, selected stack, actor snapshot,
   and collision/world identity for each attack decision;
 - ray-test against reviewed combat bounding boxes, choose the nearest valid
@@ -6942,7 +7024,7 @@ multiplicatively and are the required approach, not suggestions:
    minimum target adapter, otherwise at most two equal-format array pages in the same shared
    bind group. More pages, frame dropping, or silent animation degradation are forbidden.
 
-Explicitly deferred past v1: distant-chunk LODs (not needed at a 16-chunk radius), GPU
+Explicitly deferred past v1: GPU
 occlusion queries (cave culling suffices), and mesh shaders.
 
 Resource budget (tracked from Phase 2 onward; reference machine class = Ryzen 5 3600 / mid
@@ -7271,6 +7353,9 @@ and exhaustive Windows-versus-host sinf bit equivalence still need validation.
 Water acceleration now multiplies the effective Depth Strider level before dividing by
 its maximum.
 Collision flags use the native float epsilon, with exact boundary witnesses.
+Processed control limits, block-height contact, support offsets, climb requests and
+fallback travel drag now round within the same f32 simulation boundaries. New
+precision regressions await CI; these changes do not close D01.
 
 ### Registry collision continuation (2026-10-02)
 

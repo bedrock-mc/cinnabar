@@ -26,7 +26,7 @@ pub use predicted::LocalBlockCue;
 pub use server::{SERVER_SOUNDS_TEST_LOCK, current_generation as server_sounds_generation};
 pub use server::{ServerSoundPack, publish_server_sounds};
 #[allow(unused_imports)]
-pub use settings::{AudioCategory, AudioSettings};
+pub use settings::AudioSettings;
 #[allow(unused_imports)]
 pub use systems::UiSoundCue;
 pub use voice::OUTPUT_RATE;

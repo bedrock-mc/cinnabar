@@ -359,7 +359,9 @@ layout, branding and navigation state remain in that guest.
 
 `gameplay.set-attack-reach` requests a current-frame actor selection/admission
 range up to `mod_api::MAX_ENTITY_REACH_BLOCKS`. It preserves obstruction checks
-and normal attack transactions; the server still decides whether a hit is valid.
+and normal attack transactions. The client caps the request at the current game
+mode's attack reach and the input mode's pick range, so an override can only
+shorten either limit. The server still decides whether a hit is valid.
 `gameplay.pulse-attack` requests one press only while the captured semantic Attack
 action is physically held. Neither operation synthesizes OS input. These requests
 commit after a successful guest callback and expire each frame.

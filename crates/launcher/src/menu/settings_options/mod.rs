@@ -1,6 +1,7 @@
 //! Persisted launcher options and engine-independent input bindings.
 
 pub mod antialiasing;
+pub mod bindings;
 pub mod chat;
 pub mod command_macros;
 pub mod control_bindings;
@@ -8,6 +9,7 @@ pub mod definitions;
 pub mod emotes;
 pub mod keybindings;
 pub mod language;
+pub mod layout;
 pub mod persistence;
 pub mod render_distance;
 pub mod reset;
@@ -16,36 +18,41 @@ pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
 #[cfg(test)]
+mod registry_tests;
+#[cfg(test)]
 mod tests;
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+pub use bindings::{BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS};
 pub use command_macros::{
     COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
     macro_title,
 };
-pub use control_bindings::{
-    EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, gamepad_icon,
-};
+pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
     ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, DISCORD_PRESENCE_OPTION,
-    FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE,
-    MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
-    NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition,
-    SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    FAR_TERRAIN_CHOICES, FAR_TERRAIN_OPTION, FRAME_RATE_UNLIMITED, FULL_DETAIL_DISTANCE_OPTION,
+    INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE,
+    MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
+    SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
+    THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VRR_CHOICES, VRR_OPTION,
+    full_detail_label,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
-    DEBUG_OVERLAY_KEY, KEY_BINDINGS, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label,
-    key_name,
+    DEBUG_OVERLAY_KEY, OPEN_NOTIFICATION_KEY, PLAYER_LIST_KEY, custom_key_label, key_name,
 };
 pub use persistence::{SETTINGS_FILE, SETTINGS_SCHEMA};
 pub use runtime::{frame_rate_label, frame_rate_limit};
 
-pub const SHOW_EXACT_SERVER_PING: &str = "show_exact_server_ping";
-pub const OREUI_DARK_MODE: &str = "oreui_dark_mode";
+/// Persisted toggle shared by the new UI's sizing and settings controls.
+pub const EXTRA_LARGE_UI: &str = SettingId::GuiAccessibilityScaling.name();
+
+pub const SHOW_EXACT_SERVER_PING: &str = SettingId::ShowExactServerPing.name();
+pub const OREUI_DARK_MODE: &str = SettingId::OreuiDarkMode.name();
 
 /// One stored option, including whether the player has made an explicit choice.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -118,10 +125,10 @@ impl SettingsOptions {
     /// The saved check preference, quit-time opt-in and selected release channel.
     pub fn update_preferences(&self) -> super::updates::Preferences {
         super::updates::Preferences {
-            checks: self.value(AUTO_UPDATE_OPTION.name) != 0,
-            install_on_quit: self.value(INSTALL_ON_QUIT_OPTION.name) != 0,
+            checks: self.value(AUTO_UPDATE_OPTION.id) != 0,
+            install_on_quit: self.value(INSTALL_ON_QUIT_OPTION.id) != 0,
             channel: update_manifest::channel::Channel::ALL
-                .get(self.value(UPDATE_CHANNEL_OPTION.name) as usize)
+                .get(self.value(UPDATE_CHANNEL_OPTION.id) as usize)
                 .copied()
                 .filter(|channel| channel.is_published())
                 .unwrap_or_default(),
@@ -137,11 +144,16 @@ impl SettingsOptions {
     }
 
     pub fn exact_server_ping(&self) -> bool {
-        self.value(SHOW_EXACT_SERVER_PING) != 0
+        self.value(SettingId::ShowExactServerPing) != 0
     }
 
     pub fn oreui_dark_mode(&self) -> bool {
-        self.value(OREUI_DARK_MODE) != 0
+        self.value(SettingId::OreuiDarkMode) != 0
+    }
+
+    /// Whether new menu screens use the additional accessibility scale step.
+    pub fn extra_large_ui(&self) -> bool {
+        self.value(SettingId::GuiAccessibilityScaling) != 0
     }
 
     /// Returns the saved value, or the registry default for an untouched option.
@@ -154,19 +166,21 @@ impl SettingsOptions {
             .get(definition.name)
             .copied()
             .unwrap_or_else(|| self.option_default(definition));
-        if definition.name == "msaa" {
+        if definition.id == SettingId::Msaa {
             self.anti_aliasing_support.select(value.max(1) as u32) as i32
         } else {
             value
         }
     }
 
-    /// Looks up a runtime setting by its JSON-UI controller name.
-    pub fn value(&self, name: &str) -> i32 {
-        SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-            .map_or(0, |index| self.get(index))
+    /// Reads a registered runtime setting without a fallible name lookup.
+    ///
+    /// ```compile_fail
+    /// let options = launcher::menu::settings_options::SettingsOptions::default();
+    /// options.value("hide_hud");
+    /// ```
+    pub fn value(&self, id: SettingId) -> i32 {
+        self.get(id.index())
     }
 
     /// Validates and snaps a UI or persisted value to its declared range.
@@ -174,9 +188,12 @@ impl SettingsOptions {
         let Some(definition) = SETTINGS_OPTIONS.get(index) else {
             return false;
         };
+        if matches!(definition.kind, SettingKind::Host) {
+            return false;
+        }
         let value = value.clamp(definition.min, definition.max);
         let value = definition.min + ((value - definition.min) / definition.step) * definition.step;
-        let value = if definition.name == "msaa" {
+        let value = if definition.id == SettingId::Msaa {
             self.anti_aliasing_support
                 .counts()
                 .min_by_key(|samples| samples.abs_diff(value as u32))
@@ -190,7 +207,8 @@ impl SettingsOptions {
             .copied()
             .unwrap_or_else(|| self.option_default(definition))
             == value
-            && (definition.name != "render_distance" || self.values.contains_key(definition.name))
+            && (definition.id != SettingId::RenderDistance
+                || self.values.contains_key(definition.name))
         {
             return false;
         }
@@ -199,17 +217,9 @@ impl SettingsOptions {
     }
 }
 
-/// Sound options shared by reset logic and the host mixer adapter.
-pub const VOLUME_SETTINGS: [&str; 11] = [
-    "main_volume",
-    "music_volume",
-    "sound_volume",
-    "ambient_volume",
-    "block_volume",
-    "hostile_volume",
-    "neutral_volume",
-    "player_volume",
-    "record_volume",
-    "weather_volume",
-    "texttospeech_volume",
-];
+/// Returns sound rows together with their category, independent of registry order.
+pub fn volume_settings() -> impl Iterator<Item = &'static SettingDefinition> {
+    SETTINGS_OPTIONS
+        .iter()
+        .filter(|option| option.volume.is_some())
+}
