@@ -106,8 +106,15 @@ impl UiPresentationRuntime {
         self.projections.oreui_slider_tracks = geometry.slider_tracks;
         self.projections.menu_focus_geometry = geometry.focus_targets;
         self.projections.menu_focus_landmarks = geometry.focus_landmarks;
-        self.menu_scrolls
-            .set_areas(std::mem::take(&mut paint.scrolls));
+        let popup_owns_scrolls = view.out_of_game()
+            && (view.dialog.is_some()
+                || view.server_trust_prompt().is_some()
+                || view.join_request_prompt().is_some());
+        // Repainting the underlying route must not discard the popup's wheel animation.
+        if !popup_owns_scrolls {
+            self.menu_scrolls
+                .set_areas(std::mem::take(&mut paint.scrolls));
+        }
         self.add_menu_text_spots(std::mem::take(&mut paint.spots));
         if let Some(preview) = paint.character_preview.take() {
             self.append_menu_player_preview(

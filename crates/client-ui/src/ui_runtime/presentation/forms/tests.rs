@@ -944,12 +944,13 @@ fn fallback_form_preserves_host_owned_presentation_state() {
 }
 
 #[test]
-fn review_failed_menu_modal_does_not_expose_underlying_actions() {
+fn failed_session_menu_modal_does_not_expose_underlying_actions() {
     use launcher::menu::{MenuDialog, MenuScreen};
     let player_runtime = player_state::PlayerState::new(1);
     let mut presentation = mini_engine_presentation();
     let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.screen = MenuScreen::Play;
+    view.over_world = true;
     presentation.set_menu_view(Some(view.clone()));
     presentation
         .build(

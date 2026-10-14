@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 /// Creates a self-contained session carrier whose fallback labels expose an incorrect renderer route.
 fn presentation() -> UiPresentationRuntime {
-    let files = [
+    let mut files = [
         ("ui/_global_variables.json", "{}"),
         ("ui/_ui_defs.json", r#"{"ui_defs":["ui/settings_screen.json","ui/death_screen.json","ui/popup_dialog.json"]}"#),
         ("ui/settings_screen.json", r#"{"namespace":"settings","screen_controls_and_settings":{"type":"screen","controls":[{"marker":{"type":"label","text":"JSON settings fallback","localize":false,"size":[200,20]}}]}}"#),
         ("ui/death_screen.json", r#"{"namespace":"death","death_screen":{"type":"screen","controls":[{"marker":{"type":"label","text":"JSON death fallback","localize":false,"size":[200,20]}}]}}"#),
         ("ui/popup_dialog.json", r#"{"namespace":"popup_dialog","modal_dialog_popup":{"type":"panel","controls":[{"marker":{"type":"label","text":"session popup","localize":false,"size":[200,20]}}]}}"#),
     ].map(|(path, text)| UiFile { path: path.into(), bytes: text.as_bytes().into() });
+    files.sort_by(|left, right| left.path.cmp(&right.path));
     let bytes = encode_ui_catalog([1; 32], &[], &[], &[], &files).unwrap();
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();

@@ -162,8 +162,8 @@ fn question_body_top(nodes: &[ui::UiNode]) -> f32 {
         .expect("the question displays its body")
 }
 
-#[test]
-fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
+/// Opens a long carrier-free question with caller-selected wheel animation.
+fn long_question(animated: bool) -> super::super::UiPresentationRuntime {
     use launcher::menu::settings_options::SettingId;
     let mut presentation =
         super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
@@ -172,8 +172,15 @@ fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
     std::sync::Arc::make_mut(&mut view.storage).error =
         Some("Long notice: Please read this paragraph before continuing.\n".repeat(80));
     std::sync::Arc::make_mut(&mut view.settings_options)
-        .set(SettingId::ScreenAnimations.index(), 0);
+        .set(SettingId::ScreenAnimations.index(), i32::from(animated));
     presentation.set_menu_view(Some(view));
+    presentation
+}
+
+/// Paints the question and records body position and active answer bounds.
+fn paint_question(
+    presentation: &mut super::super::UiPresentationRuntime,
+) -> (f32, Vec<(MenuAction, ui::UiRect)>) {
     let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
         [1280, 720],
         DpiScale::new(1.0).unwrap(),
@@ -184,19 +191,46 @@ fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
     let hits = presentation
         .append_menu(&runtime, &mut nodes, &mut 1, metrics, 1280.0, 720.0)
         .unwrap();
-    let before = question_body_top(&nodes);
+    (question_body_top(&nodes), hits)
+}
+
+#[test]
+fn long_launcher_questions_scroll_without_moving_the_acknowledgement() {
+    let mut presentation = long_question(false);
+    let (before, hits) = paint_question(&mut presentation);
     assert!(
         presentation
             .menu_scrolls
             .wheel(ui::UiPoint::new(640.0, 360.0).unwrap(), -120.0, true)
     );
-    nodes.clear();
-    let after_hits = presentation
-        .append_menu(&runtime, &mut nodes, &mut 1, metrics, 1280.0, 720.0)
-        .unwrap();
-    assert!(question_body_top(&nodes) < before);
+    let (after, after_hits) = paint_question(&mut presentation);
+    assert!(after < before);
     assert_eq!(
         after_hits, hits,
         "the acknowledgement remains pinned while the text scrolls"
+    );
+}
+
+#[test]
+fn animated_launcher_questions_keep_scrolling_across_frames() {
+    let mut presentation = long_question(true);
+    presentation.menu_seconds = 1.0;
+    let (_, hits) = paint_question(&mut presentation);
+    assert!(
+        presentation
+            .menu_scrolls
+            .wheel(ui::UiPoint::new(640.0, 360.0).unwrap(), -120.0, true)
+    );
+    presentation.menu_seconds += 1.0 / 60.0;
+    let (first, _) = paint_question(&mut presentation);
+    presentation.menu_seconds += 1.0;
+    let (settled, after_hits) = paint_question(&mut presentation);
+    assert!(
+        settled < first,
+        "wheel motion must survive the underlying menu paint"
+    );
+    assert_eq!(
+        hits, after_hits,
+        "answers stay pinned throughout wheel motion"
     );
 }
