@@ -1,5 +1,37 @@
 use super::*;
 
+/// Missing frame boundaries cannot grow pending windows or hide dropped requests.
+#[test]
+fn pending_hitches_stay_bounded_without_frame_markers() {
+    let trace = FrameTrace::build(None, Instant::now(), 16);
+    let _ = std::thread::current().id();
+    let (_, allocations) = test_alloc::count(|| {
+        for frame_id in 1..=1000 {
+            trace.slow_frame(SlowFrameEvent {
+                frame_id,
+                hard_hitch: true,
+                reasons: 1,
+                frame: Duration::from_millis(40),
+            });
+        }
+    });
+    assert_eq!(allocations, 0);
+    {
+        let window = trace.events.lock().unwrap();
+        assert_eq!(window.pending.len(), MAX_PENDING_HITCHES);
+        assert_eq!(window.dropped_hitches, 1000 - MAX_PENDING_HITCHES as u64);
+    }
+    let reports = trace.take_hitches(None);
+    assert_eq!(reports.len(), MAX_PENDING_HITCHES);
+    for report in reports {
+        assert_eq!(
+            report.snapshot.json()["dropped_hitch_windows"],
+            1000 - MAX_PENDING_HITCHES
+        );
+        assert!(!report.post_complete);
+    }
+}
+
 /// Wraparound changes retained history without allocating or copying the ring's storage.
 #[test]
 fn rolling_records_allocate_nothing_after_startup() {

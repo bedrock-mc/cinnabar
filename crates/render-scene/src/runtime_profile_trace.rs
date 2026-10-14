@@ -21,6 +21,7 @@ const TRACE_CAPACITY_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
 const GAMEPLAY_CAPACITY: usize = 4096;
 const HITCH_PRE_FRAMES: u64 = 4;
 const HITCH_POST_FRAMES: u64 = 2;
+const MAX_PENDING_HITCHES: usize = HITCH_POST_FRAMES as usize + 1;
 
 /// Invalid or excessive requests retain the default bounded recording budget.
 fn trace_capacity(value: Option<&str>) -> usize {
@@ -70,6 +71,7 @@ struct TraceWindow {
     events: VecDeque<TraceEvent>,
     next_sequence: u64,
     pending: VecDeque<PendingHitch>,
+    dropped_hitches: u64,
 }
 
 impl TraceWindow {
@@ -129,7 +131,8 @@ impl FrameTrace {
             events: Mutex::new(TraceWindow {
                 events: VecDeque::with_capacity(capacity),
                 next_sequence: 0,
-                pending: VecDeque::with_capacity(HITCH_POST_FRAMES as usize + 1),
+                pending: VecDeque::with_capacity(MAX_PENDING_HITCHES),
+                dropped_hitches: 0,
             }),
         }
     }
@@ -190,6 +193,10 @@ impl FrameTrace {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if event.hard_hitch {
+            if window.pending.len() == MAX_PENDING_HITCHES {
+                window.pending.pop_front();
+                window.dropped_hitches += 1;
+            }
             let sequence = window.next_sequence;
             window.pending.push_back(PendingHitch {
                 frame_id: event.frame_id,
@@ -278,6 +285,7 @@ impl FrameTrace {
             capacity: window.events.capacity().min(limit),
             first_sequence: window.next_sequence - retained as u64,
             overwritten: window.overwritten(),
+            dropped_hitches: window.dropped_hitches,
             next_sequence: window.next_sequence,
             epoch_unix_nanos: self.epoch_unix_nanos,
             events: window
@@ -353,6 +361,7 @@ struct TraceSnapshot {
     capacity: usize,
     first_sequence: u64,
     overwritten: u64,
+    dropped_hitches: u64,
     next_sequence: u64,
     epoch_unix_nanos: u128,
     events: Vec<TraceEvent>,
@@ -396,6 +405,7 @@ impl TraceSnapshot {
         }).collect();
         json!({"capacity": self.capacity, "truncated": self.first_sequence != 0,
             "dropped_events": self.overwritten, "overwritten_events": self.overwritten,
+            "dropped_hitch_windows": self.dropped_hitches,
             "first_event_sequence": self.first_sequence, "omitted_events": self.first_sequence - self.overwritten, "next_event_sequence": self.next_sequence,
             "retained_events": events.len(), "epoch_unix_nanos": self.epoch_unix_nanos, "traceEvents": events})
     }
