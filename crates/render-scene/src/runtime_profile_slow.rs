@@ -23,11 +23,13 @@ const INTERVAL: u8 = 1;
 const MAIN: u8 = 1 << 1;
 const RENDER: u8 = 1 << 2;
 const GPU: u8 = 1 << 3;
-const REASONS: [(u8, &str); 4] = [
+const GPU_LATENCY: u8 = 1 << 4;
+const REASONS: [(u8, &str); 5] = [
     (INTERVAL, "interval"),
     (MAIN, "main"),
     (RENDER, "render"),
     (GPU, "gpu"),
+    (GPU_LATENCY, "gpu_latency"),
 ];
 
 /// Per-frame limits for one display interval T.
@@ -90,6 +92,7 @@ pub struct SlowFrameCounts {
     pub main: u64,
     pub render: u64,
     pub gpu: u64,
+    pub gpu_latency: u64,
     pub hitches: u64,
     pub hard_hitches: u64,
 }
@@ -102,6 +105,7 @@ impl SlowFrameCounts {
             (MAIN, &mut self.main),
             (RENDER, &mut self.render),
             (GPU, &mut self.gpu),
+            (GPU_LATENCY, &mut self.gpu_latency),
         ] {
             *count += u64::from(reasons & bit != 0);
         }
@@ -154,8 +158,8 @@ struct FrameWindow {
     suppressed: u64,
     sequence: u64,
     counts: SlowFrameCounts,
-    /// GPU frames over budget since the last line; each was counted on arrival.
-    gpu_pending: bool,
+    /// GPU and completion-latency reasons since the last line, counted on arrival.
+    gpu_pending: u8,
 }
 
 impl Default for FrameWindow {
@@ -170,7 +174,7 @@ impl Default for FrameWindow {
             suppressed: 0,
             sequence: 0,
             counts: SlowFrameCounts::default(),
-            gpu_pending: false,
+            gpu_pending: 0,
         }
     }
 }
@@ -193,15 +197,22 @@ impl SlowFrameRecorder {
             RuntimeStage::RenderFrame if elapsed > self.budgets().render_cpu => {
                 self.violations.fetch_or(RENDER, Ordering::Relaxed);
             }
-            RuntimeStage::GpuFrame if elapsed > self.budgets().gpu => {
+            RuntimeStage::GpuFrame | RuntimeStage::GpuFrameCompletionLatency
+                if elapsed > self.budgets().gpu =>
+            {
+                let reason = if stage == RuntimeStage::GpuFrame {
+                    GPU
+                } else {
+                    GPU_LATENCY
+                };
                 let mut frame = self
                     .frame
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                frame.counts.record(GPU);
-                frame.gpu_pending = true;
+                frame.counts.record(reason);
+                frame.gpu_pending |= reason;
                 return Some(SlowFrameEvent {
-                    reasons: GPU,
+                    reasons: reason,
                     frame: elapsed,
                 });
             }
@@ -284,9 +295,7 @@ impl FrameWindow {
                 self.counts.record(reasons);
                 SlowFrameEvent { reasons, frame: interval }
             });
-            if std::mem::take(&mut self.gpu_pending) {
-                reasons |= GPU;
-            }
+            reasons |= std::mem::take(&mut self.gpu_pending);
             if reasons == 0 {
                 return (None, None);
             }
@@ -509,6 +518,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn completion_latency_overruns_keep_their_own_reason_and_counter() {
+        let recorder = SlowFrameRecorder::default();
+        recorder.set_interval(Duration::from_secs_f64(1.0 / 120.0));
+        assert!(
+            recorder
+                .record(
+                    RuntimeStage::GpuFrameCompletionLatency,
+                    Duration::from_millis(5)
+                )
+                .is_none()
+        );
+        let event = recorder
+            .record(
+                RuntimeStage::GpuFrameCompletionLatency,
+                Duration::from_millis(7),
+            )
+            .unwrap();
+        assert_eq!(event.reasons(), "gpu_latency");
+        let counts = recorder.counts();
+        assert_eq!([counts.gpu, counts.gpu_latency, counts.slow], [0, 1, 1]);
+    }
+
     /// Several read-back GPU frames can land before one main-frame boundary.
     #[test]
     fn each_gpu_frame_over_budget_is_its_own_event() {
@@ -541,7 +573,7 @@ mod tests {
         let mut frame = FrameWindow {
             started: Some(now),
             main: Some((Duration::from_millis(1), [0; STAGES])),
-            gpu_pending: true,
+            gpu_pending: GPU,
             ..FrameWindow::default()
         };
         let budgets = at_hz(120.0);

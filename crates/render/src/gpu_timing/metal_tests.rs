@@ -1,8 +1,18 @@
 use super::*;
 use render_scene::RuntimeStage;
 
+/// Transfer workload for the frame completion regression.
+const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
+    metal_device_with_features(wgpu::Features::TIMESTAMP_QUERY)
+}
+
+/// Requests only the features needed by the hardware regression being run.
+pub(super) fn metal_device_with_features(
+    features: wgpu::Features,
+) -> Option<(RenderDevice, RenderQueue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::METAL,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -13,16 +23,107 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
         eprintln!("missing fixture: Metal adapter for GPU timestamp regression");
         return None;
     };
-    if !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+    if !adapter.features().contains(features) {
         eprintln!("missing fixture: Metal timestamp queries for GPU timestamp regression");
         return None;
     }
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_features: wgpu::Features::TIMESTAMP_QUERY,
+        required_features: features,
         ..Default::default()
     }))
     .expect("Metal timestamp device");
     Some((RenderDevice::from(device), RenderQueue::new(queue)))
+}
+
+#[derive(Resource)]
+struct FrameWork(bevy::render::render_resource::Buffer);
+
+/// Encodes real transfer work for the completion-latency regression.
+fn clear_frame_work(work: Res<FrameWork>, mut context: RenderContext) {
+    context.command_encoder().clear_buffer(&work.0, 0, None);
+}
+
+/// Uses the graph's existing flush parameter to submit every pending buffer together.
+fn submit_frame_work(mut commands: bevy::render::renderer::FlushCommands) {
+    commands.flush();
+}
+
+#[test]
+fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_submissions() {
+    use bevy::render::renderer::{PendingCommandBuffers, RenderGraph, RenderGraphSystems};
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let Some((device, queue)) = metal_device_with_features(wgpu::Features::empty()) else {
+        return;
+    };
+    let work = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("frame completion regression"),
+        size: FRAME_WORK_BYTES,
+        usage: wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+    // Every positive completion latency exceeds this deliberately tiny diagnostic budget.
+    profiler.set_frame_interval(std::time::Duration::from_nanos(1));
+    let mut render_app = bevy::app::SubApp::new();
+    render_app
+        .add_schedule(bevy::ecs::schedule::Schedule::new(RenderStartup))
+        .add_schedule(RenderGraph::base_schedule())
+        .init_resource::<PendingCommandBuffers>()
+        .insert_resource(device.clone())
+        .insert_resource(queue.clone())
+        .insert_resource(FrameWork(work))
+        .add_systems(
+            RenderGraph,
+            (
+                clear_frame_work
+                    .in_set(RenderGraphSystems::Render)
+                    .before(submit_frame_work),
+                submit_frame_work.in_set(RenderGraphSystems::Submit),
+            ),
+        );
+    let mut app = App::new();
+    app.insert_resource(profiler.clone())
+        .insert_sub_app(RenderApp, render_app);
+    app.add_plugins(GpuTimingPlugin);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    assert!(!world.contains_resource::<GpuTimestamps>());
+    assert_eq!(
+        profiler
+            .take_snapshot_if_due(std::time::Duration::ZERO)
+            .unwrap()
+            .samples[RuntimeStage::GpuFrame as usize]
+            .count,
+        0
+    );
+    let before = crate::device_poll::submission_marker(&queue);
+    world.run_schedule(RenderGraph);
+    let after = crate::device_poll::submission_marker(&queue);
+    assert_eq!(
+        after - before,
+        2,
+        "one graph submit plus the test's trailing marker"
+    );
+    world.run_schedule(Render);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    world.run_schedule(RenderGraph);
+    let snapshot = profiler
+        .take_snapshot_if_due(std::time::Duration::ZERO)
+        .unwrap();
+    let frame = &snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize];
+    assert_eq!(
+        frame.count, 1,
+        "one labelled latency is published after completion"
+    );
+    assert!(frame.total > std::time::Duration::ZERO);
+    assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 0);
+    assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
+    assert_eq!(profiler.slow_frame_counts().unwrap().gpu_latency, 1);
+    eprintln!(
+        "completion latency coverage: 0 -> {} samples; graph submissions: 1 -> 1; latency: {:?}",
+        frame.count, frame.total
+    );
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 }
 
 /// Draws one triangle while recording an owned render-pass timestamp pair.
