@@ -862,12 +862,18 @@ const USE_ITEM_STARTUP_REMAINING: u32 = 25;
 const USE_ITEM_INTERVAL_TICKS: u32 = 4;
 
 /// The `variable.use_item_startup_progress` and `variable.use_item_interval_progress` an eat or
-/// drink use publishes after `use_ticks` of a `max_ticks` use; both are zero while nothing is in use.
+/// drink use publishes on its `use_ticks`-th (one-based) tick of a `max_ticks` use; both are zero
+/// while nothing is in use. An undeclared duration uses the default consumable duration.
 pub(super) fn use_item_progress(use_ticks: u32, max_ticks: u32) -> (f32, f32) {
     if use_ticks == 0 {
         return (0.0, 0.0);
     }
-    let remaining = max_ticks.saturating_sub(use_ticks);
+    let max_ticks = if max_ticks == 0 {
+        assets::item_use::DEFAULT_CONSUME_USE_TICKS
+    } else {
+        max_ticks
+    };
+    let remaining = max_ticks.saturating_sub(use_ticks - 1);
     if remaining >= USE_ITEM_STARTUP_REMAINING {
         let span = max_ticks.saturating_sub(USE_ITEM_STARTUP_REMAINING).max(1) as f32;
         let startup = 1.0 - (remaining - USE_ITEM_STARTUP_REMAINING) as f32 / span;

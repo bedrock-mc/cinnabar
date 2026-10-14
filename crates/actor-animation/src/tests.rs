@@ -480,23 +480,32 @@ fn eating_raises_the_arm_then_bobs_and_other_held_items_stay_lowered() {
     };
     let apple = holding("minecraft:golden_apple", ItemConsumption::Eat);
     assert_eq!(progress(&apple, 0), [0.0, 0.0]);
-    // The arm rises until 25 ticks remain, then bobs on the remaining ticks modulo four.
-    for (ticks, expected) in [
-        (1, [1.0 - 6.0 / 7.0, 0.0]),
-        (4, [1.0 - 3.0 / 7.0, 0.0]),
-        (7, [1.0, 0.0]),
+    // The first using tick has the whole use remaining; the arm rises until 25 ticks remain,
+    // then bobs on the remaining ticks modulo four.
+    let expected = [
+        (1, [0.0, 0.0]),
+        (4, [1.0 - 4.0 / 7.0, 0.0]),
         (8, [1.0, 0.0]),
-        (9, [1.0, 0.75]),
-        (10, [1.0, 0.5]),
-        (11, [1.0, 0.25]),
-        (12, [1.0, 0.0]),
-    ] {
-        let actual = progress(&apple, ticks);
-        for (actual, expected) in actual.into_iter().zip(expected) {
-            assert!(
-                (actual - expected).abs() < 1.0e-6,
-                "tick {ticks}: {actual} vs {expected}"
-            );
+        (9, [1.0, 0.0]),
+        (10, [1.0, 0.75]),
+        (11, [1.0, 0.5]),
+        (12, [1.0, 0.25]),
+        (13, [1.0, 0.0]),
+    ];
+    // An undeclared duration uses the default consumable duration.
+    let undeclared = ActorTickContext {
+        main_hand_max_use_ticks: 0,
+        ..apple.clone()
+    };
+    for context in [&apple, &undeclared] {
+        for (ticks, expected) in expected {
+            let actual = progress(context, ticks);
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 1.0e-6,
+                    "tick {ticks}: {actual} vs {expected}"
+                );
+            }
         }
     }
     assert_eq!(
