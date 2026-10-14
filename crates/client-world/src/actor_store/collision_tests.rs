@@ -3,11 +3,13 @@ use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent};
 
 /// Spawns a constructor without size metadata to exercise its compiled defaults.
 fn spawn(store: &mut ActorStore, id: u64, name: &str) {
-    store.apply(
-        1,
-        id,
-        super::super::tests::entity_spawn(id, id as i64, name, [].into()),
-    );
+    let ActorEvent::Spawn(mut event) =
+        super::super::tests::entity_spawn(id, id as i64, name, [].into())
+    else {
+        unreachable!();
+    };
+    event.position = [0.0, 4.0, 0.0];
+    store.apply(1, id, ActorEvent::Spawn(event));
 }
 
 #[test]
@@ -102,18 +104,19 @@ fn moving_actors_use_current_collision_feet_and_synced_scale() {
             tick: 0,
         }),
     );
-    let mut movement = match super::super::tests::network_move(1, 64.0, false) {
+    let mut movement = match super::super::tests::network_move(1, 4.0, false) {
         ActorEvent::Move(movement) => movement,
         _ => unreachable!(),
     };
     movement.position_origin = protocol::ActorPositionOrigin::Feet;
     movement.position[0] = Some(2.0);
-    movement.interpolation.ticks = 2;
+    let half_ticks = ACTOR_INTERPOLATION_TICKS;
+    movement.interpolation.ticks = u64::from(half_ticks) * 2;
     store.apply(1, 3, ActorEvent::Move(movement));
-    store.advance_interpolation_ticks(1);
+    store.advance_interpolation_ticks(half_ticks);
     let midway = store.movement_colliders(0, 0).next().unwrap();
     assert!(((midway.0[0] + midway.1[0]) * 0.5 - 1.0).abs() < 1e-6);
-    store.advance_interpolation_ticks(1);
+    store.advance_interpolation_ticks(half_ticks);
     let after = store.movement_colliders(0, 0).next().unwrap();
     assert!(
         ((after.0[0] + after.1[0]) * 0.5 - (before.0[0] + before.1[0]) * 0.5 - 2.0).abs() < 1e-6
