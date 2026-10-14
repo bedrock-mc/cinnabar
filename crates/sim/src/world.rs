@@ -663,6 +663,7 @@ pub struct PaletteWorld<'a> {
     registry: &'a CollisionRegistry,
     dimension: i32,
     unloaded_collision_barriers: bool,
+    actor_colliders: Option<std::sync::Arc<[Aabb]>>,
 }
 
 /// One internal collision instance before projection onto the public
@@ -697,7 +698,15 @@ impl<'a> PaletteWorld<'a> {
             registry,
             dimension,
             unloaded_collision_barriers: false,
+            actor_colliders: None,
         }
+    }
+
+    /// Adds immutable actor bounds for movement and retains them in prediction snapshots.
+    #[must_use]
+    pub fn with_actor_colliders(mut self, colliders: impl Into<std::sync::Arc<[Aabb]>>) -> Self {
+        self.actor_colliders = Some(colliders.into());
+        self
     }
 
     fn identity_for_chunks(

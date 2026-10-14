@@ -14,6 +14,7 @@ pub(super) struct EffectMembers {
     pub crystals: BTreeSet<u64>,
     pub dragons: BTreeSet<u64>,
     pub paintings: BTreeSet<u64>,
+    pub collidable: BTreeSet<u64>,
 }
 
 impl EffectMembers {
@@ -21,6 +22,7 @@ impl EffectMembers {
     pub fn update(&mut self, actor: &ActorSnapshot) {
         let class = actor.entity_fact.native_class;
         let runtime = actor.runtime_id;
+        set(&mut self.collidable, runtime, actor.is_collidable());
         set(
             &mut self.paintings,
             runtime,
@@ -60,6 +62,7 @@ impl EffectMembers {
         self.crystals.remove(&runtime);
         self.dragons.remove(&runtime);
         self.paintings.remove(&runtime);
+        self.collidable.remove(&runtime);
     }
 }
 
