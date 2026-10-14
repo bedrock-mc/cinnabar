@@ -401,7 +401,7 @@ fn core_child_args_advertise_upstream_client_cache_only_when_enabled() {
 }
 
 #[test]
-fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
+fn connect_abandons_interactive_sign_in_and_waits_for_its_reap() {
     let mut command = if cfg!(windows) {
         let mut command = Command::new("cmd");
         command.args(["/Q", "/C", "set /p hold="]);
@@ -418,6 +418,7 @@ fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
         .unwrap();
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
     menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.sign_in_requested = true;
 
     menu.request_connect("offline.example:19132".to_owned());
     assert!(menu.take_join_intent().is_none());
@@ -521,6 +522,75 @@ fn validation_failure_releases_the_queued_connection_offline() {
     let pending = menu.take_join_intent().expect("offline connection");
     assert_eq!(pending.address, "offline-after-failure.example:19132");
     assert_eq!(pending.auth_cache, None);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A join sent during the saved account's check must not cancel it and joins signed in.
+#[test]
+fn connect_during_cached_check_waits_for_it_and_joins_signed_in() {
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+    menu.poll_sign_in();
+    assert_eq!(menu.sign_in_status(), SignInStatus::Checking);
+
+    menu.request_connect("authenticated.example:19132".to_owned());
+    assert!(menu.is_connecting());
+    assert!(menu.take_join_intent().is_none());
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::Checking),
+        "the join cancelled the cached sign-in check"
+    );
+
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    let mut joined = None;
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        joined = menu.take_join_intent();
+        joined.is_some()
+    });
+    let joined = joined.expect("held join released once the check settled");
+    assert_eq!(joined.auth_cache, Some(menu.layout.auth_cache()));
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// After the bounded wait the join goes ahead signed out, and the check's later result still applies.
+#[test]
+fn expired_sign_in_wait_joins_signed_out_and_the_check_still_applies() {
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("slow-check.example:19132".to_owned());
+    menu.intents.join_sign_in_deadline = Some(Instant::now());
+    let joined = menu
+        .take_join_intent()
+        .expect("expired wait releases the join");
+    assert_eq!(joined.auth_cache, None);
+
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        menu.sign_in_status() == SignInStatus::SignedIn
+    });
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    assert_eq!(menu.launcher_auth_cache(), Some(menu.layout.auth_cache()));
+    drop(menu);
     fs::remove_dir_all(directory).unwrap();
 }
 

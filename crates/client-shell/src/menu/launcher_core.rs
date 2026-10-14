@@ -214,7 +214,7 @@ impl MenuRuntime {
         )
     }
 
-    fn sign_in_in_flight(&self) -> bool {
+    pub(super) fn sign_in_in_flight(&self) -> bool {
         matches!(
             self.auth_process.as_ref().map(AuthSupervisor::state),
             Some(
