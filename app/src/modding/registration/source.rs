@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-use client_extensions::modding::font;
 use sha2::{Digest, Sha256};
 
 use super::{Entry, MAX_BYTES, MAX_REQUEST_BYTES, Registration, SourceSnapshot};
@@ -79,7 +78,7 @@ pub(super) fn source_snapshot(registration: Entry) -> Result<SourceSnapshot, Str
         registration
             .font
             .as_deref()
-            .map(|path| read_bounded_source(path, font::MAX_SOURCE_BYTES))
+            .map(|path| read_bounded_source(path, mod_api::MAX_PANEL_FONT_BYTES))
             .transpose()?
     } else {
         None

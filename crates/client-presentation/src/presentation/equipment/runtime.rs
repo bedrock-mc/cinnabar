@@ -245,8 +245,8 @@ impl EquipmentRuntime {
         let mut pending = Vec::new();
         let mut skulls = BTreeMap::new();
         if let (Some(atlas), Some(location)) = (&skull_atlas, skull_location) {
-            for (index, kind) in SkullKind::packed_kinds().enumerate() {
-                let id = equipment_rig_id(SKULL_RIG_INDEX_BASE + index as u32);
+            for kind in SkullKind::packed_kinds() {
+                let id = equipment_rig_id(SKULL_RIG_INDEX_BASE + u32::from(kind_index(kind)));
                 if let Some(geometry) = skull_geometry(id, atlas, kind) {
                     pending.push(geometry);
                     skulls.insert(kind_index(kind), (id, location));

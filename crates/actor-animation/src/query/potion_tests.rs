@@ -156,7 +156,8 @@ fn pinned_potion_controller_selects_the_projectiles_own_effect_texture() {
 #[test]
 fn a_custom_potion_base_keeps_its_auxiliary_appearance() {
     let base = "minecraft:splash_potion";
-    let mut actor = actor_with_metadata(HashMap::from([(AUX, ActorMetadataValue::Short(21))]));
+    let mut actor =
+        crate::tests::actor_with_metadata(HashMap::from([(AUX, ActorMetadataValue::Short(21))]));
     actor.kind = ActorKind::Entity {
         identifier: base.into(),
     };

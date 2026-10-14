@@ -2,7 +2,6 @@
 
 use super::{ModRuntime, RELOAD_INTERVAL, admission, hud_editor};
 use bevy::prelude::*;
-use client_extensions::modding::font;
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
 use mod_host::{ModGrants, ModHost};
@@ -139,7 +138,7 @@ fn prepare(
                 })
                 .transpose()
         };
-        let font = read(&request.source.font, font::MAX_SOURCE_BYTES)?;
+        let font = read(&request.source.font, mod_api::MAX_PANEL_FONT_BYTES)?;
         let ui = read(&request.source.ui, ui::mod_panel::MAX_PANEL_BUNDLE_BYTES)?;
         let prepared = admission::prepare(
             &request.source.component,
