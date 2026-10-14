@@ -594,6 +594,129 @@ fn expired_sign_in_wait_joins_signed_out_and_the_check_still_applies() {
     fs::remove_dir_all(directory).unwrap();
 }
 
+const FALLBACK_CODE: &str = "TEST-CODE";
+const FALLBACK_PROMPT: &str = r#"{"v":1,"event":"device_code","verification_uri":"https://example.invalid","user_code":"TEST-CODE"}"#;
+
+/// The browser has not been sent the fallback prompt's code.
+fn fallback_browser_untouched(menu: &MenuRuntime) -> bool {
+    menu.sign_in_browser.state(&AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: FALLBACK_CODE.into(),
+    }) == launcher::menu::sign_in::BrowserState::Waiting
+}
+
+/// A held join's check that falls back to a device code is cancelled before any browser opens.
+#[test]
+fn held_join_cancels_a_fallback_prompt_without_opening_the_browser() {
+    let (child, directory) =
+        event_child_holding(&[r#"{"v":1,"event":"checking_cache"}"#, FALLBACK_PROMPT]);
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("fallback.example:19132".to_owned());
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        menu.auth_process.as_ref().map(AuthSupervisor::state) != Some(&AuthState::Checking)
+    });
+    assert!(
+        fallback_browser_untouched(&menu),
+        "browser opened for a cancelled prompt"
+    );
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::SignedOut)
+    );
+    let mut joined = None;
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        joined = menu.take_join_intent();
+        joined.is_some()
+    });
+    assert_eq!(joined.expect("join released signed out").auth_cache, None);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A check that outlives its join still never opens the browser for a fallback prompt.
+#[test]
+fn check_outliving_its_join_cancels_a_later_fallback_prompt() {
+    let (mut child, directory) =
+        event_child_waiting(&[r#"{"v":1,"event":"checking_cache"}"#], &[FALLBACK_PROMPT]);
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("slow-check.example:19132".to_owned());
+    menu.intents.join_sign_in_deadline = Some(Instant::now());
+    assert!(menu.take_join_intent().is_some());
+
+    input.write_all(b"finish\n").unwrap();
+    input.flush().unwrap();
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        menu.auth_process.as_ref().map(AuthSupervisor::state) != Some(&AuthState::Checking)
+    });
+    assert!(
+        fallback_browser_untouched(&menu),
+        "browser opened after the join left"
+    );
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::SignedOut)
+    );
+    drop(input);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A held join that signs in goes through the account core once it serves that account.
+#[test]
+fn signed_in_held_join_waits_for_the_account_core() {
+    use crate::menu::launcher_core::AccountCore;
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+    menu.account_core = Some(AccountCore {
+        serving: Some(false),
+        failed: None,
+    });
+
+    menu.request_connect("authenticated.example:19132".to_owned());
+    assert!(
+        !menu.joining_past_sign_in(),
+        "a held join must let the account core start"
+    );
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        menu.auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+    });
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    assert!(
+        menu.take_join_intent().is_none(),
+        "join released before the account core served the account"
+    );
+
+    menu.account_core = Some(AccountCore {
+        serving: Some(true),
+        failed: None,
+    });
+    let joined = menu.take_join_intent().expect("account core ready");
+    assert_eq!(joined.auth_cache, Some(menu.layout.auth_cache()));
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
 /// Emits fixed events and keeps the injected helper alive until cleanup.
 fn event_child_holding(lines: &[&str]) -> (std::process::Child, PathBuf) {
     event_child_waiting(lines, &[])

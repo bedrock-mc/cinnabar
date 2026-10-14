@@ -144,6 +144,8 @@ pub struct MenuRuntime {
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
+    /// The account core a held join may still use; `None` when it cannot start for the join.
+    account_core: Option<launcher_core::AccountCore>,
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
@@ -228,6 +230,8 @@ struct SessionIntents {
     join: Option<JoinIntent>,
     /// The queued join waits for the saved account's check until this passes.
     join_sign_in_deadline: Option<std::time::Instant>,
+    /// The background sign-in check serves a join: it may finish, but never prompts.
+    join_sign_in_check: bool,
     disconnect: bool,
     respawn: bool,
     exit: bool,
@@ -390,6 +394,7 @@ impl MenuRuntime {
     pub fn cancel_join(&mut self) {
         self.intents.join = None;
         self.intents.join_sign_in_deadline = None;
+        self.intents.join_sign_in_check = false;
         self.retry_target = None;
         self.show_session_origin(MenuScreen::Play);
     }

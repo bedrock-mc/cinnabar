@@ -71,6 +71,7 @@ impl MenuRuntime {
     /// process (which would overwrite them with other join addresses) stays off.
     pub fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
         if self.visible
@@ -137,12 +138,14 @@ impl MenuRuntime {
         if self.cached_sign_in_checking() {
             self.intents.join_sign_in_deadline =
                 Some(std::time::Instant::now() + JOIN_SIGN_IN_WAIT);
+            self.intents.join_sign_in_check = true;
         } else {
             self.stop_sign_in();
         }
     }
 
-    /// Gives a held join the account its check settled on, once it settles or the wait expires.
+    /// Gives a held join the account its check settled on, once the check settles and the account
+    /// core serves that account, or the wait expires.
     pub(super) fn settle_join_sign_in(&mut self, now: std::time::Instant) -> JoinSignIn {
         let Some(deadline) = self.intents.join_sign_in_deadline else {
             return JoinSignIn::Settled;
@@ -151,21 +154,45 @@ impl MenuRuntime {
         if checking && now < deadline {
             return JoinSignIn::Waiting;
         }
-        self.intents.join_sign_in_deadline = None;
         let auth_cache = self.launcher_auth_cache();
-        let signed_in = auth_cache.is_some();
+        if !checking && auth_cache.is_none() {
+            // A check that failed or fell back to a prompt is abandoned, as for any join.
+            self.stop_sign_in();
+        }
+        let core_ready = self
+            .account_core
+            .is_none_or(|core| core.ready_for(auth_cache.is_some()));
+        if !checking && !core_ready && now < deadline {
+            return JoinSignIn::Waiting;
+        }
+        self.intents.join_sign_in_deadline = None;
         if let Some(join) = self.intents.join.as_mut() {
             join.auth_cache = auth_cache;
         }
         if checking {
             bevy::log::warn!("sign-in check still running; joining signed out");
-            return JoinSignIn::Expired;
+            JoinSignIn::Expired
+        } else {
+            JoinSignIn::Settled
         }
-        if !signed_in {
-            // A check that fell back to a device-code prompt is abandoned, as for any join.
-            self.stop_sign_in();
+    }
+
+    /// Cancels a fallback prompt from a check serving a join before any browser opens for it.
+    fn cancel_join_fallback_prompt(&mut self) {
+        if !self.intents.join_sign_in_check {
+            return;
         }
-        JoinSignIn::Settled
+        match self.auth_process.as_ref().map(AuthSupervisor::state) {
+            Some(AuthState::Checking) => return,
+            Some(state) if state.awaiting_browser() => self.stop_sign_in(),
+            _ => {}
+        }
+        self.intents.join_sign_in_check = false;
+    }
+
+    /// A join is under way beyond waiting for the saved account, so the account core stays put.
+    pub(super) fn joining_past_sign_in(&self) -> bool {
+        self.is_connecting() && self.intents.join_sign_in_deadline.is_none()
     }
 
     /// Whether joins currently use the saved account, are waiting on its check, or go signed out.
