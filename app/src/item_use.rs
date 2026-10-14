@@ -129,8 +129,7 @@ pub(crate) fn produce_item_use(
     }
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-    // An aim-assist facing needs an unsent tick to carry it.
-    let Some(sample) = runtime.frame_sample(&movement, held, aim_rotation.is_none()) else {
+    let Some(sample) = runtime.frame_sample(&movement, held, true) else {
         return;
     };
     // One press resolves once: item use waits while block use still holds it.
