@@ -97,6 +97,7 @@ pub(super) fn apply(
         death_rules,
         mut packs,
         terrain_before_spawn,
+        level_identity,
     } = control
     else {
         unreachable!("bootstrap routing accepts only StartGame");
@@ -230,6 +231,7 @@ pub(super) fn apply(
         );
     }
     client_world.pending_surface_spawn = resolved.surface_anchor;
+    client_world.level_identity = level_identity;
     client_world.stream = Some(stream);
     timings.mark(bootstrap_timing::BootstrapPhase::WorldStream);
     if !super::equipment::publish_bootstrap_equipment(

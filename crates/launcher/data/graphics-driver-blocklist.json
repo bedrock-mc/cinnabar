@@ -1,0 +1,13 @@
+[
+  {
+    "platform": "windows",
+    "vendor": 32902,
+    "device": null,
+    "integrated": true,
+    "driver_contains": null,
+    "min_version": [0, 0],
+    "max_version": [101, 2114],
+    "backend": "vulkan",
+    "reason": "Prefer DX12 for older Intel integrated drivers with Vulkan robustness issues."
+  }
+]

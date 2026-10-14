@@ -6,6 +6,7 @@ use world::{BlockUpdate, ChunkKey, ChunkStore, SubChunkKey};
 
 mod camera;
 mod placement;
+mod precision;
 
 fn identity() -> CollisionRegistryIdentity {
     CollisionRegistryIdentity {
@@ -282,7 +283,7 @@ fn exact_boundary_and_corner_ties_are_deterministic() {
         .unwrap()
         .unwrap();
     assert_eq!(tied.block_pos, [0, -1, 0]);
-    assert_eq!(tied.distance, 2.0_f64.sqrt());
+    assert_eq!(tied.distance, f64::from(2.0_f32.sqrt()));
 }
 
 #[test]
@@ -362,7 +363,7 @@ fn close_but_distinct_crossings_are_not_merged() {
     let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
         .block_interaction_ray(
             Vec3::new(0.9, 0.7, 0.5),
-            Vec3::new(f64::from_bits(0.1_f64.to_bits() + 64), 0.3, 0.0),
+            Vec3::new(f64::from(f32::from_bits(0.1_f32.to_bits() + 64)), 0.3, 0.0),
             2.0,
             &expected,
         )
@@ -431,6 +432,29 @@ fn overhanging_shapes_are_found_from_the_adjacent_voxel() {
     assert_eq!(hit.runtime_id, 9);
     assert_eq!(hit.distance, 1.5);
     assert_eq!(hit.hit_local, Vec3::new(0.0, 0.5, 0.5));
+    assert_eq!(hit.hit_world, Vec3::new(0.5, 0.5, 0.5));
+}
+
+#[test]
+fn selection_hit_keeps_the_world_intercept_outside_the_block_cell() {
+    let (store, mut registry, expected) = fixture(7);
+    registry
+        .register(7, [Aabb::new(Vec3::ZERO, Vec3::new(1.5, 1.0, 1.0))])
+        .unwrap();
+    let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
+        .block_interaction_ray(
+            Vec3::new(3.0, 0.5, 0.5),
+            Vec3::new(-1.0, 0.0, 0.0),
+            3.0,
+            &expected,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(hit.block_pos, [0, 0, 0]);
+    assert_eq!(hit.face, 5);
+    assert_eq!(hit.hit_local, Vec3::new(1.0, 0.5, 0.5));
+    assert_eq!(hit.hit_world, Vec3::new(1.5, 0.5, 0.5));
+    assert_eq!(hit.distance, 1.5);
 }
 
 #[test]
@@ -600,7 +624,7 @@ fn negative_coordinates_and_direction_scale_preserve_the_hit() {
         .register(7, [Aabb::new(Vec3::ZERO, Vec3::ONE)])
         .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
-    for scale in [f64::MIN_POSITIVE, 0.25, 1.0, 1.0e200] {
+    for scale in [0.0001, 0.25, 1.0, 1.0e10] {
         let hit = world
             .block_interaction_ray(
                 Vec3::new(-16.5, -0.5, -14.0),
@@ -617,7 +641,7 @@ fn negative_coordinates_and_direction_scale_preserve_the_hit() {
 }
 
 #[test]
-fn max_distance_is_inclusive_and_respects_adjacent_f64_values() {
+fn max_distance_is_inclusive_and_respects_adjacent_float_values() {
     let (store, registry, expected) = fixture(7);
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
     let origin = Vec3::new(0.5, 0.5, -1.0);
@@ -627,13 +651,17 @@ fn max_distance_is_inclusive_and_respects_adjacent_f64_values() {
             .block_interaction_ray(
                 origin,
                 direction,
-                f64::from_bits(1.0_f64.to_bits() - 1),
+                f64::from(f32::from_bits(1.0_f32.to_bits() - 1)),
                 &expected
             )
             .unwrap()
             .is_none()
     );
-    for limit in [1.0, f64::from_bits(1.0_f64.to_bits() + 1)] {
+    for limit in [
+        1.0,
+        f64::from_bits(1.0_f64.to_bits() - 1),
+        f64::from(f32::from_bits(1.0_f32.to_bits() + 1)),
+    ] {
         assert_eq!(
             world
                 .block_interaction_ray(origin, direction, limit, &expected)
@@ -739,6 +767,8 @@ fn nonfinite_zero_oversized_and_extreme_inputs_are_rejected_without_scanning() {
         Vec3::ZERO,
         Vec3::new(f64::NAN, 0.0, 0.0),
         Vec3::new(f64::INFINITY, 0.0, 0.0),
+        Vec3::new(f64::MIN_POSITIVE, 0.0, 0.0),
+        Vec3::new(1.0e200, 0.0, 0.0),
     ] {
         assert_eq!(
             world.block_interaction_ray(Vec3::ZERO, direction, 1.0, &expected),
@@ -748,14 +778,16 @@ fn nonfinite_zero_oversized_and_extreme_inputs_are_rejected_without_scanning() {
     let tiny = Vec3::new(f64::from_bits(1), 0.0, 0.0);
     assert_eq!(
         world.block_interaction_ray(Vec3::ZERO, tiny, 1.0, &expected),
-        Err(WorldQueryError::UnloadedChunk(ChunkKey::new(0, 0, 0)))
+        Err(WorldQueryError::InvalidRayDirection)
     );
     for distance in [
         0.0,
         -1.0,
         f64::NAN,
         f64::INFINITY,
-        f64::from_bits(sim::MAX_COLLISION_QUERY_EXTENT.to_bits() + 1),
+        f64::from(f32::from_bits(
+            (sim::MAX_COLLISION_QUERY_EXTENT as f32).to_bits() + 1,
+        )),
     ] {
         assert_eq!(
             world.block_interaction_ray(Vec3::ZERO, Vec3::ONE, distance, &expected),

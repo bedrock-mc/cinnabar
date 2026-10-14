@@ -16,34 +16,29 @@ const LOG_MARKERS: [&str; 4] = [
     PANIC_MARKER,
 ];
 
-extern crate self as launcher;
-extern crate self as launcher_host;
-mod lifecycle {
-    pub(crate) use crate::crash;
-}
-
-mod install_layout {
-    use std::path::PathBuf;
-    pub struct InstallLayout(pub PathBuf);
-    impl InstallLayout {
-        /// Returns the fixture's log directory.
-        pub fn log_dir(&self) -> PathBuf {
-            self.0.clone()
-        }
-        /// Returns the fixture's crash directory.
-        pub fn crash_dir(&self) -> PathBuf {
-            self.0.join("crashes")
-        }
-    }
-}
 #[allow(dead_code)]
 #[path = "../src/lifecycle/client_logs.rs"]
 mod client_logs;
-#[allow(dead_code, reason = "exercises the production panic hook in isolation")]
-#[path = "../../crates/launcher-host/src/lifecycle/crash.rs"]
-pub(crate) mod crash;
 #[path = "../src/particles/carrier.rs"]
 mod particle_carrier;
+
+/// Uses the real installation layout while keeping every fixture file beneath its temporary root.
+fn logging_layout(root: &std::path::Path) -> launcher::install_layout::InstallLayout {
+    use launcher::install_layout::Platform;
+    let platform = if cfg!(windows) {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::MacOs
+    } else {
+        Platform::Linux
+    };
+    launcher::test_support::scratch_at(platform, root)
+}
+
+/// Returns the fixture's client log using the production layout's directory policy.
+fn client_log(root: &std::path::Path) -> PathBuf {
+    logging_layout(root).log_dir().join("client.log")
+}
 
 #[test]
 fn client_logging_child() {
@@ -56,7 +51,7 @@ fn client_logging_child() {
     } else {
         FIXTURE_LOG_LIMIT * 4
     };
-    diagnostics::console::initialize_log(&root.join("client.log"), limit).unwrap();
+    diagnostics::console::initialize_log(&client_log(&root), limit).unwrap();
     eprintln!("{RAW_STDERR_MARKER}");
     diagnostics::log_stderr!("{QUEUED_STDERR_MARKER}");
     if std::env::var_os("CLIENT_LOGGING_ROTATE").is_some() {
@@ -68,7 +63,7 @@ fn client_logging_child() {
         assert!(diagnostics::console::flush_before_exit());
         return;
     }
-    client_logs::install_panic_hook(&install_layout::InstallLayout(root.clone()));
+    client_logs::install_panic_hook(&logging_layout(&root));
     assert!(particle_carrier::load_optional_carrier(&root.join("missing-world")).is_none());
     panic!("{PANIC_MARKER}");
 }
@@ -83,7 +78,7 @@ fn startup_carrier_and_panic_diagnostics_reach_the_file_without_a_terminal() {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    let text = fs::read_to_string(root.path().join("client.log")).unwrap();
+    let text = fs::read_to_string(client_log(root.path())).unwrap();
     let original = String::from_utf8_lossy(&output.stderr);
     for marker in LOG_MARKERS {
         assert_eq!(
@@ -112,7 +107,7 @@ fn redirected_stderr_file_retains_startup_and_panic_output() {
         .unwrap();
     assert!(!status.success());
     let original = fs::read_to_string(session).unwrap();
-    let rotating = fs::read_to_string(root.path().join("client.log")).unwrap();
+    let rotating = fs::read_to_string(client_log(root.path())).unwrap();
     for marker in LOG_MARKERS {
         assert_eq!(
             original.matches(marker).count(),
@@ -140,10 +135,15 @@ fn raw_stderr_uses_the_same_bounded_rotation() {
         .unwrap();
     assert!(status.success());
     for name in ["client.log", "client.log.1"] {
-        assert!(fs::metadata(root.path().join(name)).unwrap().len() <= FIXTURE_LOG_LIMIT);
+        assert!(
+            fs::metadata(logging_layout(root.path()).log_dir().join(name))
+                .unwrap()
+                .len()
+                <= FIXTURE_LOG_LIMIT
+        );
     }
     assert!(
-        fs::read_to_string(root.path().join("client.log"))
+        fs::read_to_string(client_log(root.path()))
             .unwrap()
             .contains("raw stderr rotation tail")
     );
@@ -192,7 +192,7 @@ sys.exit(result.returncode)
     assert!(!output.status.success());
     let terminal = String::from_utf8_lossy(&output.stdout);
     assert_eq!(terminal.matches(PANIC_MARKER).count(), 1, "{terminal}");
-    let log = fs::read_to_string(root.path().join("client.log")).unwrap();
+    let log = fs::read_to_string(client_log(root.path())).unwrap();
     assert!(
         log.contains(PANIC_MARKER),
         "lost terminal panic mirror: {log}"

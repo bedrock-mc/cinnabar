@@ -209,18 +209,12 @@ jobs:
             cargo clippy -p render --features enhanced --all-targets --locked -- -D warnings
           fi
           if affected cinnabar; then
-            cargo clippy -p cinnabar --features enhanced,local-mods,developer-control,tracy --locked -- -D warnings
+            cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
-          if affected client-extensions; then
-            cargo clippy -p client-extensions --features local-mods --all-targets --locked -- -D warnings
-          fi
-      - name: Test local WASM mod and developer control adapters
+      - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
-        run: cargo test -p cinnabar --features local-mods,developer-control --lib --locked -- modding developer_control
-      - name: Test local WASM mod hosts
-        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' client-extensions ')) }}
-        run: cargo test -p client-extensions --features local-mods --lib --locked
+        run: cargo test -p cinnabar --features developer-control --lib --locked -- developer_control
       # The editor site ships ui-engine as WebAssembly; Pages only builds it after a merge.
       - name: Check the JSON-UI editor for WebAssembly
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' jsonui-editor ')) }}
@@ -355,6 +349,10 @@ jobs:
           go -C tools/registrygen test ./... -count=1
           unset GOFLAGS
           go -C tools/registrygen vet ./...
+      - name: Test protocol packet fixtures and ID contracts
+        env:
+          GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
+        run: go -C tools/fixturegen test ./... -count=1
       - name: Prepare local server Rust fixtures
         # Keep cold fixture compilation outside Go's test-binary deadline.
         # Separate native builds preserve the feature sets requested by the test helpers.

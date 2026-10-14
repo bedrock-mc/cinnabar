@@ -21,10 +21,16 @@ pub(crate) struct MotionSampling {
     rig_scale: bool,
 }
 
+/// Resamples every channel of `bones` from both endpoints.
+pub(super) fn full_mask(bones: usize) -> Vec<[u8; 3]> {
+    vec![[TRANSLATION | ROTATION | SCALE | ROTATION_FRAME; 3]; bones]
+}
+
 impl MotionSampling {
     /// Tracks sampled motion queries and their authored variable and channel dependencies.
     pub(crate) fn new(
         assets: &RuntimeEntityAssets,
+        layout: &VariableLayout,
         rig: usize,
         geometry: usize,
         controllers: &[ControllerState],
@@ -62,8 +68,10 @@ impl MotionSampling {
                     }
                     _ => None,
                 };
+                // Camera queries read each frame's live camera, never a frozen endpoint value.
                 if let Some(symbol) = symbol
                     && !super::rotation::is_query(assets, symbol)
+                    && !super::camera::camera_symbol(assets, symbol, false)
                     && assets
                         .molang_symbols()
                         .get(symbol as usize)
@@ -83,7 +91,15 @@ impl MotionSampling {
                 }
             }
         }
-        let mut variables = BTreeSet::new();
+        let mut variables = assets
+            .molang_symbols()
+            .iter()
+            .enumerate()
+            .filter_map(|(symbol, _)| {
+                let symbol = symbol as u32;
+                layout.symbol_inputs(symbol).swing.then_some(symbol)
+            })
+            .collect::<BTreeSet<_>>();
         let mut random = false;
         let (expressions, weighted_symbols) = loop {
             let before = (variables.len(), random);

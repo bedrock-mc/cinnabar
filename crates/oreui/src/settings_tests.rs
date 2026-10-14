@@ -770,3 +770,35 @@ fn settings_header_reads_the_active_pack_language() {
         "the native title uses the installed language when the OreUI string is absent"
     );
 }
+
+#[test]
+fn graphics_api_shows_only_platform_backends_and_explains_restart() {
+    use launcher::{graphics_backend::Platform, menu::settings_options::graphics_api};
+    let view = settings_view("video_forced_index");
+    let index = option_index(graphics_api::OPTION.name) as u16;
+    let (_, hits, nodes) = super::review_tests::paint(HashMap::new(), |canvas| {
+        settings::draw(canvas, &view, [1280.0, 720.0], &|_| None, None).unwrap();
+    });
+    let actions: Vec<_> = hits
+        .iter()
+        .filter_map(|(action, _)| match action {
+            MenuAction::SettingsOption(option, value) if *option == index => Some(*value),
+            _ => None,
+        })
+        .collect();
+    if Platform::current().backends().len() == 1 {
+        assert!(actions.is_empty());
+    } else {
+        for choice in 0..graphics_api::CHOICES.len() {
+            let available = choice == 0
+                || graphics_api::backend(choice)
+                    .is_some_and(|backend| Platform::current().backends().contains(&backend));
+            assert_eq!(
+                actions.contains(&(choice as i32)),
+                available,
+                "choice {choice}"
+            );
+        }
+        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>().contains("Restart required"))));
+    }
+}

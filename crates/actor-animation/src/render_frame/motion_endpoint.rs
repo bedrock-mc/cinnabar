@@ -26,17 +26,19 @@ pub(super) struct MotionEndpoint<'a> {
 }
 
 impl MotionEndpointState {
-    /// Replays an endpoint on scratch state with the frame's sampled rotations and swelling.
+    /// Replays an endpoint with frame rotation, swelling and swing, retaining its other inputs.
+    /// A `camera` context replaces the tick's camera and resamples camera-weighted clips.
     pub(super) fn sample<'a>(
         &'a self,
         base: evaluation::Evaluator<'a>,
         state: &ActorRigState,
-        amount: f32,
+        (amount, swing): (f32, Option<f32>),
+        camera: Option<&'a ActorTickContext>,
         publish: bool,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MotionEndpoint<'a>, EvalError> {
         let evaluator = evaluation::Evaluator {
-            context: &self.context,
+            context: camera.unwrap_or(&self.context),
             anim_tick: self.anim_tick,
             life_tick: self.life_tick,
             swell_amount: Some(amount),
@@ -49,6 +51,9 @@ impl MotionEndpointState {
             ..base
         };
         let mut variables = self.variables.clone();
+        if let Some(swing) = swing {
+            variables.set(evaluator.layout.engine.attack_time, swing);
+        }
         if let Some(script) = evaluator.assets.rig_bindings()[state.rig_binding].pre_animation {
             evaluator.run(script as usize, &mut variables, 0.0, budget)?;
         }
@@ -58,7 +63,7 @@ impl MotionEndpointState {
                 evaluator.actor,
                 evaluator.context,
                 evaluator.input,
-                evaluator.input.attack_time,
+                swing.unwrap_or(evaluator.input.attack_time),
             );
         }
         if publish {
@@ -71,7 +76,8 @@ impl MotionEndpointState {
             budget,
         )?;
         tick::set_item_rotation_factor(&evaluator.layout.engine, &mut variables);
-        let clips = if self.sampling.as_ref().is_some_and(|s| s.samples_clips()) {
+        let clips = if camera.is_some() || self.sampling.as_ref().is_some_and(|s| s.samples_clips())
+        {
             clips::sample(
                 &evaluator,
                 &mut variables,

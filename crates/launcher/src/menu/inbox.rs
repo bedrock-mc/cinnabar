@@ -9,7 +9,8 @@ use bulk_read::BulkRead;
 #[cfg(test)]
 mod regressions;
 
-pub const CATEGORIES: [&str; 4] = ["News", "Realms", "Invites", "Feedback"];
+pub const CATEGORIES: [&str; bridge::contract::INBOX_CATEGORIES.len()] =
+    bridge::contract::INBOX_CATEGORIES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
@@ -121,7 +122,7 @@ impl MenuFeeds {
                 let bulk = deleting && state.delete_all_read && state.delete_pending.is_some();
                 if bulk {
                     state.pending.push(MessageEvent {
-                        event_type: "DeleteAllRead".into(),
+                        event_type: bridge::contract::MESSAGE_EVENT_DELETE_ALL_READ.into(),
                         instance_id: String::new(),
                         report_id: String::new(),
                         button_id: String::new(),
@@ -134,7 +135,7 @@ impl MenuFeeds {
                         .bulk_read
                         .begin(&self.home, &state.service_counts, &state.read);
                     state.pending.push(MessageEvent {
-                        event_type: "ReadAll".into(),
+                        event_type: bridge::contract::MESSAGE_EVENT_READ_ALL.into(),
                         instance_id: String::new(),
                         report_id: String::new(),
                         button_id: String::new(),
@@ -156,7 +157,7 @@ impl MenuFeeds {
                     };
                     if deleting && state.deleted.insert(identity.clone()) && !bulk {
                         state.pending.push(MessageEvent {
-                            event_type: "Delete".into(),
+                            event_type: bridge::contract::MESSAGE_EVENT_DELETE.into(),
                             instance_id: identity,
                             report_id: item.report_id.clone(),
                             button_id: String::new(),
@@ -178,7 +179,7 @@ impl MenuFeeds {
                 let changed = state.read.insert(item.instance_id.clone()) && item.unread;
                 if changed {
                     state.pending.push(MessageEvent {
-                        event_type: "Click".into(),
+                        event_type: bridge::contract::MESSAGE_EVENT_CLICK.into(),
                         instance_id: item.instance_id.clone(),
                         report_id: item.report_id.clone(),
                         button_id: String::new(),
@@ -302,7 +303,10 @@ mod tests {
         menu.activate_inbox(Action::MarkAllRead);
         assert_eq!(menu.home.inbox_unread, 0);
         assert!(menu.home.inbox_counts.values().all(|count| *count == 0));
-        assert_eq!(menu.inbox_state.pending[0].event_type, "ReadAll");
+        assert_eq!(
+            menu.inbox_state.pending[0].event_type,
+            bridge::contract::MESSAGE_EVENT_READ_ALL
+        );
         for _ in 0..2 {
             menu.home = stale.clone();
             menu.inbox_state.reconcile(&mut menu.home);

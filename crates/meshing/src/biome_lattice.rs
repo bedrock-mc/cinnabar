@@ -13,7 +13,12 @@ pub const LATTICE_SIDE: usize = 7;
 pub const LATTICE_BIOME_LIMIT: usize = 4;
 pub const LATTICE_QUERY_POINTS: usize = 8;
 pub const LATTICE_STENCIL_SAMPLES: usize = 27;
-pub const LATTICE_POINT_WORDS: usize = 1 + 2 * LATTICE_BIOME_LIMIT;
+/// Count, two pairs of u16 tint indices, then four u8 stencil counts.
+pub const LATTICE_POINT_WORDS: usize = 1 + LATTICE_BIOME_LIMIT.div_ceil(2) + 1;
+const _: () = assert!(LATTICE_BIOME_LIMIT == 4 && LATTICE_STENCIL_SAMPLES <= u8::MAX as usize);
+/// Full-width tint indices retain the original lossless representation.
+pub const WIDE_LATTICE_POINT_WORDS: usize = 1 + 2 * LATTICE_BIOME_LIMIT;
+pub const WIDE_LATTICE_WORDS: usize = LATTICE_SIDE.pow(3) * WIDE_LATTICE_POINT_WORDS;
 pub const LATTICE_WORDS: usize = LATTICE_SIDE * LATTICE_SIDE * LATTICE_SIDE * LATTICE_POINT_WORDS;
 pub const DESCRIPTOR_WORDS: usize = 2 + BIOME_NEIGHBOUR_SLOT_COUNT;
 pub const BLEND_SAMPLE_COUNT: usize = LATTICE_QUERY_POINTS * LATTICE_BIOME_LIMIT;
@@ -82,11 +87,19 @@ const MAGNITUDE_SIDE: usize = BIOME_RESIDUE_RADIUS as usize + 1;
 pub const BIOME_STENCIL_VEC4S: usize = (BIOME_RESIDUE_SIDE as usize).pow(3).div_ceil(2);
 pub const BIOME_WEIGHT_VEC4S: usize = MAGNITUDE_SIDE.pow(3) * LATTICE_QUERY_POINTS / 4;
 pub const GRASS_PERMUTATION_VEC4S: usize = assets::GRASS_PERMUTATION_SIZE / 4;
+pub const BIOME_FRACTION_VEC4S: usize = (LATTICE_STENCIL_SAMPLES + 1).div_ceil(4);
 pub const BIOME_QUERY_TABLE_WORDS: usize =
-    (BIOME_STENCIL_VEC4S + BIOME_WEIGHT_VEC4S + GRASS_PERMUTATION_VEC4S) * 4;
+    (BIOME_STENCIL_VEC4S + BIOME_WEIGHT_VEC4S + GRASS_PERMUTATION_VEC4S + BIOME_FRACTION_VEC4S) * 4;
+
+/// The exact weight bits used before lattice packing, indexed by integer sample count.
+pub fn lattice_fraction_words() -> Vec<u32> {
+    (0..=LATTICE_STENCIL_SAMPLES)
+        .map(|count| (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits())
+        .collect()
+}
 
 /// The query kernel's lookup tables packed for a uniform buffer: stencils two per `vec4<u32>`,
-/// weights as `vec4<f32>` bit patterns, then the grass noise permutation four per `vec4<u32>`.
+/// weights as `vec4<f32>` bit patterns, the grass permutation, then exact stencil fractions.
 /// Shader `const` arrays indexed dynamically are copied into per-invocation scratch memory by
 /// several compilers, which made every tinted fragment copy about 7 KB before sampling.
 pub fn query_table_words() -> Vec<u32> {
@@ -102,6 +115,8 @@ pub fn query_table_words() -> Vec<u32> {
             .map(|weight| weight.to_bits()),
     );
     words.extend(assets::grass_noise_permutation());
+    words.extend(lattice_fraction_words());
+    words.resize(BIOME_QUERY_TABLE_WORDS, 0);
     assert_eq!(words.len(), BIOME_QUERY_TABLE_WORDS);
     words
 }
@@ -145,7 +160,8 @@ pub(crate) fn query_tables() -> QueryTables {
 impl PackedBiomeRecord {
     /// Counts 27 biomes at each lattice point and retains the four most frequent.
     pub(crate) fn build_lattice(&mut self) {
-        let mut cache = vec![0; LATTICE_WORDS];
+        let point_words = self.lattice_point_words();
+        let mut cache = vec![0; LATTICE_SIDE.pow(3) * point_words];
         let side = LATTICE_SIDE + 2;
         // Each grid axis step's neighbour offset and local coordinate, and each slot's lookup,
         // resolved once for the grid's 729 `tint_index_at` samples.
@@ -189,26 +205,72 @@ impl PackedBiomeRecord {
                         }
                     }
                     counts[..count_len].sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-                    let start = lattice_index(position) * LATTICE_POINT_WORDS;
+                    let start = lattice_index(position) * point_words;
                     cache[start] = count_len.min(LATTICE_BIOME_LIMIT) as u32;
-                    for (i, &(tint, count)) in counts[..count_len]
-                        .iter()
-                        .take(LATTICE_BIOME_LIMIT)
-                        .enumerate()
-                    {
-                        cache[start + 1 + i] = tint;
-                        cache[start + 1 + LATTICE_BIOME_LIMIT + i] =
-                            (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits();
+                    if point_words == LATTICE_POINT_WORDS {
+                        let selected: [(u32, u32); LATTICE_BIOME_LIMIT] =
+                            std::array::from_fn(|i| if i < count_len { counts[i] } else { (0, 0) });
+                        cache[start + 1] = selected[0].0 | (selected[1].0 << 16);
+                        cache[start + 2] = selected[2].0 | (selected[3].0 << 16);
+                        cache[start + 3] = selected[0].1
+                            | (selected[1].1 << 8)
+                            | (selected[2].1 << 16)
+                            | (selected[3].1 << 24);
+                    } else {
+                        for (i, &(tint, count)) in counts[..count_len]
+                            .iter()
+                            .take(LATTICE_BIOME_LIMIT)
+                            .enumerate()
+                        {
+                            cache[start + 1 + i] = tint;
+                            cache[start + 1 + LATTICE_BIOME_LIMIT + i] =
+                                (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits();
+                        }
                     }
                 }
             }
         }
-        std::sync::Arc::make_mut(&mut self.words)
-            [DESCRIPTOR_WORDS..DESCRIPTOR_WORDS + LATTICE_WORDS]
+        std::sync::Arc::make_mut(&mut self.words)[DESCRIPTOR_WORDS..DESCRIPTOR_WORDS + cache.len()]
             .copy_from_slice(&cache);
     }
 
-    /// CPU mirror of vanilla's block-position colour query, including 3D weights.
+    /// Number of words per lattice point, preserving full-width tint indices when needed.
+    pub fn lattice_point_words(&self) -> usize {
+        if self.words[0] == super::biome::DESCRIPTOR_MAGIC {
+            LATTICE_POINT_WORDS
+        } else {
+            WIDE_LATTICE_POINT_WORDS
+        }
+    }
+
+    /// Decodes one mixed record lattice point at a grid position from -4 through 20.
+    /// Callers must supply a lattice point; uniform records have no lattice.
+    pub fn lattice_samples(&self, position: [i32; 3]) -> [BiomeBlendSample; LATTICE_BIOME_LIMIT] {
+        let point_words = self.lattice_point_words();
+        let start = DESCRIPTOR_WORDS + lattice_index(position) * point_words;
+        std::array::from_fn(|i| {
+            if i >= self.words[start] as usize {
+                return BiomeBlendSample {
+                    tint_index: 0,
+                    weight: 0.0,
+                };
+            }
+            if point_words == LATTICE_POINT_WORDS {
+                let count = (self.words[start + LATTICE_POINT_WORDS - 1] >> (i * 8)) & 0xff;
+                BiomeBlendSample {
+                    tint_index: (self.words[start + 1 + i / 2] >> (i % 2 * 16)) & 0xffff,
+                    weight: count as f32 / LATTICE_STENCIL_SAMPLES as f32,
+                }
+            } else {
+                BiomeBlendSample {
+                    tint_index: self.words[start + 1 + i],
+                    weight: f32::from_bits(self.words[start + 1 + LATTICE_BIOME_LIMIT + i]),
+                }
+            }
+        })
+    }
+
+    /// CPU mirror of the block-position colour query, including 3D weights.
     pub fn blend_samples(
         &self,
         coordinate: [i32; 3],
@@ -233,12 +295,10 @@ impl PackedBiomeRecord {
         for (point, (position, weight)) in
             nearest_lattice_points(coordinate).into_iter().enumerate()
         {
-            let start = DESCRIPTOR_WORDS + lattice_index(position) * LATTICE_POINT_WORDS;
-            for i in 0..self.words[start] as usize {
+            for (i, sample) in self.lattice_samples(position).into_iter().enumerate() {
                 samples[point * LATTICE_BIOME_LIMIT + i] = BiomeBlendSample {
-                    tint_index: self.words[start + 1 + i],
-                    weight: weight
-                        * f32::from_bits(self.words[start + 1 + LATTICE_BIOME_LIMIT + i]),
+                    tint_index: sample.tint_index,
+                    weight: weight * sample.weight,
                 };
             }
         }
@@ -263,6 +323,10 @@ pub fn shader_source(source: &str) -> String {
         LATTICE_QUERY_POINTS,
         BIOME_QUERY_SIDE,
     );
+    constants.push_str(&format!(
+        "const BIOME_WIDE_DESCRIPTOR_MAGIC: u32 = {}u;\nconst BIOME_WIDE_POINT_WORDS: u32 = {}u;\nconst BIOME_FRACTION_VEC4S: u32 = {}u;\nconst BIOME_STENCIL_SAMPLES: u32 = {}u;\n",
+        super::biome::WIDE_DESCRIPTOR_MAGIC, WIDE_LATTICE_POINT_WORDS, BIOME_FRACTION_VEC4S, LATTICE_STENCIL_SAMPLES,
+    ));
     constants.push_str(&format!(
         "const BIOME_STENCIL_VEC4S: u32 = {}u;\nconst BIOME_WEIGHT_VEC4S: u32 = {}u;\nconst GRASS_PERMUTATION_VEC4S: u32 = {}u;\n",
         BIOME_STENCIL_VEC4S, BIOME_WEIGHT_VEC4S, GRASS_PERMUTATION_VEC4S,
@@ -312,10 +376,18 @@ mod tests {
         }
         let permutation = weights + BIOME_WEIGHT_VEC4S * 4;
         assert_eq!(
-            &words[permutation..],
+            &words[permutation..permutation + GRASS_PERMUTATION_VEC4S * 4],
             &assets::grass_noise_permutation()[..],
             "permutation follows the weights"
         );
+        let fractions = permutation + GRASS_PERMUTATION_VEC4S * 4;
+        for count in 0..=LATTICE_STENCIL_SAMPLES {
+            assert_eq!(
+                words[fractions + count],
+                (count as f32 / LATTICE_STENCIL_SAMPLES as f32).to_bits(),
+                "stencil fraction {count}"
+            );
+        }
     }
 
     #[test]

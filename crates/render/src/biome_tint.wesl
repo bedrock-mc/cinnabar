@@ -24,6 +24,7 @@ struct BiomeQueryTables {
     stencils: array<vec4<u32>, BIOME_STENCIL_VEC4S>,
     weights: array<vec4<f32>, BIOME_WEIGHT_VEC4S>,
     permutation: array<vec4<u32>, GRASS_PERMUTATION_VEC4S>,
+    fractions: array<vec4<u32>, BIOME_FRACTION_VEC4S>,
 }
 @group(0) @binding(BIOME_QUERY_TABLES_BINDING) var<uniform> biome_query_tables: BiomeQueryTables;
 
@@ -41,6 +42,29 @@ fn biome_record_span_valid(start: u32, words: u32) -> bool {
     let length = arrayLength(&biome_records);
     if (start > length) { return false; }
     return words <= length - start;
+}
+
+// Accepts the compact and full-width descriptor encodings.
+fn biome_descriptor_valid(magic: u32) -> bool {
+    return magic == BIOME_DESCRIPTOR_MAGIC || magic == BIOME_WIDE_DESCRIPTOR_MAGIC;
+}
+
+// Reads one full tint index from either lattice representation.
+fn lattice_tint_index(start: u32, index: u32, compact: bool) -> u32 {
+    if (compact) {
+        return (biome_records[start + 1u + index / 2u] >> (index % 2u * 16u)) & 0xffffu;
+    }
+    return biome_records[start + 1u + index];
+}
+
+// Returns the original float bits for compact integer stencil counts.
+fn lattice_fraction(start: u32, index: u32, compact: bool) -> f32 {
+    if (compact) {
+        let count = (biome_records[start + BIOME_POINT_WORDS - 1u] >> (index * 8u)) & 0xffu;
+        if (count > BIOME_STENCIL_SAMPLES) { return -1.0; }
+        return bitcast<f32>(biome_query_tables.fractions[count / 4u][count % 4u]);
+    }
+    return bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + index]);
 }
 
 fn lattice_biome_count(start: u32) -> u32 {
@@ -91,7 +115,7 @@ fn packed_payload_tint_index(payload: u32, coordinate: vec3<u32>) -> u32 {
 
 fn packed_biome_tint_index(record: u32, source_coordinate: vec3<i32>) -> u32 {
     if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return 0u; }
-    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) {
+    if (!biome_descriptor_valid(biome_records[record])) {
         return 0u;
     }
     let offset = source_coordinate >> vec3(4u);
@@ -145,7 +169,7 @@ fn special_foliage_tint(tint: u32, material_flags: u32) -> vec3<f32> {
 fn uniform_biome_tint_gamma(tint_kind: u32, material_flags: u32, record: u32) -> vec4<f32> {
     if (tint_kind == 0u) { return vec4(1.0); }
     if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return vec4(0.0); }
-    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return vec4(0.0); }
+    if (!biome_descriptor_valid(biome_records[record])) { return vec4(0.0); }
     let index = biome_records[record + 1u];
     if (index == 0xffffffffu) { return vec4(0.0); }
     let tint = safe_tint_index(index);
@@ -172,7 +196,7 @@ fn blended_biome_tint(
     let coordinate = clamp(vec3<i32>(floor(local_position)), vec3(0), vec3(BIOME_QUERY_SIDE - 1));
     let block_position = coordinate + vec3<i32>(world_origin);
     if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS)) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
-    if (biome_records[record] != BIOME_DESCRIPTOR_MAGIC) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
+    if (!biome_descriptor_valid(biome_records[record])) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
     let uniform_tint = biome_records[record + 1u];
     if (uniform_tint != 0xffffffffu) {
         return tint_domain_colour(uniform_tint, tint_kind, material_flags, block_position);
@@ -185,7 +209,9 @@ fn blended_biome_tint(
             return tint_domain_colour(tint, tint_kind, material_flags, block_position);
         }
     }
-    let lattice_words = BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_POINT_WORDS;
+    let compact = biome_records[record] == BIOME_DESCRIPTOR_MAGIC;
+    let point_words = select(BIOME_WIDE_POINT_WORDS, BIOME_POINT_WORDS, compact);
+    let lattice_words = BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * point_words;
     if (!biome_record_span_valid(record, BIOME_DESCRIPTOR_WORDS + lattice_words)) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
     let base = (coordinate - vec3(BIOME_CACHE_ORIGIN)) / BIOME_LATTICE_STEP * BIOME_LATTICE_STEP + vec3(BIOME_CACHE_ORIGIN);
     let residue = vec3<u32>(coordinate - base + vec3(BIOME_RESIDUE_RADIUS));
@@ -201,12 +227,12 @@ fn blended_biome_tint(
         let weight = biome_query_tables.weights[weights + point / 4u][point % 4u];
         let position = base + (vec3<i32>(vec3(cell / 9u, cell / 3u % 3u, cell % 3u)) - vec3(1)) * BIOME_LATTICE_STEP;
         if (lattice_point_index(position) >= BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE * BIOME_LATTICE_SIDE) { return tint_domain_colour(0u, tint_kind, material_flags, block_position); }
-        let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * BIOME_POINT_WORDS;
+        let start = record + BIOME_DESCRIPTOR_WORDS + lattice_point_index(position) * point_words;
         var colour = vec4(0.0);
         let count = lattice_biome_count(start);
         for (var i = 0u; i < count; i += 1u) {
-            let tint = biome_records[start + 1u + i];
-            let fraction = bitcast<f32>(biome_records[start + 1u + BIOME_BIOME_LIMIT + i]);
+            let tint = lattice_tint_index(start, i, compact);
+            let fraction = lattice_fraction(start, i, compact);
             if (!(fraction >= 0.0 && fraction <= 1.0)) { continue; }
             colour += tint_to_gamma(tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))) * fraction;
         }

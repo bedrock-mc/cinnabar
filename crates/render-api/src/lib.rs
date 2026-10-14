@@ -4,6 +4,7 @@
 //! layout rules. It has no dependencies and must not acquire game state or GPU types.
 
 mod actor_lighting;
+pub mod far_terrain;
 mod frame_rate_limit;
 mod legacy_combat;
 mod pose_generation;

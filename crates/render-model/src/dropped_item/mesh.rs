@@ -107,19 +107,11 @@ pub fn native_dropped_sprite_mesh(
     let side = layer_side as f32;
     let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
     let glint_scale = ActorGlint::item(0.0, [rect[2], rect[3]]).uv_scale;
-    // Native tessellation excludes alpha 0 and 1; retain the original texture for sampling.
-    let mut mask = rgba8.to_vec();
-    for pixel in mask.as_chunks_mut::<4>().0 {
-        if pixel[3] < 2 {
-            pixel[3] = 0;
-        }
-    }
     let longest = width.max(height) as f32;
-    let mut vertices = held_sprite_vertices(width as usize, height as usize, &mask, rect)?;
+    let mut vertices = held_sprite_vertices(width as usize, height as usize, rgba8, rect)?;
     for vertex in &mut vertices {
         vertex.position[0] += 0.5;
         vertex.position[1] += 1.0 - height as f32 / longest;
-        vertex.position[2] *= longest / 16.0;
     }
     Some(
         vertices
@@ -210,17 +202,30 @@ mod tests {
 
     #[test]
     fn native_drop_slab_retains_floor_origin_fixed_pixel_depth_and_mirrored_back() {
-        for (width, height) in [(16, 16), (32, 16), (8, 16)] {
+        for (width, height) in [
+            (8, 8),
+            (16, 16),
+            (32, 32),
+            (64, 64),
+            (32, 16),
+            (8, 16),
+            (64, 32),
+            (32, 64),
+        ] {
             let mesh = native_dropped_sprite_mesh(
                 width,
                 height,
                 &vec![255; (width * height * 4) as usize],
-                32,
+                64,
                 2,
             )
             .unwrap();
             let (mut min, mut max) = ([f32::MAX; 3], [f32::MIN; 3]);
             for vertex in &mesh {
+                assert_eq!(vertex.layer, 2);
+                assert_eq!(vertex.color, OPAQUE_WHITE);
+                assert!((0.0..=width as f32 / 64.0).contains(&vertex.uv[0]));
+                assert!((0.0..=height as f32 / 64.0).contains(&vertex.uv[1]));
                 for axis in 0..3 {
                     min[axis] = min[axis].min(vertex.position[axis]);
                     max[axis] = max[axis].max(vertex.position[axis]);

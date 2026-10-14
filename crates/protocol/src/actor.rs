@@ -16,11 +16,15 @@ use bedrock_protocol_1_26_51::types::{
 };
 use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
-use thiserror::Error;
 
-use crate::{ItemPacketError, NetworkItemStack, item::normalize_item};
+use crate::{NetworkItemStack, item::normalize_item};
 
+mod error;
 pub(crate) mod identifiers;
+pub use error::ActorPacketError;
+mod painting;
+pub(crate) use painting::normalize_add_painting;
+pub use painting::{PaintingData, PaintingDirection};
 mod skin;
 pub use identifiers::{ActorIdentifier, ActorIdentifierRegistry, MAX_ACTOR_IDENTIFIERS};
 mod skin_update;
@@ -55,24 +59,11 @@ pub const MAX_PLAYER_LIST_SKIN_BYTES: usize = 64 * 1024 * 1024;
 /// both absolute/delta movement carry the native origin, not collision feet.
 pub const ITEM_ACTOR_NETWORK_OFFSET: f32 = 0.125;
 
-/// Actor-data id of the primary 64-bit actor flag word.
-///
-/// The 1.26.40 generator emits raw actor-data ids instead of the named key enum
-/// protocol 1001 carried, so the two flag words are recognised by id here and
-/// re-typed into the `Flags`/`FlagsExtended` values downstream already reads.
-/// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
-/// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlags = iota`.
-const ACTOR_DATA_ID_FLAGS: u32 = 0;
+const ACTOR_DATA_ID_FLAGS: u32 = protocol_ids::ActorDataKey::Flags.wire_value();
+const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = protocol_ids::ActorDataKey::FlagsTwo.wire_value();
 
-/// Actor-data id of the overflow 64-bit actor flag word.
-///
-/// gophertunnel be6713da4dc051a4197f897d04835e89e9c54321
-/// `minecraft/protocol/entity_metadata.go`: `EntityDataKeyFlagsTwo` (92).
-const ACTOR_DATA_ID_FLAGS_EXTENDED: u32 = 92;
-
-/// Actor-data id of the third actor flag word (flags 128 and up), also
-/// delivered as `FlagsExtended`.
-pub const ACTOR_DATA_ID_FLAGS_THIRD: u32 = 139;
+/// Actor-data ID for flags starting at bit 128.
+pub const ACTOR_DATA_ID_FLAGS_THIRD: u32 = protocol_ids::ActorDataKey::FlagsThird.wire_value();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ActorKind {
@@ -219,9 +210,9 @@ pub enum ActorEffectAction {
 }
 
 /// MobEffect id of Haste, which shortens arm swings.
-pub const HASTE_EFFECT_ID: i32 = 3;
+pub const HASTE_EFFECT_ID: i32 = protocol_ids::Effect::Haste.wire_value();
 /// MobEffect id of Mining Fatigue, which lengthens arm swings.
-pub const MINING_FATIGUE_EFFECT_ID: i32 = 4;
+pub const MINING_FATIGUE_EFFECT_ID: i32 = protocol_ids::Effect::MiningFatigue.wire_value();
 
 /// One server-authoritative MobEffect change. Effect and amplifier values are
 /// retained raw; presentation decides which ids it can draw.
@@ -283,6 +274,10 @@ pub struct PlayerListUpdateEvent {
 pub enum ActorEvent {
     Identifiers(ActorIdentifierRegistry),
     Spawn(ActorSpawnEvent),
+    PaintingSpawn {
+        spawn: ActorSpawnEvent,
+        painting: PaintingData,
+    },
     PlayerSpawn {
         spawn: ActorSpawnEvent,
         game_mode: crate::GameModeUpdate,
@@ -298,39 +293,6 @@ pub enum ActorEvent {
     },
     Status(ActorStatusEvent),
     TakeItem(ActorTakeItemEvent),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum ActorPacketError {
-    #[error(transparent)]
-    Item(#[from] ItemPacketError),
-
-    #[error("actor identifier has {bytes} UTF-8 bytes, exceeding {max}")]
-    IdentifierTooLong { bytes: usize, max: usize },
-    #[error("actor spawn contains a non-finite {field}")]
-    NonFiniteSpawnField { field: &'static str },
-    #[error("actor collection {collection} has {count} entries, exceeding {max}")]
-    TooManyEntries {
-        collection: &'static str,
-        count: usize,
-        max: usize,
-    },
-    #[error("actor text field {field} has {bytes} UTF-8 bytes, exceeding {max}")]
-    TextTooLong {
-        field: &'static str,
-        bytes: usize,
-        max: usize,
-    },
-    #[error("actor field {field} is non-finite")]
-    NonFiniteField { field: &'static str },
-    #[error("absolute actor move has an invalid runtime ID varuint")]
-    InvalidAbsoluteMoveRuntimeId,
-    #[error(
-        "absolute actor move has {actual} body bytes after its runtime ID; expected {expected}"
-    )]
-    InvalidAbsoluteMoveLength { actual: usize, expected: usize },
-    #[error("actor update has negative tick {0}")]
-    NegativeTick(i64),
 }
 
 pub(crate) fn normalize_add_entity(

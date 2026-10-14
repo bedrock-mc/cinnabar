@@ -12,6 +12,8 @@ platform-specific = ["windows"]
 reads = [
     "assets/bedrock-target.json",
     "assets/block-data-sources.json",
+    "crates/protocol-ids/data/protocol-ids.json",
+    "crates/protocol-ids/data/actor-data-extensions.json",
     "tools/localserver/experience/testdata/protocol/limits.json",
 ]
 
@@ -24,6 +26,7 @@ name = "it"
 path = "tests/it/main.rs"
 
 [dependencies]
+protocol-ids = { path = "../protocol-ids" }
 simulation-clock = { path = "../simulation-clock" }
 zeroize = "1"
 block-transform = { path = "../block-transform" }

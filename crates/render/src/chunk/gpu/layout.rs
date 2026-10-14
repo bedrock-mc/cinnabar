@@ -258,13 +258,6 @@ pub(in crate::chunk) struct ArenaMigration {
     pub(in crate::chunk) copied_bytes: u64,
 }
 
-impl ArenaMigration {
-    /// Once a slice has landed, a write to the old buffer could be lost.
-    pub(in crate::chunk) const fn blocks_arena_writes(&self) -> bool {
-        self.copied_bytes > 0
-    }
-}
-
 pub(in crate::chunk) fn arena_capacities(arena: &ChunkGpuArena) -> ArenaRequiredLengths {
     ArenaRequiredLengths {
         quads: arena.quad_capacity,
@@ -485,6 +478,7 @@ pub(in crate::chunk) fn account_chunk_gpu_uploads(
         gpu_copy_bytes,
         full_shadow_bytes: 0,
         total_bytes: incremental_bytes.saturating_add(gpu_copy_bytes),
+        ..ChunkGpuUploadStats::default()
     }
 }
 

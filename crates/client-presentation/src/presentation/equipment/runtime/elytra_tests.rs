@@ -159,6 +159,7 @@ pub(super) fn owner_rig<'a>(
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
         java: Default::default(),
+        main_hand_equipped: None,
         java_equipped: None,
     }
 }
@@ -169,6 +170,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("minecraft:elytra"),
                 identifier: Arc::from("minecraft:elytra"),

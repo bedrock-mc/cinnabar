@@ -25,7 +25,7 @@ pub(super) fn head_stream() -> WorldStream {
             local_player_unique_id: 1,
             player_position: [0.0, 64.0, 0.0],
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),
@@ -332,6 +332,7 @@ fn retained_item_does_not_use_the_selected_items_clock() {
 #[test]
 fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
     let item = |identifier: &str| WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
@@ -361,6 +362,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
 #[test]
 fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     let item = |identifier: &str| WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
@@ -435,6 +437,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         .unwrap(),
     );
     let item = |identifier: &str| WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: identifier.into(),
@@ -559,6 +562,7 @@ fn partial_layers_skip_missing_parts() {
 /// Builds a sprite stack for the hand transition tests.
 fn worn(identifier: &str) -> WornItem {
     WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: Arc::from(identifier),

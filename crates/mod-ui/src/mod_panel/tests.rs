@@ -47,12 +47,12 @@ fn registration_replacements_preserve_environment_prepared_routes() {
         let ([registration, _], prepared_registration) =
             prepared_panels(&format!("Registration {revision}"));
         let current = Arc::downgrade(&prepared_registration);
-        ui.set_prepared_panel_ui(PanelUiOwner::Registration, Some(prepared_registration));
+        ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), Some(prepared_registration));
         if let Some(previous) = previous {
             assert!(previous.upgrade().is_none(), "superseded bundle is retired");
         }
         previous = Some(current);
-        ui.set_mod_panel(PanelUiOwner::Registration, Some(&registration))
+        ui.set_mod_panel(PanelUiOwner::Registration(1), Some(&registration))
             .unwrap();
         assert!(ui.mod_panel.as_ref().unwrap().prepared.is_some());
     }
@@ -63,7 +63,7 @@ fn registration_replacements_preserve_environment_prepared_routes() {
         ui.mod_panel.as_ref().unwrap().prepared.as_ref().unwrap(),
         &environment_route,
     ));
-    ui.set_prepared_panel_ui(PanelUiOwner::Registration, None);
+    ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), None);
     assert!(previous.unwrap().upgrade().is_none());
     ui.set_mod_panel(PanelUiOwner::Environment(0), None)
         .unwrap();
@@ -128,12 +128,12 @@ fn ten_registration_replacements_release_routes_and_preserve_environment_caches(
                 Arc::downgrade(&route.catalog)
             })
             .collect();
-        ui.set_prepared_panel_ui(PanelUiOwner::Registration, Some(prepared_registration));
+        ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), Some(prepared_registration));
         assert!(retired.iter().all(|catalog| catalog.upgrade().is_none()));
         for panel in &registration {
-            render_prepared_route(&mut ui, PanelUiOwner::Registration, panel);
+            render_prepared_route(&mut ui, PanelUiOwner::Registration(1), panel);
         }
-        let registered = &ui.prepared_panel_ui[&PanelUiOwner::Registration];
+        let registered = &ui.prepared_panel_ui[&PanelUiOwner::Registration(1)];
         assert_eq!(registered.screens.len(), registration.len());
         assert_eq!(
             registered
@@ -156,11 +156,11 @@ fn ten_registration_replacements_release_routes_and_preserve_environment_caches(
                 .sum::<usize>(),
             environment.len() + registration.len(),
         );
-        render_prepared_route(&mut ui, PanelUiOwner::Registration, &registration[0]);
+        render_prepared_route(&mut ui, PanelUiOwner::Registration(1), &registration[0]);
         retired.extend(catalogs);
     }
 
-    ui.set_prepared_panel_ui(PanelUiOwner::Registration, None);
+    ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), None);
     assert!(ui.mod_panel.is_none());
     assert!(retired.iter().all(|catalog| catalog.upgrade().is_none()));
     for (panel, passes) in environment.iter().zip(&passes) {
@@ -180,8 +180,8 @@ fn identical_registration_replacements_preserve_environment_pointer_capture() {
     let environment_route = prepared_environment.route(&environment).unwrap();
     let mut ui = ModUi::default();
     ui.set_prepared_panel_ui(PanelUiOwner::Environment(0), Some(prepared_environment));
-    ui.set_prepared_panel_ui(PanelUiOwner::Registration, Some(prepared_registration));
-    ui.set_mod_panel(PanelUiOwner::Registration, Some(&registration))
+    ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), Some(prepared_registration));
+    ui.set_mod_panel(PanelUiOwner::Registration(1), Some(&registration))
         .unwrap();
     ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&environment))
         .unwrap();
@@ -197,8 +197,9 @@ fn identical_registration_replacements_preserve_environment_pointer_capture() {
     let data = Arc::clone(&ui.mod_panel.as_ref().unwrap().data);
     let (_, replacement) = prepared_panels("Identical");
     for replacement in [Some(replacement), None] {
-        ui.set_prepared_panel_ui(PanelUiOwner::Registration, replacement);
-        ui.set_mod_panel(PanelUiOwner::Registration, None).unwrap();
+        ui.set_prepared_panel_ui(PanelUiOwner::Registration(1), replacement);
+        ui.set_mod_panel(PanelUiOwner::Registration(1), None)
+            .unwrap();
         ui.set_mod_panel(PanelUiOwner::Environment(0), Some(&environment))
             .unwrap();
         let current = ui

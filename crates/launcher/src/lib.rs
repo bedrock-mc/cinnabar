@@ -18,9 +18,12 @@ pub mod accounts;
 pub mod branding;
 pub mod dressing_room;
 pub mod global_resources;
+pub mod graphics_backend;
 pub mod install_layout;
 pub mod local_worlds;
 pub mod menu;
+pub mod minecraft_import;
+pub mod mods;
 pub mod skin_import;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;

@@ -8,12 +8,9 @@ use json_ui::{Context, DataSource, HitKind, HitRegion, Scalar};
 use serde_json::Value;
 
 use super::{menu_caret::with_caret, play_screen};
-use launcher::menu::settings_sections::SETTINGS_SECTIONS;
+use launcher::menu::settings_sections::{SETTINGS_SECTIONS, SettingSection};
 use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
 use ui_engine::engine::screen::{Translate, translated};
-
-/// The section the settings screen opens on before one is picked.
-const VIDEO_SECTION: &str = "video_forced_index";
 
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
@@ -357,6 +354,21 @@ pub fn dialog_model(
     translate: Translate<'_>,
 ) -> (json_ui::FormModel, MenuAction) {
     let (title, body, button1, button2, confirm) = match dialog {
+        MenuDialog::MinecraftImport => {
+            let snapshot = &view.minecraft_import;
+            let confirm = snapshot
+                .actions()
+                .first()
+                .copied()
+                .unwrap_or(launcher::minecraft_import::Action::Close);
+            (
+                snapshot.title().into(),
+                snapshot.body().to_owned(),
+                snapshot.label(confirm).into(),
+                "Close".into(),
+                MenuAction::MinecraftImport(confirm),
+            )
+        }
         MenuDialog::Accounts => (
             "Accounts".into(),
             String::new(),
@@ -509,7 +521,7 @@ fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translat
 fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {
     super::enhanced_setting::bind(view, data);
     let section = match view.settings_section {
-        0 => section_index(VIDEO_SECTION),
+        0 => SettingSection::Video.definition().index,
         picked => picked,
     };
     data.select_radio("navigation_tab", usize::from(section));
@@ -558,22 +570,9 @@ fn settings_screen(view: &MenuView, data: &mut DataSource, translate: Translate<
     flags(data, &["#gui_scale_visible"]);
     data.set_global("#full_screen", Scalar::Bool(view.fullscreen));
     flags(data, &["#full_screen_enabled"]);
-    let variable = SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*index == section).then_some(*name));
-    let title = match variable {
-        Some("accessibility_forced_index") => "options.accessibility.title",
-        Some("keyboard_and_mouse_forced_index") => "options.keyboardAndMouseSettings",
-        Some("controller_and_switch_forced_index") => "options.controllerSettings",
-        Some("general_forced_index") => "options.generalTitle",
-        Some("account_forced_index") => "options.accountTitle",
-        Some("creator_forced_index") => "options.creatorTitle",
-        Some("sound_forced_index") => "options.sounds.title",
-        Some("global_texture_pack_forced_index") => "menu.globalpacks",
-        Some("storage_management_forced_index") => "menu.storageManagement",
-        Some("language_forced_index") => "options.language",
-        _ => "options.videoTitle",
-    };
+    let title = SettingSection::from_index(section)
+        .unwrap_or(SettingSection::Video)
+        .title();
     data.set_global("#section_title", text(translated(translate, title, title)));
     data.set_global(
         "#dialog_title",
@@ -656,13 +655,6 @@ fn settings_context(context: Context) -> Context {
         .fold(context, |context, (name, index)| {
             context.with_var(name, Value::from(*index))
         })
-}
-
-fn section_index(name: &str) -> u8 {
-    SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(section, index)| (*section == name).then_some(*index))
-        .unwrap_or_default()
 }
 
 /// The menu action a pressed region means on `view`'s screen.

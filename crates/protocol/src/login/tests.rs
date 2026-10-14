@@ -83,7 +83,7 @@ fn truncated_audio_wire_remains_fatal() {
 ///
 /// 1.26.40 writes the hashes unconditionally and signals cache participation
 /// with `cache_enabled`, so `blobs: Some(..)` has no direct equivalent.
-fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunk {
+pub(super) fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunk {
     let sub_chunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunk {
         sub_chunks_count: wire::VarUInt(sub_chunks_count),
@@ -819,6 +819,25 @@ fn allowlisted_actor_packet_is_materialized_and_normalized() {
         Some(WorldEvent::Actor(crate::ActorEvent::Spawn(spawn)))
             if spawn.dimension == 2 && spawn.runtime_id == 42
     ));
+}
+
+#[test]
+fn painting_wire_packet_reaches_play_dispatch_with_its_motive() {
+    let packet = crate::Packet::new(bedrock_protocol_1_26_51::packets::AddPainting {
+        target_actor_id: ActorUniqueID(-15),
+        target_runtime_id: ActorRuntimeID(73),
+        position: [3.5, 70.5, 10.03125].into(),
+        direction: wire::ZigZag32(2),
+        motif: "backyard".into(),
+    });
+    let mut batch = crate::encode(&packet).unwrap();
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).unwrap();
+    let event = decode_world_raw_with(raw, 0, super::decode_test_raw).unwrap();
+    assert!(
+        matches!(event,Some(WorldEvent::Actor(crate::ActorEvent::PaintingSpawn {spawn,painting}))
+        if spawn.runtime_id==73 && spawn.unique_id == -15 && painting.motive.as_ref()=="backyard")
+    );
 }
 
 #[test]

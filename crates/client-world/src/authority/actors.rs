@@ -123,7 +123,10 @@ impl WorldAuthority {
         }
     }
     fn publish_actor_audio(&mut self) {
-        for event in self.actors.take_synchronized_audio() {
+        for mut event in self.actors.take_synchronized_audio() {
+            if event.client_generated {
+                event.dimension_epoch = self.form_dimension_epoch;
+            }
             self.push_committed_audio(event);
         }
     }
@@ -465,6 +468,13 @@ impl WorldAuthority {
     pub fn pending_item_resolution_count(&self) -> usize {
         self.actors.pending_item_resolution_count()
     }
+    /// Retained hanging pictures in runtime-ID order, excluding the local player.
+    pub fn painting_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
+        self.actors
+            .painting_actors()
+            .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
+    }
+
     /// Every tracked actor except the local player, in no particular order.
     pub fn remote_actors(&self) -> impl Iterator<Item = &ActorSnapshot> {
         let local = self.local_player_runtime_id;

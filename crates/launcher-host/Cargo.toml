@@ -20,6 +20,7 @@ bridge = { path = "../bridge" }
 crossbeam-channel = "0.5"
 ctrlc = { version = "3.4", features = ["termination"] }
 launcher = { path = "../launcher" }
+resource-pack = { path = "../resource-pack" }
 getrandom = "0.3"
 protocol = { path = "../protocol" }
 tempfile = "3"
@@ -38,6 +39,7 @@ url = "2"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(unix)'.dependencies]
+libc = "0.2"
 rustix = { version = "1", default-features = false, features = ["fs", "process", "std", "stdio"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -50,8 +52,11 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_Kernel",
+    "Win32_System_LibraryLoader",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_UI_Controls_Dialogs",
@@ -63,8 +68,6 @@ windows-sys = { version = "0.61", features = [
 test-time = { path = "../test-time" }
 launcher = { path = "../launcher", features = ["test-support"] }
 
-[target.'cfg(unix)'.dev-dependencies]
-libc = "0.2"
 
 [lints]
 workspace = true

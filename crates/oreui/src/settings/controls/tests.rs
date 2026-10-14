@@ -7,6 +7,7 @@ use {
     launcher::menu::{MenuAction, MenuView},
 };
 
+use launcher::menu::settings_options::SettingId;
 fn animated_switch(
     transitions: &mut Transitions,
     view: &MenuView,
@@ -174,7 +175,7 @@ fn selected_slider_uses_hover_face_without_a_pressed_face() {
     use super::super::super::{review_tests::paint, test_support::solids};
     let index = launcher::menu::settings_options::SETTINGS_OPTIONS
         .iter()
-        .position(|option| option.name == "gamma")
+        .position(|option| option.id == SettingId::Gamma)
         .unwrap() as u16;
     let actions = [0, 1, 2].map(|value| MenuAction::SettingsOption(index, value));
     let mut view = MenuView::new(true, "Player".into());

@@ -3,6 +3,7 @@ use super::*;
 mod opacity;
 mod own_tag;
 mod view_depth;
+mod visibility;
 
 /// Uses a camera at the origin looking along -Z, with independently supplied viewer feet.
 fn view(viewer_position: Vec3) -> NametagView {
@@ -258,13 +259,13 @@ fn java_distance_cutoffs_are_strict_and_server_caps_can_only_shorten_them() {
 }
 
 #[test]
-fn invisible_players_and_explicit_server_hides_suppress_the_label() {
+fn player_visibility_honors_explicit_hides_and_always_show_overrides() {
     let mut actor = actor();
     assert!(visible(&actor, None));
     for (flags, expected) in [
         (1 << ACTOR_FLAG_SHOW_NAME, true),
         (0, false),
-        (1 << ACTOR_FLAG_ALWAYS_SHOW_NAME, false),
+        (1 << ACTOR_FLAG_ALWAYS_SHOW_NAME, true),
         (
             (1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_INVISIBLE),
             false,

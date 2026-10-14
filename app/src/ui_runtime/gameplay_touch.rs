@@ -251,6 +251,10 @@ mod tests {
         assert_eq!(lifted.len(), 1);
         let mut touches = state.sample();
         touches.extend(lifted);
+        // Production stamps activity before routing; the router rejects sequence zero.
+        for (sequence, touch) in touches.iter_mut().enumerate() {
+            touch.activity_sequence = sequence as u64 + 1;
+        }
         let mut router = SemanticInputRouter::default();
         router
             .route(DeviceFrame {

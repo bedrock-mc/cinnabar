@@ -31,6 +31,9 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
+        if self.uses_native_item_mesh(&item.identifier) {
+            return None;
+        }
         let (_, body_bones) = self.body_bones_for(body.input.rig)?;
         let (catalog, from_pack) = self.binding_source(&item.identifier)?;
         let (assets, runtime) = if from_pack {

@@ -103,6 +103,7 @@ impl WorldStream {
             predictions: prediction::DeferredPredictions::default(),
             decode_tx,
             decode_rx,
+            biome_records: None,
             mesh_tx,
             mesh_rx,
             lighting: lighting::Lighting::new(),
@@ -117,6 +118,10 @@ impl WorldStream {
             dimension_transfer_priority: None,
             admitted_mesh_jobs: Arc::new(AtomicUsize::new(0)),
             mesh_cancellations: HashMap::new(),
+            air_removals: BTreeMap::new(),
+            air_removal_cursor: None,
+            air_requeued: BTreeMap::new(),
+            air_requeue_cursor: None,
             urgent_mesh_in_flight: HashSet::new(),
             staged_mesh_completions: VecDeque::new(),
             staged_mesh_bytes: 0,
@@ -154,6 +159,9 @@ impl WorldStream {
             last_retention_center: None,
             last_retention_radius: None,
             local_player_chunk: None,
+            far_terrain: far_summaries::FarTerrainFeed::default(),
+            full_detail: full_detail::FullDetail::default(),
+            near_drawn: near_drawn::NearDrawn::default(),
             stats: WorldStreamStats::default(),
         }
     }

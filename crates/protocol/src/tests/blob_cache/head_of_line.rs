@@ -14,7 +14,7 @@ fn synced_block_update_waits_for_its_cached_column_before_visual_handoff() {
             dimension: 0,
             position: [64, 0, 0],
             layer: 0,
-            network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         },
         flags: 3,
         sync: protocol::ActorBlockSyncMessage {

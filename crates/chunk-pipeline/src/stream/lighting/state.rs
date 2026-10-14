@@ -311,6 +311,9 @@ impl WorldStream {
     ) -> Option<u64> {
         // Whatever else queues the key, its next solve covers all of it.
         self.lighting.changed_cells.remove(&key);
+        if !self.wants_light(key.chunk()) {
+            return None;
+        }
         if !self.resident.contains(&key) || !self.lighting.block_generations.contains_key(&key) {
             return None;
         }

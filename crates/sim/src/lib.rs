@@ -19,7 +19,7 @@ pub use destroy::{
     BlockDestroyInfo, DestroyConditions, HeldTool, ToolTier, destroy_progress_per_tick,
 };
 pub use fluid::sample_actor_liquids;
-pub use math::{Vec3, minecraft_cos, minecraft_sin, view_direction};
+pub use math::{Vec3, minecraft_cos, minecraft_sin, normalize_direction, view_direction};
 pub use prediction::{MotionOverlay, PredictionError, PredictionHistory, ReplayResult};
 pub use simulator::{
     AxisCollisions, ControlledTickResult, DEFAULT_MOVEMENT_SPEED, JUMP_DELAY_TICKS,

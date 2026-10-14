@@ -27,7 +27,7 @@ const (
 	MaxPingTargets = bridgecontract.MaxPingTargets
 	pingTimeout    = 2 * time.Second
 	pingWorkers    = 8
-	defaultPort    = "19132"
+	defaultPort    = bridgecontract.DefaultBedrockPortText
 )
 
 // PingServers pings each address concurrently; unreachable servers come back offline.

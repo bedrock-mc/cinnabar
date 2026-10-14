@@ -1083,3 +1083,6 @@ fn escape_closes_a_view_after_same_frame_pointer_actions() {
         Some(&server_experience::screen::Value::Integer(1))
     );
 }
+
+#[path = "deferred_tests.rs"]
+mod deferred_tests;

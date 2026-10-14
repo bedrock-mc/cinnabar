@@ -45,7 +45,7 @@ impl OreUiScreen {
             &mut *frame.next,
             &mut *frame.layouts,
             frame.font,
-            frame.metrics,
+            self.accessibility_metrics(frame.metrics),
             frame.solid_page,
             originals,
         );

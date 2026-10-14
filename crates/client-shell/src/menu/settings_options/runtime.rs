@@ -1,5 +1,6 @@
 //! One handoff applies menu edits to the camera, input, window and sound authorities.
 
+use launcher::menu::settings_options::SettingId;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -7,7 +8,7 @@ use std::{
 
 use bevy::prelude::ResMut;
 
-use launcher::menu::settings_options::{SETTINGS_OPTIONS, persistence::SETTINGS_FILE};
+use launcher::menu::settings_options::{SettingsOptions, persistence::SETTINGS_FILE};
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
 /// Limits disk retries after a failed write without discarding pending preferences.
@@ -41,16 +42,16 @@ impl MenuRuntime {
     /// Publishes normalized glint factors to the shared UI renderer.
     pub fn ui_glint_settings(&self) -> render_scene::UiGlintSettings {
         render_scene::UiGlintSettings {
-            strength: self.settings_options.value("glint_strength") as f32 / 100.0,
-            speed: self.settings_options.value("glint_speed") as f32 / 100.0,
+            strength: self.settings_options.value(SettingId::GlintStrength) as f32 / 100.0,
+            speed: self.settings_options.value(SettingId::GlintSpeed) as f32 / 100.0,
         }
     }
 
     /// Reads the desktop scoping option for the device that produced this frame's turn.
     pub fn spyglass_damping(&self, mode: semantic_input::InputMode) -> f32 {
         let name = match mode {
-            semantic_input::InputMode::KeyboardMouse => "spyglass_mouse_dampening",
-            semantic_input::InputMode::GamePad => "spyglass_gamepad_dampening",
+            semantic_input::InputMode::KeyboardMouse => SettingId::SpyglassMouseDampening,
+            semantic_input::InputMode::GamePad => SettingId::SpyglassGamepadDampening,
             semantic_input::InputMode::Touch => return 0.0,
         };
         self.settings_options.value(name) as f32 / 100.0
@@ -59,9 +60,11 @@ impl MenuRuntime {
     /// Applies a validated setting edit and marks its persistence and runtime handoff dirty.
     pub(in crate::menu) fn set_option(&mut self, index: u16, value: i32) {
         // A real edit replaces any session override and is saved.
+        let overrides = self.session_overrides.len();
         self.session_overrides
-            .retain(|(overridden, _)| *overridden != usize::from(index));
-        if Arc::make_mut(&mut self.settings_options).set(usize::from(index), value) {
+            .retain(|preference| preference.index() != usize::from(index));
+        let changed = Arc::make_mut(&mut self.settings_options).set(usize::from(index), value);
+        if changed || overrides != self.session_overrides.len() {
             self.settings_dirty = true;
             self.settings_apply = true;
         }
@@ -87,15 +90,7 @@ impl MenuRuntime {
                 .is_none_or(|due| Instant::now() >= due)
         {
             let path = self.config_path.with_file_name(SETTINGS_FILE);
-            let saved = if self.session_overrides.is_empty() {
-                Arc::clone(&self.settings_options)
-            } else {
-                let mut persisted = (*self.settings_options).clone();
-                for &(index, value) in &self.session_overrides {
-                    persisted.set(index, value);
-                }
-                Arc::new(persisted)
-            };
+            let saved = self.persistent_settings();
             match saved.save(&path) {
                 Ok(()) => {
                     self.settings_dirty = false;
@@ -109,40 +104,46 @@ impl MenuRuntime {
         }
     }
 
-    /// Bridges legacy named menu actions into the persisted option registry.
-    pub fn set_named_option(&mut self, name: &str, value: i32) {
-        if let Some(index) = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-        {
-            self.set_option(index as u16, value);
+    /// Returns preferences for saves and backups without including session-only overrides.
+    pub(in crate::menu) fn persistent_settings(&self) -> Arc<SettingsOptions> {
+        if self.session_overrides.is_empty() {
+            return Arc::clone(&self.settings_options);
         }
+        let mut settings = (*self.settings_options).clone();
+        for &preference in &self.session_overrides {
+            settings.restore_option_preference(preference);
+        }
+        Arc::new(settings)
     }
 
-    /// Overrides `name` in memory only (saves keep the persisted value); `None` restores it.
-    pub fn set_session_option(&mut self, name: &str, value: Option<i32>) {
-        let Some(index) = SETTINGS_OPTIONS
-            .iter()
-            .position(|option| option.name == name)
-        else {
-            return;
-        };
+    /// Applies a registered setting through the persisted option controller.
+    pub fn set_named_option(&mut self, id: SettingId, value: i32) {
+        self.set_option(id.index() as u16, value);
+    }
+
+    /// Overrides a setting in memory; None restores the saved preference.
+    pub fn set_session_option(&mut self, id: SettingId, value: Option<i32>) {
+        let index = id.index();
         let slot = self
             .session_overrides
             .iter()
-            .position(|(overridden, _)| *overridden == index);
-        let value = match (value, slot) {
-            (Some(value), Some(_)) => value,
-            (Some(value), None) => {
-                let persisted = self.settings_options.get(index);
-                self.session_overrides.push((index, persisted));
-                value
+            .position(|preference| preference.index() == index);
+        if let Some(value) = value {
+            if slot.is_none() {
+                let preference = self
+                    .settings_options
+                    .option_preference(index)
+                    .expect("registered session option");
+                self.session_overrides.push(preference);
             }
-            (None, Some(slot)) => self.session_overrides.swap_remove(slot).1,
-            (None, None) => return,
-        };
-        if Arc::make_mut(&mut self.settings_options).set(index, value) {
-            self.settings_apply = true;
+            if Arc::make_mut(&mut self.settings_options).set(index, value) {
+                self.settings_apply = true;
+            }
+        } else if let Some(slot) = slot {
+            let preference = self.session_overrides.swap_remove(slot);
+            if Arc::make_mut(&mut self.settings_options).restore_option_preference(preference) {
+                self.settings_apply = true;
+            }
         }
     }
 

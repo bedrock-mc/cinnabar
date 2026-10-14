@@ -1,77 +1,6 @@
-use super::status::{MAX_MESSAGE_BYTES, WRITE_ID};
 use super::*;
-use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+use candidate::build_candidate;
 use std::fs;
-
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "cinnabar-registration-{}-{}",
-            std::process::id(),
-            WRITE_ID.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&path).unwrap();
-        Self(path)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let resolved = self.0.canonicalize().unwrap();
-        let root = std::env::temp_dir().canonicalize().unwrap();
-        assert!(resolved.starts_with(&root) && resolved != root);
-        fs::remove_dir_all(resolved).unwrap();
-    }
-}
-
-fn registration(directory: &Scratch, request_id: &str) -> Registration {
-    Registration {
-        version: 1,
-        request_id: request_id.into(),
-        enabled: true,
-        component: directory.0.join("selected.component.wat"),
-        font: None,
-        ui: None,
-        grants: ModGrants {
-            controls: true,
-            ..Default::default()
-        },
-    }
-}
-
-fn write_registration(directory: &Scratch, registration: &Registration) {
-    let mut json = serde_json::to_value(registration).unwrap();
-    json["request_id"] = serde_json::Value::String(registration.request_id.clone());
-    fs::write(
-        directory.0.join(REGISTRATION_FILE),
-        serde_json::to_vec(&json).unwrap(),
-    )
-    .unwrap();
-}
-
-#[test]
-fn packet_delay_grant_is_opt_in_and_survives_registration_decode() {
-    let old: ModGrants = serde_json::from_str(r#"{"controls":true}"#).unwrap();
-    assert!(!old.packet_delay);
-    let selected: ModGrants =
-        serde_json::from_str(r#"{"controls":true,"packet_delay":true}"#).unwrap();
-    assert!(selected.packet_delay);
-}
-
-#[test]
-fn unloading_extensions_restores_view_scales_and_preserves_saved_fov() {
-    let mut world = World::new();
-    let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
-    let fov = camera.horizontal_fov_degrees();
-    camera.set_view_scale(0.25, 0.25);
-    world.insert_resource(camera);
-    clear_presentation(&mut world);
-    let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
-    assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
-    assert_eq!(camera.horizontal_fov_degrees(), fov);
-}
 
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     fixture_with_capture(enabled, frame, text, false)
@@ -105,950 +34,634 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         .replacen("(func (export \"init\")", &format!("(func (export \"init\") i32.const 1024 i32.const {} i32.const 512 call $panel", panel.len()), 1)
 }
 
-fn candidate(directory: &Scratch, enabled: bool, text: &str) -> Box<Candidate> {
-    let registration = registration(directory, "first");
+/// Prepares a real guest whose retained label reveals whether its state was restarted.
+fn candidate(root: &std::path::Path, name: &str, text: &str) -> Box<Candidate> {
+    let entry = Entry {
+        component: root.join(name),
+        enabled: true,
+        grants: mod_host::ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     fs::write(
-        &registration.component,
+        &entry.component,
         fixture(
-            enabled,
+            true,
             "call $pressed if i32.const 1 i32.const 4 i32.const 128 call $label end",
             text,
         ),
     )
     .unwrap();
-    Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap())
+    Box::new(build_candidate(source::source_snapshot(entry).unwrap()).unwrap())
 }
 
-fn rendered_output() -> mod_render::RenderOutput {
-    use mod_render::{Billboard, BillboardPattern, Primitives, RenderOutput};
-    RenderOutput {
-        passes: Vec::new(),
-        primitives: Arc::new(Primitives {
-            billboards: vec![Billboard {
-                position: [0.0; 3],
-                width: 1.0,
-                height: 1.0,
-                color: [1.0; 4],
-                pattern: BillboardPattern::Spark,
-                upright: false,
-            }],
-            ..Default::default()
-        }),
-    }
-}
-
+/// Provides frame publication with real bounded channels and no coordinator thread.
 fn world() -> (World, Receiver<Message>, Receiver<ModHost>) {
     let (_, updates) = bounded(1);
-    let (messages, receive_messages) = bounded(8);
-    let (retired, receive_retired) = bounded(2);
+    let (messages, incoming) = bounded(8);
+    let (retired, retiring) = bounded(mod_api::MAX_LOADED_MODS * 2);
     let mut world = World::new();
     world.insert_resource(Watcher {
         updates,
         messages,
         retired,
-        latest: Arc::new(AtomicU64::new(1)),
-        thread: None,
-        pending: Mutex::new(None),
-        pending_ack: Mutex::new(None),
+        latest: Arc::new(AtomicU64::new(0)),
         desired: Arc::new(Mutex::new(Desired::default())),
         alive: Arc::new(AtomicBool::new(true)),
-        last_ack: AtomicU64::new(0),
-        fallback_retired: Mutex::new(Vec::with_capacity(2)),
-        settings: Arc::new(Mutex::new(None)),
+        thread: None,
+        pending: Mutex::new(None),
+        acknowledgments: Mutex::new(Vec::new()),
+        fallback_retired: Mutex::new(Vec::new()),
+        settings: Arc::new(Mutex::new(BTreeMap::new())),
+        companions: Arc::new(Mutex::new(Vec::new())),
     });
-    world.insert_resource(UiPresentationResource(
-        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
-    ));
-    (world, receive_messages, receive_retired)
+    (world, incoming, retiring)
 }
 
-#[test]
-fn registration_is_bounded_absolute_and_optional_grants_default_denied() {
-    let directory = Scratch::new();
-    let mut registration = registration(&directory, "first");
-    registration.grants = ModGrants::default();
-    write_registration(&directory, &registration);
-    let observed = observe(&directory.0.join(REGISTRATION_FILE));
-    let registration = observed.result.unwrap().unwrap();
-    assert_eq!(observed.request_id.as_deref(), Some("first"));
-    let grants = registration.grants;
-    assert!(
-        !grants.players
-            && !grants.camera
-            && !grants.controls
-            && !grants.interaction
-            && !grants.settings
-            && !grants.environment
-    );
-    for value in [
-        serde_json::json!({"version":2,"request_id":"first","enabled":true,"component":directory.0.join("module.wasm")}),
-        serde_json::json!({"version":1,"request_id":"first","enabled":true,"component":"relative.wasm"}),
-    ] {
-        fs::write(
-            directory.0.join(REGISTRATION_FILE),
-            serde_json::to_vec(&value).unwrap(),
-        )
-        .unwrap();
-        assert!(
-            observe(&directory.0.join(REGISTRATION_FILE))
-                .result
-                .is_err()
-        );
-    }
-    fs::write(
-        directory.0.join(REGISTRATION_FILE),
-        vec![b' '; MAX_BYTES + 1],
-    )
-    .unwrap();
-    assert!(
-        observe(&directory.0.join(REGISTRATION_FILE))
-            .result
-            .is_err()
-    );
-}
-
-#[test]
-fn source_identity_ignores_request_id_but_tracks_component_and_grants() {
-    let directory = Scratch::new();
-    let mut registration = registration(&directory, "first");
-    fs::write(&registration.component, b"one").unwrap();
-    let first = source_snapshot(registration.clone()).unwrap().identity;
-    registration.request_id = "second".into();
-    assert_eq!(
-        source_snapshot(registration.clone()).unwrap().identity,
-        first
-    );
-    registration.grants.interaction = true;
-    assert_ne!(
-        source_snapshot(registration.clone()).unwrap().identity,
-        first
-    );
-    registration.grants.interaction = false;
-    fs::write(&registration.component, b"two").unwrap();
-    assert_ne!(source_snapshot(registration).unwrap().identity, first);
-}
-
-#[test]
-fn candidate_identity_and_compilation_use_one_snapshot_after_file_replacement() {
-    let directory = Scratch::new();
-    let registration = registration(&directory, "first");
-    fs::write(&registration.component, fixture(false, "", "Hello")).unwrap();
-    let snapshot = source_snapshot(registration.clone()).unwrap();
-    let identity = snapshot.identity;
-    fs::write(&registration.component, fixture(true, "", "Other")).unwrap();
-    let candidate = build_candidate(snapshot).unwrap();
-    assert_eq!(candidate.identity, identity);
-    assert_eq!(candidate.host.label(), Some("Hello"));
-    assert_ne!(source_snapshot(registration).unwrap().identity, identity);
-}
-
-#[test]
-fn actual_install_acknowledges_only_after_host_and_panel_are_published() {
-    let directory = Scratch::new();
-    let (mut world, messages, _) = world();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&directory, false, "Hello"))),
-        },
-    );
-    assert!(world.resource::<ModRuntime>().hosts.host.is_active());
-    assert_eq!(
-        world.resource::<ModRuntime>().hosts.host.label(),
-        Some("Hello")
-    );
-    assert!(world.resource::<ModRuntime>().hosts.host.panel().is_some());
-    let Message::Acknowledge {
-        generation,
-        status,
-        identity,
-    } = messages.try_recv().unwrap()
-    else {
-        panic!("expected installation acknowledgment")
+/// Publishes the desired list before applying its already prepared changes.
+fn apply(world: &mut World, entries: Vec<Entry>, changes: Vec<Change>) {
+    let watcher = world.resource::<Watcher>();
+    let generation = watcher.latest.fetch_add(1, Ordering::AcqRel) + 1;
+    let registration = Registration {
+        version: super::VERSION,
+        request_id: format!("request-{generation}"),
+        mods: entries,
     };
-    assert_eq!(generation, 1);
-    assert_eq!(status.state, "loaded");
-    assert_eq!(status.request_id, "first");
-    assert_eq!(
-        identity,
-        world.resource::<ModRuntime>().registration_identity
+    *watcher.desired.lock().unwrap() = Desired {
+        generation,
+        registration: Some(registration.clone()),
+    };
+    install::apply(
+        world,
+        Update {
+            generation,
+            registration,
+            changes,
+        },
     );
 }
 
+/// Wraps a prepared candidate as a single identity-scoped successful admission.
+fn change(candidate: Box<Candidate>) -> Change {
+    Change {
+        entry: candidate.registration.clone(),
+        result: Ok(candidate),
+    }
+}
+
 #[test]
-fn id_only_reattachment_preserves_guest_state_panel_input_and_interaction() {
-    let directory = Scratch::new();
-    let (mut world, messages, _) = world();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
-        },
-    );
-    messages.try_recv().unwrap();
+fn enabling_disabling_and_reordering_preserve_the_other_instances_state() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, _messages, retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let a = first.registration.clone();
+    apply(&mut world, vec![a.clone()], vec![change(first)]);
     world
         .resource_mut::<ModRuntime>()
         .hosts
-        .host
+        .host_mut(0)
         .frame(true)
         .unwrap();
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+    let second = candidate(root.path(), "b.wasm", "World");
+    let b = second.registration.clone();
+    apply(&mut world, vec![a.clone(), b.clone()], vec![change(second)]);
+    assert_eq!(world.resource::<ModRuntime>().hosts.host_count(), 2);
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+    let first_owner = world.resource::<ModRuntime>().metadata[0].owner;
+    apply(&mut world, vec![b.clone(), a.clone()], Vec::new());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(1).label(),
+        Some("ello")
+    );
+    assert_eq!(
+        world.resource::<ModRuntime>().metadata[1].owner,
+        first_owner
+    );
+    apply(
+        &mut world,
+        vec![
+            Entry {
+                enabled: false,
+                ..b
+            },
+            a,
+        ],
+        Vec::new(),
+    );
+    assert_eq!(world.resource::<ModRuntime>().hosts.host_count(), 1);
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+    assert_eq!(retiring.len(), 1);
+}
+
+#[test]
+fn failed_reload_keeps_old_instance_and_successful_reload_resets_only_its_guest() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let mut a = first.registration.clone();
+    let second = candidate(root.path(), "b.wasm", "World");
+    let b = second.registration.clone();
+    apply(
+        &mut world,
+        vec![a.clone(), b.clone()],
+        vec![change(first), change(second)],
+    );
     world
         .resource_mut::<ModRuntime>()
         .hosts
-        .host
-        .set_panel_open(true);
-    world
-        .resource_mut::<UiPresentationResource>()
-        .mod_ui_mut()
-        .set_mod_panel_open(true);
-    world.resource_mut::<ModInteraction>().attack_reach = Some(5.0);
-    let identity = world
-        .resource::<ModRuntime>()
-        .registration_identity
+        .host_mut(0)
+        .frame(true)
         .unwrap();
-    install(
+    messages.try_iter().for_each(drop);
+    a.reload += 1;
+    fs::write(&a.component, "invalid component").unwrap();
+    let failed = source::source_snapshot(a.clone())
+        .and_then(build_candidate)
+        .map(Box::new);
+    assert!(failed.is_err());
+    apply(
         &mut world,
-        Update {
-            generation: 1,
-            request_id: "second".into(),
-            result: Ok(Action::Reuse {
-                identity,
-                registration: registration(&directory, "second"),
-            }),
-        },
+        vec![a.clone(), b.clone()],
+        vec![Change {
+            entry: a.clone(),
+            result: failed,
+        }],
     );
     let runtime = world.resource::<ModRuntime>();
-    assert_eq!(runtime.hosts.host.label(), Some("ello"));
-    assert!(runtime.hosts.host.panel_open());
-    assert!(matches!(
-        &runtime.hosts.host.panel().unwrap().controls[0],
-        ui::mod_panel::Control::Toggle { value: true, .. }
-    ));
-    assert!(
-        world
-            .resource::<UiPresentationResource>()
-            .mod_ui()
-            .mod_panel_open()
-    );
-    assert_eq!(world.resource::<ModInteraction>().attack_reach, Some(5.0));
-    let Message::Acknowledge { status, .. } = messages.try_recv().unwrap() else {
-        panic!("expected reuse acknowledgment")
+    assert!(runtime.hosts.host(0).is_active());
+    assert_eq!(runtime.hosts.host(0).label(), Some("ello"));
+    assert_eq!(runtime.hosts.host(1).label(), Some("World"));
+    let Message::Acknowledge { statuses, .. } = messages.try_recv().unwrap() else {
+        panic!("reload acknowledgment")
     };
-    assert_eq!(status.request_id, "second");
-    assert_eq!(status.state, "loaded");
+    assert_eq!(statuses[0].state, "reload-error");
+    fs::write(&a.component, fixture(true, "", "Fresh")).unwrap();
+    let next = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![a, b], vec![change(next)]);
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("Fresh")
+    );
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(1).label(),
+        Some("World")
+    );
 }
 
 #[test]
-fn new_component_resets_state_and_retires_old_host_outside_world() {
-    let directory = Scratch::new();
-    let (mut world, messages, retired) = world();
-    install(
+fn revoking_one_mod_releases_only_its_authority_before_loader_completion() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let mut a = first.registration.clone();
+    let second = candidate(root.path(), "b.wasm", "World");
+    let b = second.registration.clone();
+    apply(
         &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
-        },
+        vec![a.clone(), b.clone()],
+        vec![change(first), change(second)],
     );
-    messages.try_recv().unwrap();
+    a.enabled = false;
     world
-        .resource_mut::<ModRuntime>()
-        .hosts
-        .host
-        .set_panel_open(true);
-    world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
-        name: "stale".into(),
-        values: Vec::new(),
-    }]));
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "second".into(),
-            result: Ok(Action::Replace(candidate(&directory, false, "Other"))),
-        },
-    );
-    assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
-    assert_eq!(
-        world.resource::<ModRuntime>().hosts.host.label(),
-        Some("Other")
-    );
-    assert!(!world.resource::<ModRuntime>().hosts.host.panel_open());
-    assert!(matches!(
-        &world
-            .resource::<ModRuntime>()
-            .hosts
-            .host
-            .panel()
-            .unwrap()
-            .controls[0],
-        ui::mod_panel::Control::Toggle { value: false, .. }
-    ));
-    assert_eq!(retired.try_recv().unwrap().label(), Some("Hello"));
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration = Some(Registration {
+        version: super::VERSION,
+        request_id: "off".into(),
+        mods: vec![a, b],
+    });
+    install::sync_authority(&mut world);
+    let runtime = world.resource::<ModRuntime>();
+    assert!(!runtime.hosts.host(0).is_active());
+    assert!(runtime.hosts.host(1).is_active());
+    assert_eq!(runtime.hosts.host(1).label(), Some("World"));
 }
 
 #[test]
-fn replacing_a_registered_component_discards_its_pending_jump() {
-    struct Air;
-    impl sim::CollisionWorld for Air {
-        /// Supplies loaded empty terrain so the test can consume one movement tick.
-        fn collision_boxes(
-            &self,
-            _query: sim::Aabb,
-        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
-            Ok(sim::CollisionQuery::synthetic(Vec::new()))
-        }
-    }
-    let directory = Scratch::new();
-    let (mut world, messages, _) = world();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
-        },
-    );
-    messages.try_recv().unwrap();
-    let mut physics = client_interaction::movement::LocalPhysicsController::default();
-    physics.reanchor_network_position([0.0; 3], 1, true);
-    physics.set_jump_pulse_scope(Some((1, 0)));
-    physics.request_jump_pulse();
-    assert_eq!(
-        physics
-            .advance(
-                std::time::Duration::ZERO,
-                sim::MovementInput::default(),
-                &Air
-            )
-            .completed_ticks,
-        0
-    );
-    world.insert_resource(physics);
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "second".into(),
-            result: Ok(Action::Replace(candidate(&directory, false, "Other"))),
-        },
-    );
-    let mut physics = world.resource_mut::<client_interaction::movement::LocalPhysicsController>();
-    physics.set_jump_pulse_scope(Some((1, 0)));
-    let frame = physics.advance(
-        std::time::Duration::from_secs_f64(1.0 / simulation_clock::TICKS_PER_SECOND as f64),
-        sim::MovementInput::default(),
-        &Air,
-    );
-    assert_eq!(frame.completed_ticks, 1);
-    assert!(!frame.samples[0].input.jump.held);
-    assert!(!frame.samples[0].input.jump.pressed);
-}
-
-#[test]
-fn disable_and_invalid_registration_revoke_all_owned_outputs() {
-    for result in [Ok(Action::Disabled), Err("invalid registration".into())] {
-        let directory = Scratch::new();
-        let (mut world, messages, retired) = world();
-        install(
-            &mut world,
-            Update {
-                generation: 1,
-                request_id: "first".into(),
-                result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
-            },
-        );
-        messages.try_recv().unwrap();
-        world.resource_mut::<ModInteraction>().attack_reach = Some(6.0);
-        world.resource_mut::<VisualTimeOverride>().0 = Some(18_000);
-        world
-            .resource_mut::<UiPresentationResource>()
-            .mod_ui_mut()
-            .set_mod_panel_open(true);
-        let mut scene = render_scene::ModRenderScene::default();
-        scene.apply(&rendered_output(), 7);
-        world.insert_resource(scene);
-        world.insert_resource(super::super::ModCueFeed(vec![mod_host::ModCue {
-            name: "stale".into(),
-            values: Vec::new(),
-        }]));
-        install(
-            &mut world,
-            Update {
-                generation: 1,
-                request_id: "second".into(),
-                result,
-            },
-        );
-        assert_eq!(
-            world
-                .resource::<render_scene::ModRenderScene>()
-                .vertex_count(),
-            0
-        );
-        assert!(world.resource::<super::super::ModCueFeed>().0.is_empty());
-        assert!(!world.contains_resource::<ModRuntime>());
-        assert!(!world.contains_resource::<ModInteraction>());
-        assert!(!world.contains_resource::<VisualTimeOverride>());
-        assert!(
-            !world
-                .resource::<UiPresentationResource>()
-                .mod_ui()
-                .mod_panel_open()
-        );
-        assert_eq!(retired.try_recv().unwrap().label(), Some("Hello"));
-    }
-}
-
-#[test]
-fn revoked_generation_cannot_install_a_completed_candidate() {
-    let directory = Scratch::new();
-    let (mut world, messages, retired) = world();
+fn an_obsolete_completed_candidate_cannot_replace_the_current_host() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut world, _messages, retiring) = world();
+    let first = candidate(root.path(), "a.wasm", "Hello");
+    let a = first.registration.clone();
+    apply(&mut world, vec![a.clone()], vec![change(first)]);
+    let stale = candidate(root.path(), "a.wasm", "Stale");
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .generation = 2;
     world
         .resource::<Watcher>()
         .latest
         .store(2, Ordering::Release);
-    install(
+    install::apply(
         &mut world,
         Update {
             generation: 1,
-            request_id: "stale".into(),
-            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
+            registration: Registration {
+                version: super::VERSION,
+                request_id: "old".into(),
+                mods: vec![a],
+            },
+            changes: vec![change(stale)],
         },
     );
-    assert!(!world.contains_resource::<ModRuntime>());
-    assert!(messages.try_recv().is_err());
-    assert_eq!(retired.try_recv().unwrap().label(), Some("Hello"));
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("Hello")
+    );
+    assert_eq!(retiring.len(), 1);
 }
 
 #[test]
-fn inactive_guest_is_reinitialized_instead_of_falsely_acknowledged_as_loaded() {
-    let directory = Scratch::new();
-    let (mut world, messages, _) = world();
-    let registration = registration(&directory, "first");
+fn status_messages_are_bounded_and_unloading_preserves_saved_camera_settings() {
+    let status = Status::new(PathBuf::from("a"), "error", Some("é\n".repeat(1000)));
+    let message = status.message.unwrap();
+    assert!(message.len() <= status::MAX_MESSAGE_BYTES && !message.contains('\n'));
+    let mut world = World::new();
+    let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
+    let fov = camera.horizontal_fov_degrees();
+    camera.set_view_scale(0.25, 0.25);
+    world.insert_resource(camera);
+    presentation::clear_presentation(&mut world);
+    let camera = world.resource::<client_presentation::camera::CameraSettingsAuthority>();
+    assert_eq!((camera.fov_scale(), camera.look_scale()), (1.0, 1.0));
+    assert_eq!(camera.horizontal_fov_degrees(), fov);
+}
+
+#[test]
+fn the_real_watcher_adds_and_removes_one_guest_without_restarting_its_neighbor() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let a = root.join("a.wasm");
+    let b = root.join("b.wasm");
     fs::write(
-        &registration.component,
-        fixture(false, "unreachable", "Hello"),
+        &a,
+        fixture(
+            false,
+            "call $pressed if i32.const 1 i32.const 4 i32.const 128 call $label end",
+            "Hello",
+        ),
     )
     .unwrap();
-    let candidate = build_candidate(source_snapshot(registration.clone()).unwrap()).unwrap();
-    let identity = candidate.identity;
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(Box::new(candidate))),
-        },
+    fs::write(&b, fixture(false, "", "World")).unwrap();
+    selection::select(root, &a, true, "a".into()).unwrap();
+    let mut app = App::new();
+    app.insert_resource(Watcher::start(root.into()).unwrap());
+    app.add_systems(
+        bevy::prelude::Update,
+        (install_pending, ApplyDeferred).chain(),
     );
-    messages.try_recv().unwrap();
-    assert!(
-        world
-            .resource_mut::<ModRuntime>()
-            .hosts
-            .host
-            .frame(false)
-            .is_err()
+    test_time::eventually("first registered guest is installed", || {
+        app.update();
+        app.world()
+            .get_resource::<ModRuntime>()
+            .is_some_and(|runtime| runtime.hosts.host_count() == 1)
+    });
+    app.world_mut()
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .frame(true)
+        .unwrap();
+    selection::select(root, &b, true, "b".into()).unwrap();
+    test_time::eventually("second guest is independently installed", || {
+        app.update();
+        app.world()
+            .get_resource::<ModRuntime>()
+            .is_some_and(|runtime| runtime.hosts.host_count() == 2)
+    });
+    assert_eq!(
+        app.world().resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
     );
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "retry".into(),
-            result: Ok(Action::Reuse {
-                identity,
-                registration,
-            }),
-        },
+    selection::disable(root, &b, "off".into()).unwrap();
+    test_time::eventually("second guest is independently retired", || {
+        app.update();
+        app.world()
+            .get_resource::<ModRuntime>()
+            .is_some_and(|runtime| runtime.hosts.host_count() == 1)
+    });
+    assert_eq!(
+        app.world().resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
     );
-    assert!(matches!(
-        messages.try_recv().unwrap(),
-        Message::Reload { .. }
-    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn normalized_registration_still_rejects_a_component_leaf_symlink() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let source = root.join("real.wasm");
+    let link = root.join("linked.wasm");
+    fs::write(&source, fixture(false, "", "Hello")).unwrap();
+    std::os::unix::fs::symlink(&source, &link).unwrap();
+    selection::select(root, &link, true, "linked".into()).unwrap();
+    let registration = source::observe(&root.join(REGISTRATION_FILE))
+        .result
+        .unwrap()
+        .unwrap();
+    assert_eq!(registration.mods[0].component, link);
+    assert!(source::source_snapshot(registration.mods[0].clone()).is_err());
 }
 
 #[test]
-fn saturated_retirement_queue_releases_authority_before_waiting_for_disposal() {
-    let directory = Scratch::new();
-    let (mut world, messages, retired) = world();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&directory, true, "Hello"))),
-        },
+fn environment_hosts_keep_their_state_and_panel_identity_when_registered_mods_move_ahead() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let environment = candidate(directory.path(), "environment.wasm", "Hello");
+    let env = environment.registration.clone();
+    apply(&mut world, vec![env], vec![change(environment)]);
+    {
+        let mut runtime = world.resource_mut::<ModRuntime>();
+        runtime.metadata[0].registration = None;
+        runtime.metadata[0].owner = mod_ui::PanelUiOwner::Environment(4);
+        runtime.hosts.host_mut(0).frame(true).unwrap();
+    }
+
+    let registered = candidate(directory.path(), "registered.wasm", "World");
+    let entry = registered.registration.clone();
+    apply(&mut world, vec![entry], vec![change(registered)]);
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(1).label(),
+        Some("ello")
     );
-    messages.try_recv().unwrap();
+    assert_eq!(
+        world.resource::<ModRuntime>().metadata[1].owner,
+        mod_ui::PanelUiOwner::Environment(4)
+    );
+    apply(&mut world, Vec::new(), Vec::new());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+    assert_eq!(
+        world.resource::<ModRuntime>().metadata[0].owner,
+        mod_ui::PanelUiOwner::Environment(4)
+    );
+}
+
+#[test]
+fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let first = candidate(directory.path(), "a.wasm", "Hello");
+    let original = first.registration.clone();
+    apply(&mut world, vec![original.clone()], vec![change(first)]);
+    messages.try_iter().for_each(drop);
+    let mut revoked = original.clone();
+    revoked.grants.controls = false;
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration = Some(Registration {
+        version: super::VERSION,
+        request_id: "revoke".into(),
+        mods: vec![revoked],
+    });
+    install::sync_authority(&mut world);
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+    // The original bytes/grants match the coordinator cache, but its guest is no longer reusable.
+    apply(&mut world, vec![original.clone()], Vec::new());
+    let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
+        panic!("inactive guest falsely acknowledged as running")
+    };
+    assert_eq!(inactive, std::slice::from_ref(&original.component));
+    assert!(messages.try_recv().is_err());
+    let fresh =
+        Box::new(build_candidate(source::source_snapshot(original.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![original], vec![change(fresh)]);
     world
         .resource_mut::<ModRuntime>()
         .hosts
-        .host
-        .set_panel_open(true);
-    world
-        .resource_mut::<UiPresentationResource>()
-        .mod_ui_mut()
-        .set_mod_panel_open(true);
-    world.resource_mut::<ModInteraction>().attack_reach = Some(6.0);
-    world.resource_mut::<VisualTimeOverride>().0 = Some(18_000);
-    for _ in 0..2 {
-        world
-            .resource::<Watcher>()
-            .retire(candidate(&directory, false, "Queue").host);
-    }
-    assert_eq!(retired.len(), 2);
-    let watcher = world.resource::<Watcher>();
-    watcher.latest.store(2, Ordering::Release);
-    *watcher.desired.lock().unwrap() = Desired {
-        generation: 2,
-        identity: None,
-        request_id: "disabled".into(),
-        status: Some(("disabled", None)),
-    };
-    sync_authority(&mut world);
-    install(
+        .host_mut(0)
+        .frame(true)
+        .unwrap();
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("ello")
+    );
+}
+
+#[test]
+fn registered_prefix_changes_preserve_every_environment_hosts_relative_order() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let e0 = candidate(directory.path(), "e0.wasm", "First");
+    let e1 = candidate(directory.path(), "e1.wasm", "Other");
+    apply(
         &mut world,
-        Update {
-            generation: 2,
-            request_id: "disabled".into(),
-            result: Ok(Action::Disabled),
-        },
+        vec![e0.registration.clone(), e1.registration.clone()],
+        vec![change(e0), change(e1)],
     );
-    let runtime = world.resource::<ModRuntime>();
-    assert!(runtime.suspended);
-    assert!(!runtime.hosts.host.panel_open());
-    assert!(!runtime.controls.focused);
-    assert!(
-        !world
-            .resource::<UiPresentationResource>()
-            .mod_ui()
-            .mod_panel_open()
-    );
-    assert_eq!(world.resource::<ModInteraction>().attack_reach, None);
-    assert_eq!(world.resource::<VisualTimeOverride>().0, None);
-    let Message::Acknowledge { status, .. } = messages.try_recv().unwrap() else {
-        panic!("expected revocation acknowledgment")
-    };
-    assert_eq!(status.state, "disabled");
-    assert!(
-        world
-            .resource::<Watcher>()
-            .pending
-            .lock()
-            .unwrap()
-            .is_some()
-    );
-}
-
-#[test]
-fn acknowledgment_status_is_bounded_and_replaces_only_fixed_companion() {
-    let directory = Scratch::new();
-    let component = directory.0.join("module.wasm");
-    fs::write(&component, b"unchanged").unwrap();
-    let status = Status::new(
-        "first".into(),
-        "error",
-        Some(format!("{}\n", "é".repeat(MAX_MESSAGE_BYTES))),
-    );
-    assert!(status.message.as_ref().unwrap().len() <= MAX_MESSAGE_BYTES);
-    assert!(!status.message.as_ref().unwrap().contains('\n'));
-    let path = directory.0.join(STATUS_FILE);
-    write_status(&path, &status).unwrap();
-    write_status(&path, &Status::new("second".into(), "disabled", None)).unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
-    assert_eq!(json["request_id"], "second");
-    assert_eq!(json["state"], "disabled");
-    assert_eq!(fs::read(component).unwrap(), b"unchanged");
-}
-
-#[test]
-fn reattachment_waits_for_queued_retirement_before_reading_companion_settings() {
-    use std::sync::mpsc;
-
-    #[derive(Debug)]
-    struct PendingFlush {
-        path: PathBuf,
-        started: mpsc::Sender<()>,
-        release: mpsc::Receiver<()>,
+    for (index, metadata) in world
+        .resource_mut::<ModRuntime>()
+        .metadata
+        .iter_mut()
+        .enumerate()
+    {
+        metadata.registration = None;
+        metadata.owner = mod_ui::PanelUiOwner::Environment(index);
     }
-    impl Drop for PendingFlush {
-        fn drop(&mut self) {
-            self.started.send(()).unwrap();
-            self.release.recv().unwrap();
-            fs::write(&self.path, "{\"cps\":30}").unwrap();
+    let r = candidate(directory.path(), "r.wasm", "Local");
+    let entry = r.registration.clone();
+    apply(&mut world, vec![entry], vec![change(r)]);
+    let labels = |world: &World| {
+        (0..world.resource::<ModRuntime>().hosts.host_count())
+            .map(|index| {
+                world
+                    .resource::<ModRuntime>()
+                    .hosts
+                    .host(index)
+                    .label()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(labels(&world), ["Local", "First", "Other"]);
+    apply(&mut world, Vec::new(), Vec::new());
+    assert_eq!(labels(&world), ["First", "Other"]);
+}
+
+#[test]
+fn settings_owner_publication_includes_environment_loaded_hosts() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, _messages, _retiring) = world();
+    let prepared = candidate(directory.path(), "environment.wasm", "Hello");
+    let mut entry = prepared.registration.clone();
+    entry.grants.settings = true;
+    let prepared =
+        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
+    world.resource_mut::<ModRuntime>().metadata[0].registration = None;
+    let watcher = world.resource::<Watcher>();
+    watcher.remember_settings(world.resource::<ModRuntime>());
+    let permit = removal::Permit::new(
+        watcher.latest.load(Ordering::Acquire),
+        watcher.latest.clone(),
+        watcher.companions.clone(),
+    );
+    assert!(permit.shared_companion(&mod_host::settings_companion(&entry.component)));
+}
+
+#[test]
+fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let prepared = candidate(directory.path(), "trapped.wasm", "Hello");
+    let a = prepared.registration.clone();
+    fs::write(&a.component, fixture(true, "unreachable", "Hello")).unwrap();
+    let trapped = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let identity = trapped.identity;
+    apply(&mut world, vec![a.clone()], vec![change(trapped)]);
+    messages.try_iter().for_each(drop);
+    world
+        .resource_mut::<ModRuntime>()
+        .hosts
+        .host_mut(0)
+        .frame(false)
+        .unwrap_err();
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+    let other = candidate(directory.path(), "other.wasm", "World");
+    let b = other.registration.clone();
+    apply(&mut world, vec![b.clone(), a.clone()], vec![change(other)]);
+    let Message::Acknowledge { installed, .. } = messages.try_recv().unwrap() else {
+        panic!("unrelated change attempted to retry a trapped guest")
+    };
+    assert_eq!(installed.get(&a.component), Some(&identity));
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert!(!world.resource::<ModRuntime>().hosts.host(1).is_active());
+    apply(&mut world, vec![a.clone(), b.clone()], Vec::new());
+    assert!(matches!(
+        messages.try_recv().unwrap(),
+        Message::Acknowledge { .. }
+    ));
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_active());
+    // Revoking a guest that already trapped does not make an unrelated restoration retry it.
+    let mut revoked = a.clone();
+    revoked.grants.controls = false;
+    world
+        .resource::<Watcher>()
+        .desired
+        .lock()
+        .unwrap()
+        .registration
+        .as_mut()
+        .unwrap()
+        .mods[0] = revoked;
+    install::sync_authority(&mut world);
+    apply(&mut world, vec![a.clone(), b.clone()], Vec::new());
+    assert!(matches!(
+        messages.try_recv().unwrap(),
+        Message::Acknowledge { .. }
+    ));
+    assert!(!world.resource::<ModRuntime>().hosts.host(0).is_revoked());
+    let mut reload = a;
+    reload.reload += 1;
+    fs::write(&reload.component, fixture(true, "", "Fresh")).unwrap();
+    let fresh =
+        Box::new(build_candidate(source::source_snapshot(reload.clone()).unwrap()).unwrap());
+    apply(&mut world, vec![reload, b], vec![change(fresh)]);
+    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(0).label(),
+        Some("Fresh")
+    );
+    assert_eq!(
+        world.resource::<ModRuntime>().hosts.host(1).label(),
+        Some("World")
+    );
+}
+
+#[test]
+fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
+    for keep_other in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let (mut world, messages, _retiring) = world();
+        let first = candidate(directory.path(), "a.wasm", "Hello");
+        let a = first.registration.clone();
+        let mut entries = vec![a.clone()];
+        let mut changes = vec![change(first)];
+        if keep_other {
+            let other = candidate(directory.path(), "b.wasm", "World");
+            entries.push(other.registration.clone());
+            changes.push(change(other));
+        }
+        apply(&mut world, entries.clone(), changes);
+        messages.try_iter().for_each(drop);
+        let mut disabled = entries.clone();
+        disabled[0].enabled = false;
+        apply(&mut world, disabled, Vec::new());
+        assert_eq!(world.contains_resource::<ModRuntime>(), keep_other);
+        // Reuse arrives while the coordinator still has the old installed identity.
+        apply(&mut world, entries.clone(), Vec::new());
+        assert!(matches!(
+            messages.try_recv().unwrap(),
+            Message::Acknowledge { .. }
+        ));
+        let Message::Retry { inactive, .. } = messages.try_recv().unwrap() else {
+            panic!("missing guest falsely acknowledged as installed")
+        };
+        assert_eq!(inactive, std::slice::from_ref(&a.component));
+        assert!(messages.try_recv().is_err());
+        let fresh = Box::new(build_candidate(source::source_snapshot(a).unwrap()).unwrap());
+        apply(&mut world, entries, vec![change(fresh)]);
+        let runtime = world.resource::<ModRuntime>();
+        assert!(runtime.hosts.host(0).is_active());
+        assert_eq!(runtime.hosts.host(0).label(), Some("Hello"));
+        if keep_other {
+            assert_eq!(runtime.hosts.host(1).label(), Some("World"));
         }
     }
-
-    let directory = Scratch::new();
-    let mut registration = registration(&directory, "reattach");
-    registration.grants.settings = true;
-    fs::write(&registration.component, fixture(false, "", "Hello")).unwrap();
-    let companion = registration.component.with_extension("settings.json");
-    fs::write(&companion, "{\"cps\":12}").unwrap();
-    let snapshot = source_snapshot(registration).unwrap();
-    let (retired, retirement) = bounded(1);
-    let (started, waiting) = mpsc::channel();
-    let (release, released) = mpsc::channel();
-    let (building, built) = mpsc::channel();
-    retired
-        .send(PendingFlush {
-            path: companion.clone(),
-            started,
-            release: released,
-        })
-        .unwrap();
-    let loader = thread::spawn(move || {
-        after_retirement(&retirement, || {
-            building.send(()).unwrap();
-            build_candidate(snapshot).unwrap()
-        })
-    });
-    waiting
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap();
-    assert!(
-        built.try_recv().is_err(),
-        "candidate read settings before retirement finished"
-    );
-    release.send(()).unwrap();
-    let candidate = loader.join().unwrap();
-    assert_eq!(candidate.host.settings_seed(), Some("{\"cps\":30}"));
-    drop(candidate);
-    assert_eq!(fs::read_to_string(companion).unwrap(), "{\"cps\":30}");
 }
 
 #[test]
-fn block_highlights_grant_is_opt_in_and_survives_registration_decode() {
-    let old: ModGrants = serde_json::from_str(r#"{"controls":true}"#).unwrap();
-    assert!(!old.block_highlights);
-    let selected: ModGrants = serde_json::from_str(r#"{"block_highlights":true}"#).unwrap();
-    assert!(selected.block_highlights);
-}
-
-#[test]
-fn fullbright_grant_is_opt_in_and_survives_registration_decode() {
-    let old: ModGrants = serde_json::from_str(r#"{"environment":true}"#).unwrap();
-    assert!(!old.fullbright);
-    let selected: ModGrants = serde_json::from_str(r#"{"fullbright":true}"#).unwrap();
-    assert!(selected.fullbright);
-}
-
-#[test]
-fn removing_extension_revokes_teleport_camera_policy() {
-    let (mut world, _, _) = world();
-    let mut camera = client_presentation::camera::CameraSettingsAuthority::default();
-    camera.set_preserve_teleport_rotation(true);
-    world.insert_resource(camera);
-    clear_owned_state(&mut world);
-    assert!(
-        !world
-            .resource::<client_presentation::camera::CameraSettingsAuthority>()
-            .preserves_teleport_rotation()
-    );
-}
-
-#[test]
-fn unloading_extension_clears_scoped_item_use_delay_policy() {
-    let (mut world, _, _) = world();
-    world.insert_resource(crate::item_use::ModItemUsePolicy {
-        scope: Some((1, 0)),
-    });
-    clear_owned_state(&mut world);
-    assert_eq!(
-        world.resource::<crate::item_use::ModItemUsePolicy>().scope,
-        None
-    );
-}
-
-/// Seeds an environment-owned component using the same host construction as registration tests.
-fn environment_host(world: &mut World, directory: &Scratch) {
-    install(
-        world,
-        Update {
-            generation: 1,
-            request_id: "environment".into(),
-            result: Ok(Action::Replace(candidate(directory, true, "Environment"))),
-        },
-    );
-    let mut runtime = world.resource_mut::<ModRuntime>();
-    runtime.registration_host = None;
-    runtime.registration_identity = None;
-    runtime.registration_request = None;
-    drop(runtime);
-    refresh_presentation(world);
-}
-
-#[test]
-fn registration_replaces_and_disables_only_its_companion() {
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, retired) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    for label in ["First", "Replacement"] {
-        install(
-            &mut world,
-            Update {
-                generation: 1,
-                request_id: label.into(),
-                result: Ok(Action::Replace(candidate(&companion, false, label))),
-            },
-        );
-        messages.try_recv().unwrap();
-        let runtime = world.resource::<ModRuntime>();
-        assert_eq!(runtime.hosts.host_count(), 2);
-        assert_eq!(runtime.registration_host, Some(1));
-        assert_eq!(
-            runtime.panel_ui_owner(0),
-            mod_ui::PanelUiOwner::Environment(0)
-        );
-        assert_eq!(
-            runtime.panel_ui_owner(1),
-            mod_ui::PanelUiOwner::Registration
-        );
-        assert_eq!(runtime.hosts.host(0).label(), Some("Environment"));
-        assert_eq!(runtime.hosts.host(1).label(), Some(label));
-        assert!(runtime.hosts.host(0).is_active());
-    }
-    assert_eq!(retired.try_recv().unwrap().label(), Some("First"));
-    world.resource_mut::<ModRuntime>().hud_editor_owner = Some(super::super::hud_editor::Owner {
-        host: 0,
-        session: 1,
-    });
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "disabled".into(),
-            result: Ok(Action::Disabled),
-        },
-    );
-    let runtime = world.resource::<ModRuntime>();
-    assert_eq!(runtime.hosts.host_count(), 1);
-    assert_eq!(runtime.registration_host, None);
-    assert_eq!(
-        runtime.panel_ui_owner(0),
-        mod_ui::PanelUiOwner::Environment(0)
-    );
-    assert_eq!(runtime.hud_editor_owner.unwrap().host, 0);
-    assert!(runtime.hosts.host.is_active());
-    assert!(!runtime.suspended);
-    assert_eq!(runtime.hosts.host.label(), Some("Environment"));
-    assert_eq!(retired.try_recv().unwrap().label(), Some("Replacement"));
-}
-
-#[test]
-fn revocation_quarantines_only_the_registered_companion_before_disposal() {
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, _) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&companion, false, "Companion"))),
-        },
-    );
-    let watcher = world.resource::<Watcher>();
-    watcher.latest.store(2, Ordering::Release);
-    *watcher.desired.lock().unwrap() = Desired {
-        generation: 2,
-        identity: None,
-        request_id: "disabled".into(),
-        status: Some(("disabled", None)),
+fn failed_admission_acknowledges_an_absent_host_without_retrying() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut world, messages, _retiring) = world();
+    let entry = Entry {
+        component: directory.path().join("missing.wasm"),
+        enabled: true,
+        ..Default::default()
     };
-    sync_authority(&mut world);
-    let runtime = world.resource::<ModRuntime>();
-    assert!(runtime.hosts.host(0).is_active());
-    assert!(!runtime.hosts.host(1).is_active());
-    assert!(!runtime.suspended);
-}
-
-#[test]
-fn distinct_toggle_keys_select_independent_panels_and_close_the_previous_panel() {
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, _) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    let registration = registration(&companion, "first");
-    fs::write(
-        &registration.component,
-        fixture(false, "", "Companion").replace("ShiftRight", "ArrowRight"),
-    )
-    .unwrap();
-    let selected = Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap());
-    install(
+    let result = source::source_snapshot(entry.clone())
+        .and_then(build_candidate)
+        .map(Box::new);
+    assert!(result.is_err());
+    apply(
         &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(selected)),
-        },
+        vec![entry.clone()],
+        vec![Change { entry, result }],
     );
-    let mut runtime = world.resource_mut::<ModRuntime>();
-    runtime.hosts.host_mut(0).set_panel_open(true);
-    assert!(runtime.hosts.select_panel(&["ArrowRight".into()]));
-    assert_eq!(runtime.hosts.panel_owner(), 1);
-    assert!(!runtime.hosts.host(0).panel_open());
-    runtime.hosts.host_mut(1).set_panel_open(true);
-    assert!(runtime.hosts.select_panel(&["ShiftRight".into()]));
-    assert_eq!(runtime.hosts.panel_owner(), 0);
-    assert!(!runtime.hosts.host(1).panel_open());
-    assert!(!runtime.hosts.select_panel(&["KeyA".into()]));
-    assert_eq!(runtime.hosts.panel_owner(), 0);
-}
-
-#[test]
-fn panel_key_capture_keeps_other_components_toggle_keys_for_rebinding() {
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, _) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    let registration = registration(&companion, "first");
-    fs::write(
-        &registration.component,
-        fixture_with_capture(false, "", "Companion", true).replace("ShiftRight", "ArrowRight"),
-    )
-    .unwrap();
-    let selected = Box::new(build_candidate(source_snapshot(registration).unwrap()).unwrap());
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(selected)),
-        },
-    );
-    let mut runtime = world.resource_mut::<ModRuntime>();
-    assert!(runtime.hosts.select_panel(&["ArrowRight".into()]));
-    assert!(runtime.hosts.host(1).panel().unwrap().capture_key);
-    runtime.hosts.host_mut(1).set_panel_open(true);
-    assert!(!runtime.hosts.select_panel(&["ShiftRight".into()]));
-    assert_eq!(runtime.hosts.panel_owner(), 1);
-    assert!(runtime.hosts.host(1).panel_open());
-    runtime.hosts.host_mut(1).set_panel_open(false);
-    assert!(runtime.hosts.select_panel(&["ShiftRight".into()]));
-    assert_eq!(runtime.hosts.panel_owner(), 0);
-}
-
-/// Publishes the retained render scene through the app's component-merging boundary.
-fn publish_render_scene(
-    scene: ResMut<render_scene::ModRenderScene>,
-    mut runtime: ResMut<ModRuntime>,
-) {
-    super::super::render::publish(Some(scene), &mut runtime);
-}
-
-#[test]
-fn removing_a_companion_republishes_even_when_scene_and_primary_generations_match() {
-    use bevy::ecs::system::RunSystemOnce;
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, _) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&companion, false, "Companion"))),
-        },
-    );
-    let generation = world.resource::<ModRuntime>().hosts.host.render().1;
-    let mut scene = render_scene::ModRenderScene::default();
-    // Merged scene generations and source generations have independent counters.
-    scene.apply(&rendered_output(), generation);
-    assert!(scene.vertex_count() > 0);
-    world.insert_resource(scene);
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "disabled".into(),
-            result: Ok(Action::Disabled),
-        },
-    );
-    world.run_system_once(publish_render_scene).unwrap();
-    let scene = world.resource::<render_scene::ModRenderScene>();
-    assert_eq!(scene.vertex_count(), 0);
-    assert_ne!(scene.generation(), generation);
-}
-
-#[test]
-fn replacing_a_registered_companion_refreshes_the_retained_render_scene() {
-    use bevy::ecs::system::RunSystemOnce;
-    let environment = Scratch::new();
-    let companion = Scratch::new();
-    let (mut world, messages, retired) = world();
-    environment_host(&mut world, &environment);
-    messages.try_recv().unwrap();
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "first".into(),
-            result: Ok(Action::Replace(candidate(&companion, false, "First"))),
-        },
-    );
-    let mut scene = render_scene::ModRenderScene::default();
-    scene.apply(&rendered_output(), 1);
-    world.insert_resource(scene);
-    install(
-        &mut world,
-        Update {
-            generation: 1,
-            request_id: "replacement".into(),
-            result: Ok(Action::Replace(candidate(&companion, false, "Replacement"))),
-        },
-    );
-    assert_eq!(retired.try_recv().unwrap().label(), Some("First"));
-    world.run_system_once(publish_render_scene).unwrap();
-    assert_eq!(
-        world
-            .resource::<render_scene::ModRenderScene>()
-            .vertex_count(),
-        0
-    );
-    assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
-}
-
-#[test]
-fn status_advertises_independent_registration_for_every_result() {
-    for state in ["loaded", "error", "disabled"] {
-        let status = Status::new("capability-check".into(), state, None);
-        let json = serde_json::to_value(status).unwrap();
-        assert_eq!(json["version"], 1);
-        assert_eq!(json["independent_registration"], true);
-        assert_eq!(json["state"], state);
-        assert_eq!(json["request_id"], "capability-check");
-    }
-}
-
-#[test]
-fn unloading_last_extension_clears_actor_cosmetics_without_removing_owner() {
-    let (mut world, _, _) = world();
-    world.insert_resource(
-        client_presentation::actor_publication::ActorPresentationStyle {
-            hurt_color: Some([1., 0., 0., 1.]),
-            hurt_armor_color: Some([0., 1., 0., 1.]),
-            attackable_actor: Some(42),
-            attackable_color: Some([0., 0., 1., 1.]),
-        },
-    );
-    clear_owned_state(&mut world);
-    let style = world.resource::<client_presentation::actor_publication::ActorPresentationStyle>();
-    assert!(style.hurt_color.is_none());
-    assert!(style.hurt_armor_color.is_none());
-    assert!(style.attackable_color.is_none());
-    assert!(style.attackable_actor.is_none());
+    let Message::Acknowledge {
+        installed,
+        statuses,
+        ..
+    } = messages.try_recv().unwrap()
+    else {
+        panic!("failed admission retried without a source change")
+    };
+    assert!(installed.is_empty());
+    assert_eq!(statuses[0].state, "error");
+    assert!(messages.try_recv().is_err());
 }

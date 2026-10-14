@@ -6,24 +6,60 @@ use crate::{DataSource, ModEvent};
 use anyhow::{Context, Result, bail};
 use wasmtime::{
     Store,
-    component::{ComponentNamedList, Instance, Lift, Lower, TypedFunc},
+    component::{
+        ComponentNamedList, Instance, InstancePre, Lift, Lower, TypedFunc, types::ComponentItem,
+    },
 };
 
 type Index = Option<u32>;
 /// A collection name and the index of a row in it.
 type Row = Option<(String, u32)>;
-type KeyFunc = TypedFunc<(String, Option<player_mod::GuestStack>, Row), ()>;
+type KeyParams = (String, Option<player_mod::GuestStack>, Row);
+const INIT: &str = "init";
+const FRAME: &str = "frame";
 
-#[derive(Default)]
-struct Events {
-    screen_changed: Option<TypedFunc<(Option<player_mod::Layout>,), ()>>,
-    action: Option<TypedFunc<(String, Index), ()>>,
-    secondary: Option<TypedFunc<(String, Index), ()>>,
-    scrolled: Option<TypedFunc<(f64, f64, f64, player_mod::Modifiers), ()>>,
-    text: Option<TypedFunc<(String, String), ()>>,
-    key: Option<KeyFunc>,
-    data_changed: Option<TypedFunc<(Vec<player_mod::DataSource>,), ()>>,
-    view_closed: Option<TypedFunc<(), ()>>,
+/// Defines the optional callback signatures once for admission and live instances.
+macro_rules! event_callbacks {
+    ($($field:ident: $params:ty = $name:literal => $event:pat),* $(,)?) => {
+        #[derive(Default)]
+        struct Events {
+            $($field: Option<TypedFunc<$params, ()>>),*
+        }
+
+        impl Events {
+            /// Finds each optional event callback using its declared signature.
+            fn find(store: &mut Store<State>, instance: &Instance) -> Result<Self> {
+                Ok(Self { $($field: typed(store, instance, $name)?),* })
+            }
+
+            /// Checks event exports without instantiating or calling the component.
+            fn check(pre: &InstancePre<State>) -> Result<()> {
+                $(check::<$params>(pre, $name, false)?;)*
+                Ok(())
+            }
+
+            /// Whether the matching optional callback is present before reserving its lane.
+            fn handles(&self, event: &ModEvent) -> bool {
+                match event { $($event => self.$field.is_some()),* }
+            }
+
+            /// Whether at least one optional event callback is present.
+            fn has_events(&self) -> bool {
+                $(self.$field.is_some())||*
+            }
+        }
+    };
+}
+
+event_callbacks! {
+    screen_changed: (Option<player_mod::Layout>,) = "screen-changed" => ModEvent::ScreenChanged(_),
+    action: (String, Index) = "action" => ModEvent::Action { .. },
+    secondary: (String, Index) = "secondary-action" => ModEvent::SecondaryAction { .. },
+    scrolled: (f64, f64, f64, player_mod::Modifiers) = "scrolled" => ModEvent::Scrolled { .. },
+    text: (String, String) = "text-changed" => ModEvent::TextChanged { .. },
+    key: KeyParams = "key" => ModEvent::Key { .. },
+    data_changed: (Vec<player_mod::DataSource>,) = "data-changed" => ModEvent::DataChanged(_),
+    view_closed: () = "view-closed" => ModEvent::ViewClosed,
 }
 
 pub(super) struct Exports {
@@ -32,26 +68,25 @@ pub(super) struct Exports {
 }
 
 impl Exports {
+    /// Checks the required and optional callback contracts without executing guest code.
+    pub(super) fn check(pre: &InstancePre<State>) -> Result<()> {
+        check::<()>(pre, INIT, true)?;
+        check::<()>(pre, FRAME, true)?;
+        Events::check(pre)
+    }
+
+    /// Finds the callbacks after admission has checked their signatures.
     pub(super) fn find(
         store: &mut Store<State>,
         instance: &Instance,
     ) -> Result<(TypedFunc<(), ()>, Self)> {
         let (Some(init), Some(frame)) = (
-            instance.get_func(&mut *store, "init"),
-            instance.get_func(&mut *store, "frame"),
+            instance.get_func(&mut *store, INIT),
+            instance.get_func(&mut *store, FRAME),
         ) else {
             bail!("component lacks init or frame");
         };
-        let events = Events {
-            screen_changed: typed(store, instance, "screen-changed")?,
-            action: typed(store, instance, "action")?,
-            secondary: typed(store, instance, "secondary-action")?,
-            scrolled: typed(store, instance, "scrolled")?,
-            text: typed(store, instance, "text-changed")?,
-            key: typed(store, instance, "key")?,
-            data_changed: typed(store, instance, "data-changed")?,
-            view_closed: typed(store, instance, "view-closed")?,
-        };
+        let events = Events::find(store, instance)?;
         Ok((
             init.typed(&*store)?,
             Self {
@@ -63,15 +98,12 @@ impl Exports {
 
     /// Whether the component exports any event callback.
     pub(super) fn has_events(&self) -> bool {
-        let events = &self.events;
-        events.screen_changed.is_some()
-            || events.action.is_some()
-            || events.secondary.is_some()
-            || events.scrolled.is_some()
-            || events.text.is_some()
-            || events.key.is_some()
-            || events.data_changed.is_some()
-            || events.view_closed.is_some()
+        self.events.has_events()
+    }
+
+    /// Skips absent optional callbacks before consuming an event or loading allowance.
+    pub(super) fn handles_event(&self, event: &ModEvent) -> bool {
+        self.events.handles(event)
     }
 
     /// Whether the component reads the session in `data-changed`, which gives `init` the load
@@ -144,6 +176,22 @@ impl Exports {
             }
             ModEvent::ViewClosed => call(events.view_closed.as_ref(), store, ()),
         }
+    }
+}
+
+/// Type-checks an exported callback, allowing absence only for optional events.
+fn check<P>(pre: &InstancePre<State>, name: &str, required: bool) -> Result<()>
+where
+    P: ComponentNamedList + Lower,
+{
+    let component = pre.component().component_type();
+    match component.get_export(pre.engine(), name) {
+        Some(ComponentItem::ComponentFunc(func)) => func
+            .typecheck::<P, ()>(&pre.instance_type())
+            .with_context(|| format!("export {name} has another signature")),
+        None if !required => Ok(()),
+        None => bail!("component lacks {name}"),
+        Some(_) => bail!("export {name} is not a callback"),
     }
 }
 

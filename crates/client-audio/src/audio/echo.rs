@@ -14,6 +14,38 @@ pub enum EchoOrigin {
 pub enum EchoSubject {
     Cell([i32; 3]),
     Actor(i64),
+    /// Actor sound with an exact position fallback for packets without an actor ID.
+    ActorAt {
+        unique_id: i64,
+        position: [u32; 3],
+    },
+}
+
+/// Matches named actors by ID and anonymous actor sounds by exact position.
+fn same_subject(left: EchoSubject, right: EchoSubject) -> bool {
+    match (left, right) {
+        (EchoSubject::Actor(id), EchoSubject::ActorAt { unique_id, .. })
+        | (EchoSubject::ActorAt { unique_id, .. }, EchoSubject::Actor(id)) => {
+            id != -1 && id == unique_id
+        }
+        (
+            EchoSubject::ActorAt {
+                unique_id: left_id,
+                position: left_position,
+            },
+            EchoSubject::ActorAt {
+                unique_id: right_id,
+                position: right_position,
+            },
+        ) => {
+            if left_id != -1 && right_id != -1 {
+                left_id == right_id
+            } else {
+                left_position == right_position
+            }
+        }
+        _ => left == right,
+    }
 }
 
 struct Echo {
@@ -44,7 +76,7 @@ impl EchoLedger {
         self.echoes.retain(|echo| now - echo.at <= window.max(1.0));
         if let Some(index) = self.echoes.iter().position(|echo| {
             echo.origin != origin
-                && echo.subject == subject
+                && same_subject(echo.subject, subject)
                 && &*echo.event == event
                 && now - echo.at <= window
         }) {

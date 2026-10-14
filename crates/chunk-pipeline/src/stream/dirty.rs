@@ -1,5 +1,14 @@
 use super::*;
 
+/// Dependency facts stay valid while the section's blocks and asset registry stay the same.
+pub(super) struct RegisteredMeshDependencies {
+    #[cfg(test)]
+    generation: u64,
+    mask: MeshDependencyMask,
+    source: Option<std::sync::Weak<SubChunk>>,
+    assets: std::sync::Weak<RuntimeAssets>,
+}
+
 /// How far a source change propagates: its scheduling priority, light and neighbour reach.
 #[derive(Clone, Copy)]
 struct ChangeScope<'a> {
@@ -52,16 +61,23 @@ impl WorldStream {
     ) {
         self.mark_changed_sources_with_mesh_dirty(sources, std::iter::empty(), now);
     }
-    /// Remeshes `sources` and every neighbour reading them without relighting: their blocks
-    /// changed, but no cell's light inputs did.
-    pub(super) fn mark_light_neutral_sources(
+    /// Expands one inline commit before invalidating meshes, and relights only changed inputs.
+    pub(super) fn mark_inline_changed_sources(
         &mut self,
-        sources: impl IntoIterator<Item = SubChunkKey>,
+        sources: BTreeSet<SubChunkKey>,
+        preexpanded_dirty: impl IntoIterator<Item = SubChunkKey>,
+        light_neutral: &BTreeSet<SubChunkKey>,
         now: Instant,
     ) {
+        self.mark_light_changed_sources_reaching(
+            sources.difference(light_neutral).copied(),
+            false,
+            NeighbourReach::ALL,
+            None,
+        );
         self.mark_changed_sources_with_mesh_dirty_priority(
             sources,
-            std::iter::empty(),
+            preexpanded_dirty,
             now,
             ChangeScope {
                 urgent: false,
@@ -103,6 +119,16 @@ impl WorldStream {
             cells,
         } = scope;
         let sources = sources.into_iter().collect::<BTreeSet<_>>();
+        // A far summary reads only its own column's blocks, so only sources refresh one.
+        if self.far_terrain_enabled() {
+            for column in sources
+                .iter()
+                .map(|key| key.chunk())
+                .collect::<BTreeSet<_>>()
+            {
+                self.note_far_change(column);
+            }
+        }
         if relight {
             self.mark_light_changed_sources_reaching(sources.iter().copied(), urgent, reach, cells);
         }
@@ -163,17 +189,27 @@ impl WorldStream {
             self.invalidate_mesh_with_priority(dependent, now, urgent);
         }
     }
+    /// Neighbour invalidations do not change dependency facts about unchanged source blocks.
     pub(super) fn current_mesh_dependency_mask(
         &self,
         key: SubChunkKey,
     ) -> Option<MeshDependencyMask> {
-        let (generation, mask) = self.mesh_dependency_masks.get(&key).copied()?;
-        let current_generation = self
-            .revisions
-            .dirty(key)
-            .map(|dirty| dirty.revision)
-            .or_else(|| self.applied_mesh_generations.get(&key).copied())?;
-        (generation == current_generation).then_some(mask)
+        let registered = self.mesh_dependency_masks.get(&key)?;
+        if !std::ptr::eq(
+            registered.assets.as_ptr(),
+            Arc::as_ptr(self.authority.runtime_assets()),
+        ) {
+            return None;
+        }
+        let source = self.authority.terrain().sub_chunk(key);
+        let same_blocks = match (&registered.source, &source) {
+            (Some(previous), Some(current)) => {
+                std::ptr::eq(previous.as_ptr(), Arc::as_ptr(current))
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        same_blocks.then_some(registered.mask)
     }
     pub(super) fn register_mesh_dependency_mask(
         &mut self,
@@ -184,7 +220,20 @@ impl WorldStream {
         if !self.resident.contains(&key) || !self.revisions.is_current(key, generation) {
             return false;
         }
-        self.mesh_dependency_masks.insert(key, (generation, mask));
+        self.mesh_dependency_masks.insert(
+            key,
+            RegisteredMeshDependencies {
+                #[cfg(test)]
+                generation,
+                mask,
+                source: self
+                    .authority
+                    .terrain()
+                    .sub_chunk(key)
+                    .map(|source| Arc::downgrade(&source)),
+                assets: Arc::downgrade(self.authority.runtime_assets()),
+            },
+        );
         true
     }
     #[cfg(test)]
@@ -192,12 +241,27 @@ impl WorldStream {
         &self,
         key: SubChunkKey,
     ) -> Option<(u64, MeshDependencyMask)> {
-        self.mesh_dependency_masks.get(&key).copied()
+        self.mesh_dependency_masks
+            .get(&key)
+            .map(|registered| (registered.generation, registered.mask))
     }
     pub(super) fn mark_dirty_exact(&mut self, key: SubChunkKey, now: Instant) -> u64 {
         self.mark_dirty_exact_with_priority(key, now, false)
     }
     pub(super) fn mark_dirty_exact_with_priority(
+        &mut self,
+        key: SubChunkKey,
+        now: Instant,
+        urgent: bool,
+    ) -> u64 {
+        // Columns past full detail are drawn by far terrain; promotion remeshes them.
+        if !self.wants_mesh(key.chunk()) {
+            return 0;
+        }
+        self.mark_dirty_exact_ungated(key, now, urgent)
+    }
+    /// Marks `key` for a mesh or removal whether or not its column is full detail.
+    pub(super) fn mark_dirty_exact_ungated(
         &mut self,
         key: SubChunkKey,
         now: Instant,
@@ -266,6 +330,12 @@ impl WorldStream {
             if urgent && !pending.urgent {
                 pending.urgent = true;
                 self.mesh_jobs.scan.push_front((key, pending.revision));
+            }
+            let revision = pending.revision;
+            // A coalesced change that leaves only air queues its removal now, so no state of the
+            // geometry lane can hold the old mesh on screen.
+            if !self.mesh_requires_geometry(key) {
+                self.air_removals.insert(key, revision);
             }
             return;
         }

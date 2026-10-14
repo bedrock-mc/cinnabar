@@ -53,7 +53,9 @@ impl WorldStream {
 }
 
 /// Decode registries that keep every id, for fixtures committed straight to the store.
-const RAW_IDS: RawBlockIds = RawBlockIds { air: 12_530 };
+const RAW_IDS: RawBlockIds = RawBlockIds {
+    air: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+};
 const RAW_BIOMES: RawBiomeIds = RawBiomeIds { default_biome: 0 };
 
 fn test_decode_ids() -> super::DecodeIds {
@@ -63,7 +65,7 @@ fn test_decode_ids() -> super::DecodeIds {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     })
     .decode_ids(0)
@@ -77,7 +79,7 @@ fn level_chunk_bytes_submit_moves_backing_allocation_into_decode_job() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let payload = bytes::Bytes::from(vec![0x6b; 1024 * 1024]);
@@ -608,8 +610,15 @@ fn complete_decode_job(stream: &mut WorldStream, job: super::QueuedDecodeJob) {
                 previous,
             } => {
                 let chunk = ChunkKey::new(event.dimension, event.x, event.z);
-                let decoded =
-                    DecodedLevelChunk::decode_inline(chunk, slots, count, &payload, &ids, &ids);
+                let decoded = DecodedLevelChunk::decode_inline_reusing(
+                    chunk,
+                    slots,
+                    count,
+                    &payload,
+                    &ids,
+                    &ids,
+                    previous.as_deref(),
+                );
                 let light_neutral = previous.map_or_else(Vec::new, |previous| {
                     client_world::ingestion::light_neutral_sections(&previous, &decoded, &ids)
                 });
@@ -797,7 +806,7 @@ fn stream_with_one_expected_sub_chunk() -> (WorldStream, SubChunkKey) {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -826,7 +835,7 @@ fn abandoned_cached_column_recovery_enters_bounded_request_scheduler() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -857,7 +866,7 @@ fn exact_recovery_keeps_disjoint_ranges_expected_when_outbound_is_saturated() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for index in 0..(super::OUTBOUND_REQUEST_CAPACITY - 1) {
@@ -930,7 +939,7 @@ fn stream_with_unsent_sub_chunks(
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 0, 0);
@@ -987,14 +996,18 @@ mod cases_11;
 mod cases_12;
 mod cohort_progress;
 mod entity_occlusion;
+mod far_summaries;
 mod forced_remesh;
+mod full_detail;
 mod inbound_lanes;
 mod inline_cohort;
 mod inventory_commit_fence;
 mod lane_footprints;
 mod lenient_decode;
 mod local_abilities;
+mod near_drawn;
 mod prediction;
+mod remote_motion_replay;
 mod render_distance;
 mod service;
 mod streaming_harness;

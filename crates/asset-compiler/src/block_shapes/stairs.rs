@@ -36,7 +36,7 @@ pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<ShapeBox>> {
     }
     let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
     let value = |name: &str| state.get(name)?.get("value");
-    let turns = assets::StairDirection::from_raw(
+    let turns = assets::stair::StairDirection::from_raw(
         u32::try_from(value("weirdo_direction")?.as_u64()?).ok()?,
     )?
     .turns_from_east();

@@ -60,8 +60,9 @@ pub use actor::{
     MAX_ACTOR_IDENTIFIERS, MAX_ACTOR_LINKS_PER_SPAWN, MAX_ACTOR_METADATA_ENTRIES,
     MAX_ACTOR_METADATA_NBT_BYTES, MAX_ACTOR_METADATA_STRING_BYTES, MAX_ACTOR_NAME_BYTES,
     MAX_ACTOR_PROPERTIES, MAX_PLAYER_LIST_RECORDS, MAX_PLAYER_LIST_SKIN_BYTES,
-    MINING_FATIGUE_EFFECT_ID, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin,
-    PlayerSkinUnavailable, normalize_classic_skin_rgba8, normalize_custom_skin_rgba8,
+    MINING_FATIGUE_EFFECT_ID, PaintingData, PaintingDirection, PlayerListEntry,
+    PlayerListUpdateEvent, PlayerSkin, PlayerSkinUnavailable, normalize_classic_skin_rgba8,
+    normalize_custom_skin_rgba8,
 };
 pub use audio::{
     AudioEvent, LevelAudioEvent, LevelEventSound, MAX_AUDIO_IDENTIFIER_BYTES, PlayAudioEvent,
@@ -69,12 +70,13 @@ pub use audio::{
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
-    BlobCacheStatus, CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES, CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES,
-    ClientBlobCache, MAX_CLIENT_BLOB_HASHES_PER_PACKET, MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
+    BlobCacheStatus, BlobCacheStore, CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES,
+    CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES, ClientBlobCache, MAX_CLIENT_BLOB_CACHE_ENTRIES,
+    MAX_CLIENT_BLOB_HASHES_PER_PACKET, MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
     MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS, MAX_CLIENT_BLOB_PENDING_BYTES,
     MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, MAX_CLIENT_BLOB_READY_BYTES,
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
-    MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
+    MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, WeakClientBlobCache, client_blob_hash,
 };
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use boss::boss_registration_response;
@@ -117,8 +119,8 @@ pub use inventory::{
     container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, block_pick_request_packet, book_edit_packet,
-    crafter_slot_toggle_packet, lectern_update_packet,
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
@@ -240,16 +242,16 @@ pub use world::{
     CustomBlocks, CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance,
     CustomPermutation, CustomPhysicalComponents, CustomSelection, CustomStateAxis,
     CustomStateValue, CustomTransformation, CustomVisualComponents, DaylightCycleUpdateEvent,
-    DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HASHED_AIR_NETWORK_ID,
-    HeightmapDiagnostic, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS,
-    MAX_BIOME_NAME_BYTES, MAX_BLOCK_LAYERS, MAX_DIMENSION_DEFINITIONS, MAX_SUB_CHUNK_REQUESTS,
-    MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
+    DimensionHeightDiagnostic, DimensionRange, GameRulesEvent, HeightmapDiagnostic,
+    LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
+    MAX_BLOCK_LAYERS, MAX_DIMENSION_DEFINITIONS, MAX_SUB_CHUNK_REQUESTS, MapDataEvent,
+    MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
     MovementEffectKind, NETHER_DIMENSION_ID, OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME,
     OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent,
-    PublisherUpdateEvent, RespawnEvent, SEQUENTIAL_AIR_NETWORK_ID, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
+    PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent,
+    SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
+    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
+    WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
     WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key, block_state_network_hash,
     into_world_event, request_sub_chunk_column, vanilla_dimension_range,

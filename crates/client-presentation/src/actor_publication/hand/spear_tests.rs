@@ -63,7 +63,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
             local_player_unique_id: 1,
             player_position: feet,
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),
@@ -86,6 +86,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     stream.advance_actor_interpolation_frame(delay + 2);
     let input = ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:iron_spear"),
             identifier: "minecraft:iron_spear".into(),

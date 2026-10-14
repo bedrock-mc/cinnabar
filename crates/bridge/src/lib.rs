@@ -1,9 +1,12 @@
 //! Local stream bridge between the Rust client and Go core.
 
 mod account;
-/// Shared frame limits and session message kinds for the Rust and Go bridge.
+/// Shared values and wire enums for the Rust and Go bridge.
 pub mod contract;
-pub use contract::MAX_FRAME_LEN;
+pub use contract::{
+    AuthState, Backend, ConnectStage, ConnectTarget, GameMode, Lifecycle, MAX_FRAME_LEN,
+    PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer, Transport, WorldState,
+};
 mod endpoint;
 mod error;
 mod framed;
@@ -23,13 +26,13 @@ pub async fn connect_session(socket_dir: &Path) -> anyhow::Result<(FramedReader,
 }
 
 pub use account::{
-    Account, Artwork, AuthState, ConnectProgress, ConnectStage, ConnectTarget, Events,
-    FeaturedGame, FeaturedServer, Friend, Home, Inbox, LiveEvent, Message, MessageButton,
-    MessageEvent, MessageImage, Person, Profile, ProfileAchievement, ProfileAchievements,
-    ProfileStatistics, Realm, RealmMembership, ServerDisconnect, ServerPing, ServerTrustPrompt,
-    account_status, answer_server_trust, connect_target, home, list_featured_servers,
-    list_featured_servers_with_counts, list_friends, list_people, list_realms, ping_servers,
-    poll_events, profile, realm_membership, report_message_event, sign_out,
+    Account, Artwork, ConnectProgress, Events, FeaturedGame, FeaturedServer, Friend, Home, Inbox,
+    LiveEvent, Message, MessageButton, MessageEvent, MessageImage, Person, Profile,
+    ProfileAchievement, ProfileAchievements, ProfileStatistics, Realm, RealmMembership,
+    ServerDisconnect, ServerPing, ServerTrustPrompt, account_status, answer_server_trust,
+    connect_target, home, list_featured_servers, list_featured_servers_with_counts, list_friends,
+    list_people, list_realms, ping_servers, poll_events, profile, realm_membership,
+    report_message_event, sign_out,
 };
 pub use endpoint::listener::SessionListener;
 pub use error::BridgeError;
@@ -39,14 +42,10 @@ pub use packet_delay::{
     PacketDelayLease, RelayedPosition, packet_delay_with_position, set_packet_delay,
 };
 pub use status::{
-    Lifecycle, NetworkConnection, PackAcquisition, PackAdmission, PackApplication,
-    PackDownstreamOutcome, PackOffer, StatusV1, TransferPending, read_status,
+    NetworkConnection, PackAdmission, StatusV1, TransferPending, read_status,
     report_pack_application,
 };
-pub use worlds::{
-    Backend, GameMode, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState,
-    invite_to_world, set_local_world,
-};
+pub use worlds::{LocalTarget, LocalWorld, LocalWorldInfo, invite_to_world, set_local_world};
 
 /// Returns the platform session endpoint used for the logical socket directory.
 #[must_use]

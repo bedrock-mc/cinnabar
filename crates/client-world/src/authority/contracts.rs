@@ -255,6 +255,8 @@ pub struct CommittedAudioEvent {
     pub sequence: u64,
     pub dimension: i32,
     pub dimension_epoch: u64,
+    /// A client actor lifecycle request, rather than an explicit server sound packet.
+    pub client_generated: bool,
     /// Already-committed sound released by this actor's fixed-tick synchronization.
     pub actor_synchronization: Option<actor_animation::ActorLifetimeId>,
     pub event: AudioEvent,

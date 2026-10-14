@@ -103,3 +103,63 @@ impl BlobCacheResolver {
         Ok(())
     }
 }
+
+/// Counts the decoded containers and inline bodies retained by a cached packet before resolution.
+pub(super) fn cached_packet_retained_bytes(packet: &Packet) -> Result<usize, BlobCacheError> {
+    let bytes = match &*packet.data {
+        packets::Packet::LevelChunk(packet) => packet
+            .cache_metadata
+            .capacity()
+            .checked_mul(size_of::<u64>())
+            .and_then(|hash_bytes| {
+                size_of::<LevelChunk>()
+                    .checked_add(packet.serialized_chunk_data.len())
+                    .and_then(|bytes| bytes.checked_add(hash_bytes))
+            }),
+        packets::Packet::SubChunk(packet) => packet
+            .sub_chunk_data
+            .capacity()
+            .checked_mul(size_of::<SubChunkData>())
+            .and_then(|bytes| bytes.checked_add(size_of::<SubChunk>()))
+            .and_then(|bytes| {
+                packet
+                    .sub_chunk_data
+                    .iter()
+                    .try_fold(bytes, |total, entry| {
+                        total.checked_add(
+                            entry
+                                .serialized_sub_chunk
+                                .as_ref()
+                                .map_or(0, bytes::Bytes::len),
+                        )
+                    })
+            }),
+        _ => return Err(BlobCacheError::NotCachedPacket),
+    };
+    bytes.ok_or(BlobCacheError::ByteCountOverflow)
+}
+
+impl BlobCacheResolver {
+    /// Allows cancellation-retained prefetch only within the existing aggregate cached-byte lane.
+    pub(crate) fn can_prefetch(&self, packet: &Packet, raw_bytes: usize) -> bool {
+        if self.retained_cached_transaction_count() >= MAX_CLIENT_BLOB_PENDING_TRANSACTIONS {
+            return false;
+        }
+        // The constructor reserves metadata before the first accounting refresh.
+        let retained = if self.stats.pending_bytes == 0 {
+            self.retained_cached_bytes().unwrap_or(usize::MAX)
+        } else {
+            self.stats.pending_bytes
+        };
+        cached_packet_retained_bytes(packet)
+            .ok()
+            .and_then(|bytes| {
+                bytes
+                    .max(raw_bytes)
+                    .checked_add(size_of::<(Packet, usize)>())
+            })
+            .and_then(|bytes| bytes.checked_add(size_of::<packets::Packet>()))
+            .and_then(|bytes| retained.checked_add(bytes))
+            .is_some_and(|bytes| bytes <= MAX_CLIENT_BLOB_PENDING_BYTES)
+    }
+}

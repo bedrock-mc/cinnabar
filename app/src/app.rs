@@ -135,7 +135,7 @@ use {
 };
 
 mod render_setup;
-use render_setup::render_plugin;
+use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
     include_str!("../../crates/assets/data/block-physics-v2193.sha256");
@@ -250,6 +250,12 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             drive_world_stream
                 .after(receive_network_events)
                 .before(ChunkRenderApplySet)
+                .in_set(ClientFrameSet::WorldPublication),
+        )
+        .add_systems(
+            Update,
+            crate::far_terrain::feed_far_terrain
+                .after(drive_world_stream)
                 .in_set(ClientFrameSet::WorldPublication),
         )
         .add_systems(
@@ -398,8 +404,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     render_scene::ViewmodelCompletionGate::configure_observation(args.address.as_deref());
     let layout = InstallLayout::discover().context("resolve install and user runtime layout")?;
     let global_pack_root = layout.global_resource_packs_dir();
+    let minecraft_import_config_root = layout.user_config_root.clone();
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
+    let far_terrain_dir = layout.far_terrain_cache_dir();
     // Reclaim leftovers of crashed earlier sessions before this process
     // binds anything new; failures are logged and never fatal.
     reclaim_stale_session_directories(&layout);
@@ -414,7 +422,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // Owned before any core spawn so the direct-connect path below derives
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
-    let client_blob_cache = ClientBlobCacheOwner::default();
+    let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
@@ -610,12 +618,15 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let local_player_skin =
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name);
     let screenshots_dir = layout.screenshots_dir();
-    let menu = MenuRuntime::new_with_layout(
+    let renderer_data_root = layout.user_data_root.clone();
+    let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);
+    let menu = MenuRuntime::new_with_import_snapshot(
         !connection_requested,
         args.gui_scale,
         args.display_name.clone(),
         layout,
         local_player_skin.clone(),
+        minecraft_import,
     )
     .with_language_assets(
         loaded_assets.selected_path.clone(),
@@ -686,12 +697,18 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let primary_window = crate::developer_control::primary_window(primary_window);
     let mut app = App::new();
     configure_client_frame_schedule(&mut app);
+    let renderer = RendererSetup {
+        data_root: renderer_data_root,
+        video_override: saved_settings.graphics_api(),
+        graphics_api_revision: saved_settings.graphics_api_revision(),
+    };
     let plugins = DefaultPlugins
         .set(WindowPlugin {
             primary_window: Some(primary_window),
             ..default()
         })
-        .set(render_plugin())
+        .add_before::<bevy::render::RenderPlugin>(renderer)
+        .disable::<bevy::render::RenderPlugin>()
         .set(crate::thread_budget::ThreadBudget::task_pool_plugin())
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
@@ -889,6 +906,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     app.add_plugins((
         render::DepthSmaaPlugin,
         render::motion_blur::CameraMotionBlurPlugin,
+        render::FarTerrainRenderPlugin,
     ));
     app.add_plugins(crate::render_mode::RenderModePlugin::new(
         args.render_mode,
@@ -913,12 +931,23 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(identity) = movement_identity_source {
         app.insert_resource(identity);
     }
-    crate::global_resources::configure(&mut app, global_pack_root, args.import_packs);
+    crate::global_resources::configure(
+        &mut app,
+        global_pack_root,
+        minecraft_import_config_root,
+        args.import_packs,
+    );
     configure_client_production_frame_systems(&mut app);
     configure_client_runtime_frame_systems(&mut app);
     if let Some(service) = client_runtime::world_service::WorldServiceSlot::from_environment()? {
         app.insert_resource(service);
     }
+    app.insert_resource(crate::far_terrain::FarTerrain::new(Some(far_terrain_dir)))
+        .init_resource::<render_scene::FarTerrainScene>()
+        .add_systems(
+            Last,
+            crate::far_terrain::finish_far_terrain_on_exit.after(arm_shutdown_watchdog),
+        );
     crate::modding::configure_from_environment(&mut app);
     #[cfg(feature = "developer-control")]
     crate::developer_control::configure(&mut app);

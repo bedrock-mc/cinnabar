@@ -93,7 +93,7 @@ fn stair_state(record: &RegistryRecord) -> Option<(u32, u32, Option<u32>)> {
         "outer_right" => 4,
         _ => return None,
     };
-    let direction = assets::StairDirection::from_raw(u32::try_from(raw_direction).ok()?)?;
+    let direction = assets::stair::StairDirection::from_raw(u32::try_from(raw_direction).ok()?)?;
     Some((direction.turns_from_north(), half, Some(shape)))
 }
 

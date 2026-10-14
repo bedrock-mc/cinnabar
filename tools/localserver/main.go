@@ -23,8 +23,9 @@ import (
 	"syscall"
 
 	_ "github.com/bedrock-mc/vanilla-gen/block"
-	"github.com/df-mc/dragonfly/server/player"
+	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/google/uuid"
 
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
 	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
@@ -185,7 +186,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 	}
 	cfg.configureLocalPlayers(&conf)
-	srv := conf.New()
+	var srv *server.Server
+	for i, listen := range conf.Listeners {
+		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
+			return srv.Player(id)
+		})
+	}
+	srv = conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	cfg.applyTo(worlds...)
 	pauses := &pauseState{worlds: worlds}
@@ -229,9 +236,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		defer close(accepting)
 		for p := range srv.Accept() {
 			warmup()
-			if host != nil {
-				p.Handle(quitHandler{host: host})
-			}
+			p.Handle(&localPlayerHandler{host: host})
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")
@@ -248,17 +253,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		running.Wait()
 	}
 	return closeErr
-}
-
-// quitHandler tells the Experience host when its player leaves, so the host forgets the
-// player's focus.
-type quitHandler struct {
-	player.NopHandler
-	host *experience.Host
-}
-
-func (h quitHandler) HandleQuit(p *player.Player) {
-	h.host.PlayerLeft(p.UUID())
 }
 
 // experiences are the started Experiences of -experiences: their supervisors by Experience id,

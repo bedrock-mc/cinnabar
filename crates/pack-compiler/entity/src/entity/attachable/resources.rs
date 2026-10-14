@@ -101,3 +101,27 @@ mod tests {
         }
     }
 }
+
+/// Retains every declared resource so native draws can select stages without running scripts.
+pub(super) fn aliases(
+    description: &Value,
+) -> Result<assets::equipment::EquipmentResources, AttachableError> {
+    let table = |field: &str| -> Result<BTreeMap<Box<str>, Box<str>>, AttachableError> {
+        description
+            .get(field)
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .map(|(alias, value)| {
+                Ok((
+                    bounded_identifier(alias)?,
+                    bounded_identifier(value.as_str().ok_or(AttachableError::Malformed)?)?,
+                ))
+            })
+            .collect()
+    };
+    Ok(assets::equipment::EquipmentResources {
+        geometry: table("geometry")?,
+        textures: table("textures")?,
+    })
+}

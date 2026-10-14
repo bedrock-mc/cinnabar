@@ -6,7 +6,6 @@ rust-version.workspace = true
 publish = false
 
 [features]
-local-mods = []
 test-support = ["client-session/test-support"]
 
 [dependencies]
@@ -24,6 +23,8 @@ launcher-host = { path = "../launcher-host" }
 meshing = { path = "../meshing" }
 pack-runtime = { path = "../pack-runtime" }
 protocol = { path = "../protocol" }
+redb = "4.3"
+tracing.workspace = true
 render = { path = "../render" }
 render-scene = { path = "../render-scene" }
 render-api = { path = "../render-api" }
@@ -31,6 +32,9 @@ simulation-clock = { path = "../simulation-clock" }
 tokio.workspace = true
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
+test-time = { path = "../test-time" }
+tempfile = "3"
 client-session = { path = "../client-session", features = ["test-support"] }
 
 [lints]

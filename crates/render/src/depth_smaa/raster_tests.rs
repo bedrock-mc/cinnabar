@@ -21,14 +21,14 @@ use std::time::{Duration, Instant};
 #[path = "composed_tests.rs"]
 mod composed_tests;
 
-const SIDE: u32 = 64;
+pub(crate) const SIDE: u32 = 64;
 
 #[derive(Resource)]
-struct FixturePipelines {
-    checker: wgpu::RenderPipeline,
-    sloped_checker: wgpu::RenderPipeline,
-    silhouette: wgpu::RenderPipeline,
-    scene: u8,
+pub(crate) struct FixturePipelines {
+    pub checker: wgpu::RenderPipeline,
+    pub sloped_checker: wgpu::RenderPipeline,
+    pub silhouette: wgpu::RenderPipeline,
+    pub scene: u8,
 }
 
 /// Draws known colour and depth patterns into the shared scene attachment.
@@ -63,7 +63,7 @@ fn fixture_opaque(
 }
 
 /// Requests a native adapter and its actual texture capabilities without creating a surface.
-fn renderer() -> Option<RenderPlugin> {
+pub(crate) fn renderer() -> Option<RenderPlugin> {
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::new);
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
@@ -98,7 +98,11 @@ fn renderer() -> Option<RenderPlugin> {
 }
 
 /// Two shader entries distinguish authored colour boundaries from a diagonal depth discontinuity.
-fn fixture_pipeline(device: &RenderDevice, samples: u32, entry: &str) -> wgpu::RenderPipeline {
+pub(crate) fn fixture_pipeline(
+    device: &RenderDevice,
+    samples: u32,
+    entry: &str,
+) -> wgpu::RenderPipeline {
     let shader = device
         .wgpu_device()
         .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -172,7 +176,7 @@ fn app(render: RenderPlugin) -> (App, Entity, Handle<Image>) {
 }
 
 /// Adds fixture effects before finishing the real offscreen renderer.
-fn app_with_effects(
+pub(crate) fn app_with_effects(
     render: RenderPlugin,
     setup: impl FnOnce(&mut App),
 ) -> (App, Entity, Handle<Image>) {
@@ -236,7 +240,7 @@ fn app_with_effects(
 }
 
 /// Advances complete rendering and waits for submitted native commands before readback.
-fn frame(app: &mut App) {
+pub(crate) fn frame(app: &mut App) {
     app.update();
     app.sub_app(RenderApp)
         .world()
@@ -246,7 +250,7 @@ fn frame(app: &mut App) {
 }
 
 /// Waits for real SMAA lookup images, bindings and all production pipelines to become usable.
-fn ready(app: &mut App) {
+pub(crate) fn ready(app: &mut App) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         frame(app);
@@ -281,7 +285,7 @@ fn pixels(app: &mut App, image: &Handle<Image>) -> Vec<u8> {
 }
 
 /// Reads the last submitted frame without changing camera history through another update.
-fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
+pub(crate) fn read_pixels(app: &App, image: &Handle<Image>) -> Vec<u8> {
     let world = app.sub_app(RenderApp).world();
     let device = world.resource::<RenderDevice>();
     let queue = world.resource::<RenderQueue>();

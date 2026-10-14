@@ -1,7 +1,9 @@
 //! Storage screen state and commands; disk work belongs to the host.
 use std::path::PathBuf;
 
-pub const SECTION_INDEX: u8 = 25;
+pub const SECTION_INDEX: u8 = super::settings_sections::SettingSection::StorageManagement
+    .definition()
+    .index;
 pub const CATEGORIES: [&str; 6] = [
     "world",
     "world_template",

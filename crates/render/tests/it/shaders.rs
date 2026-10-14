@@ -29,12 +29,19 @@ fn assert_explicit_fragment_samples(source: &str, entry_name: &str) {
     )
     .validate(&module)
     .expect("fragment shader validates");
-    let function = &module
+    let function = module
         .entry_points
         .iter()
         .find(|entry| entry.name == entry_name)
-        .expect("fragment entry point exists")
-        .function;
+        .map(|entry| &entry.function)
+        .or_else(|| {
+            module
+                .functions
+                .iter()
+                .find(|(_, function)| function.name.as_deref() == Some(entry_name))
+                .map(|(_, function)| function)
+        })
+        .expect("fragment sampling function exists");
     let mut samples = 0;
     for (_, expression) in function.expressions.iter() {
         if let naga::Expression::ImageSample { level, .. } = expression {
@@ -80,7 +87,7 @@ fn assert_explicit_fragment_samples(source: &str, entry_name: &str) {
 #[test]
 fn divergent_fragments_keep_explicit_gradients_before_rejection() {
     for (raw, entry_name) in [
-        (include_str!("../../src/actor.wesl"), "actor_fragment"),
+        (include_str!("../../src/actor.wesl"), "actor_colour"),
         (include_str!("../../src/hand_rig.wesl"), "hand_fragment"),
     ] {
         assert_explicit_fragment_samples(&standalone(raw), entry_name);

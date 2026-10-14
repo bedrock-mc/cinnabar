@@ -1,3 +1,6 @@
+use crate::contract::{
+    Lifecycle, PackAcquisition, PackApplication, PackDownstreamOutcome, PackOffer,
+};
 use std::path::Path;
 
 use bytes::Bytes;
@@ -9,61 +12,6 @@ use crate::{BridgeError, FramedStream};
 
 use crate::contract::CONTROL_MAX_FRAME_LEN;
 const STATUS_REQUEST_ID: u64 = 1;
-const STATUS_SCHEMA_VERSION: u32 = 1;
-
-/// Process lifecycle reported by the local core.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum Lifecycle {
-    Starting,
-    Running,
-    Stopping,
-}
-
-/// Kind of upstream resource-pack offer observed by the core.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PackOffer {
-    None,
-    Optional,
-    Required,
-}
-
-/// Result of acquiring the offered resource packs.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PackAcquisition {
-    None,
-    Complete,
-    Ignored,
-    /// Some offered packs were acquired and the rest ignored by bounds.
-    Partial,
-    Failed,
-    Cancelled,
-}
-
-/// Result of applying resource-pack policy to the downstream session.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PackDownstreamOutcome {
-    None,
-    OfferedOptional,
-    HandedOffOptional,
-    /// The upstream's required bits were forwarded to the client unchanged.
-    OfferedRequired,
-    HandedOffRequired,
-    RejectedRequired,
-    StrippedIgnored,
-}
-
-/// Whether the client has applied the newest attempt's handed-off packs.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PackApplication {
-    Unavailable,
-    /// The client confirmed it applied the handed-off packs for this attempt.
-    Applied,
-}
 
 /// Secret-safe summary of the newest resource-pack admission attempt.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -176,9 +124,9 @@ pub async fn report_pack_application(
     let stream = crate::endpoint::connect(socket_dir, EndpointKind::Control).await?;
     let mut framed = FramedStream::with_max(stream, CONTROL_MAX_FRAME_LEN);
     let request = serde_json::to_vec(&PackApplicationRequest {
-        jsonrpc: "2.0",
+        jsonrpc: crate::contract::JSON_RPC_VERSION,
         id: STATUS_REQUEST_ID,
-        method: "pack_application.v1",
+        method: crate::contract::METHOD_PACK_APPLICATION,
         params: PackApplicationParams {
             attempt_id,
             applied,
@@ -191,15 +139,15 @@ pub async fn report_pack_application(
 
 fn status_request() -> StatusRequest {
     StatusRequest {
-        jsonrpc: "2.0",
+        jsonrpc: crate::contract::JSON_RPC_VERSION,
         id: STATUS_REQUEST_ID,
-        method: "status.v1",
+        method: crate::contract::METHOD_STATUS,
     }
 }
 
 fn parse_status_response(payload: &[u8]) -> Result<StatusV1, BridgeError> {
     let response: StatusResponse = serde_json::from_slice(payload)?;
-    if response.jsonrpc != "2.0" {
+    if response.jsonrpc != crate::contract::JSON_RPC_VERSION {
         return invalid("jsonrpc must be exactly 2.0");
     }
     if response.id != STATUS_REQUEST_ID {
@@ -207,7 +155,7 @@ fn parse_status_response(payload: &[u8]) -> Result<StatusV1, BridgeError> {
     }
     match (response.result, response.error) {
         (Some(status), None) => {
-            if status.schema_version != STATUS_SCHEMA_VERSION {
+            if status.schema_version != crate::contract::CONTROL_SCHEMA_VERSION {
                 return invalid("unsupported status schema version");
             }
             Ok(status)

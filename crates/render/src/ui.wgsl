@@ -139,12 +139,12 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         sample = vec4<f32>(1.0, 1.0, 1.0, sample.r);
     }
     if sdf_font {
-        let distance = sample.a * 7.96875 - 3.984375;
-        let threshold = max((128.0 / 255.0) * texels_per_pixel, 0.000001);
+        let distance = sample.a * SDF_DISTANCE_SCALE - SDF_DISTANCE_BIAS;
+        let threshold = max(SDF_SMOOTHING_SCALE * texels_per_pixel, SDF_MIN_THRESHOLD);
         sample = vec4<f32>(1.0, 1.0, 1.0, smoothstep(-threshold, threshold, distance));
     }
     if native_font {
-        let exponent = 1.45 - dot(input.color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+        let exponent = COVERAGE_GAMMA_BASE - dot(input.color.rgb, COVERAGE_LUMINANCE);
         sample = vec4<f32>(1.0, 1.0, 1.0, pow(sample.a, exponent));
     }
     if (input.style_flags & STYLE_GRAYSCALE) != 0u {

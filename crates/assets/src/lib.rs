@@ -1,6 +1,7 @@
 mod actor;
 mod atmosphere;
 mod audio;
+pub mod audio_category;
 mod audio_pcm;
 pub mod bamboo;
 pub mod banner;
@@ -44,6 +45,7 @@ mod model;
 pub mod native_material;
 mod ogg;
 pub mod oreui_icons;
+pub mod painting;
 mod particle;
 mod physics_registry;
 mod pinned_content;
@@ -58,7 +60,7 @@ mod skin_geometry;
 mod skybox;
 pub mod sound_bank;
 mod sound_events;
-mod stair;
+pub mod stair;
 pub mod starter_skins;
 pub mod stem;
 pub mod texture;
@@ -284,7 +286,6 @@ pub use skin_geometry::{
 pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
 pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
 pub use sound_events::{FloatRange, RouteLookup, SoundEventTables, SoundRoute};
-pub use stair::StairDirection;
 pub use texture::{
     MAX_TILE_SIZE, MIP_COUNT, TERRAIN_QUAD_SHIFT_MASK, TILE_SIZE, TextureArray, TextureMip,
     VANILLA_TERRAIN_MIP_COUNT, build_legacy_terrain_mip_chain, build_texture_mip_chain,

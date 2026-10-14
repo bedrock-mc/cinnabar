@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
@@ -45,9 +46,9 @@ var errResourcePackTransferTooLarge = errors.New("proxy: resource-pack transfers
 type ConnectStage string
 
 const (
-	ConnectStageRealm      ConnectStage = "realm"      // vanilla progress stage: the Realm lookup
-	ConnectStageConnecting ConnectStage = "connecting" // vanilla progress stage: connecting to the server
-	ConnectStagePacks      ConnectStage = "packs"      // vanilla progress stage: resource packs
+	ConnectStageRealm      ConnectStage = bridgecontract.ConnectStageRealm      // vanilla progress stage: the Realm lookup
+	ConnectStageConnecting ConnectStage = bridgecontract.ConnectStageConnecting // vanilla progress stage: connecting to the server
+	ConnectStagePacks      ConnectStage = bridgecontract.ConnectStagePacks      // vanilla progress stage: resource packs
 )
 
 // ConnectProgress is the join's live stage; a zero Stage means no join is being prepared.

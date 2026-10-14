@@ -23,6 +23,7 @@ use ui_screens::emote_screen::EmoteHit;
 
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::UiRuntime;
+use launcher::menu::settings_options::BindingId;
 use {
     crate::runtime::world::ClientWorld,
     client_shell::menu::{
@@ -163,7 +164,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     let mouse_toggled = input.mouse.get_just_pressed().any(|button| {
         if !client_shell::menu::settings_options::control_bindings::binding_mouse_button(
             input.menu.as_deref(),
-            "key.emote",
+            BindingId::Emote,
             *button,
         ) {
             return false;
@@ -195,7 +196,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
     let navigating =
         input.runtime.emotes().is_open() && controls::directional_navigation(&input.pads);
     let gamepad_toggled =
-        !navigating && binding_gamepad(input.menu.as_deref(), "key.emote", &input.pads);
+        !navigating && binding_gamepad(input.menu.as_deref(), BindingId::Emote, &input.pads);
     let toggled = mouse_toggled || gamepad_toggled;
     let mut dismissed = false;
     if toggled {
@@ -216,7 +217,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if event.state != ButtonState::Pressed || event.repeat {
             continue;
         }
-        if binding_key(input.menu.as_deref(), "key.emote", event.key_code)
+        if binding_key(input.menu.as_deref(), BindingId::Emote, event.key_code)
             && command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
@@ -228,7 +229,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         {
             continue;
         }
-        if binding_key(input.menu.as_deref(), "key.emote", event.key_code) {
+        if binding_key(input.menu.as_deref(), BindingId::Emote, event.key_code) {
             if let Some(presentation) = input.presentation.as_deref_mut() {
                 presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
             }

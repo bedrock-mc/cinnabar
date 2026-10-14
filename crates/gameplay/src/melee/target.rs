@@ -1,8 +1,10 @@
 //! Actor picking and attack-target classification.
 use client_world::ActorSnapshot;
 
-/// Pick-box inflation and actor-versus-block bias. Needs independent measurement.
-const ACTOR_PICK_RADIUS: f64 = 0.1;
+/// Default pick-box inflation and actor-versus-block bias, evaluated as native floats.
+const ACTOR_PICK_RADIUS: f32 = 0.1;
+/// Axes with a smaller squared segment displacement do not supply a clipping plane.
+const PICK_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 /// The nearest pickable actor along the crosshair ray.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorHit {
@@ -38,6 +40,30 @@ pub fn pick_actor<'a>(
     )
 }
 
+/// Returns a painting's persistent pick ID only when it wins the current actor/block ray.
+pub fn painting_pick_unique_id(
+    world: &client_world::WorldAuthority,
+    origin: [f32; 3],
+    direction: [f32; 3],
+    reach: f64,
+    block_distance: Option<f64>,
+    excluded_unique_id: Option<i64>,
+) -> Option<i64> {
+    let actor = pick_actor_by(
+        world.remote_actors(),
+        |actor| world.pick_hit_boxes(actor),
+        excluded_unique_id,
+        origin,
+        direction,
+        reach,
+    );
+    let Crosshair::Actor(hit) = classify(actor, block_distance, reach) else {
+        return None;
+    };
+    let actor = world.actor(hit.runtime_id)?;
+    actor.painting.as_ref().map(|_| actor.unique_id)
+}
+
 /// [`pick_actor`] against the `(min, max)` boxes `hit_boxes` places each actor at; the
 /// first intersecting box in server order within reach supplies each actor's hit.
 pub fn pick_actor_by<'a, Boxes>(
@@ -51,31 +77,92 @@ pub fn pick_actor_by<'a, Boxes>(
 where
     Boxes: IntoIterator<Item = ([f32; 3], [f32; 3])>,
 {
-    let origin = origin.map(f64::from);
-    let length = direction
-        .into_iter()
-        .map(|axis| f64::from(axis).powi(2))
-        .sum::<f64>()
-        .sqrt();
-    if !length.is_finite() || length == 0.0 {
+    if !reach.is_finite() || reach < 0.0 {
         return None;
     }
-    let direction = direction.map(|axis| f64::from(axis) / length);
+    let direction = sim::normalize_direction(direction)?;
+    let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
-            let distance = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| f64::from(axis) - ACTOR_PICK_RADIUS);
-                let max = max.map(|axis| f64::from(axis) + ACTOR_PICK_RADIUS);
-                ray_box_entry(origin, direction, min, max).filter(|distance| *distance <= reach)
+            let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
+                let min = min.map(|axis| axis - ACTOR_PICK_RADIUS);
+                let max = max.map(|axis| axis + ACTOR_PICK_RADIUS);
+                pick_box_point(origin, end, min, max)
             })?;
-            Some(ActorHit {
-                runtime_id: actor.runtime_id,
-                distance,
-                point: [0, 1, 2].map(|axis| (origin[axis] + direction[axis] * distance) as f32),
-            })
+            let distance_squared = pick_distance_squared(origin, point);
+            Some((
+                ActorHit {
+                    runtime_id: actor.runtime_id,
+                    distance: f64::from(distance_squared.sqrt()),
+                    point,
+                },
+                distance_squared,
+            ))
         })
-        .min_by(|left, right| left.distance.total_cmp(&right.distance))
+        .min_by(|(_, left), (_, right)| left.total_cmp(right))
+        .map(|(hit, _)| hit)
+}
+
+/// Clips a float world-space segment to the inflated box, retaining the closest face.
+/// An origin inside the box is itself the hit point; tied faces retain axis order.
+fn pick_box_point(
+    origin: [f32; 3],
+    end: [f32; 3],
+    min: [f32; 3],
+    max: [f32; 3],
+) -> Option<[f32; 3]> {
+    if !origin
+        .into_iter()
+        .chain(end)
+        .chain(min)
+        .chain(max)
+        .all(f32::is_finite)
+        || (0..3).any(|axis| min[axis] >= max[axis])
+    {
+        return None;
+    }
+    if (0..3).all(|axis| (min[axis]..=max[axis]).contains(&origin[axis])) {
+        return Some(origin);
+    }
+    let delta: [f32; 3] = std::array::from_fn(|axis| end[axis] - origin[axis]);
+    let mut closest: Option<([f32; 3], f32)> = None;
+    for axis in 0..3 {
+        if delta[axis] * delta[axis] < PICK_AXIS_EPSILON_SQUARED {
+            continue;
+        }
+        for plane in [min[axis], max[axis]] {
+            let fraction = (plane - origin[axis]) / delta[axis];
+            if !(0.0..=1.0).contains(&fraction) {
+                continue;
+            }
+            let point = std::array::from_fn(|i| origin[i] + delta[i] * fraction);
+            if (0..3).any(|i| i != axis && !(min[i]..=max[i]).contains(&point[i])) {
+                continue;
+            }
+            let distance = pick_distance_squared(origin, point);
+            if closest.is_none_or(|(_, previous)| distance < previous) {
+                closest = Some((point, distance));
+            }
+        }
+    }
+    closest.map(|(point, _)| point)
+}
+
+/// Measures an unclamped world-space block intercept with actor occlusion rounding.
+pub fn block_pick_distance(origin: [f32; 3], point: [f32; 3]) -> f64 {
+    f64::from(pick_distance(origin, point))
+}
+
+/// Measures a pick intercept using single-precision offsets, products and square root.
+pub fn pick_distance(origin: [f32; 3], point: [f32; 3]) -> f32 {
+    pick_distance_squared(origin, point).sqrt()
+}
+
+/// Keeps nearest-hit ordering precise when distinct squared distances share a rounded root.
+fn pick_distance_squared(origin: [f32; 3], point: [f32; 3]) -> f32 {
+    let [x, y, z] = std::array::from_fn(|axis| point[axis] - origin[axis]);
+    z * z + y * y + x * x
 }
 
 /// Reads the admitted obstruction disposition independently from picking.
@@ -120,19 +207,43 @@ pub fn ray_box_entry(
     Some(near)
 }
 
+/// Resolves actor occlusion from the rounded world intercept, ignoring cached ray distance.
+pub fn classify_block_hit(
+    actor: Option<ActorHit>,
+    origin: [f32; 3],
+    block: Option<&sim::BlockHit>,
+    reach: f64,
+) -> Crosshair {
+    let distance = block.map(|hit| {
+        block_pick_distance(
+            origin,
+            [
+                hit.hit_world.x as f32,
+                hit.hit_world.y as f32,
+                hit.hit_world.z as f32,
+            ],
+        )
+    });
+    classify(actor, distance, reach)
+}
+
 /// Resolves the press target; an actor wins only when clearly in front of the block.
 pub fn classify(
     actor: Option<ActorHit>,
     block_distance: Option<f64>,
     attack_reach: f64,
 ) -> Crosshair {
-    let limit = block_distance.unwrap_or(f64::INFINITY);
+    let limit = block_distance.map_or(f32::INFINITY, |distance| distance as f32);
     match actor {
-        Some(hit) if hit.distance + ACTOR_PICK_RADIUS < limit.min(attack_reach) => {
+        Some(hit) if hit.distance as f32 + ACTOR_PICK_RADIUS < limit.min(attack_reach as f32) => {
             Crosshair::Actor(hit)
         }
-        Some(hit) if hit.distance + ACTOR_PICK_RADIUS < limit => Crosshair::Miss,
+        Some(hit) if hit.distance as f32 + ACTOR_PICK_RADIUS < limit => Crosshair::Miss,
         _ if block_distance.is_some() => Crosshair::Block,
         _ => Crosshair::Miss,
     }
 }
+
+#[cfg(test)]
+#[path = "target_tests.rs"]
+mod tests;

@@ -13,14 +13,6 @@ use tokio::net::UnixStream;
 
 use crate::BridgeError;
 
-#[cfg(unix)]
-const CONTROL_UNIX_ENDPOINT_NAME: &str = "control.sock";
-#[cfg(any(unix, test))]
-const SESSION_UNIX_ENDPOINT_NAME: &str = "session.sock";
-#[cfg(windows)]
-const CONTROL_WINDOWS_ENDPOINT_NAME: &str = "control.addr";
-#[cfg(windows)]
-const SESSION_WINDOWS_ENDPOINT_NAME: &str = "session.addr";
 #[cfg(any(windows, test))]
 const MAX_WINDOWS_PUBLICATION_BYTES: usize = 128;
 /// Lets one large batch cross the local Unix socket in a single write; macOS defaults to 8 KiB,
@@ -39,16 +31,16 @@ impl EndpointKind {
     #[cfg(unix)]
     const fn unix_name(self) -> &'static str {
         match self {
-            Self::Control => CONTROL_UNIX_ENDPOINT_NAME,
-            Self::Session => SESSION_UNIX_ENDPOINT_NAME,
+            Self::Control => crate::contract::CONTROL_UNIX_ENDPOINT_NAME,
+            Self::Session => crate::contract::SESSION_UNIX_ENDPOINT_NAME,
         }
     }
 
     #[cfg(windows)]
     const fn windows_name(self) -> &'static str {
         match self {
-            Self::Control => CONTROL_WINDOWS_ENDPOINT_NAME,
-            Self::Session => SESSION_WINDOWS_ENDPOINT_NAME,
+            Self::Control => crate::contract::CONTROL_WINDOWS_ENDPOINT_NAME,
+            Self::Session => crate::contract::SESSION_WINDOWS_ENDPOINT_NAME,
         }
     }
 }
@@ -607,7 +599,10 @@ mod tests {
 
         for (socket_dir, expected) in vectors {
             assert_eq!(
-                super::unix_endpoint_path_bytes(&socket_dir, super::SESSION_UNIX_ENDPOINT_NAME),
+                super::unix_endpoint_path_bytes(
+                    &socket_dir,
+                    crate::contract::SESSION_UNIX_ENDPOINT_NAME
+                ),
                 expected
             );
         }

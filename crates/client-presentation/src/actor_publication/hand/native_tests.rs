@@ -4,7 +4,7 @@ use bevy::math::Quat;
 use render_model::ActorArtworkPages;
 
 /// Supplies an original attack-driven player arm and an identity-pose held attachable.
-fn fixture(
+pub(super) fn fixture(
     main: Option<&str>,
 ) -> (
     WorldStream,
@@ -202,7 +202,7 @@ fn fixture_with_binding(
             local_player_unique_id: 1,
             player_position: [0.0, 64.0, 0.0],
             world_spawn_position: [0, 64, 0],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(assets::RuntimeAssets::diagnostic()),
@@ -246,6 +246,7 @@ fn fixture_with_binding(
     stream.advance_actor_interpolation_frame(6);
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),
@@ -261,7 +262,7 @@ fn fixture_with_binding(
 }
 
 /// Uses the production selector with independent actor and physics fractions.
-fn hand_source_for_mode(
+pub(super) fn hand_source_for_mode(
     stream: &WorldStream,
     equipment: &mut EquipmentRuntime,
     artwork: &ActorArtworkPages,
@@ -413,6 +414,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
             );
             if off_hand {
                 input.off = Some(crate::presentation::equipment::WornItem {
+                    charged_projectile: None,
                     use_facts: client_world::EffectiveItemUse::default(),
                     grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
                     identifier: "minecraft:shield".into(),
@@ -573,6 +575,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     let (mut stream, mut equipment, artwork, mut input) = fixture(main);
     if off {
         input.off = Some(crate::presentation::equipment::WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
             identifier: "minecraft:shield".into(),
@@ -896,6 +899,7 @@ fn legacy_empty_main_arm_and_native_offhand_keep_separate_pose_stacks() {
         stream.sync_local_player_pose(&feed);
         stream.advance_actor_interpolation_frame(0);
         input.off = Some(crate::presentation::equipment::WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),
