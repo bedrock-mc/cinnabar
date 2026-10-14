@@ -298,7 +298,10 @@ impl ActorStore {
                     bedrock_swing_ticks: if is_local {
                         local_bedrock_swing_ticks
                     } else {
-                        0
+                        actor
+                            .status
+                            .swing_effects
+                            .bedrock_ticks(render_api::DEFAULT_COMBAT_VISUALS)
                     },
                     java_swing_ticks: if is_local {
                         local_java_swing_ticks

@@ -363,6 +363,12 @@ impl ActorRigState {
         }
         phases
     }
+
+    /// A remote rig's previous and current attack progress while it swings.
+    pub(super) fn remote_swing(&self) -> Option<[f32; 2]> {
+        let pair = self.hand_phases().map(|phase| phase.attack_time);
+        (self.local_swing.is_none() && pair != [0.0; 2]).then_some(pair)
+    }
 }
 
 pub(super) struct EvaluationInheritance<'a> {
@@ -482,11 +488,12 @@ pub(super) fn evaluate_state(
             || sampling.uses_rotation()
             || sampling.uses_walk()
             || state.samples_camera_poses
-            || (context.is_local_player && state.samples_swing_poses)
+            || state.samples_swing_poses
     });
     let mut render_frame = (state.samples_render_frames
         || samples_motion
-        || (state.samples_swing_poses && state.local_swing.is_some()))
+        || (state.samples_swing_poses
+            && (state.local_swing.is_some() || state.remote_swing().is_some())))
     .then(|| super::render_frame::FrameState {
         previous_rotation: if context.is_local_first_person {
             input
