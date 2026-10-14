@@ -24,7 +24,7 @@ pub(super) fn capture(
 ) {
     let pending = menu.key_remap.map(usize::from);
     let macro_slot = pending.and_then(macro_row);
-    // Macro slots bind only desktop controls; Alt is applied when the macro runs.
+    // Macro slots bind only desktop controls; the selected modifier applies at runtime.
     let gamepad = pending.is_some_and(|index| index >= GAMEPAD_OFFSET) && macro_slot.is_none();
     for input in messages.read() {
         if input.state != ButtonState::Pressed {
