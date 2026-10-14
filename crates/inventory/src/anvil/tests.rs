@@ -1,24 +1,51 @@
 use super::*;
 
+/// Builds calculator inputs from the real pinned numeric identity and facts.
+fn item(identifier: &str) -> AnvilItem<'static> {
+    let pinned = assets::facts::ItemFacts::builtin().unwrap();
+    static SESSION: std::sync::OnceLock<crate::SessionItemFacts> = std::sync::OnceLock::new();
+    let session = SESSION.get_or_init(|| {
+        crate::SessionItemFacts::from_registry(
+            pinned,
+            &protocol::ItemRegistryEvent {
+                entries: protocol::vanilla_item_registry(),
+            },
+        )
+        .unwrap()
+    });
+    let network_id = pinned.network_id(identifier).unwrap();
+    AnvilItem {
+        kind: session.kind(network_id),
+        retail_id: Some(network_id),
+        fact: *pinned.get(network_id).unwrap(),
+        ..Default::default()
+    }
+}
+
+/// Tests pinned repair admission without parsing item names.
+fn repairs_with(target: &str, material: &str) -> bool {
+    let target = item(target);
+    let material = item(material);
+    target.fact.repairs_with(&material.fact, material.retail_id)
+}
+
 /// An undamaged-or-`damage` diamond sword carrying `enchantments`.
 fn sword<'a>(damage: u32, enchantments: &'a [(i16, i16)]) -> AnvilItem<'a> {
     AnvilItem {
-        identifier: "minecraft:diamond_sword",
         count: 1,
         damage,
         max_damage: Some(1561),
         enchantments,
-        ..AnvilItem::default()
+        ..item("minecraft:diamond_sword")
     }
 }
 
 /// An enchanted book carrying `enchantments`.
 fn book(enchantments: &[(i16, i16)]) -> AnvilItem<'_> {
     AnvilItem {
-        identifier: "minecraft:enchanted_book",
         count: 1,
         enchantments,
-        ..AnvilItem::default()
+        ..item("minecraft:enchanted_book")
     }
 }
 
@@ -30,9 +57,8 @@ fn evaluate(left: &AnvilItem<'_>, right: Option<&AnvilItem<'_>>) -> Option<Anvil
 #[test]
 fn materials_repair_a_quarter_each_and_cost_a_level_each() {
     let diamonds = AnvilItem {
-        identifier: "minecraft:diamond",
         count: 10,
-        ..AnvilItem::default()
+        ..item("minecraft:diamond")
     };
     let outcome = evaluate(&sword(1000, &[]), Some(&diamonds)).unwrap();
     assert_eq!(outcome.material_used, 3, "390 + 390 + 220 repairs 1000");
@@ -72,16 +98,16 @@ fn books_merge_equal_levels_upward_and_cost_by_book_multiplier() {
     assert_eq!(outcome.cost, 1, "one sharpness level at book multiplier 1");
     assert_eq!(outcome.damage, None);
     let chestplate = AnvilItem {
-        identifier: "minecraft:diamond_chestplate",
+        count: 1,
         max_damage: Some(528),
-        ..sword(0, &[])
+        ..item("minecraft:diamond_chestplate")
     };
     let outcome = evaluate(&chestplate, Some(&book(&[(5, 2)]))).unwrap();
     assert_eq!(outcome.cost, 8, "thorns II at book multiplier 4");
     let trident = AnvilItem {
-        identifier: "minecraft:trident",
+        count: 1,
         max_damage: Some(250),
-        ..sword(0, &[])
+        ..item("minecraft:trident")
     };
     let outcome = evaluate(&trident, Some(&book(&[(29, 3)]))).unwrap();
     assert_eq!(outcome.cost, 3, "impaling is uncommon: book multiplier 1");
@@ -126,9 +152,8 @@ fn combining_two_damaged_copies_adds_durability_and_a_bonus() {
     assert_eq!(outcome.cost, 2);
     assert_eq!(outcome.material_used, 1);
     let stick = AnvilItem {
-        identifier: "minecraft:stick",
         count: 1,
-        ..AnvilItem::default()
+        ..item("minecraft:stick")
     };
     assert_eq!(evaluate(&sword(1000, &[]), Some(&stick)), None);
 }

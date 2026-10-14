@@ -4,7 +4,7 @@ use assets::item::armour::{ITEM_ARMOUR_SOURCE_BYTES, ItemArmour, ItemArmourSlot}
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
     ItemRegistryEntry, ItemRegistryEvent, NetworkItemStack, StackRequestAction,
-    StackRequestContainer, WindowKind,
+    StackRequestContainer,
 };
 use serde::Deserialize;
 
@@ -82,7 +82,7 @@ fn assert_quick_move(
         InventoryTarget::Armor(row) => (StackRequestContainer::Armor, row),
         InventoryTarget::Craft(slot) => (protocol::ui_slot_request_container(slot).unwrap(), slot),
         InventoryTarget::Storage(slot) => {
-            protocol::open_cell_request(WindowKind::Horse, slot, None, None).unwrap()
+            protocol::open_cell_request(ledger.window_kind().unwrap(), slot, None, None).unwrap()
         }
         InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, slot),
         _ => panic!("unsupported quick-move fixture target"),
@@ -275,11 +275,11 @@ fn smithing_tags_use_negotiated_members_and_pinned_fallback() {
 }
 
 #[test]
-fn unrelated_session_tags_preserve_the_pinned_smithing_fallback() {
+fn component_items_do_not_inherit_smithing_roles_from_a_stock_name() {
     let entry = tagged_entry("minecraft:netherite_ingot", "minecraft:is_food", None);
     let mut ledger = ledger(&entry, 0);
     open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
-    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(52));
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
 }
 
 #[test]
@@ -468,4 +468,31 @@ fn registry_tag_changes_keep_pending_moves_when_the_destination_is_unchanged() {
         Some(&predicted)
     );
     assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+}
+
+#[test]
+fn component_items_do_not_inherit_brewing_or_beacon_roles_from_stock_names() {
+    for (identifier, window) in [
+        (
+            "minecraft:blaze_powder",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+        ),
+        ("minecraft:diamond", protocol::WINDOW_TYPE_BEACON),
+    ] {
+        let mut entry = registered(identifier);
+        entry.component_based = true;
+        entry.version = protocol::ItemRegistryVersion::DataDriven;
+        entry.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+        let mut ledger = ledger(&entry, 0);
+        open(&mut ledger, window);
+        if window == protocol::WINDOW_TYPE_BREWING_STAND {
+            ledger.apply(&content(
+                ContainerIdentity::window(3),
+                vec![NetworkItemStack::empty(); 5],
+            ));
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Storage(0));
+        } else {
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
+        }
+    }
 }

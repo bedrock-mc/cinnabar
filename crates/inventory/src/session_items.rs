@@ -1,7 +1,7 @@
 //! Effective item facts admitted once for each negotiated registry.
 
 use assets::{
-    facts::{ItemFact, ItemFacts, ItemUseAnimationFact},
+    facts::{ItemFact, ItemFacts, ItemTraits, ItemUseAnimationFact},
     item::{
         armour::{ItemArmour, ItemArmourSlot},
         durability::ItemDurability,
@@ -10,7 +10,11 @@ use assets::{
     },
 };
 use protocol::{ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
+
+/// An exact item identity within one admitted registry snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SessionItemKind(u16);
 
 /// Session facts keyed by the server's IDs rather than the retail IDs.
 #[derive(Clone, Debug, Default)]
@@ -18,12 +22,15 @@ pub struct SessionItemFacts {
     first_id: i32,
     indices: Arc<[Option<u16>]>,
     records: Arc<[SessionItemRecord]>,
+    enchanted_book_id: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
 struct SessionItemRecord {
+    kind: SessionItemKind,
     fact: ItemFact,
     retail_id: Option<i32>,
+    armour_row: Option<u8>,
 }
 
 impl SessionItemFacts {
@@ -51,15 +58,24 @@ impl SessionItemFacts {
         }
         let mut indices = vec![None; span];
         let mut records = Vec::with_capacity(entries.len());
+        let mut enchanted_book_id = None;
+        let mut kinds = BTreeMap::new();
         for entry in entries {
             let offset = usize::try_from(i64::from(entry.network_id) - i64::from(first_id)).ok()?;
             indices[offset] = Some(u16::try_from(records.len()).ok()?);
-            records.push(resolve(pinned, entry));
+            let next_kind = SessionItemKind(u16::try_from(kinds.len()).ok()?);
+            let kind = *kinds.entry(entry.identifier.as_ref()).or_insert(next_kind);
+            let record = resolve(pinned, entry, kind);
+            if record.fact.traits.contains(ItemTraits::ENCHANTED_BOOK) {
+                enchanted_book_id.get_or_insert(entry.network_id);
+            }
+            records.push(record);
         }
         Some(Self {
             first_id,
             indices: indices.into(),
             records: records.into(),
+            enchanted_book_id,
         })
     }
 
@@ -77,20 +93,40 @@ impl SessionItemFacts {
             .map(|record| &record.fact)
             .unwrap_or_else(|| UNRESOLVED.get_or_init(ItemFact::default))
     }
+    /// Returns the identity shared by registry aliases of the same item name.
+    pub fn kind(&self, network_id: i32) -> Option<SessionItemKind> {
+        Some(self.record(network_id)?.kind)
+    }
+
     /// Retains the independent retail identity for exact repair-material comparisons.
     pub fn retail_id(&self, network_id: i32) -> Option<i32> {
         self.record(network_id)?.retail_id
     }
+    /// Returns the cached equipment row, including declared body armor.
+    pub fn armour_row(&self, network_id: i32) -> Option<u8> {
+        self.record(network_id)?.armour_row
+    }
+
+    /// Returns the negotiated output identity for enchanting a plain book.
+    pub fn enchanted_book_id(&self) -> Option<i32> {
+        self.enchanted_book_id
+    }
 }
 
 /// Combines pinned identity with explicit server components at the admission boundary.
-fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
+fn resolve(
+    pinned: &ItemFacts,
+    entry: &ItemRegistryEntry,
+    kind: SessionItemKind,
+) -> SessionItemRecord {
     if matches!(entry.version, ItemRegistryVersion::Unknown(_))
         || (entry.components.is_none() && !entry.canonical_empty_component_data)
     {
         return SessionItemRecord {
+            kind,
             fact: ItemFact::default(),
             retail_id: None,
+            armour_row: None,
         };
     }
     let component_item =
@@ -114,13 +150,27 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
             .by_identifier(&entry.identifier)
             .and_then(|fact| fact.max_stack_size),
     );
-    if component_item {
-        pinned.apply_tags(&mut fact, entry.item_tags.iter().map(AsRef::as_ref));
+    pinned.apply_tags(&mut fact, entry.item_tags.iter().map(AsRef::as_ref));
+    let mut armour_row = fact.armour_slot.map(armour_slot_row);
+    let components = entry.components.as_deref();
+    if components.and_then(|components| components.wearable_slot.as_deref())
+        == Some("slot.weapon.offhand")
+    {
+        fact.allow_off_hand = Some(true);
+        fact.offhand_provisional = false;
+    } else if let Some(components) =
+        components.filter(|components| components.allow_off_hand_declared)
+    {
+        fact.allow_off_hand = components.allow_off_hand;
+        fact.offhand_provisional = false;
     }
-    (fact.allow_off_hand, fact.offhand_provisional) =
-        super::inventory_ledger::equipment::offhand_admission(Some(entry));
     let Some(components) = entry.components.as_deref() else {
-        return SessionItemRecord { fact, retail_id };
+        return SessionItemRecord {
+            kind,
+            fact,
+            retail_id,
+            armour_row,
+        };
     };
     if component_item {
         if !components.wearable_declared {
@@ -138,6 +188,9 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
             Some("slot.armor.feet") => Some(ItemArmourSlot::Feet),
             _ => None,
         };
+        armour_row = fact.armour_slot.map(armour_slot_row).or_else(|| {
+            (components.wearable_slot.as_deref() == Some("slot.armor.body")).then_some(4)
+        });
         fact.armour = fact
             .armour_slot
             .zip(components.wearable_protection)
@@ -177,7 +230,22 @@ fn resolve(pinned: &ItemFacts, entry: &ItemRegistryEntry) -> SessionItemRecord {
         .as_deref()
         .and_then(ItemUseAnimationFact::from_component);
     fact.use_duration_ticks = components.use_duration_ticks;
-    SessionItemRecord { fact, retail_id }
+    SessionItemRecord {
+        kind,
+        fact,
+        retail_id,
+        armour_row,
+    }
+}
+
+/// Maps the carrier's humanoid equipment slots to protocol armor rows.
+fn armour_slot_row(slot: ItemArmourSlot) -> u8 {
+    match slot {
+        ItemArmourSlot::Head => 0,
+        ItemArmourSlot::Chest => 1,
+        ItemArmourSlot::Legs => 2,
+        ItemArmourSlot::Feet => 3,
+    }
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ mod item;
 mod item_carrier;
 pub use item::{
     ContainerRoles, ItemFact, ItemFactRecord, ItemFactsPayload, ItemRepairMaterial, ItemTag,
-    ItemTagDefinition, ItemTagSet, ItemTier, ItemTraits, ItemUseAnimationFact,
+    ItemTagDefinition, ItemTagSet, ItemTier, ItemTraits, ItemUseAnimationFact, TOTEM_IDENTIFIER,
 };
 pub use item_carrier::{
     ITEM_FACTS_EXPANSION_PATH, ITEM_FACTS_FILENAME, ITEM_FACTS_INPUTS, ITEM_FACTS_SOURCE_PATH,

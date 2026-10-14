@@ -1,3 +1,6 @@
+/// Canonical identity used to request the totem's presentation assets.
+pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
+
 use crate::{
     item::{
         armour::{ItemArmour, ItemArmourSlot},
@@ -152,6 +155,8 @@ pub enum ItemRepairMaterial {
 pub struct ItemFact {
     pub traits: ItemTraits,
     pub roles: ContainerRoles,
+    /// Legacy UI renderer key for a pinned beacon payment icon.
+    pub beacon_payment_key: Option<i64>,
     /// Rules still awaiting complete behavior evidence stay marked provisional.
     pub provisional_traits: ItemTraits,
     pub provisional_roles: ContainerRoles,
@@ -173,12 +178,24 @@ pub struct ItemFact {
     pub use_animation: Option<ItemUseAnimationFact>,
     pub use_duration_ticks: Option<u32>,
 }
+impl ItemFact {
+    /// Tests an exact retail material or an admitted repair tag without parsing names.
+    pub fn repairs_with(&self, material: &Self, retail_id: Option<i32>) -> bool {
+        match self.repair {
+            Some(ItemRepairMaterial::Item(id)) => retail_id == Some(id),
+            Some(ItemRepairMaterial::Tag(index)) => material.tags.contains(ItemTag(index)),
+            None => false,
+        }
+    }
+}
+
 impl Default for ItemFact {
     /// Unknown facts grant no equipment or predicted behavior.
     fn default() -> Self {
         Self {
             traits: ItemTraits::default(),
             roles: ContainerRoles::default(),
+            beacon_payment_key: None,
             provisional_traits: ItemTraits::default(),
             provisional_roles: ContainerRoles::default(),
             tags: ItemTagSet::default(),

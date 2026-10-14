@@ -62,9 +62,10 @@ impl PlayerInventoryLedger {
         let Some(facts) = crate::SessionItemFacts::from_registry(pinned, event) else {
             return;
         };
-        self.item_facts = std::sync::Arc::new(facts);
+        let facts = std::sync::Arc::new(facts);
         let Some(previous) = self.item_registry.as_ref() else {
             self.item_registry = Some(std::sync::Arc::new(next));
+            self.item_facts = facts;
             self.refresh_fuel_facts();
             return;
         };
@@ -82,8 +83,8 @@ impl PlayerInventoryLedger {
                         registry_identity_changed(previous, &next, network_id)
                             || (pending.predicted.iter().any(|prediction| {
                                 matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
-                            }) && (equipment_admission(previous.get(&network_id))
-                                != equipment_admission(next.get(&network_id))
+                            }) && (equipment_admission(&self.item_facts, network_id)
+                                != equipment_admission(&facts, network_id)
                                 || previous.get(&network_id).and_then(entry_capacity)
                                     != next.get(&network_id).and_then(entry_capacity)))
                             || (pending.registry_bound_merge
@@ -97,6 +98,7 @@ impl PlayerInventoryLedger {
             self.mark_cell_recovery(cell);
         }
         self.item_registry = Some(std::sync::Arc::new(next));
+        self.item_facts = facts;
         self.refresh_fuel_facts();
         self.retire_rerouted_quick_moves();
         self.refold();

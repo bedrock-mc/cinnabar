@@ -1,5 +1,6 @@
 //! Offhand quick moves retain server authority and whole-item identity.
 
+use assets::facts::TOTEM_IDENTIFIER;
 use std::sync::Arc;
 
 use protocol::{
