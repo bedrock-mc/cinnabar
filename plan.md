@@ -1520,6 +1520,15 @@ acceptance gate.
 - Incomplete: live RD 255 acceptance is pending; order-dependent water beyond the ceiling
   draws unsorted; transparent models still sort only the visible set.
 
+## Held sprite edges
+
+- Held sprites exclude alpha 0 and 1 from their edge mask, preserving side faces next to
+  nearly transparent pack pixels. Dropped sprites share this mask without copying the raster.
+- Mesh and placement fixtures cover 16, 32, 64 and 128 pixel sprites, holes, partial alpha,
+  atlas texel centers, fixed thickness and both animation modes in first and third person.
+- Incomplete: matched in-game pack comparisons, authored sword display transforms and
+  first-person face-shading acceptance remain open.
+
 ## Held cube item consistency
 
 - Cube admission now ignores unrelated gameplay flags and terrain occlusion.

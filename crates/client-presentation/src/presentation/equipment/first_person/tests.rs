@@ -2,6 +2,73 @@ use super::*;
 use bevy::math::Quat;
 
 #[test]
+fn sword_pack_resolution_preserves_first_and_third_person_placement_in_both_modes() {
+    use crate::presentation::equipment::display::first_person_display_for_profile;
+    use render_model::equipment::held_sprite_display;
+    use render_model::java_animation::{self as java, JavaHand, JavaHeldItem, JavaItemMesh};
+
+    let hand = FirstPersonHand {
+        swing: 0.0,
+        equip: 1.0,
+        consume: None,
+    };
+    let shape = FirstPersonShape::Sprite {
+        mirrored_art: false,
+    };
+    let native = [
+        first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Legacy112),
+        first_person_display_for_profile(shape, hand, render_api::CombatVisuals::Modern),
+        held_sprite_display(true),
+    ]
+    .map(|display| {
+        Mat4::from_scale_rotation_translation(
+            Vec3::splat(display.scale),
+            display.rotation,
+            display.translation,
+        )
+    });
+    let placements = native.into_iter().chain([
+        java::first_person_item(
+            JavaHand {
+                swing: 0.0,
+                equip: 1.0,
+                using: None,
+            },
+            JavaItemMesh::Sprite,
+            false,
+        ),
+        java::third_person_item(
+            JavaHeldItem::Tool {
+                rotate_around: false,
+                blocking: false,
+            },
+            JavaItemMesh::Sprite,
+        ),
+    ]);
+    for placement in placements {
+        let mut reference = None;
+        for side in [16, 32, 64, 128] {
+            let pixels = vec![255; side * side * 4];
+            let mesh =
+                render_model::held_sprite_vertices(side, side, &pixels, [0.0, 0.0, 1.0, 1.0])
+                    .unwrap();
+            // Front/back corners retain their UV labels and thickness after placement.
+            let corners: Vec<_> = mesh[..12]
+                .iter()
+                .map(|vertex| {
+                    (
+                        placement.transform_point3(Vec3::from_array(vertex.position)),
+                        vertex.uv,
+                    )
+                })
+                .collect();
+            let expected = reference.get_or_insert_with(|| corners.clone());
+            assert_eq!(corners.as_slice(), expected.as_slice(), "resolution {side}");
+        }
+    }
+}
+
+#[test]
 fn block_idle_keeps_centered_cube_geometry_and_native_camera_yaw() {
     let idle = block_pose(ItemAnimationState::default()).unwrap();
     assert_eq!(idle.axis_scale, render_model::UNIT_AXIS_SCALE);
