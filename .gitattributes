@@ -31,3 +31,6 @@ tools/localserver/extension/testdata/* -text
 tools/localserver/extension/testdata/go/* -text
 crates/assets/data/entity-placement-frame.json text eol=lf
 packaging/common/prep-kit-files.txt text eol=lf
+assets/bedrock-target.json text eol=lf
+crates/assets/data/facts-expansion-v*.tsv text eol=lf
+crates/assets/data/vocabulary-v*.txt text eol=lf
