@@ -34,6 +34,15 @@ fn pinned_facts_preserve_classes_components_and_equipment() {
         1.4
     );
     assert!(facts.get("minecraft:arrow").projectile);
+    for name in [
+        "minecraft:boat",
+        "minecraft:chest_boat",
+        "minecraft:shulker",
+    ] {
+        assert!(facts.get(name).collidable, "{name}");
+    }
+    assert!(!facts.get("minecraft:bee").collidable);
+    assert!(!facts.get("minecraft:happy_ghast").collidable);
     assert_eq!(
         facts.get("minecraft:boat").native_class,
         NativeEntityClass::Boat

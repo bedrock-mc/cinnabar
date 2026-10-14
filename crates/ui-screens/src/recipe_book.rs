@@ -19,11 +19,10 @@ use ui::IconRef;
 /// draw at most a few pixels past it, and bind only per-index focus and collection details once.
 pub const COLLECTION: &str = "recipe_book";
 
-/// A container screen's starting live binding. The recipe grid builds only the cells near view
-/// while no server pack's ui files apply, as those may draw its cells anywhere.
-pub(crate) fn screen_binding(server_ui: bool) -> json_ui::BindState {
+/// Builds nearby recipe cells only when the screen and templates retain the base behavior.
+pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
     let mut binding = json_ui::BindState::new();
-    if !server_ui {
+    if virtualize {
         binding.virtualize_grid(COLLECTION);
     }
     binding

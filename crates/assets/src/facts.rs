@@ -50,3 +50,6 @@ pub use render::{
 };
 
 pub mod presentation;
+
+mod presentation_generated;
+pub use presentation_generated::{UiItemIcon, dimension_fallback_biome, dimension_id};

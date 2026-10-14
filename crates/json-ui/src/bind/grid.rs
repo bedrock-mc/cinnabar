@@ -292,7 +292,7 @@ pub(super) fn grid_cell_index(control: &ResolvedControl, columns: u64) -> Option
 }
 
 /// The `grid_item_template` of a `grid`.
-pub(super) fn grid_template(control: &ResolvedControl) -> Option<ControlRef> {
+pub(crate) fn grid_template(control: &ResolvedControl) -> Option<ControlRef> {
     if control.control_type.as_deref() != Some("grid") {
         return None;
     }

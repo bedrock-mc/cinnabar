@@ -125,6 +125,8 @@ pub struct EntityFact {
     pub horse: bool,
     pub living_mount: bool,
     pub aquatic: bool,
+    /// The default definition enables solid actor collision; synced flags may override it.
+    pub collidable: bool,
     pub interactions: EntityInteractionTraits,
     pub placement: EntityPlacementFrame,
     pub equipment: MountEquipment,
@@ -145,6 +147,7 @@ impl Default for EntityFact {
             horse: false,
             living_mount: false,
             aquatic: false,
+            collidable: false,
             interactions: EntityInteractionTraits::Unresolved,
             placement: EntityPlacementFrame::Unresolved,
             equipment: MountEquipment::Unresolved,

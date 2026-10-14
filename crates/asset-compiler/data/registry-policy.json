@@ -3845,46 +3845,6 @@
   ],
   "item_rules": [
     {
-      "id": "ui-form-writable_book",
-      "status": "provisional",
-      "selector": {
-        "members": [
-          "minecraft:writable_book"
-        ]
-      },
-      "book_editable": true
-    },
-    {
-      "id": "ui-form-potion",
-      "status": "provisional",
-      "selector": {
-        "members": [
-          "minecraft:potion"
-        ]
-      },
-      "potion_form": "drinkable"
-    },
-    {
-      "id": "ui-form-splash_potion",
-      "status": "provisional",
-      "selector": {
-        "members": [
-          "minecraft:splash_potion"
-        ]
-      },
-      "potion_form": "splash"
-    },
-    {
-      "id": "ui-form-lingering_potion",
-      "status": "provisional",
-      "selector": {
-        "members": [
-          "minecraft:lingering_potion"
-        ]
-      },
-      "potion_form": "lingering"
-    },
-    {
       "id": "is_sword",
       "status": "verified",
       "selector": {
@@ -4710,6 +4670,46 @@
       "traits": [
         "spyglass"
       ]
+    },
+    {
+      "id": "ui-form-writable_book",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:writable_book"
+        ]
+      },
+      "book_editable": true
+    },
+    {
+      "id": "ui-form-potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:potion"
+        ]
+      },
+      "potion_form": "drinkable"
+    },
+    {
+      "id": "ui-form-splash_potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:splash_potion"
+        ]
+      },
+      "potion_form": "splash"
+    },
+    {
+      "id": "ui-form-lingering_potion",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:lingering_potion"
+        ]
+      },
+      "potion_form": "lingering"
     }
   ],
   "placement_rules": [
@@ -4742,16 +4742,6 @@
     "minecraft:shield"
   ],
   "entity_rules": [
-    {
-      "id": "class-AreaEffectCloud",
-      "status": "provisional",
-      "members": [
-        "minecraft:area_effect_cloud"
-      ],
-      "facts": {
-        "native_class": "AreaEffectCloud"
-      }
-    },
     {
       "id": "entity-interactions-0",
       "status": "provisional",
@@ -5528,6 +5518,16 @@
       ],
       "facts": {
         "native_class": "Painting"
+      }
+    },
+    {
+      "id": "class-AreaEffectCloud",
+      "status": "provisional",
+      "members": [
+        "minecraft:area_effect_cloud"
+      ],
+      "facts": {
+        "native_class": "AreaEffectCloud"
       }
     }
   ],

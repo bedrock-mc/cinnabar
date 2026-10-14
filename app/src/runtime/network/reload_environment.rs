@@ -144,10 +144,7 @@ fn overlay_biome_profile(
                 return;
             }
             let Some(mut fallback) = profiles
-                .get(
-                    assets::facts::presentation::dimension_fallback_biome(0)
-                        .expect("pinned overworld biome"),
-                )
+                .get(assets::facts::dimension_fallback_biome(0).expect("pinned overworld biome"))
                 .cloned()
             else {
                 return;

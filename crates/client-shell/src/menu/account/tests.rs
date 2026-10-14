@@ -401,7 +401,7 @@ fn core_child_args_advertise_upstream_client_cache_only_when_enabled() {
 }
 
 #[test]
-fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
+fn connect_abandons_interactive_sign_in_and_waits_for_its_reap() {
     let mut command = if cfg!(windows) {
         let mut command = Command::new("cmd");
         command.args(["/Q", "/C", "set /p hold="]);
@@ -418,6 +418,7 @@ fn offline_connect_waits_for_cancelled_sign_in_to_reap() {
         .unwrap();
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
     menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.sign_in_requested = true;
 
     menu.request_connect("offline.example:19132".to_owned());
     assert!(menu.take_join_intent().is_none());
@@ -521,6 +522,198 @@ fn validation_failure_releases_the_queued_connection_offline() {
     let pending = menu.take_join_intent().expect("offline connection");
     assert_eq!(pending.address, "offline-after-failure.example:19132");
     assert_eq!(pending.auth_cache, None);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A join sent during the saved account's check must not cancel it and joins signed in.
+#[test]
+fn connect_during_cached_check_waits_for_it_and_joins_signed_in() {
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+    menu.poll_sign_in();
+    assert_eq!(menu.sign_in_status(), SignInStatus::Checking);
+
+    menu.request_connect("authenticated.example:19132".to_owned());
+    assert!(menu.is_connecting());
+    assert!(menu.take_join_intent().is_none());
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::Checking),
+        "the join cancelled the cached sign-in check"
+    );
+
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    let mut joined = None;
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        joined = menu.take_join_intent();
+        joined.is_some()
+    });
+    let joined = joined.expect("held join released once the check settled");
+    assert_eq!(joined.auth_cache, Some(menu.layout.auth_cache()));
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// After the bounded wait the join goes ahead signed out, and the check's later result still applies.
+#[test]
+fn expired_sign_in_wait_joins_signed_out_and_the_check_still_applies() {
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("slow-check.example:19132".to_owned());
+    menu.intents.join_sign_in_deadline = Some(Instant::now());
+    let joined = menu
+        .take_join_intent()
+        .expect("expired wait releases the join");
+    assert_eq!(joined.auth_cache, None);
+
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        menu.sign_in_status() == SignInStatus::SignedIn
+    });
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    assert_eq!(menu.launcher_auth_cache(), Some(menu.layout.auth_cache()));
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+const FALLBACK_CODE: &str = "TEST-CODE";
+const FALLBACK_PROMPT: &str = r#"{"v":1,"event":"device_code","verification_uri":"https://example.invalid","user_code":"TEST-CODE"}"#;
+
+/// The browser has not been sent the fallback prompt's code.
+fn fallback_browser_untouched(menu: &MenuRuntime) -> bool {
+    menu.sign_in_browser.state(&AuthState::AwaitingCode {
+        uri: "https://example.invalid".into(),
+        code: FALLBACK_CODE.into(),
+    }) == launcher::menu::sign_in::BrowserState::Waiting
+}
+
+/// A held join's check that falls back to a device code is cancelled before any browser opens.
+#[test]
+fn held_join_cancels_a_fallback_prompt_without_opening_the_browser() {
+    let (child, directory) =
+        event_child_holding(&[r#"{"v":1,"event":"checking_cache"}"#, FALLBACK_PROMPT]);
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("fallback.example:19132".to_owned());
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        menu.auth_process.as_ref().map(AuthSupervisor::state) != Some(&AuthState::Checking)
+    });
+    assert!(
+        fallback_browser_untouched(&menu),
+        "browser opened for a cancelled prompt"
+    );
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::SignedOut)
+    );
+    let mut joined = None;
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        joined = menu.take_join_intent();
+        joined.is_some()
+    });
+    assert_eq!(joined.expect("join released signed out").auth_cache, None);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A check that outlives its join still never opens the browser for a fallback prompt.
+#[test]
+fn check_outliving_its_join_cancels_a_later_fallback_prompt() {
+    let (mut child, directory) =
+        event_child_waiting(&[r#"{"v":1,"event":"checking_cache"}"#], &[FALLBACK_PROMPT]);
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+
+    menu.request_connect("slow-check.example:19132".to_owned());
+    menu.intents.join_sign_in_deadline = Some(Instant::now());
+    assert!(menu.take_join_intent().is_some());
+
+    input.write_all(b"finish\n").unwrap();
+    input.flush().unwrap();
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_catalog(true);
+        menu.auth_process.as_ref().map(AuthSupervisor::state) != Some(&AuthState::Checking)
+    });
+    assert!(
+        fallback_browser_untouched(&menu),
+        "browser opened after the join left"
+    );
+    assert_eq!(
+        menu.auth_process.as_ref().map(AuthSupervisor::state),
+        Some(&AuthState::SignedOut)
+    );
+    drop(input);
+    drop(menu);
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// A held join that signs in goes through the account core once it serves that account.
+#[test]
+fn signed_in_held_join_waits_for_the_account_core() {
+    use crate::menu::launcher_core::AccountCore;
+    let (mut child, directory) = event_child_waiting(
+        &[r#"{"v":1,"event":"checking_cache"}"#],
+        &[r#"{"v":1,"event":"authenticated","method":"cached"}"#],
+    );
+    let mut input = child.stdin.take().expect("injected helper input");
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".to_owned());
+    menu.auth_process = Some(launcher_host::auth::test_support::from_child(child).unwrap());
+    menu.auth_attempted = true;
+    menu.account_core = Some(AccountCore {
+        serving: Some(false),
+        failed: None,
+    });
+
+    menu.request_connect("authenticated.example:19132".to_owned());
+    assert!(
+        !menu.joining_past_sign_in(),
+        "a held join must let the account core start"
+    );
+    input.write_all(b"finish\n").unwrap();
+    drop(input);
+    test_time::wait_until(Duration::from_secs(5), || {
+        menu.poll_sign_in();
+        menu.auth_process
+            .as_ref()
+            .is_some_and(AuthSupervisor::cleanup_complete)
+    });
+    assert_eq!(menu.sign_in_status(), SignInStatus::SignedIn);
+    assert!(
+        menu.take_join_intent().is_none(),
+        "join released before the account core served the account"
+    );
+
+    menu.account_core = Some(AccountCore {
+        serving: Some(true),
+        failed: None,
+    });
+    let joined = menu.take_join_intent().expect("account core ready");
+    assert_eq!(joined.auth_cache, Some(menu.layout.auth_cache()));
+    drop(menu);
     fs::remove_dir_all(directory).unwrap();
 }
 

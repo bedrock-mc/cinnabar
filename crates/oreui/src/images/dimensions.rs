@@ -6,7 +6,7 @@ use std::{path::Path, sync::Arc};
 /// A dimension's loading backdrop and the block item its destination card shows.
 pub struct DimensionArt {
     pub background: &'static str,
-    pub icon: assets::facts::presentation::UiItemIcon,
+    pub icon: assets::facts::UiItemIcon,
     file: &'static str,
 }
 
@@ -14,17 +14,17 @@ pub struct DimensionArt {
 pub const DIMENSIONS: [DimensionArt; 3] = [
     DimensionArt {
         background: "@dimension/background/overworld",
-        icon: assets::facts::presentation::UiItemIcon::Overworld,
+        icon: assets::facts::UiItemIcon::Overworld,
         file: "overworld.png",
     },
     DimensionArt {
         background: "@dimension/background/nether",
-        icon: assets::facts::presentation::UiItemIcon::Nether,
+        icon: assets::facts::UiItemIcon::Nether,
         file: "nether.png",
     },
     DimensionArt {
         background: "@dimension/background/end",
-        icon: assets::facts::presentation::UiItemIcon::End,
+        icon: assets::facts::UiItemIcon::End,
         file: "end.png",
     },
 ];

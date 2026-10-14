@@ -1,6 +1,6 @@
 //! Presentation identities and sign texture grammar compiled from the shared policy.
 
-include!("presentation_generated.rs");
+use super::presentation_generated::{SIGN_SUFFIXES, SIGN_WOOD_ALIASES, SIGN_WOOD_FIRST};
 
 /// A legacy block callback, admitted before fixed-tick sampling.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

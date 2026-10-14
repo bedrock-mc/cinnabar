@@ -1214,7 +1214,7 @@ minecraft:ender_pearl	0	0	0	0	-
 minecraft:blaze_rod	0	0	0	0	-
 minecraft:ghast_tear	0	0	0	0	-
 minecraft:gold_nugget	0	0	0	0	-
-minecraft:potion	0	2	0	2	ui-form-potion,brewing-bottles
+minecraft:potion	0	2	0	2	brewing-bottles,ui-form-potion
 minecraft:glass_bottle	0	2	0	2	brewing-bottles
 minecraft:fermented_spider_eye	0	0	0	0	-
 minecraft:blaze_powder	0	1	0	1	brewing-fuel
@@ -1350,8 +1350,8 @@ minecraft:dark_oak_door	0	0	0	0	-
 minecraft:chorus_fruit	0	0	0	0	-
 minecraft:popped_chorus_fruit	0	0	0	0	-
 minecraft:dragon_breath	0	0	0	0	-
-minecraft:splash_potion	0	2	0	2	ui-form-splash_potion,brewing-bottles
-minecraft:lingering_potion	0	2	0	2	ui-form-lingering_potion,brewing-bottles
+minecraft:splash_potion	0	2	0	2	brewing-bottles,ui-form-splash_potion
+minecraft:lingering_potion	0	2	0	2	brewing-bottles,ui-form-lingering_potion
 minecraft:elytra	1	0	1	0	elytra,elytra-repair
 minecraft:prismarine_shard	0	0	0	0	-
 minecraft:shulker_shell	0	0	0	0	-

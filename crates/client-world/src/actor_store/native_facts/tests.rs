@@ -78,6 +78,11 @@ fn custom_entities_inherit_native_class_shadow_offsets_and_effect_membership() {
                 "base {base}, late {late}"
             );
             assert_eq!(actor.is_horse(), facts.get(base).horse);
+            assert_eq!(actor.is_collidable(), facts.get(base).collidable);
+            assert_eq!(
+                store.effect_members.collidable.contains(&id),
+                actor.is_collidable()
+            );
             assert_eq!(
                 actor.shadow_radius(false),
                 facts.get(base).shadow.radius(2.0, false, 0, false)

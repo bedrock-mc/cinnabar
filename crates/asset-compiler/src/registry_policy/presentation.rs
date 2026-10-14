@@ -29,10 +29,7 @@ pub fn write(out: &Path) -> Result<()> {
         rules.status == "provisional",
         "presentation rules need explicit status",
     )?;
-    let items: BTreeSet<_> = assets::item::retail::identifiers()
-        .iter()
-        .copied()
-        .collect();
+    let items = assets::item::retail::identifiers();
     let biomes: BTreeSet<_> = include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
         .lines()
         .collect();

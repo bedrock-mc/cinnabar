@@ -298,6 +298,7 @@ pub(super) fn snapshot(world: &World) -> Value {
 
     json!({
         "in_world": stream.is_some(),
+        "sign_in": menu.map(|menu| menu.sign_in_status().as_str()),
         "immobile": world.get_resource::<client_state::PlayerRuntime>()
             .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),

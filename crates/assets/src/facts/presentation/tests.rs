@@ -1,4 +1,7 @@
 use super::*;
+use crate::facts::{
+    UiItemIcon, dimension_fallback_biome, dimension_id, presentation_generated::ambient_block,
+};
 
 /// Retains the previous sign texture grammar as a migration oracle.
 fn previous_sign_texture(name: &str) -> (String, bool) {
@@ -71,6 +74,18 @@ fn facts_migration_compiled_ambient_facts_preserve_exact_membership_in_numeric_b
             _ => AmbientBlock::Other,
         };
         assert_eq!(
+            facts
+                .get(record.sequential_id)
+                .traits
+                .contains(crate::registry::BlockTraits::CAMPFIRE),
+            matches!(
+                record.name.as_ref(),
+                "minecraft:campfire" | "minecraft:soul_campfire"
+            ),
+            "{}",
+            record.name,
+        );
+        assert_eq!(
             facts.get(record.sequential_id).ambient,
             expected,
             "{}",
@@ -82,7 +97,7 @@ fn facts_migration_compiled_ambient_facts_preserve_exact_membership_in_numeric_b
 
 #[test]
 fn facts_migration_compiled_icons_and_dimension_routes_preserve_the_existing_requests() {
-    for (icon, name) in [
+    let expected = [
         (UiItemIcon::Featured, "minecraft:compass"),
         (UiItemIcon::Realm, "minecraft:ender_pearl"),
         (UiItemIcon::Friend, "minecraft:heart_of_the_sea"),
@@ -95,7 +110,9 @@ fn facts_migration_compiled_icons_and_dimension_routes_preserve_the_existing_req
         (UiItemIcon::Overworld, "minecraft:grass_block"),
         (UiItemIcon::Nether, "minecraft:netherrack"),
         (UiItemIcon::End, "minecraft:end_stone"),
-    ] {
+    ];
+    assert_eq!(expected.len(), UiItemIcon::ALL.len());
+    for (icon, name) in expected {
         assert_eq!(icon.identifier(), name);
         assert!(crate::item::retail::identifiers().contains(name));
     }

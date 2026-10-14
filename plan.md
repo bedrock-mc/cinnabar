@@ -1,3 +1,12 @@
+## Creative search under server UI packs
+
+Unchanged inventory screens keep recipe-grid virtualization even when a server supplies
+unrelated UI definitions. Scoped grid and collection-factory templates are compared to the
+base catalog; modified screens and runtime factory inputs retain the conservative path.
+Incomplete: remaining placeholder layout work still costs about 21 ms per scroll in the
+2,048-item Windows offline fixture, down from about 203 ms before this change. Live typing,
+icons and hardware frame pacing remain unverified; no high-refresh performance gate closes.
+
 ## Repeated container delivery acknowledgements
 
 Repeated opens of the current non-dynamic chest retain its contents and send the warning
@@ -6493,6 +6502,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   seat offsets follow the mount's actor origin and yaw for local and remote riders without
   multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
   vehicle-targeted dismount request; the server's removal link releases the rider.
+  Local movement includes solid actor bounds from compiled definition defaults and synced
+  collision flags, excluding the player's own mount. Prediction snapshots retain the actor
+  bounds used by each frame after later movement or removal. Landing, side contact, step-up,
+  size updates and retained support have deterministic coverage. Controlled live acceptance
+  of boat, chest-boat and shulker collisions remains incomplete. Shulker attachment and
+  lid-dependent bounds still need their specialized actor-shape implementation.
   Mounted prediction retains the seated posture while an exit request is pending, including
   during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive

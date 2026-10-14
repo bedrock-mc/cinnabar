@@ -61,7 +61,7 @@ impl WorldAuthority {
 }
 
 fn definition_dimension(height: &DimensionHeightDiagnostic) -> Option<i32> {
-    assets::facts::presentation::dimension_id(&height.name).or_else(|| {
+    assets::facts::dimension_id(&height.name).or_else(|| {
         (!height.name.is_empty() && (1000..=i32::from(u16::MAX)).contains(&height.dimension))
             .then_some(height.dimension)
     })

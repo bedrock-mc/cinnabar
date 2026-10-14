@@ -382,6 +382,17 @@ mod presentation_tests {
         assert_eq!(facts.book_editable(WRITTEN_BOOK_IDENTIFIER), Some(false));
         assert_eq!(facts.book_editable("fixture:written_book"), None);
 
+        let food_members: std::collections::BTreeSet<_> =
+            include_str!("../../../protocol/data/item_tags_dragonfly.tsv")
+                .lines()
+                .find_map(|row| {
+                    row.split_once('\t')
+                        .filter(|(tag, _)| *tag == "minecraft:is_food")
+                })
+                .expect("pinned food tag")
+                .1
+                .split_whitespace()
+                .collect();
         for record in &facts.payload().records {
             let expected_book = match record.identifier.as_ref() {
                 "minecraft:writable_book" => Some(true),
@@ -406,9 +417,9 @@ mod presentation_tests {
             );
             assert_eq!(
                 record.fact.is_food(),
-                facts
-                    .tag("minecraft:is_food")
-                    .is_some_and(|tag| record.fact.tags.contains(tag))
+                food_members.contains(record.identifier.as_ref()),
+                "{}",
+                record.identifier
             );
             assert_eq!(
                 record.fact.roles.contains(ContainerRoles::LOOM_BANNER),

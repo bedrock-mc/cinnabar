@@ -1,9 +1,7 @@
 //! Per-frame atmosphere derivation: clock and weather into one shared GPU
 //! frame, overlaid with client fog profiles and explicit boss requests.
 
-use assets::{
-    BiomeVisualProfile, FogMedium, FogProfile, facts::presentation::dimension_fallback_biome,
-};
+use assets::{BiomeVisualProfile, FogMedium, FogProfile, facts::dimension_fallback_biome};
 use bevy::{
     prelude::{Local, Query, Res, ResMut, Time, Transform, With},
     time::Real,

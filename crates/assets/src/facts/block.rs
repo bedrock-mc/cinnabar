@@ -101,7 +101,7 @@ impl BlockFacts {
                         family: r.model_family,
                         survival: r.survival,
                         render: super::block_render_fact(&r.name),
-                        ambient: super::presentation::ambient_block(&r.name),
+                        ambient: super::presentation_generated::ambient_block(&r.name),
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();
