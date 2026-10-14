@@ -24,6 +24,20 @@ pub(super) fn account_core_idle(
     !connecting && (!in_session || !(launcher || local_world))
 }
 
+/// The account core's readiness, for a held join that should go through it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct AccountCore {
+    pub(super) serving: Option<bool>, // Sign-in of the attached core.
+    pub(super) failed: Option<bool>,  // Sign-in whose core could not start.
+}
+
+impl AccountCore {
+    /// Whether a join with this sign-in has nothing left to wait for from the core.
+    pub(super) fn ready_for(self, authenticated: bool) -> bool {
+        self.serving == Some(authenticated) || self.failed == Some(authenticated)
+    }
+}
+
 /// Holds the account core in every startup mode, including direct connections.
 #[derive(Default, Resource)]
 pub struct LauncherCoreSlot {
@@ -179,6 +193,18 @@ impl LauncherCoreSlot {
         }
     }
 
+    /// The account core as this frame left it.
+    pub(super) fn account_core(&self) -> AccountCore {
+        AccountCore {
+            serving: self
+                .core
+                .as_ref()
+                .filter(|core| core.attached)
+                .map(|core| core.authenticated),
+            failed: self.failed,
+        }
+    }
+
     /// Selects a join's target on the launcher core off the frame; the receiver
     /// yields the session endpoint to dial. Local worlds always use their owning core;
     /// direct remote joins stay on a separate per-session core.
@@ -214,7 +240,7 @@ impl MenuRuntime {
         )
     }
 
-    fn sign_in_in_flight(&self) -> bool {
+    pub(super) fn sign_in_in_flight(&self) -> bool {
         matches!(
             self.auth_process.as_ref().map(AuthSupervisor::state),
             Some(

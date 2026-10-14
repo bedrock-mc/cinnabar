@@ -61,6 +61,7 @@ use launcher::menu::view::{
     JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
 };
 
+pub use account::SignInStatus;
 pub use launcher_core::LauncherCoreSlot;
 use servers::{ServerWriter, load_servers};
 pub use video_settings::persist_video_settings;
@@ -143,6 +144,8 @@ pub struct MenuRuntime {
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
+    /// The account core a held join may still use; `None` when it cannot start for the join.
+    account_core: Option<launcher_core::AccountCore>,
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
@@ -225,6 +228,10 @@ pub struct MenuRuntime {
 #[derive(Debug, Default)]
 struct SessionIntents {
     join: Option<JoinIntent>,
+    /// The queued join waits for the saved account's check until this passes.
+    join_sign_in_deadline: Option<std::time::Instant>,
+    /// The background sign-in check serves a join: it may finish, but never prompts.
+    join_sign_in_check: bool,
     disconnect: bool,
     respawn: bool,
     exit: bool,
@@ -332,12 +339,19 @@ impl MenuRuntime {
         self.visible = true;
     }
 
-    /// The queued join, once any sign-in helper has finished cleaning up.
+    /// The queued join, once the saved account's check has settled (bounded) and any
+    /// sign-in helper the join does not outlive has finished cleaning up.
     pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
-        if self
-            .auth_process
-            .as_ref()
-            .is_some_and(|process| !process.cleanup_complete())
+        let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
+            account::JoinSignIn::Waiting => return None,
+            account::JoinSignIn::Settled => false,
+            account::JoinSignIn::Expired => true,
+        };
+        if !helper_outlives_join
+            && self
+                .auth_process
+                .as_ref()
+                .is_some_and(|process| !process.cleanup_complete())
         {
             return None;
         }
@@ -379,6 +393,8 @@ impl MenuRuntime {
     /// A cancelled join drops any queued join and returns to the play screen.
     pub fn cancel_join(&mut self) {
         self.intents.join = None;
+        self.intents.join_sign_in_deadline = None;
+        self.intents.join_sign_in_check = false;
         self.retry_target = None;
         self.show_session_origin(MenuScreen::Play);
     }
@@ -880,9 +896,9 @@ impl MenuRuntime {
         }
         self.remember_session_origin();
         self.stop_catalog();
+        self.hold_join_for_sign_in();
         let auth_cache = self.launcher_auth_cache();
         self.remember_retry_target(&address, auth_cache.as_deref(), false);
-        self.stop_sign_in();
         self.local_world_joined = false;
         self.intents.join = Some(JoinIntent {
             address,
