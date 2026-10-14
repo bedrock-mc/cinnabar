@@ -1,6 +1,7 @@
 //! Client admission, movement rules and production registry carriers.
 
 use assets::facts::block::RESERVED_BLOCK_NAME;
+use assets::facts::rules::{Rule, Scalar};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -60,9 +61,9 @@ struct BiomeFact {
 struct Policy {
     entity_compatibility: Vec<String>,
     entity_rules: Vec<entities::Rule>,
-    model_family_rules: Vec<block_rules::Rule>,
-    block_rules: Vec<block_rules::Rule>,
-    placement_rules: Vec<block_rules::Rule>,
+    model_family_rules: Vec<Rule>,
+    block_rules: Vec<Rule>,
+    placement_rules: Vec<Rule>,
     item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
@@ -93,18 +94,10 @@ struct MovementCensus {
     /// Identifiers whose movement classification is not established.
     unresolved: Vec<String>,
 }
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Scalar {
-    #[serde(rename = "type")]
-    kind: String,
-    value: serde_json::Value,
-}
-
-const POLICY: &[u8] = include_bytes!("../data/registry-policy.json");
+const POLICY: &[u8] = assets::facts::rules::BLOCK_POLICY_BYTES;
 const MAX_INPUT_BYTES: u64 = 128 * 1024 * 1024;
 
-/// Resolves geometry memberships and supplies block traits for historical inputs.
+/// Resolves geometry memberships while retaining the decoded block traits.
 pub(crate) fn block_shape_facts(
     record: &assets::RegistryRecord,
 ) -> (

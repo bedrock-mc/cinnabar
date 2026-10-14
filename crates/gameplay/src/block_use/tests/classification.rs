@@ -4,7 +4,13 @@ use assets::{RegistryRecord, facts::BlockFacts, registry::BlockTraits as T};
 use serde_json::{Map, Value};
 
 /// Loads real state variants, including the namespace spelling shipped in the registry.
-fn palette() -> Box<[RegistryRecord]> {
+fn palette(legacy: bool) -> Box<[RegistryRecord]> {
+    if legacy {
+        return assets::read_registry(include_bytes!(
+            "../../../../assets/data/block-registry-v1001.bin"
+        ))
+        .unwrap();
+    }
     assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
         assets::active_content_registry_protocol(),
@@ -37,32 +43,34 @@ fn earlier_orientation(states: &Map<String, Value>) -> bool {
 
 #[test]
 fn orientation_facts_preserve_every_pinned_placement_classification() {
-    let records = palette();
-    let facts = BlockFacts::new(&records).unwrap();
-    for record in &records {
-        let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
-        // GP-20: attachment and rail orientation were added to the retained placement classes.
-        let attachment = [
-            "rail_direction",
-            "lever_direction",
-            "multi_face_direction_bits",
-            "minecraft:block_face",
-        ]
-        .iter()
-        .any(|key| states.contains_key(*key));
-        assert_eq!(
-            super::super::orientation_sensitive(facts.get(record.sequential_id)),
-            earlier_orientation(&states) || attachment,
-            "{} {}",
-            record.name,
-            record.canonical_state
-        );
+    for legacy in [false, true] {
+        let records = palette(legacy);
+        let facts = BlockFacts::new(&records).unwrap();
+        for record in &records {
+            let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
+            // GP-20: attachment and rail orientation were added to the retained placement classes.
+            let attachment = [
+                "rail_direction",
+                "lever_direction",
+                "multi_face_direction_bits",
+                "minecraft:block_face",
+            ]
+            .iter()
+            .any(|key| states.contains_key(*key));
+            assert_eq!(
+                super::super::orientation_sensitive(facts.get(record.sequential_id)),
+                earlier_orientation(&states) || attachment,
+                "{} {}",
+                record.name,
+                record.canonical_state
+            );
+        }
     }
 }
 
 #[test]
 fn every_observer_state_keeps_the_first_held_placement_hit() {
-    let records = palette();
+    let records = palette(false);
     let facts = BlockFacts::new(&records).unwrap();
     let observers: Vec<_> = records
         .iter()
@@ -201,164 +209,168 @@ fn earlier_interaction(identifier: &str) -> Option<Interaction> {
 
 #[test]
 fn interaction_and_replacement_facts_preserve_pinned_classification() {
-    let records = palette();
-    let facts = BlockFacts::new(&records).unwrap();
-    let components: std::collections::BTreeSet<_> =
-        include_str!("../../../../assets/data/block-components-v2193.tsv")
-            .lines()
-            .skip(1)
-            .filter_map(|row| {
-                let (name, values) = row.split_once('\t').unwrap();
-                values
-                    .split(',')
-                    .any(|value| value == "minecraft:replaceable")
-                    .then_some(name)
-            })
-            .collect();
-    for record in &records {
-        if record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME {
-            continue;
-        }
-        let name = record.name.as_ref();
-        let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
-        let traits = facts.get(record.sequential_id).traits;
-        let interaction = earlier_interaction(name);
-        // GP-18: the canonical trapdoor lacks the suffix used by the earlier switch list.
-        let switch = interaction == Some(Interaction::Switch) || name == "minecraft:trapdoor";
-        // GP-15 / PC-29: native replacement components and the state-dependent overrides are intentional additions.
-        let replacement = REPLACEABLE_BLOCKS.contains(&name)
-            || components.contains(name)
-            || record.model_family == assets::registry::ModelFamily::FlowerBed
-            || name.starts_with("minecraft:light_block_")
-            || (name == "minecraft:snow_layer" && states["height"]["value"] == 0);
-        for (trait_, expected) in [
-            (T::TOGGLES_BY_HAND, switch),
-            (
-                T::OPENS_CONTAINER,
-                interaction == Some(Interaction::Container),
-            ),
-            (T::USES_LOCALLY, interaction == Some(Interaction::Other)),
-            (T::REPLACEABLE, replacement),
-        ] {
-            assert_eq!(
-                traits.contains(trait_),
-                expected,
-                "{trait_:?} {name} {}",
-                record.canonical_state
-            );
+    for legacy in [false, true] {
+        let records = palette(legacy);
+        let facts = BlockFacts::new(&records).unwrap();
+        let components: std::collections::BTreeSet<_> =
+            include_str!("../../../../assets/data/block-components-v2193.tsv")
+                .lines()
+                .skip(1)
+                .filter_map(|row| {
+                    let (name, values) = row.split_once('\t').unwrap();
+                    values
+                        .split(',')
+                        .any(|value| value == "minecraft:replaceable")
+                        .then_some(name)
+                })
+                .collect();
+        for record in &records {
+            if record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME {
+                continue;
+            }
+            let name = record.name.as_ref();
+            let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
+            let traits = facts.get(record.sequential_id).traits;
+            let interaction = earlier_interaction(name);
+            // GP-18: the canonical trapdoor lacks the suffix used by the earlier switch list.
+            let switch = interaction == Some(Interaction::Switch) || name == "minecraft:trapdoor";
+            // GP-15 / PC-29: native replacement components and the state-dependent overrides are intentional additions.
+            let replacement = REPLACEABLE_BLOCKS.contains(&name)
+                || components.contains(name)
+                || record.model_family == assets::registry::ModelFamily::FlowerBed
+                || name.starts_with("minecraft:light_block_")
+                || (name == "minecraft:snow_layer" && states["height"]["value"] == 0);
+            for (trait_, expected) in [
+                (T::TOGGLES_BY_HAND, switch),
+                (
+                    T::OPENS_CONTAINER,
+                    interaction == Some(Interaction::Container),
+                ),
+                (T::USES_LOCALLY, interaction == Some(Interaction::Other)),
+                (T::REPLACEABLE, replacement),
+            ] {
+                assert_eq!(
+                    traits.contains(trait_),
+                    expected,
+                    "{trait_:?} {name} {}",
+                    record.canonical_state
+                );
+            }
         }
     }
 }
 
 #[test]
 fn placement_traits_preserve_pinned_identity_and_state_classification() {
-    let records = palette();
-    let facts = BlockFacts::new(&records).unwrap();
-    for record in &records {
-        if record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME {
-            continue;
-        }
-        let name = record.name.as_ref();
-        let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
-        let multipart = states.contains_key("head_piece_bit")
-            || (states.contains_key("upper_block_bit")
-                && ![
-                    "minecraft:pale_moss_carpet",
-                    "minecraft:small_dripleaf_block",
-                ]
-                .contains(&name)
-                && (name != "minecraft:pitcher_crop"
-                    || states["growth"]["value"].as_i64().unwrap() > 2));
-        for (trait_, expected) in [
-            (T::AIR, name == "minecraft:air"),
-            (
-                T::WATER,
-                [
-                    "minecraft:water",
-                    "minecraft:flowing_water",
-                    "minecraft:bubble_column",
-                ]
-                .contains(&name),
-            ),
-            (
-                T::LAVA,
-                ["minecraft:lava", "minecraft:flowing_lava"].contains(&name),
-            ),
-            (
-                T::FIRE,
-                ["minecraft:fire", "minecraft:soul_fire"].contains(&name),
-            ),
-            (T::RESPAWN_ANCHOR, name == "minecraft:respawn_anchor"),
-            (T::GLOWSTONE, name == "minecraft:glowstone"),
-            (
-                T::NETHER_BRICK_FENCE,
-                name == "minecraft:nether_brick_fence",
-            ),
-            (
-                T::DOOR,
-                name.ends_with("_door") && !name.ends_with("_trapdoor"),
-            ),
-            (
-                T::MULTIFACE,
-                states.contains_key("multi_face_direction_bits"),
-            ),
-            (T::TORCH, states.contains_key("torch_facing_direction")),
-            (
-                T::LANTERN_LIKE,
-                states.len() == 1 && states.contains_key("hanging"),
-            ),
-            (T::SNOW_LAYER, name == "minecraft:snow_layer"),
-            (
-                T::CANDLE,
-                name == "minecraft:candle" || name.ends_with("_candle"),
-            ),
-            (T::HOPPER, name == "minecraft:hopper"),
-            (
-                T::BODY_RELATIVE_FACING,
-                [
-                    "minecraft:dispenser",
-                    "minecraft:piston",
-                    "minecraft:sticky_piston",
-                ]
-                .contains(&name),
-            ),
-            // Piston arm entries share the compiled class; only body-relative facing is placed.
-            (
-                T::PISTON,
-                [
-                    "minecraft:piston",
-                    "minecraft:sticky_piston",
-                    "minecraft:piston_arm_collision",
-                    "minecraft:sticky_piston_arm_collision",
-                ]
-                .contains(&name),
-            ),
-            (T::STANDING_SIGN, name.ends_with("standing_sign")),
-            (T::WALL_SIGN, name.ends_with("wall_sign")),
-            (
-                T::DOUBLE_SLAB,
-                name.ends_with("_slab") && name.contains("double_"),
-            ),
-            (
-                T::CONNECTS_THIN,
-                record.model_family == assets::registry::ModelFamily::Pane
-                    || (record.model_family != assets::registry::ModelFamily::Fence
-                        && states
-                            .keys()
-                            .any(|key| key.starts_with("minecraft:connection_"))),
-            ),
-            (
-                T::CONNECTS_FENCE,
-                record.model_family == assets::registry::ModelFamily::Fence,
-            ),
-            (T::MULTIPART, multipart),
-        ] {
-            assert_eq!(
-                facts.get(record.sequential_id).traits.contains(trait_),
-                expected,
-                "{trait_:?} {name} {}",
-                record.canonical_state
-            );
+    for legacy in [false, true] {
+        let records = palette(legacy);
+        let facts = BlockFacts::new(&records).unwrap();
+        for record in &records {
+            if record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME {
+                continue;
+            }
+            let name = record.name.as_ref();
+            let states: Map<String, Value> = serde_json::from_str(&record.canonical_state).unwrap();
+            let multipart = states.contains_key("head_piece_bit")
+                || (states.contains_key("upper_block_bit")
+                    && ![
+                        "minecraft:pale_moss_carpet",
+                        "minecraft:small_dripleaf_block",
+                    ]
+                    .contains(&name)
+                    && (name != "minecraft:pitcher_crop"
+                        || states["growth"]["value"].as_i64().unwrap() > 2));
+            for (trait_, expected) in [
+                (T::AIR, name == "minecraft:air"),
+                (
+                    T::WATER,
+                    [
+                        "minecraft:water",
+                        "minecraft:flowing_water",
+                        "minecraft:bubble_column",
+                    ]
+                    .contains(&name),
+                ),
+                (
+                    T::LAVA,
+                    ["minecraft:lava", "minecraft:flowing_lava"].contains(&name),
+                ),
+                (
+                    T::FIRE,
+                    ["minecraft:fire", "minecraft:soul_fire"].contains(&name),
+                ),
+                (T::RESPAWN_ANCHOR, name == "minecraft:respawn_anchor"),
+                (T::GLOWSTONE, name == "minecraft:glowstone"),
+                (
+                    T::NETHER_BRICK_FENCE,
+                    name == "minecraft:nether_brick_fence",
+                ),
+                (
+                    T::DOOR,
+                    name.ends_with("_door") && !name.ends_with("_trapdoor"),
+                ),
+                (
+                    T::MULTIFACE,
+                    states.contains_key("multi_face_direction_bits"),
+                ),
+                (T::TORCH, states.contains_key("torch_facing_direction")),
+                (
+                    T::LANTERN_LIKE,
+                    states.len() == 1 && states.contains_key("hanging"),
+                ),
+                (T::SNOW_LAYER, name == "minecraft:snow_layer"),
+                (
+                    T::CANDLE,
+                    name == "minecraft:candle" || name.ends_with("_candle"),
+                ),
+                (T::HOPPER, name == "minecraft:hopper"),
+                (
+                    T::BODY_RELATIVE_FACING,
+                    [
+                        "minecraft:dispenser",
+                        "minecraft:piston",
+                        "minecraft:sticky_piston",
+                    ]
+                    .contains(&name),
+                ),
+                // Piston arm entries share the compiled class; only body-relative facing is placed.
+                (
+                    T::PISTON,
+                    [
+                        "minecraft:piston",
+                        "minecraft:sticky_piston",
+                        "minecraft:piston_arm_collision",
+                        "minecraft:sticky_piston_arm_collision",
+                    ]
+                    .contains(&name),
+                ),
+                (T::STANDING_SIGN, name.ends_with("standing_sign")),
+                (T::WALL_SIGN, name.ends_with("wall_sign")),
+                (
+                    T::DOUBLE_SLAB,
+                    name.ends_with("_slab") && name.contains("double_"),
+                ),
+                (
+                    T::CONNECTS_THIN,
+                    record.model_family == assets::registry::ModelFamily::Pane
+                        || (record.model_family != assets::registry::ModelFamily::Fence
+                            && states
+                                .keys()
+                                .any(|key| key.starts_with("minecraft:connection_"))),
+                ),
+                (
+                    T::CONNECTS_FENCE,
+                    record.model_family == assets::registry::ModelFamily::Fence,
+                ),
+                (T::MULTIPART, multipart),
+            ] {
+                assert_eq!(
+                    facts.get(record.sequential_id).traits.contains(trait_),
+                    expected,
+                    "{trait_:?} {name} {}",
+                    record.canonical_state
+                );
+            }
         }
     }
 }

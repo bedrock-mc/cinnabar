@@ -170,7 +170,7 @@ fn accepts_compiled_enrichment_flags_without_using_source_only_mask() {
 }
 
 #[test]
-fn stale_active_registry_requires_rebuilding_and_legacy_facts_stay_unresolved() {
+fn stale_active_registry_requires_rebuilding_and_legacy_beacon_tint_stays_unresolved() {
     let mut stale = fixture();
     stale[..8].copy_from_slice(b"BREG1003");
     let error = read_registry_for_protocol(&stale, 2193).unwrap_err();
@@ -181,4 +181,41 @@ fn stale_active_registry_requires_rebuilding_and_legacy_facts_stay_unresolved() 
             .iter()
             .all(|record| record.beacon_tint == BeaconTint::Unresolved)
     );
+}
+
+#[test]
+fn historical_registry_restores_traits_and_survival_before_admission() {
+    use crate::registry::{BlockTraits as T, SurvivalRule as S};
+    let records = read_registry(include_bytes!("../../data/block-registry-v1001.bin")).unwrap();
+    for (name, trait_, survival) in [
+        ("minecraft:fern", T::REPLACEABLE, S::Unresolved),
+        ("minecraft:water", T::REPLACEABLE | T::WATER, S::None),
+        (
+            "minecraft:dark_oak_button",
+            T::TOGGLES_BY_HAND | T::ORIENTATION_SENSITIVE,
+            S::Button,
+        ),
+        ("minecraft:blue_carpet", T::SURVIVAL_RULE, S::Carpet),
+        ("minecraft:birch_door", T::DOOR | T::MULTIPART, S::Door),
+    ] {
+        let variants: Vec<_> = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .collect();
+        assert!(!variants.is_empty(), "missing legacy {name}");
+        for record in variants {
+            assert!(
+                record.traits.contains(trait_),
+                "{name} {}",
+                record.canonical_state
+            );
+            assert_eq!(record.survival, survival, "{name}");
+        }
+    }
+}
+
+#[test]
+fn current_empty_traits_remain_explicit() {
+    let records = read_registry_for_protocol(&fixture(), 2193).unwrap();
+    assert!(records[0].traits.is_empty());
 }

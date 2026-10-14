@@ -230,6 +230,163 @@ mod tests {
         }
     }
 
+    /// Retains seasonal replacement membership and the approved destination-replacement additions.
+    fn expected_replacement(record: &RegistryRecord) -> bool {
+        let name = record.name.as_ref();
+        let earlier = [
+            "minecraft:short_grass",
+            "minecraft:fern",
+            "minecraft:water",
+            "minecraft:flowing_water",
+        ]
+        .contains(&name);
+        // PC-29 / GP-15: replacement components and destination rules are shared seasonal inputs.
+        let added = [
+            "minecraft:red_shrub",
+            "minecraft:tall_grass",
+            "minecraft:large_fern",
+            "minecraft:deadbush",
+            "minecraft:vine",
+            "minecraft:glow_lichen",
+            "minecraft:seagrass",
+            "minecraft:lava",
+            "minecraft:flowing_lava",
+            "minecraft:fire",
+            "minecraft:soul_fire",
+            "minecraft:structure_void",
+            "minecraft:crimson_roots",
+            "minecraft:warped_roots",
+            "minecraft:nether_sprouts",
+            "minecraft:hanging_roots",
+        ]
+        .contains(&name)
+            || record.model_family == ModelFamily::FlowerBed
+            || name.starts_with("minecraft:light_block_")
+            || (name == "minecraft:snow_layer"
+                && serde_json::from_str::<serde_json::Value>(&record.canonical_state).unwrap()["height"]
+                    ["value"]
+                    == 0)
+            || include_str!("../../../assets/data/block-components-v2193.tsv")
+                .lines()
+                .skip(1)
+                .any(|row| {
+                    let (identifier, components) = row.split_once('\t').unwrap();
+                    identifier == name
+                        && components
+                            .split(',')
+                            .any(|component| component == "minecraft:replaceable")
+                });
+        name != "minecraft:air" && (earlier || added)
+    }
+
+    #[test]
+    fn seasonal_replacement_preserves_every_current_and_legacy_state() {
+        let palettes = [
+            assets::read_registry_for_protocol(
+                assets::pinned_block_registry_bytes(),
+                assets::active_content_registry_protocol(),
+            )
+            .unwrap(),
+            assets::read_registry(include_bytes!(
+                "../../../assets/data/block-registry-v1001.bin"
+            ))
+            .unwrap(),
+        ];
+        for records in palettes {
+            for kind in [
+                VisualKind::Cross,
+                VisualKind::Liquid,
+                VisualKind::Diagnostic,
+            ] {
+                let mut visuals = records
+                    .iter()
+                    .map(|record| {
+                        let mut visual =
+                            BlockVisual::diagnostic(record.flags, record.contributor_role);
+                        visual.kind = kind;
+                        visual.variant = 7;
+                        visual
+                    })
+                    .collect::<Vec<_>>();
+                let mut materials = vec![Material::unvaried()];
+                assert!(
+                    install(&records, &empty_blocks(), &mut visuals, &mut materials)
+                        .unwrap()
+                        .is_empty()
+                );
+                let mut differences = Vec::new();
+                for record in &records {
+                    let visual = visuals[record.sequential_id as usize];
+                    let expected = kind != VisualKind::Diagnostic && expected_replacement(record);
+                    if visual.flags.contains(BlockFlags::SEASONAL_REPLACEABLE) != expected {
+                        differences.push(format!("{} {}", record.name, record.canonical_state));
+                    }
+                    assert_eq!(visual.variant, 7);
+                }
+                assert!(
+                    differences.is_empty(),
+                    "{} seasonal differences: {:?}",
+                    differences.len(),
+                    &differences[..differences.len().min(20)]
+                );
+                assert_eq!(materials.len(), 1);
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_registry_preserves_seasonal_replacement_and_shelter() {
+        let records = assets::read_registry(include_bytes!(
+            "../../../assets/data/block-registry-v1001.bin"
+        ))
+        .unwrap();
+        let mut visuals = records
+            .iter()
+            .map(|record| {
+                let mut visual = BlockVisual::diagnostic(record.flags, record.contributor_role);
+                visual.kind = VisualKind::Cross;
+                visual
+            })
+            .collect::<Vec<_>>();
+        install(
+            &records,
+            &empty_blocks(),
+            &mut visuals,
+            &mut vec![Material::unvaried()],
+        )
+        .unwrap();
+        for name in [
+            "minecraft:short_grass",
+            "minecraft:fern",
+            "minecraft:water",
+            "minecraft:flowing_water",
+        ] {
+            let variants: Vec<_> = records
+                .iter()
+                .filter(|record| record.name.as_ref() == name)
+                .collect();
+            assert!(!variants.is_empty(), "missing legacy {name}");
+            for record in variants {
+                let visual = visuals[record.sequential_id as usize];
+                assert!(
+                    visual.flags.contains(BlockFlags::SEASONAL_REPLACEABLE),
+                    "{name}"
+                );
+                assert!(
+                    !assets::seasonal_foliage::seasonal_foliage_cell_shelters(
+                        Some(assets::seasonal_foliage::SeasonalFoliageBlock {
+                            flags: visual.flags,
+                            kind: visual.kind,
+                            variant: visual.variant,
+                        }),
+                        None,
+                    ),
+                    "{name}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn seasonal_replacement_reads_shared_traits_without_variant_changes() {
         let cases = [

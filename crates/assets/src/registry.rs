@@ -52,7 +52,7 @@ impl ModelState {
     }
 }
 
-/// Reads the bounded protocol-1001 legacy block registry.
+/// Reads the bounded protocol-1001 registry, deriving facts omitted by its historical format.
 pub fn read_registry(bytes: &[u8]) -> Result<Box<[RegistryRecord]>, AssetError> {
     read_registry_for_protocol(bytes, LEGACY_REGISTRY_PROTOCOL)
 }
@@ -235,7 +235,7 @@ pub fn read_registry_for_protocol(
             &name,
             model_family,
         )?;
-        records.push(RegistryRecord {
+        let mut record = RegistryRecord {
             sequential_id,
             network_hash,
             name,
@@ -258,7 +258,15 @@ pub fn read_registry_for_protocol(
             traits,
             survival,
             properties,
-        });
+        };
+        if previous {
+            facts::rules::restore_historical(&mut record).map_err(|error| {
+                AssetError::InvalidCompiledAssets {
+                    detail: format!("invalid historical block facts: {error}").into(),
+                }
+            })?;
+        }
+        records.push(record);
     }
     if names.len() != name_count
         || valentine_overlap != valentine_states

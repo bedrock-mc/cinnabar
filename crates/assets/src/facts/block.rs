@@ -73,7 +73,8 @@ impl BlockFacts {
         {
             return Err(AssetError::InvalidRegistryFlags(0xff));
         }
-        let catalog = super::placement::catalog()?;
+        let catalog =
+            super::placement::placement_catalog(records, &super::rules::policy().placement_rules)?;
         let mut names = std::collections::BTreeMap::new();
         for record in records
             .iter()
@@ -98,7 +99,10 @@ impl BlockFacts {
                     if let Some(entry) = catalog.get(r.name.as_ref()) {
                         fact.placement = entry.rule;
                         fact.support = entry.support;
-                        fact.alternate = super::placement::alternate(entry, &names);
+                        fact.alternate = entry
+                            .alternate
+                            .as_deref()
+                            .and_then(|name| names.get(name).copied());
                     }
                     fact
                 })

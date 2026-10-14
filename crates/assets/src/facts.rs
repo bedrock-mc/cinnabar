@@ -1,9 +1,10 @@
 //! Validated block and item facts compiled from the pinned registries.
 
 pub mod block;
+pub mod rules;
 pub use block::{BlockFact, BlockFacts, BlockStateIdentity};
 mod placement;
-pub use placement::{BLOCK_PLACEMENT_SOURCE_PATH, PlacementRule, SupportKind};
+pub use placement::{BLOCK_PLACEMENT_SOURCE_PATH, PlacementRule, SupportKind, placement_catalog};
 pub mod shape;
 
 pub(crate) mod family_routing;
