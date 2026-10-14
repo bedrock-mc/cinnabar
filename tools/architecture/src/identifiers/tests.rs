@@ -384,7 +384,7 @@ fn production_path_imports_override_test_directory_names() {
     let files = [
         ("src/lib.rs", "#[path = \"../tests/shared.rs\"] mod shared;"),
         ("tests/shared.rs", shared.as_str()),
-        ("tests/shared/child.rs", child.as_str()),
+        ("tests/child.rs", child.as_str()),
         ("tests/import.rs", "#[path = \"shared.rs\"] mod shared;"),
     ];
     let diagnostics = gate(&files, |_| {});
