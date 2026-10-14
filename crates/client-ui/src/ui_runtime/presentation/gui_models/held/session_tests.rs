@@ -159,10 +159,15 @@ fn preview_session_replacement_removal_and_transparency_retire_old_meshes() {
     let first = Arc::downgrade(&first);
     let changed = presentation.gui_player_mesh().unwrap();
     let body = base.batches()[0].index_range.clone();
-    assert_eq!(
-        &base.vertices()[body.start as usize..body.end as usize],
-        &changed.vertices()[body.start as usize..body.end as usize]
-    );
+    for (base, changed) in base.vertices()[body.start as usize..body.end as usize]
+        .iter()
+        .zip(&changed.vertices()[body.start as usize..body.end as usize])
+    {
+        assert_eq!(base.position, changed.position);
+        assert_eq!(base.uv, changed.uv);
+        assert_eq!(base.color, changed.color);
+        assert_eq!(base.model_light, changed.model_light);
+    }
     let mut transparent = sword(0, [220, 80, 12]);
     transparent.rgba8.fill(0);
     install(&mut presentation, vec![transparent]);
