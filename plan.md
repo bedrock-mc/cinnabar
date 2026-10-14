@@ -13,8 +13,8 @@ Browser relay channels have a WebTransport adapter and a WebSocket fallback behi
 session controller. Both use the bridge codec and bounded receive/send queues. Control
 resumption retains account intent and bearer expiry; play reconnects never replay packets.
 
-Incomplete: CI must compile the native changes and run the written regression tests. The
-browser entry, timer implementation and asset source remain pending. Relay integration
+The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
+Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
 and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
