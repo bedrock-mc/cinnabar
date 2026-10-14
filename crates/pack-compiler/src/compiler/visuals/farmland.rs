@@ -1,5 +1,5 @@
 use super::super::*;
-use assets::facts::pack::PackTexture as T;
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_farmland_name(name: &str) -> bool {
@@ -94,7 +94,7 @@ pub(in crate::compiler) fn farmland_inventory_is_exact(records: &[RegistryRecord
 pub(in crate::compiler) fn farmland_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 3]> {
-    if pack.blocks.get_exact_side_caps(T::Farmland.key())?
+    if pack.blocks.get_exact_side_caps(B::Farmland.bare())?
         != [
             T::FarmlandSide.key(),
             T::FarmlandSide.key(),

@@ -70,7 +70,7 @@ pub(in crate::compiler) fn resin_clump_inventory_is_exact(records: &[RegistryRec
 pub(in crate::compiler) fn resin_clump_material_descriptor(
     pack: &PackSources,
 ) -> Option<(Descriptor, Box<str>)> {
-    let key = pack.blocks.get_exact_scalar(T::ResinClump.key())?;
+    let key = pack.blocks.get_exact_scalar(B::ResinClump.bare())?;
     if key != T::ResinClump.key() {
         return None;
     }

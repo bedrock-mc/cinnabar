@@ -434,16 +434,16 @@ fn pack_rules_preserve_selector_alias_cube_sources() {
     let names = block_names();
     for name in &names {
         assert_eq!(
-            rules().alias_cube(&name),
+            rules().alias_cube(name),
             old.iter()
                 .find(|(old, _)| *old == name.as_str())
                 .map(|(_, source)| source),
             "{name}"
         );
-        let companion = (super::super::block_render_fact(&name).kind
+        let companion = (super::super::block_render_fact(name).kind
             == super::super::BlockRenderKind::CandleCake)
             .then(|| name.strip_suffix("_cake").unwrap());
-        assert_eq!(candle_companion(&name), companion);
+        assert_eq!(candle_companion(name), companion);
         if let Some(companion) = companion {
             assert!(names.contains(companion));
         }
