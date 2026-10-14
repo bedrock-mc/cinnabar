@@ -26,7 +26,8 @@ use ui_engine::scroll::ScrollArea;
 
 /// Whether this canvas can paint the requested route; presentation owns renderer selection.
 pub fn draws_menu(view: &MenuView) -> bool {
-    if view.out_of_game() && view.flow() == launcher::menu::flow::MenuFlow::Disconnect {
+    // Out of game, every flow and route is OreUI's, including progress a pending disconnect covers.
+    if view.out_of_game() {
         return true;
     }
     let progress = view.connecting || view.local.progress.is_some();

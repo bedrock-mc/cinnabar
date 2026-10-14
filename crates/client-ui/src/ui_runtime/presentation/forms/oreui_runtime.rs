@@ -215,9 +215,33 @@ impl UiPresentationRuntime {
                 .oreui
                 .paint_popup(view, popup, size, &self.menu_scrolls, &mut frame)?;
         self.projections.menu_focus = output.focus.unwrap_or_default();
+        // The retained tree moves visuals by the safe-area origin; targets must follow.
+        let origin = [self.safe_area.left(), self.safe_area.top()];
+        let shift = |bounds: UiRect| {
+            UiRect::new(
+                UiPoint::new(bounds.min().x() + origin[0], bounds.min().y() + origin[1])?,
+                UiPoint::new(bounds.max().x() + origin[0], bounds.max().y() + origin[1])?,
+            )
+        };
+        let scrolls = scrolls
+            .into_iter()
+            .map(|mut area| {
+                area.viewport = shift(area.viewport)?;
+                area.track = area.track.map(shift).transpose()?;
+                area.thumb = area.thumb.map(shift).transpose()?;
+                Ok(area)
+            })
+            .collect::<Result<Vec<_>, ui::GeometryError>>()
+            .map_err(UiPresentationError::Geometry)?;
+        let hits = output
+            .hits
+            .into_iter()
+            .map(|(action, bounds)| Ok((action, shift(bounds)?)))
+            .collect::<Result<Vec<_>, ui::GeometryError>>()
+            .map_err(UiPresentationError::Geometry)?;
         self.menu_scrolls.set_areas(scrolls);
         self.screens.menu_sounds.clear();
-        Ok(output.hits)
+        Ok(hits)
     }
 
     /// Draws the import flow with its own scroll area and modal-only targets.

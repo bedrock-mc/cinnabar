@@ -264,3 +264,70 @@ fn animated_launcher_questions_keep_scrolling_across_frames() {
         "answers stay pinned throughout wheel motion"
     );
 }
+
+// A disconnect published before the join settles keeps the OreUI progress, not the legacy launcher.
+#[test]
+fn connecting_progress_survives_a_pending_disconnect() {
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.connecting = true;
+    view.disconnect_message = Some("network session failed: closed".into());
+    let title =
+        launcher::menu::join_progress::shown(&view.feeds.join, &|_, fallback| fallback.to_owned())
+            .title;
+    presentation.set_menu_view(Some(view));
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        DpiScale::new(1.0).unwrap(),
+        None,
+    );
+    let mut nodes = Vec::new();
+    presentation
+        .append_menu(
+            &UiRuntime::new(1),
+            &mut nodes,
+            &mut 1,
+            metrics,
+            1280.0,
+            720.0,
+        )
+        .unwrap();
+    // OreUI draws progress titles in capitals and may wrap them.
+    let squash = |text: &str| {
+        text.chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let words = squash(&super::pack_harness::drawn_texts(&nodes).concat());
+    assert!(words.contains(&squash(&title)), "{title}: {words}");
+}
+
+// Safe-area insets move the popup's visuals, so its answers and scroll area must move with them.
+#[test]
+fn launcher_question_targets_follow_the_safe_area_origin() {
+    let origin = [600.0, 24.0];
+    let mut flush = long_question(false);
+    let (_, flush_hits) = paint_question(&mut flush);
+    let mut inset = long_question(false);
+    inset.set_safe_area(ui::SafeArea::new(origin[0], origin[1], 0.0, 0.0).unwrap());
+    let (_, inset_hits) = paint_question(&mut inset);
+    let shifted: Vec<_> = flush_hits
+        .iter()
+        .map(|(action, bounds)| {
+            let moved = ui::UiRect::new(
+                ui::UiPoint::new(bounds.min().x() + origin[0], bounds.min().y() + origin[1])
+                    .unwrap(),
+                ui::UiPoint::new(bounds.max().x() + origin[0], bounds.max().y() + origin[1])
+                    .unwrap(),
+            )
+            .unwrap();
+            (*action, moved)
+        })
+        .collect();
+    assert_eq!(inset_hits, shifted);
+    // The body's centre, moved past the popup's unshifted right edge.
+    let point = ui::UiPoint::new(640.0 + origin[0], 360.0 + origin[1]).unwrap();
+    assert!(inset.menu_scrolls.wheel(point, -120.0, true));
+}
