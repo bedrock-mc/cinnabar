@@ -63,7 +63,7 @@ jobs:
   full:
     name: Dispatch full CI on dev
     needs: changed
-    if: needs.changed.outputs.deps == 'true' && github.ref == 'refs/heads/dev'
+    if: needs.changed.outputs.deps == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -145,22 +145,6 @@ jobs:
         run: cargo nextest run --workspace --locked --no-fail-fast
       - name: Test Rust doc examples
         run: cargo test --doc --workspace --locked
-      - name: Measure the Rust cache entry (temporary)
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: bash
-        env:
-          CACHE_PATHS: ${{ steps.rust-cache.outputs.paths }}
-        run: |
-          measure() {
-            python3 -c 'import glob, os, sys, tarfile
-          tar = tarfile.open(fileobj=sys.stdout.buffer, mode="w|", format=tarfile.PAX_FORMAT)
-          [tar.add(m) for p in os.environ["CACHE_PATHS"].splitlines() for m in glob.glob(p)]
-          tar.close()' | zstd -T0 --long=30 -c | wc -c
-          }
-          echo "zstd entry before: $(measure) bytes"
-          python3 .github/actions/build-cache/cache.py drop-linked-outputs
-          echo "zstd entry after: $(measure) bytes"
       - name: Save Rust build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
         uses: ./.github/actions/build-cache
