@@ -88,6 +88,7 @@ fn secondary_only_pack_keeps_startup_armour_visible() {
         ActorArtworkPages::default(),
     );
     runtime.register_skin_rig(body.input.rig, vec!["head".into()]);
+    crate::presentation::equipment::tests::declare_wearable(&mut runtime, ITEM, "slot.armor.head");
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {
