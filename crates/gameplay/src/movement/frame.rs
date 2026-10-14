@@ -162,7 +162,8 @@ impl LocomotionState {
             if !active {
                 self.controls.suspend(input_mode.persists_sneak());
             }
-            if let Some(server) = physics.take_server_control_flags() {
+            let server = physics.take_server_control_flags();
+            if let Some(server) = server {
                 movement_speed.adopt_server_sprinting(server.sprinting);
                 self.controls
                     .adopt_server_flags(server.sprinting, server.sneaking);
@@ -247,6 +248,7 @@ impl LocomotionState {
                         sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: controlled.sneaking,
+                        server_sprinting: server.and_then(|flags| flags.sprinting),
                     },
                 },
                 world,
