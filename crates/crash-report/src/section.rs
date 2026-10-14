@@ -30,18 +30,11 @@ pub fn read(path: &Path, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
         Err(error) => return Err(error),
     };
     let length = file.metadata()?.len();
-    let start = length.saturating_sub(max_bytes);
-    file.seek(SeekFrom::Start(start))?;
+    let offset = length.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(offset))?;
     let mut bytes = Vec::new();
     file.take(max_bytes).read_to_end(&mut bytes)?;
-    let cut = match latest_start(&bytes, marker) {
-        Some(cut) => cut,
-        None if start > 0 => bytes
-            .iter()
-            .position(|byte| *byte == b'\n')
-            .map_or(bytes.len(), |newline| newline + 1),
-        None => 0,
-    };
+    let cut = start(&bytes, marker, offset > 0);
     bytes.drain(..cut);
     Ok(bytes)
 }
@@ -50,12 +43,37 @@ pub fn read(path: &Path, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
 /// because that section belongs to an earlier session.
 pub fn read_since(path: &Path, marker: &str, max_bytes: u64, since_ms: u64) -> io::Result<Vec<u8>> {
     let section = read(path, marker, max_bytes)?;
-    let stale = section
+    Ok(if is_stale(&section, marker, since_ms) {
+        Vec::new()
+    } else {
+        section
+    })
+}
+
+/// Offset in `tail`, the final bytes of a log, where its latest session begins.
+///
+/// Without a header, a `truncated` tail starts at its first whole line and a whole log at 0.
+/// Allocation-free, so signal handlers may call it.
+pub fn start(tail: &[u8], marker: &str, truncated: bool) -> usize {
+    match latest_start(tail, marker) {
+        Some(cut) => cut,
+        None if truncated => tail
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(tail.len(), |newline| newline + 1),
+        None => 0,
+    }
+}
+
+/// Whether `section` opens with a `marker` header whose `timestamp_ms` precedes `since_ms`.
+///
+/// Allocation-free, so signal handlers may call it.
+pub fn is_stale(section: &[u8], marker: &str, since_ms: u64) -> bool {
+    section
         .starts_with(marker.as_bytes())
-        .then(|| header_timestamp_ms(&section))
+        .then(|| header_timestamp_ms(section))
         .flatten()
-        .is_some_and(|at| at < since_ms);
-    Ok(if stale { Vec::new() } else { section })
+        .is_some_and(|at| at < since_ms)
 }
 
 /// The `timestamp_ms=` value on a section's first line.
@@ -167,5 +185,18 @@ mod tests {
             read(&log, CLIENT_SESSION_START, 64).unwrap(),
             b"CLIENT_SESSION_START session=b\nnew\n"
         );
+    }
+
+    #[test]
+    fn in_memory_tails_cut_like_files() {
+        let tail = b"ial line\nCORE_SESSION_START timestamp_ms=7\nlive\n";
+        assert_eq!(start(tail, CORE_SESSION_START, true), 9);
+        assert_eq!(start(b"ial line\nnext\n", CORE_SESSION_START, true), 9);
+        assert_eq!(start(b"first\nnext\n", CORE_SESSION_START, false), 0);
+        assert_eq!(start(b"no newline", CORE_SESSION_START, true), 10);
+        let section = &tail[9..];
+        assert!(is_stale(section, CORE_SESSION_START, 8));
+        assert!(!is_stale(section, CORE_SESSION_START, 7));
+        assert!(!is_stale(b"live\n", CORE_SESSION_START, u64::MAX));
     }
 }

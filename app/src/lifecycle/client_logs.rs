@@ -1,6 +1,6 @@
 //! Client diagnostics stay at the app boundary, outside engine-free launcher services.
 use launcher::install_layout::InstallLayout;
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 
 const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
 
@@ -30,6 +30,9 @@ pub(super) fn capture(layout: &InstallLayout) {
 }
 
 /// Writes a crash folder for each panic or native fault, flushing the client log around it.
+///
+/// The default hook prints terminal panics only to the terminal, so they are also recorded in
+/// the client log, with the report's backtrace.
 pub(super) fn install_panic_hook(layout: &InstallLayout) {
     let identity = crash_report::report::Identity {
         session_id: diagnostics::session::id().to_owned(),
@@ -38,7 +41,19 @@ pub(super) fn install_panic_hook(layout: &InstallLayout) {
         commit: diagnostics::session::COMMIT.to_owned(),
         build_profile: diagnostics::session::BUILD_PROFILE.to_owned(),
     };
-    launcher_host::lifecycle::crash::install_panic_hook(layout, identity, || {
-        diagnostics::console::flush_before_exit();
-    });
+    launcher_host::lifecycle::crash::install_panic_hook(
+        layout,
+        identity,
+        |panic| {
+            if std::io::stderr().is_terminal() {
+                diagnostics::console::console().write(
+                    diagnostics::console::Stream::FileOnly,
+                    panic.as_bytes().to_vec(),
+                );
+            }
+        },
+        || {
+            diagnostics::console::flush_before_exit();
+        },
+    );
 }

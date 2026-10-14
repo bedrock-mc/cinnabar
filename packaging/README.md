@@ -133,9 +133,11 @@ Each panic or native fault writes one folder, `crashes/<UTC yyyymmdd-hhmmss>-<se
 the user data directory. It holds `report.json` (schema 1: kind, message, thread, backtrace, release,
 commit, build profile, OS, architecture, GPU and driver, uptime, session ID and renderer attempt;
 native faults add a `native` object), plus `client.log` and `core.log` with this session's part of each
-log, up to 1 MiB apiece. Folders from fatal Unix signals end in `-signal` and hold only `report.json`.
-The newest 8 folders are kept, pruned at startup and before each write. `devtool diag` bundles the
-latest session's folders after redaction. Nothing is uploaded.
+log, up to 1 MiB apiece. Folders from fatal Unix signals end in `-signal` and are dated when the
+handler last prepared them, since it uses only async-signal-safe calls. The newest 8 folders are
+kept: startup and each panic or Windows fault prune before writing, and startup also deletes the
+older `crash-*.json` reports. `devtool diag` bundles the latest session's folders after redaction.
+Nothing is uploaded.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and

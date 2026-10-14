@@ -1,9 +1,9 @@
-//! Fatal Unix signals write a prebuilt crash folder report with async-signal-safe calls, then
-//! restore handling.
+//! Fatal Unix signals write a prebuilt crash folder with async-signal-safe calls, then restore
+//! handling.
 
 use super::Context;
 use crate::renderer_startup::Attempt;
-use crash_report::{folder, report::Kind};
+use crash_report::{folder, report::Kind, section};
 use std::{
     ffi::CString,
     sync::atomic::{AtomicBool, AtomicPtr, Ordering},
@@ -21,6 +21,10 @@ const DEFERRED: [&str; 3] = ["uptime_ms", "thread", "native"];
 static CAPTURE: AtomicPtr<Capture> = AtomicPtr::new(std::ptr::null_mut());
 static PENDING: AtomicPtr<Pending> = AtomicPtr::new(std::ptr::null_mut());
 static REPORTING: AtomicBool = AtomicBool::new(false);
+/// Section buffer allocated at install and retained for the process lifetime; only the first
+/// reporting handler touches it.
+static SCRATCH: AtomicPtr<u8> = AtomicPtr::new(std::ptr::null_mut());
+const SCRATCH_BYTES: usize = section::MAX_SECTION_BYTES as usize;
 
 struct Capture {
     previous: [libc::sigaction; SIGNALS.len()],
@@ -33,6 +37,14 @@ struct Pending {
     /// `report.json` without its deferred fields or closing brace.
     prefix: Vec<u8>,
     started_at_ms: u64,
+    client_log: LogCopy,
+    core_log: LogCopy,
+}
+
+/// A log whose latest session the handler copies into the crash folder.
+struct LogCopy {
+    source: CString,
+    target: CString,
 }
 
 /// Saves every previous handler before installing ours, then prepares the first report.
@@ -53,6 +65,8 @@ pub(super) fn install(context: &'static Context) {
             libc::sigaction(*signal, std::ptr::null(), &mut capture.previous[i]);
         }
     }
+    let scratch: *mut [u8] = Box::into_raw(vec![0_u8; SCRATCH_BYTES].into_boxed_slice());
+    SCRATCH.store(scratch.cast::<u8>(), Ordering::Release);
     update(super::renderer_context(&context.data_root).as_ref());
     let previous = capture.previous;
     CAPTURE.store(Box::into_raw(capture), Ordering::Release);
@@ -69,8 +83,8 @@ pub(super) fn install(context: &'static Context) {
     }
 }
 
-/// Prepares the folder path and report prefix outside the handler; the folder is named by the
-/// time of this update. Old snapshots stay valid until process exit.
+/// Prepares the folder and file paths and the report prefix outside the handler; the folder is
+/// named by the time of this update. Old snapshots stay valid until process exit.
 pub(crate) fn update(attempt: Option<&Attempt>) {
     use std::os::unix::ffi::OsStrExt;
     let Some(context) = super::CONTEXT.get() else {
@@ -87,13 +101,22 @@ pub(crate) fn update(attempt: Option<&Attempt>) {
     let Ok(prefix) = report.open_json(&DEFERRED) else {
         return;
     };
-    let path = context.crash_dir.join(folder::name(
+    let crash = context.crash_dir.join(folder::name(
         now_ms,
         &format!("{}-signal", context.identity.session_id),
     ));
-    let (Ok(folder), Ok(report)) = (
-        CString::new(path.as_os_str().as_bytes()),
-        CString::new(path.join(folder::REPORT_FILE).as_os_str().as_bytes()),
+    let c_path = |path: &std::path::Path| CString::new(path.as_os_str().as_bytes()).ok();
+    let (Some(folder), Some(report), Some(client_source), Some(client_target)) = (
+        c_path(&crash),
+        c_path(&crash.join(folder::REPORT_FILE)),
+        c_path(&context.client_log),
+        c_path(&crash.join(folder::CLIENT_LOG_FILE)),
+    ) else {
+        return;
+    };
+    let (Some(core_source), Some(core_target)) = (
+        c_path(&context.core_log),
+        c_path(&crash.join(folder::CORE_LOG_FILE)),
     ) else {
         return;
     };
@@ -102,11 +125,21 @@ pub(crate) fn update(attempt: Option<&Attempt>) {
         report,
         prefix,
         started_at_ms: context.identity.started_at_ms,
+        client_log: LogCopy {
+            source: client_source,
+            target: client_target,
+        },
+        core_log: LogCopy {
+            source: core_source,
+            target: core_target,
+        },
     };
     PENDING.store(Box::into_raw(Box::new(pending)), Ordering::Release);
 }
 
 /// Writes without allocation or locks, then forwards the original fault to the saved handler.
+///
+/// `report.json` is written first so a fault while copying logs still leaves the report.
 unsafe extern "C" fn unhandled(
     signal: i32,
     info: *mut libc::siginfo_t,
@@ -166,6 +199,26 @@ unsafe extern "C" fn unhandled(
                 libc::close(fd);
             }
         }
+        let scratch = SCRATCH.load(Ordering::Acquire);
+        if !scratch.is_null() {
+            // SAFETY: REPORTING admits one handler, the only user of the retained scratch buffer.
+            let scratch = unsafe { std::slice::from_raw_parts_mut(scratch, SCRATCH_BYTES) };
+            // SAFETY: The copies use the prebuilt snapshot paths and the exclusive scratch buffer.
+            unsafe {
+                copy_section(
+                    &pending.client_log,
+                    section::CLIENT_SESSION_START,
+                    None,
+                    scratch,
+                );
+                copy_section(
+                    &pending.core_log,
+                    section::CORE_SESSION_START,
+                    Some(pending.started_at_ms),
+                    scratch,
+                );
+            }
+        }
     }
     if let Some(index) = SIGNALS.iter().position(|candidate| *candidate == signal) {
         // SAFETY: The saved action and the kernel-supplied fault pointers remain valid here.
@@ -173,6 +226,60 @@ unsafe extern "C" fn unhandled(
             forward(signal, info, context, &capture.previous[index]);
         }
     }
+}
+
+/// Copies the latest session of a log, read from at most its final `scratch.len()` bytes, into a
+/// new file with async-signal-safe calls only; a missing log leaves the copy empty. With
+/// `since_ms`, a section whose header predates it belongs to an earlier session and is left out.
+unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scratch: &mut [u8]) {
+    // SAFETY: The paths are prebuilt C strings; open, lseek, read, write, fsync and close are
+    // async-signal-safe, and the section helpers neither allocate nor lock.
+    unsafe {
+        let target = libc::open(
+            copy.target.as_ptr(),
+            libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
+            0o600,
+        );
+        if target < 0 {
+            return;
+        }
+        let source = libc::open(copy.source.as_ptr(), libc::O_RDONLY);
+        if source >= 0 {
+            let length = libc::lseek(source, 0, libc::SEEK_END);
+            let offset = (length.max(0) as u64).saturating_sub(scratch.len() as u64);
+            if length >= 0 && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0 {
+                let filled = read_full(source, scratch);
+                let tail = &scratch[..filled];
+                let part = &tail[section::start(tail, marker, offset > 0)..];
+                if !since_ms.is_some_and(|since| section::is_stale(part, marker, since)) {
+                    write_all(target, part);
+                }
+            }
+            libc::close(source);
+        }
+        libc::fsync(target);
+        libc::close(target);
+    }
+}
+
+/// Reads until `buffer` is full, end of file or an OS error; returns the bytes read.
+unsafe fn read_full(fd: i32, buffer: &mut [u8]) -> usize {
+    let mut filled = 0;
+    while filled < buffer.len() {
+        // SAFETY: The destination is the unfilled, writable rest of `buffer`.
+        let read = unsafe {
+            libc::read(
+                fd,
+                buffer[filled..].as_mut_ptr().cast(),
+                buffer.len() - filled,
+            )
+        };
+        if read <= 0 {
+            break;
+        }
+        filled += read as usize;
+    }
+    filled
 }
 
 /// Milliseconds since the session began, from the async-signal-safe `clock_gettime`.
@@ -321,6 +428,9 @@ impl Buffer {
 mod tests {
     use super::*;
     use crash_report::report::Identity;
+
+    const CLIENT_LOG: &str = "CLIENT_SESSION_START session=old\nprevious launch\nCLIENT_SESSION_START session=0123456789abcdef\nclient line\n";
+    const CORE_LOG: &str = "CORE_SESSION_START timestamp_ms=1\nearlier core run\nCORE_SESSION_START timestamp_ms=2\ncore line\n";
     static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
 
     /// Checks that chaining retains the kernel's fault address, cause and machine context.
@@ -429,6 +539,10 @@ mod tests {
             (false, false, true),
         ] {
             let directory = tempfile::tempdir().unwrap();
+            let logs = directory.path().join("logs");
+            std::fs::create_dir_all(&logs).unwrap();
+            std::fs::write(logs.join("client.log"), CLIENT_LOG).unwrap();
+            std::fs::write(logs.join("core.log"), CORE_LOG).unwrap();
             let mut command = Command::new(std::env::current_exe().unwrap());
             command
                 .args([
@@ -489,6 +603,14 @@ mod tests {
                 assert!(native["fault_address"].as_u64().unwrap() > 0);
             }
             assert_eq!(report.renderer.unwrap()["stage"], "creating_device");
+            assert_eq!(
+                std::fs::read_to_string(folders[0].join(folder::CLIENT_LOG_FILE)).unwrap(),
+                "CLIENT_SESSION_START session=0123456789abcdef\nclient line\n"
+            );
+            assert_eq!(
+                std::fs::read_to_string(folders[0].join(folder::CORE_LOG_FILE)).unwrap(),
+                "CORE_SESSION_START timestamp_ms=2\ncore line\n"
+            );
         }
     }
 

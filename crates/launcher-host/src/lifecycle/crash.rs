@@ -36,10 +36,16 @@ static CONTEXT: OnceLock<Context> = OnceLock::new();
 
 /// Writes a crash folder for every panic and native fault of this process.
 ///
-/// Each panic captures one backtrace and flushes the caller's logs before copying this
-/// session's log sections; the previous hook then runs as before. `identity` names the process
-/// in every report; a second call keeps the first identity.
-pub fn install_panic_hook(layout: &InstallLayout, identity: Identity, flush_logs: fn()) {
+/// Each panic captures one backtrace, hands `log_panic` the message and that backtrace, and
+/// flushes the caller's logs before copying this session's log sections; the previous hook
+/// then runs as before. `identity` names the process in every report; a second call keeps the
+/// first identity.
+pub fn install_panic_hook(
+    layout: &InstallLayout,
+    identity: Identity,
+    log_panic: fn(&str),
+    flush_logs: fn(),
+) {
     let context = configure(layout, identity);
     #[cfg(windows)]
     native::install(context, flush_logs);
@@ -47,16 +53,12 @@ pub fn install_panic_hook(layout: &InstallLayout, identity: Identity, flush_logs
     unix::install(context);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        let message = info.to_string();
         let backtrace = Backtrace::force_capture().to_string();
+        log_panic(&format!("{message}\n{backtrace}\n"));
         // Queued lines must reach `client.log` before its section is copied.
         flush_logs();
-        let _ = write_panic(
-            context,
-            info.to_string(),
-            Thread::current(),
-            backtrace,
-            now_ms(),
-        );
+        let _ = write_panic(context, message, Thread::current(), backtrace, now_ms());
         previous(info);
         flush_logs();
     }));

@@ -19,6 +19,8 @@ pub const REPORT_FILE: &str = "report.json";
 pub const CLIENT_LOG_FILE: &str = "client.log";
 /// The crashing session's section of `core.log`.
 pub const CORE_LOG_FILE: &str = "core.log";
+/// The native fault's minidump, written by the crash monitor.
+pub const DUMP_FILE: &str = "crash.dmp";
 /// Largest `report.json` that [`read`] accepts.
 const MAX_REPORT_BYTES: u64 = 16 << 20;
 /// Same-second folders with one id before a write gives up.

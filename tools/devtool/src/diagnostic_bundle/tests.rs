@@ -1,5 +1,8 @@
 use super::*;
 
+/// A crash folder's report member, as `run` names it.
+const CRASH_REPORT: &str = "crashes/20251014-120000-0123456789abcdef/report.json";
+
 /// Bundles `entries` and returns every archive member's text, concatenated.
 fn bundled(entries: &[(String, String)]) -> String {
     let temp = tempfile::tempdir().unwrap();
@@ -51,7 +54,7 @@ fn json_embedded_in_crash_strings_removes_every_private_array_element() {
         "message": r#"panicked at crates/client-runtime/src/auth.rs:40:9: refresh rejected {"token":["first-secret","second-secret"],"status":401}"#,
         "log_tail": "level=WARN msg=\"refresh failed\" body={\"token\":[\"first-secret\",\"second-secret\"]}\n",
     });
-    let all = bundled(&[("crashes/report-0.json".into(), report.to_string())]);
+    let all = bundled(&[(CRASH_REPORT.into(), report.to_string())]);
     assert!(all.contains("refresh rejected") && all.contains("401"));
     for private in ["first-secret", "second-secret"] {
         assert!(!all.contains(private), "leaked {private}: {all}");
@@ -76,14 +79,10 @@ fn windows_panic_locations_and_backtraces_keep_their_backslashes() {
     });
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("bundle.zip");
-    bundle(
-        &path,
-        &[("crashes/report-0.json".into(), report.to_string())],
-    )
-    .unwrap();
+    bundle(&path, &[(CRASH_REPORT.into(), report.to_string())]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
@@ -180,7 +179,7 @@ fn escaped_payloads_remove_learned_secrets_and_unlabelled_identities_everywhere(
     bundle(&path, &[
             ("client.log".into(), format!("error={escaped}\nerror={double}\nlater {name} connected\n")),
             ("core.log".into(), format!("unlabelled {secret}\nencoded {}\nunicode {unicode}\n", serde_json::to_string(name).unwrap())),
-            ("crashes/report-0.json".into(), serde_json::json!({"message": double, "later": format!("{name} connected {secret}"), (name): "connected"}).to_string()),
+            (CRASH_REPORT.into(), serde_json::json!({"message": double, "later": format!("{name} connected {secret}"), (name): "connected"}).to_string()),
         ]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut all = String::new();
@@ -236,14 +235,14 @@ fn crash_json_strings_are_decoded_redacted_and_serialized() {
     bundle(
         &path,
         &[
-            ("crashes/report-0.json".into(), report.to_string()),
+            (CRASH_REPORT.into(), report.to_string()),
             ("core.log".into(), "Other Player connected".into()),
         ],
     )
     .unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
@@ -281,7 +280,7 @@ fn escaped_crash_fields_never_strip_backslashes_from_unicode_escaped_identities(
     bundle(
         &path,
         &[
-            ("crashes/report-0.json".into(), report.to_string()),
+            (CRASH_REPORT.into(), report.to_string()),
             (
                 "core.log".into(),
                 format!("level=INFO msg=\"player {unicode} connected\"\n"),
@@ -337,14 +336,10 @@ fn rust_backtraces_keep_symbols_and_source_locations_while_addresses_are_redacte
         "os": "macos",
         "arch": "aarch64",
     });
-    bundle(
-        &path,
-        &[("crashes/report-0.json".into(), report.to_string())],
-    )
-    .unwrap();
+    bundle(&path, &[(CRASH_REPORT.into(), report.to_string())]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();

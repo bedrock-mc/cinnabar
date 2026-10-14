@@ -211,6 +211,20 @@ fn completed_renderer_context_survives_another_clients_saved_choice() {
     assert!(renderer_context(dir.path()).is_none());
 }
 
+/// Appends the hook's panic text to the fixture's client log, as the app's file log would.
+fn log_fixture_panic(panic: &str) {
+    use std::io::Write;
+    let Some(root) = std::env::var_os("CINNABAR_PANIC_HOOK_FIXTURE") else {
+        return;
+    };
+    if let Ok(mut log) = fs::OpenOptions::new()
+        .append(true)
+        .open(Path::new(&root).join("logs/client.log"))
+    {
+        let _ = log.write_all(panic.as_bytes());
+    }
+}
+
 /// Installs the real hook in a disposable process and panics on a named thread.
 #[test]
 fn panic_hook_fixture() {
@@ -220,7 +234,7 @@ fn panic_hook_fixture() {
     let root = PathBuf::from(root);
     let mut identity = identity();
     identity.started_at_ms = 0;
-    install_panic_hook(&layout(&root), identity, || {});
+    install_panic_hook(&layout(&root), identity, log_fixture_panic, || {});
     let worker = std::thread::Builder::new()
         .name("crash-fixture".into())
         .spawn(|| panic!("fixture panic"))
@@ -260,10 +274,13 @@ fn installed_hook_writes_one_folder_per_panic_with_the_client_log() {
     assert!(!report.backtrace.is_empty());
     assert_eq!(report.session_id, "0123456789abcdef");
     assert!(report.uptime_ms > 0);
-    assert_eq!(
-        fs::read_to_string(folder.join(folder::CLIENT_LOG_FILE)).unwrap(),
-        "CLIENT_SESSION_START session=0123456789abcdef\nclient line\n"
-    );
+    let client = fs::read_to_string(folder.join(folder::CLIENT_LOG_FILE)).unwrap();
+    let logged = client
+        .strip_prefix("CLIENT_SESSION_START session=0123456789abcdef\nclient line\n")
+        .unwrap_or_else(|| panic!("client section of another session: {client}"));
+    // The log line carries the report's own backtrace: one capture per panic.
+    assert!(logged.contains("fixture panic"), "{logged}");
+    assert!(logged.contains(&report.backtrace), "{logged}");
     assert!(
         fs::read_to_string(folder.join(folder::CORE_LOG_FILE))
             .unwrap()
