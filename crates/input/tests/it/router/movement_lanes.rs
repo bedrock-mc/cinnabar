@@ -152,3 +152,25 @@ fn pending_tap_is_quarantined_when_authority_changes_before_finalize() {
     let next = router.finalize().unwrap();
     assert_eq!(next.phases[Action::Jump as usize], Default::default());
 }
+/// Joystick and processed movement retain their separately rounded float products.
+#[test]
+fn touch_movement_normalization_keeps_float_product_rounding() {
+    let mut router = SemanticInputRouter::default();
+    router
+        .route(DeviceFrame {
+            touches: vec![semantic_input::TouchContact {
+                contact_id: 1,
+                activity_sequence: 1,
+                position: [0.25, 0.75],
+                delta: [0.701, 0.714],
+                hit_id: Some(semantic_input::touch::JOYSTICK),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+    let input = router.finalize().unwrap();
+    let expected = [0x3f33_5945, 0x3f36_acbb];
+    assert_eq!(input.movement.map(f32::to_bits), [0x3f33_5944, 0x3f36_acba]);
+    assert_eq!(input.raw_movement.map(f32::to_bits), expected);
+    assert_eq!(input.analogue_movement.map(f32::to_bits), expected);
+}

@@ -21,6 +21,8 @@ pub struct ActorAnimationStore {
     pub(super) next_reset_generation: u64,
     pub(super) next_rest_reset_generation: u64,
     pub(super) stats: ActorAnimationStats,
+    /// Frame samples that failed or ran out of budget and drew the completed tick pair instead.
+    pub(super) frame_fallbacks: std::sync::atomic::AtomicU64,
     #[cfg(any(test, feature = "test-support"))]
     pub(super) schedule: schedule::TestSchedule,
 }
@@ -75,6 +77,7 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
+            frame_fallbacks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             schedule: Default::default(),
         };
@@ -307,6 +310,12 @@ impl ActorAnimationStore {
             },
             context,
         );
+    }
+
+    /// Frame samples that fell back to the completed tick pair since the store was created.
+    pub fn frame_fallbacks(&self) -> u64 {
+        self.frame_fallbacks
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {

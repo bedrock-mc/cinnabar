@@ -90,7 +90,7 @@ pub(crate) fn merged_touch_movement(frame: &DeviceFrame) -> [f32; 2] {
             movement = candidate;
         }
     }
-    clamp_vector(movement, 1.0)
+    clamp_movement_vector(movement)
 }
 
 pub(crate) fn synthesize_directions(
@@ -114,6 +114,19 @@ pub(crate) fn clamp_vector(value: [f32; 2], maximum: f32) -> [f32; 2] {
             value[0] / magnitude * maximum,
             value[1] / magnitude * maximum,
         ]
+    } else {
+        value
+    }
+}
+
+/// Bounds finite movement axes to unit length using separately rounded float products
+/// and component division. Input sampling and movement packet encoding share this rounding.
+#[must_use]
+pub fn clamp_movement_vector(value: [f32; 2]) -> [f32; 2] {
+    let squared = value[0] * value[0] + value[1] * value[1];
+    if squared > 1.0 {
+        let magnitude = squared.sqrt();
+        [value[0] / magnitude, value[1] / magnitude]
     } else {
         value
     }
