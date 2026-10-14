@@ -671,3 +671,19 @@ fn third_person_sword_stays_upright_through_swing_restarts() {
         }
     }
 }
+
+#[test]
+fn sword_policy_matches_compiled_membership_for_every_retail_item() {
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    for record in &facts.payload().records {
+        assert_eq!(
+            super::is_java_sword(&record.identifier),
+            record
+                .fact
+                .traits
+                .contains(assets::facts::ItemTraits::SWORD),
+            "{}",
+            record.identifier
+        );
+    }
+}

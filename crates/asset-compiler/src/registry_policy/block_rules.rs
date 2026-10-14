@@ -103,9 +103,14 @@ pub(super) fn compile(
                 serde_json::from_value(serde_json::Value::String(tint.into()))?;
         } else if let Some(flag) = rule.fact.strip_prefix("render_flag:") {
             check(
-                matches!(flag, "fire_top" | "fire_flammable" | "flat_icon"),
+                matches!(
+                    flag,
+                    "fire_top" | "fire_flammable" | "flat_icon" | "fast_sword"
+                ),
                 "unknown render flag",
             )?;
+        } else if rule.fact.starts_with("legacy_alias:") || rule.fact == "model_variant" {
+            presentation(rule, &mut assets::facts::BlockRenderFact::default())?;
         } else if !rule.fact.starts_with("family:") && !rule.fact.starts_with("survival:") {
             check(
                 BlockTraits::from_name(&rule.fact).is_some(),
@@ -162,6 +167,7 @@ pub(super) fn compile(
                 continue;
             }
             applied.insert(rule.id.clone());
+            presentation(rule, render_facts.entry(block.name.clone()).or_default())?;
             if matches!(rule.status, Status::Provisional) {
                 provisional.insert(rule.id.clone());
             }
@@ -181,6 +187,7 @@ pub(super) fn compile(
                     "fire_flammable" => render.fire_flammable = rule.value,
                     "fire_top" => render.fire_top = rule.value,
                     "flat_icon" => render.flat_icon = rule.value,
+                    "fast_sword" => render.fast_sword = rule.value,
                     _ => return Err("unknown render flag".into()),
                 }
             }
@@ -224,6 +231,11 @@ pub(super) fn compile(
             {
                 render.kind = serde_json::from_value(serde_json::Value::String(kind.into()))?;
                 break;
+            }
+        }
+        for rule in &policy.block_rules {
+            if rule.matches(&record.name, &state, record.model_family) {
+                presentation(rule, &mut render)?;
             }
         }
         if render.kind == assets::facts::BlockRenderKind::Ordinary
@@ -340,6 +352,22 @@ pub(super) fn vocabulary(root: &std::path::Path, blocks: &[BlockFact]) -> Result
         .map(|name| format!("{name}\n"))
         .collect::<String>()
         .into_bytes())
+}
+
+/// Assigns registry-bound model metadata without making the runtime repeat name selection.
+fn presentation(rule: &Rule, render: &mut assets::facts::BlockRenderFact) -> Result<()> {
+    if let Some(alias) = rule.fact.strip_prefix("legacy_alias:") {
+        render.legacy_alias = Some(serde_json::from_value(serde_json::Value::String(
+            alias.into(),
+        ))?);
+    } else if rule.fact == "model_variant" {
+        let variant = rule.model_variant.ok_or("missing model variant")?;
+        if let assets::facts::BlockModelVariant::Skull(index) = variant {
+            check(index <= 6, "invalid skull model index")?;
+        }
+        render.variant = Some(variant);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -48,3 +48,9 @@ pub use render::{
     BlockRenderFact, BlockRenderKind, BlockRenderRoute, BlockRenderTint, PortalAxis,
     block_render_fact,
 };
+
+mod model_variant;
+pub use model_variant::{BlockModelVariant, ChestKind, CopperAge, LegacyBlockAlias};
+
+mod identities_generated;
+pub use identities_generated::{VanillaBlock, VanillaEntity, VanillaItem};

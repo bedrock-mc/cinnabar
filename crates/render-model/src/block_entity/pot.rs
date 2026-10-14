@@ -26,6 +26,14 @@ pub struct DecoratedPotModel {
 /// The pattern texture stem for a sherd item name; the plain brick shows no pattern.
 #[must_use]
 pub fn sherd_pattern(item: &str) -> Option<String> {
+    let facts = assets::facts::ItemFacts::builtin().ok()?;
+    if !facts
+        .by_identifier(item)?
+        .tags
+        .contains(facts.tag("minecraft:decorated_pot_sherds")?)
+    {
+        return None;
+    }
     let name = item.strip_prefix("minecraft:")?;
     let pattern = name.strip_suffix("_pottery_sherd")?;
     Some(format!("{pattern}_pottery_pattern"))
@@ -168,5 +176,29 @@ mod tests {
         let (lip_min, lip_max) = bounds(&builder.solid[36..72]);
         assert!((neck_min - 14.1).abs() < 1.0e-4 && (neck_max - 16.9).abs() < 1.0e-4);
         assert!((lip_min - 15.8).abs() < 1.0e-4 && (lip_max - 17.2).abs() < 1.0e-4);
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    #[test]
+    fn compiled_sherd_tag_preserves_every_retail_artwork_stem() {
+        for record in &assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .payload()
+            .records
+        {
+            let old = record
+                .identifier
+                .strip_prefix("minecraft:")
+                .and_then(|name| name.strip_suffix("_pottery_sherd"))
+                .map(|stem| format!("{stem}_pottery_pattern"));
+            assert_eq!(
+                super::sherd_pattern(&record.identifier),
+                old,
+                "{}",
+                record.identifier
+            );
+        }
     }
 }

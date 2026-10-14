@@ -66,3 +66,25 @@ mod tests {
         }
     }
 }
+
+#[test]
+fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
+    for effect in ParticleEffect::ALL {
+        assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
+        assert_eq!(
+            ParticleEffect::from_name(effect.identifier()),
+            Some(*effect)
+        );
+    }
+}
+
+#[test]
+fn compiled_particle_requests_preserve_namespaced_and_bare_spellings() {
+    for effect in ParticleEffect::ALL {
+        assert_eq!(effect.identifier(), format!("minecraft:{}", effect.name()));
+        assert_eq!(
+            ParticleEffect::from_name(effect.identifier()),
+            Some(*effect)
+        );
+    }
+}

@@ -4,16 +4,10 @@
 /// Native placed-head rendering selects its model from the backing block type.
 #[must_use]
 pub fn vanilla_skull_type(identifier: &str) -> Option<u8> {
-    Some(match identifier {
-        "minecraft:skeleton_skull" => 0,
-        "minecraft:wither_skeleton_skull" => 1,
-        "minecraft:zombie_head" => 2,
-        "minecraft:player_head" => 3,
-        "minecraft:creeper_head" => 4,
-        "minecraft:dragon_head" => 5,
-        "minecraft:piglin_head" => 6,
-        _ => return None,
-    })
+    match crate::facts::block_render_fact(identifier).variant {
+        Some(crate::facts::BlockModelVariant::Skull(index)) => Some(index),
+        _ => None,
+    }
 }
 
 /// The older resource-pack key for a canonical vanilla block identifier.
@@ -23,21 +17,14 @@ pub fn vanilla_skull_type(identifier: &str) -> Option<u8> {
 /// unknown blocks must not inherit an unrelated vanilla entry.
 #[must_use]
 pub fn legacy_resource_pack_block_alias(identifier: &str) -> Option<&'static str> {
-    let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
-    match name {
-        "grass_block" => Some("grass"),
-        "iron_chain" => Some("chain"),
-        "sea_lantern" => Some("seaLantern"),
-        "trip_wire" => Some("tripWire"),
-        "dandelion" => Some("yellow_flower"),
-        "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"
-        | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower" | "lily_of_the_valley" => {
-            Some("red_flower")
-        }
-        "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
-        | "acacia_sapling" | "dark_oak_sapling" => Some("sapling"),
-        _ => None,
-    }
+    let name = if identifier.contains(':') {
+        std::borrow::Cow::Borrowed(identifier)
+    } else {
+        std::borrow::Cow::Owned(format!("minecraft:{identifier}"))
+    };
+    crate::facts::block_render_fact(&name)
+        .legacy_alias
+        .map(crate::facts::LegacyBlockAlias::name)
 }
 
 #[cfg(test)]
@@ -79,5 +66,67 @@ mod tests {
         assert_eq!(alias("example:grass_block"), None);
         assert_eq!(alias("minecraft:unknown_block"), None);
         assert_eq!(alias("minecraft:dirt"), None);
+    }
+}
+
+#[cfg(test)]
+mod equivalence_tests {
+    /// Retains the previous alias behavior as an independent pinned-registry oracle.
+    fn previous_alias(identifier: &str) -> Option<&'static str> {
+        let name = identifier.strip_prefix("minecraft:").unwrap_or(identifier);
+        match name {
+            "grass_block" => Some("grass"),
+            "iron_chain" => Some("chain"),
+            "sea_lantern" => Some("seaLantern"),
+            "trip_wire" => Some("tripWire"),
+            "dandelion" => Some("yellow_flower"),
+            "poppy" | "blue_orchid" | "allium" | "azure_bluet" | "red_tulip" | "orange_tulip"
+            | "white_tulip" | "pink_tulip" | "oxeye_daisy" | "cornflower"
+            | "lily_of_the_valley" => Some("red_flower"),
+            "oak_sapling" | "spruce_sapling" | "birch_sapling" | "jungle_sapling"
+            | "acacia_sapling" | "dark_oak_sapling" => Some("sapling"),
+            _ => None,
+        }
+    }
+    /// Retains the previous head ordinals for the pinned-registry comparison.
+    fn previous_skull(identifier: &str) -> Option<u8> {
+        Some(match identifier {
+            "minecraft:skeleton_skull" => 0,
+            "minecraft:wither_skeleton_skull" => 1,
+            "minecraft:zombie_head" => 2,
+            "minecraft:player_head" => 3,
+            "minecraft:creeper_head" => 4,
+            "minecraft:dragon_head" => 5,
+            "minecraft:piglin_head" => 6,
+            _ => return None,
+        })
+    }
+    #[test]
+    fn compiled_model_metadata_preserves_every_pinned_block_alias_and_skull() {
+        for record in crate::read_registry_for_protocol(
+            crate::pinned_block_registry_bytes(),
+            crate::active_content_registry_protocol(),
+        )
+        .unwrap()
+        {
+            assert_eq!(
+                super::vanilla_skull_type(&record.name),
+                previous_skull(&record.name),
+                "{}",
+                record.name
+            );
+            assert_eq!(
+                super::legacy_resource_pack_block_alias(&record.name),
+                previous_alias(&record.name),
+                "{}",
+                record.name
+            );
+            let bare = record.name.strip_prefix("minecraft:").unwrap();
+            assert_eq!(
+                super::legacy_resource_pack_block_alias(bare),
+                previous_alias(bare),
+                "{bare}"
+            );
+        }
     }
 }

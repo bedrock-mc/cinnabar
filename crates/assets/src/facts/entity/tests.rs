@@ -70,3 +70,21 @@ fn a_valid_carrier_with_different_facts_cannot_replace_the_startup_pin() {
     let bytes = changed.encode().unwrap();
     assert!(EntityFacts::validate_pinned(&bytes).is_err());
 }
+
+#[test]
+fn compiled_fish_animation_preserves_the_constructor_membership() {
+    for record in &super::EntityFacts::pinned().records {
+        assert_eq!(
+            record.fact.fish_animation,
+            matches!(
+                record.identifier.as_ref(),
+                "minecraft:cod"
+                    | "minecraft:salmon"
+                    | "minecraft:pufferfish"
+                    | "minecraft:tropicalfish"
+            ),
+            "{}",
+            record.identifier
+        );
+    }
+}

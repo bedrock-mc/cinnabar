@@ -13,6 +13,7 @@ enum Kind {
     Items,
     BlockEntities,
     Events,
+    Identities,
     All,
 }
 #[derive(Parser)]
@@ -94,6 +95,16 @@ fn main() -> Result<()> {
         }
         return Ok(());
     }
+    if matches!(args.kind, Kind::Identities) {
+        registry_policy::identities::write(&args.out)?;
+        if args.check {
+            compare(
+                &args.out,
+                &args.root.join(registry_policy::identities::GENERATED_PATH),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::Events) {
         registry_policy::events::write(&args.out)?;
         if args.check {
@@ -132,7 +143,7 @@ fn main() -> Result<()> {
             required(&args.manifest, "--manifest")?,
         )?,
         Kind::All => all(&args, &facts)?,
-        Kind::Items | Kind::BlockEntities | Kind::Events => unreachable!(),
+        Kind::Items | Kind::BlockEntities | Kind::Events | Kind::Identities => unreachable!(),
     }
     Ok(())
 }
@@ -272,8 +283,12 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         serde_json::to_string_pretty(&target)? + "\n",
     )?;
     registry_policy::events::write(&args.out.join(registry_policy::events::GENERATED_PATH))?;
+    registry_policy::identities::write(
+        &args.out.join(registry_policy::identities::GENERATED_PATH),
+    )?;
     if args.check {
         for path in [
+            &PathBuf::from(registry_policy::identities::GENERATED_PATH),
             &target_path,
             &entity_path,
             &entity_expansion,

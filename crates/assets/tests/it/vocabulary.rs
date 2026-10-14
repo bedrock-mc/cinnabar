@@ -208,6 +208,8 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     add(refs, file, &child, key_domain, key);
                 }
                 let child_domain = match key.as_str() {
+                    "VanillaItem" if file == "registry-policy.json" => "retail_item",
+                    "VanillaEntity" if file == "registry-policy.json" => "actor",
                     "state_property" | "state_properties" | "state_values" => "property",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "entity_rules" | "entity_compatibility" if file == "registry-policy.json" => {

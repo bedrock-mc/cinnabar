@@ -102,6 +102,8 @@ pub struct EntityFact {
     pub horse: bool,
     pub living_mount: bool,
     pub aquatic: bool,
+    #[serde(default)]
+    pub fish_animation: bool,
     pub interactions: EntityInteractionTraits,
     pub placement: EntityPlacementFrame,
     pub equipment: MountEquipment,
@@ -122,6 +124,7 @@ impl Default for EntityFact {
             horse: false,
             living_mount: false,
             aquatic: false,
+            fish_animation: false,
             interactions: EntityInteractionTraits::Unresolved,
             placement: EntityPlacementFrame::Unresolved,
             equipment: MountEquipment::Unresolved,

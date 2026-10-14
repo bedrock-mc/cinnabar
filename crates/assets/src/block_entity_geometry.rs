@@ -270,7 +270,21 @@ pub fn shulker_color_from_block_name(name: &str) -> Option<&'static str> {
         .strip_prefix("minecraft:")?
         .strip_suffix("_shulker_box")?;
     let stem = if stem == "light_gray" { "silver" } else { stem };
-    SHULKER_COLORS.iter().copied().find(|color| *color == stem)
+    let color = SHULKER_COLORS
+        .iter()
+        .copied()
+        .find(|color| *color == stem)?;
+    let canonical = if color == "silver" {
+        "light_gray"
+    } else {
+        color
+    };
+    let identifier = format!("minecraft:{canonical}_shulker_box");
+    (crate::facts::BlockEntityFacts::pinned()
+        .by_block_identifier(&identifier)?
+        .renderer
+        == crate::facts::BlockEntityRenderer::Shulker)
+        .then_some(color)
 }
 
 #[cfg(test)]
@@ -300,3 +314,34 @@ mod lectern_tests {
 }
 
 pub mod textures;
+
+#[cfg(test)]
+mod membership_tests {
+    #[test]
+    fn compiled_shulker_renderer_preserves_every_pinned_colour_suffix() {
+        for record in crate::read_registry_for_protocol(
+            crate::pinned_block_registry_bytes(),
+            crate::active_content_registry_protocol(),
+        )
+        .unwrap()
+        {
+            let old = record
+                .name
+                .strip_prefix("minecraft:")
+                .and_then(|name| name.strip_suffix("_shulker_box"))
+                .map(|stem| if stem == "light_gray" { "silver" } else { stem })
+                .and_then(|stem| {
+                    super::SHULKER_COLORS
+                        .iter()
+                        .copied()
+                        .find(|color| *color == stem)
+                });
+            assert_eq!(
+                super::shulker_color_from_block_name(&record.name),
+                old,
+                "{}",
+                record.name
+            );
+        }
+    }
+}

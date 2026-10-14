@@ -19,6 +19,7 @@ mod carriers;
 pub mod entities;
 pub mod events;
 mod format_generated;
+pub mod identities;
 pub mod items;
 mod light;
 mod manifest;
@@ -61,6 +62,7 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    runtime_identifiers: BTreeMap<String, BTreeMap<String, String>>,
     entity_compatibility: Vec<String>,
     entity_rules: Vec<entities::Rule>,
     model_family_rules: Vec<Rule>,
