@@ -58,6 +58,44 @@ fn response_container_prefix(container_count: usize) -> BytesMut {
 }
 
 #[test]
+fn empty_success_response_reaches_play_with_or_without_a_container_list() {
+    // One success for request -5, with an absent list or a present empty list.
+    for body in [&[1, 0, 9, 0][..], &[1, 0, 9, 1, 0][..]] {
+        let event = decode_world_raw_with(
+            raw_packet(PacketId::ItemStackResponse, body),
+            0,
+            super::decode_test_raw,
+        )
+        .expect("a success response may omit container corrections");
+        let Some(crate::WorldEvent::Inventory(crate::InventoryEvent::Response(event))) = event
+        else {
+            panic!("the acknowledgement must reach the inventory ledger");
+        };
+        assert_eq!(event.responses.len(), 1);
+        assert_eq!(event.responses[0].request_id, -5);
+        assert_eq!(
+            event.responses[0].status,
+            crate::StackResponseStatus::Accepted
+        );
+        assert!(event.responses[0].containers.is_empty());
+    }
+}
+
+#[test]
+fn empty_success_response_still_requires_its_presence_marker() {
+    let error = decode_world_raw_with(
+        raw_packet(PacketId::ItemStackResponse, &[1, 0, 9]),
+        0,
+        super::decode_test_raw,
+    )
+    .expect_err("the optional field's presence marker is part of the framing");
+    assert!(matches!(
+        error,
+        ProtocolError::World(WorldPacketError::Wire(_))
+    ));
+}
+
+#[test]
 fn complete_oversized_inventory_content_remains_semantic_without_owned_decode() {
     let count = crate::MAX_CONTAINER_SLOTS + 1;
     let mut body = BytesMut::new();

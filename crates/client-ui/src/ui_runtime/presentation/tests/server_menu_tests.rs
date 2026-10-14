@@ -11,6 +11,8 @@ use protocol::{
 use super::{UiPresentationRuntime, UiRuntime, fixture_font};
 use crate::ui_runtime::presentation::publish::capture_hud_frame;
 
+mod empty_ack;
+
 #[test]
 fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
     let mut player = player_state::PlayerState::new(1);
