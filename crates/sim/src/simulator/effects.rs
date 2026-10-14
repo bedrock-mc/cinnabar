@@ -96,6 +96,21 @@ impl VerticalPhysics {
 
 const UNIFORM_AIR_DRAG_RETENTION: f32 = 0.91;
 
+/// Returns the gravity remaining after a downward rebound. Requested speed and
+/// clipped travel determine impact time; negligible travel keeps full gravity.
+pub(super) fn gravity_after_bounce(gravity: f64, requested_y: f64, resolved_y: f64) -> f64 {
+    let gravity = gravity as f32;
+    let magnitude = gravity.abs();
+    let distance = (resolved_y as f32).abs();
+    if magnitude <= f32::EPSILON || distance <= f32::EPSILON {
+        return f64::from(gravity);
+    }
+    let speed = (requested_y as f32).abs();
+    let impact_speed = ((magnitude + magnitude) * distance + speed * speed).sqrt();
+    let impact_time = ((speed - impact_speed) / gravity).abs();
+    f64::from(magnitude * (1.0 - impact_time))
+}
+
 /// Applies levitation or gravity, then the travel mode's vertical drag.
 pub(super) fn apply_vertical(
     velocity_y: &mut f64,

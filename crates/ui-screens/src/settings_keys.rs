@@ -6,7 +6,7 @@ use launcher::menu::{
     MenuAction, MenuView,
     settings_options::{
         EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, GAMEPAD_OFFSET, KEY_BINDINGS,
-        custom_key_label, gamepad_icon, key_name,
+        custom_key_label, gamepad_icon,
     },
 };
 
@@ -47,7 +47,9 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
                 let key = if capturing {
                     "...".to_owned()
                 } else if offset == 0 {
-                    control.map(key_name).unwrap_or_default()
+                    control
+                        .map(|control| view.settings_options.key_name(control))
+                        .unwrap_or_default()
                 } else if control.is_none() {
                     translate("controllerLayoutScreen.unassigned")
                 } else {

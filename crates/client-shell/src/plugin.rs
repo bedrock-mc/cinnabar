@@ -15,6 +15,7 @@ impl Plugin for ClientShellPlugin {
             .add_systems(
                 Update,
                 (
+                    menu::observe_keyboard_labels,
                     fullscreen::toggle_fullscreen_hotkey,
                     menu::drive_menu_input,
                     fullscreen::apply_runtime_fullscreen_setting,
