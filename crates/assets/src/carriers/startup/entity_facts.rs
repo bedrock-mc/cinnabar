@@ -1,7 +1,6 @@
 //! Required entity facts are installed beside the other runtime carriers.
 use super::AssetStartupError;
-use crate::facts::entity::{EntityFacts, MAX_BYTES, SOURCE_BYTES};
-use sha2::{Digest, Sha256};
+use crate::facts::entity::{EntityFacts, MAX_BYTES};
 use std::{io::Read, path::Path};
 
 /// Rejects missing, corrupt or stale facts before a client session can start.
@@ -17,17 +16,14 @@ pub fn require_entity_facts(world_path: &Path) -> Result<(), AssetStartupError> 
         .take((MAX_BYTES + 1) as u64)
         .read_to_end(&mut bytes)
         .map_err(|e| error(e.to_string()))?;
-    EntityFacts::decode(&bytes, crate::active_content_registry_protocol())
-        .map_err(|e| error(e.to_string()))?;
-    if Sha256::digest(&bytes) != Sha256::digest(SOURCE_BYTES) {
-        return Err(error("entity facts differ from the pinned carrier".into()));
-    }
+    EntityFacts::validate_pinned(&bytes).map_err(|e| error(e.to_string()))?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::facts::entity::SOURCE_BYTES;
     #[test]
     fn startup_requires_the_exact_hash_checked_facts() {
         let dir = tempfile::tempdir().unwrap();

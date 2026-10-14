@@ -197,6 +197,18 @@ impl EntityFacts {
         }
         Ok(facts)
     }
+    /// Rejects corrupt or stale bytes that differ from this build's pinned carrier.
+    pub fn validate_pinned(bytes: &[u8]) -> Result<(), AssetError> {
+        Self::decode(bytes, crate::active_content_registry_protocol())?;
+        if bytes != SOURCE_BYTES {
+            return Err(AssetError::InvalidCompiledAssets {
+                detail: "entity facts differ from the pinned carrier; rebuild with make assets"
+                    .into(),
+            });
+        }
+        Ok(())
+    }
+
     /// Encodes deterministic compiler output and validates it using the runtime reader.
     pub fn encode(&self) -> Result<Vec<u8>, AssetError> {
         let mut bytes = MAGIC.to_vec();

@@ -60,3 +60,13 @@ fn corrupt_stale_or_trailing_carriers_are_rejected() {
     forged.records[0].fact.shadow = ShadowRadius::Width(-1.0);
     assert!(forged.encode().is_err());
 }
+
+#[test]
+fn a_valid_carrier_with_different_facts_cannot_replace_the_startup_pin() {
+    assert!(EntityFacts::validate_pinned(SOURCE_BYTES).is_ok());
+    let mut changed =
+        EntityFacts::decode(SOURCE_BYTES, crate::active_content_registry_protocol()).unwrap();
+    changed.records[0].fact.provisional = !changed.records[0].fact.provisional;
+    let bytes = changed.encode().unwrap();
+    assert!(EntityFacts::validate_pinned(&bytes).is_err());
+}

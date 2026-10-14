@@ -1,15 +1,12 @@
 //! Installs the exact pinned entity facts beside the runtime carriers.
 use super::read_bounded;
-use assets::facts::entity::{EntityFacts, SOURCE_BYTES};
+use assets::facts::entity::EntityFacts;
 use std::{error::Error, path::Path};
 
 /// Validates the selected source before atomically replacing the installed carrier.
 pub(super) fn compile(source: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
     let bytes = read_bounded(source)?;
-    EntityFacts::decode(&bytes, assets::active_content_registry_protocol())?;
-    if bytes != SOURCE_BYTES {
-        return Err("entity facts differ from the pinned carrier; rebuild with make assets".into());
-    }
+    EntityFacts::validate_pinned(&bytes)?;
     assets::write_blob_atomic(out, &bytes)?;
     Ok(())
 }
@@ -18,6 +15,7 @@ pub(super) fn compile(source: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
 mod tests {
     use super::super::{Command, run};
     use super::*;
+    use assets::facts::entity::SOURCE_BYTES;
 
     #[test]
     fn entity_facts_install_requires_a_valid_source_and_distinct_destination() {
