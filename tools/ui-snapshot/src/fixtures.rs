@@ -2,6 +2,7 @@
 
 mod minecraft_import;
 mod mods;
+mod out_of_game;
 
 use std::sync::Arc;
 
@@ -18,6 +19,7 @@ pub struct State {
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
     Menu(Box<MenuView>),
+    Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
@@ -33,6 +35,102 @@ const SMALL_SIZE: [u32; 2] = [360, 240];
 const TALL_SIZE: [u32; 2] = [1280, 900];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "pause",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::pause,
+    },
+    State {
+        name: "death",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::death,
+    },
+    State {
+        name: "loading-connecting",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::Loading(ui::LoadingStage::Connecting),
+    },
+    State {
+        name: "loading-terrain",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::Loading(ui::LoadingStage::BuildingTerrain),
+    },
+    State {
+        name: "disconnect",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect,
+    },
+    State {
+        name: "disconnect-ban",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_ban,
+    },
+    State {
+        name: "disconnect-no-retry",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_no_retry,
+    },
+    State {
+        name: "server-trust",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::server_trust,
+    },
+    State {
+        name: "join-request",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::join_request,
+    },
+    State {
+        name: "remove-server",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::remove_server,
+    },
+    State {
+        name: "storage-delete",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_delete,
+    },
+    State {
+        name: "storage-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_error,
+    },
+    State {
+        name: "settings-help",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_help,
+    },
+    State {
+        name: "font-license",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::font_license,
+    },
+    State {
+        name: "reset-bindings",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::reset_bindings,
+    },
+    State {
+        name: "reset-settings",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::reset_settings,
+    },
     State {
         name: "chat-background-transparent",
         size: SIZE,

@@ -29,7 +29,16 @@ pub const CAPTURE_SECONDS: f64 = 1.0;
 
 static REGISTRY: LazyLock<ScreenRegistry> = LazyLock::new(|| {
     let mut registry = ScreenRegistry::new(ui_screens::menu_screens::retail_context());
-    registry.screen(ui_screens::chat_screen::CHAT_SCREEN);
+    for &reference in json_ui::ENGINE_SCREENS {
+        registry.screen(reference);
+    }
+    ui_screens::death_screen::register(&mut registry);
+    registry
+        .catalog_mut()
+        .layer_builtin(ui_screens::menu_policy::apply);
+    registry
+        .catalog_mut()
+        .layer_builtin(ui_screens::menu_renderers::install_brand_overlays);
     ui_screens::hud::register(&mut registry);
     ui_screens::chat_screen::register(&mut registry);
     registry
@@ -47,7 +56,7 @@ impl RemoteSource for Offline {
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
-    let menu = matches!(&fixture, Fixture::Menu(_));
+    let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
@@ -57,6 +66,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     );
     let mut nodes = Vec::new();
     let mut next = 1;
+    let mut session_pages = HashMap::new();
     let mut layouts = TextLayoutCache::new(4096, 32 * 1024 * 1024);
     let translate = |key: &str| carriers.lang.lookup(key);
     let mut frame = PaintFrame {
@@ -74,6 +84,17 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         renderers: &mut [],
     };
     match fixture {
+        Fixture::Menu(view) if view.json_ui_menu_reference().is_some() => {
+            let data = ui_screens::menu_screens::screen_data(&view, frame.translate, 0)
+                .ok_or_else(|| Error::Invalid("session menu has no JSON-UI screen data".into()))?;
+            session_pages = session_menu(
+                &data,
+                &carriers.ui,
+                carriers.ui_page,
+                carriers.pages.len(),
+                &mut frame,
+            )?;
+        }
         Fixture::Menu(view) => {
             carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)
@@ -126,12 +147,69 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                     .unwrap()
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                let popup = if let Some(prompt) = view.server_trust_prompt() {
+                    Some(launcher::menu::dialogs::server_trust(
+                        &prompt.url,
+                        frame.translate,
+                    ))
+                } else if let Some(name) = view.join_request_prompt() {
+                    Some(launcher::menu::dialogs::join_request(name, frame.translate))
+                } else {
+                    view.dialog
+                        .filter(|dialog| {
+                            !matches!(
+                                dialog,
+                                launcher::menu::MenuDialog::MinecraftImport
+                                    | launcher::menu::MenuDialog::Accounts
+                                    | launcher::menu::MenuDialog::Exit
+                            )
+                        })
+                        .map(|dialog| {
+                            launcher::menu::dialogs::dialog(&view, dialog, frame.translate)
+                        })
+                };
+                if let Some(popup) = popup {
+                    screen
+                        .paint_popup(&view, &popup, size, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
                 if view.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
                     screen
                         .paint_minecraft_import(&view, size, &mut scrolls, &mut frame)
                         .map_err(|error| error.to_string())?;
                 }
             }
+        }
+        Fixture::Loading(stage) => {
+            carriers::validate_oreui(dir)?;
+            let images = oreui::images::load_optional_oreui_images(dir)
+                .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            let first = carriers.pages.len() as u16;
+            let artwork = HashMap::new();
+            carriers.pages.extend(images.pages.iter().map(|page| Page {
+                width: page.dimensions[0],
+                height: page.dimensions[1],
+                rgba: Arc::clone(&page.pixels),
+            }));
+            let mut screen = oreui_screen(first, images);
+            let words = launcher::menu::join_progress::loading_words(stage, &|key, fallback| {
+                ui_engine::engine::screen::translated(frame.translate, key, fallback)
+            });
+            frame.now = CAPTURE_SECONDS;
+            screen
+                .paint_loading(
+                    oreui::loading_screen::LoadingInput {
+                        stage,
+                        words: [&words[0], &words[1]],
+                        size,
+                        title_artwork: None,
+                        destination_icon: None,
+                        artwork: &artwork,
+                        dimension: 0,
+                    },
+                    &mut frame,
+                )
+                .map_err(|error| error.to_string())?;
         }
         Fixture::Chat {
             draft,
@@ -212,18 +290,24 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
         .map_err(|error| error.to_string())?;
     let list = tree.build_draw_list().map_err(|error| error.to_string())?;
-    if list.batches.iter().any(|batch| {
-        carriers
-            .pages
-            .get(usize::from(batch.texture_page))
+    if let Some(batch) = list.batches.iter().find(|batch| {
+        session_pages
+            .get(&batch.texture_page)
+            .or_else(|| carriers.pages.get(usize::from(batch.texture_page)))
             .is_none()
     }) {
-        return Err(Error::Invalid(
-            "screen sampled an unavailable texture page".into(),
-        ));
+        return Err(Error::Invalid(format!(
+            "screen sampled unavailable texture page {} ({} loaded)",
+            batch.texture_page,
+            carriers.pages.len()
+        )));
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
-    canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
+    canvas.draw(&list, |page| {
+        session_pages
+            .get(&page)
+            .or_else(|| carriers.pages.get(usize::from(page)))
+    });
     let mut pixels = canvas.into_rgba();
     if !menu {
         // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
@@ -291,3 +375,93 @@ pub(crate) fn oreui_screen(first: u16, images: oreui::images::OreUiImages) -> or
 
 #[cfg(test)]
 mod tests;
+
+/// Paints an in-session menu and collects its logical texture pages without inventing missing images.
+fn session_menu(
+    data: &ui_screens::menu_screens::MenuScreenData,
+    assets: &Arc<assets::RuntimeUiAssets>,
+    ui_page: u16,
+    first_dynamic: usize,
+    frame: &mut PaintFrame<'_>,
+) -> Result<HashMap<u16, Page>, Error> {
+    let title = image::load_from_memory(launcher::branding::TITLE)
+        .map_err(|error| error.to_string())?
+        .to_rgba8();
+    let title_page = u16::try_from(first_dynamic).map_err(|error| error.to_string())?;
+    let artwork = HashMap::from([(
+        ui_engine::textures::TITLE_KEY.into(),
+        ui::IconRef {
+            page: title_page,
+            uv: [0, 0, title.width() as u16, title.height() as u16],
+            glint: false,
+        },
+    )]);
+    let first_dynamic = first_dynamic + 1;
+    let catalog = json_ui::Catalog::from_files(
+        assets
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut engine = FormEngine::new(
+        Arc::clone(assets),
+        catalog,
+        ui_page,
+        &REGISTRY,
+        Arc::new(Offline),
+        ImageWork::inline(),
+    );
+    let first = u16::try_from(first_dynamic + ui_engine::pages::SERVER_UI_PAGE)
+        .map_err(|error| error.to_string())?;
+    engine.set_server_atlas(
+        ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
+            .with_image_work(ImageWork::inline()),
+        first,
+    );
+    frame.now = CAPTURE_SECONDS;
+    engine
+        .render_screen(
+            data.reference,
+            &data.data,
+            &data.context,
+            &json_ui::ViewState::default(),
+            ui_engine::engine::ScreenArt {
+                images: Some(&artwork),
+                ..Default::default()
+            },
+            frame,
+        )
+        .map_err(|error| error.to_string())?;
+    engine.take_server_pages();
+    let mut pages = HashMap::from([(
+        title_page,
+        Page {
+            width: title.width(),
+            height: title.height(),
+            rgba: title.into_raw().into(),
+        },
+    )]);
+    for (offset, sources) in [
+        (ui_engine::pages::SERVER_UI_PAGE, &engine.server_pages),
+        (
+            render_model::UI_NATIVE_SHEET_PAGE_OFFSET,
+            &engine.server_sheet_pages,
+        ),
+    ] {
+        for (index, page) in sources.iter().enumerate() {
+            let [width, height] = page.dimensions();
+            let logical =
+                u16::try_from(first_dynamic + offset + index).map_err(|error| error.to_string())?;
+            pages.insert(
+                logical,
+                Page {
+                    width,
+                    height,
+                    rgba: page.pixels().into(),
+                },
+            );
+        }
+    }
+    Ok(pages)
+}

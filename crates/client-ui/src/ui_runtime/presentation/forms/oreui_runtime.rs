@@ -178,6 +178,41 @@ impl UiPresentationRuntime {
         Ok(Some(hits))
     }
 
+    /// Draws a launcher question without resolving any JSON-UI screen root.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn append_oreui_popup(
+        &mut self,
+        view: &MenuView,
+        popup: &launcher::menu::dialogs::Popup,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        let mut frame = PaintFrame {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content: size,
+            translate: &|_| None,
+            language: [0; 3],
+            now: self.menu_seconds,
+            nodes,
+            next,
+            renderers: &mut [],
+        };
+        let (output, scrolls) = self
+            .screens
+            .oreui
+            .paint_popup(view, popup, size, &mut frame)?;
+        self.projections.menu_focus = output.focus.unwrap_or_default();
+        self.menu_scrolls.set_areas(scrolls);
+        self.screens.menu_sounds.clear();
+        Ok(output.hits)
+    }
+
     /// Draws the import flow with its own scroll area and modal-only targets.
     pub(super) fn append_oreui_minecraft_import(
         &mut self,

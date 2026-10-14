@@ -127,7 +127,11 @@ impl UiRuntime {
             );
         }
         if let Some(screen) = host.menu {
-            let reference = launcher::menu::menu_reference(screen);
+            let reference = if host.over_world || screen.requires_session() {
+                launcher::menu::menu_reference(screen)
+            } else {
+                None
+            };
             let settings = if screen == MenuScreen::Death {
                 death_settings()
             } else {

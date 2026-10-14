@@ -1039,10 +1039,10 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
 // The join's trust question draws vanilla's modal popup over everything, and only its answers take
 // presses, even with a launcher dialog open beneath it.
 #[test]
-fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
+fn server_trust_question_draws_the_oreui_popup_and_owns_the_input() {
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         eprintln!(
-            "skipping server_trust_question_draws_the_vanilla_popup_and_owns_the_input: missing local UI carrier; make assets"
+            "skipping server_trust_question_draws_the_oreui_popup_and_owns_the_input: missing local UI carrier; make assets"
         );
         return;
     };
@@ -1090,11 +1090,7 @@ fn server_trust_question_reads_the_active_language() {
     let translate = |key: &str| {
         (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
     };
-    let json_ui::FormModel::Modal(modal) =
-        ui_screens::menu_screens::server_trust_model("http://a:1", &translate)
-    else {
-        panic!("the trust question is a modal popup");
-    };
+    let modal = launcher::menu::dialogs::server_trust("http://a:1", &translate);
     assert_eq!(
         (
             modal.title.as_str(),

@@ -3,6 +3,23 @@
 
 use super::{JoinKind, JoinProgress, JoinStage};
 
+/// The world-entry and dimension loading labels through the active language lookup.
+pub fn loading_words(stage: ui::LoadingStage, tr: &impl Fn(&str, &str) -> String) -> [String; 2] {
+    match stage {
+        ui::LoadingStage::Connecting => [
+            tr(
+                "progressScreen.title.connectingExternal",
+                "Connecting to external server",
+            ),
+            tr("progressScreen.message.locating", "Locating server"),
+        ],
+        ui::LoadingStage::BuildingTerrain | ui::LoadingStage::ChangingDimension => [
+            tr("progressScreen.generating", "Generating World"),
+            tr("progressScreen.message.building", "Building terrain"),
+        ],
+    }
+}
+
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 

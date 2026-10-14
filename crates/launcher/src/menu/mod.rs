@@ -3,7 +3,9 @@
 use json_ui::vanilla::Reference;
 pub mod auth;
 pub mod death;
+pub mod dialogs;
 pub mod disconnect;
+pub mod flow;
 pub mod inbox;
 pub mod invite;
 pub mod join_progress;
@@ -33,23 +35,27 @@ pub use view::{
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MenuScreen {
-    Home,
-    Play,
-    Social,
-    Servers,
-    Profile,
-    DressingRoom,
-    Settings,
-    AddServer,
-    Pause,
-    Death,
-    /// OreUI-only screens.
-    Inbox,
-    Friends,
-    /// Vanilla's invite screen over the pause screen, while the world is hosted for friends.
-    Invite,
+/// Declares menu routes and their exhaustive traversal from one source.
+macro_rules! menu_screens {
+    ($($(#[$attribute:meta])* $name:ident),+ $(,)?) => {
+        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        pub enum MenuScreen { $($(#[$attribute])* $name),+ }
+        impl MenuScreen {
+            /// All declared routes, including routes added in future changes.
+            pub const ALL: &[Self] = &[$(Self::$name),+];
+            /// Screens entered only from an active play session.
+            pub fn requires_session(self) -> bool {
+                match self {
+                    Self::Pause | Self::Death | Self::Invite => true,
+                    Self::Home | Self::Play | Self::Social | Self::Servers | Self::Profile | Self::DressingRoom | Self::Settings | Self::AddServer | Self::Inbox | Self::Friends => false,
+                }
+            }
+        }
+    };
+}
+menu_screens! {
+    Home, Play, Social, Servers, Profile, DressingRoom, Settings, AddServer,
+    Pause, Death, Inbox, Friends, Invite,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

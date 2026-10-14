@@ -6,15 +6,13 @@ use ui::DpiScale;
 
 #[test]
 fn retryable_disconnect_renders_distinct_retry_and_dismiss_targets() {
-    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
-        eprintln!(
-            "skipping retryable_disconnect_renders_distinct_retry_and_dismiss_targets: missing local UI carrier (make assets)"
-        );
-        return;
-    };
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     for size in [[1280, 720], [854, 480]] {
         let mut view = MenuView::new(true, "Player".into());
-        view.disconnect_message = Some("network session failed: closed".into());
+        view.disconnect_message = Some(launcher::menu::disconnect::from_server(
+            "§cYou are banned.\n§fPlease contact the moderation team.",
+        ));
         view.can_reconnect = true;
         view.focused_action = Some(MenuAction::Reconnect);
         presentation.set_menu_view(Some(view));
@@ -48,17 +46,27 @@ fn retryable_disconnect_renders_distinct_retry_and_dismiss_targets() {
         assert!(retry.min().x() >= 0.0 && dismiss.max().y() <= size[1] as f32);
         let texts = super::pack_harness::drawn_texts(&nodes);
         assert!(texts.iter().any(|text| text == "Reconnect"), "{texts:?}");
+        let words = texts.join(" ");
+        assert!(
+            words.contains("Disconnected from Server") && words.contains("OK"),
+            "{words}"
+        );
+        assert!(
+            words.contains("You are banned.") && words.contains("Please contact"),
+            "{words}"
+        );
+        assert_eq!(
+            presentation.projections.menu_focus,
+            [MenuAction::Reconnect, MenuAction::DismissDialog]
+        );
+        assert!(nodes.iter().any(|node| matches!(node.visual(), ui::UiVisual::Text { layout, .. } if layout.glyphs().iter().any(|glyph| glyph.style.color == ui::BedrockColor::Red))));
     }
 }
 
 #[test]
 fn a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement() {
-    let Some(mut presentation) = super::pack_harness::engine_presentation() else {
-        eprintln!(
-            "skipping a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement: missing local UI carrier (make assets)"
-        );
-        return;
-    };
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Player".into());
     view.disconnect_message = Some("network session failed: closed".into());
     view.focused_action = Some(MenuAction::DismissDialog);
@@ -87,5 +95,49 @@ fn a_disconnect_without_a_retry_target_keeps_only_the_acknowledgement() {
             .iter()
             .any(|text| text.contains("Reconnect") || text.contains("cinnabar_reconnect")),
         "{texts:?}"
+    );
+}
+
+#[test]
+fn launcher_questions_draw_without_a_json_ui_carrier() {
+    let mut presentation =
+        super::super::UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Player".into());
+    view.connecting = true;
+    view.feeds.server_trust = Some(launcher::menu::ServerTrustPrompt {
+        id: 1,
+        url: "https://example.invalid".into(),
+        from_session_core: false,
+    });
+    presentation.set_menu_view(Some(view));
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let mut nodes = Vec::new();
+    let hits = presentation
+        .append_menu(
+            &UiRuntime::new(1),
+            &mut nodes,
+            &mut 1,
+            metrics,
+            1280.0,
+            720.0,
+        )
+        .unwrap();
+    assert_eq!(
+        hits.iter().map(|(action, _)| *action).collect::<Vec<_>>(),
+        [
+            MenuAction::ServerTrust(true),
+            MenuAction::ServerTrust(false)
+        ]
+    );
+    assert_eq!(
+        presentation.projections.menu_focus,
+        [
+            MenuAction::ServerTrust(true),
+            MenuAction::ServerTrust(false)
+        ]
     );
 }

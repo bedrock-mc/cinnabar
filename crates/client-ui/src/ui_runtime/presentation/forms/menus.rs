@@ -1,7 +1,4 @@
-//! Menus through the engine: each menu state opens its vanilla screen, and the
-//! screen's pressed regions become the launcher's own hit targets, so the menu
-//! state machine and its input path stay unchanged. States without a vanilla
-//! screen, or a render that fails, fall back to the programmatic launcher.
+//! OreUI owns launcher flows; JSON-UI owns server-restylable session screens.
 
 use std::sync::Arc;
 
@@ -89,6 +86,7 @@ impl UiPresentationRuntime {
         };
         let result = match drawn {
             Ok(Some(hits)) => Ok(hits),
+            Err(error) if shown.json_ui_menu_reference().is_none() => Err(error),
             Ok(None) | Err(_) => {
                 let owned_dialog = has_native_dialog(shown.dialog);
                 let fallback = owned_dialog.then(|| {
@@ -158,15 +156,6 @@ impl UiPresentationRuntime {
         width: f32,
         height: f32,
     ) -> Result<Option<Vec<(MenuAction, UiRect)>>, UiPresentationError> {
-        // Without the UI carrier the programmatic launcher draws every screen.
-        if self.engine.is_none()
-            && !matches!(
-                view.screen,
-                launcher::menu::MenuScreen::DressingRoom | launcher::menu::MenuScreen::Death
-            )
-        {
-            return Ok(None);
-        }
         // OreUI routes draw through the native canvas.
         let portrait = [
             &view.feeds.profile.picture_path,
@@ -174,15 +163,17 @@ impl UiPresentationRuntime {
         ]
         .into_iter()
         .find_map(|path| self.menu_artwork.refs.get(path).copied());
-        if let Some(mut hits) = self.append_oreui_screen(
-            view,
-            nodes,
-            next,
-            metrics,
-            [width, height],
-            portrait,
-            &|key| runtime.translation(key),
-        )? {
+        if view.json_ui_menu_reference().is_none()
+            && let Some(mut hits) = self.append_oreui_screen(
+                view,
+                nodes,
+                next,
+                metrics,
+                [width, height],
+                portrait,
+                &|key| runtime.translation(key),
+            )?
+        {
             let mut keys = Vec::new();
             let popup = self.append_dialog(
                 runtime,
@@ -195,13 +186,18 @@ impl UiPresentationRuntime {
             );
             if let Some(popup) = popup {
                 (hits, keys) = popup;
+                self.projections.menu_focus.clear();
+                for (action, _) in &hits {
+                    if !self.projections.menu_focus.contains(action) {
+                        self.projections.menu_focus.push(*action);
+                    }
+                }
                 self.projections.oreui_slider_tracks.clear();
                 self.projections.oreui_settings_input = false;
                 self.projections.menu_focus_geometry.clear();
                 self.projections.menu_focus_landmarks.clear();
             }
             if view.dialog.is_some() {
-                self.projections.menu_focus.clear();
                 self.projections.menu_focus_geometry.clear();
                 self.projections.menu_focus_landmarks.clear();
                 self.projections.oreui_slider_tracks.clear();
@@ -495,27 +491,35 @@ impl UiPresentationRuntime {
                 }
             });
         }
+        let rollback = (nodes.len(), *next);
+        let translate = |key: &str| runtime.translation(key);
+        let popup = match (trust, join, dialog) {
+            (Some(prompt), _, _) => launcher::menu::dialogs::server_trust(&prompt.url, &translate),
+            (None, Some(name), _) => launcher::menu::dialogs::join_request(name, &translate),
+            (None, None, dialog) => launcher::menu::dialogs::dialog(view, dialog?, &translate),
+        };
+        if view.json_ui_menu_reference().is_none() {
+            return Some(
+                match self.append_oreui_popup(view, &popup, nodes, next, metrics, [width, height]) {
+                    Ok(hits) => (hits, Vec::new()),
+                    Err(_) => {
+                        nodes.truncate(rollback.0);
+                        *next = rollback.1;
+                        (Vec::new(), Vec::new())
+                    }
+                },
+            );
+        }
         let Some(renderer) = self.engine.as_deref() else {
             return Some((Vec::new(), Vec::new()));
         };
-        let rollback = (nodes.len(), *next);
-        let translate = |key: &str| runtime.translation(key);
-        let (model, confirm, dismiss) = match (trust, join, dialog) {
-            (Some(prompt), _, _) => (
-                menu_screens::server_trust_model(&prompt.url, &translate),
-                MenuAction::ServerTrust(true),
-                MenuAction::ServerTrust(false),
-            ),
-            (None, Some(name), _) => (
-                menu_screens::join_request_model(name, &translate),
-                MenuAction::JoinRequest(true),
-                MenuAction::JoinRequest(false),
-            ),
-            (None, None, dialog) => {
-                let (model, confirm) = menu_screens::dialog_model(view, dialog?, &translate);
-                (model, confirm, MenuAction::DismissDialog)
-            }
-        };
+        let (confirm, dismiss) = (popup.confirm, popup.dismiss);
+        let model = json_ui::FormModel::Modal(json_ui::ModalForm {
+            title: popup.title,
+            body: popup.body,
+            button1: popup.button1,
+            button2: popup.button2,
+        });
         let context = json_ui::form_context(&model, &menu_screens::retail_context());
         let mut data = json_ui::form_data_source(&model);
         let reference = if dialog
