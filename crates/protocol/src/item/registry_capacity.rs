@@ -454,7 +454,7 @@ mod tests {
         assert!(declared_item_tags(&both_encodings(&[], &["no_namespace"])).is_empty());
         assert!(
             declared_item_tags(&both_encodings(
-                &vec!["minecraft:is_sword"; MAX_DECLARED_TAGS],
+                &["minecraft:is_sword"; MAX_DECLARED_TAGS],
                 &["minecraft:is_spear"]
             ))
             .is_empty()
