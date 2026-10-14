@@ -8,8 +8,8 @@ use lod_store::actor::{EpochWrite, ReadOutcome};
 
 use super::*;
 use crate::stream::distant_terrain::{
-    shared::{LodShared, WriterInput},
-    writer::Writer,
+    shared::{LodShared, WriterBatch, WriterInput, Writers},
+    writer::{MAX_SLAB_MERGE_ATTEMPTS, Writer},
 };
 
 /// Ends the overworld session and begins it again, as leaving and coming back does.
@@ -141,21 +141,24 @@ fn a_merge_prepared_before_a_session_change_is_merged_again_in_the_new_epoch() {
     let mut stream = stream();
     commit_columns(&mut stream, 1, &[1, 2], 15);
     // No writer thread: the test steps the writer itself.
-    let shared = Arc::new(LodShared::new(store.client(), NOW));
-    let mut writer = Writer::default();
+    let shared = Arc::new(LodShared::new(store.client(), NOW, Writers::new(1)));
+    let mut writer = Writer::new(0, shared.writers);
     sample_into(&mut stream, &shared, 1, 1);
-    let batch = shared.wait_for_work(8, false).expect("ingesting");
+    let batch = shared.wait_for_work(0, 8, false).expect("ingesting");
     writer.step(&shared, batch);
     assert_eq!(shared.stats(0).merged_columns, 1);
 
     // Chunk 2 shares chunk 1's level-1 section, which the writer has cached.
     sample_into(&mut stream, &shared, 2, 2);
-    let Some(WriterInput::Sampled(column)) =
-        shared.wait_for_work(8, false).expect("ingesting").pop()
+    let Some(WriterInput::Sampled(column)) = shared
+        .wait_for_work(0, 8, false)
+        .expect("ingesting")
+        .items
+        .pop()
     else {
         panic!("a sampled column");
     };
-    let Ok(prepared) = writer.prepare(&shared, OVERWORLD, vec![*column]) else {
+    let Ok(prepared) = writer.prepare(&shared, OVERWORLD, vec![*column], Vec::new()) else {
         panic!("merged from the cache");
     };
     // The session begins again before the merge reaches the store.
@@ -165,7 +168,7 @@ fn a_merge_prepared_before_a_session_change_is_merged_again_in_the_new_epoch() {
         writer.is_blocked(),
         "the refused column waits to merge again"
     );
-    writer.step(&shared, Vec::new());
+    writer.step(&shared, Default::default());
     assert!(!writer.is_blocked());
     let stats = shared.stats(0);
     assert_eq!((stats.stale_writes, stats.merged_columns), (1, 2));
@@ -199,4 +202,41 @@ fn writes_sent_in_the_current_epoch_are_taken() {
     );
     assert!(matches!(written, Ok(EpochWrite::Taken)));
     assert_eq!(store.chunk_hash(5), Some(9));
+}
+
+#[test]
+fn a_handed_slab_whose_merge_a_failed_read_stopped_is_merged_again() {
+    let store = TestStore::new();
+    let shared = Arc::new(LodShared::new(store.client(), NOW, Writers::new(1)));
+    let TestStore { actor, _dir } = store;
+    // Every read of the stopped store fails.
+    actor.shutdown(NOW);
+    let mut writer = Writer::new(0, shared.writers);
+    let slab = lod::ingest::SlabWork {
+        pos: chain(1)[1],
+        face: lod::geometry::Face::PosX,
+    };
+    writer.step(
+        &shared,
+        WriterBatch {
+            items: Vec::new(),
+            slabs: vec![(OVERWORLD, slab)],
+        },
+    );
+    assert!(writer.is_blocked(), "the slab waits to merge again");
+    for attempt in 1..=MAX_SLAB_MERGE_ATTEMPTS {
+        assert_eq!(shared.stats(0).store_errors, u64::from(attempt));
+        assert!(writer.is_blocked());
+        // The frame's nudge.
+        writer.step(&shared, WriterBatch::default());
+    }
+    assert!(
+        !writer.is_blocked(),
+        "dropped after the last attempt, so ingestion can settle"
+    );
+    assert_eq!(
+        shared.stats(0).store_errors,
+        u64::from(MAX_SLAB_MERGE_ATTEMPTS) + 1
+    );
+    shared.disable();
 }

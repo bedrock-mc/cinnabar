@@ -125,9 +125,55 @@ pub fn terrain_block(x: i32, y: i32, z: i32) -> (u32, bool) {
     (block, false)
 }
 
+/// Gentle terrain in absolute block coordinates, about as dense in faces as explored
+/// surface terrain: slopes of one block in four around Y 38–56, grass over dirt and stone,
+/// sand under water, rare one-block caves and some leaf canopies. Returns the layer-0 id and
+/// whether layer 1 holds water, as [`terrain_block`].
+#[must_use]
+pub fn rolling_block(x: i32, y: i32, z: i32) -> (u32, bool) {
+    // A triangle wave of `period` blocks rising one block in four.
+    let wave = |value: i32, period: i32| (value.rem_euclid(period) - period / 2).abs() / 4;
+    let height = 38 + wave(x, 48) + wave(z + 7, 40);
+    let tree = (x * 7 + z * 11).rem_euclid(53) == 0;
+    let block = if y > height {
+        if tree && y <= height + 4 && y > TERRAIN_SEA_LEVEL {
+            blocks::LEAVES
+        } else if y <= TERRAIN_SEA_LEVEL {
+            blocks::WATER
+        } else {
+            blocks::AIR
+        }
+    } else if y == height {
+        if height < TERRAIN_SEA_LEVEL {
+            blocks::SAND
+        } else {
+            blocks::GRASS
+        }
+    } else if y > height - 4 {
+        blocks::DIRT
+    } else if y < height - 6 && (x * 3 + y * 5 + z * 7).rem_euclid(331) == 0 {
+        blocks::AIR
+    } else {
+        blocks::STONE
+    };
+    (block, false)
+}
+
 /// The [`terrain_block`] sub-chunks of one chunk column for sub-chunk Ys `sub_chunk_ys`.
 #[must_use]
 pub fn terrain_column(
+    chunk_x: i32,
+    chunk_z: i32,
+    sub_chunk_ys: Range<i32>,
+) -> BTreeMap<i32, Arc<SubChunk>> {
+    column_of(terrain_block, chunk_x, chunk_z, sub_chunk_ys)
+}
+
+/// The sub-chunks of one chunk column for sub-chunk Ys `sub_chunk_ys`, from `block` in
+/// absolute block coordinates ([`terrain_block`], [`rolling_block`]).
+#[must_use]
+pub fn column_of(
+    block: fn(i32, i32, i32) -> (u32, bool),
     chunk_x: i32,
     chunk_z: i32,
     sub_chunk_ys: Range<i32>,
@@ -136,7 +182,7 @@ pub fn terrain_column(
     sub_chunk_ys
         .map(|sub_y| {
             let sub_chunk = sub_chunk(2, |layer, x, y, z| {
-                let (block, waterlogged) = terrain_block(
+                let (block, waterlogged) = block(
                     chunk_x * side + x as i32,
                     sub_y * side + y as i32,
                     chunk_z * side + z as i32,

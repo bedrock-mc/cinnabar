@@ -6,19 +6,23 @@ use std::sync::{
     mpsc::{self, SyncSender, TrySendError},
 };
 
-use super::{Command, EpochWrite, ReadOutcome, ReadTarget, Request, SessionEpoch, SubmitError};
+use super::{
+    Command, EpochWrite, ReadOutcome, ReadTarget, Request, SessionEpoch, SubmitError, ViewChange,
+    ViewEpoch, view::HiddenRegions,
+};
 use crate::{identity::Dimension, minute::Minute, region_file::Access, store::SharedRegistry};
 
-/// The session change count the handle, its clients and its thread share.
-pub(super) type SessionChanges = Arc<AtomicU64>;
+/// A count the handle, its clients and its thread share.
+pub(super) type SharedCount = Arc<AtomicU64>;
 
 /// The request sender clients share, cleared when the handle closes so that only the
-/// handle's own sender decides when the thread's channel closes, and the session change
-/// count.
+/// handle's own sender decides when the thread's channel closes, the session change count
+/// and the regions hidden from read-through.
 #[derive(Debug)]
 pub(super) struct ClientSlot {
     commands: Mutex<Option<SyncSender<Command>>>,
-    changes: SessionChanges,
+    changes: SharedCount,
+    hidden: Arc<HiddenRegions>,
 }
 
 impl ClientSlot {
@@ -26,7 +30,8 @@ impl ClientSlot {
     pub(super) fn new(commands: SyncSender<Command>) -> Self {
         Self {
             commands: Mutex::new(Some(commands)),
-            changes: SessionChanges::default(),
+            changes: SharedCount::default(),
+            hidden: Arc::default(),
         }
     }
 
@@ -39,13 +44,34 @@ impl ClientSlot {
     }
 
     /// The session change count, for the thread to bump with the changes it decides.
-    pub(super) fn changes(&self) -> SessionChanges {
+    pub(super) fn changes(&self) -> SharedCount {
         Arc::clone(&self.changes)
+    }
+
+    /// The regions hidden from read-through, for the thread to publish before it answers
+    /// reads that no longer see them.
+    pub(super) fn hidden(&self) -> Arc<HiddenRegions> {
+        Arc::clone(&self.hidden)
     }
 
     /// The session changes queued or decided so far.
     pub(super) fn session_epoch(&self) -> SessionEpoch {
         SessionEpoch(self.changes.load(Ordering::Acquire))
+    }
+
+    /// The changes to what read-through reads show so far; see [`ViewEpoch`].
+    pub(super) fn view_epoch(&self) -> ViewEpoch {
+        ViewEpoch {
+            sessions: self.changes.load(Ordering::Acquire),
+            leading: self.hidden.leading(),
+            hidden: self.hidden.count(),
+        }
+    }
+
+    /// The current view epoch and what changed since `since`; see [`ViewChange`].
+    pub(super) fn view_changes(&self, since: ViewEpoch) -> (ViewEpoch, ViewChange) {
+        self.hidden
+            .changes(self.changes.load(Ordering::Acquire), since)
     }
 
     /// Counts a session change just queued.
@@ -120,6 +146,20 @@ impl StoreClient {
         self.slot.session_epoch()
     }
 
+    /// The changes to what [`ReadTarget::Section`] reads show other than by writes so far.
+    /// Load it before reading, and read again once it moved on.
+    #[must_use]
+    pub fn view_epoch(&self) -> ViewEpoch {
+        self.slot.view_epoch()
+    }
+
+    /// The current view epoch and what [`ReadTarget::Section`] reads show differently since
+    /// `since`: nothing, only the sections overlapping some hidden regions, or anything.
+    #[must_use]
+    pub fn view_changes(&self, since: ViewEpoch) -> (ViewEpoch, ViewChange) {
+        self.slot.view_changes(since)
+    }
+
     /// Queues data `requests` (section puts and removes, chunk hashes and surfaces) to be
     /// written only if no session changed since `epoch`, without waiting for room, then
     /// waits for the thread's verdict, given once it has served every earlier request.
@@ -148,6 +188,7 @@ impl StoreClient {
             Err(_) => unreachable!("epoch writes were sent"),
         }
     }
+
     /// Reads `target` in `dimension`'s session epoch, waiting for the answer. Fails without
     /// waiting when the request queue is full or the client stopped; a thread that stops
     /// before answering yields [`ReadOutcome::Failed`].
@@ -168,6 +209,34 @@ impl StoreClient {
             Ok(()) => Ok(answer
                 .recv()
                 .unwrap_or_else(|_| ReadOutcome::Failed("the store thread stopped".into()))),
+            Err(TrySendError::Full(_)) => Err(SubmitError::Full(())),
+            Err(TrySendError::Disconnected(_)) => Err(SubmitError::Stopped(())),
+        }
+    }
+
+    /// Reads every target of `targets` in `dimension`'s session epoch as one request,
+    /// waiting for all answers, in order; each sees every write sent before the batch. A
+    /// mesh job's snapshot reads its section and neighbours this way, in one round trip.
+    /// Fails without waiting as [`Self::read`]; a thread that stops before answering
+    /// yields [`ReadOutcome::Failed`] for every target.
+    pub fn read_batch(
+        &self,
+        dimension: Dimension,
+        targets: Vec<ReadTarget>,
+        now: Minute,
+    ) -> Result<Vec<ReadOutcome>, SubmitError<()>> {
+        let count = targets.len();
+        let (reply, answer) = mpsc::sync_channel(1);
+        let command = Command::ReadBatchReply {
+            dimension,
+            targets,
+            now,
+            reply,
+        };
+        match self.slot.try_send(command) {
+            Ok(()) => Ok(answer.recv().unwrap_or_else(|_| {
+                vec![ReadOutcome::Failed("the store thread stopped".into()); count]
+            })),
             Err(TrySendError::Full(_)) => Err(SubmitError::Full(())),
             Err(TrySendError::Disconnected(_)) => Err(SubmitError::Stopped(())),
         }

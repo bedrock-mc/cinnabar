@@ -158,6 +158,7 @@ impl WorldStream {
         report.mesh_jobs_dispatched =
             self.dispatch_mesh_jobs_with_limits(camera_position, dispatch_budget, removal_budget);
         self.dispatch_lod_work();
+        self.sync_distant_terrain_meshes();
         self.poll_deadline = None;
         self.polling = false;
         self.chunk_data_offloaded = false;

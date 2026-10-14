@@ -3,66 +3,23 @@
 //! `material 18 | block light 4 | sky light 4 | coverage 3 | water 1 | spare 2`, from the
 //! least significant bit. Shader constants are generated from [`VOXEL_FIELDS`].
 
-/// One named bit field of the voxel word.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct VoxelField {
-    pub name: &'static str,
-    pub shift: u32,
-    pub width: u32,
-}
-
-impl VoxelField {
-    /// The field's bits in place.
-    #[must_use]
-    pub const fn mask(self) -> u32 {
-        (((1_u64 << self.width) - 1) << self.shift) as u32
-    }
-
-    /// Largest value the field holds.
-    #[must_use]
-    pub const fn max_value(self) -> u32 {
-        ((1_u64 << self.width) - 1) as u32
-    }
-
-    /// This field's value in `word`.
-    const fn read(self, word: u32) -> u32 {
-        (word & self.mask()) >> self.shift
-    }
-
-    /// `value` shifted into this field; bits past the width are dropped.
-    const fn place(self, value: u32) -> u32 {
-        (value << self.shift) & self.mask()
-    }
-
-    /// The field of `width` bits directly above this one.
-    const fn after(self, name: &'static str, width: u32) -> Self {
-        Self {
-            name,
-            shift: self.shift + self.width,
-            width,
-        }
-    }
-}
+use crate::bit_field::{BitField, covers_word};
 
 /// Store-local material id.
-pub const MATERIAL_FIELD: VoxelField = VoxelField {
-    name: "material",
-    shift: 0,
-    width: 18,
-};
+pub const MATERIAL_FIELD: BitField = BitField::first("material", 18);
 /// Block light, 0..=15.
-pub const BLOCK_LIGHT_FIELD: VoxelField = MATERIAL_FIELD.after("block_light", 4);
+pub const BLOCK_LIGHT_FIELD: BitField = MATERIAL_FIELD.after("block_light", 4);
 /// Sky light, 0..=15.
-pub const SKY_LIGHT_FIELD: VoxelField = BLOCK_LIGHT_FIELD.after("sky_light", 4);
+pub const SKY_LIGHT_FIELD: BitField = BLOCK_LIGHT_FIELD.after("sky_light", 4);
 /// Quantised fraction of the voxel's volume that is non-air, for shading only.
-pub const COVERAGE_FIELD: VoxelField = SKY_LIGHT_FIELD.after("coverage", 3);
+pub const COVERAGE_FIELD: BitField = SKY_LIGHT_FIELD.after("coverage", 3);
 /// Set when the voxel holds or is covered by water.
-pub const WATER_FIELD: VoxelField = COVERAGE_FIELD.after("water", 1);
+pub const WATER_FIELD: BitField = COVERAGE_FIELD.after("water", 1);
 /// Reserved; must be zero.
-pub const SPARE_FIELD: VoxelField = WATER_FIELD.after("spare", 2);
+pub const SPARE_FIELD: BitField = WATER_FIELD.after("spare", 2);
 
 /// Every field in bit order; together they cover the word exactly once.
-pub const VOXEL_FIELDS: [VoxelField; 6] = [
+pub const VOXEL_FIELDS: [BitField; 6] = [
     MATERIAL_FIELD,
     BLOCK_LIGHT_FIELD,
     SKY_LIGHT_FIELD,
@@ -71,20 +28,10 @@ pub const VOXEL_FIELDS: [VoxelField; 6] = [
     SPARE_FIELD,
 ];
 
-const _: () = {
-    let mut covered = 0_u32;
-    let mut index = 0;
-    while index < VOXEL_FIELDS.len() {
-        let mask = VOXEL_FIELDS[index].mask();
-        assert!(covered & mask == 0, "voxel fields overlap");
-        covered |= mask;
-        index += 1;
-    }
-    assert!(
-        covered == u32::MAX,
-        "voxel fields must cover the whole word"
-    );
-};
+const _: () = assert!(
+    covers_word(&VOXEL_FIELDS),
+    "voxel fields must cover the word exactly once"
+);
 
 /// Largest light nibble.
 pub const MAX_LIGHT: u8 = 15;

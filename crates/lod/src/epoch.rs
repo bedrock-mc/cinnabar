@@ -9,13 +9,13 @@
 //! a clear lead of matching regions and splits it off only on a much clearer lead of
 //! mismatching ones, staying a candidate in between.
 
-use std::num::NonZeroU16;
+use std::{num::NonZeroU16, ops::RangeInclusive};
 
 use world::SUB_CHUNK_SIDE;
 
 use crate::{
     classify::{BlockClass, MaterialClasses, voxel_class},
-    geometry::SECTION_SIDE,
+    geometry::{SECTION_SIDE, section_blocks},
     sampler::ColumnSample,
     voxel::MaterialId,
 };
@@ -178,6 +178,18 @@ impl RegionPos {
             x: chunk_x.div_euclid(REGION_SIDE_CHUNKS),
             z: chunk_z.div_euclid(REGION_SIDE_CHUNKS),
         }
+    }
+
+    /// The section columns at `level` that overlap this region: inclusive X and Z ranges in
+    /// that level's section units.
+    #[must_use]
+    pub fn section_columns(self, level: u8) -> [RangeInclusive<i64>; 2] {
+        let side = i64::from(REGION_SIDE_CHUNKS) * CHUNK_SIDE as i64;
+        let span = section_blocks(level);
+        [self.x, self.z].map(|at| {
+            let min = i64::from(at) * side;
+            min.div_euclid(span)..=(min + side - 1).div_euclid(span)
+        })
     }
 
     /// Index of a chunk of this region, or `None` for chunks outside it.

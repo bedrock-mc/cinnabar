@@ -7,7 +7,8 @@
 //! their own assets. Each item has one path, under its owning module.
 //!
 //! - [`geometry`]: section positions, persistent keys, octants and voxel boxes.
-//! - [`voxel`]: the 32-bit voxel word layout, the single source for shader constants.
+//! - [`bit_field`], [`voxel`]: named word fields and the 32-bit voxel word layout, the
+//!   single source for shader constants.
 //! - [`storage`], [`biome_grid`], [`section`]: packed and dense sections, biome grids and
 //!   tri-state child existence.
 //! - [`sampler`]: level-0 sampling of a chunk column.
@@ -18,16 +19,22 @@
 //! - [`registry`]: the persistent block-state key → material id table.
 //! - [`codec`]: checksummed, compressed section records.
 //! - [`epoch`]: surface signatures and voting that tell worlds behind one server apart.
+//! - [`mesh`]: section meshes of greedy quads in 64-quad clusters, with crack border lists,
+//!   and the bounded cache of meshes a renderer wants.
+//! - [`colour`]: flat face colours per material and biome tints per tint class.
 
 pub mod biome_grid;
+pub mod bit_field;
 pub mod classify;
 pub mod codec;
+pub mod colour;
 pub mod epoch;
 pub mod exposure;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fixtures;
 pub mod geometry;
 pub mod ingest;
+pub mod mesh;
 pub mod mip;
 pub mod mip_policy;
 pub mod registry;

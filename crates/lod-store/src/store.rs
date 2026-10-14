@@ -19,6 +19,7 @@
 mod data;
 mod events;
 mod evict;
+mod hidden;
 mod open;
 mod persist;
 mod registry;
@@ -34,7 +35,7 @@ use std::{
 };
 
 use foldhash::fast::FixedState;
-use lod::registry::MaterialRegistry;
+use lod::{epoch::RegionPos, registry::MaterialRegistry};
 
 pub(crate) use self::persist::table_error;
 pub use self::{
@@ -113,6 +114,14 @@ pub struct Store {
     /// Epochs a read-only store created for its own sessions; they live only in memory.
     detached: HashSet<EpochRef, FixedState>,
     sessions: BTreeMap<Dimension, session::Session>,
+    /// Regions hidden from read-through since the store opened; see
+    /// [`Self::hidden_regions`].
+    hidden_regions: u64,
+    /// Regions hidden since [`Self::take_newly_hidden`] last took them.
+    newly_hidden: Vec<(Dimension, RegionPos)>,
+    /// Times an undecided session's leading epoch changed; see
+    /// [`Self::leading_epoch_changes`].
+    leading_changes: u64,
     events: Vec<StoreEvent>,
 }
 

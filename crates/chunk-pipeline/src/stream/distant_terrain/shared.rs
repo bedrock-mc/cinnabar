@@ -1,7 +1,7 @@
-//! State shared by the frame, the sample jobs and the writer thread.
+//! State shared by the frame, the sample jobs and the writer threads.
 
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         Arc, Condvar, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -11,6 +11,8 @@ use std::{
 
 use lod::{
     epoch::ChunkSurface,
+    geometry::{SectionKey, SectionPos},
+    ingest::{SlabWork, WriterRegion},
     sampler::{BiomeSource, ColumnSample, ColumnSnapshot},
 };
 use lod_store::{
@@ -25,6 +27,7 @@ use super::{
     blocks::{ClassifierCounts, SessionBlocks},
     book::ColumnBook,
     fingerprint::Fingerprint,
+    meshes::MeshShared,
 };
 
 /// Lifetime counters, written from any thread.
@@ -40,6 +43,7 @@ pub(in crate::stream) struct Counters {
     pub(in crate::stream) store_errors: AtomicU64,
     pub(in crate::stream) store_queue_full: AtomicU64,
     pub(in crate::stream) stale_writes: AtomicU64,
+    pub(in crate::stream) handed_slabs: AtomicU64,
     pub(in crate::stream) unkeyed_columns: AtomicU64,
     pub(in crate::stream) unknown_ids: AtomicU64,
     pub(in crate::stream) unkeyed_ids: AtomicU64,
@@ -150,7 +154,7 @@ pub(in crate::stream) struct SampledColumn {
     pub(in crate::stream) _final: Option<InFlight>,
 }
 
-/// What the writer thread receives.
+/// What a writer thread receives.
 pub(in crate::stream) enum WriterInput {
     /// A capture whose hash the store must be asked for before it is sampled.
     Check(Box<Capture>),
@@ -166,22 +170,118 @@ impl WriterInput {
             Self::Sampled(column) => column.kind,
         }
     }
+
+    /// The captured column.
+    fn chunk(&self) -> ChunkKey {
+        match self {
+            Self::Check(capture) => capture.input.chunk,
+            Self::Sampled(column) => column.chunk,
+        }
+    }
 }
 
-/// The writer thread's inbox.
+/// Which writer thread owns which sections: every [`WriterRegion`] belongs to one of
+/// `writers` threads, so each section key has one writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::stream) struct Writers {
+    count: usize,
+}
+
+impl Writers {
+    /// `count` writers, at least one.
+    pub(in crate::stream) fn new(count: usize) -> Self {
+        Self {
+            count: count.max(1),
+        }
+    }
+
+    /// The number of writer threads.
+    pub(in crate::stream) fn count(self) -> usize {
+        self.count
+    }
+
+    /// The writer owning `region`: `(x + 2z) mod count`, so the four regions of any 2×2
+    /// block, where a view usually crosses region borders, go to four writers when there
+    /// are four.
+    pub(in crate::stream) fn of_region(self, region: WriterRegion) -> usize {
+        let index = (i64::from(region.x) + 2 * i64::from(region.z)).rem_euclid(self.count as i64);
+        usize::try_from(index).expect("a remainder of a positive count")
+    }
+
+    /// The writer owning chunk column `chunk`'s sections.
+    pub(in crate::stream) fn of_chunk(self, chunk: ChunkKey) -> usize {
+        self.of_region(WriterRegion::of_chunk(chunk.x, chunk.z))
+    }
+
+    /// True when writer `index` owns the section at `pos`.
+    pub(in crate::stream) fn owns(self, index: usize, pos: SectionPos) -> bool {
+        WriterRegion::of(pos).is_some_and(|region| self.of_region(region) == index)
+    }
+}
+
+/// What one writer thread takes from the inbox at once.
+#[derive(Default)]
+pub(in crate::stream) struct WriterBatch {
+    pub(in crate::stream) items: Vec<WriterInput>,
+    /// Slab re-mips other writers handed over, with their dimension.
+    pub(in crate::stream) slabs: Vec<(Dimension, SlabWork)>,
+}
+
+/// One writer thread's share of the inbox.
+#[derive(Default)]
+struct WriterQueue {
+    items: VecDeque<WriterInput>,
+    /// Slab re-mips handed over by other writers, without repeats.
+    slabs: BTreeSet<(Dimension, SlabWork)>,
+    /// The frame asked the writer to retry requests a full store queue handed back.
+    nudged: bool,
+}
+
+/// The writer threads' inbox, one queue each.
 #[derive(Default)]
 pub(in crate::stream) struct Inbox {
-    pub(in crate::stream) items: VecDeque<WriterInput>,
-    /// Sampled columns among `items`.
+    queues: Vec<WriterQueue>,
+    /// Items across every queue; changed columns are refused at
+    /// [`MAX_LOD_INBOX_COLUMNS`].
+    items: usize,
+    /// Sampled columns among the items.
     pub(in crate::stream) sampled: usize,
-    /// The frame asked the writer to retry requests a full store queue handed back.
-    pub(in crate::stream) nudged: bool,
+    /// Handed-over slabs across every queue.
+    slabs: usize,
+}
+
+impl Inbox {
+    /// An empty inbox for `writers`.
+    fn new(writers: Writers) -> Self {
+        Self {
+            queues: (0..writers.count())
+                .map(|_| WriterQueue::default())
+                .collect(),
+            ..Self::default()
+        }
+    }
+
+    /// True when no item or slab waits.
+    fn is_empty(&self) -> bool {
+        self.items == 0 && self.slabs == 0
+    }
+}
+
+/// One writer thread's state the frame reads.
+#[derive(Debug, Default)]
+pub(in crate::stream) struct WriterFlags {
+    /// The writer holds writes or columns back for the store's full queue and waits for a
+    /// nudge; set before the writer stops being busy, so ingestion is not settled meanwhile.
+    pub(in crate::stream) retry_due: AtomicBool,
+    /// The writer is working on items it took from the inbox.
+    pub(in crate::stream) busy: AtomicBool,
 }
 
 /// Where ingestion runs: the store client, the minute stamped on its requests, the writer
-/// thread's inbox, the column book and the counters.
+/// threads' inbox, the column book and the counters.
 pub(in crate::stream) struct LodShared {
     pub(in crate::stream) client: StoreClient,
+    pub(in crate::stream) writers: Writers,
     now: AtomicU32,
     /// Bumped when a store request failed, so cached sections and hashes may no longer
     /// match the store; see [`Self::generation`].
@@ -192,14 +292,16 @@ pub(in crate::stream) struct LodShared {
     /// Fingerprints sample jobs computed, for the frame to keep for resident columns.
     hashed: Mutex<Vec<(ChunkKey, Fingerprint)>>,
     inbox: Mutex<Inbox>,
-    /// Signalled when the inbox gains work, the frame nudges the writer, or ingestion stops.
+    /// Signalled when the inbox gains work, the frame nudges a writer, or ingestion stops.
     ready: Condvar,
     pub(in crate::stream) book: Mutex<ColumnBook>,
-    /// The writer holds writes or columns back for the store's full queue and waits for a
-    /// nudge; set before the writer stops being busy, so ingestion is not settled meanwhile.
-    pub(in crate::stream) retry_due: AtomicBool,
-    /// The writer is working on items it took from the inbox.
-    pub(in crate::stream) writer_busy: AtomicBool,
+    /// Per writer thread, by index.
+    pub(in crate::stream) flags: Box<[WriterFlags]>,
+    /// The session identities of the latest merged columns, which classify materials for
+    /// merges of handed-over slabs alone.
+    blocks: Mutex<Option<Arc<SessionBlocks>>>,
+    /// The mesher told about every stored section, while meshing is on.
+    meshes: Mutex<Option<Arc<MeshShared>>>,
     /// Captures sent to a job or the writer and not yet sampled.
     pub(in crate::stream) in_flight: AtomicUsize,
     /// Final captures not yet written or dropped.
@@ -208,20 +310,25 @@ pub(in crate::stream) struct LodShared {
 }
 
 impl LodShared {
-    /// Shared state writing through `client`, stamped with `now`.
-    pub(in crate::stream) fn new(client: StoreClient, now: Minute) -> Self {
+    /// Shared state writing through `client` with `writers` writer threads, stamped with
+    /// `now`.
+    pub(in crate::stream) fn new(client: StoreClient, now: Minute, writers: Writers) -> Self {
         Self {
             client,
+            writers,
             now: AtomicU32::new(now.get()),
             invalidations: AtomicU64::new(0),
             enabled: AtomicBool::new(true),
             released: AtomicBool::new(false),
             hashed: Mutex::new(Vec::new()),
-            inbox: Mutex::new(Inbox::default()),
+            inbox: Mutex::new(Inbox::new(writers)),
             ready: Condvar::new(),
             book: Mutex::new(ColumnBook::default()),
-            retry_due: AtomicBool::new(false),
-            writer_busy: AtomicBool::new(false),
+            flags: (0..writers.count())
+                .map(|_| WriterFlags::default())
+                .collect(),
+            blocks: Mutex::new(None),
+            meshes: Mutex::new(None),
             in_flight: AtomicUsize::new(0),
             final_captures: AtomicUsize::new(0),
             counters: Counters::default(),
@@ -285,15 +392,51 @@ impl LodShared {
         std::mem::take(&mut *self.hashed.lock().unwrap_or_else(PoisonError::into_inner))
     }
 
-    /// Turns ingestion off, wakes the writer so it stops, and releases queued work, which
+    /// Turns ingestion off, wakes the writers so they stop, and releases queued work, which
     /// may hold retired chunks, on a background thread.
     pub(in crate::stream) fn disable(&self) {
         self.enabled.store(false, Ordering::Release);
-        let dropped = std::mem::take(&mut *self.lock_inbox());
+        let dropped = std::mem::replace(&mut *self.lock_inbox(), Inbox::new(self.writers));
         self.ready.notify_all();
-        if !dropped.items.is_empty() {
+        if dropped.items > 0 {
             rayon::spawn(move || drop(dropped));
         }
+    }
+
+    /// Sets the mesher told about stored sections; `None` stops telling.
+    pub(in crate::stream) fn set_meshes(&self, meshes: Option<Arc<MeshShared>>) {
+        *self.meshes.lock().unwrap_or_else(PoisonError::into_inner) = meshes;
+    }
+
+    /// Tells the mesher, if any, that `keys` of `dimension` were stored.
+    pub(in crate::stream) fn notify_written(&self, dimension: Dimension, keys: &[SectionKey]) {
+        let meshes = self
+            .meshes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(meshes) = meshes {
+            meshes.written(dimension, keys);
+        }
+    }
+
+    /// Records the session identities a writer merges columns with.
+    pub(in crate::stream) fn note_blocks(&self, blocks: &Arc<SessionBlocks>) {
+        let mut latest = self.blocks.lock().unwrap_or_else(PoisonError::into_inner);
+        if !latest
+            .as_ref()
+            .is_some_and(|latest| Arc::ptr_eq(latest, blocks))
+        {
+            *latest = Some(Arc::clone(blocks));
+        }
+    }
+
+    /// The session identities of the latest merged columns; `None` before any.
+    pub(in crate::stream) fn latest_blocks(&self) -> Option<Arc<SessionBlocks>> {
+        self.blocks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The inbox, even after a panicking holder.
@@ -311,57 +454,99 @@ impl LodShared {
         self.lock_inbox().sampled
     }
 
-    /// Queues `input` for the writer without ever waiting. A changed column finding the
-    /// inbox full, or any input once ingestion is off, is handed back; final captures are
-    /// bounded where they are taken instead.
+    /// Queues `input` for the writer owning its column without ever waiting. A changed
+    /// column finding the inbox full, or any input once ingestion is off, is handed back;
+    /// final captures are bounded where they are taken instead.
     pub(in crate::stream) fn push(&self, input: WriterInput) -> Result<(), WriterInput> {
+        let writer = self.writers.of_chunk(input.chunk());
         let mut inbox = self.lock_inbox();
-        let full = inbox.items.len() >= MAX_LOD_INBOX_COLUMNS;
+        let full = inbox.items >= MAX_LOD_INBOX_COLUMNS;
         if !self.enabled() || (full && input.kind() == CaptureKind::Changed) {
             return Err(input);
         }
         inbox.sampled += usize::from(matches!(input, WriterInput::Sampled(_)));
-        inbox.items.push_back(input);
+        inbox.items += 1;
+        inbox.queues[writer].items.push_back(input);
         drop(inbox);
         self.ready.notify_all();
         Ok(())
     }
 
-    /// Wakes a writer waiting to retry a full store queue; the frame calls it each poll.
-    pub(in crate::stream) fn nudge_writer(&self) {
-        if self.retry_due.load(Ordering::Acquire) {
-            self.lock_inbox().nudged = true;
-            self.ready.notify_all();
+    /// Hands `slabs` of `dimension` to the writers owning them, never refusing them while
+    /// ingestion runs. The handing writer is still busy, so ingestion stays unsettled
+    /// throughout.
+    pub(in crate::stream) fn hand_over(&self, dimension: Dimension, slabs: Vec<SlabWork>) {
+        if slabs.is_empty() {
+            return;
         }
+        let mut inbox = self.lock_inbox();
+        if !self.enabled() {
+            return;
+        }
+        for slab in slabs {
+            let Some(region) = WriterRegion::of(slab.pos) else {
+                continue;
+            };
+            let writer = self.writers.of_region(region);
+            if inbox.queues[writer].slabs.insert((dimension, slab)) {
+                inbox.slabs += 1;
+            }
+            Counters::bump(&self.counters.handed_slabs);
+        }
+        drop(inbox);
+        self.ready.notify_all();
     }
 
-    /// Blocks the writer thread until it has work: up to `limit` items, or, while
-    /// `waiting_for_store`, only a nudge, which returns no items. Marks the writer busy
-    /// before returning; `None` once ingestion is off.
+    /// Wakes the writers waiting to retry a full store queue; the frame calls it each poll.
+    pub(in crate::stream) fn nudge_writer(&self) {
+        let due: Vec<usize> = (0..self.writers.count())
+            .filter(|&writer| self.flags[writer].retry_due.load(Ordering::Acquire))
+            .collect();
+        if due.is_empty() {
+            return;
+        }
+        let mut inbox = self.lock_inbox();
+        for writer in due {
+            inbox.queues[writer].nudged = true;
+        }
+        drop(inbox);
+        self.ready.notify_all();
+    }
+
+    /// Blocks writer thread `writer` until it has work: up to `limit` items and every slab
+    /// handed to it, or, while `waiting_for_store`, only a nudge, which returns nothing.
+    /// Marks the writer busy before returning; `None` once ingestion is off.
     pub(in crate::stream) fn wait_for_work(
         &self,
+        writer: usize,
         limit: usize,
         waiting_for_store: bool,
-    ) -> Option<Vec<WriterInput>> {
+    ) -> Option<WriterBatch> {
         let mut inbox = self.lock_inbox();
-        self.writer_busy.store(false, Ordering::Release);
+        let flags = &self.flags[writer];
+        flags.busy.store(false, Ordering::Release);
         loop {
             if !self.enabled() {
                 return None;
             }
-            if std::mem::take(&mut inbox.nudged) && waiting_for_store {
-                self.writer_busy.store(true, Ordering::Release);
-                return Some(Vec::new());
+            let queue = &mut inbox.queues[writer];
+            if std::mem::take(&mut queue.nudged) && waiting_for_store {
+                flags.busy.store(true, Ordering::Release);
+                return Some(WriterBatch::default());
             }
-            if !waiting_for_store && !inbox.items.is_empty() {
-                let take = inbox.items.len().min(limit);
-                let batch: Vec<WriterInput> = inbox.items.drain(..take).collect();
-                inbox.sampled -= batch
+            if !waiting_for_store && (!queue.items.is_empty() || !queue.slabs.is_empty()) {
+                let take = queue.items.len().min(limit);
+                let items: Vec<WriterInput> = queue.items.drain(..take).collect();
+                let slabs: Vec<(Dimension, SlabWork)> =
+                    std::mem::take(&mut queue.slabs).into_iter().collect();
+                inbox.items -= items.len();
+                inbox.slabs -= slabs.len();
+                inbox.sampled -= items
                     .iter()
                     .filter(|input| matches!(input, WriterInput::Sampled(_)))
                     .count();
-                self.writer_busy.store(true, Ordering::Release);
-                return Some(batch);
+                flags.busy.store(true, Ordering::Release);
+                return Some(WriterBatch { items, slabs });
             }
             inbox = self
                 .ready
@@ -370,12 +555,22 @@ impl LodShared {
         }
     }
 
-    /// True when no capture is in flight, unwritten or queued, so every capture to come is
-    /// newer than every one the writer has seen.
+    /// True when no capture is in flight, unwritten or queued and no slab waits, so every
+    /// capture to come is newer than every one the writers have seen.
     pub(in crate::stream) fn nothing_outstanding(&self) -> bool {
         self.in_flight.load(Ordering::SeqCst) == 0
             && self.final_captures.load(Ordering::SeqCst) == 0
-            && self.lock_inbox().items.is_empty()
+            && self.lock_inbox().is_empty()
+    }
+
+    /// True while a writer works, holds work back for the store's full queue or has slabs
+    /// handed to it. The inbox is read first: a writer marks itself busy before it lets go
+    /// of the inbox lock with the work it took.
+    fn writers_busy(&self) -> bool {
+        self.lock_inbox().slabs > 0
+            || self.flags.iter().any(|flags| {
+                flags.busy.load(Ordering::Acquire) || flags.retry_due.load(Ordering::Acquire)
+            })
     }
 
     /// The counters with the frame's own figures.
@@ -387,8 +582,7 @@ impl LodShared {
             in_flight: self.in_flight.load(Ordering::Relaxed),
             final_captures: self.final_captures.load(Ordering::Relaxed),
             queued: self.queued(),
-            writer_busy: self.writer_busy.load(Ordering::Acquire)
-                || self.retry_due.load(Ordering::Acquire),
+            writer_busy: self.writers_busy(),
             sampled: load(&counters.sampled),
             skipped_unchanged: load(&counters.skipped_unchanged),
             superseded: load(&counters.superseded),
@@ -399,6 +593,7 @@ impl LodShared {
             store_errors: load(&counters.store_errors),
             store_queue_full: load(&counters.store_queue_full),
             stale_writes: load(&counters.stale_writes),
+            handed_slabs: load(&counters.handed_slabs),
             unkeyed_columns: load(&counters.unkeyed_columns),
             unknown_ids: load(&counters.unknown_ids),
             unkeyed_ids: load(&counters.unkeyed_ids),

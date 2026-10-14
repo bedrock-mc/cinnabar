@@ -1,12 +1,22 @@
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    path::Path,
+    sync::{Arc, mpsc},
+};
 
 use test_time::eventually;
 
-use super::*;
+use super::{handle::request_shutdown, *};
 use crate::{
     epochs::{EpochId, EpochRef},
+    error::StoreError,
+    identity::Dimension,
+    minute::Minute,
+    region_file::Access,
     region_id::RegionId,
-    store::{EpochStatus, StoreOptions},
+    root::{Quotas, StoreRoot},
+    store::{EpochStatus, Store, StoreEvent, StoreOptions},
     test_support::{flip_byte, key, record, surface},
 };
 
@@ -529,6 +539,7 @@ fn a_thread_whose_channel_closed_closes_the_store_at_the_handles_time() {
         batch: 4,
         unwritten: Default::default(),
         changes: Arc::default(),
+        hidden: Arc::default(),
         seen: SessionEpoch(0),
     };
     let now = Minute::new(1 + crate::root::STORE_EXPIRY_MINUTES + 1);
@@ -673,21 +684,190 @@ fn a_merge_the_thread_decides_refuses_writes_prepared_in_the_candidate() {
     actor.shutdown(Minute::new(2));
 }
 
+#[test]
+fn a_region_hidden_from_read_through_moves_the_view_epoch_before_reads_see_it() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let target = key(0, 1, 2, 1);
+    {
+        let mut actor = spawn(dir.path(), ActorConfig::default());
+        submit(
+            &mut actor,
+            Request::Begin {
+                dimension: OVERWORLD,
+                now: Minute::new(1),
+            },
+        );
+        submit_world(&mut actor);
+        submit(&mut actor, put(OVERWORLD, record(target, 1, 2)));
+        actor.shutdown(Minute::new(1));
+    }
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    let client = actor.client();
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(2),
+        },
+    );
+    let begun = client.view_epoch();
+    let read = || {
+        client
+            .read(OVERWORLD, ReadTarget::Section(target), Minute::new(2))
+            .expect("read queued")
+    };
+    assert!(matches!(read(), ReadOutcome::Found(_)), "read through");
+    assert_eq!(client.view_epoch(), begun);
+    // Another world in the target's signature region: one mismatch decides nothing.
+    submit_region(&mut actor, 0, 2);
+    assert_eq!(read(), ReadOutcome::Missing, "hidden at once");
+    let hidden = client.view_epoch();
+    assert_eq!(
+        hidden,
+        ViewEpoch {
+            hidden: begun.hidden + 1,
+            ..begun
+        }
+    );
+    assert_eq!(
+        client.view_changes(begun),
+        (
+            hidden,
+            ViewChange::Hidden(vec![(OVERWORLD, lod::epoch::RegionPos { x: 0, z: 0 })])
+        ),
+        "the mismatching region is named"
+    );
+    actor.shutdown(Minute::new(2));
+}
+
+#[test]
+fn a_split_leading_epoch_changes_the_whole_view_but_not_the_session() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let config = ActorConfig {
+        requests: NonZeroUsize::new(8192).expect("non-zero"),
+        ..ActorConfig::default()
+    };
+    let (older, newer) = (key(0, 1, 2, 3), key(0, 2, 2, 1));
+    // Epoch 0 holds world 1 over regions 0..110; epoch 1, split from it, world 2 over
+    // regions 0..220.
+    for (now, seed, regions, stored) in [(1, 1, 110, older), (2, 2, 220, newer)] {
+        let mut actor = spawn(dir.path(), config);
+        submit(
+            &mut actor,
+            Request::Begin {
+                dimension: OVERWORLD,
+                now: Minute::new(now),
+            },
+        );
+        for region in 0..regions {
+            submit_region(&mut actor, region, seed);
+        }
+        submit(&mut actor, put(OVERWORLD, record(stored, seed, 2)));
+        actor.shutdown(Minute::new(now));
+    }
+    let mut actor = spawn(dir.path(), config);
+    let client = actor.client();
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(3),
+        },
+    );
+    let read = |target| {
+        client
+            .read(OVERWORLD, ReadTarget::Section(target), Minute::new(3))
+            .expect("read queued")
+    };
+    assert!(
+        matches!(read(newer), ReadOutcome::Found(_)),
+        "epoch 1 leads"
+    );
+    assert_eq!(read(older), ReadOutcome::Missing);
+    let (view, session) = (client.view_epoch(), client.session_epoch());
+    // A third world where only epoch 1 has signatures splits from it and leaves epoch 0
+    // undecided.
+    for region in 110..220 {
+        submit_region(&mut actor, region, 3);
+    }
+    assert!(
+        matches!(read(older), ReadOutcome::Found(_)),
+        "epoch 0 leads"
+    );
+    assert_eq!(read(newer), ReadOutcome::Missing);
+    let (now, change) = client.view_changes(view);
+    assert_eq!(change, ViewChange::All);
+    assert_eq!(now.leading, view.leading + 1);
+    assert_eq!(
+        client.session_epoch(),
+        session,
+        "the session's own writes stay current"
+    );
+    actor.shutdown(Minute::new(3));
+}
+
+#[test]
+fn a_read_batch_answers_every_target_in_order_after_earlier_writes() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let mut actor = spawn(dir.path(), ActorConfig::default());
+    let client = actor.client();
+    submit(
+        &mut actor,
+        Request::Begin {
+            dimension: OVERWORLD,
+            now: Minute::new(1),
+        },
+    );
+    let (first, second, absent) = (key(0, 1, 0, 1), key(1, 2, 0, 2), key(0, 5, 0, 5));
+    let (first_record, second_record) = (record(first, 1, 2), record(second, 2, 2));
+    submit(&mut actor, put(OVERWORLD, first_record.clone()));
+    submit(&mut actor, put(OVERWORLD, second_record.clone()));
+    let targets = vec![
+        ReadTarget::Section(second),
+        ReadTarget::Section(absent),
+        ReadTarget::OwnSection(first),
+        ReadTarget::ChunkHash { x: 9, z: 9 },
+    ];
+    assert_eq!(
+        client
+            .read_batch(OVERWORLD, targets, Minute::new(1))
+            .expect("queued"),
+        [
+            ReadOutcome::Found(second_record),
+            ReadOutcome::Missing,
+            ReadOutcome::Found(first_record),
+            ReadOutcome::ChunkHash(None),
+        ]
+    );
+    assert_eq!(
+        client
+            .read_batch(OVERWORLD, Vec::new(), Minute::new(1))
+            .expect("queued"),
+        []
+    );
+    actor.shutdown(Minute::new(2));
+}
+
 /// Records one world's surface over enough signature regions for a merge vote.
 fn submit_world(actor: &mut StoreActor) {
     for region in 0..12 {
-        for chunk in 0..16 {
-            let (x, z) = (region * 4 + chunk % 4, chunk / 4);
-            submit(
-                actor,
-                Request::Surface {
-                    dimension: OVERWORLD,
-                    chunk_x: x,
-                    chunk_z: z,
-                    surface: Box::new(surface(1, x, z)),
-                    now: Minute::new(1),
-                },
-            );
-        }
+        submit_region(actor, region, 1);
+    }
+}
+
+/// Records world `seed`'s surface over every chunk of signature region `(region, 0)`.
+fn submit_region(actor: &mut StoreActor, region: i32, seed: u32) {
+    for chunk in 0..16 {
+        let (x, z) = (region * 4 + chunk % 4, chunk / 4);
+        submit(
+            actor,
+            Request::Surface {
+                dimension: OVERWORLD,
+                chunk_x: x,
+                chunk_z: z,
+                surface: Box::new(surface(seed, x, z)),
+                now: Minute::new(1),
+            },
+        );
     }
 }

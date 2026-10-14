@@ -5,7 +5,7 @@ use std::sync::atomic::Ordering;
 use super::*;
 use crate::stream::distant_terrain::{
     MAX_LOD_BACKLOG, MAX_LOD_INBOX_COLUMNS,
-    shared::{InFlight, LodShared, WriterInput},
+    shared::{InFlight, LodShared, WriterInput, Writers},
 };
 
 #[test]
@@ -49,7 +49,7 @@ fn a_full_writer_inbox_drops_changed_samples_but_takes_final_ones() {
     let mut stream = stream();
     commit_column(&mut stream, 1, 1, STONE, 15);
     // No writer thread runs for this state, as when the writer is busy for a long time.
-    let shared = Arc::new(LodShared::new(store.client(), NOW));
+    let shared = Arc::new(LodShared::new(store.client(), NOW, Writers::new(1)));
     let blocks = session_blocks(&mut None, &stream.authority);
     let capture = |seq, kind| Capture {
         seq,

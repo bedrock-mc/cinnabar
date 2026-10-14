@@ -1,9 +1,9 @@
-//! What ingestion knows about each column: the newest capture the writer accepted, and the
+//! What ingestion knows about each column: the newest capture a writer accepted, and the
 //! content hash the store holds or is about to hold for it.
 //!
 //! Captures finish in any order, so every capture carries a sequence number taken when it
-//! was captured. The writer, the book's only writer of hashes, accepts a capture only when
-//! no newer one of the column was accepted or skipped. A sample job, or the frame for a
+//! was captured. The column's writer, the book's only writer of its hash, accepts a capture
+//! only when no newer one of the column was accepted or skipped. A sample job, or the frame for a
 //! column whose hash it already knows, may skip the column when its hash equals the
 //! book's, which also marks its sequence as seen.
 //!

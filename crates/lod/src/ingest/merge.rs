@@ -1,9 +1,9 @@
 //! The working state of one merge: the sections it holds expanded, the stored sections
 //! it read for their face planes, and the per-level work it schedules.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::{MergeStats, Merged, SectionSource};
+use super::{MergeStats, Merged, SectionSource, SlabWork};
 use crate::{
     classify::MaterialClasses,
     exposure::{FacePlane, Neighbourhood},
@@ -63,23 +63,30 @@ impl Working {
     }
 }
 
-pub(super) struct Merge<'s, S, C> {
+pub(super) struct Merge<'s, S, C, O> {
     source: &'s mut S,
     classes: &'s C,
+    /// Whether the merge may write a section.
+    owns: &'s O,
     working: HashMap<SectionKey, Working>,
     /// Stored sections read only for their face planes.
     stored: HashMap<SectionKey, Option<Section>>,
+    /// Neighbour slab re-mips left to the neighbours' owners.
+    foreign: BTreeSet<SlabWork>,
     stats: MergeStats,
 }
 
-impl<'s, S: SectionSource, C: MaterialClasses> Merge<'s, S, C> {
-    /// A merge reading from `source` with `classes`, holding nothing yet.
-    pub(super) fn new(source: &'s mut S, classes: &'s C) -> Self {
+impl<'s, S: SectionSource, C: MaterialClasses, O: Fn(SectionPos) -> bool> Merge<'s, S, C, O> {
+    /// A merge reading from `source` with `classes` and writing only sections `owns`
+    /// accepts, holding nothing yet.
+    pub(super) fn new(source: &'s mut S, classes: &'s C, owns: &'s O) -> Self {
         Self {
             source,
             classes,
+            owns,
             working: HashMap::new(),
             stored: HashMap::new(),
+            foreign: BTreeSet::new(),
             stats: MergeStats::default(),
         }
     }
@@ -186,6 +193,13 @@ impl<'s, S: SectionSource, C: MaterialClasses> Merge<'s, S, C> {
                 let Some(neighbour) = key.pos().neighbour(face) else {
                     continue;
                 };
+                if !(self.owns)(neighbour) {
+                    self.foreign.insert(SlabWork {
+                        pos: neighbour,
+                        face: face.opposite(),
+                    });
+                    continue;
+                }
                 if self.present(neighbour)? {
                     level
                         .entry(neighbour.key())
@@ -193,6 +207,25 @@ impl<'s, S: SectionSource, C: MaterialClasses> Merge<'s, S, C> {
                         .remip(face.opposite().slab());
                     self.stats.neighbour_slabs += 1;
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Schedules the `slabs` other writers handed over, at one level, for the sections
+    /// that are present.
+    pub(super) fn schedule_handed_slabs(
+        &mut self,
+        slabs: &[SlabWork],
+        level: &mut BTreeMap<SectionKey, LevelWork>,
+    ) -> Result<(), S::Error> {
+        for slab in slabs {
+            if self.present(slab.pos)? {
+                level
+                    .entry(slab.pos.key())
+                    .or_default()
+                    .remip(slab.face.slab());
+                self.stats.neighbour_slabs += 1;
             }
         }
         Ok(())
@@ -259,6 +292,7 @@ impl<'s, S: SectionSource, C: MaterialClasses> Merge<'s, S, C> {
             .filter(|(_, working)| working.write)
             .collect();
         written.sort_unstable_by_key(|(key, _)| *key);
+        debug_assert!(written.iter().all(|(key, _)| (self.owns)(key.pos())));
         let sections: Vec<Section> = written
             .into_iter()
             .map(|(key, working)| {
@@ -272,6 +306,7 @@ impl<'s, S: SectionSource, C: MaterialClasses> Merge<'s, S, C> {
                 ..self.stats
             },
             sections,
+            foreign: self.foreign.into_iter().collect(),
         }
     }
 }

@@ -133,6 +133,9 @@ impl Store {
             epochs: Default::default(),
             detached: Default::default(),
             sessions: Default::default(),
+            hidden_regions: 0,
+            newly_hidden: Vec::new(),
+            leading_changes: 0,
             events,
         };
         if access == Access::ReadWrite {

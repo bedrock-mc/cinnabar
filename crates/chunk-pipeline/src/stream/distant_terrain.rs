@@ -19,37 +19,57 @@
 //!   unchanged since a job hashed them ([`fingerprint`]), and skips a column whose hash the
 //!   column book shows stored in the session's own epoch without queueing any job. Sample
 //!   jobs hash the rest and skip them the same way. Nothing waits for the store: the
-//!   writer thread asks it for hashes the book does not know. Hashes the book learned
+//!   writer threads ask it for hashes the book does not know. Hashes the book learned
 //!   before a store session changed are unknown afterwards.
 //! - Light values are left out of the hash, so a light job that changes a captured
 //!   column's light marks it dirty and relit: once settled it is sampled whatever its
 //!   hash.
 //! - Every capture carries a sequence number; the writer never lets an older capture of a
 //!   column replace a newer one.
-//! - The writer thread, the only thread that talks to the store, merges samples into the
-//!   sections they share ([`lod::ingest`]), reading only the session's own epoch, and
-//!   submits sections, surfaces and content hashes without blocking.
+//! - Up to [`MAX_LOD_WRITERS`] writer threads merge samples into the sections they share
+//!   ([`lod::ingest`]), each owning whole writer regions, reading only the session's own
+//!   epoch, and submit sections, surfaces and content hashes without blocking. They and the
+//!   mesher thread ([`meshes`]) are the only threads that talk to the store, so world and
+//!   mesh workers never wait for disk.
+//! - The writers' section caches, the mesher's snapshots and the meshes it keeps are bounded
+//!   in bytes within [`LOD_CPU_MEMORY_BYTES`].
 
-mod blocks;
+pub(in crate::stream) mod blocks;
 pub(in crate::stream) mod book;
+pub(in crate::stream) mod colours;
 mod fingerprint;
 mod hash;
 pub(in crate::stream) mod hooks;
 pub(in crate::stream) mod jobs;
 mod link;
+mod mesher;
+pub(in crate::stream) mod meshes;
+mod sections;
 pub(in crate::stream) mod shared;
+mod snapshots;
+mod stats;
 pub(in crate::stream) mod writer;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{collections::VecDeque, sync::Arc};
 
 use hashbrown::{HashMap, HashSet};
 
 use lod_store::{actor::StoreClient, minute::Minute, region_file::Access};
 use world::ChunkKey;
 
-pub use self::link::DistantTerrainLink;
-use self::{blocks::SessionBlocks, fingerprint::Fingerprint, shared::LodShared};
-use super::WorldStream;
+use self::{
+    blocks::SessionBlocks,
+    fingerprint::Fingerprint,
+    shared::{LodShared, Writers},
+};
+pub use self::{
+    link::DistantTerrainLink,
+    meshes::{
+        DistantTerrainColours, DistantTerrainMeshStats, LOD_MESH_CACHE_BYTES, MAX_LOD_MESH_JOBS,
+    },
+    stats::DistantTerrainStats,
+};
+use super::{WorldStream, workers::WORKERS};
 
 /// Polls a dirty column waits without another change before it is sampled, so bursts of
 /// block changes are sampled once.
@@ -69,71 +89,23 @@ pub const MAX_LOD_FINAL_CAPTURES_PER_POLL: usize = 32;
 pub(in crate::stream) const MAX_LOD_INBOX_COLUMNS: usize = 32;
 /// Columns one merge takes.
 const MERGE_BATCH_COLUMNS: usize = 8;
-/// Sections the writer keeps cached.
-const LOD_SECTION_CACHE_ENTRIES: usize = 2048;
+/// Distant terrain's CPU memory for decoded sections, store records and meshes.
+pub const LOD_CPU_MEMORY_BYTES: usize = 128 << 20;
+/// Bytes of decoded sections the writers keep cached, split evenly between them.
+const LOD_SECTION_CACHE_BYTES: usize = 32 << 20;
 /// Columns the column book holds before it is emptied at the next idle moment.
 const MAX_LOD_BOOK_COLUMNS: usize = 1 << 16;
+/// Most writer threads ingestion runs; fewer when the world pool has fewer background
+/// threads, which the writers share the machine with.
+pub const MAX_LOD_WRITERS: usize = 4;
 
 // Dispatch keeps changed columns from overflowing the inbox.
 const _: () = assert!(MAX_LOD_BACKLOG <= MAX_LOD_INBOX_COLUMNS);
-
-/// Distant terrain ingestion counters.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DistantTerrainStats {
-    /// Columns waiting to settle.
-    pub dirty_columns: usize,
-    /// Captures queued and not yet sampled.
-    pub in_flight: usize,
-    /// Final captures not yet written.
-    pub final_captures: usize,
-    /// Samples waiting for the writer.
-    pub queued: usize,
-    /// The writer is working, or holds requests back for a full store queue.
-    pub writer_busy: bool,
-    /// Jobs queued on the Lod lane.
-    pub jobs_queued: u64,
-    /// Columns sampled.
-    pub sampled: u64,
-    /// Columns skipped because the store holds their content hash.
-    pub skipped_unchanged: u64,
-    /// Captures dropped because a newer capture of their column was taken.
-    pub superseded: u64,
-    /// Changed columns dropped for a full backlog or writer inbox.
-    pub dropped: u64,
-    /// Evicted columns dropped beyond [`MAX_LOD_PENDING_FINAL_CAPTURES`].
-    pub dropped_final_captures: u64,
-    /// Columns merged into stored sections.
-    pub merged_columns: u64,
-    /// Section records submitted.
-    pub sections_written: u64,
-    /// Reads and requests the store failed or refused after stopping.
-    pub store_errors: u64,
-    /// Requests a full store queue handed back; they are retried in order.
-    pub store_queue_full: u64,
-    /// Merges the store refused because a session changed while they were prepared; their
-    /// columns were merged again.
-    pub stale_writes: u64,
-    /// Columns outside the section key range, never sampled.
-    pub unkeyed_columns: u64,
-    /// Ids the session's assets do not know, sampled as air; once per sampled column.
-    pub unknown_ids: u64,
-    /// Visible ids no material key names, sampled as air; once per sampled column.
-    pub unkeyed_ids: u64,
-    /// Visible states sampled as air because the store's registry is full; once per
-    /// sampled column.
-    pub registry_full: u64,
-    /// Time sample jobs held background world workers.
-    pub worker_time: Duration,
-}
-
-impl DistantTerrainStats {
-    /// True when no sampled or captured column still waits to reach the store's queue;
-    /// dirty columns that have not settled do not count.
-    #[must_use]
-    pub const fn is_settled(&self) -> bool {
-        self.in_flight == 0 && self.final_captures == 0 && self.queued == 0 && !self.writer_busy
-    }
-}
+// The writers' caches, the mesher's snapshots and the meshes share the CPU memory cap.
+const _: () = assert!(
+    LOD_SECTION_CACHE_BYTES + meshes::LOD_MESH_SNAPSHOT_BYTES + LOD_MESH_CACHE_BYTES
+        <= LOD_CPU_MEMORY_BYTES
+);
 
 /// The frame's ingestion state.
 pub(super) struct LodIngest {
@@ -162,8 +134,8 @@ pub enum DistantTerrainUnavailable {
     /// The store is read-only: another client writes it.
     #[error("the distant terrain store is read-only")]
     ReadOnly,
-    /// The writer thread could not start.
-    #[error("the distant terrain writer thread could not start: {0}")]
+    /// A writer thread could not start.
+    #[error("a distant terrain writer thread could not start: {0}")]
     WriterThread(#[source] std::io::Error),
 }
 
@@ -194,13 +166,25 @@ impl WorldStream {
         client: StoreClient,
         now: Minute,
     ) -> Result<DistantTerrainLink, DistantTerrainUnavailable> {
+        let writers = WORKERS.size().background.min(MAX_LOD_WRITERS);
+        self.enable_distant_terrain_with(client, now, Writers::new(writers))
+    }
+
+    /// [`Self::enable_distant_terrain`] with `writers` writer threads.
+    pub(in crate::stream) fn enable_distant_terrain_with(
+        &mut self,
+        client: StoreClient,
+        now: Minute,
+        writers: Writers,
+    ) -> Result<DistantTerrainLink, DistantTerrainUnavailable> {
         self.capture_final_columns(usize::MAX);
         self.disable_distant_terrain();
         if client.access() == Access::ReadOnly {
             return Err(DistantTerrainUnavailable::ReadOnly);
         }
-        let shared = Arc::new(LodShared::new(client, now));
-        writer::spawn(Arc::clone(&shared)).map_err(DistantTerrainUnavailable::WriterThread)?;
+        let shared = Arc::new(LodShared::new(client, now, writers));
+        shared.set_meshes(self.lod_mesh_shared());
+        writer::spawn(&shared).map_err(DistantTerrainUnavailable::WriterThread)?;
         let mut lod = LodIngest {
             shared: Arc::clone(&shared),
             dirty: HashMap::new(),
@@ -256,11 +240,13 @@ impl WorldStream {
             .is_some_and(|lod| lod.finishing.is_none() && lod.shared.enabled())
     }
 
-    /// Sets the minute stamped on later store requests; edge code reads the clock.
+    /// Sets the minute stamped on later store requests and mesh reads; edge code reads the
+    /// clock.
     pub fn set_distant_terrain_minute(&mut self, now: Minute) {
         if let Some(lod) = &self.lod {
             lod.shared.set_now(now);
         }
+        self.set_distant_terrain_mesh_minute(now);
     }
 
     /// Forgets cached sections and content hashes after a store request failed, so later

@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use lod::epoch::RegionPos;
+
 use super::EpochStatus;
 use crate::{
     access::RegionRef, epochs::EpochRef, error::TableErrorAt, identity::Dimension,
@@ -28,6 +30,13 @@ pub enum StoreEvent {
     Epoch {
         dimension: Dimension,
         status: EpochStatus,
+    },
+    /// A signature region of an undecided session voted against the stored epoch it was
+    /// compared with; sections overlapping it no longer read through to that epoch.
+    ReadThroughHidden {
+        dimension: Dimension,
+        region: RegionPos,
+        epoch: EpochRef,
     },
     /// An undecided candidate was discarded with its data.
     CandidateDropped(EpochRef),

@@ -41,6 +41,26 @@ impl BlockFace {
         }
     }
 
+    /// Decodes the model carrier's face flag field, the inverse of
+    /// [`Self::model_quad_face_id`]; `None` for `0` (no face) and unused values.
+    #[must_use]
+    pub const fn from_model_quad_face_id(id: u32) -> Option<Self> {
+        let mut index = 0;
+        while index < Self::ALL.len() {
+            if Self::ALL[index].model_quad_face_id() == id {
+                return Some(Self::ALL[index]);
+            }
+            index += 1;
+        }
+        None
+    }
+
+    /// The face of a model quad's `flags`, read from their face field.
+    #[must_use]
+    pub const fn of_model_quad_flags(flags: u32) -> Option<Self> {
+        Self::from_model_quad_face_id(flags & crate::MODEL_QUAD_FLAG_FACE_MASK)
+    }
+
     #[doc(hidden)]
     #[must_use]
     pub const fn is_horizontal(self) -> bool {
@@ -280,4 +300,21 @@ pub struct CompiledAssets {
     /// Exact source identities bound into the blob header. Encode rejects
     /// incomplete identity, so serialized output always names its inputs.
     pub provenance: BlobProvenance,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlockFace;
+    use crate::model::model_quad_flags_are_valid;
+
+    #[test]
+    fn model_quad_face_ids_round_trip_through_the_flag_field() {
+        for face in BlockFace::ALL {
+            let flags = face.model_quad_face_id() | crate::MODEL_QUAD_FLAG_TWO_SIDED;
+            assert!(model_quad_flags_are_valid(flags), "{face:?}");
+            assert_eq!(BlockFace::of_model_quad_flags(flags), Some(face));
+        }
+        assert_eq!(BlockFace::of_model_quad_flags(0), None, "no face");
+        assert_eq!(BlockFace::from_model_quad_face_id(7), None);
+    }
 }

@@ -1,5 +1,5 @@
 //! Sample jobs: content hash, level-0 sampling and surface signatures of one column. They
-//! never wait: the store is only ever asked by the writer thread.
+//! never wait: the store is only ever asked by the writer threads.
 
 use std::{sync::Arc, time::Instant};
 

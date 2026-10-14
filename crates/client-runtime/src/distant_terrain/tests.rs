@@ -435,6 +435,7 @@ fn the_marker_line_names_the_state_and_every_counter() {
         "jobs_queued=0",
         "superseded=0",
         "stale_writes=0",
+        "handed_slabs=0",
         "unknown_ids=0",
         "unkeyed_ids=0",
         "registry_full=0",

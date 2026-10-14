@@ -77,20 +77,41 @@ impl SessionBlocks {
         block_class(&self.assets, self.assets.resolve(self.mode, value))
     }
 
-    /// The class of a stored material's key under the current assets; keys the session
-    /// cannot resolve are opaque, as stored materials are never air.
-    fn class_of_key(&self, key: &MaterialKey) -> BlockClass {
-        let value = match key {
+    /// The session's palette value of a stored material's key, if the session names it.
+    fn value_of_key(&self, key: &MaterialKey) -> Option<u32> {
+        match key {
             MaterialKey::Network(hash) => match self.mode {
                 NetworkIdMode::Hashed => Some(*hash),
                 NetworkIdMode::Sequential => assets::pinned_block_sequential_id(*hash),
             },
             MaterialKey::Custom(_) => self.custom_ids.get(key).copied(),
-        };
-        match value.map(|value| self.class_of_value(value)) {
+        }
+    }
+
+    /// The class of a stored material's key under the current assets; keys the session
+    /// cannot resolve are opaque, as stored materials are never air.
+    fn class_of_key(&self, key: &MaterialKey) -> BlockClass {
+        match self
+            .value_of_key(key)
+            .map(|value| self.class_of_value(value))
+        {
             Some(BlockClass::Air) | None => BlockClass::Opaque,
             Some(class) => class,
         }
+    }
+
+    /// The runtime assets these identities resolve through.
+    pub(in crate::stream) fn assets(&self) -> &RuntimeAssets {
+        &self.assets
+    }
+
+    /// The block a stored material's key names, if the session and its assets know it.
+    pub(in crate::stream) fn block_of_key(&self, key: &MaterialKey) -> Option<ResolvedBlock> {
+        let value = self.value_of_key(key)?;
+        self.assets
+            .is_known(self.mode, value)
+            .then(|| self.assets.resolve(self.mode, value))
+            .filter(|block| block.is_known())
     }
 }
 

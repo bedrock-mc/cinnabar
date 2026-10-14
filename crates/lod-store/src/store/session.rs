@@ -12,20 +12,25 @@
 //!
 //! While undecided, a candidate reads section records through to its leading stored
 //! epoch, the most recently used one that has not split, so a revisit shows its stored
-//! terrain at once; a different world shows the stored one's until enough of it is seen
-//! to split. Chunk content hashes are never read through: a candidate must sample every
-//! chunk it is sent, because those samples are its votes. Writers merge into a candidate
+//! terrain at once. A region whose own vote against that epoch found different terrain
+//! stops reading through at once, at every level whose sections overlap it, so a
+//! different world shows the stored one's terrain only where it has not voted yet. When
+//! the leading epoch splits while another stays undecided, every read-through moves to
+//! the next one, which [`Store::leading_epoch_changes`] counts. Chunk content hashes are
+//! never read through: a candidate must sample every chunk it is sent, because those
+//! samples are its votes. Writers merge into a candidate
 //! through own-epoch reads ([`crate::actor::ReadTarget::OwnSection`]), so it holds only
 //! terrain it sampled and splits off clean; a merge lays its records over the stored
 //! ones.
 
 use std::collections::HashSet;
 
-use lod::epoch::{
-    ChunkSurface, EpochDecision, EpochVote, RegionComparison, RegionPos, compare_region,
+use lod::{
+    epoch::{ChunkSurface, EpochDecision, EpochVote, RegionComparison, RegionPos, compare_region},
+    geometry::SectionKey,
 };
 
-use super::{Store, StoreEvent, open::remove_dir};
+use super::{Store, StoreEvent, hidden::HiddenRegions, open::remove_dir};
 use crate::{
     epochs::{EpochRef, EpochState},
     error::StoreError,
@@ -81,6 +86,8 @@ struct StoredVote {
     vote: EpochVote,
     /// Regions that already voted or abstained for good.
     settled: HashSet<RegionPos>,
+    /// Regions that voted "mismatch": never read through to this epoch.
+    hidden: HiddenRegions,
 }
 
 impl Store {
@@ -117,6 +124,7 @@ impl Store {
                 epoch,
                 vote: EpochVote::new(),
                 settled: HashSet::new(),
+                hidden: HiddenRegions::default(),
             })
             .collect();
         let salt = u64::from(now.get()) << 32 | u64::from(epoch.id.0);
@@ -168,6 +176,21 @@ impl Store {
     /// or when it has no session.
     #[must_use]
     pub fn leading_epoch(&self, dimension: Dimension) -> Option<EpochRef> {
+        self.leading_vote(dimension).map(|vote| vote.epoch)
+    }
+
+    /// The epoch an undecided session reads `key` through to: its
+    /// [`Self::leading_epoch`], unless a signature region the section overlaps voted
+    /// against that epoch.
+    #[must_use]
+    pub fn read_through_epoch(&self, dimension: Dimension, key: SectionKey) -> Option<EpochRef> {
+        self.leading_vote(dimension)
+            .filter(|vote| !vote.hidden.hides(key))
+            .map(|vote| vote.epoch)
+    }
+
+    /// The vote against the leading epoch of `dimension`'s undecided session.
+    fn leading_vote(&self, dimension: Dimension) -> Option<&StoredVote> {
         let session = self.sessions.get(&dimension)?;
         if !session.status.is_candidate() {
             return None;
@@ -176,9 +199,31 @@ impl Store {
             .votes
             .iter()
             .filter(|vote| vote.vote.decision() != EpochDecision::Split)
-            .filter_map(|vote| self.catalog.get(vote.epoch))
-            .max_by_key(|entry| (entry.last_used, entry.epoch.id))
-            .map(|entry| entry.epoch)
+            .filter_map(|vote| Some((vote, self.catalog.get(vote.epoch)?)))
+            .max_by_key(|(_, entry)| (entry.last_used, entry.epoch.id))
+            .map(|(vote, _)| vote)
+    }
+
+    /// How many times an undecided session's leading epoch changed since the store opened
+    /// without the session deciding: the leading epoch split while another stayed
+    /// undecided, so every read-through may answer differently without a write.
+    #[must_use]
+    pub fn leading_epoch_changes(&self) -> u64 {
+        self.leading_changes
+    }
+
+    /// How many regions have stopped reading through since the store opened; it moves on
+    /// whenever a read-through read of a section overlapping one of them may answer
+    /// differently without a write.
+    #[must_use]
+    pub fn hidden_regions(&self) -> u64 {
+        self.hidden_regions
+    }
+
+    /// Takes the regions hidden from read-through since the last call, oldest first, with
+    /// their dimensions.
+    pub fn take_newly_hidden(&mut self) -> Vec<(Dimension, RegionPos)> {
+        std::mem::take(&mut self.newly_hidden)
     }
 
     /// Records a sampled chunk's surface in the session epoch and, while it is a
@@ -199,8 +244,16 @@ impl Store {
             .record(chunk_x, chunk_z, surface);
         let pos = RegionPos::of_chunk(chunk_x, chunk_z);
         if let EpochStatus::Candidate(candidate) = self.sessions[&dimension].status {
-            self.vote(dimension, candidate, pos)?;
-            self.settle(dimension, candidate, now)?;
+            let leading = self.leading_epoch(dimension);
+            let voted = self
+                .vote(dimension, candidate, pos)
+                .and_then(|()| self.settle(dimension, candidate, now));
+            if self.sessions[&dimension].status.is_candidate()
+                && self.leading_epoch(dimension) != leading
+            {
+                self.leading_changes += 1;
+            }
+            voted?;
         }
         Ok(self.sessions[&dimension].status)
     }
@@ -242,6 +295,16 @@ impl Store {
             if comparison != RegionComparison::TooFewColumns {
                 vote.settled.insert(pos);
                 vote.vote.record(comparison);
+            }
+            if matches!(comparison, RegionComparison::Mismatch { .. }) {
+                vote.hidden.hide(pos);
+                self.hidden_regions += 1;
+                self.newly_hidden.push((dimension, pos));
+                self.events.push(StoreEvent::ReadThroughHidden {
+                    dimension,
+                    region: pos,
+                    epoch: stored_epoch,
+                });
             }
         }
         Ok(())

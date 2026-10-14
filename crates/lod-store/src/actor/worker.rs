@@ -16,7 +16,7 @@ use lod::{
 
 use super::{
     ActorEvent, Command, EpochWrite, ReadOutcome, ReadResult, ReadTarget, ReadTicket, Request,
-    SessionEpoch, ShutdownTime, client::SessionChanges,
+    SessionEpoch, ShutdownTime, client::SharedCount, view::HiddenRegions,
 };
 use crate::{
     error::{RegionError, StoreError},
@@ -44,7 +44,9 @@ pub(super) struct Worker {
     pub(super) unwritten: HashSet<Footprint>,
     /// The count submitters bump as they queue a begin or end, and this thread as it
     /// decides a change.
-    pub(super) changes: SessionChanges,
+    pub(super) changes: SharedCount,
+    /// The regions hidden from read-through that clients see.
+    pub(super) hidden: Arc<HiddenRegions>,
     /// The session changes this thread has served or decided, in queue order: what an
     /// epoch write sent behind them must have been prepared in.
     pub(super) seen: SessionEpoch,
@@ -96,9 +98,11 @@ enum Answer {
     Ticket(ReadTicket),
     /// A client's own channel.
     Reply(SyncSender<ReadOutcome>),
+    /// A client's own channel, with the answers of every target of the batch in order.
+    Batch(Vec<ReadTarget>, SyncSender<Vec<ReadOutcome>>),
 }
 
-/// A read waiting for the writes before it.
+/// A read waiting for the writes before it; a batch's `target` is unused.
 struct PendingRead {
     answer: Answer,
     dimension: Dimension,
@@ -174,6 +178,22 @@ impl Worker {
                         target,
                         now,
                     }),
+                    Command::ReadBatchReply {
+                        dimension,
+                        mut targets,
+                        now,
+                        reply,
+                    } => match targets.len() {
+                        0 => {
+                            let _ = reply.send(Vec::new());
+                        }
+                        _ => pending.reads.push(PendingRead {
+                            target: targets[0],
+                            answer: Answer::Batch(std::mem::take(&mut targets), reply),
+                            dimension,
+                            now,
+                        }),
+                    },
                     Command::Shutdown { now } => {
                         self.apply(&mut pending);
                         self.close(now.or(last_now));
@@ -315,44 +335,21 @@ impl Worker {
         }
         for ((dimension, x, z), (surface, now)) in std::mem::take(&mut pending.surfaces) {
             let before = self.store().epoch_status(dimension);
-            match self.store().record_surface(dimension, x, z, *surface, now) {
-                Ok(status) if Some(status) != before => self.decided_session_change(),
-                Ok(_) => {}
-                Err(error) => {
-                    if self.store().epoch_status(dimension) != before {
-                        self.decided_session_change();
-                    }
-                    self.failed("surface", error);
-                }
+            let result = self.store().record_surface(dimension, x, z, *surface, now);
+            if self.store().epoch_status(dimension) != before {
+                self.decided_session_change();
+            }
+            if let Err(error) = result {
+                self.failed("surface", error);
             }
         }
+        self.publish_hidden();
         let mut record = Vec::new();
-        for read in pending.reads.drain(..) {
-            let store = self.store.as_mut().expect("open until shutdown");
-            let outcome = match read.target {
-                ReadTarget::Section(key) | ReadTarget::OwnSection(key) => {
-                    let found = if matches!(read.target, ReadTarget::Section(_)) {
-                        store.get_into(read.dimension, key, &mut record, read.now)
-                    } else {
-                        store.get_own_into(read.dimension, key, &mut record, read.now)
-                    };
-                    match found {
-                        Ok(true) => ReadOutcome::Found(std::mem::take(&mut record)),
-                        Ok(false) => ReadOutcome::Missing,
-                        Err(StoreError::Region(RegionError::Corrupt { .. })) => {
-                            ReadOutcome::Corrupt
-                        }
-                        Err(error) => ReadOutcome::Failed(error.to_string()),
-                    }
-                }
-                ReadTarget::ChunkHash { x, z } => match store.chunk_hash(read.dimension, x, z) {
-                    Ok(hash) => ReadOutcome::ChunkHash(hash),
-                    Err(error) => ReadOutcome::Failed(error.to_string()),
-                },
-            };
+        for read in std::mem::take(&mut pending.reads) {
             match read.answer {
                 // Never blocks: the handle keeps reads in flight within the queue's capacity.
                 Answer::Ticket(ticket) => {
+                    let outcome = self.read(read.dimension, read.target, read.now, &mut record);
                     let _ = self.results.send(ReadResult {
                         ticket,
                         dimension: read.dimension,
@@ -362,10 +359,60 @@ impl Worker {
                 }
                 // Never blocks: each reply channel holds its one answer.
                 Answer::Reply(reply) => {
+                    let outcome = self.read(read.dimension, read.target, read.now, &mut record);
                     let _ = reply.send(outcome);
+                }
+                Answer::Batch(targets, reply) => {
+                    let outcomes = targets
+                        .into_iter()
+                        .map(|target| self.read(read.dimension, target, read.now, &mut record))
+                        .collect();
+                    let _ = reply.send(outcomes);
                 }
             }
         }
+    }
+
+    /// Reads `target` in `dimension`'s session epoch, using `record` as the buffer of a
+    /// section record found.
+    fn read(
+        &mut self,
+        dimension: Dimension,
+        target: ReadTarget,
+        now: Minute,
+        record: &mut Vec<u8>,
+    ) -> ReadOutcome {
+        let store = self.store();
+        match target {
+            ReadTarget::Section(key) | ReadTarget::OwnSection(key) => {
+                let found = if matches!(target, ReadTarget::Section(_)) {
+                    store.get_into(dimension, key, record, now)
+                } else {
+                    store.get_own_into(dimension, key, record, now)
+                };
+                match found {
+                    Ok(true) => ReadOutcome::Found(std::mem::take(record)),
+                    Ok(false) => ReadOutcome::Missing,
+                    Err(StoreError::Region(RegionError::Corrupt { .. })) => ReadOutcome::Corrupt,
+                    Err(error) => ReadOutcome::Failed(error.to_string()),
+                }
+            }
+            ReadTarget::ChunkHash { x, z } => match store.chunk_hash(dimension, x, z) {
+                Ok(hash) => ReadOutcome::ChunkHash(hash),
+                Err(error) => ReadOutcome::Failed(error.to_string()),
+            },
+        }
+    }
+
+    /// Publishes regions the store hid from read-through since the last call and how often
+    /// a leading epoch changed, before the reads behind them are answered.
+    fn publish_hidden(&mut self) {
+        let hidden = self.store().take_newly_hidden();
+        if !hidden.is_empty() {
+            self.hidden.publish(hidden);
+        }
+        let leading = self.store().leading_epoch_changes();
+        self.hidden.publish_leading(leading);
     }
 
     /// Counts a session change this thread decided: a candidate merged or established.

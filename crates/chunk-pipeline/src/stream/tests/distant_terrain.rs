@@ -3,6 +3,7 @@
 
 mod backlog;
 mod finals;
+mod meshes;
 mod relight;
 mod sessions;
 
@@ -28,7 +29,7 @@ use crate::stream::{
         book::Verdict,
         hooks::session_blocks,
         jobs,
-        shared::{Capture, CaptureKind},
+        shared::{Capture, CaptureKind, Writers},
     },
     workers::LOD_JOBS_QUEUED,
 };
@@ -55,14 +56,14 @@ impl TestStore {
 
     /// A store whose thread runs with `config`.
     fn with_config(config: ActorConfig) -> Self {
-        let dir = tempfile::tempdir().expect("temp dir");
+        Self::in_dir(tempfile::tempdir().expect("temp dir"), config)
+    }
+
+    /// The test store kept in `dir`, opened with its thread running with `config`.
+    fn in_dir(dir: tempfile::TempDir, config: ActorConfig) -> Self {
         let root = StoreRoot::new(dir.path());
         let store = root
-            .open(
-                &StoreKey::new("remote:distant-terrain", "", 0),
-                NOW,
-                StoreOptions::default(),
-            )
+            .open(&store_key(), NOW, StoreOptions::default())
             .expect("open store");
         let mut actor =
             StoreActor::spawn(store, root, Quotas::default(), config).expect("spawn store thread");
@@ -108,6 +109,11 @@ impl TestStore {
     }
 }
 
+/// The key every test store is opened under.
+fn store_key() -> StoreKey {
+    StoreKey::new("remote:distant-terrain", "", 0)
+}
+
 fn stream() -> WorldStream {
     WorldStream::new_with_assets(
         WorldBootstrap {
@@ -129,6 +135,13 @@ fn stream() -> WorldStream {
 fn enable(stream: &mut WorldStream, store: &TestStore) -> DistantTerrainLink {
     stream
         .enable_distant_terrain(store.client(), NOW)
+        .expect("a writable store")
+}
+
+/// Starts ingestion of `stream` into `store` with `writers` writer threads.
+fn enable_with(stream: &mut WorldStream, store: &TestStore, writers: usize) -> DistantTerrainLink {
+    stream
+        .enable_distant_terrain_with(store.client(), NOW, Writers::new(writers))
         .expect("a writable store")
 }
 
@@ -482,6 +495,49 @@ fn neighbouring_columns_store_the_same_sections_in_either_order_or_together() {
     assert!(stored[0].iter().all(|(_, section)| section.is_some()));
     assert_eq!(stored[0], stored[1]);
     assert_eq!(stored[0], stored[2]);
+}
+
+#[test]
+fn region_writers_store_what_one_writer_stores_across_a_region_border_in_any_order() {
+    // Chunks -1 and 0 lie in neighbouring writer regions at every local level, which
+    // different writers own.
+    let xs = [-1, 0];
+    let four = Writers::new(4);
+    assert_ne!(
+        four.of_chunk(ChunkKey::new(0, -1, 0)),
+        four.of_chunk(ChunkKey::new(0, 0, 0))
+    );
+    let mut stored = Vec::new();
+    for writers in [1, 4] {
+        for order in [xs, [xs[1], xs[0]]] {
+            let store = TestStore::new();
+            let mut stream = stream();
+            let _link = enable_with(&mut stream, &store, writers);
+            for (merged, x) in order.into_iter().enumerate() {
+                commit_column(&mut stream, merged as u64 + 1, x, STONE, 15);
+                settle(&mut stream);
+                wait_for_merges(&stream, merged as u64 + 1);
+            }
+            stored.push((writers, order, stored_chains(&store, &xs)));
+        }
+        let store = TestStore::new();
+        let mut stream = stream();
+        let _link = enable_with(&mut stream, &store, writers);
+        commit_columns(&mut stream, 1, &xs, 15);
+        settle(&mut stream);
+        wait_for_merges(&stream, 2);
+        assert_eq!(
+            stats(&stream).handed_slabs > 0,
+            writers > 1,
+            "only owners of the neighbour's region merge its slabs"
+        );
+        stored.push((writers, xs, stored_chains(&store, &xs)));
+    }
+    let (_, _, expected) = &stored[0];
+    assert!(expected.iter().all(|(_, section)| section.is_some()));
+    for (writers, order, sections) in &stored {
+        assert_eq!(sections, expected, "{writers} writers, {order:?}");
+    }
 }
 
 #[test]

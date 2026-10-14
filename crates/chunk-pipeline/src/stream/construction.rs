@@ -156,6 +156,7 @@ impl WorldStream {
             local_player_chunk: None,
             stats: WorldStreamStats::default(),
             lod: None,
+            lod_meshes: None,
         }
     }
     pub(super) fn enqueue_decode_job(&mut self, job: DecodeJob) {

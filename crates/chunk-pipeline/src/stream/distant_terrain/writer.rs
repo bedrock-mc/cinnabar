@@ -1,52 +1,65 @@
-//! The writer thread: asks the store for content hashes, merges sampled columns into the
-//! sections they share and submits the results.
+//! The writer threads: they ask the store for content hashes, merge sampled columns into
+//! the sections they share and submit the results.
 //!
-//! It is the only thread that talks to the store, so world workers never wait for disk,
-//! and every section key has one writer, so concurrent columns never lose each other's
-//! octants. It reads sections of the session's own epoch only, so an undecided candidate
-//! never takes in a stored epoch's terrain, through a bounded cache in front of the store
+//! Writers and the mesher thread are the only store clients, so world and mesh workers
+//! never wait for disk; the mesher's reads share the store's queue. Each writer owns whole
+//! [`lod::ingest::WriterRegion`]s ([`super::shared::Writers`]), which hold every section a
+//! column writes, and takes only its own regions' columns, so every section key has one
+//! writer, concurrent columns never lose each other's octants, and a column's captures
+//! reach one writer in order. Columns inside one region therefore merge on one writer. A neighbour slab re-mip across a region border is handed to the
+//! neighbour's owner once the merge that caused it is stored
+//! ([`lod::ingest::merge_owned`]); the owner merges it next and reads that write. A
+//! writer reads sections of the session's own epoch only, so an undecided candidate never
+//! takes in a stored epoch's terrain, through a bounded cache in front of the store
 //! client; the store answers a read only after every write submitted before it, so a
-//! section evicted from the cache reads back as written.
+//! section evicted from the cache reads back as written, and another writer's section is
+//! read again once that writer hands over a slab facing it.
 //!
 //! Each merge is prepared in one store [`SessionEpoch`] and sent with it: the cache is
 //! dropped whenever the epoch moved on, and writes the store refuses because a session
 //! changed while they were prepared (a candidate merged, or a session began or ended) are
 //! merged again from what the store now holds. When the store's queue is full the writer
-//! keeps the merged writes, and every column after them, until the frame nudges it, and
-//! takes in nothing new before they are sent; until then ingestion is not settled.
+//! keeps the merged writes, and every column and slab after them, until the frame nudges
+//! it, and takes in nothing new before they are sent; until then ingestion is not settled.
 //! Dropping them instead would lose final captures, which are never taken again. A column
-//! whose writes the stopped store refused has its hash forgotten, so it is never skipped
-//! as stored.
+//! whose writes the stopped store refused, or whose merge a failed read stopped, has its
+//! hash forgotten, so it is never skipped as stored. Handed-over slabs of a merge a failed
+//! read stopped are held and merged again after the next nudge, up to
+//! [`MAX_SLAB_MERGE_ATTEMPTS`] times, since nothing else would ask for them again.
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BTreeSet, VecDeque},
     io,
     sync::{Arc, atomic::Ordering},
 };
 
 use lod::{
     codec::SectionCodec,
-    geometry::{SectionKey, SectionPos},
-    ingest::{SectionSource, merge_columns},
-    section::Section,
+    geometry::SectionKey,
+    ingest::{SlabWork, merge_owned},
 };
 use lod_store::{
-    actor::{EpochWrite, ReadOutcome, ReadTarget, Request, SessionEpoch, StoreClient, SubmitError},
+    actor::{EpochWrite, ReadOutcome, ReadTarget, Request, SessionEpoch, SubmitError},
     identity::Dimension,
-    minute::Minute,
 };
 
 use super::{
-    LOD_SECTION_CACHE_ENTRIES, MERGE_BATCH_COLUMNS,
+    LOD_SECTION_CACHE_BYTES, MERGE_BATCH_COLUMNS,
     blocks::MaterialClassTable,
     book::{StoredHash, Verdict},
     jobs,
-    shared::{Capture, Counters, LodShared, SampledColumn, WriterInput},
+    sections::{LoadError, SectionCache, StoreSections},
+    shared::{Capture, Counters, LodShared, SampledColumn, WriterBatch, WriterInput, Writers},
 };
 
-/// The writer's state between batches.
+/// Merges a failed read stops before a writer drops the handed-over slabs they held.
+pub(in crate::stream) const MAX_SLAB_MERGE_ATTEMPTS: u32 = 8;
+
+/// One writer thread's state between batches.
 #[derive(Default)]
 pub(in crate::stream) struct Writer {
+    /// This writer's index among [`super::shared::Writers`].
+    index: usize,
     cache: SectionCache,
     /// The ingestion generation the cached sections were read in.
     cached_generation: u64,
@@ -57,39 +70,65 @@ pub(in crate::stream) struct Writer {
     /// Accepted columns not merged yet, oldest first: a read found the store's queue full,
     /// or the store refused their merge as stale.
     held: VecDeque<SampledColumn>,
+    /// Slabs handed over and not merged yet.
+    held_slabs: BTreeSet<(Dimension, SlabWork)>,
+    /// Merges with handed-over slabs a failed read stopped in a row.
+    failed_slab_merges: u32,
 }
 
-/// One dimension's merged columns and the writes that store them, prepared in `epoch`.
+/// Work a merge handed back because a read failed: why, the columns and the slabs.
+pub(in crate::stream) type Unmerged = (LoadError, Vec<SampledColumn>, Vec<SlabWork>);
+
+/// One dimension's merged columns and slabs and the writes that store them, prepared in
+/// `epoch`.
 pub(in crate::stream) struct Prepared {
     dimension: Dimension,
     epoch: SessionEpoch,
     /// Kept to merge again should the store refuse the writes as stale; final captures
     /// among them stay counted until written.
     columns: Vec<SampledColumn>,
+    /// Handed-over slabs the merge took, kept like the columns.
+    slabs: Vec<SlabWork>,
+    /// Slabs of other writers' sections to hand over once the writes are taken.
+    foreign: Vec<SlabWork>,
+    /// The sections the writes store, for the mesher.
+    written: Vec<SectionKey>,
     requests: Vec<Request>,
     sections: u64,
 }
 
-/// Starts the writer thread for `shared`; it stops once ingestion is turned off.
-pub(in crate::stream) fn spawn(shared: Arc<LodShared>) -> io::Result<()> {
-    std::thread::Builder::new()
-        .name("lod-writer".into())
-        .spawn(move || {
-            crate::stream::workers::lower_beside_pool("lod-writer");
-            run(&shared);
-        })
-        .map(drop)
+/// Starts `shared`'s writer threads; they stop once ingestion is turned off. A thread
+/// that cannot start turns ingestion off again.
+pub(in crate::stream) fn spawn(shared: &Arc<LodShared>) -> io::Result<()> {
+    for index in 0..shared.writers.count() {
+        let thread_shared = Arc::clone(shared);
+        let name = format!("lod-writer-{index}");
+        let started = std::thread::Builder::new()
+            .name(name.clone())
+            .spawn(move || {
+                crate::stream::workers::lower_beside_pool(&name);
+                run(&thread_shared, index);
+            });
+        if let Err(error) = started {
+            shared.disable();
+            return Err(error);
+        }
+    }
+    Ok(())
 }
 
-/// The writer thread's loop. While the writer holds work back for the store's full queue
-/// it waits only for the frame's nudge, and says so through [`LodShared::retry_due`]
-/// before it stops being busy, so ingestion never reads as settled meanwhile.
-fn run(shared: &Arc<LodShared>) {
-    let mut writer = Writer::default();
+/// Writer thread `index`'s loop. While the writer holds work back for the store's full
+/// queue it waits only for the frame's nudge, and says so through its
+/// [`super::shared::WriterFlags::retry_due`] before it stops being busy, so ingestion
+/// never reads as settled meanwhile.
+fn run(shared: &Arc<LodShared>, index: usize) {
+    let mut writer = Writer::new(index, shared.writers);
     loop {
         let blocked = writer.is_blocked();
-        shared.retry_due.store(blocked, Ordering::Release);
-        let Some(batch) = shared.wait_for_work(MERGE_BATCH_COLUMNS, blocked) else {
+        shared.flags[index]
+            .retry_due
+            .store(blocked, Ordering::Release);
+        let Some(batch) = shared.wait_for_work(index, MERGE_BATCH_COLUMNS, blocked) else {
             return;
         };
         #[cfg(feature = "tracy")]
@@ -134,15 +173,33 @@ fn check(shared: &Arc<LodShared>, capture: Capture) {
 }
 
 impl Writer {
-    /// True while merged writes or accepted columns wait for room in the store's queue.
+    /// The state of writer thread `index` of `writers`, with its share of the section
+    /// cache budget.
+    pub(in crate::stream) fn new(index: usize, writers: Writers) -> Self {
+        Self {
+            index,
+            cache: SectionCache::new(LOD_SECTION_CACHE_BYTES / writers.count()),
+            ..Self::default()
+        }
+    }
+
+    /// True while merged writes, accepted columns or handed-over slabs wait for room in
+    /// the store's queue.
     pub(in crate::stream) fn is_blocked(&self) -> bool {
-        self.unsent.is_some() || !self.held.is_empty()
+        self.unsent.is_some() || !self.held.is_empty() || !self.held_slabs.is_empty()
     }
 
     /// Takes in `batch` (empty while blocked): checks go to the store, accepted samples
-    /// join the held columns. Then sends and merges whatever is held, in order.
-    pub(in crate::stream) fn step(&mut self, shared: &Arc<LodShared>, batch: Vec<WriterInput>) {
-        for input in batch {
+    /// join the held columns and slabs the held slabs, whose facing sections are read
+    /// again. Then sends and merges whatever is held, in order.
+    pub(in crate::stream) fn step(&mut self, shared: &Arc<LodShared>, batch: WriterBatch) {
+        for (dimension, slab) in batch.slabs {
+            if let Some(changed) = slab.pos.neighbour(slab.face) {
+                self.cache.forget(dimension, changed.key());
+            }
+            self.held_slabs.insert((dimension, slab));
+        }
+        for input in batch.items {
             match input {
                 WriterInput::Check(capture) => check(shared, *capture),
                 WriterInput::Sampled(column) => {
@@ -166,8 +223,9 @@ impl Writer {
         }
     }
 
-    /// Sends the unsent writes, then merges and sends the held columns a dimension at a
-    /// time; false, keeping the rest, once the store's queue is full.
+    /// Sends the unsent writes, then merges and sends the held columns and slabs a
+    /// dimension at a time; false, keeping the rest, once the store's queue is full or a
+    /// failed read held handed-over slabs back.
     fn flush(&mut self, shared: &LodShared) -> bool {
         loop {
             if let Some(prepared) = self.unsent.take()
@@ -175,48 +233,82 @@ impl Writer {
             {
                 return false;
             }
-            let Some(dimension) = self.held.front().map(|column| column.dimension) else {
+            let Some(dimension) = self
+                .held
+                .front()
+                .map(|column| column.dimension)
+                .or_else(|| self.held_slabs.first().map(|(dimension, _)| *dimension))
+            else {
                 return true;
             };
             let (columns, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.held)
                 .into_iter()
                 .partition(|column| column.dimension == dimension);
             self.held = rest.into();
-            match self.prepare(shared, dimension, columns) {
-                Ok(prepared) => self.unsent = Some(prepared),
-                Err((LoadError::Full, columns)) => {
-                    for column in columns.into_iter().rev() {
-                        self.held.push_front(column);
-                    }
+            let (slabs, rest): (BTreeSet<_>, BTreeSet<_>) = std::mem::take(&mut self.held_slabs)
+                .into_iter()
+                .partition(|(slab_dimension, _)| *slab_dimension == dimension);
+            self.held_slabs = rest;
+            let slabs = slabs.into_iter().map(|(_, slab)| slab).collect();
+            match self.prepare(shared, dimension, columns, slabs) {
+                Ok(prepared) => {
+                    self.failed_slab_merges = 0;
+                    self.unsent = Some(prepared);
+                }
+                Err((LoadError::Full, columns, slabs)) => {
+                    self.hold(dimension, columns, slabs);
                     return false;
                 }
-                Err((LoadError::Failed, columns)) => {
+                Err((LoadError::Failed, columns, slabs)) => {
                     Counters::bump(&shared.counters.store_errors);
                     forget(shared, dimension, &columns);
+                    if !slabs.is_empty() && self.failed_slab_merges < MAX_SLAB_MERGE_ATTEMPTS {
+                        self.failed_slab_merges += 1;
+                        self.hold(dimension, Vec::new(), slabs);
+                        return false;
+                    }
+                    self.failed_slab_merges = 0;
                 }
             }
         }
     }
 
-    /// Merges `columns` of `dimension` into the sections they share, read through the
-    /// cache in the store's current session epoch, and prepares their writes: sections,
-    /// then each column's surface and content hash, which vouches for the sections before
-    /// it. Hands the columns back when a read failed.
+    /// Holds `columns` ahead of every held column and `slabs` with the held slabs, to
+    /// merge again.
+    fn hold(&mut self, dimension: Dimension, columns: Vec<SampledColumn>, slabs: Vec<SlabWork>) {
+        for column in columns.into_iter().rev() {
+            self.held.push_front(column);
+        }
+        self.held_slabs
+            .extend(slabs.into_iter().map(|slab| (dimension, slab)));
+    }
+
+    /// Merges `columns` and handed-over `slabs` of `dimension` into the sections this
+    /// writer owns, read through the cache in the store's current session epoch, and
+    /// prepares their writes: sections, then each column's surface and content hash,
+    /// which vouches for the sections before it. Hands the work back when a read failed.
     pub(in crate::stream) fn prepare(
         &mut self,
         shared: &LodShared,
         dimension: Dimension,
         columns: Vec<SampledColumn>,
-    ) -> Result<Prepared, (LoadError, Vec<SampledColumn>)> {
+        slabs: Vec<SlabWork>,
+    ) -> Result<Prepared, Unmerged> {
         let epoch = shared.client.session_epoch();
         let generation = shared.generation_at(epoch);
         if generation != self.cached_generation {
             self.cache.clear();
             self.cached_generation = generation;
         }
-        if let Some(column) = columns.first() {
-            self.classes
-                .refresh(&column.blocks, &shared.client.registry());
+        let blocks = match columns.first() {
+            Some(column) => {
+                shared.note_blocks(&column.blocks);
+                Some(Arc::clone(&column.blocks))
+            }
+            None => shared.latest_blocks(),
+        };
+        if let Some(blocks) = blocks {
+            self.classes.refresh(&blocks, &shared.client.registry());
         }
         let now = shared.now();
         let mut source = StoreSections {
@@ -226,15 +318,23 @@ impl Writer {
             dimension,
             now,
         };
-        let merged = match merge_columns(
+        let (writers, index) = (shared.writers, self.index);
+        let merged = match merge_owned(
             columns.iter().map(|column| &column.sample),
+            slabs.iter().copied(),
+            |pos| writers.owns(index, pos),
             &mut source,
             &self.classes,
         ) {
             Ok(merged) => merged,
-            Err(error) => return Err((error, columns)),
+            Err(error) => return Err((error, columns, slabs)),
         };
         let sections = merged.sections.len() as u64;
+        let written = merged
+            .sections
+            .iter()
+            .map(|section| section.pos().key())
+            .collect();
         let mut requests = Vec::with_capacity(merged.sections.len() + 2 * columns.len());
         for section in merged.sections {
             let record = self.codec.encode(&section);
@@ -267,19 +367,25 @@ impl Writer {
             dimension,
             epoch,
             columns,
+            slabs,
+            foreign: merged.foreign,
+            written,
             requests,
             sections,
         })
     }
 
-    /// Sends `prepared`; false, keeping it unsent, while the store's queue is full. Writes
-    /// refused as stale drop the cache and hold their columns to merge again; a stopped
-    /// store forgets their hashes.
+    /// Sends `prepared`; false, keeping it unsent, while the store's queue is full. Taken
+    /// writes hand their foreign slabs over; writes refused as stale drop the cache and
+    /// hold their columns and slabs to merge again; a stopped store forgets their hashes.
     pub(in crate::stream) fn send(&mut self, shared: &LodShared, prepared: Prepared) -> bool {
         let Prepared {
             dimension,
             epoch,
             columns,
+            slabs,
+            foreign,
+            written,
             requests,
             sections,
         } = prepared;
@@ -287,13 +393,13 @@ impl Writer {
             Ok(EpochWrite::Taken) => {
                 Counters::add(&shared.counters.merged_columns, columns.len() as u64);
                 Counters::add(&shared.counters.sections_written, sections);
+                shared.notify_written(dimension, &written);
+                shared.hand_over(dimension, foreign);
             }
             Ok(EpochWrite::Stale) => {
                 Counters::bump(&shared.counters.stale_writes);
                 self.cache.clear();
-                for column in columns.into_iter().rev() {
-                    self.held.push_front(column);
-                }
+                self.hold(dimension, columns, slabs);
             }
             Err(SubmitError::Full(requests)) => {
                 Counters::bump(&shared.counters.store_queue_full);
@@ -301,6 +407,9 @@ impl Writer {
                     dimension,
                     epoch,
                     columns,
+                    slabs,
+                    foreign,
+                    written,
                     requests,
                     sections,
                 });
@@ -320,85 +429,5 @@ fn forget(shared: &LodShared, dimension: Dimension, columns: &[SampledColumn]) {
     let mut book = shared.lock_book();
     for column in columns {
         book.forget((dimension, column.chunk));
-    }
-}
-
-/// Why a merge could not read a section.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::stream) enum LoadError {
-    /// The store's queue is full; retry later.
-    Full,
-    /// The store failed or stopped.
-    Failed,
-}
-
-/// The store's sections of one dimension, read through the writer's cache.
-struct StoreSections<'a> {
-    client: &'a StoreClient,
-    cache: &'a mut SectionCache,
-    codec: &'a mut SectionCodec,
-    dimension: Dimension,
-    now: Minute,
-}
-
-impl SectionSource for StoreSections<'_> {
-    type Error = LoadError;
-
-    /// Cached sections, else the store's; corrupt records read as missing so the merge
-    /// rebuilds them.
-    fn load(&mut self, pos: SectionPos) -> Result<Option<Section>, LoadError> {
-        let key = pos.key();
-        if let Some(section) = self.cache.get(self.dimension, key) {
-            return Ok(section);
-        }
-        let outcome = self
-            .client
-            .read(self.dimension, ReadTarget::OwnSection(key), self.now)
-            .map_err(|error| match error {
-                SubmitError::Full(()) => LoadError::Full,
-                SubmitError::Stopped(()) => LoadError::Failed,
-            })?;
-        let section = match outcome {
-            ReadOutcome::Found(record) => self.codec.decode_expecting(&record, key).ok(),
-            ReadOutcome::Missing | ReadOutcome::Corrupt => None,
-            ReadOutcome::ChunkHash(_) | ReadOutcome::Failed(_) => return Err(LoadError::Failed),
-        };
-        self.cache.insert(self.dimension, key, section.clone());
-        Ok(section)
-    }
-}
-
-/// Recently read or written sections by dimension and key, `None` for known misses,
-/// bounded by [`LOD_SECTION_CACHE_ENTRIES`] with the least recently used dropped first.
-#[derive(Default)]
-struct SectionCache {
-    entries: HashMap<(Dimension, SectionKey), (u64, Option<Section>)>,
-    tick: u64,
-}
-
-impl SectionCache {
-    /// The cached state of `key`; `None` when it is not cached.
-    fn get(&mut self, dimension: Dimension, key: SectionKey) -> Option<Option<Section>> {
-        self.tick += 1;
-        let entry = self.entries.get_mut(&(dimension, key))?;
-        entry.0 = self.tick;
-        Some(entry.1.clone())
-    }
-
-    /// Caches `section` for `key`, dropping the least recently used quarter when full.
-    fn insert(&mut self, dimension: Dimension, key: SectionKey, section: Option<Section>) {
-        self.tick += 1;
-        self.entries.insert((dimension, key), (self.tick, section));
-        if self.entries.len() > LOD_SECTION_CACHE_ENTRIES {
-            let mut ticks: Vec<u64> = self.entries.values().map(|(tick, _)| *tick).collect();
-            let cut = ticks.len() / 4;
-            let (_, &mut oldest_kept, _) = ticks.select_nth_unstable(cut);
-            self.entries.retain(|_, (tick, _)| *tick >= oldest_kept);
-        }
-    }
-
-    /// Forgets every section.
-    fn clear(&mut self) {
-        self.entries.clear();
     }
 }

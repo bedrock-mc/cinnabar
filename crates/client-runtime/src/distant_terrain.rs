@@ -113,7 +113,7 @@ impl DistantTerrainReport {
             StoreState::Failed => "failed",
         };
         format!(
-            "{marker} state={state} jobs_queued={} sampled={} skipped_unchanged={} superseded={} dropped={} dropped_final_captures={} merged_columns={} sections_written={} store_queue_full={} stale_writes={} unkeyed_columns={} unknown_ids={} unkeyed_ids={} registry_full={} worker_ms={} ingest_store_errors={} store_errors={} epoch_changes={} dropped_events={}",
+            "{marker} state={state} jobs_queued={} sampled={} skipped_unchanged={} superseded={} dropped={} dropped_final_captures={} merged_columns={} sections_written={} store_queue_full={} stale_writes={} handed_slabs={} unkeyed_columns={} unknown_ids={} unkeyed_ids={} registry_full={} worker_ms={} ingest_store_errors={} store_errors={} epoch_changes={} dropped_events={}",
             ingest.jobs_queued,
             ingest.sampled,
             ingest.skipped_unchanged,
@@ -124,6 +124,7 @@ impl DistantTerrainReport {
             ingest.sections_written,
             ingest.store_queue_full,
             ingest.stale_writes,
+            ingest.handed_slabs,
             ingest.unkeyed_columns,
             ingest.unknown_ids,
             ingest.unkeyed_ids,

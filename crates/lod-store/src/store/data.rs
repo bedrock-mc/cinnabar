@@ -10,9 +10,9 @@ use crate::{
 
 impl Store {
     /// Replaces `out` with the stored record of `key` in `dimension`'s session epoch, or
-    /// while the session is undecided, in its [`Self::leading_epoch`] when the candidate
-    /// has none; false when neither stores one. Only a found record counts as a use of
-    /// its region.
+    /// while the session is undecided, in its [`Self::read_through_epoch`] when the
+    /// candidate has none; false when neither stores one. Only a found record counts as a
+    /// use of its region.
     pub fn get_into(
         &mut self,
         dimension: Dimension,
@@ -21,7 +21,7 @@ impl Store {
         now: Minute,
     ) -> Result<bool, StoreError> {
         let session = self.session_epoch(dimension)?;
-        let leading = self.leading_epoch(dimension);
+        let leading = self.read_through_epoch(dimension, key);
         for epoch in std::iter::once(session).chain(leading) {
             if self.files(epoch)?.regions.get_into(key, out)? {
                 self.touch(epoch, RegionId::of_key(key).0, now);

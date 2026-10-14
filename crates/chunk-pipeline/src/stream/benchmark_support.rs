@@ -39,4 +39,4 @@ pub fn work_is_idle(stream: &WorldStream) -> bool {
 mod dispatch;
 mod distant_terrain;
 pub use dispatch::DispatchFixture;
-pub use distant_terrain::LodSampleFixture;
+pub use distant_terrain::{LodMeshFixture, LodMeshRun, LodSampleFixture, LodWriterFixture};

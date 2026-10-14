@@ -5,6 +5,7 @@ use world::ChunkKey;
 use super::*;
 use crate::{
     fixtures::{biome_column, blocks, fixture_classifier, terrain_block, terrain_column},
+    geometry::MAX_LEVEL,
     sampler::{ColumnSnapshot, sample_column},
 };
 
@@ -461,4 +462,14 @@ fn merging_keeps_older_chunks_the_newer_signature_lacks() {
     assert_eq!(recorded, [(4, 4)]);
     assert!(!newer.is_empty());
     assert!(RegionSignature::new(pos).is_empty());
+}
+
+#[test]
+fn regions_name_the_section_columns_that_overlap_them() {
+    let region = RegionPos { x: -1, z: 2 };
+    // Blocks -64..0 and 128..192.
+    assert_eq!(region.section_columns(0), [-2..=-1, 4..=5]);
+    assert_eq!(region.section_columns(1), [-1..=-1, 2..=2]);
+    assert_eq!(region.section_columns(2), [-1..=-1, 1..=1]);
+    assert_eq!(region.section_columns(MAX_LEVEL), [-1..=-1, 0..=0]);
 }

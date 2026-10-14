@@ -14,7 +14,8 @@ reads = [
 [features]
 tracy = []
 publication-test-support = []
-benchmark-support = []
+# Fixture terrain from `lod` for the writer benchmark.
+benchmark-support = ["lod/test-support"]
 # Bench binaries use an uninstrumented allocator and the requested Criterion sample count.
 runtime-profile = []
 benchmark-mimalloc = ["runtime-profile"]

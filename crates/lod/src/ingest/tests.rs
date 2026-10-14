@@ -163,3 +163,86 @@ fn a_failing_source_writes_nothing() {
         Err("unreadable")
     );
 }
+
+/// Merges `columns` as writers that each own one [`WriterRegion`] would, one column at a
+/// time in order, every writer merging the slabs handed to it before its next column, until
+/// no work is left.
+fn by_region_writers(columns: &[(i32, i32)]) -> HashMap<SectionKey, Section> {
+    let classes = fixture_classifier();
+    let mut memory = Memory::default();
+    let mut handed: HashMap<WriterRegion, Vec<SlabWork>> = HashMap::new();
+    let merge = |memory: &mut Memory,
+                 region: WriterRegion,
+                 samples: &[ColumnSample],
+                 slabs: Vec<SlabWork>,
+                 handed: &mut HashMap<WriterRegion, Vec<SlabWork>>| {
+        let owns = |pos: SectionPos| WriterRegion::of(pos) == Some(region);
+        let Ok(merged) = merge_owned(samples, slabs, owns, memory, &classes);
+        for section in merged.sections {
+            assert!(owns(section.pos()), "a writer writes its own sections only");
+            memory.sections.insert(section.pos().key(), section);
+        }
+        for slab in merged.foreign {
+            let owner = WriterRegion::of(slab.pos).expect("local level");
+            assert_ne!(owner, region);
+            handed.entry(owner).or_default().push(slab);
+        }
+    };
+    for &(x, z) in columns {
+        let region = WriterRegion::of_chunk(x, z);
+        merge(
+            &mut memory,
+            region,
+            &[column(x, z)],
+            Vec::new(),
+            &mut handed,
+        );
+        while let Some(owner) = handed.keys().next().copied() {
+            let slabs = handed.remove(&owner).expect("listed");
+            merge(&mut memory, owner, &[], slabs, &mut handed);
+        }
+    }
+    memory.sections
+}
+
+#[test]
+fn region_writers_handing_over_border_slabs_store_what_one_writer_stores() {
+    // Chunks 31 and 32 meet across a writer region border at every local level; chunks
+    // (31, 31) and (32, 32) meet only at a corner.
+    for pair in [[(31, 0), (32, 0)], [(0, 31), (0, 32)], [(31, 31), (32, 32)]] {
+        assert_ne!(
+            WriterRegion::of_chunk(pair[0].0, pair[0].1),
+            WriterRegion::of_chunk(pair[1].0, pair[1].1)
+        );
+        let samples = pair.map(|(x, z)| column(x, z));
+        let single = one_at_a_time(&samples);
+        let reversed = [pair[1], pair[0]];
+        assert_eq!(by_region_writers(&pair), single, "{pair:?}");
+        assert_eq!(by_region_writers(&reversed), single, "{reversed:?}");
+    }
+}
+
+#[test]
+fn writer_regions_hold_a_columns_whole_local_chain() {
+    for (x, z) in [(0, 0), (31, -1), (-32, 63), (-1, -33)] {
+        let region = WriterRegion::of_chunk(x, z);
+        let base = SectionPos::of_sub_chunk(x, 5, z).expect("pos").0;
+        for level in 0..=LOCAL_MIP_TOP_LEVEL {
+            let pos = base.ancestor(level).expect("local level");
+            assert_eq!(
+                WriterRegion::of(pos),
+                Some(region),
+                "({x}, {z}) level {level}"
+            );
+        }
+        assert_eq!(
+            WriterRegion::of(base.ancestor(LOCAL_MIP_TOP_LEVEL + 1).expect("level 5")),
+            None
+        );
+    }
+    assert_ne!(WriterRegion::of_chunk(31, 0), WriterRegion::of_chunk(32, 0));
+    assert_eq!(
+        WriterRegion::of_chunk(-32, 0),
+        WriterRegion::of_chunk(-1, 0)
+    );
+}

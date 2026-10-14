@@ -29,5 +29,9 @@ mimalloc.workspace = true
 name = "section_costs"
 harness = false
 
+[[bench]]
+name = "mesh_costs"
+harness = false
+
 [lints]
 workspace = true

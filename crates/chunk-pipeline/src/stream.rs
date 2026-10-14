@@ -65,9 +65,10 @@ mod dimension_transfer;
 mod dirty;
 mod distant_terrain;
 pub use distant_terrain::{
-    DistantTerrainLink, DistantTerrainStats, DistantTerrainUnavailable, LOD_SETTLE_POLLS,
-    MAX_LOD_BACKLOG, MAX_LOD_COLUMNS_PER_POLL, MAX_LOD_FINAL_CAPTURES_PER_POLL,
-    MAX_LOD_PENDING_FINAL_CAPTURES,
+    DistantTerrainColours, DistantTerrainLink, DistantTerrainMeshStats, DistantTerrainStats,
+    DistantTerrainUnavailable, LOD_CPU_MEMORY_BYTES, LOD_MESH_CACHE_BYTES, LOD_SETTLE_POLLS,
+    MAX_LOD_BACKLOG, MAX_LOD_COLUMNS_PER_POLL, MAX_LOD_FINAL_CAPTURES_PER_POLL, MAX_LOD_MESH_JOBS,
+    MAX_LOD_PENDING_FINAL_CAPTURES, MAX_LOD_WRITERS,
 };
 mod entity_occlusion;
 mod helpers;
@@ -418,6 +419,8 @@ pub struct WorldStream {
     stats: WorldStreamStats,
     /// Distant terrain ingestion; `None` while it is off.
     lod: Option<Box<distant_terrain::LodIngest>>,
+    /// Distant terrain meshing; `None` while it is off.
+    lod_meshes: Option<Box<distant_terrain::meshes::LodMeshes>>,
 }
 
 #[cfg(test)]
