@@ -111,6 +111,11 @@ fn tick_steps(assets: &Arc<RuntimeEntityAssets>, players: u64, look: f32) -> Vec
             }
         }
     }
+    assert_eq!(
+        store.frame_fallbacks(),
+        0,
+        "ordinary players never fall back"
+    );
     let mut steps = Vec::new();
     for (id, frames) in &series {
         for bone in 0..frames[0].len() {
@@ -268,4 +273,21 @@ fn walk_catalog(camera_walk: bool) -> Arc<RuntimeEntityAssets> {
     compiled.rig_animations = bindings.into();
     compiled.rig_geometries[0].animation_count += 1;
     Arc::new(RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap())
+}
+
+/// A frame that runs out of expression budget counts its fallback to the tick pair.
+#[test]
+fn exhausted_frames_count_their_fallbacks() {
+    let actors = HashMap::from([(1, player(1))]);
+    let mut store = ActorAnimationStore::with_assets(walk_catalog(true));
+    store.insert(1, 0, &actors[&1]);
+    for _ in 0..3 {
+        store.advance_tick(&actors, None, None, true, true, |_| {
+            ActorTickContext::default()
+        });
+    }
+    let mut frame = ActorRenderFrame::new(&store, &actors, [0.0; 2], [0.0; 3], 0.5);
+    frame.set_remaining_ops(0);
+    assert!(frame.layers(1).is_some());
+    assert_eq!(store.frame_fallbacks(), 1);
 }

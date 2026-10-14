@@ -33,6 +33,21 @@ asset compiler's integration suite. The existing Go generation flags delegate
 the active passes to Rust, preserving callers that use explicit output paths.
 Historical encoders and the independent projection fixtures remain available.
 
+The block carrier also records `BlockTraits` and `SurvivalRule`. Ordered selectors
+in `registry-policy.json` own model families and native membership rules. The
+compiler rejects unknown members and selectors that match no pinned states.
+`facts-expansion-v2193.tsv` shows trait membership and provisional rules;
+`vocabulary-v2193.txt` combines the pinned identifier, property and tag domains.
+Runtime consumers read dense block facts and typed properties without matching names.
+
+Property domains and selected behavior-pack components are small derivatives of
+the hash-checked sample archive. Regenerate them before the schema and carriers:
+
+```sh
+python3 tools/registrygen/generate_block_inputs.py --archive <pinned-sample-archive>
+python3 tools/registrygen/generate_schema.py
+```
+
 The Rust registry pass writes the movement seed. The asset compiler adds independent
 selection geometry and final state facts. Update each physics file’s `.sha256`
 sidecar after changing it. `make assets` builds the final carrier into the local

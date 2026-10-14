@@ -11,8 +11,10 @@ use std::{
 };
 
 mod biomes;
+mod block_rules;
 mod carriers;
 mod format_generated;
+pub mod items;
 mod light;
 mod manifest;
 mod movement;
@@ -53,6 +55,9 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    model_family_rules: Vec<block_rules::Rule>,
+    block_rules: Vec<block_rules::Rule>,
+    item_rules: Vec<items::ItemRule>,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,
@@ -93,6 +98,14 @@ struct Scalar {
 const RESERVED: &str = "cinnabar:reserved";
 const POLICY: &[u8] = include_bytes!("../data/registry-policy.json");
 const MAX_INPUT_BYTES: u64 = 128 * 1024 * 1024;
+
+/// Applies the shared support policy only to historical inputs lacking compiled block facts.
+pub(crate) fn block_support(record: &assets::RegistryRecord) -> assets::registry::BlockTraits {
+    static RULES: std::sync::OnceLock<Policy> = std::sync::OnceLock::new();
+    let policy =
+        RULES.get_or_init(|| serde_json::from_slice(POLICY).expect("valid registry policy"));
+    block_rules::support(record, &policy.block_rules)
+}
 
 /// Reads a bounded source export without fetching or changing its catalog.
 pub fn read_facts(path: &Path) -> Result<Facts> {
@@ -182,7 +195,8 @@ pub fn blocks(
     }
     let legacy = assets::read_registry(&read(legacy)?)?;
     let policy: Policy = serde_json::from_slice(POLICY)?;
-    let (records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
+    let (mut records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
+    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy)?;
     let encoded = carriers::blocks(facts.protocol, &records)?;
     let lights = light::compile(&records, &facts.blocks)?;
     let light_bytes = carriers::lights(
@@ -193,10 +207,17 @@ pub fn blocks(
         manifest.light.format.as_bytes(),
     )?;
     manifest.projection = stats;
+    manifest.output.format = String::from_utf8(format_generated::REGISTRY_MAGIC.to_vec())?;
     manifest.output.sha256 = digest(&encoded);
     manifest.light.sha256 = digest(&light_bytes);
     manifest::write_blob(out, &encoded, true)?;
     manifest::write_blob(light_out, &light_bytes, true)?;
+    let data = out.parent().ok_or("block output has no parent")?;
+    manifest::write(&data.join("facts-expansion-v2193.tsv"), &expansion)?;
+    manifest::write(
+        &data.join("vocabulary-v2193.txt"),
+        &block_rules::vocabulary(root, &facts.blocks)?,
+    )?;
     manifest::write_json(report, &manifest)
 }
 
@@ -215,8 +236,17 @@ pub fn physics(
     let bytes = read(breg)?;
     let target: serde_json::Value =
         serde_json::from_slice(&read(&root.join("assets/bedrock-target.json"))?)?;
+    let expected = if let Some(path) = report {
+        let manifest: manifest::BlockManifest = serde_json::from_slice(&read(path)?)?;
+        manifest.output.sha256
+    } else {
+        target["hashes"]["block_registry"]
+            .as_str()
+            .ok_or("missing block registry hash")?
+            .to_owned()
+    };
     check(
-        target["hashes"]["block_registry"].as_str() == Some(digest(&bytes).as_str()),
+        expected == digest(&bytes),
         "pinned protocol-2193 block registry SHA-256 does not match",
     )?;
     if let Some(path) = report {

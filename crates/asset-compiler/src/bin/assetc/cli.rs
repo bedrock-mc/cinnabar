@@ -16,6 +16,13 @@ pub(super) struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Compile gameplay item facts from the pinned registry inputs.
+    ItemFacts {
+        #[arg(long)]
+        root: PathBuf,
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// Generate pack and actor vocabularies from the pinned sample archive.
     Vocabulary {
         #[arg(long)]
@@ -26,6 +33,9 @@ pub(super) enum Command {
         out: PathBuf,
         #[arg(long)]
         actors_out: PathBuf,
+        /// Optional names-only JSON-UI vocabulary, including text keys.
+        #[arg(long)]
+        ui_out: Option<PathBuf>,
     },
     /// Compile final movement, selection and interaction facts for every block state.
     BlockPhysics {

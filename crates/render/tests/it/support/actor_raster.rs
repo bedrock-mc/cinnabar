@@ -11,6 +11,15 @@ use gpu_snapshot::{Draw, Gpu};
 use render_model::ActorGpuInstance;
 use render_model::{ActorRigVertex, EntityRigId};
 
+/// Camera, actor transform and original texture inputs for a production shader raster.
+pub(crate) struct RasterScene<'a> {
+    pub clip_from_world: Mat4,
+    pub world_from_actor: [[f32; 4]; 3],
+    pub camera_position: Vec3,
+    pub texture_size: [u32; 2],
+    pub texels: &'a [[u8; 4]],
+}
+
 pub(crate) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVertex> {
     let face = |u| serde_json::json!({"uv":[u,0],"uv_size":[1,1]});
     let mut uv = serde_json::Map::new();
@@ -42,6 +51,11 @@ pub(crate) fn cube(size: [u32; 3], top: bool, bottom: bool) -> Vec<ActorRigVerte
 }
 
 pub(crate) fn source(gamma: bool) -> String {
+    source_with_definitions(gamma, &[])
+}
+
+/// Compiles the production actor entry points with the selected fixture variants.
+fn source_with_definitions(gamma: bool, definitions: &[&str]) -> String {
     let actor = include_str!("../../../src/actor.wesl")
         .replace(
             "ACTOR_GPU_INSTANCE_WORDS",
@@ -51,7 +65,11 @@ pub(crate) fn source(gamma: bool) -> String {
             "ACTOR_RIG_VERTEX_WORDS",
             &render_model::ACTOR_RIG_VERTEX_WORDS.to_string(),
         );
-    shader_source::standalone(&actor, if gamma { &["ACTOR_GAMMA_BLEND"] } else { &[] })
+    let mut definitions = definitions.to_vec();
+    if gamma {
+        definitions.push("ACTOR_GAMMA_BLEND");
+    }
+    shader_source::standalone(&actor, &definitions)
         .replace("@group(1) @binding(0)", "@group(0) @binding(20)")
         .replace("@group(1) @binding(1)", "@group(0) @binding(21)")
 }
@@ -142,23 +160,105 @@ pub(crate) fn raster_material_with_overlay(
     overlay_rgba8: u32,
     tint_rgba8: u32,
 ) -> Vec<u8> {
+    raster_material_with_state(
+        gpu,
+        vertices,
+        material,
+        below,
+        texels,
+        srgb,
+        gamma,
+        light,
+        overlay_rgba8,
+        tint_rgba8,
+        &[],
+        gpu_snapshot::RasterState::default(),
+    )
+}
+
+/// Renders the production actor vertex and fragment entry points under explicit raster state.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each knob is an independent shader input under test"
+)]
+pub(crate) fn raster_material_with_state(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render_model::ActorMaterial,
+    below: bool,
+    texels: [[u8; 4]; 2],
+    srgb: bool,
+    gamma: bool,
+    light: u32,
+    overlay_rgba8: u32,
+    tint_rgba8: u32,
+    definitions: &[&str],
+    state: gpu_snapshot::RasterState,
+) -> Vec<u8> {
     let clip = Mat4::from_cols(
         Vec4::new(2.0, 0.0, 0.0, 0.0),
         Vec4::ZERO,
         Vec4::new(0.0, if below { 2.0 } else { -2.0 }, 0.0, 0.0),
         Vec4::new(0.0, 0.0, 0.5, 1.0),
     );
+    raster_material_in_scene(
+        gpu,
+        vertices,
+        material,
+        RasterScene {
+            clip_from_world: clip,
+            world_from_actor: [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+            ],
+            camera_position: Vec3::ZERO,
+            texture_size: [2, 1],
+            texels: &texels,
+        },
+        srgb,
+        gamma,
+        light,
+        overlay_rgba8,
+        tint_rgba8,
+        definitions,
+        state,
+    )
+}
+
+/// Renders arbitrary charts and projections through the production actor entry points.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "each knob is an independent shader input under test"
+)]
+pub(crate) fn raster_material_in_scene(
+    gpu: &Gpu,
+    vertices: &[ActorRigVertex],
+    material: render_model::ActorMaterial,
+    scene: RasterScene<'_>,
+    srgb: bool,
+    gamma: bool,
+    light: u32,
+    overlay_rgba8: u32,
+    tint_rgba8: u32,
+    definitions: &[&str],
+    state: gpu_snapshot::RasterState,
+) -> Vec<u8> {
+    assert_eq!(
+        scene.texels.len(),
+        (scene.texture_size[0] * scene.texture_size[1]) as usize
+    );
     let view = gpu.buffer(
-        &gpu_snapshot::view(clip, Vec3::ZERO),
+        &gpu_snapshot::view(scene.clip_from_world, scene.camera_position),
         wgpu::BufferUsages::UNIFORM,
     );
-    let affine = [
+    let affine: [[f32; 4]; 3] = [
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
     ];
     let instance = ActorGpuInstance {
-        world_from_actor: affine,
+        world_from_actor: scene.world_from_actor,
         partial_tick: 1.0,
         uv_anim: render_model::IDENTITY_UV_ANIM,
         light,
@@ -184,8 +284,8 @@ pub(crate) fn raster_material_with_overlay(
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("opposing cube UV witness"),
         size: wgpu::Extent3d {
-            width: 2,
-            height: 1,
+            width: scene.texture_size[0],
+            height: scene.texture_size[1],
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -197,11 +297,11 @@ pub(crate) fn raster_material_with_overlay(
     });
     gpu.queue.write_texture(
         texture.as_image_copy(),
-        bytemuck::cast_slice(&texels),
+        bytemuck::cast_slice(scene.texels),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(8),
-            rows_per_image: Some(1),
+            bytes_per_row: Some(scene.texture_size[0] * 4),
+            rows_per_image: Some(scene.texture_size[1]),
         },
         texture.size(),
     );
@@ -299,9 +399,69 @@ pub(crate) fn raster_material_with_overlay(
         blend: material.state.and_then(render::actor_material_blend_state),
         write_depth: material.state.is_none_or(|state| state.depth_write),
     }];
+    // Automatic stage inference treats a dimensions-only vertex texture as unfilterable.
+    let entries: Vec<_> = bindings
+        .iter()
+        .map(|entry| wgpu::BindGroupLayoutEntry {
+            binding: entry.binding,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            ty: match &entry.resource {
+                wgpu::BindingResource::Buffer(binding) => wgpu::BindingType::Buffer {
+                    ty: if binding.buffer.usage().contains(wgpu::BufferUsages::UNIFORM) {
+                        wgpu::BufferBindingType::Uniform
+                    } else {
+                        wgpu::BufferBindingType::Storage { read_only: true }
+                    },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                wgpu::BindingResource::Sampler(_) => {
+                    wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering)
+                }
+                wgpu::BindingResource::TextureView(view) => wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: if std::ptr::eq(*view, &skin) {
+                        wgpu::TextureViewDimension::D2Array
+                    } else {
+                        wgpu::TextureViewDimension::D2
+                    },
+                    multisampled: false,
+                },
+                _ => panic!("unsupported actor fixture binding"),
+            },
+            count: None,
+        })
+        .collect();
+    let layout = gpu
+        .device
+        .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("actor fixture binding contract"),
+            entries: &entries,
+        });
+    let state = gpu_snapshot::RasterState {
+        layout: Some(
+            gpu.device
+                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("actor fixture pipeline"),
+                    bind_group_layouts: &[Some(&layout)],
+                    ..Default::default()
+                }),
+        ),
+        ..state
+    };
     if srgb {
-        gpu.render_srgb(&source(gamma), "actor_vertex", &draws)
+        gpu.render_srgb_with_state(
+            &source_with_definitions(gamma, definitions),
+            "actor_vertex",
+            &draws,
+            state,
+        )
     } else {
-        gpu.render(&source(gamma), "actor_vertex", &draws)
+        gpu.render_with_state(
+            &source_with_definitions(gamma, definitions),
+            "actor_vertex",
+            &draws,
+            state,
+        )
     }
 }

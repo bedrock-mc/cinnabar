@@ -147,6 +147,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+wat = "1"
 protocol-ids = { path = "../crates/protocol-ids" }
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }

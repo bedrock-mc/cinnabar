@@ -40,7 +40,7 @@ fn reads_the_go_wire_contract_without_reinterpreting_fields() {
     assert_eq!(leaf.name.as_ref(), "fixture:leaf");
     assert_eq!(
         leaf.canonical_state.as_ref(),
-        r#"{"color":{"type":"int","value":3}}"#
+        r#"{"growth":{"type":"int","value":3}}"#
     );
     assert_eq!(
         leaf.flags,
@@ -93,6 +93,34 @@ fn reads_the_go_wire_contract_without_reinterpreting_fields() {
 }
 
 #[test]
+fn active_registry_rejects_duplicate_sequential_ids() {
+    let mut bytes = crate::pinned_block_registry_bytes().to_vec();
+    let mut reader = Reader::new(&bytes);
+    reader
+        .read_exact(schema::REGISTRY_MAGIC.len(), "registry magic")
+        .unwrap();
+    let metadata = read_registry_metadata(&mut reader).unwrap();
+    assert!(metadata.canonical_states >= 2);
+    let first = read_record_header(&mut reader, false).unwrap();
+    for _ in 0..first.box_count {
+        read_collision_box(&mut reader).unwrap();
+    }
+    reader
+        .read_exact(usize::from(first.name_len), "first name")
+        .unwrap();
+    reader
+        .read_exact(first.state_len as usize, "first state")
+        .unwrap();
+    let second_prefix = bytes.len() - reader.remaining();
+    bytes[second_prefix..second_prefix + size_of::<u32>()]
+        .copy_from_slice(&first.sequential_id.to_le_bytes());
+    assert!(matches!(
+        read_registry_for_protocol(&bytes, crate::active_content_registry_protocol()),
+        Err(AssetError::DuplicateSequentialId(id)) if id == first.sequential_id
+    ));
+}
+
+#[test]
 fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
     // Fixture offsets are independent of the generated decoder.
     for (offset, value) in [
@@ -103,6 +131,8 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         (50, 0x80),
         (51, 8),
         (92, 0xff),
+        (100, 0x80),
+        (101, 0xff),
     ] {
         let mut bytes = fixture();
         bytes[offset] = value;

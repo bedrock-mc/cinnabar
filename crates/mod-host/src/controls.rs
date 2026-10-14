@@ -24,7 +24,10 @@ impl ModHost {
             "controls capability denied"
         );
         let bundle = PanelBundle::parse(json).map_err(anyhow::Error::msg)?;
-        self.instance.set_panel_bundle(Arc::new(bundle))
+        let bundle = Arc::new(bundle);
+        self.instance.set_panel_bundle(Arc::clone(&bundle))?;
+        self.panel_bundle_override = Some(bundle);
+        Ok(())
     }
 
     /// Reports whether the retained panel is open.

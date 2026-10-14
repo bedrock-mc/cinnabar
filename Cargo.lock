@@ -2179,6 +2179,7 @@ dependencies = [
  "ui-screens",
  "update-manifest",
  "url",
+ "wat",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -4662,6 +4663,7 @@ version = "0.1.19"
 dependencies = [
  "assets",
  "bridge",
+ "json-ui",
  "render-api",
  "resource-pack",
  "semantic-input",
@@ -8653,6 +8655,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-client"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "bridge",
+ "futures",
+ "js-sys",
+ "semantic-input",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-transport",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8682,6 +8699,22 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "web-transport"
+version = "0.1.19"
+dependencies = [
+ "bridge",
+ "bytes",
+ "futures",
+ "js-sys",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]

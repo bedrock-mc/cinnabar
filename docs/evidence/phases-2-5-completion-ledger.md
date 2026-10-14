@@ -182,6 +182,10 @@ Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
 matched pack frames, authored sword display transforms and first-person face shading
 remain open in `plan.md`.
 
+Full-texture weapon planes use ordinary held-sprite extrusion and stage artwork.
+Focused equipment regressions check contour walls and depth after first- and
+third-person placement. Matched native frames remain open.
+
 Stock wolf texture admission preserves controller-selected adult/baby variants
 and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
 updates. Wet shading, custom-material composition, and exact target-version stock
@@ -227,6 +231,11 @@ Sound engine, session, named playback, local cue and UI sound tests belong to
 `client-audio`; camera publication and actor presentation belong to
 `client-presentation`. App integration tests retain the composed frame-order and
 camera-listener coverage. This ownership change adds no new parity evidence.
+
+The `json_ui::vanilla` contract checks categorized names against the pinned UI
+vocabulary. Screen routing and core form/context consumers use those names;
+remaining controller migrations and stale-name corrections are incomplete.
+This adds no live visual evidence and leaves the UI acceptance gate open.
 
 ## P5.2-HUD
 

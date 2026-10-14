@@ -253,6 +253,7 @@ func decodeBREGRecords(data []byte, expectedProtocol uint32) (RegistryMetadata, 
 			Provenance:    p.RawProvenance, Name: string(data[payload : payload+nameLen]),
 			StateJSON:  append([]byte(nil), data[payload+nameLen:end]...),
 			BeaconTint: BeaconTint(p.BeaconTint),
+			Traits:     p.RawTraits, Survival: SurvivalRule(p.Survival),
 		}
 		for boxIndex := 0; boxIndex < boxCount; boxIndex++ {
 			start := cursor + prefixBytes + boxIndex*collisionBoxBytes

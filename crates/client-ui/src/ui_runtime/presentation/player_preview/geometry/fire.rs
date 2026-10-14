@@ -16,36 +16,46 @@ pub struct PreviewFire {
     pub outer_y: f32,
 }
 
+const FACES: [(f32, f32, f32, f32, bool); 4] = [
+    (0.5, 0.0, 1.4, 0.0, false),
+    (0.45, 0.45, 1.85, 0.03, false),
+    (0.5, 0.0, 1.4, 0.0, true),
+    (0.45, 0.45, 1.85, -0.03, true),
+];
+const CORNERS: [usize; 6] = [0, 1, 2, 0, 2, 3];
+
+impl PreviewFire {
+    /// Counts the authored triangle corners, rejecting invalid flame inputs before projection.
+    pub(super) fn vertex_count(self) -> Option<usize> {
+        let [width, height] = self.size;
+        let [left, top, right, bottom] = self.texture.uv;
+        (self.outer_y.is_finite()
+            && [width, height]
+                .iter()
+                .all(|axis| axis.is_finite() && *axis > 0.0)
+            && left < right
+            && top < bottom
+            && right - left == bottom - top)
+            .then_some(FACES.len() * CORNERS.len())
+    }
+}
+
 pub(super) fn append(
     vertices: &mut Vec<UiMeshVertex>,
     batches: &mut Vec<UiMeshBatch>,
     fire: PreviewFire,
 ) -> Option<()> {
+    fire.vertex_count()?;
     let [width, height] = fire.size;
-    if !fire.outer_y.is_finite()
-        || [width, height]
-            .iter()
-            .any(|axis| !axis.is_finite() || *axis <= 0.0)
-    {
-        return None;
-    }
     let horizontal = width * 1.4;
     let vertical = width.min(height) * 1.4;
     // UI rendering skips the world camera billboard and reverses the native depth offset.
     let depth = -((height / horizontal).floor() * 0.02 - 0.3);
     let [left, top, right, bottom] = fire.texture.uv.map(f32::from);
-    if left >= right || top >= bottom || right - left != bottom - top {
-        return None;
-    }
     let start = u32::try_from(vertices.len()).ok()?;
     // The lower and upper pair each have independently reversed faces. Native's
     // upper faces are separated by +/-0.03 before collision-box scaling.
-    for (half, low, high, z, reverse) in [
-        (0.5, 0.0, 1.4, 0.0, false),
-        (0.45, 0.45, 1.85, 0.03, false),
-        (0.5, 0.0, 1.4, 0.0, true),
-        (0.45, 0.45, 1.85, -0.03, true),
-    ] {
+    for (half, low, high, z, reverse) in FACES {
         let positions = [
             [half * horizontal, low * vertical],
             [-half * horizontal, low * vertical],
@@ -60,9 +70,9 @@ pub(super) fn append(
             [right, top + 0.05],
         ];
         let corners = if reverse {
-            [3, 2, 1, 3, 1, 0]
+            CORNERS.map(|corner| positions.len() - 1 - corner)
         } else {
-            [0, 1, 2, 0, 2, 3]
+            CORNERS
         };
         for corner in corners {
             let [x, y] = positions[corner];

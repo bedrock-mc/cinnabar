@@ -104,6 +104,7 @@ impl UiPresentationRuntime {
             held_viewmodel_icon: None,
             offhand_viewmodel_icon: None,
             menu_artwork_set: Default::default(),
+            mod_menu_branding: None,
             menu_artwork_loader: Default::default(),
             menu_seconds: 0.0,
             scene_clocks: Default::default(),

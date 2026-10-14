@@ -301,6 +301,9 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 		if record.BeaconTint > maxBeaconTint || (metadata.Protocol == registryProtocol && record.BeaconTint != BeaconTintUnresolved) {
 			return nil, fmt.Errorf("invalid beacon tint %d for protocol %d", record.BeaconTint, metadata.Protocol)
 		}
+		if record.Traits & ^uint64(allBlockTraits) != 0 || record.Survival > maxSurvivalRule {
+			return nil, fmt.Errorf("invalid compiled traits for sequential ID %d", record.SequentialID)
+		}
 		if record.ModelFamily > maxModelFamily {
 			return nil, fmt.Errorf("invalid model family %d for sequential ID %d", record.ModelFamily, record.SequentialID)
 		}

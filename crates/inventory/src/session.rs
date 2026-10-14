@@ -94,6 +94,11 @@ impl InventorySession {
         &self.inventory_ledger
     }
 
+    /// Borrows facts admitted with this session's current item registry.
+    pub fn item_facts(&self) -> &crate::SessionItemFacts {
+        self.ledger().item_facts()
+    }
+
     /// Captures immutable presentation cells and metadata without cloning the journal.
     pub fn ledger_snapshot(&self) -> Arc<PlayerInventoryLedger> {
         Arc::clone(&self.inventory_ledger)

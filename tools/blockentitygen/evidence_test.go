@@ -240,7 +240,7 @@ func validEvidenceCatalog(t *testing.T) (rendererManifest, evidenceCatalog, evid
 				BREGSHA256: strings.Repeat("1", 64), MCBEASSHA256: strings.Repeat("2", 64),
 				SourceContractSHA256: strings.Repeat("3", 64), RendererContractSHA256: strings.Repeat("4", 64),
 				GalleryRequestSHA256: strings.Repeat("5", 64), NBTSHA256: strings.Repeat("6", 64),
-				CanonicalState: "{\"minecraft:cardinal_direction\":\"north\"}", SequentialID: uint32(100 + len(records)),
+				CanonicalState: "{\"minecraft:cardinal_direction\":{\"type\":\"string\",\"value\":\"north\"}}", SequentialID: uint32(100 + len(records)),
 				NetworkHash: uint32(200 + len(records)), Position: [3]int32{int32(len(records)), 64, 0},
 				Frames: [2]frameReceipt{
 					{FrameGeneration: 10, ViewGeneration: 7, BackingStream: "cube", BackingRefCount: 1, AdditionalRefCount: 0, PresentedDigestSHA256: strings.Repeat("7", 64)},

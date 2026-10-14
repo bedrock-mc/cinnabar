@@ -15,6 +15,7 @@ pub(super) fn compile(
     manifest: &Path,
     out: &Path,
     actors_out: &Path,
+    ui_out: Option<&Path>,
 ) -> Result<(), Box<dyn Error>> {
     let source = VanillaSource::read(manifest)?;
     let pinned = assets::vanilla_source();
@@ -31,7 +32,17 @@ pub(super) fn compile(
     }
     vanilla_pack::unpack(&paths, &UnpackLimits::PINNED, &|| false)?;
     let (vocabulary, actors) = asset_compiler::vocabulary::generate(&paths.cache)?;
-    write_output_bundle(&[(out, &vocabulary), (actors_out, &actors)])?;
+    let ui = ui_out
+        .map(|_| asset_compiler::ui_vocabulary::generate(&paths.cache))
+        .transpose()?;
+    let mut outputs = vec![
+        (out, vocabulary.as_slice()),
+        (actors_out, actors.as_slice()),
+    ];
+    if let Some((path, bytes)) = ui_out.zip(ui.as_deref()) {
+        outputs.push((path, bytes));
+    }
+    write_output_bundle(&outputs)?;
     Ok(())
 }
 
@@ -46,6 +57,7 @@ mod tests {
         let manifest = scratch.path().join("source.json");
         let out = scratch.path().join("vocabulary.tsv");
         let actors = scratch.path().join("actors.txt");
+        let ui = scratch.path().join("ui.txt");
         fs::write(&archive, b"invalid archive").unwrap();
         fs::write(&manifest, assets::VANILLA_SOURCE_MANIFEST).unwrap();
         fs::write(
@@ -58,11 +70,27 @@ mod tests {
             include_bytes!("../../../../protocol/data/retail_actors_1_26_50.txt"),
         )
         .unwrap();
-        let before = (fs::read(&out).unwrap(), fs::read(&actors).unwrap());
-        let error = compile(&archive, &manifest, &out, &actors)
+        fs::write(
+            &ui,
+            include_bytes!("../../../../json-ui/data/vanilla-ui-vocabulary-1.26.50.txt"),
+        )
+        .unwrap();
+        let before = (
+            fs::read(&out).unwrap(),
+            fs::read(&actors).unwrap(),
+            fs::read(&ui).unwrap(),
+        );
+        let error = compile(&archive, &manifest, &out, &actors, Some(&ui))
             .unwrap_err()
             .to_string();
         assert!(error.contains("pinned SHA-256"), "{error}");
-        assert_eq!((fs::read(out).unwrap(), fs::read(actors).unwrap()), before);
+        assert_eq!(
+            (
+                fs::read(out).unwrap(),
+                fs::read(actors).unwrap(),
+                fs::read(ui).unwrap()
+            ),
+            before
+        );
     }
 }

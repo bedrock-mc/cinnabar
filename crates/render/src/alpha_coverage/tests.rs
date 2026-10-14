@@ -23,6 +23,11 @@ fn alpha_to_coverage_is_limited_to_multisampled_cutout_color_passes() {
                 cutout && samples > 1
             );
             assert_eq!(
+                descriptor.vertex.shader_defs.contains(&SHADER_DEF.into()),
+                cutout && samples > 1,
+                "coverage varyings require matching vertex specialization",
+            );
+            assert_eq!(
                 descriptor
                     .fragment
                     .unwrap()

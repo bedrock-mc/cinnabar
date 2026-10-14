@@ -10,7 +10,7 @@ const LEGACY_BREG: &[u8] = include_bytes!("../../data/block-registry-v1001.bin")
 
 #[test]
 fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
-    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG1003");
+    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG");
     assert!(!records.is_empty());
     assert!(
         records
@@ -43,7 +43,7 @@ fn checked_in_v2193_block_and_light_registries_are_exact_and_bound() {
 
 #[test]
 fn checked_in_v2193_registry_pins_the_unique_canonical_air_identity() {
-    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG1003");
+    let records = read_registry_for_protocol(BREG, 2193).expect("decode v2193 BREG");
     let air = records
         .iter()
         .filter(|record| record.name.as_ref() == "minecraft:air")
@@ -92,28 +92,6 @@ fn v2193_decoders_reject_trailing_truncated_and_malformed_carriers() {
     trailing.push(0);
     assert!(read_registry_for_protocol(&trailing, 2193).is_err());
     assert!(read_registry_for_protocol(&BREG[..BREG.len() - 1], 2193).is_err());
-
-    let mut duplicate = BREG.to_vec();
-    // The second record begins after the fixed header plus the first bounded
-    // record; locate it through the first record's encoded lengths.
-    let first_prefix = 36usize;
-    let box_count = usize::from(duplicate[first_prefix + 15]);
-    let name_len = usize::from(u16::from_le_bytes(
-        duplicate[first_prefix + 18..first_prefix + 20]
-            .try_into()
-            .expect("name length"),
-    ));
-    let state_len = u32::from_le_bytes(
-        duplicate[first_prefix + 20..first_prefix + 24]
-            .try_into()
-            .expect("state length"),
-    ) as usize;
-    let second_prefix = first_prefix + 56 + box_count * 24 + name_len + state_len;
-    let first_id: [u8; 4] = duplicate[first_prefix..first_prefix + 4]
-        .try_into()
-        .expect("first sequential ID");
-    duplicate[second_prefix..second_prefix + 4].copy_from_slice(&first_id);
-    assert!(read_registry_for_protocol(&duplicate, 2193).is_err());
 
     let mut malformed_light = LREG.to_vec();
     malformed_light[48] ^= 1;

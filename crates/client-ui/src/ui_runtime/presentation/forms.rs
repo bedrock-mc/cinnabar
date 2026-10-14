@@ -374,6 +374,7 @@ impl UiPresentationRuntime {
             | server;
         // Server textures too big for a server page draw from full-resolution art.
         let set = super::menu_artwork::ArtworkSet {
+            logo: self.menu_artwork_set.logo.clone(),
             paths: self.menu_artwork_set.paths.clone(),
             images: self.menu_artwork_set.images.clone(),
             oversized: self.oversized_ui_textures(),

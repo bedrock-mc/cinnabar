@@ -39,6 +39,9 @@ pub(super) fn compile_pack(
 pub(super) fn canonical_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {
     RegistryRecord {
         beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
         sequential_id,
         network_hash,
         name: "minecraft:air".into(),
@@ -238,6 +241,9 @@ pub(super) fn record(
     };
     RegistryRecord {
         beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
         sequential_id,
         network_hash,
         name: name.into(),
@@ -541,6 +547,8 @@ pub(super) fn registry_bytes_for_protocol(protocol: u32, records: &[RegistryReco
         }
         if !legacy {
             bytes.push(record.beacon_tint as u8);
+            bytes.extend_from_slice(&record.traits.bits().to_le_bytes());
+            bytes.push(record.survival as u8);
         }
         for collision_box in &record.collision_seed.boxes {
             for coordinate in [

@@ -32,6 +32,7 @@ pub mod item_sprite;
 pub mod item_viewmodel;
 pub mod menu;
 pub mod menu_artwork;
+pub mod menu_branding;
 pub mod menu_scroll;
 mod mod_panel_font;
 mod runtime_assets;
@@ -190,6 +191,7 @@ pub struct UiPresentationRuntime {
     offhand_viewmodel_icon: Option<IconRef>,
     /// The art set last requested: service art plus engine textures too big for a server page.
     menu_artwork_set: menu_artwork::ArtworkSet,
+    mod_menu_branding: Option<Arc<menu_branding::PreparedMenuBranding>>,
     menu_artwork_loader: menu_artwork::ArtworkLoader,
     /// This frame's clock in seconds, which engine screen animations paint at.
     menu_seconds: f64,

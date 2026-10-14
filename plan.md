@@ -9,8 +9,13 @@ keep their foreground/background threads and priority policy. Native cache-file 
 FreeType compilation are excluded from browser targets. Divergent fragment samples use
 explicit gradients computed before rejection.
 
-Incomplete: CI must compile the native changes and run the written regression tests. The
-browser entry, transport, timer implementation and asset source remain pending. Shared
+Browser relay channels have a WebTransport adapter and a WebSocket fallback behind one
+session controller. Both use the bridge codec and bounded receive/send queues. Control
+resumption retains account intent and bearer expiry; play reconnects never replay packets.
+
+The browser entry preview supplies relay account controls, a browser deadline and verified memory carriers.
+Incomplete: full gameplay composition, sound-bank ranges and audio playback remain pending. Relay integration
+and real-browser interoperability still need acceptance tests. Shared
 session/world/render clock migration and browser dependency composition still need a
 wasm build gate. Shader output comparisons on WebGPU and Metal and indivisible browser
 job costs remain unverified. No browser release or parity gate closes here.
@@ -521,6 +526,10 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
+  interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
+  and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart
+  association remains incomplete and does not close shader parity.
 - Alpha-contour reconstruction is an extra visual policy, labelled incomplete for exact-version
   vanilla coverage parity. Matched hardware performance and native foliage comparison remain
   incomplete; no parity or performance gate closes from these changes.
@@ -2663,6 +2672,12 @@ The reported flat held-thumbnail and plain-tooltip regressions passed fresh
 macOS/Metal Retina-2 rendered-frame checks against offline official BDS. The
 first live offhand Shield exposed a missing expression-bound ModelPart origin;
 the correction now passes both hand poses and real-carrier tests.
+2026-10-14 inventory player previews resolve admitted session sprite replacements in both
+hands, sharing inventory-cell texture regions and caching extrusion and compatibility pixels
+for the installed page. Block and authored models keep their geometry. Incomplete: held
+meshes that exceed the UI storage budget are omitted while the player and other equipment
+remain visible; native behavior for that resource limit is unverified. Full pack-authored
+and multi-bone preview parity remains open.
 2026-10-07 non-cube block items (slabs, stairs, walls, fences) also draw as GUI geometry at
 display resolution instead of a 32x32 thumbnail (icon carrier v3 names each thumbnail's world
 state). Cut-out cubes (glass, leaves) draw all six alpha-tested faces, including rear faces
@@ -3385,15 +3400,18 @@ Mixed packs reuse the compiler's decoded equipment rasters; startup-path artwork
 separately only when that compiler table lacks it, within the remaining pixel and count budgets.
 Texture-only bow, crossbow, spear and trident attachables use native held sprite
 meshes and hand transforms when every resolved geometry matches the startup weapon
-or stock item sprite. Their texture aliases follow native use stages; custom models
-keep authored attachable animation. This is an accepted presentation choice.
+or stock item sprite, or is a single uninflated plane covering its full texture.
+Those planes use the same extruded contour and resolution-independent depth as
+held swords, including pull and charge stages. Partial atlas mappings and 3D
+models keep authored attachable animation. This is an accepted presentation choice.
 Older carriers without texture aliases also recognize overrides of a single stage.
 Missing bow and crossbow stage textures use startup animation icons, including the
 loaded crossbow's offhand image dimensions.
-Cube-based weapon textures are UV atlases, so those weapons use pack item icons,
+Other cube-based weapon textures are UV atlases, so those weapons use pack item icons,
 then startup item icons. Without an item icon, they retain model rendering.
-Provisional, incomplete: compilation, regression execution and rendered acceptance
-in both animation modes remain unverified. No parity gate is closed.
+Focused native equipment regressions cover extrusion, contour walls, stage artwork,
+and depth after first- and third-person placement. Rendered acceptance in both
+animation modes remains incomplete. No parity gate is closed.
 Held pixel meshes and Java raster frames include
 the resolved artwork page and layer in their cache keys. Controller glint samplers do not
 replace startup primary artwork. Rendered acceptance remains incomplete.
@@ -7576,6 +7594,11 @@ references, PNG evidence and the limitations of the capture.
 
 ### JSON-UI review follow-up (incomplete live form acceptance)
 
+JSON-UI names have a categorized `json_ui::vanilla` contract checked against a
+names-only vocabulary from the pinned sample pack. Screen routing and core form
+and context consumers use it. Remaining controller migrations and corrections
+to stale names are incomplete; this contract closes no live visual gate.
+
 Review corrections cover untrusted animation graphs, expanded widget component
 bags, native form titles, screen cancellation, Drop remapping, recipe icons and
 perspective settings. An open form also remeasures when its session font changes.
@@ -8876,3 +8899,25 @@ labels retain fractional positions, including the origin read by caret metadata.
 cap fixtures cover centered titles across raster sizes, GUI scales and DPI.
 Incomplete: matched rendered title size and vertical alignment still require
 verification in the reported server form; these CPU fixtures do not close that gate.
+
+
+### Compiled block registry facts
+
+The active block carrier stores traits and survival classifications by sequential
+runtime id. State properties use generated keys and pinned scalar domains decoded
+when the registry loads. Compiler selectors expand against the pinned palette and
+produce a reviewed membership table; provisional rules remain explicitly listed.
+
+Incomplete: native replacement and interaction membership, support-rule parity,
+complete survival coverage, and refreshed block-entity backings remain open.
+Gameplay, shape, rendering and session consumers still require migration onto the
+compiled facts. Adding this owner does not close those behavior gates.
+## Compiled item facts
+
+A hash-checked item-facts carrier joins the pinned retail IDs, tags, capacities,
+armour, durability, fuel, glint, grips and use profiles. Startup requires its exact
+fingerprint; `make assets` rebuilds it. Registry admission caches server component
+facts by negotiated numeric ID and retires them on replacement or reconnect.
+The consumer migration remains incomplete. Native compatibility rules retain their
+provisional status, and identities absent from the retail table remain unresolved.
+This infrastructure does not close a gameplay or rendering parity gate.

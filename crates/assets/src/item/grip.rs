@@ -31,6 +31,25 @@ pub enum ItemGrip {
 }
 
 impl ItemGrip {
+    /// Overlays the hand flag while preserving artwork; malformed declarations stay unresolved.
+    pub fn with_hand_equipped(
+        self,
+        upright: Option<bool>,
+        declared: bool,
+        component_based: bool,
+    ) -> Self {
+        if let Some(upright) = upright {
+            Self::Session {
+                upright,
+                mirrored_art: self.mirrored_art(),
+            }
+        } else if declared || component_based {
+            Self::Unresolved
+        } else {
+            self
+        }
+    }
+
     /// Returns the admitted upright choice; missing evidence remains absent.
     pub const fn upright(self) -> Option<bool> {
         match self {
@@ -139,6 +158,26 @@ fn invalid(detail: &str) -> AssetError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hand_flag_overlay_keeps_pinned_art_and_rejects_missing_declarations() {
+        let compiled = builtin_item_grip("minecraft:carrot_on_a_stick");
+        assert!(compiled.mirrored_art());
+        for upright in [true, false] {
+            let grip = compiled.with_hand_equipped(Some(upright), true, false);
+            assert_eq!(grip.upright(), Some(upright));
+            assert!(grip.mirrored_art());
+        }
+        assert_eq!(compiled.with_hand_equipped(None, false, false), compiled);
+        assert_eq!(
+            compiled.with_hand_equipped(None, true, false),
+            ItemGrip::Unresolved
+        );
+        assert_eq!(
+            compiled.with_hand_equipped(None, false, true),
+            ItemGrip::Unresolved
+        );
+    }
 
     /// Builds the two exact source identities required for promoted grip facts.
     fn sources() -> Vec<EntityAssetSource> {

@@ -58,7 +58,7 @@ fn sprite_sidecar_advances_authored_frames_and_loops() {
         "hud_screen":{"type":"image","texture":"textures/ui/effect","size":[8,8],"uv_size":[8,8],"uv":"@hud.frames"}
     }"#.as_slice())]).unwrap();
     let frame = render_screen(
-        json_ui::HUD_SCREEN,
+        json_ui::vanilla::Reference::HudHudScreen.as_str(),
         &catalog,
         &Context::desktop(),
         &Default::default(),

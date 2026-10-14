@@ -18,3 +18,6 @@ __pycache__/
 
 # Agent worktrees nested in the checkout
 /.claude/worktrees/
+
+# Generated browser bindings.
+/web/site/pkg/
