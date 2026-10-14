@@ -206,3 +206,16 @@ fn directory_packages_retain_plain_components_and_reject_single_file_static_reso
         assert!(ComponentAssets::read_package(&bytes).is_err());
     }
 }
+
+#[test]
+fn icon_content_never_fails_admission_and_is_stripped() {
+    let original = wat::parse_str("(component)").unwrap();
+    for data in [b"not a PNG".to_vec(), vec![0; mod_api::MAX_ICON_BYTES + 1]] {
+        let mut source = original.clone();
+        section(&mut source, mod_api::ICON_SECTION, &data);
+        assert_eq!(
+            ComponentAssets::read(&source).unwrap().executable.as_ref(),
+            original
+        );
+    }
+}

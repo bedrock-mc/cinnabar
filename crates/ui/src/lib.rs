@@ -6,6 +6,7 @@ mod geometry;
 mod hud;
 mod icon;
 pub mod mod_hud;
+pub mod mod_metadata;
 pub mod mod_panel;
 mod model;
 pub mod oreui_theme;

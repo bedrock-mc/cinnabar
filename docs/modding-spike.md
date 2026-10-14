@@ -56,11 +56,13 @@ guest imports are required.
 | `cinnabar:extension/menu-logo@1` | PNG main-menu logo | 2 MiB |
 | `cinnabar:extension/menu-title@1` | Nonempty UTF-8 single-line heading | 64 bytes |
 | `cinnabar:extension/notices@1` | UTF-8 copyright and license text | 4 MiB |
+| `cinnabar:extension/icon@1` | PNG Mods-tab icon, at most 256 by 256 pixels | 256 KiB |
 
 Embedded resources are supported only in the single-file component form, not in
 directory packages. Directory packages retain their existing asset lifecycle and
 4 MiB component ceiling. Resources require a binary component and are rejected when duplicated, nested,
-truncated or over their limits. Recognized resources are removed before compiling
+truncated or over their limits; an icon's size or content only affects its card.
+Recognized resources are removed before compiling
 the component; executable bytes and unrelated custom metadata retain the existing
 4 MiB limit. License text has no required product schema and grants no authority.
 The PNG must be at most 4096 by 2048 pixels and 4,194,304 pixels in total. Its
@@ -86,6 +88,29 @@ resources with the existing explicit capability switches. Optional
 Changed environment components prepare the guest, panel, font and branding on a
 bounded worker, then publish them together. Invalid replacements retain the
 accepted instance; preferences changed during preparation cause a fresh retry.
+
+## Mods-tab name, version and icon
+
+Mod cards read the WebAssembly Component Model's standard metadata sections, the
+ones `wasm-tools metadata add` writes: the component name, `description`,
+`version`, `authors` and `licenses`. The file name is the fallback name. For example:
+
+```sh
+wasm-tools metadata add --name "Zoom Plus" --description "Smooth zoom" \
+  --version 1.2.0 --authors "Example Author" --licenses MIT mod.wasm -o mod.wasm
+```
+
+Recent `cargo component` releases write the same sections from `Cargo.toml` package
+metadata. Each field displays as one line. Name is limited to 64 bytes,
+description 512, version 32, authors 256 and licenses 128. A field that is too
+long, not UTF-8 or has control characters is ignored.
+
+Append an icon to the finished component as the top-level custom section
+`cinnabar:extension/icon@1`, for example with `wasm-encoder`'s `CustomSection`.
+A section inside the core module is rejected like other embedded resources. The
+icon must be one PNG within the limits above that decodes completely; otherwise
+the card shows the placeholder. Metadata and icons are read by parsing the file
+only, and their content never causes a load to fail.
 
 ## Visual time changer
 
