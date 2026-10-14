@@ -11,7 +11,7 @@ use super::client_data::{ClientRandomId, LoginSettings};
 use super::{LoginSequence, PlaySession};
 use crate::codec::SessionFailure;
 use crate::disconnect::{disconnect_reason, join_disconnect};
-use crate::session_transport::SessionTransport;
+use crate::session_transport::{MAX_READ_AHEAD_BYTES, SessionTransport};
 use crate::{
     ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
     ResourcePackHandoff, ServerTransferEvent,
@@ -21,7 +21,7 @@ impl LoginSequence {
     /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
     /// open local world, using the caller's persisted login ID, and returns `prepare`'s result for
     /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
-    /// item registry arrive, while the spawn sequence keeps reading the session. The owner calls
+    /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
     /// `finish_loading` after presenting the world.
     pub async fn connect_session<R: Send + 'static>(
         socket_dir: &Path,
@@ -63,10 +63,13 @@ impl LoginSequence {
             }));
         })
         .await?;
-        let prepared = match preparation
-            .expect("spawn waits for StartGame and the item registry")
-            .await
-        {
+        let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
+        // Keep reading while the packs prepare, so the server's backlog never stalls the core.
+        let prepared = tokio::select! {
+            prepared = &mut preparation => prepared,
+            () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => preparation.await,
+        };
+        let prepared = match prepared {
             Ok(prepared) => prepared,
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
             Err(_) => return Err(unexpected("startup facts reader failed")),
