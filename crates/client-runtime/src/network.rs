@@ -1,6 +1,6 @@
 //! Bevy ownership of the session queues and their end-of-frame flush.
 
-use bevy::app::{App, Last, MainScheduleOrder};
+use bevy::app::{App, MainScheduleOrder};
 use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::{Deref, DerefMut, Res, Resource};
 use std::path::PathBuf;
@@ -105,17 +105,17 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
     }
 }
 
-/// Runs once per frame after `Last`, where vanilla flushes its batched peer at the end of its
-/// update: every packet the frame queued leaves in one batch.
+/// Submits the current frame's packet batch before waiting for the next frame.
 #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NetworkFrameFlush;
 
-/// Registers the session flush after all ordinary frame schedules.
+/// Registers the session flush after ordinary frame work and before the pacing wait.
 pub fn configure_network_frame_flush<P: Send + Sync + 'static>(app: &mut App) {
+    render::FrameEnd::install(app);
     app.init_schedule(NetworkFrameFlush);
     app.world_mut()
         .resource_mut::<MainScheduleOrder>()
-        .insert_after(Last, NetworkFrameFlush);
+        .insert_before(render::FrameEnd, NetworkFrameFlush);
     app.add_systems(NetworkFrameFlush, flush_network_frame::<P>);
 }
 
@@ -125,3 +125,7 @@ fn flush_network_frame<P: Send + Sync + 'static>(network: Option<Res<NetworkHand
         network.flush_frame();
     }
 }
+
+#[cfg(test)]
+#[path = "network/tests.rs"]
+mod tests;

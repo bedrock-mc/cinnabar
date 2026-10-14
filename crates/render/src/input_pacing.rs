@@ -71,6 +71,21 @@ impl FrameStart {
     }
 }
 
+/// Waits for the next frame only after the current frame's work has finished.
+#[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FrameEnd;
+
+impl FrameEnd {
+    /// Installs the wait boundary once so other owners can finish work before it.
+    pub fn install(app: &mut App) {
+        app.init_schedule(Self);
+        let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
+        if !order.labels.contains(&Self.intern()) {
+            order.insert_after(Last, Self);
+        }
+    }
+}
+
 /// The cadence the next frames are admitted at; the app's presentation policy writes it.
 #[derive(Resource, Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FramePacing {
@@ -393,7 +408,7 @@ impl InputPacer {
     }
 }
 
-/// Paces updates at the handoff when rendering is pipelined, otherwise at the end of `Last`.
+/// Paces updates at the render handoff or the final frame boundary.
 #[derive(Default)]
 pub struct InputPacingPlugin {
     #[cfg(test)]
@@ -419,6 +434,7 @@ impl InputPacingPlugin {
 impl Plugin for InputPacingPlugin {
     fn build(&self, app: &mut App) {
         FrameStart::install(app);
+        FrameEnd::install(app);
         let pacer = self.pacer();
         app.init_resource::<FramePacing>()
             .insert_resource(pacer.clone())
@@ -428,7 +444,7 @@ impl Plugin for InputPacingPlugin {
             .get_sub_app_mut(RenderExtractApp)
             .and_then(|extract_app| extract_app.take_extract());
         let Some(mut inner) = inner else {
-            app.add_systems(Last, pace_unpipelined);
+            app.add_systems(FrameEnd, pace_unpipelined);
             return;
         };
         let handoff = pacer.clone();
