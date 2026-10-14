@@ -374,6 +374,7 @@ pub fn use_item_as_attack_packet(
         unreachable!("click-air builder always produces an item-use transaction");
     };
     transaction.action_type = ItemUseInventoryTransactionActionType::UseAsAttack;
+    transaction.face = wire::U8(0);
     transaction.click_position = click.into();
     transaction.client_cooldown_state = if on_cooldown {
         ItemUseInventoryTransactionClientCooldownState::On
