@@ -192,8 +192,8 @@ pub(super) fn resolve_binding(
         history: VecDeque::with_capacity(MAX_ACTOR_ACTION_HISTORY),
         presentation_seeded: false,
         query_context: ActorTickContext::default(),
-        equipped_main: None,
-        equipped_off: None,
+        equipped_main: Default::default(),
+        equipped_off: Default::default(),
         // Vanilla starts both offhand observations at zero.
         off_hand_animation: [ItemAnimationState {
             attack_time: 0.0,

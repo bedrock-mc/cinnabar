@@ -1,7 +1,13 @@
 //! Verified delivery of runtime carriers, without paths pretending to be a filesystem.
 
 use crate::carriers::{self as carriers, ACTOR, Carrier, Recipe, required};
-use crate::*;
+use crate::{
+    AssetError, PhysicsRegistry, RuntimeActorCatalog, RuntimeAssets, RuntimeAtmosphereAssets,
+    RuntimeEntityAssets, RuntimeHudCatalog, RuntimeIconCatalog, RuntimeLangCatalog,
+    RuntimeUiAssets, UiAtlasPage, VANILLA_EN_US_LANG_SHA256, VANILLA_SOURCE_MANIFEST,
+    active_content_registry_protocol, canonical_source_manifest_sha256,
+    pinned_block_registry_bytes, read_physics_registry_for_protocol, read_registry_for_protocol,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, sync::Arc};
@@ -250,6 +256,7 @@ fn missing(carrier: &Carrier) -> DeliveryError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{UiFile, encode_ui_catalog, entity};
 
     /// Builds a bounded delivery index over the same synthetic bytes for every carrier.
     fn manifest(bytes: &[u8]) -> DeliveryManifest {

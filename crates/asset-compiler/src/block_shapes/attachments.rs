@@ -1,27 +1,30 @@
 use super::{selection::bounds, state::State};
+use assets::facts::BlockProperty;
+use assets::registry::BlockTraits;
 use assets::{RegistryRecord, block_shapes::ShapeBox};
 
 /// Compiles block-local face attachments whose bounds depend only on state.
 pub(super) fn shape(record: &RegistryRecord) -> Option<ShapeBox> {
-    let name = record.name.strip_prefix("minecraft:")?;
     let state = State::read(record)?;
-    if name == "frame" || name == "glow_frame" {
-        let inset = if state.bit("item_frame_map_bit")? || state.bit("item_frame_photo_bit")? {
+    if record.traits.contains(BlockTraits::FRAME) {
+        let inset = if state.bit(BlockProperty::ItemFrameMapBit)?
+            || state.bit(BlockProperty::ItemFramePhotoBit)?
+        {
             0.0
         } else {
             0.125
         };
-        return face_box(state.number("facing_direction")?, inset, 0.0625);
+        return face_box(state.number(BlockProperty::FacingDirection)?, inset, 0.0625);
     }
-    if name == "ladder" {
-        let facing = state.number("facing_direction")?;
+    if record.traits.contains(BlockTraits::LADDER) {
+        let facing = state.number(BlockProperty::FacingDirection)?;
         return (2..=5)
             .contains(&facing)
             .then(|| face_box(facing, 0.0, 0.1875))
             .flatten();
     }
-    if name.ends_with("_skull") || name.ends_with("_head") {
-        let (min, max) = match state.number("facing_direction")? {
+    if record.traits.contains(BlockTraits::HEAD) {
+        let (min, max) = match state.number(BlockProperty::FacingDirection)? {
             0 | 1 => ([0.25, 0.0, 0.25], [0.75, 0.5, 0.75]),
             2 => ([0.25, 0.25, 0.5], [0.75, 0.75, 1.0]),
             3 => ([0.25, 0.25, 0.0], [0.75, 0.75, 0.5]),

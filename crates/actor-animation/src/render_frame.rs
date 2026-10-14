@@ -205,6 +205,8 @@ pub(super) struct FrameState {
     pub motion: MotionEndpointState,
     /// Previous simulation tick, even when that tick did not evaluate a visual pose.
     pub previous_rotation: ActorTickInput,
+    /// Previous simulation tick for walk sampling, kept even where rotation is not sampled.
+    pub previous_walk: ActorTickInput,
     pub samples_camera_poses: bool,
     pub samples_swing_poses: bool,
     /// Completed selection and clock writes feed independently sampled layer channels.
@@ -220,7 +222,9 @@ pub(super) struct FrameState {
 
 impl FrameState {
     fn samples_rig_scale(&self, actor: &dyn AnimatedActor) -> bool {
-        (self.needs_swell_sampling(actor) || self.needs_rotation_sampling())
+        (self.needs_swell_sampling(actor)
+            || self.needs_rotation_sampling()
+            || self.needs_walk_sampling())
             && self
                 .motion
                 .sampling
@@ -247,8 +251,18 @@ impl FrameState {
             && self.previous_rotation.rotation_changed(self.motion.input)
     }
 
+    /// A changing stride or speed requires walk sampling between ticks.
+    fn needs_walk_sampling(&self) -> bool {
+        self.motion
+            .sampling
+            .as_ref()
+            .is_some_and(|sampling| sampling.uses_walk())
+            && self.previous_walk.walk_changed(self.motion.input)
+    }
+
     pub(super) fn hold_motion(&mut self) {
         self.previous_rotation = self.motion.input;
+        self.previous_walk = self.motion.input;
         self.swelling[0] = self.swelling[1];
         if let Some(previous) = self.previous_motion.as_mut() {
             previous.clone_from(&self.motion);
@@ -306,6 +320,7 @@ pub(super) fn carry_motion_history(
     });
     if !advance && let Some(previous) = previous.as_ref() {
         next.previous_rotation = previous.previous_rotation;
+        next.previous_walk = previous.previous_walk;
     }
     let mut previous = previous;
     if next.motion_poses.is_some() {
@@ -445,7 +460,8 @@ impl ActorAnimationStore {
                 || state.samples_camera_poses
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor)
-                || frame.needs_rotation_sampling())
+                || frame.needs_rotation_sampling()
+                || frame.needs_walk_sampling())
                 && (!state.culled || state.samples_camera_poses || frame.samples_rig_scale(actor))
                 && !state.reset_pending
         }) else {
@@ -474,7 +490,8 @@ impl ActorAnimationStore {
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
-        let motion_changed = swell_changed || rotation_changed;
+        let walk_changed = frame.needs_walk_sampling();
+        let motion_changed = swell_changed || rotation_changed || walk_changed;
         if !state.samples_render_frames && !swing_changed && !motion_changed {
             return Some(completed());
         }
@@ -486,26 +503,25 @@ impl ActorAnimationStore {
             });
         let pose_inputs_changed = camera_inputs_changed
             || rotation_changed
+            || walk_changed
             || partial_tick != frame.motion.context.frame_alpha;
         let previous_motion = frame.previous_motion.as_ref().unwrap_or(&frame.motion);
-        let current_input = if rotation_changed {
-            frame.motion.input.sample_rotation(
-                frame.previous_rotation,
-                frame.motion.input,
-                partial_tick,
-            )
-        } else {
-            frame.motion.input
+        // Both endpoints read the frame's rotation and walk, retaining their other inputs.
+        let sample_frame = |input: ActorTickInput| {
+            let current = frame.motion.input;
+            let input = if rotation_changed {
+                input.sample_rotation(frame.previous_rotation, current, partial_tick)
+            } else {
+                input
+            };
+            if walk_changed {
+                input.sample_walk(frame.previous_walk, current, partial_tick)
+            } else {
+                input
+            }
         };
-        let previous_input = if rotation_changed {
-            previous_motion.input.sample_rotation(
-                frame.previous_rotation,
-                frame.motion.input,
-                partial_tick,
-            )
-        } else {
-            previous_motion.input
-        };
+        let current_input = sample_frame(frame.motion.input);
+        let previous_input = sample_frame(previous_motion.input);
         let mut context = frame.motion.context.clone();
         context.frame_alpha = partial_tick;
         context.camera_rotation = camera_rotation;

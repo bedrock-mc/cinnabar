@@ -107,7 +107,8 @@ mod tests {
             end = block.first_internal_id + block.state_count;
             let range = &records[block.first_internal_id as usize..end as usize];
             assert!(range.iter().all(|record| {
-                record.name.as_ref() == block.name || record.name.as_ref() == "cinnabar:reserved"
+                record.name.as_ref() == block.name
+                    || record.name.as_ref() == crate::facts::block::RESERVED_BLOCK_NAME
             }));
             let named = records
                 .iter()

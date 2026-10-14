@@ -9,6 +9,25 @@ use controller::ControllerWalk;
 #[path = "tick_cape_tests.rs"]
 mod cape_tests;
 
+/// A held stack's data value, block and tags: a change re-equips the item, while its count and
+/// network instance do not.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StackVariant {
+    pub metadata: u32,
+    pub block_runtime_id: i32,
+    pub nbt_digest: [u8; 32],
+}
+
+impl From<&assets::ItemStackIdentity> for StackVariant {
+    fn from(identity: &assets::ItemStackIdentity) -> Self {
+        Self {
+            metadata: identity.metadata,
+            block_runtime_id: identity.block_runtime_id,
+            nbt_digest: identity.nbt_digest,
+        }
+    }
+}
+
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub struct ActorTickContext {
@@ -24,6 +43,8 @@ pub struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
+    /// Stack facts beside each hand's identifier whose change re-equips it.
+    pub held_variants: [StackVariant; 2],
     /// The main-hand stack's data value.
     pub main_hand_metadata: u32,
     /// A positive network identity distinguishes mutation from replacement of the held stack.
@@ -134,6 +155,7 @@ pub(super) fn advance_motion(
         player: matches!(actor.kind(), ActorKind::Player { .. }),
         yaw: actor.yaw(),
         head_yaw: actor.head_yaw(),
+        on_fire: actor.is_on_fire(),
     });
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
@@ -176,21 +198,22 @@ pub(super) fn advance_motion(
         previous + (swim_target - previous).clamp(-SWIM_AMOUNT_STEP, SWIM_AMOUNT_STEP)
     });
     // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
+    let [main_variant, off_variant] = context.held_variants;
     let arm_height = match state.history.back() {
         Some(previous) => advance_equip_height(
             &mut state.equipped_main,
-            &context.main_hand,
+            (&context.main_hand, main_variant),
             previous.arm_height,
         ),
         None => {
-            state.equipped_main.clone_from(&context.main_hand);
+            state.equipped_main = (context.main_hand.clone(), main_variant);
             1.0
         }
     };
     state.off_hand_animation[0] = state.off_hand_animation[1];
     let off_hand_arm_height = advance_equip_height(
         &mut state.equipped_off,
-        &context.off_hand,
+        (&context.off_hand, off_variant),
         state.off_hand_animation[0].arm_height,
     );
     state.off_hand_animation[1].arm_height = off_hand_arm_height;
@@ -261,7 +284,7 @@ pub(super) fn seed_presentation_input(
         .copied()
         .filter(|_| !state.presentation_seeded);
     if retained.is_none() {
-        state.equipped_main.clone_from(&context.main_hand);
+        state.equipped_main = (context.main_hand.clone(), context.held_variants[0]);
     }
     let counters = retained.unwrap_or_else(|| ActorTickInput {
         swim_amount: f32::from(query::actor_flag(actor, query::FLAG_SWIMMING)),
@@ -330,16 +353,16 @@ pub(super) fn local_use_counter(
 /// Identifier changes request the native lowering transition. Item-specific stack
 /// equivalence/instant-update predicates need stack data beyond the current actor feed.
 fn advance_equip_height(
-    equipped: &mut Option<Arc<str>>,
-    requested: &Option<Arc<str>>,
+    equipped: &mut (Option<Arc<str>>, StackVariant),
+    (requested, variant): (&Option<Arc<str>>, StackVariant),
     previous_height: f32,
 ) -> f32 {
-    let swapping = equipped != requested;
+    let swapping = equipped.0 != *requested || (requested.is_some() && equipped.1 != variant);
     let target = if swapping { 0.0 } else { 1.0 };
     let height =
         previous_height + (target - previous_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
     if swapping && height <= ARM_SWAP_HEIGHT {
-        equipped.clone_from(requested);
+        *equipped = (requested.clone(), variant);
     }
     height
 }
@@ -485,6 +508,7 @@ pub(super) fn evaluate_state(
     let samples_motion = state.motion_sampling.as_ref().is_some_and(|sampling| {
         actor.is_creeper()
             || sampling.uses_rotation()
+            || sampling.uses_walk()
             || state.samples_camera_poses
             || state.samples_swing_poses
     });
@@ -498,6 +522,7 @@ pub(super) fn evaluate_state(
         } else {
             state.history.iter().rev().nth(1).copied().unwrap_or(input)
         },
+        previous_walk: state.history.iter().rev().nth(1).copied().unwrap_or(input),
         samples_camera_poses: false,
         samples_swing_poses: false,
         selection_effects: evaluation::MolangEffects::default(),
@@ -808,7 +833,9 @@ pub(super) fn apply_engine_variables(
         .main_hand
         .as_ref()
         .and_then(|_| crate::consumables::consume_animation(context.main_hand_consumption))
-        .map_or((0.0, 0.0), |_| use_item_progress(input.item_use_ticks));
+        .map_or((0.0, 0.0), |_| {
+            use_item_progress(input.item_use_ticks, context.main_hand_max_use_ticks)
+        });
     variables.set(engine.use_item_startup_progress, startup);
     variables.set(engine.use_item_interval_progress, interval);
     variables.set(engine.swim_amount, input.swim_amount);
@@ -854,27 +881,31 @@ pub(super) fn apply_engine_variables(
     }
 }
 
-/// Ticks the arm takes to rise to the mouth once eating or drinking starts. Provisional: the
-/// engine sets this variable natively and no version-matched witness is recorded yet.
-const USE_ITEM_STARTUP_TICKS: f32 = 4.0;
-/// Ticks of one eating or drinking bob, matching the four-tick cadence of the eat events servers
-/// send; provisional like [`USE_ITEM_STARTUP_TICKS`].
-const USE_ITEM_INTERVAL_TICKS: f32 = 4.0;
+/// Remaining use ticks above which the arm is still rising to the mouth.
+const USE_ITEM_STARTUP_REMAINING: u32 = 25;
+/// Remaining-tick period of one eat or drink bob.
+const USE_ITEM_INTERVAL_TICKS: u32 = 4;
 
-/// The `variable.use_item_startup_progress` and `variable.use_item_interval_progress` an
-/// eat or drink use of `use_ticks` consecutive ticks publishes: the arm rises over the startup,
-/// then bobs once per interval. Both are zero while nothing is in use.
-pub(super) fn use_item_progress(use_ticks: u32) -> (f32, f32) {
+/// The `variable.use_item_startup_progress` and `variable.use_item_interval_progress` an eat or
+/// drink use publishes on its `use_ticks`-th (one-based) tick of a `max_ticks` use; both are zero
+/// while nothing is in use. An undeclared duration uses the default consumable duration.
+pub(super) fn use_item_progress(use_ticks: u32, max_ticks: u32) -> (f32, f32) {
     if use_ticks == 0 {
         return (0.0, 0.0);
     }
-    let ticks = use_ticks as f32;
-    let startup = (ticks / USE_ITEM_STARTUP_TICKS).min(1.0);
-    let bobbing = (ticks - USE_ITEM_STARTUP_TICKS).max(0.0);
-    let interval = (std::f32::consts::PI * (bobbing % USE_ITEM_INTERVAL_TICKS)
-        / USE_ITEM_INTERVAL_TICKS)
-        .sin();
-    (startup, interval)
+    let max_ticks = if max_ticks == 0 {
+        assets::item_use::DEFAULT_CONSUME_USE_TICKS
+    } else {
+        max_ticks
+    };
+    let remaining = max_ticks.saturating_sub(use_ticks - 1);
+    if remaining >= USE_ITEM_STARTUP_REMAINING {
+        let span = max_ticks.saturating_sub(USE_ITEM_STARTUP_REMAINING).max(1) as f32;
+        let startup = 1.0 - (remaining - USE_ITEM_STARTUP_REMAINING) as f32 / span;
+        return (startup, 0.0);
+    }
+    let interval = (remaining % USE_ITEM_INTERVAL_TICKS) as f32 / USE_ITEM_INTERVAL_TICKS as f32;
+    (1.0, interval)
 }
 
 /// Uses the authored rotation factor when the pack leaves its item-specific factor unassigned.

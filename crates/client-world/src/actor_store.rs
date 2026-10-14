@@ -643,6 +643,8 @@ pub struct LocalPlayerFeed {
     pub held_network_ids: [i32; 2],
     /// The main-hand stack's data value.
     pub main_hand_metadata: u32,
+    /// Main-hand and off-hand stack facts whose change re-equips the item.
+    pub held_variants: [actor_animation::StackVariant; 2],
     /// Positive server identity for the selected stack, if one is available.
     pub main_hand_stack_id: Option<i32>,
     /// Selected hotbar slot; equal stacks in different slots still re-equip.
@@ -745,6 +747,7 @@ pub(crate) struct ActorStore {
     local_hands: [Option<std::sync::Arc<str>>; 2],
     local_held_network_ids: [i32; 2],
     local_main_metadata: u32,
+    local_held_variants: [actor_animation::StackVariant; 2],
     local_main_stack_id: Option<i32>,
     local_main_slot: u8,
     local_item_use: LocalItemUse,

@@ -94,7 +94,7 @@ pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;
-pub use tick::{ActorTickContext, WornArmor};
+pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;
 

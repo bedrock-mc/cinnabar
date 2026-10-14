@@ -1,4 +1,5 @@
 use super::{UNIT, compile, selection};
+use assets::facts::BlockProperty;
 use assets::{
     PhysicsRegistry, RegistryRecord,
     block_shapes::{PickRule, SelectionContext, ShapeFlags},
@@ -64,7 +65,9 @@ fn reviewed_foliage_routes_compile_without_changing_movement() {
         if record.name.as_ref() == "minecraft:border_block" {
             continue;
         }
-        let Some(expected) = selection::shape(record) else {
+        let Some(expected) =
+            selection::shape(record, crate::registry_policy::block_shape_facts(record).1)
+        else {
             continue;
         };
         let input = seed.by_sequential_id(record.sequential_id).unwrap();
@@ -76,10 +79,88 @@ fn reviewed_foliage_routes_compile_without_changing_movement() {
             record.name,
             record.canonical_state
         );
-        if record.model_family != assets::ModelFamily::Wall && !record.name.ends_with("_fence") {
+        if record.model_family != assets::ModelFamily::Wall
+            && !record.traits.intersects(
+                assets::registry::BlockTraits::CONNECTS_THIN
+                    | assets::registry::BlockTraits::CONNECTS_FENCE,
+            )
+        {
             assert_eq!(output.boxes, input.boxes, "{}", record.name);
         }
     }
+}
+
+#[test]
+fn carrier_geometry_retains_interaction_facts_and_unaffected_collision() {
+    let (records, seed) = fixture();
+    let carrier = assets::read_physics_registry_for_protocol(
+        include_bytes!("../../../assets/data/block-physics-v2193.bin"),
+        assets::pinned_block_registry_bytes(),
+        records,
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    for record in records {
+        let expected = carrier.by_sequential_id(record.sequential_id).unwrap();
+        let actual = compile(record, seed.by_sequential_id(record.sequential_id).unwrap());
+        assert_eq!(
+            &actual, expected,
+            "{} {}",
+            record.name, record.canonical_state
+        );
+    }
+}
+
+#[test]
+fn every_connected_pane_uses_its_real_connection_state_for_collision() {
+    let (records, seed) = fixture();
+    let mut checked = std::collections::BTreeSet::new();
+    for record in records.iter().filter(|record| {
+        record.model_family == assets::ModelFamily::Pane
+            && record
+                .traits
+                .contains(assets::registry::BlockTraits::CONNECTS_THIN)
+    }) {
+        let state = super::state::State::read(record).unwrap();
+        let [west, east, north, south] = [
+            BlockProperty::MinecraftConnectionWest,
+            BlockProperty::MinecraftConnectionEast,
+            BlockProperty::MinecraftConnectionNorth,
+            BlockProperty::MinecraftConnectionSouth,
+        ]
+        .map(|key| state.bit(key).unwrap());
+        let expected = match [west, east, north, south] {
+            [false, false, false, false] => vec![super::collision_box(
+                assets::block_shapes::ShapeBox::new([0.4375, 0.0, 0.4375], [0.5625, 1.0, 0.5625]),
+            )],
+            [true, false, false, false] => vec![super::collision_box(
+                assets::block_shapes::ShapeBox::new([0.0, 0.0, 0.4375], [0.5, 1.0, 0.5625]),
+            )],
+            [false, false, false, true] => vec![super::collision_box(
+                assets::block_shapes::ShapeBox::new([0.4375, 0.0, 0.5], [0.5625, 1.0, 1.0]),
+            )],
+            _ => continue,
+        };
+        let mut input = seed.by_sequential_id(record.sequential_id).unwrap().clone();
+        input.boxes = Box::new([]);
+        let output = compile(record, &input);
+        assert_eq!(
+            output.boxes.as_ref(),
+            expected,
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+        checked.insert(record.name.as_ref());
+    }
+    assert!(checked.contains("minecraft:copper_bars"));
+    assert_eq!(
+        checked
+            .iter()
+            .filter(|name| name.contains("copper_bars"))
+            .count(),
+        8
+    );
 }
 
 #[test]
@@ -94,7 +175,9 @@ fn malformed_snow_states_cannot_create_unbounded_geometry() {
         snow.canonical_state = serde_json::json!({"height": {"type": "int", "value": height}})
             .to_string()
             .into();
-        assert!(selection::shape(&snow).is_none());
+        assert!(
+            selection::shape(&snow, crate::registry_policy::block_shape_facts(&snow).1).is_none()
+        );
     }
 }
 
@@ -341,7 +424,7 @@ fn top_support_is_compiled_independently_of_collision_height() {
     {
         let top = super::state::State::read(record)
             .unwrap()
-            .bit("upside_down_bit")
+            .bit(BlockProperty::UpsideDownBit)
             .unwrap();
         let shapes = compile(
             record,

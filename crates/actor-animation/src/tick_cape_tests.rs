@@ -419,3 +419,48 @@ fn local_swing_sampling_uses_physics_phase_without_changing_equip() {
         }
     ));
 }
+
+/// A held stack whose data, block or tags change re-equips through the dip, but a count or
+/// instance change does not.
+#[test]
+fn equip_dips_when_the_held_stack_variant_changes_but_not_its_count() {
+    let actor = super::super::tests::actor_with_metadata(HashMap::new());
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let sword: Option<Arc<str>> = Some(Arc::from("minecraft:iron_sword"));
+    let fresh = StackVariant::default();
+    let damaged = StackVariant {
+        nbt_digest: [7; 32],
+        ..fresh
+    };
+    let heights = |variants: &[StackVariant]| {
+        let mut store =
+            ActorAnimationStore::with_assets(crate::test_support::counting_random_assets());
+        store.insert(1, 0, &actor);
+        variants
+            .iter()
+            .map(|variant| {
+                let context = ActorTickContext {
+                    main_hand: sword.clone(),
+                    held_variants: [*variant, StackVariant::default()],
+                    ..Default::default()
+                };
+                store.advance_tick(&actors, None, None, true, true, |_| context.clone());
+                store.get(1).unwrap().hand[1].arm_height
+            })
+            .collect::<Vec<_>>()
+    };
+    let near = |actual: Vec<f32>, expected: &[f32]| {
+        actual.len() == expected.len()
+            && actual
+                .iter()
+                .zip(expected)
+                .all(|(actual, expected)| (actual - expected).abs() < 1.0e-6)
+    };
+    let dipped = heights(&[fresh, fresh, damaged, damaged, damaged, damaged]);
+    assert!(
+        near(dipped.clone(), &[1.0, 1.0, 0.6, 0.2, 0.0, 0.4]),
+        "{dipped:?}"
+    );
+    let steady = heights(&[fresh, fresh, fresh, fresh]);
+    assert!(near(steady.clone(), &[1.0; 4]), "{steady:?}");
+}
