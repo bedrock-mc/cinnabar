@@ -27,11 +27,7 @@ pub struct DecoratedPotModel {
 #[must_use]
 pub fn sherd_pattern(item: &str) -> Option<String> {
     let facts = assets::facts::ItemFacts::builtin().ok()?;
-    if !facts
-        .by_identifier(item)?
-        .tags
-        .contains(facts.tag("minecraft:decorated_pot_sherds")?)
-    {
+    if !facts.by_identifier(item)?.is_decorated_pot_ingredient() {
         return None;
     }
     let name = item.strip_prefix("minecraft:")?;

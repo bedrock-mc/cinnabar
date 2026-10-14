@@ -222,6 +222,17 @@ pub struct ItemFact {
     pub use_duration_ticks: Option<u32>,
 }
 impl ItemFact {
+    /// Reads the compiled ingredient tag used by decorated-pot artwork admission.
+    pub fn is_decorated_pot_ingredient(&self) -> bool {
+        static TAG: std::sync::OnceLock<ItemTag> = std::sync::OnceLock::new();
+        self.tags.contains(*TAG.get_or_init(|| {
+            super::ItemFacts::builtin()
+                .expect("valid pinned item facts")
+                .tag("minecraft:decorated_pot_sherds")
+                .expect("pinned decorated-pot tag")
+        }))
+    }
+
     /// Reads the shared leather tag without guessing a material from its identifier.
     pub fn is_leather(&self) -> bool {
         static TAG: std::sync::OnceLock<ItemTag> = std::sync::OnceLock::new();
