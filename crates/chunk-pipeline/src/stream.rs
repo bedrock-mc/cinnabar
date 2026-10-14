@@ -95,8 +95,10 @@ mod service;
 pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
-mod workers;
-pub use workers::{on_idle_world_cores, world_worker_threads};
+pub(crate) mod workers;
+#[cfg(not(target_arch = "wasm32"))]
+pub use workers::on_idle_world_cores;
+pub use workers::world_worker_threads;
 
 use client_world::ingestion::{
     BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,

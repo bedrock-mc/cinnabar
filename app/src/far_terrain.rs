@@ -30,6 +30,7 @@ pub(crate) struct FarTerrain {
     near_view: Option<([i32; 2], i32, u64)>,
     /// When turning far terrain off began waiting for near terrain to cover its columns.
     drain_since: Option<Instant>,
+    near_radius: NearRadius,
     published: Option<u64>,
     retiring: Vec<Retiring>,
 }
@@ -62,6 +63,7 @@ impl FarTerrain {
             near: Arc::new(NearMask::default()),
             near_view: None,
             drain_since: None,
+            near_radius: NearRadius::default(),
             published: None,
             retiring: Vec::new(),
         }
@@ -132,6 +134,22 @@ impl FarTerrain {
 
 /// Longest far terrain stays after being turned off while near terrain catches up.
 const FAR_DRAIN_LIMIT: Duration = Duration::from_secs(10);
+
+/// The radius far terrain stays out of entirely.
+#[derive(Default)]
+struct NearRadius(i32);
+
+impl NearRadius {
+    /// `wanted` normally; while turning off, the radius from before, so columns that were
+    /// inside it stay free of far terrain while far-only columns past it keep their cover
+    /// until their meshes are drawn.
+    fn update(&mut self, draining: bool, wanted: i32) -> i32 {
+        if !draining {
+            self.0 = wanted;
+        }
+        self.0
+    }
+}
 
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
@@ -297,7 +315,9 @@ pub(crate) fn feed_far_terrain(
     // Near terrain owns everything within the full-detail radius, or all it is sent without
     // one, even before its meshes load; past that far terrain hides under the columns near
     // terrain draws, such as those handing over to it.
-    let near_radius = full_detail.unwrap_or(loaded);
+    let near_radius = far
+        .near_radius
+        .update(draining, full_detail.unwrap_or(loaded));
     let (drawn_revision, _) = stream.near_drawn_columns();
     let near_view = ([centre.x, centre.z], near_radius, drawn_revision);
     let near_changed = far.near_view != Some(near_view);
@@ -468,5 +488,62 @@ mod tests {
         reader.poll(now);
         let stored = reader.store().encoded(ColumnPos::new(300, 0)).cloned();
         assert_eq!(stored.map(|summary| summary.hash), Some(flat(90).hash));
+    }
+
+    /// Turning far terrain off mid warm-join keeps the old full-detail area free of far
+    /// terrain on every frame, while near meshes keep arriving ring by ring.
+    #[test]
+    fn disabling_mid_join_keeps_far_terrain_out_of_the_old_radius() {
+        use far_terrain::SummaryStore;
+        let mut store = SummaryStore::new(usize::MAX);
+        for x in -40..40 {
+            for z in -40..40 {
+                let mut summary = ColumnSummary::default();
+                summary.cells_mut().fill(SurfaceCell {
+                    height: 64,
+                    rgb: [90, 140, 60],
+                    water_depth: 0,
+                });
+                store.admit(ColumnPos::new(x, z), &summary);
+            }
+        }
+        let (centre, full_detail, loaded, horizon) = ([0, 0], 8, 16, 32);
+        let mut radius = NearRadius::default();
+        let mut tiles = FarTiles::default();
+        let mut drawn = Vec::new();
+        let now = Instant::now();
+        for frame in 0..40 {
+            // Far terrain is turned off after a few frames, before the near area has meshed.
+            let draining = frame >= 6;
+            let near_radius = radius.update(draining, if draining { loaded } else { full_detail });
+            if frame % 4 == 3 {
+                let ring = frame / 4;
+                drawn.extend(
+                    (-ring..=ring)
+                        .flat_map(|x| (-ring..=ring).map(move |z| ColumnPos::new(x, z)))
+                        .filter(|column| column.x * column.x + column.z * column.z <= ring * ring),
+                );
+            }
+            let mask = NearMask::around(centre, horizon, near_radius, drawn.iter().copied());
+            tiles.set_view(TileView::around(centre, &mask, near_radius, horizon));
+            test_time::eventually("this frame's far tiles build", || {
+                tiles.update(&mut store, now);
+                tiles.ready(ColumnPos::new(20, 0))
+            });
+            for mesh in tiles.drawn() {
+                for column in mesh.key.columns() {
+                    if column.x * column.x + column.z * column.z <= full_detail * full_detail {
+                        assert!(
+                            mask.contains(column),
+                            "far terrain over {column:?} at frame {frame}"
+                        );
+                        assert_eq!(
+                            mesh.key.level, 0,
+                            "coarse tile near the player at frame {frame}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
