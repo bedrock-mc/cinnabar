@@ -98,13 +98,16 @@ impl<T: RelayTransport> Session<T> {
         self.control = None;
         self.transport = Some(transport);
     }
-    /// Performs the shared control handshake. The host bounds this whole operation with a timer.
-    pub(crate) async fn handshake(&mut self, now: Duration) -> Result<(), CloseReason> {
+    /// Performs the shared control handshake with a host clock callback and deadline.
+    pub(crate) async fn handshake(
+        &mut self,
+        now: &mut impl FnMut() -> Duration,
+    ) -> Result<(), CloseReason> {
         if !matches!(self.state, State::Offline | State::Connecting) {
             return Err(CloseReason::Protocol);
         }
         self.state = State::Connecting;
-        let resume = self.resume(now).to_owned();
+        let resume = self.resume(now()).to_owned();
         let stream = self
             .transport
             .as_mut()
@@ -129,7 +132,7 @@ impl<T: RelayTransport> Session<T> {
             return Err(CloseReason::Protocol);
         }
         self.control = Some(control);
-        self.apply_capability(&welcome, now)?;
+        self.apply_capability(&welcome, now())?;
         self.state = State::Ready(generation(&welcome)?);
         self.attempts = 0;
         Ok(())
@@ -154,10 +157,13 @@ impl<T: RelayTransport> Session<T> {
         Ok(())
     }
     /// Reads one control observation. Malformed framing/JSON closes the generation; unknown
-    /// well-formed optional events are counted and skipped.
-    pub async fn next_event(&mut self, now: Duration) -> Result<ControlEvent, CloseReason> {
+    /// well-formed optional events are counted and skipped. The host clock is sampled after receipt.
+    pub async fn next_event(
+        &mut self,
+        mut now: impl FnMut() -> Duration,
+    ) -> Result<ControlEvent, CloseReason> {
         loop {
-            match self.read_event(now).await {
+            match self.read_event(&mut now).await {
                 Ok(Some(event)) => return Ok(event),
                 Ok(None) => continue,
                 Err(reason) => {
@@ -169,7 +175,10 @@ impl<T: RelayTransport> Session<T> {
     }
 
     /// Applies an event and echoes the exact capability from each keepalive.
-    async fn read_event(&mut self, now: Duration) -> Result<Option<ControlEvent>, CloseReason> {
+    async fn read_event(
+        &mut self,
+        now: &mut impl FnMut() -> Duration,
+    ) -> Result<Option<ControlEvent>, CloseReason> {
         let frame = self
             .control
             .as_mut()
@@ -188,7 +197,7 @@ impl<T: RelayTransport> Session<T> {
                 if generation(&event)? != active {
                     return Err(CloseReason::Protocol);
                 }
-                self.apply_capability(&event, now)?;
+                self.apply_capability(&event, now())?;
                 self.send(json!({"op": RELAY_OP_PONG, "resume": event["resume"]}))
                     .await?;
                 Ok(Some(ControlEvent::Keepalive))
@@ -225,7 +234,7 @@ impl<T: RelayTransport> Session<T> {
     /// reader/queue/writer. The host spawns the writer locally and drops it on cancellation.
     pub async fn open_play(
         &mut self,
-        now: Duration,
+        mut now: impl FnMut() -> Duration,
     ) -> Result<
         (
             bridge::FramedReader<tokio::io::ReadHalf<T::Stream>>,
@@ -247,7 +256,7 @@ impl<T: RelayTransport> Session<T> {
                 .await?;
             let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
             play.send(Bytes::from(
-                hello(Channel::Play, self.resume(now), generation).to_string(),
+                hello(Channel::Play, self.resume(now()), generation).to_string(),
             ))
             .await
             .map_err(|_| CloseReason::Transport)?;
@@ -274,7 +283,7 @@ impl<T: RelayTransport> Session<T> {
         if reason == CloseReason::Refused {
             self.bearers = [None, None];
         }
-        self.state = if reason == CloseReason::Cancelled {
+        self.state = if self.state == State::Closed || reason == CloseReason::Cancelled {
             State::Closed
         } else {
             State::Offline

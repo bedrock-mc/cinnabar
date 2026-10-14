@@ -130,7 +130,7 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
             assert!(closed.get());
             fake(wire(capability(RELAY_EVENT_WELCOME, "a", 20)), false)
         },
-        Duration::ZERO,
+        || Duration::ZERO,
         std::future::pending,
     )
     .await
@@ -146,7 +146,7 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
             &mut session,
             Some(refused),
             || panic!("refusal must not fall back"),
-            Duration::from_secs(1),
+            || Duration::from_secs(1),
             std::future::pending
         )
         .await,
@@ -161,7 +161,7 @@ async fn selection_closes_failed_quic_and_never_falls_back_on_refusal() {
             assert!(closed.get());
             fake(wire(capability(RELAY_EVENT_WELCOME, "b", 20)), false)
         },
-        Duration::from_secs(2),
+        || Duration::from_secs(2),
         || std::future::ready(()),
     )
     .await
@@ -180,14 +180,14 @@ async fn both_candidates_use_the_codec_and_generation_prefix() {
             &mut session,
             first,
             || candidate.take().unwrap(),
-            Duration::ZERO,
+            || Duration::ZERO,
             std::future::pending,
         )
         .await
         .unwrap();
-        let (mut read, frames, writer) = session.open_play(Duration::ZERO).await.unwrap();
+        let (mut read, frames, writer) = session.open_play(|| Duration::ZERO).await.unwrap();
         assert_eq!(read.next().await.unwrap().unwrap(), [KIND_BATCH][..]);
-        assert!(session.open_play(Duration::ZERO).await.is_err());
+        assert!(session.open_play(|| Duration::ZERO).await.is_err());
         let requests = sent(&output);
         let contract: Value =
             serde_json::from_str(include_str!("../../../crates/bridge/data/contract.json"))
@@ -229,14 +229,17 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
         &mut session,
         None,
         || transport,
-        Duration::from_secs(10),
+        || Duration::from_secs(10),
         std::future::pending,
     )
     .await
     .unwrap();
     for now in [11, 12, 13] {
         assert_eq!(
-            session.next_event(Duration::from_secs(now)).await.unwrap(),
+            session
+                .next_event(|| Duration::from_secs(now))
+                .await
+                .unwrap(),
             ControlEvent::Keepalive
         );
     }
@@ -260,7 +263,7 @@ async fn rotations_echo_received_bearers_and_keep_independent_expiry() {
         &mut session,
         None,
         || transport,
-        Duration::from_secs(20),
+        || Duration::from_secs(20),
         std::future::pending,
     )
     .await
@@ -293,18 +296,18 @@ async fn unknown_events_are_counted_but_malformed_frames_end_the_session() {
             &mut session,
             None,
             || transport,
-            Duration::ZERO,
+            || Duration::ZERO,
             std::future::pending,
         )
         .await
         .unwrap();
         assert_eq!(
-            session.next_event(Duration::ZERO).await.unwrap(),
+            session.next_event(|| Duration::ZERO).await.unwrap(),
             ControlEvent::Account(json!({"state": "signed_out"}))
         );
         assert_eq!(session.unknown_events, 1);
         assert_eq!(
-            session.next_event(Duration::ZERO).await,
+            session.next_event(|| Duration::ZERO).await,
             Err(CloseReason::Protocol)
         );
         assert!(closed.get());
@@ -328,4 +331,61 @@ fn reconnect_is_bounded_and_deliberate_close_is_terminal() {
     assert!(!session.retry(Duration::from_secs(1000), Duration::ZERO));
     session.close(CloseReason::Cancelled);
     assert!(!session.retry(Duration::from_secs(2000), Duration::ZERO));
+}
+
+#[tokio::test]
+async fn received_capabilities_use_observation_time_and_closed_stays_terminal() {
+    let mut input = wire(capability(RELAY_EVENT_WELCOME, "welcome", 120));
+    input.extend(wire(capability(RELAY_EVENT_PING, "ping", 120)));
+    let transport = fake(input, false);
+    let mut session = Session::new();
+    let calls = Cell::new(0);
+    select(
+        &mut session,
+        None,
+        || transport,
+        || {
+            let call = calls.get();
+            calls.set(call + 1);
+            Duration::from_secs(if call < 2 { 0 } else { 30 })
+        },
+        std::future::pending,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        calls.get(),
+        3,
+        "sample admission, Hello and received Welcome separately"
+    );
+    assert_eq!(session.resume(Duration::from_secs(149)), "welcome");
+    assert_eq!(session.resume(Duration::from_secs(150)), "");
+    assert_eq!(
+        session
+            .next_event(|| Duration::from_secs(60))
+            .await
+            .unwrap(),
+        ControlEvent::Keepalive
+    );
+    assert_eq!(session.resume(Duration::from_secs(179)), "ping");
+    assert_eq!(session.resume(Duration::from_secs(180)), "");
+    session.desire_account(AccountOperation::SignIn);
+    session.close(CloseReason::Cancelled);
+    assert!(session.next_event(|| Duration::ZERO).await.is_err());
+    assert!(session.flush_account().await.is_err());
+    session.close(CloseReason::Refused);
+    assert_eq!(session.state(), State::Closed);
+    assert!(!session.retry(Duration::from_secs(1000), Duration::ZERO));
+    assert!(
+        select(
+            &mut session,
+            None,
+            || panic!("closed session must not open"),
+            || Duration::from_secs(1000),
+            std::future::pending
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(session.state(), State::Closed);
 }

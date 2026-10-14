@@ -54,14 +54,15 @@ pub trait RelayTransport {
 
 /// Selects a transport only after its control Hello succeeds. A failed QUIC candidate is
 /// closed before fallback; authentication refusal never triggers a second transport.
+/// The host clock callback is sampled again when each Welcome arrives.
 pub async fn select<T: RelayTransport, D: Future<Output = ()>>(
     session: &mut Session<T>,
     quic: Option<T>,
     socket: impl FnOnce() -> T,
-    now: std::time::Duration,
+    mut now: impl FnMut() -> std::time::Duration,
     mut deadline: impl FnMut() -> D,
 ) -> Result<(), CloseReason> {
-    if session.state() == State::Offline && !session.retry(now, std::time::Duration::ZERO) {
+    if session.state() == State::Offline && !session.retry(now(), std::time::Duration::ZERO) {
         return Err(CloseReason::Transport);
     }
     if session.state() != State::Connecting {
@@ -69,7 +70,7 @@ pub async fn select<T: RelayTransport, D: Future<Output = ()>>(
     }
     if let Some(quic) = quic {
         session.replace_transport(quic);
-        match bridge::tasks::until(session.handshake(now), deadline()).await {
+        match bridge::tasks::until(session.handshake(&mut now), deadline()).await {
             Ok(Ok(())) => return Ok(()),
             Ok(Err(CloseReason::Refused)) => {
                 session.close(CloseReason::Refused);
@@ -79,7 +80,7 @@ pub async fn select<T: RelayTransport, D: Future<Output = ()>>(
         }
     }
     session.replace_transport(socket());
-    let result = bridge::tasks::until(session.handshake(now), deadline())
+    let result = bridge::tasks::until(session.handshake(&mut now), deadline())
         .await
         .unwrap_or(Err(CloseReason::Transport));
     if let Err(reason) = result {

@@ -14,6 +14,7 @@ export function create(origin, quic, config) {
 export function available() { return globalThis.isSecureContext && typeof WebTransport === "function"; }
 /** Makes one cancellable channel, bounding its queued bytes and message count. */
 function channel(t, limit) {
+    if (t.closed) throw new Error("relay closed");
     const ch = { t, limit, queue: [], bytes: 0, ended: false, waiters: new Set() };
     ch.fail = () => {
         if (ch.failed) return;
@@ -25,7 +26,6 @@ function channel(t, limit) {
         t.channels.delete(ch);
     };
     t.channels.add(ch);
-    if (t.closed) ch.fail();
     return ch;
 }
 /** Races browser I/O against immediate channel cancellation. */
@@ -44,6 +44,7 @@ export async function open(t, name) {
     const ch = channel(t, !t.quic && control ? t.c.controlBytes + 4 : t.c.playBytes);
     if (t.quic) {
         await wait(ch, t.connection.ready);
+        if (t.closed || ch.failed) throw new Error("relay closed");
         // Own late-created streams too when cancellation wins the stream-creation race.
         const creating = t.connection.createBidirectionalStream().then(stream => {
             ch.reader = stream.readable.getReader(); ch.writer = stream.writable.getWriter();
@@ -105,16 +106,34 @@ async function drain(ch, threshold) {
     if (ch.socket.readyState !== WebSocket.OPEN) throw new Error("relay closed");
 }
 /** Bounds each send and retains browser readiness until the write promise resolves. */
-export async function write(ch, bytes) {
+export function write(ch, bytes) {
+    return ch.pendingWrite = (async () => {
+    if (ch.failed || ch.shuttingDown) throw new Error("relay closed");
     if (bytes.byteLength > ch.limit) throw new Error("relay chunk limit");
     if (ch.writer) {
         await wait(ch, ch.writer.ready); await wait(ch, ch.writer.write(bytes));
     } else {
         await drain(ch, ch.limit - bytes.byteLength); ch.socket.send(bytes);
     }
+    })();
 }
 /** Flushes locally accepted reliable bytes; it does not acknowledge remote application. */
 export async function flush(ch) { if (ch.socket) await drain(ch, 0); }
+/** Finishes accepted writes before sending FIN; cancellation still uses closeChannel. */
+export async function shutdown(ch) {
+    if (ch.finished) return;
+    ch.shuttingDown = true;
+    if (ch.pendingWrite) await wait(ch, ch.pendingWrite);
+    await flush(ch);
+    if (ch.writer) {
+        const writer = ch.writer;
+        await wait(ch, writer.close());
+        writer.releaseLock(); ch.writer = undefined;
+        const reader = ch.reader;
+        if (reader) { await wait(ch, reader.cancel()); reader.releaseLock(); ch.reader = undefined; }
+    } else { ch.socket.close(); }
+    ch.finished = true; ch.ended = true; ch.t.channels.delete(ch);
+}
 /** Releases both stream locks or the fallback socket without waiting for a drain. */
 export function closeChannel(ch) { ch.fail(); }
 /** Closes every channel of a candidate, including pending open/read/write promises. */

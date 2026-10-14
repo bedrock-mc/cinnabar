@@ -20,6 +20,7 @@ extern "C" {
     fn read(channel: &JsValue) -> Promise;
     fn write(channel: &JsValue, bytes: &Uint8Array) -> Promise;
     fn flush(channel: &JsValue) -> Promise;
+    fn shutdown(channel: &JsValue) -> Promise;
     #[wasm_bindgen(js_name = closeChannel)]
     fn close_channel(channel: &JsValue);
     fn close(transport: &JsValue);
@@ -62,6 +63,9 @@ impl RelayTransport for BrowserTransport {
             writing: None,
             flushing: None,
             eof: false,
+            shutting_down: None,
+            finished: false,
+            shutdown_started: false,
         })
     }
     fn max_datagram_size(&self) -> Option<usize> {
@@ -114,6 +118,9 @@ pub struct BrowserStream {
     reading: Option<JsFuture>,
     writing: Option<JsFuture>,
     flushing: Option<JsFuture>,
+    shutting_down: Option<JsFuture>,
+    finished: bool,
+    shutdown_started: bool,
 }
 /// Hides browser exception details from public errors.
 fn io_error(_: JsValue) -> io::Error {
@@ -177,6 +184,12 @@ impl AsyncWrite for BrowserStream {
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
+        if this.shutdown_started {
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "relay stream shut down",
+            )));
+        }
         ready!(poll_io(&mut this.writing, cx))?;
         ready!(poll_io(&mut this.flushing, cx))?;
         let count = bytes.len().min(64 * 1024);
@@ -191,14 +204,27 @@ impl AsyncWrite for BrowserStream {
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
+        if this.finished {
+            return Poll::Ready(Ok(()));
+        }
         ready!(poll_io(&mut this.writing, cx))?;
         this.flushing
             .get_or_insert_with(|| JsFuture::from(flush(&this.handle)));
         poll_io(&mut this.flushing, cx)
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        close_channel(&self.handle);
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        if this.finished {
+            return Poll::Ready(Ok(()));
+        }
+        this.shutdown_started = true;
+        ready!(poll_io(&mut this.writing, cx))?;
+        ready!(poll_io(&mut this.flushing, cx))?;
+        this.shutting_down
+            .get_or_insert_with(|| JsFuture::from(shutdown(&this.handle)));
+        ready!(poll_io(&mut this.shutting_down, cx))?;
+        this.finished = true;
         Poll::Ready(Ok(()))
     }
 }

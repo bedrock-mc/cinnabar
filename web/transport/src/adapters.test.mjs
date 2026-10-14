@@ -112,3 +112,41 @@ test("QUIC cancellation owns late streams and interrupts writer readiness", asyn
     const writing = adapter.write(ch, new Uint8Array([1])); adapter.close(next);
     await assert.rejects(writing); assert.equal(Quic.instances.at(-1).sent.length, 0);
 });
+
+test("shutdown waits for accepted QUIC writes and closes gracefully", async () => {
+    const t = adapter.create("https://relay.invalid", true, JSON.stringify(config));
+    const ch = await adapter.open(t, config.control);
+    let ready, finishWrite; let closes = 0, aborts = 0;
+    ch.writer.ready = new Promise(resolve => { ready = resolve; });
+    ch.writer.write = () => new Promise(resolve => { finishWrite = resolve; });
+    ch.writer.close = async () => { closes++; };
+    ch.writer.abort = async () => { aborts++; };
+    const writing = adapter.write(ch, new Uint8Array([1]));
+    let finished = false;
+    const stopping = adapter.shutdown(ch).then(() => { finished = true; });
+    await turns(); assert.equal(finished, false); assert.equal(closes, 0);
+    ready(); await turns(); assert.equal(finished, false); assert.equal(closes, 0);
+    finishWrite(); await writing; await stopping;
+    assert.equal(closes, 1); assert.equal(aborts, 0);
+    adapter.closeChannel(ch); await turns(); assert.equal(aborts, 0);
+});
+
+test("closed candidates reject channels without creating browser handles", async () => {
+    for (const quic of [false, true]) {
+        const t = adapter.create("https://relay.invalid", quic, JSON.stringify(config));
+        const peer = quic ? Quic.instances.at(-1) : undefined;
+        let streams = 0;
+        if (peer) peer.createBidirectionalStream = async () => { streams++; return peer.stream; };
+        adapter.close(t);
+        const sockets = Socket.instances.length;
+        await assert.rejects(adapter.open(t, config.control));
+        assert.equal(Socket.instances.length, sockets); assert.equal(streams, 0);
+        assert.equal(t.channels.size, 0);
+    }
+    const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
+    await adapter.open(t, config.control);
+    Socket.instances.at(-1).onmessage({ data: new ArrayBuffer(config.controlBytes + 5) });
+    const sockets = Socket.instances.length;
+    await assert.rejects(adapter.open(t, values.RELAY_CHANNEL_PLAY));
+    assert.equal(Socket.instances.length, sockets);
+});
