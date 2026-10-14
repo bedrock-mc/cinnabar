@@ -1001,6 +1001,10 @@ acceptance gate.
   closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
+- Cape pixels are resampled and hashed in bounded appearance-worker batches. Equal source
+  content shares a prepared layer across wire allocations; presentation reads ready layers
+  without waiting. Cold capes appear after preparation, and session changes retire their
+  queues. Rendered-frame and hardware performance acceptance remain incomplete.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
 - Review corrections: local head sampling stays in the current render frame; cape and camera
