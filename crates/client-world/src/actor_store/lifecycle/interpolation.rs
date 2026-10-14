@@ -181,6 +181,7 @@ impl ActorStore {
             let local_held_network_ids = self.local_held_network_ids;
             let local_item_use = self.local_item_use;
             let local_main_metadata = self.local_main_metadata;
+            let local_held_variants = self.local_held_variants;
             let local_main_slot = self.local_main_slot;
             let local_main_stack_id = self.local_main_stack_id;
             let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
@@ -287,6 +288,20 @@ impl ActorStore {
                     hand_charged,
                     main_hand,
                     main_hand_metadata,
+                    held_variants: if is_local {
+                        local_held_variants
+                    } else {
+                        [
+                            protocol::ActorHandedness::Right,
+                            protocol::ActorHandedness::Left,
+                        ]
+                        .map(|hand| {
+                            items
+                                .get_in_hand(lifetime, hand)
+                                .map(|equipment| (&equipment.item.identity).into())
+                                .unwrap_or_default()
+                        })
+                    },
                     main_hand_stack_id: if is_local {
                         local_main_stack_id
                     } else {

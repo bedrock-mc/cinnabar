@@ -261,6 +261,8 @@ pub fn advance_actor_frame(
             .main
             .as_ref()
             .map_or(0, |item| item.damage.unwrap_or(item.metadata));
+        feed.held_variants = [&input.local_equipment.main, &input.local_equipment.off]
+            .map(|item| item.as_ref().map(|item| item.variant).unwrap_or_default());
     }
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(equipment) = equipment.as_deref() {

@@ -125,6 +125,7 @@ impl ActorStore {
             local_hands: [None, None],
             local_held_network_ids: [0; 2],
             local_main_metadata: 0,
+            local_held_variants: Default::default(),
             local_main_stack_id: None,
             local_main_slot: 0,
             local_item_use: LocalItemUse::Unpredicted,
@@ -207,6 +208,7 @@ impl ActorStore {
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         self.local_held_network_ids = feed.held_network_ids;
         self.local_main_metadata = feed.main_hand_metadata;
+        self.local_held_variants = feed.held_variants;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
         self.local_view_dirty |= self.local_item_use != feed.item_use;

@@ -200,6 +200,7 @@ fn source_for_use_and_swing(
     );
     let input = ActorEquipmentInput {
         main: identifier.map(|identifier| WornItem {
+            variant: Default::default(),
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -427,6 +428,7 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let mut cache = HandCache::default();
     let rig = stream.authority().actor_rig(1).unwrap();

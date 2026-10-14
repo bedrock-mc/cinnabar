@@ -61,6 +61,7 @@ fn helmet() -> ActorEquipmentInput {
     ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                variant: Default::default(),
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip("test:coat_helmet"),

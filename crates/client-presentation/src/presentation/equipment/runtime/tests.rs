@@ -271,6 +271,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         kind: HeldKind::Block(visual),
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     (runtime, body, item)
 }

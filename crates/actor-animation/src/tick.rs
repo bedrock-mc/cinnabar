@@ -9,6 +9,25 @@ use controller::ControllerWalk;
 #[path = "tick_cape_tests.rs"]
 mod cape_tests;
 
+/// A held stack's data value, block and tags: a change re-equips the item, while its count and
+/// network instance do not.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct StackVariant {
+    pub metadata: u32,
+    pub block_runtime_id: i32,
+    pub nbt_digest: [u8; 32],
+}
+
+impl From<&assets::ItemStackIdentity> for StackVariant {
+    fn from(identity: &assets::ItemStackIdentity) -> Self {
+        Self {
+            metadata: identity.metadata,
+            block_runtime_id: identity.block_runtime_id,
+            nbt_digest: identity.nbt_digest,
+        }
+    }
+}
+
 /// Actor state beyond the snapshot that one tick's evaluation reads.
 #[derive(Clone, Debug, Default)]
 pub struct ActorTickContext {
@@ -24,6 +43,8 @@ pub struct ActorTickContext {
     /// Namespaced identifiers of the equipped main-hand and off-hand items.
     pub main_hand: Option<Arc<str>>,
     pub off_hand: Option<Arc<str>>,
+    /// Stack facts beside each hand's identifier whose change re-equips it.
+    pub held_variants: [StackVariant; 2],
     /// The main-hand stack's data value.
     pub main_hand_metadata: u32,
     /// A positive network identity distinguishes mutation from replacement of the held stack.
@@ -176,21 +197,22 @@ pub(super) fn advance_motion(
         previous + (swim_target - previous).clamp(-SWIM_AMOUNT_STEP, SWIM_AMOUNT_STEP)
     });
     // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
+    let [main_variant, off_variant] = context.held_variants;
     let arm_height = match state.history.back() {
         Some(previous) => advance_equip_height(
             &mut state.equipped_main,
-            &context.main_hand,
+            (&context.main_hand, main_variant),
             previous.arm_height,
         ),
         None => {
-            state.equipped_main.clone_from(&context.main_hand);
+            state.equipped_main = (context.main_hand.clone(), main_variant);
             1.0
         }
     };
     state.off_hand_animation[0] = state.off_hand_animation[1];
     let off_hand_arm_height = advance_equip_height(
         &mut state.equipped_off,
-        &context.off_hand,
+        (&context.off_hand, off_variant),
         state.off_hand_animation[0].arm_height,
     );
     state.off_hand_animation[1].arm_height = off_hand_arm_height;
@@ -261,7 +283,7 @@ pub(super) fn seed_presentation_input(
         .copied()
         .filter(|_| !state.presentation_seeded);
     if retained.is_none() {
-        state.equipped_main.clone_from(&context.main_hand);
+        state.equipped_main = (context.main_hand.clone(), context.held_variants[0]);
     }
     let counters = retained.unwrap_or_else(|| ActorTickInput {
         swim_amount: f32::from(query::actor_flag(actor, query::FLAG_SWIMMING)),
@@ -330,16 +352,16 @@ pub(super) fn local_use_counter(
 /// Identifier changes request the native lowering transition. Item-specific stack
 /// equivalence/instant-update predicates need stack data beyond the current actor feed.
 fn advance_equip_height(
-    equipped: &mut Option<Arc<str>>,
-    requested: &Option<Arc<str>>,
+    equipped: &mut (Option<Arc<str>>, StackVariant),
+    (requested, variant): (&Option<Arc<str>>, StackVariant),
     previous_height: f32,
 ) -> f32 {
-    let swapping = equipped != requested;
+    let swapping = equipped.0 != *requested || (requested.is_some() && equipped.1 != variant);
     let target = if swapping { 0.0 } else { 1.0 };
     let height =
         previous_height + (target - previous_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
     if swapping && height <= ARM_SWAP_HEIGHT {
-        equipped.clone_from(requested);
+        *equipped = (requested.clone(), variant);
     }
     height
 }
