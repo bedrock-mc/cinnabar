@@ -139,10 +139,11 @@ pub fn click_block_transaction_packet(
     }))
 }
 
-/// Builds a protocol-2168 player-input destroy-block transaction.
+/// Builds a protocol-2168 destroy-block transaction.
 ///
 /// The packet carries no legacy slot records and no inventory actions. Its wire action is the
 /// public break-block semantic (discriminant 2), prediction is `Failure`, and cooldown is `Off`.
+/// The trigger is `Unknown`; click coordinates and target block runtime ID are zero.
 /// Reach, mining progress, and permission checks remain caller-owned; this function only validates
 /// and encodes one already-authorised block interaction.
 pub fn destroy_block_packet(
@@ -198,21 +199,30 @@ pub(crate) fn item_use_transaction(
     let wire_runtime_id = u32::try_from(request.block_runtime_id)
         .map_err(|_| BlockUsePacketError::BlockRuntimeIdOutOfRange(request.block_runtime_id))?;
     let item = request.selected_item.into_vendor_item()?;
+    let destroying = action_type == ItemUseInventoryTransactionActionType::Destroy;
 
     Ok(ItemUseInventoryTransaction {
         actions: InventoryTransactionData {
             actions: Vec::new(),
         },
         action_type,
-        trigger_type: ItemUseInventoryTransactionTriggerType::PlayerInput,
+        trigger_type: if destroying {
+            ItemUseInventoryTransactionTriggerType::Unknown
+        } else {
+            ItemUseInventoryTransactionTriggerType::PlayerInput
+        },
         position: block_pos(request.block_position),
         face: wire::U8(request.face),
         slot: wire::ZigZag32(i32::from(request.selected_slot)),
         hand: HandSlot::Mainhand,
         item,
         from_position: request.player_position.into(),
-        click_position: request.relative_hit.into(),
-        target_block_id: wire::VarUInt(wire_runtime_id),
+        click_position: if destroying {
+            [0.0; 3].into()
+        } else {
+            request.relative_hit.into()
+        },
+        target_block_id: wire::VarUInt(if destroying { 0 } else { wire_runtime_id }),
         client_interact_prediction: ItemUseInventoryTransactionClientInteractPrediction::Failure,
         client_cooldown_state: ItemUseInventoryTransactionClientCooldownState::Off,
     })
