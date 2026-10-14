@@ -11,8 +11,8 @@ fn view(metadata: bool) -> Fixture {
         file: file.into(),
         bytes: 182_272,
         permissions: vec![Permission {
-            name: "camera".into(),
-            description: "Lets the mod adjust your camera.".into(),
+            name: "time override".into(),
+            description: "Lets the mod fix the local time of day.".into(),
             enabled: true,
             requested: Some(true),
         }],
