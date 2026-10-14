@@ -21,8 +21,8 @@ const MAX_SOURCE_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_TEXTURE_SIDE: u32 = 256;
 /// Animation strips packed frame-stacked; only these names may exceed the side bound in height.
 const STRIP_TEXTURES: &[&str] = &[
-    "textures/blocks/conduit_wind_horizontal",
-    "textures/blocks/conduit_wind_vertical",
+    assets::block_entity_geometry::textures::AtlasTexture::BlocksConduitWindHorizontal.path(),
+    assets::block_entity_geometry::textures::AtlasTexture::BlocksConduitWindVertical.path(),
 ];
 const MAX_STRIP_HEIGHT: u32 = 1024;
 const ATLAS_WIDTH: u32 = 1024;
@@ -40,37 +40,6 @@ const SOURCE_DIRECTORIES: &[&str] = &[
 ];
 
 /// Individual textures packed by exact logical name (no extension).
-const SOURCE_FILES: &[&str] = &[
-    "textures/blocks/bell_bottom",
-    "textures/blocks/bell_side",
-    "textures/blocks/bell_top",
-    assets::block_entity_geometry::CONDUIT_TEXTURE.0,
-    "textures/blocks/conduit_cage",
-    "textures/blocks/conduit_closed",
-    "textures/blocks/conduit_open",
-    "textures/blocks/conduit_wind_horizontal",
-    "textures/blocks/conduit_wind_vertical",
-    assets::block_entity_geometry::POT_BASE_TEXTURE.0,
-    assets::block_entity_geometry::POT_SIDE_TEXTURE.0,
-    "textures/blocks/end_gateway",
-    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[0],
-    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[1],
-    assets::block_entity_geometry::ITEM_FRAME_TEXTURES[2],
-    assets::block_entity_geometry::LECTERN_TEXTURES[0],
-    assets::block_entity_geometry::LECTERN_TEXTURES[3],
-    assets::block_entity_geometry::LECTERN_TEXTURES[1],
-    assets::block_entity_geometry::LECTERN_TEXTURES[2],
-    "textures/blocks/mob_spawner",
-    "textures/entity/alex",
-    "textures/entity/beacon_beam",
-    "textures/entity/dragon/dragon",
-    "textures/entity/enchanting_table_book",
-    assets::CRYSTAL_BEAM_TEXTURE,
-    "textures/entity/end_portal",
-    "textures/entity/piglin/piglin",
-    "textures/entity/steve",
-    "textures/environment/end_portal_colors",
-];
 
 #[derive(Debug)]
 pub struct CompiledBlockEntityCarrier {
@@ -100,9 +69,27 @@ pub fn compile_block_entity_assets(
     }
     collect_globbed_entity_textures(pack, &mut sources)?;
     collect_globbed_block_textures(pack, &mut sources)?;
-    for name in SOURCE_FILES {
+    for name in assets::block_entity_geometry::textures::AtlasTexture::ALL
+        .iter()
+        .map(|role| role.path())
+        .chain([
+            assets::block_entity_geometry::CONDUIT_TEXTURE.0,
+            assets::block_entity_geometry::POT_BASE_TEXTURE.0,
+            assets::block_entity_geometry::POT_SIDE_TEXTURE.0,
+        ])
+        .chain(
+            assets::block_entity_geometry::ITEM_FRAME_TEXTURES
+                .iter()
+                .copied(),
+        )
+        .chain(
+            assets::block_entity_geometry::LECTERN_TEXTURES
+                .iter()
+                .copied(),
+        )
+    {
         if let Some(path) = resolve_texture(pack, name)? {
-            sources.insert((*name).to_owned(), path);
+            sources.insert(name.to_owned(), path);
         }
     }
     for stage in 0..10 {

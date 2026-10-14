@@ -33,6 +33,7 @@ pub(super) struct ItemRule {
     #[serde(default)]
     roles: Vec<Role>,
     tier: Option<ItemTier>,
+    armour_material: Option<assets::facts::ArmourMaterial>,
     armour_slot: Option<ItemArmourSlot>,
     allow_off_hand: Option<bool>,
     beacon_payment_key: Option<i64>,
@@ -423,6 +424,13 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
                     "conflicting item tiers",
                 )?;
                 fact.tier = Some(tier);
+            }
+            if let Some(material) = rule.armour_material {
+                check(
+                    fact.armour_material.is_none() || fact.armour_material == Some(material),
+                    "conflicting armour materials",
+                )?;
+                fact.armour_material = Some(material);
             }
             if let Some(slot) = rule.armour_slot {
                 check(

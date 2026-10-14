@@ -134,6 +134,7 @@ type EquipmentKey = (ActorLifetimeId, ActorHandedness);
 pub(crate) struct ItemStateStore {
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
+    facts: inventory::SessionItemFacts,
     equipment: BTreeMap<EquipmentKey, ActorEquipmentSnapshot>,
     pending: VecDeque<EquipmentKey>,
     /// Latest armor by runtime id; the client-owned runtime survives actor churn.
@@ -161,6 +162,9 @@ impl ItemStateStore {
         let mut store = Self {
             assets,
             registry,
+            facts: animation_item_facts(&ItemRegistryEvent {
+                entries: Arc::from([]),
+            }),
             equipment: BTreeMap::new(),
             pending: VecDeque::new(),
             armor: BTreeMap::new(),
@@ -374,6 +378,11 @@ impl ItemStateStore {
         })
     }
 
+    /// Copies negotiated animation facts by numeric item identity.
+    pub(crate) fn animation_fact(&self, network_id: i32) -> assets::facts::ItemFact {
+        *self.facts.get(network_id)
+    }
+
     pub(crate) fn apply_registry(&mut self, registry: ItemRegistryEvent) -> bool {
         if registry.entries.len() > MAX_ITEM_REGISTRY_RECORDS {
             return false;
@@ -389,6 +398,7 @@ impl ItemStateStore {
                 registry_record(entry, self.assets.as_deref()),
             );
         }
+        self.facts = animation_item_facts(&registry);
         self.registry = next;
         self.rebuild_use_profiles();
 
@@ -622,6 +632,27 @@ impl ItemStateStore {
             self.armor.remove(&runtime_id);
         }
     }
+}
+
+/// Merges the canonical store's retail fallback through the shared session admission rules.
+fn animation_item_facts(registry: &ItemRegistryEvent) -> inventory::SessionItemFacts {
+    let mut entries: BTreeMap<_, _> = protocol::vanilla_item_registry()
+        .iter()
+        .map(|entry| (entry.network_id, entry.clone()))
+        .collect();
+    entries.extend(
+        registry
+            .entries
+            .iter()
+            .map(|entry| (entry.network_id, entry.clone())),
+    );
+    inventory::SessionItemFacts::from_registry(
+        assets::facts::ItemFacts::builtin().expect("valid pinned item facts"),
+        &ItemRegistryEvent {
+            entries: entries.into_values().collect(),
+        },
+    )
+    .unwrap_or_default()
 }
 
 /// Admits the retail registry through the same compiled facts as server entries.

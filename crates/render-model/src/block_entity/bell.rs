@@ -73,7 +73,10 @@ pub(super) fn emit(
     };
     let base = model_matrix(block, [0.5, 0.0, 0.5], yaw);
     emit_frame(builder, atlas, base, model.attachment);
-    let Some(texture) = atlas.texture("textures/entity/bell/bell", [32.0, 32.0]) else {
+    let Some(texture) = atlas.texture(
+        assets::block_entity_geometry::textures::AtlasTexture::EntityBellBell.path(),
+        [32.0, 32.0],
+    ) else {
         return;
     };
     // The body swings about the bar, so it tilts in the plane across the bar.
@@ -105,9 +108,18 @@ fn emit_frame(
     attachment: BellAttachment,
 ) {
     let (Some(side), Some(top), Some(bottom)) = (
-        atlas.texture("textures/blocks/bell_side", [16.0, 16.0]),
-        atlas.texture("textures/blocks/bell_top", [16.0, 16.0]),
-        atlas.texture("textures/blocks/bell_bottom", [16.0, 16.0]),
+        atlas.texture(
+            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellSide.path(),
+            [16.0, 16.0],
+        ),
+        atlas.texture(
+            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellTop.path(),
+            [16.0, 16.0],
+        ),
+        atlas.texture(
+            assets::block_entity_geometry::textures::AtlasTexture::BlocksBellBottom.path(),
+            [16.0, 16.0],
+        ),
     ) else {
         return;
     };

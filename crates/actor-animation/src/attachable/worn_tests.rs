@@ -85,6 +85,7 @@ fn elytra_equipment_hides_and_restores_the_outer_chest_layer() {
     let mut context = ActorTickContext::default();
     context.armor[1] = Some(WornArmor {
         item: "minecraft:elytra".into(),
+        fact: *assets::facts::ItemFacts::builtin().unwrap().by_identifier("minecraft:elytra").unwrap(),
         dye_rgb: None,
     });
     let refresh = |values: &mut MolangVariables, context: &ActorTickContext| {

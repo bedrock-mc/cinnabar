@@ -4,6 +4,7 @@ use super::*;
 fn committed_ui_uses_the_current_local_players_name_for_credits() {
     let (mut app, _) = fixture_app();
     let mut feed = client_world::LocalPlayerFeed {
+        held_variants: Default::default(),
         game_mode: None,
         uuid: [7; 16],
         prefer_client_skin: false,

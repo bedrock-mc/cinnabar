@@ -17,6 +17,7 @@ pub mod block_entities;
 mod block_rules;
 mod carriers;
 pub mod entities;
+pub mod events;
 mod format_generated;
 pub mod items;
 mod light;
@@ -67,6 +68,8 @@ struct Policy {
     placement_rules: Vec<Rule>,
     block_entity_rules: Vec<block_entities::Rule>,
     item_rules: Vec<items::ItemRule>,
+    #[serde(default)]
+    visual_events: events::Rules,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,

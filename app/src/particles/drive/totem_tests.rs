@@ -152,6 +152,7 @@ fn totem_emission_follows_the_actor_without_moving_already_born_particles() {
     route(&mut system, &stream, 1);
     system.tick(0.025, &EmptyWorld);
     stream.sync_local_player_pose(&client_world::LocalPlayerFeed {
+        held_variants: Default::default(),
         game_mode: None,
         prefer_client_skin: false,
         uuid: [0; 16],

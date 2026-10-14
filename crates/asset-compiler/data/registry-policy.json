@@ -3838,6 +3838,71 @@
       "repair": {
         "item": "minecraft:armadillo_scute"
       }
+    },
+    {
+      "id": "animal-armour-material-leather",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:leather_horse_armor"
+        ]
+      },
+      "armour_material": "leather"
+    },
+    {
+      "id": "animal-armour-material-iron",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:iron_horse_armor",
+          "minecraft:iron_nautilus_armor"
+        ]
+      },
+      "armour_material": "iron"
+    },
+    {
+      "id": "animal-armour-material-gold",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:golden_horse_armor",
+          "minecraft:golden_nautilus_armor"
+        ]
+      },
+      "armour_material": "gold"
+    },
+    {
+      "id": "animal-armour-material-diamond",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:diamond_horse_armor",
+          "minecraft:diamond_nautilus_armor"
+        ]
+      },
+      "armour_material": "diamond"
+    },
+    {
+      "id": "animal-armour-material-copper",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:copper_horse_armor",
+          "minecraft:copper_nautilus_armor"
+        ]
+      },
+      "armour_material": "copper"
+    },
+    {
+      "id": "animal-armour-material-netherite",
+      "status": "provisional",
+      "selector": {
+        "members": [
+          "minecraft:netherite_nautilus_armor",
+          "minecraft:netherite_horse_armor"
+        ]
+      },
+      "armour_material": "netherite"
     }
   ],
   "placement_rules": [
@@ -5135,5 +5200,298 @@
       ],
       "status": "provisional"
     }
-  ]
+  ],
+  "visual_events": {
+    "status": "provisional",
+    "legacy_particles": {
+      "1": "basic_bubble_particle",
+      "2": "basic_bubble_particle_manual",
+      "3": "basic_crit_particle",
+      "5": "basic_smoke_particle",
+      "6": "explosion_particle",
+      "7": "water_evaporation_actor_emitter",
+      "8": "basic_flame_particle",
+      "9": "lava_particle",
+      "10": "basic_smoke_particle",
+      "11": "redstone_wire_dust_particle",
+      "12": "rising_border_dust_particle",
+      "16": "dragon_death_explosion_emitter",
+      "17": "dragon_death_explosion_emitter",
+      "18": "heart_particle",
+      "20": "mycelium_dust_particle",
+      "21": "basic_portal_particle",
+      "22": "mob_portal",
+      "23": "water_splash_particle",
+      "24": "water_splash_particle_manual",
+      "25": "water_wake_particle",
+      "26": "water_drip_particle",
+      "27": "lava_drip_particle",
+      "28": "honey_drip_particle",
+      "29": "stalactite_water_drip_particle",
+      "30": "stalactite_lava_drip_particle",
+      "31": "falling_dust",
+      "32": "mobspell_emitter",
+      "33": "mobspell_ambient",
+      "34": "mobspell_emitter",
+      "35": "ink_emitter",
+      "37": "rain_splash_particle",
+      "38": "villager_angry",
+      "39": "villager_happy",
+      "40": "enchanting_table_particle",
+      "42": "note_particle",
+      "43": "witchspell_emitter",
+      "44": "crop_growth_emitter",
+      "46": "endrod",
+      "47": "dragon_breath_fire",
+      "48": "llama_spit_smoke",
+      "49": "totem_particle",
+      "54": "balloon_gas_particle",
+      "55": "colored_flame_particle",
+      "56": "sparkler_emitter",
+      "57": "conduit_particle",
+      "58": "bubble_column_up_particle",
+      "59": "bubble_column_down_particle",
+      "60": "sneeze",
+      "61": "shulker_bullet",
+      "62": "bleach",
+      "63": "dragon_destroy_block",
+      "64": "mycelium_dust_particle",
+      "65": "falling_border_dust_particle",
+      "66": "campfire_smoke_particle",
+      "67": "campfire_tall_smoke_particle",
+      "68": "dragon_breath_fire",
+      "69": "dragon_breath_trail",
+      "70": "blue_flame_particle",
+      "71": "soul_particle",
+      "72": "obsidian_tear_particle",
+      "73": "portal_reverse_particle",
+      "74": "snowflake_particle",
+      "75": "vibration_signal",
+      "76": "sculk_sensor_redstone_particle",
+      "77": "spore_blossom_shower_particle",
+      "78": "spore_blossom_ambient_particle",
+      "79": "wax_particle",
+      "80": "electric_spark_particle",
+      "81": "candle_flame_particle",
+      "82": "shriek_particle",
+      "83": "sculk_soul_particle",
+      "84": "sonic_explosion",
+      "86": "cherry_leaves_particle",
+      "87": "dust_plume",
+      "88": "white_smoke_particle",
+      "89": "wind_explosion_emitter",
+      "90": "breeze_wind_explosion_emitter",
+      "91": "vault_connection_particle",
+      "94": "creaking_crumble_body",
+      "95": "pale_oak_leaves_particle",
+      "96": "eyeblossom_open",
+      "97": "eyeblossom_close",
+      "98": "green_flame_particle",
+      "99": "pause_mob_growth",
+      "100": "reset_mob_growth",
+      "101": "sulfur_cube_goo"
+    },
+    "level_particles": {
+      "ParticlesEyeOfEnderDeath": "eyeofender_death_explode_particle",
+      "ParticlesMobBlockSpawn": "mob_block_spawn_emitter",
+      "ParticleCropGrowth": "crop_growth_emitter",
+      "ParticleDeathSmoke": "death_explosion_emitter",
+      "ParticlesCritical": "critical_hit_emitter",
+      "ParticlesTeleport": "mob_portal",
+      "ParticlesBubble": "basic_bubble_particle",
+      "ParticlesEvaporate": "water_evaporation_bucket_emitter",
+      "ParticlesBreakingEgg": "egg_destroy_emitter",
+      "ParticleDestroyEgg": "egg_destroy_emitter",
+      "ParticlesEvaporateWater": "water_evaporation_actor_emitter",
+      "ParticlesKnockbackRoar": "knockback_roar_particle",
+      "ParticlesVibrationSignal": "vibration_signal",
+      "ParticlesFizzEffect": "misc_fire_vapor_particle",
+      "WaxOn": "wax_particle",
+      "ParticlesElectricSpark": "electric_spark_particle",
+      "ParticleSculkShriek": "shriek_particle",
+      "SculkCharge": "sculk_charge_particle",
+      "SculkChargePop": "sculk_charge_pop_particle",
+      "SonicExplosion": "sonic_explosion",
+      "DustPlume": "dust_plume",
+      "ParticlesShootWhiteSmoke": "white_smoke_particle",
+      "ParticlesBreezeWindExplosion": "breeze_wind_explosion_emitter",
+      "ParticlesTrialSpawnerDetection": "trial_spawner_detection",
+      "ParticlesWindExplosion": "wind_explosion_emitter"
+    },
+    "level_sounds": [
+      [
+        "SoundClick",
+        "block.click",
+        "random.click"
+      ],
+      [
+        "SoundClickFail",
+        "block.click.fail",
+        "random.click"
+      ],
+      [
+        "SoundLaunch",
+        "launch",
+        "random.bow"
+      ],
+      [
+        "SoundFizz",
+        "fizz",
+        "random.fizz"
+      ],
+      [
+        "SoundFuse",
+        "",
+        "random.fuse"
+      ],
+      [
+        "SoundGhastWarning",
+        "",
+        "mob.ghast.charge"
+      ],
+      [
+        "SoundGhastFireball",
+        "",
+        "mob.ghast.fireball"
+      ],
+      [
+        "SoundBlazeFireball",
+        "",
+        "mob.blaze.shoot"
+      ],
+      [
+        "SoundZombieWoodenDoor",
+        "",
+        "mob.zombie.wood"
+      ],
+      [
+        "SoundZombieDoorCrash",
+        "",
+        "mob.zombie.woodbreak"
+      ],
+      [
+        "SoundZombieInfected",
+        "unfect",
+        "mob.zombie.unfect"
+      ],
+      [
+        "SoundZombieConverted",
+        "remedy",
+        "mob.zombie.remedy"
+      ],
+      [
+        "SoundEndermanTeleport",
+        "",
+        "mob.endermen.portal"
+      ],
+      [
+        "SoundAnvilBroken",
+        "",
+        "random.anvil_break"
+      ],
+      [
+        "SoundAnvilUsed",
+        "",
+        "random.anvil_use"
+      ],
+      [
+        "SoundAnvilLand",
+        "",
+        "random.anvil_land"
+      ],
+      [
+        "SoundInfinityArrowPickup",
+        "",
+        "random.pop"
+      ],
+      [
+        "SoundTeleportEnderPearl",
+        "",
+        "mob.endermen.portal"
+      ],
+      [
+        "SoundAddItem",
+        "",
+        "block.itemframe.add_item"
+      ],
+      [
+        "SoundItemFrameBreak",
+        "",
+        "block.itemframe.break"
+      ],
+      [
+        "SoundItemFramePlace",
+        "",
+        "block.itemframe.place"
+      ],
+      [
+        "SoundItemFrameRemoveItem",
+        "",
+        "block.itemframe.remove_item"
+      ],
+      [
+        "SoundItemFrameRotateItem",
+        "",
+        "block.itemframe.rotate_item"
+      ],
+      [
+        "SoundExperienceOrbPickup",
+        "",
+        "random.orb"
+      ],
+      [
+        "SoundTotemUsed",
+        "random.totem",
+        "random.totem"
+      ],
+      [
+        "SoundArmorStandBreak",
+        "",
+        "mob.armor_stand.break"
+      ],
+      [
+        "SoundArmorStandHit",
+        "",
+        "mob.armor_stand.hit"
+      ],
+      [
+        "SoundArmorStandLand",
+        "",
+        "mob.armor_stand.land"
+      ],
+      [
+        "SoundArmorStandPlace",
+        "",
+        "mob.armor_stand.place"
+      ]
+    ],
+    "note_instruments": [
+      "note.harp",
+      "note.bd",
+      "note.snare",
+      "note.hat",
+      "note.bassattack",
+      "note.flute",
+      "note.bell",
+      "note.guitar",
+      "note.chime",
+      "note.xylophone",
+      "note.iron_xylophone",
+      "note.cow_bell",
+      "note.didgeridoo",
+      "note.bit",
+      "note.banjo",
+      "note.pling",
+      "note.trumpet",
+      "note.trumpet_exposed",
+      "note.trumpet_weathered",
+      "note.trumpet_oxidized",
+      "note.zombie",
+      "note.skeleton",
+      "note.creeper",
+      "note.enderdragon",
+      "note.witherskeleton",
+      "note.piglin"
+    ]
+  }
 }

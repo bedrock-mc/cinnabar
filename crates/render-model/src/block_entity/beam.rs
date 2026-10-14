@@ -38,7 +38,10 @@ pub(super) fn emit(
     if model.sections.is_empty() {
         return;
     }
-    let Some(texture) = atlas.texture("textures/entity/beacon_beam", [16.0, 16.0]) else {
+    let Some(texture) = atlas.texture(
+        assets::block_entity_geometry::textures::AtlasTexture::EntityBeaconBeam.path(),
+        [16.0, 16.0],
+    ) else {
         return;
     };
     let center = Vec3::new(
