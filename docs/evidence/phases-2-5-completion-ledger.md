@@ -78,6 +78,12 @@ incomplete. This change closes no parity or performance gate.
 
 ## P3-MOVEMENT
 
+Riptide releases now carry a level-dependent launch and spin lifetime through fixed ticks,
+correction replay, input start/stop flags and local actor presentation. Charge and admission
+regressions cover wetness and queue rejection. Exact positional rain eligibility, actor-hit
+termination, server spin metadata, audio and integrated acceptance remain incomplete; this
+change closes no movement parity or performance gate.
+
 Remaining double intermediates in processed controls, block-height contact, support
 offsets, climb requests and fallback travel drag now use f32 operations. Precision
 regressions await CI; full numeric and trajectory parity remains open.

@@ -32,6 +32,7 @@ fn committed_ui_uses_the_current_local_players_name_for_credits() {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
         first_person: true,

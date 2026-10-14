@@ -5,6 +5,9 @@ use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementInput {
+    /// Riptide enchantment level released on this tick; zero means no launch.
+    #[serde(default, skip_serializing_if = "is_zero_level")]
+    pub riptide_level: u8,
     /// Spectator travel ignores terrain collision and block contact effects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spectator: bool,

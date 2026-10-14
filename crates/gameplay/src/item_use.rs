@@ -16,6 +16,8 @@ use client_world::ResolvedUseCooldown as Cooldown;
 
 /// Vanilla re-arms the next build action this long after an air use.
 const USE_REARM_MILLIS: u64 = 200;
+/// Minimum held ticks before a Riptide release can launch the player.
+pub const RIPTIDE_CHARGE_TICKS: u64 = 10;
 
 #[derive(Debug, Clone, PartialEq)]
 struct ActiveUse {
@@ -24,6 +26,16 @@ struct ActiveUse {
     max_ticks: u32,
     slowdown: f64,
     crossbow: bool,
+    riptide: bool,
+}
+
+/// Stack and environment facts for a selected trident.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RiptideUse {
+    pub level: u8,
+    pub wet: bool,
+    pub mounted: bool,
+    pub usable: bool,
 }
 
 /// A throw's locally consumed stack, shown until the server restates the slot.
@@ -38,6 +50,7 @@ struct PredictedStack {
 /// One unsent tick's view of the use input and the selected stack.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseFrame {
+    pub riptide: Option<RiptideUse>,
     pub tick: u64,
     pub now_millis: u64,
     pub position: [f32; 3],
@@ -93,9 +106,17 @@ pub struct ItemUseRuntime {
     /// A rejected release still precedes the next use, even if Use is pressed again.
     release_pending: bool,
     crossbows: crossbow::CrossbowPredictions,
+    /// Launch retained only after the release transaction was admitted.
+    riptide_launch: Option<u8>,
+    /// Eligibility captured when a release first encountered queue pressure.
+    release_launch: Option<u8>,
 }
 
 impl ItemUseRuntime {
+    /// Takes one admitted launch for the next successful movement tick.
+    pub fn take_riptide_launch(&mut self) -> Option<u8> {
+        self.riptide_launch.take()
+    }
     /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
     pub fn set_delay_fix(&mut self, enabled: bool) {
         self.delay_fix = enabled;
@@ -191,6 +212,8 @@ impl ItemUseRuntime {
         self.predicted = None;
         self.inventory_change = None;
         self.release_pending = false;
+        self.riptide_launch = None;
+        self.release_launch = None;
         self.crossbows.clear();
     }
 
@@ -283,10 +306,27 @@ impl ItemUseRuntime {
         if frame.held && !release_pending {
             return;
         }
+        let launch = if release_pending {
+            self.release_launch
+        } else {
+            frame
+                .riptide
+                .filter(|riptide| {
+                    active.riptide
+                        && riptide.level > 0
+                        && riptide.wet
+                        && !riptide.mounted
+                        && frame.selection.is_some()
+                        && frame.tick.saturating_sub(active.started_tick) >= RIPTIDE_CHARGE_TICKS
+                })
+                .map(|riptide| riptide.level)
+        };
         self.active = None;
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
             outcome.released = true;
+            self.riptide_launch = launch;
+            self.release_launch = None;
         }
     }
 
@@ -347,13 +387,19 @@ impl ItemUseRuntime {
                 max_ticks,
                 slowdown,
                 ..
-            }) if frame.ready && !on_cooldown => {
+            }) if frame.ready
+                && !on_cooldown
+                && frame.riptide.is_none_or(|riptide| {
+                    riptide.usable && (riptide.level == 0 || riptide.wet)
+                }) =>
+            {
                 active_use = Some(ActiveUse {
                     selection: selection.clone(),
                     started_tick: frame.tick,
                     max_ticks,
                     slowdown,
                     crossbow: crossbow::is_crossbow(air_use),
+                    riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {

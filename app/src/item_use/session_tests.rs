@@ -19,6 +19,7 @@ fn use_frame(tick: u64) -> UseFrame {
         ..NetworkItemStack::empty()
     };
     UseFrame {
+        riptide: None,
         tick,
         now_millis: 1_000,
         position: completed(tick).position,
@@ -76,6 +77,101 @@ fn admitted_item_transaction_precedes_the_same_tick_start_using_input() {
     let sample = protocol::player_auth_input_trace_sample(&packets[1]).unwrap();
     assert_eq!(sample.tick, 101);
     assert!(sample.flag_names.contains(&"StartUsingItem"));
+}
+
+#[test]
+fn riptide_release_follows_completed_inputs_and_precedes_the_launch_input() {
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    let mut ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
+        network.physics_epoch_publisher(),
+    );
+    ticker.reset(7, 100, completed(101).position);
+    ticker.set_source(gameplay::movement::MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    let mut runtime = ItemUseRuntime::default();
+    let mut swings = SwingTracker::default();
+    let mut view = client_presentation::local_player::LocalViewPose::default();
+    let trident = |tick, held| UseFrame {
+        held,
+        riptide: Some(gameplay::item_use::RiptideUse {
+            level: 3,
+            wet: true,
+            mounted: false,
+            usable: true,
+        }),
+        air_use: classify("minecraft:trident", false, 0, None),
+        ..use_frame(tick)
+    };
+    runtime.observe_press(true);
+    super::admit_with_action_aim(
+        &mut runtime,
+        &mut swings,
+        &mut ticker,
+        &mut view,
+        &trident(101, true),
+        42,
+        6,
+        None,
+        &network,
+    );
+    let flush = |ticker: &mut gameplay::movement::MovementTicker, budget| {
+        let mut written = Vec::new();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            ticker,
+            budget,
+            Some(evidence()),
+            |identity, packet, guard| {
+                written.push(identity);
+                network.send_physics_packet(identity, packet, guard)
+            },
+        )
+        .unwrap();
+        for identity in written {
+            assert!(ticker.acknowledge_physics_send(identity));
+        }
+    };
+    flush(&mut ticker, 1);
+    captured.drain();
+    for tick in 102..=111 {
+        ticker.enqueue_completed_physics(completed(tick)).unwrap();
+    }
+    super::admit_with_action_aim(
+        &mut runtime,
+        &mut swings,
+        &mut ticker,
+        &mut view,
+        &trident(111, false),
+        42,
+        6,
+        None,
+        &network,
+    );
+    assert_eq!(runtime.take_riptide_launch(), Some(3));
+    assert!(captured.drain().is_empty());
+    let mut launch = completed(112);
+    launch.processed.spin_started = true;
+    launch.processed.spinning = true;
+    ticker.enqueue_completed_physics(launch).unwrap();
+    flush(&mut ticker, 11);
+    let preceding = captured.drain();
+    assert_eq!(preceding.len(), 10);
+    assert_eq!(
+        protocol::player_auth_input_trace_sample(&preceding[9])
+            .unwrap()
+            .tick,
+        111
+    );
+    ticker.send_held_release(|_| Err(gameplay::BatchSendError::Full));
+    flush(&mut ticker, 1);
+    assert!(captured.drain().is_empty());
+    ticker.send_held_release(|packets| network.send_inventory_packets(packets));
+    flush(&mut ticker, 1);
+    let packets = captured.drain();
+    assert_eq!(packets.len(), 2);
+    assert!(protocol::is_aim_assist_rotation_action(&packets[0]));
+    let launch = protocol::player_auth_input_trace_sample(&packets[1]).unwrap();
+    assert_eq!(launch.tick, 112);
+    assert!(launch.flag_names.contains(&"StartSpinAttack"));
 }
 
 #[test]

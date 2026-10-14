@@ -23,8 +23,10 @@ impl LocalEyeOffset {
         self.previous = self.current;
     }
 
-    pub(super) fn tick(&mut self, mode: MovementMode, sneaking: bool) {
+    /// Eases the eye toward the selected pose, with a spin using the horizontal target.
+    pub(super) fn tick(&mut self, mode: MovementMode, sneaking: bool, spinning: bool) {
         let target = match mode {
+            _ if spinning => PLAYER_NETWORK_OFFSET - HORIZONTAL_POSE_EYE_HEIGHT,
             MovementMode::Swimming | MovementMode::Crawling | MovementMode::Gliding => {
                 PLAYER_NETWORK_OFFSET - HORIZONTAL_POSE_EYE_HEIGHT
             }
@@ -52,13 +54,13 @@ mod tests {
     fn crouch_drop_halves_the_remaining_gap_once_per_tick_and_interpolates() {
         let mut eye = LocalEyeOffset::default();
         assert_eq!(eye.height(0.0), PLAYER_NETWORK_OFFSET);
-        eye.tick(MovementMode::Walking, true);
+        eye.tick(MovementMode::Walking, true, false);
         assert_eq!(eye.height(0.0), PLAYER_NETWORK_OFFSET);
         assert_eq!(eye.height(0.5), PLAYER_NETWORK_OFFSET - 0.0875);
         assert_eq!(eye.height(1.0), PLAYER_NETWORK_OFFSET - 0.175);
-        eye.tick(MovementMode::Walking, true);
+        eye.tick(MovementMode::Walking, true, false);
         assert_eq!(eye.height(1.0), PLAYER_NETWORK_OFFSET - 0.2625);
-        eye.tick(MovementMode::Walking, false);
+        eye.tick(MovementMode::Walking, false, false);
         assert_eq!(eye.height(0.0), PLAYER_NETWORK_OFFSET - 0.2625);
         assert_eq!(eye.height(1.0), PLAYER_NETWORK_OFFSET - 0.13125);
     }
@@ -72,13 +74,25 @@ mod tests {
         ] {
             let mut eye = LocalEyeOffset::default();
             for _ in 0..32 {
-                eye.tick(mode, true);
+                eye.tick(mode, true, false);
             }
             assert!((eye.height(1.0) - HORIZONTAL_POSE_EYE_HEIGHT).abs() < 1.0e-6);
             for _ in 0..32 {
-                eye.tick(MovementMode::Walking, false);
+                eye.tick(MovementMode::Walking, false, false);
             }
             assert_eq!(eye.height(1.0), PLAYER_NETWORK_OFFSET);
         }
+    }
+
+    #[test]
+    fn riptide_uses_the_horizontal_eye_even_while_sneaking() {
+        let mut eye = LocalEyeOffset::default();
+        for _ in 0..32 {
+            eye.tick(MovementMode::Walking, true, true);
+        }
+        assert!((eye.height(1.0) - HORIZONTAL_POSE_EYE_HEIGHT).abs() < 1.0e-6);
+        eye.tick(MovementMode::Walking, false, false);
+        assert!(eye.height(1.0) > HORIZONTAL_POSE_EYE_HEIGHT);
+        assert!(eye.height(1.0) < PLAYER_NETWORK_OFFSET);
     }
 }

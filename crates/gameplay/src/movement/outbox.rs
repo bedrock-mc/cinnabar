@@ -415,8 +415,8 @@ impl MovementTicker {
         })
     }
 
-    /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
-    /// with, is written; later inputs wait behind it and an authority change first drops it.
+    /// Holds a release until its last preceding input is written, preserving facing and launch
+    /// order. Later inputs wait behind it and an authority change first drops it.
     pub fn hold_release_after_tick(&mut self, tick: u64, packets: Vec<Packet>) {
         self.held_release = Some(HeldRelease {
             tick,

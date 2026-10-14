@@ -384,7 +384,7 @@ pub(crate) fn sampled_rig_placement(
             ),
             actor.death_rotation_progress(alpha),
         ),
-        glide_rotation(actor, alpha),
+        spin_rotation(actor, alpha).or_else(|| glide_rotation(actor, alpha)),
     );
     Some((rows, yaw))
 }
@@ -674,6 +674,14 @@ const DEGREES_TO_RADIANS: f32 = 0.017_453_292;
 const RADIANS_TO_DEGREES: f32 = 57.295_776;
 /// Cross products below this leave the gliding body unturned.
 const GLIDE_TURN_DEAD_ZONE: f32 = 0.0625;
+
+/// A spin pitches immediately along the view and rotates around the actor's own up axis.
+pub fn spin_rotation(actor: &ActorSnapshot, alpha: f32) -> Option<[f32; 2]> {
+    actor.is_spinning().then_some([
+        -90.0 - actor.pitch,
+        (actor.status.age_ticks as f32 + alpha) * -75.0,
+    ])
+}
 
 /// A gliding actor's `[pitch, yaw]` body tilt in degrees: pitch eases in over its first ten
 /// gliding ticks, and yaw turns it toward its horizontal motion.

@@ -330,6 +330,13 @@ impl LocalPhysicsController {
             retained.processed.sneaking = frame_input.sneaking;
             retained.processed.sprinting = frame_input.sprinting;
             retained.processed.mode = frame_input.mode;
+            retained.processed.spin_started = frame_input.riptide_level > 0
+                && frame_input.mode != sim::MovementMode::Riding
+                && !frame_input.spectator;
+            retained.processed.spinning = self
+                .history
+                .state_at(result.tick)
+                .is_some_and(|state| state.spin_attack_ticks.is_some());
             if let Some(frame) = controller_frames
                 .iter()
                 .find(|frame| frame.tick == result.tick)

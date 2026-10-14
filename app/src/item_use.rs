@@ -6,7 +6,9 @@
 
 use client_interaction::item_use::{
     ItemUseRuntime,
-    selection::{loading_projectile, needs_met, selected_air_use_with_projectile},
+    selection::{
+        loading_projectile, needs_met, selected_air_use_with_projectile, selected_riptide_use,
+    },
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -35,6 +37,7 @@ use gameplay::item_use::UseFrame;
 use gameplay::item_use::admit_on_tick;
 
 use gameplay::item_use::AirUse;
+mod riptide;
 
 /// A successful extension request is valid only in its originating world scope.
 #[derive(Resource, Debug, Default)]
@@ -53,7 +56,8 @@ pub(crate) struct ItemUseContext<'w, 's> {
     melee: Res<'w, MeleeRuntime>,
     block_use: Res<'w, BlockUseRuntime>,
     effects: Res<'w, LocalMovementEffectTimeline>,
-    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
+    physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
+    weather: Option<Res<'w, render_scene::AtmosphereViewInputs>>,
     network: Res<'w, NetworkHandle<PackApplication>>,
     time: Res<'w, Time<Real>>,
     aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
@@ -63,7 +67,7 @@ pub(crate) struct ItemUseContext<'w, 's> {
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
-    context: ItemUseContext,
+    mut context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
@@ -158,6 +162,22 @@ pub(crate) fn produce_item_use(
             .unwrap_or(server)
     });
     let frame = UseFrame {
+        riptide: selected_riptide_use(
+            &player_runtime,
+            stream,
+            context
+                .physics
+                .as_deref()
+                .is_some_and(|physics| physics.in_water())
+                || riptide::in_rain(
+                    stream,
+                    sample.position,
+                    context
+                        .weather
+                        .as_deref()
+                        .map_or(0.0, |weather| weather.current_rain_level),
+                ),
+        ),
         tick: sample.tick,
         now_millis,
         position: sample.position,
@@ -199,6 +219,11 @@ pub(crate) fn produce_item_use(
         aim_rotation,
         &context.network,
     );
+    if let Some(level) = runtime.take_riptide_launch()
+        && let Some(physics) = context.physics.as_deref_mut()
+    {
+        physics.request_riptide(level);
+    }
     if let Some((slot, revision, change)) = runtime.take_inventory_change() {
         player_runtime
             .inventory
@@ -221,7 +246,9 @@ fn admit_with_action_aim(
     aim_rotation: Option<bevy::prelude::Quat>,
     network: &NetworkHandle<PackApplication>,
 ) {
-    let mut assisted = None;
+    let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0)
+        && movement.newest_unsent_sample().is_some();
+    let mut deferred = None;
     admit_on_tick(
         runtime,
         swings,
@@ -230,18 +257,21 @@ fn admit_with_action_aim(
         local_runtime_id,
         swing_duration,
         |packets| {
-            if aim_rotation.is_some() && packets.iter().any(protocol::is_aim_assist_rotation_action)
+            if (aim_rotation.is_some() || riptide_fence)
+                && packets.iter().any(protocol::is_aim_assist_rotation_action)
             {
-                assisted = Some(packets);
+                deferred = Some(packets);
                 return Ok(());
             }
             network.send_inventory_packets(packets)
         },
     );
-    if let (Some(rotation), Some(packets)) = (aim_rotation, assisted) {
-        client_interaction::camera::aim_assist::apply_action_rotation(
-            rotation, view, movement, frame.tick,
-        );
+    if let Some(packets) = deferred {
+        if let Some(rotation) = aim_rotation {
+            client_interaction::camera::aim_assist::apply_action_rotation(
+                rotation, view, movement, frame.tick,
+            );
+        }
         movement.hold_release_after_tick(frame.tick, packets);
     }
 }

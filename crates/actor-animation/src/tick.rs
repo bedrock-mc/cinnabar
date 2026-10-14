@@ -332,6 +332,7 @@ fn java_retains_native_posture(
         || query::actor_flag(actor, ActorFlag::Swimming.wire_value())
         || context.main_hand_is_spear
         || query::actor_flag(actor, ActorFlag::Gliding.wire_value())
+        || query::actor_flag(actor, ActorFlag::DamageNearbyMobs.wire_value())
         || query::actor_flag(actor, ActorFlag::Crawling.wire_value())
         || query::actor_flag(actor, ActorFlag::Emoting.wire_value())
         || actor.is_sleeping()

@@ -121,7 +121,7 @@ pub(super) fn tick_mode(
         _ => {}
     }
 
-    let height = input.mode.hitbox_height(input.sneaking);
+    let height = next.hitbox_height(input);
     let collision_box = next.collision_box(height);
     let view = ScaffoldingView::new(world, collision_box, sampled.descend_through);
     let stuck = super::inside::stuck_multiplier(&sampled, &input);

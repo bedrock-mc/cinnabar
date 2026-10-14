@@ -13,6 +13,7 @@ use {super::*, inventory::crossbow_animation_frame};
 mod admission;
 mod crossbow;
 mod delayfix;
+mod riptide;
 mod rockets;
 
 fn crossbow_duration() -> u32 {
@@ -95,6 +96,7 @@ fn selection(slot: u8, network_id: i32) -> FrozenMiningSelection {
 
 fn frame(tick: u64, held: bool) -> UseFrame {
     UseFrame {
+        riptide: None,
         tick,
         now_millis: tick * 50,
         position: [0.5, 65.62, 0.5],

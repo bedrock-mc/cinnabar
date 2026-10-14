@@ -6472,7 +6472,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   audio acceptance, offhand air use and a comparison of boost timing and flight speed remain
   incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
-  dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
+  dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
+  additive level-dependent launch, retained spin lifetime and start/stop input flags.
+  Riptide parity remains incomplete: positional rain temperature, precise rain occlusion,
+  actor-hit termination, server spin metadata, launch audio and integrated acceptance remain open.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
   blend target is clamped so the steady water velocity stays inside the simulator's block-sampling
   budget. Land movement speed is not clamped.

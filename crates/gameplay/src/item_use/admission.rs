@@ -65,6 +65,9 @@ pub fn step_and_send(
                 runtime.latched_press = true;
                 runtime.deferred_selection = frame.selection.clone();
             }
+            if outcome.released && !runtime.release_pending {
+                runtime.release_launch = candidate.riptide_launch;
+            }
             runtime.release_pending |= outcome.released;
             false
         }

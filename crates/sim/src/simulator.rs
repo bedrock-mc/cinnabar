@@ -9,6 +9,7 @@ mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
+mod riptide;
 mod scaffolding;
 mod spectator;
 mod state;
@@ -143,6 +144,7 @@ impl Simulator {
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
         let output = self.advance(state, input, world)?;
+        riptide::finish(state);
         state.previous_rotation = Some(rotation);
         Ok(output)
     }
@@ -157,7 +159,9 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
-            return immobile::tick(state, input.mode, controls, world.registry_identity());
+            let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
+            riptide::launch(state, input, false);
+            return Ok(output);
         }
         let mut next = state.clone();
         next.position = next.position.rounded();
@@ -185,9 +189,23 @@ impl Simulator {
         let mut sampled = sample(
             world,
             next.position,
-            input.mode.hitbox_height(input.sneaking),
+            next.hitbox_height(input),
             input.liquid_contact_height,
         )?;
+        let shallow_water =
+            if input.riptide_level > 0 && next.on_ground && sampled.movement.in_water {
+                let head = water::sample_water_head(
+                    world,
+                    next.position,
+                    input.liquid_attach_height.unwrap_or(crate::PLAYER_HEIGHT),
+                )?;
+                sampled.identity = sampled.identity.merge(&head.identity)?;
+                sampled.block_samples += 1;
+                !head.value
+            } else {
+                false
+            };
+        riptide::launch(&mut next, input, shallow_water);
         if input.mode != MovementMode::Riding
             && input
                 .liquid_flow_enabled
@@ -195,7 +213,7 @@ impl Simulator {
         {
             let contact_height = input
                 .liquid_contact_height
-                .unwrap_or_else(|| input.mode.hitbox_height(input.sneaking));
+                .unwrap_or_else(|| next.hitbox_height(input));
             let contact = crate::Aabb::player_with_height_at(next.position, contact_height);
             if let Some(current) = world.liquid_current(contact)? {
                 sampled.identity = sampled.identity.merge(&current.identity)?;
@@ -222,7 +240,7 @@ impl Simulator {
         };
         let scaffold = scaffolding::sample_contact(
             world,
-            Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
+            Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
             input.sneaking,
             &mut sampled,
         )?;
@@ -368,7 +386,7 @@ impl Simulator {
                 world,
                 next.position,
                 next.velocity,
-                input.mode.hitbox_height(input.sneaking),
+                next.hitbox_height(input),
             )?;
             let mut retained = next.velocity;
             for axis in [0, 2] {
@@ -385,7 +403,7 @@ impl Simulator {
 
         let pre_collision_velocity = next.velocity;
         next.requested_movement = pre_collision_velocity;
-        let height = input.mode.hitbox_height(input.sneaking);
+        let height = next.hitbox_height(input);
         let collision_box = next.collision_box(height);
         let motion = resolve_motion(
             &scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through),
