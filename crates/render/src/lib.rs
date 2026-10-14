@@ -40,7 +40,7 @@ pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 mod dropped_item_render;
 mod hand_rig_render;
 mod input_pacing;
-pub use input_pacing::{FramePacing, FrameStart, InputPacingPlugin};
+pub use input_pacing::{FrameEnd, FramePacing, FrameStart, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
