@@ -105,12 +105,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         _ => return Err(DevtoolError::Usage("diag [--data-root <path>]".into())),
     };
     let mut entries = Vec::new();
-    let mut client = String::new();
-    for name in ["client.log.1", "client.log"] {
-        if let Ok(text) = tail(&root.join("logs").join(name)) {
-            client.push_str(&text);
-        }
-    }
+    // `client.log` holds only the current session; earlier ones are archived beside it, and a
+    // session that outgrew its file repeats the header at the top of the current one.
+    let client = tail(&root.join("logs/client.log")).unwrap_or_default();
     let client = section::latest(&client, section::CLIENT_SESSION_START);
     entries.push(("client.log".to_owned(), client.to_owned()));
     let core = core_session_tail(&root.join("logs/core.log"), client).unwrap_or_default();

@@ -1,10 +1,11 @@
-//! Runtime metrics and shared diagnostic marker contracts.
+//! Runtime metrics, process logging and shared diagnostic marker contracts.
 pub mod bounded_file;
 pub mod console;
+pub mod logging;
 pub mod markers;
 pub mod metrics;
-mod rotating_log;
 pub mod session;
+pub mod session_log;
 
 /// Writes one diagnostic marker and flushes it immediately.
 pub fn write_stdout_marker(stdout: &mut impl std::io::Write, marker: &str) {

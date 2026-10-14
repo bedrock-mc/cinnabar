@@ -1,27 +1,132 @@
 //! Client logging setup and ordered startup carrier summaries.
 
 use assets::carriers::startup::{LoadedAssetKind, LoadedAssets};
+use diagnostics::logging::CallerLayer;
 
-/// Keeps the existing log filter and profiling layer while queuing console writes.
-pub(super) fn plugin() -> bevy::log::LogPlugin {
+/// Which process installs logging: the client adds the build's profiler layers, the
+/// first-run setup window does not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Process {
+    Client,
+    Setup,
+}
+
+/// Keeps wgpu's encoding and submission scopes for Tracy.
+#[cfg(feature = "tracy")]
+const PROFILER_FILTER: &str = crate::tracy::WGPU_SCOPE_FILTER;
+#[cfg(not(feature = "tracy"))]
+const PROFILER_FILTER: &str = "";
+
+/// Bevy's default filter at `info`, which `LogPlugin` applied before this subscriber replaced
+/// it, without the closed-Discord retry noise.
+fn base_filter() -> String {
     // Rich presence reports a closed Discord client once instead of on every retry.
-    let filter = format!(
-        "{}discord_presence::connection=off",
+    format!(
+        "info,{}discord_presence::connection=off{PROFILER_FILTER}",
         bevy::log::DEFAULT_FILTER
-    );
+    )
+}
+
+/// Installs the process `tracing` subscriber before anything logs; `LogPlugin` stays
+/// disabled, so this is the only subscriber.
+pub(crate) fn install(process: Process) {
+    let layers = match process {
+        Process::Client => profiler_layers(),
+        Process::Setup => Vec::new(),
+    };
+    let installed = diagnostics::logging::install(diagnostics::logging::Options {
+        base_filter: base_filter(),
+        omit_frame_marks: cfg!(feature = "tracy"),
+        layers,
+    });
+    if let Err(error) = &installed {
+        bevy::log::warn!("{error}");
+    }
+    #[cfg(any(feature = "tracy", feature = "frame-trace"))]
+    if process == Process::Client && installed.is_ok() {
+        span_trace_on_panic();
+    }
+}
+
+/// The profiler layers this build enables.
+#[cfg(any(feature = "tracy", feature = "frame-trace"))]
+fn profiler_layers() -> Vec<CallerLayer> {
+    let mut layers = Vec::new();
     #[cfg(feature = "tracy")]
-    let filter = filter + crate::tracy::WGPU_SCOPE_FILTER;
-    bevy::log::LogPlugin {
-        filter,
-        #[cfg(feature = "tracy")]
-        custom_layer: crate::tracy::layer,
-        fmt_layer: |_| {
-            Some(Box::new(
-                bevy::log::tracing_subscriber::fmt::Layer::default()
-                    .with_writer(diagnostics::console::stderr),
-            ))
+    layers.push(crate::tracy::layer());
+    #[cfg(feature = "frame-trace")]
+    layers.push(chrome::layer());
+    layers
+}
+
+#[cfg(not(any(feature = "tracy", feature = "frame-trace")))]
+fn profiler_layers() -> Vec<CallerLayer> {
+    Vec::new()
+}
+
+/// Writes the panicking thread's span trace before the panic report, as Bevy's `trace`
+/// feature did while `LogPlugin` installed the subscriber.
+#[cfg(any(feature = "tracy", feature = "frame-trace"))]
+fn span_trace_on_panic() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(trace) = diagnostics::logging::span_trace() {
+            diagnostics::log_stderr!("{trace}");
+        }
+        previous(info);
+    }));
+}
+
+/// Bevy's Chrome trace layer under `frame-trace`.
+#[cfg(feature = "frame-trace")]
+pub(super) mod chrome {
+    use bevy::{
+        log::tracing_subscriber::{
+            Registry,
+            fmt::{FormattedFields, format::DefaultFields},
         },
-        ..Default::default()
+        platform::cell::SyncCell,
+        prelude::*,
+    };
+    use diagnostics::logging::CallerLayer;
+    use std::sync::{Mutex, PoisonError};
+    use tracing_chrome::{ChromeLayerBuilder, EventOrSpan, FlushGuard};
+
+    /// The trace writer until the app holds it.
+    static WRITER: Mutex<Option<FlushGuard>> = Mutex::new(None);
+
+    /// Keeps the trace writer running; dropping it with the app finishes the trace file.
+    #[derive(Resource)]
+    struct TraceWriter(SyncCell<FlushGuard>);
+
+    /// Writes to `TRACE_CHROME`, or a timestamped file in the working directory, naming spans
+    /// with their recorded fields.
+    pub(super) fn layer() -> CallerLayer {
+        let mut builder = ChromeLayerBuilder::<Registry>::new();
+        if let Ok(path) = std::env::var("TRACE_CHROME") {
+            builder = builder.file(path);
+        }
+        let (layer, writer) = builder
+            .name_fn(Box::new(|event_or_span| match event_or_span {
+                EventOrSpan::Event(event) => event.metadata().name().into(),
+                EventOrSpan::Span(span) => span
+                    .extensions()
+                    .get::<FormattedFields<DefaultFields>>()
+                    .map_or_else(
+                        || span.metadata().name().into(),
+                        |fields| format!("{}: {}", span.metadata().name(), fields.fields.as_str()),
+                    ),
+            }))
+            .build();
+        *WRITER.lock().unwrap_or_else(PoisonError::into_inner) = Some(writer);
+        Box::new(layer)
+    }
+
+    /// Hands the trace writer to `app`, which finishes the trace file when it is dropped.
+    pub(in crate::app) fn keep_writer(app: &mut App) {
+        if let Some(writer) = WRITER.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            app.insert_resource(TraceWriter(SyncCell::new(writer)));
+        }
     }
 }
 

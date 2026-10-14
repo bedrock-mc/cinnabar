@@ -15,6 +15,7 @@ reads = [
 [dependencies]
 anyhow.workspace = true
 assets = { path = "../assets" }
+diagnostics = { path = "../diagnostics" }
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 gilrs = "0.11.2"
 image.workspace = true

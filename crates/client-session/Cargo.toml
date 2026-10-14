@@ -24,7 +24,7 @@ world = { path = "../world" }
 [dev-dependencies]
 protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
-tracing-subscriber = { version = "0.3", features = ["fmt"] }
+tracing-subscriber.workspace = true
 uuid.workspace = true
 
 [lints]

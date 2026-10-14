@@ -21,7 +21,7 @@ pub(crate) fn dispatch() {
         .nth(1)
         .is_some_and(|arg| arg == first_run::SETUP_FLAG)
     {
-        std::process::exit(first_run::run_setup_process());
+        std::process::exit(lifecycle::run_first_run_setup());
     }
     match ClientArgs::parse_env() {
         Ok(ParseOutcome::Help) => print!("{}", cinnabar::args::HELP),

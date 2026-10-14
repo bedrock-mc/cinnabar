@@ -25,6 +25,10 @@ schemas document every argument. Agents drive the client only through this endpo
   needs a signed-out install (an isolated `CINNABAR_USER_ROOT`).
 - `global_packs` stages and applies global resource packs as the settings screen does; import
   packs with `launch_client` args `["--import-pack", path]`, then poll it until `pending` clears.
+- `log_filter_set` replaces the client's runtime log filter: `spec` takes comma-separated
+  `category=level` directives (such as `net=debug`; the tool description lists the categories)
+  and raw tracing `EnvFilter` directives, layered over the defaults and `RUST_LOG`.
+  `log_filter_get` reports the runtime `spec` and the `effective` filter.
 - `state.player_motion` includes the simulation tick, velocity, accepted motion sequence, jump
   eligibility, physical jump state, processed sprint state, active item use and the selected
   item's resolved use profile. `state.local_mods` also reports bounded

@@ -1232,7 +1232,6 @@ dependencies = [
  "bevy_platform",
  "bevy_utils",
  "tracing",
- "tracing-chrome",
  "tracing-error",
  "tracing-log",
  "tracing-oslog",
@@ -2176,6 +2175,7 @@ dependencies = [
  "test-time",
  "thiserror 2.0.18",
  "tokio",
+ "tracing-chrome",
  "tracing-tracy",
  "ui",
  "ui-engine",
@@ -2229,6 +2229,7 @@ name = "cinnabar-mcp"
 version = "0.1.20"
 dependencies = [
  "developer-control",
+ "diagnostics",
  "image",
  "mcp-stdio",
  "serde",
@@ -3215,15 +3216,23 @@ dependencies = [
 name = "diagnostics"
 version = "0.1.20"
 dependencies = [
+ "android_log-sys",
  "assets",
  "chunk-pipeline",
  "client-ui",
+ "env-compat",
  "libc",
  "meshing",
  "render-model",
  "rustix 1.1.4",
  "serde",
  "serde_json",
+ "tempfile",
+ "toml 0.9.12+spec-1.1.0",
+ "tracing",
+ "tracing-error",
+ "tracing-log",
+ "tracing-subscriber",
  "windows-sys 0.61.2",
  "world",
 ]
@@ -3594,6 +3603,7 @@ version = "0.1.20"
 dependencies = [
  "anyhow",
  "assets",
+ "diagnostics",
  "fontdue",
  "gilrs",
  "image",

@@ -1,15 +1,20 @@
 //! Drains the process stderr pipe into the same ordered, rotating sink as queued output.
-use super::{FULL_QUEUE_RETRY, Message, Stream};
+use super::{
+    Message, Priority, Stream,
+    queue::{Queue, Rejected},
+};
 use std::{
     fs::File,
     io::{self, Read},
     sync::{
         Arc, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{SyncSender, TrySendError},
     },
     time::{Duration, Instant},
 };
+
+/// Pause between attempts to take the pipe reader from the drain thread.
+const READER_RETRY: Duration = Duration::from_millis(1);
 
 const READ_SIZE: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
@@ -22,10 +27,7 @@ pub(super) struct RawStderr {
 
 impl RawStderr {
     /// Installs a process-lifetime pipe only after its drain thread has started successfully.
-    pub(super) fn start(
-        queue: SyncSender<Message>,
-        dropped: Arc<AtomicU64>,
-    ) -> io::Result<Arc<Self>> {
+    pub(super) fn start(queue: Arc<Queue>, dropped: Arc<AtomicU64>) -> io::Result<Arc<Self>> {
         let (reader, writer) = pipe()?;
         let capture = Arc::new(Self {
             reader: Mutex::new(reader),
@@ -50,9 +52,10 @@ impl RawStderr {
         Ok(capture)
     }
 
-    /// Queues all bytes currently in the pipe. Without a deadline a full queue drops and counts the
-    /// chunk, so a stalled console never backs up the pipe into `eprintln!` callers.
-    pub(super) fn drain(&self, queue: &SyncSender<Message>, deadline: Option<Instant>) -> bool {
+    /// Queues all bytes currently in the pipe. Raw stderr carries panics and fatal reports, so it
+    /// may use the queue's reserve. Without a deadline a full queue drops and counts the chunk,
+    /// so a stalled console never backs up the pipe into `eprintln!` callers.
+    pub(super) fn drain(&self, queue: &Queue, deadline: Option<Instant>) -> bool {
         let mut reader = loop {
             match self.reader.try_lock() {
                 Ok(reader) => break reader,
@@ -61,7 +64,7 @@ impl RawStderr {
                     if deadline.is_some_and(|end| Instant::now() >= end) {
                         return false;
                     }
-                    std::thread::sleep(FULL_QUEUE_RETRY);
+                    std::thread::sleep(READER_RETRY);
                 }
             }
         };
@@ -81,22 +84,21 @@ impl RawStderr {
                 Ok(0) | Err(_) => return false,
                 Ok(count) => count,
             };
-            let mut message = Message::Write(Stream::Stderr, bytes[..count].to_vec());
-            loop {
-                match queue.try_send(message) {
-                    Ok(()) => break,
-                    Err(TrySendError::Disconnected(_)) => return false,
-                    Err(TrySendError::Full(returned)) => {
-                        let Some(end) = deadline else {
-                            self.dropped.fetch_add(1, Ordering::Relaxed);
-                            break;
-                        };
-                        if Instant::now() >= end {
-                            return false;
-                        }
-                        message = returned;
-                        std::thread::sleep(FULL_QUEUE_RETRY);
-                    }
+            let message = Message::Write {
+                stream: Stream::Stderr,
+                priority: Priority::Warn,
+                bytes: bytes[..count].to_vec(),
+            };
+            let queued = match deadline {
+                Some(end) => queue.push_until(message, end),
+                None => queue.push(message),
+            };
+            match queued {
+                Ok(()) => {}
+                Err(Rejected::Closed(_)) => return false,
+                Err(Rejected::Full(_)) if deadline.is_some() => return false,
+                Err(Rejected::Full(_)) => {
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -228,7 +230,8 @@ fn available(reader: &File) -> io::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io::Write, sync::mpsc::sync_channel};
+    use crate::console::queue::{RESERVED_CAPACITY, SHARED_CAPACITY, SystemClock};
+    use std::io::Write;
 
     /// A stalled console must not stop the pipe draining, or raw stderr writers block.
     #[test]
@@ -239,10 +242,15 @@ mod tests {
             cancelled: AtomicBool::new(false),
             dropped: Arc::new(AtomicU64::new(0)),
         };
-        let (queue, _pending) = sync_channel(1);
-        queue
-            .try_send(Message::Write(Stream::Stderr, b"queued".to_vec()))
-            .unwrap();
+        let queue = Queue::new(Box::new(SystemClock));
+        for _ in 0..SHARED_CAPACITY + RESERVED_CAPACITY {
+            let queued = queue.push(Message::Write {
+                stream: Stream::Stderr,
+                priority: Priority::Warn,
+                bytes: b"queued".to_vec(),
+            });
+            assert!(queued.is_ok());
+        }
         writer.write_all(b"stalled console output").unwrap();
         assert!(capture.drain(&queue, None));
         assert_eq!(capture.dropped.load(Ordering::Relaxed), 1);

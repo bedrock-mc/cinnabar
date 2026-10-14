@@ -40,8 +40,9 @@ enhanced = ["render/enhanced"]
 enhanced-diagnostics = ["enhanced", "developer-control", "acceptance", "render/enhanced-diagnostics"]
 # Loopback control endpoint for scripted driving and recording; never in release builds.
 developer-control = ["dep:developer-control", "client-shell/developer-control"]
-# Records Bevy schedules, systems, render graph, submission and presentation spans.
-frame-trace = ["bevy/trace_chrome", "bevy/debug"]
+# Records Bevy schedules, systems, render graph, submission and presentation spans as a
+# Chrome trace through the app's own subscriber layer.
+frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
 # Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
 # streaming/render hot paths.
 tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
@@ -72,6 +73,7 @@ mod-api = { path = "../crates/mod-api" }
 mod-render = { path = "../crates/mod-render" }
 block-transform = { path = "../crates/block-transform" }
 tracing-tracy = { version = "=0.12.0", default-features = false, features = ["enable", "only-localhost", "ondemand"], optional = true }
+tracing-chrome = { version = "=0.7.2", optional = true }
 profiling = { version = "=1.0.18", default-features = false, features = ["profile-with-tracing"], optional = true }
 acceptance = { path = "../crates/acceptance", optional = true }
 crash-report = { path = "../crates/crash-report" }

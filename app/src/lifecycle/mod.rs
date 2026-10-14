@@ -15,10 +15,18 @@ pub(crate) fn launched_at() -> Instant {
     *LAUNCHED_AT.get_or_init(Instant::now)
 }
 
+/// The `--first-run-setup` child process: logs as the client does, through the inherited
+/// stderr the client captures, then runs the setup window and returns its exit code.
+pub fn run_first_run_setup() -> i32 {
+    crate::app::logging::install(crate::app::logging::Process::Setup);
+    first_run::run_setup_process()
+}
+
 /// Runs pre-window duties for a packaged install; a no-op for development checkouts.
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
+    crate::app::logging::install(crate::app::logging::Process::Client);
     launched_at();
     let layout = InstallLayout::discover().context("resolve install layout")?;
     client_logs::capture(&layout);

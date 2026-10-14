@@ -154,6 +154,8 @@ fn dispatch(world: &mut World) {
                 }
             }
             Command::GlobalPacks { action } => global_packs(world, action),
+            Command::LogFilterSet { spec } => log_filter_set(&spec),
+            Command::LogFilterGet => log_filter_report(diagnostics::logging::filter()),
             Command::CameraPath(path) => camera::start(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
@@ -236,6 +238,18 @@ fn disconnect(world: &mut World) -> Result<Value, String> {
     Ok(json!({ "disconnecting": true }))
 }
 
+/// Replaces the runtime log filter spec and reports the filter now in force.
+fn log_filter_set(spec: &str) -> Result<Value, String> {
+    diagnostics::logging::set_filter(spec).map_err(|error| error.to_string())?;
+    log_filter_report(diagnostics::logging::filter())
+}
+
+/// The `{spec, effective}` reply for `status`; `None` means the log subscriber is not installed.
+fn log_filter_report(status: Option<diagnostics::logging::FilterStatus>) -> Result<Value, String> {
+    let status = status.ok_or("logging is not installed")?;
+    Ok(json!({ "spec": status.spec, "effective": status.effective }))
+}
+
 /// Queues the line as Enter would, without touching any draft; a leading `/` makes it a command.
 fn chat(world: &mut World, text: &str) -> Result<Value, String> {
     let now_millis = world
@@ -302,6 +316,22 @@ mod tests {
             world.resource::<UiRuntimeResource>().chat_editor().as_str(),
             "half-typed ",
             "a refused send leaves no editor changes behind"
+        );
+    }
+
+    #[test]
+    fn log_filter_reports_the_active_filter_or_that_logging_is_off() {
+        let status = diagnostics::logging::FilterStatus {
+            spec: "net=debug".into(),
+            effective: "info,net=debug".into(),
+        };
+        assert_eq!(
+            super::log_filter_report(Some(status)).unwrap(),
+            serde_json::json!({ "spec": "net=debug", "effective": "info,net=debug" })
+        );
+        assert_eq!(
+            super::log_filter_report(None).unwrap_err(),
+            "logging is not installed"
         );
     }
 }

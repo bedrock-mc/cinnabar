@@ -229,6 +229,13 @@ pub enum Command {
     GlobalPacks {
         action: Option<GlobalPackAction>,
     },
+    /// Replaces the runtime log filter spec layered over the defaults and `RUST_LOG`; the reply
+    /// is the resulting `{spec, effective}` filter, or the error when `spec` does not parse.
+    LogFilterSet {
+        spec: String,
+    },
+    /// Reports the active log filter as `{spec, effective}`.
+    LogFilterGet,
     State,
     WaitFor {
         condition: Condition,

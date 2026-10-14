@@ -1,52 +1,72 @@
 //! Client diagnostics stay at the app boundary, outside engine-free launcher services.
+use crash_report::section::CLIENT_SESSION_START;
+use diagnostics::{
+    console::SessionFiles,
+    session,
+    session_log::{Family, Retention},
+};
 use launcher::install_layout::InstallLayout;
-use std::io::{IsTerminal, Write};
 
-const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
+/// The client's session files: `logs/client.log`, earlier sessions as `client-<UTC time>.log`.
+const CLIENT_LOG_STEM: &str = "client";
 
-/// Mirrors diagnostics to the rotating client log before startup can fail.
+/// Starts this session's `client.log`, archiving the previous session's, before startup can
+/// fail; output logged since the subscriber was installed follows the session header.
 pub(super) fn capture(layout: &InstallLayout) {
     #[cfg(test)]
     if !layout.log_dir().starts_with(std::env::temp_dir()) {
         return;
     }
-    if let Err(error) = diagnostics::console::initialize_log(
-        &layout.log_dir().join("client.log"),
-        MAX_CLIENT_LOG_BYTES,
-    ) {
-        eprintln!("client file logging unavailable: {error}");
-        return;
+    let dir = layout.log_dir();
+    let header = session_header();
+    let files = SessionFiles {
+        dir: &dir,
+        stem: CLIENT_LOG_STEM,
+        header: &header,
+        json: diagnostics::logging::json_enabled(),
+        retention: Retention::DEFAULT,
+    };
+    if let Err(error) = diagnostics::console::initialize_log(&files) {
+        bevy::log::warn!(
+            "client file logging unavailable for {}: {error}",
+            Family::new(files.dir, files.stem, "log")
+                .current()
+                .display()
+        );
     }
-    let _ = writeln!(
-        diagnostics::console::stderr(),
-        "CLIENT_SESSION_START version={} commit={} timestamp_ms={}",
+}
+
+/// The first line of each client session file; devtool and crash reports find sessions by it.
+fn session_header() -> String {
+    format!(
+        "{CLIENT_SESSION_START} version={} commit={} profile={} session={} timestamp_ms={}",
         env!("CARGO_PKG_VERSION"),
-        option_env!("CINNABAR_BUILD_COMMIT").unwrap_or("unknown"),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()
-    );
+        session::COMMIT,
+        session::BUILD_PROFILE,
+        session::id(),
+        session::started_at_ms()
+    )
 }
 
 /// Writes a crash folder for each panic or native fault, flushing the client log around it.
 ///
-/// The default hook prints terminal panics only to the terminal, so they are also recorded in
-/// the client log, with the report's backtrace.
+/// When raw stderr is not captured, the default hook's panic text never reaches the client
+/// log, so it is recorded there with the report's backtrace.
 pub(super) fn install_panic_hook(layout: &InstallLayout) {
     let identity = crash_report::report::Identity {
-        session_id: diagnostics::session::id().to_owned(),
-        started_at_ms: diagnostics::session::started_at_ms(),
+        session_id: session::id().to_owned(),
+        started_at_ms: session::started_at_ms(),
         release: env!("CARGO_PKG_VERSION").to_owned(),
-        commit: diagnostics::session::COMMIT.to_owned(),
-        build_profile: diagnostics::session::BUILD_PROFILE.to_owned(),
+        commit: session::COMMIT.to_owned(),
+        build_profile: session::BUILD_PROFILE.to_owned(),
     };
     launcher_host::lifecycle::crash::install_panic_hook(
         layout,
         identity,
         |panic| {
-            if std::io::stderr().is_terminal() {
-                diagnostics::console::console().write(
+            let console = diagnostics::console::console();
+            if !console.captures_raw_stderr() {
+                console.write(
                     diagnostics::console::Stream::FileOnly,
                     panic.as_bytes().to_vec(),
                 );

@@ -27,8 +27,18 @@ mod fixture_client {
         }
         /// Starts file logging, then reproduces a preparation failure before the client runs.
         pub fn before_run(_: bool) -> std::io::Result<bool> {
-            let path = std::env::var_os("STARTUP_FAILURE_LOG").unwrap();
-            diagnostics::console::initialize_log(std::path::Path::new(&path), 1024).unwrap();
+            let dir = std::path::PathBuf::from(std::env::var_os("STARTUP_FAILURE_LOG").unwrap());
+            diagnostics::console::initialize_log(&diagnostics::console::SessionFiles {
+                dir: &dir,
+                stem: "client",
+                header: "CLIENT_SESSION_START fixture",
+                json: false,
+                retention: diagnostics::session_log::Retention {
+                    session_bytes: 1024,
+                    ..diagnostics::session_log::Retention::DEFAULT
+                },
+            })
+            .unwrap();
             Err(std::io::Error::other("first-time setup fixture failed"))
         }
     }
@@ -57,17 +67,13 @@ fn startup_failure_child() {
 
 #[test]
 fn startup_errors_reach_client_log_before_process_exit() {
-    let path = std::env::temp_dir().join(format!(
-        "cinnabar-startup-failure-{}.log",
-        std::process::id()
-    ));
+    let dir = tempfile::tempdir().unwrap();
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "startup_failure_child", "--nocapture"])
-        .env("STARTUP_FAILURE_LOG", &path)
+        .env("STARTUP_FAILURE_LOG", dir.path())
         .output()
         .unwrap();
-    let text = fs::read_to_string(&path).unwrap();
-    fs::remove_file(path).unwrap();
+    let text = fs::read_to_string(dir.path().join("client.log")).unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert!(text.contains("cinnabar failed: first-time setup fixture failed"));
 }

@@ -43,7 +43,7 @@ use {
         ChunkTextureAssets, RuntimeStageProfiler, VisibilityDiagnosticsInput,
     },
 };
-mod logging;
+pub(crate) mod logging;
 pub(crate) mod session;
 mod startup;
 use startup::bind_direct_session_directory;
@@ -715,9 +715,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
-        .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(logging::plugin());
+        .disable::<TerminalCtrlCHandlerPlugin>()
+        // `lifecycle::before_run` installed the process subscriber before startup.
+        .disable::<bevy::log::LogPlugin>();
     app.add_plugins(plugins);
+    #[cfg(feature = "frame-trace")]
+    logging::chrome::keep_writer(&mut app);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)

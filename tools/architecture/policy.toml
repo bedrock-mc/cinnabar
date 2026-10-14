@@ -304,7 +304,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "env-compat", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
 forbidden_dependencies = ["bevy", "protocol"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 
@@ -395,7 +395,7 @@ forbidden_transitive_dependencies = ["client-world", "chunk-pipeline", "protocol
 [[crates]]
 name = "app"
 path = "app"
-allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
+allowed_dependencies = ["pack-json", "env-compat", "simulation-clock", "actor-animation", "render-scene", "client-shell", "client-interaction", "client-runtime", "client-extensions", "client-state", "first-run", "launcher-host", "bridge", "crash-report", "experience-sdk", "mod-api", "mod-render", "acceptance", "assets", "block-transform", "chunk-pipeline", "far-terrain", "client-presentation", "client-session", "client-ui", "client-world", "developer-control", "diagnostics", "gameplay", "gilrs", "inventory", "json-ui", "launcher", "libc", "meshing", "mimalloc", "mod-host", "objc2", "objc2-app-kit", "objc2-foundation", "objc2-quartz-core", "oreui", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "particles", "player-state", "protocol", "raw-window-handle", "render", "render-api", "render-model", "resource-pack", "rich-presence", "semantic-input", "server-experience", "sim", "tracing-chrome", "tracing-tracy", "ui", "ui-engine", "ui-screens", "mod-ui", "update-manifest", "world", "test-time", "pack-runtime", "client-audio", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler"]
 forbidden_transitive_dependencies = ["asset-compiler"]
 
@@ -586,7 +586,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "mcp-stdio", "test-time"]
+allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -770,6 +770,18 @@ literal = "CINNABAR_CRAFT_OBSERVATION"
 kind = "environment_variable"
 producer = "crates/client-ui/src/diagnostic_markers.rs"
 consumer = "crates/client-ui/src/ui_runtime/crafting_observation.rs"
+
+[[markers]]
+literal = "CINNABAR_LOG"
+kind = "environment_variable"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/diagnostics/src/logging.rs"
+
+[[markers]]
+literal = "CINNABAR_LOG_JSON"
+kind = "environment_variable"
+producer = "crates/diagnostics/src/markers.rs"
+consumer = "crates/diagnostics/src/logging.rs"
 
 [[markers]]
 literal = "CINNABAR_STAGE_PROFILE"
@@ -1261,7 +1273,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "first-run"
 path = "crates/first-run"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "test-time", "ui", "gilrs"]
+allowed_dependencies = ["assets", "diagnostics", "launcher", "launcher-host", "render-model", "semantic-input", "test-time", "ui", "gilrs"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # Environment reads accepting the pre-rename `RUST_MCBE_` spellings for one release.

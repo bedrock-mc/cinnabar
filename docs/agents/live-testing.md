@@ -126,6 +126,35 @@ Metal pass queries appear as delayed `elapsed ms (readback)` plots, not GPU time
 zones; they overlap and cannot be added or matched to the receipt frame. Clock
 anchor zones bound the sampled wall/game-clock relationship for trace comparison.
 
+## Client logs
+
+Each launch writes `logs/client.log` (`.local/logs/` in a checkout), starting with a
+`CLIENT_SESSION_START` header that names the version, commit, build profile and session
+ID. Raw stderr and panics reach it in terminal launches too. The previous session moves to
+`client-<UTC yyyymmdd-hhmmss>.log`; the newest 10 archives, up to 64 MiB, are kept, and a
+session past 8 MiB continues in a fresh file under the same header. Warnings and errors
+keep reserved console queue space, so a flood of lower-level lines cannot drop them; dropped
+lines are counted in the log.
+
+`CINNABAR_LOG` layers comma-separated directives over the defaults and `RUST_LOG`: a
+category with a level (`net=debug`), a bare category for every level, or any `RUST_LOG`
+directive (`wgpu_core=warn`). Invalid directives are skipped with a warning in the log. The
+client MCP `log_filter_set` and `log_filter_get` tools change and report the same spec at
+runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per line to
+`logs/client.jsonl`.
+
+| Category | Covers |
+| --- | --- |
+| `net` | Protocol, web transport and client network runtime |
+| `world` | World data, chunk streaming, meshing, simulation and local player |
+| `render` | Renderer, wgpu, presentation, camera, particles and environment |
+| `ui` | JSON-UI, OreUI, HUD and screens |
+| `packs` | Assets, resource packs, pack runtime and extensions |
+| `audio` | Audio playback and decoding |
+| `input` | Input mapping, gamepads and windowing input |
+| `core` | Go core bridge, launcher, lifecycle and diagnostics |
+| `session` | Client session, join, rich presence and telemetry |
+
 ## Native and performance evidence
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
@@ -251,8 +280,9 @@ upper bound on drawable acquisition, not proof that macOS caused a stall.
 
 Build with the `cinnabar/frame-trace` feature for named Bevy schedules,
 systems, graph nodes, command generation, queue submission and presentation spans.
-Chrome tracing writes through Bevy's trace writer and changes the workload; use a
-short diagnostic run, separate from the matched long captures.
+The client's subscriber writes the Chrome trace to `TRACE_CHROME`, or a timestamped
+file in the working directory, and changes the workload; use a short diagnostic run,
+separate from the matched long captures.
 
 `CINNABAR_STAGE_PROFILE_EVENTS` sets the bounded event budget (default 131,072;
 maximum 2,097,152). Invalid values retain the default. Exported traces include the

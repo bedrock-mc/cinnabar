@@ -367,6 +367,19 @@ SOFTWARE.
 - Copyright: 2021 Christopher Berner.
 - Full selected license: `assets/licenses/redb-MIT.txt`, included in packaged resources.
 
+## tracing subscriber stack
+
+- Source: https://github.com/tokio-rs/tracing
+- Dependencies: `tracing-subscriber`, `tracing-log` and `tracing-error`, pinned in `Cargo.lock`;
+  `diagnostics::logging` builds the process subscriber from them. Bevy's log plugin linked the
+  same crates before it was replaced.
+- License: MIT.
+- Copyright: Copyright (c) Tokio Contributors.
+- Android builds add `android_log-sys` (https://github.com/rust-mobile/android_log-sys-rs),
+  MIT OR Apache-2.0, distributed under the MIT option. The `frame-trace` developer feature
+  adds `tracing-chrome` (https://github.com/thoren-d/tracing-chrome), MIT; release builds do
+  not include it.
+
 ## Gophertunnel numeric contracts
 
 The protocol ID fixture uses numeric constants from Gophertunnel, under the MIT license.

@@ -137,6 +137,9 @@ futures = "0.3"
 anyhow = "1"
 thiserror = "2"
 tracing = "0.1"
+tracing-error = "0.2"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mimalloc = { version = "=0.1.52", default-features = false }
