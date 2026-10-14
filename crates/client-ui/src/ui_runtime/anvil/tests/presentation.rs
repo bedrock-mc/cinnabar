@@ -923,7 +923,7 @@ fn snapshot_component_weapon_anvil() {
     player
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Creative);
-    runtime.set_server_lang(Some(lang));
+    runtime.set_lang_catalog(lang);
     edit_input(
         &mut runtime,
         &mut player,
