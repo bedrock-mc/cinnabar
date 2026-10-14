@@ -2,18 +2,29 @@
 //! details log and the Markdown that Copy report puts on the clipboard.
 
 use launcher::PRODUCT_NAME;
+use launcher_host::lifecycle::crash::protocol::Stage;
 
 use super::{CrashSummary, Headline};
 
 /// The summary row and details heading for the fault.
 const FAULT_LABEL: &str = "What happened";
 
+/// The title for `main` failing at `stage`, as the crash window and the native alert that
+/// stands in for it show it.
+pub fn failure_title(stage: Stage) -> String {
+    match stage {
+        Stage::Startup => format!("{PRODUCT_NAME} couldn't start"),
+        Stage::Runtime => format!("{PRODUCT_NAME} stopped"),
+    }
+}
+
 impl CrashSummary {
     /// The window title line, such as "Cinnabar crashed".
     pub(crate) fn title(&self) -> String {
         match self.headline {
             Headline::Crashed { .. } => format!("{PRODUCT_NAME} crashed"),
-            Headline::CouldNotStart => format!("{PRODUCT_NAME} couldn't start"),
+            Headline::CouldNotStart => failure_title(Stage::Startup),
+            Headline::Stopped { .. } => failure_title(Stage::Runtime),
         }
     }
 
@@ -28,6 +39,18 @@ impl CrashSummary {
                 "{PRODUCT_NAME} couldn't start. The error is below and a report was saved on this \
                  computer; nothing was sent anywhere."
             ),
+            Headline::Stopped { activity } => format!(
+                "{PRODUCT_NAME} stopped on an error while you were {activity}. The error is below \
+                 and a report was saved on this computer; nothing was sent anywhere."
+            ),
+        }
+    }
+
+    /// What the player was doing when it failed, for headlines that say.
+    fn activity(&self) -> Option<&str> {
+        match &self.headline {
+            Headline::Crashed { activity } | Headline::Stopped { activity } => Some(activity),
+            Headline::CouldNotStart => None,
         }
     }
 
@@ -48,11 +71,14 @@ impl CrashSummary {
         self.fault.lines().next().unwrap_or_default()
     }
 
-    /// The whole fault when its summary row cannot carry it: every start failure, and any
+    /// The whole fault when its summary row cannot carry it: every failure of `main`, and any
     /// multi-line fault.
     fn full_fault(&self) -> Option<&str> {
-        (self.headline == Headline::CouldNotStart || self.fault.lines().nth(1).is_some())
-            .then_some(self.fault.as_str())
+        let failure = matches!(
+            self.headline,
+            Headline::CouldNotStart | Headline::Stopped { .. }
+        );
+        (failure || self.fault.lines().nth(1).is_some()).then_some(self.fault.as_str())
     }
 
     fn log_heading(&self) -> String {
@@ -96,7 +122,8 @@ impl CrashSummary {
     }
 
     /// A Markdown issue body for Copy report. It leaves out the folder path, which names the
-    /// player's account on most systems, and writes the player's home directory as `~`.
+    /// player's account on most systems, and writes the player's home directory as `~`. Nothing
+    /// else is scrubbed: the client log keeps server addresses out at write time.
     pub(super) fn issue_markdown(&self) -> String {
         let markdown = self.markdown();
         match home() {
@@ -107,7 +134,7 @@ impl CrashSummary {
 
     fn markdown(&self) -> String {
         let mut out = format!("### {}\n\n", self.title());
-        if let Headline::Crashed { activity } = &self.headline {
+        if let Some(activity) = self.activity() {
             out.push_str(&format!("While {activity}.\n\n"));
         }
         out.push_str("| | |\n|---|---|\n");
@@ -325,6 +352,27 @@ mod tests {
         assert!(!markdown.contains("While "));
         assert!(markdown.contains("| What happened | `missing carrier hud.bin` |"));
         assert!(markdown.contains("run `make assets` to rebuild it\n"));
+    }
+
+    #[test]
+    fn a_failure_in_game_says_it_stopped_while_playing() {
+        let summary = CrashSummary {
+            headline: Headline::Stopped {
+                activity: "playing on a Realm".into(),
+            },
+            fault: "network session stopped unexpectedly".into(),
+            ..summary()
+        };
+        assert_eq!(summary.title(), format!("{PRODUCT_NAME} stopped"));
+        assert!(summary.body().contains("while you were playing on a Realm"));
+        assert!(!summary.body().contains("couldn't start"));
+        assert_eq!(
+            summary.full_fault(),
+            Some("network session stopped unexpectedly")
+        );
+        let markdown = summary.issue_markdown();
+        assert!(markdown.starts_with(&format!("### {PRODUCT_NAME} stopped\n")));
+        assert!(markdown.contains("While playing on a Realm."));
     }
 
     #[test]

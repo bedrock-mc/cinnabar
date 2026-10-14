@@ -23,6 +23,9 @@ pub enum Kind {
     Core,
     /// The client failed from `main` before the game started, such as on a missing carrier.
     Startup,
+    /// The client stopped from `main` on a fatal error after the game started, such as a network
+    /// session that ended unexpectedly.
+    Runtime,
 }
 
 /// The reporting thread; `id` is an opaque platform- or runtime-defined identifier.
@@ -196,6 +199,7 @@ mod tests {
             (Kind::Hang, "hang"),
             (Kind::Core, "core"),
             (Kind::Startup, "startup"),
+            (Kind::Runtime, "runtime"),
         ] {
             assert_eq!(serde_json::to_value(kind).unwrap(), name);
         }

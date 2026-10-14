@@ -7,6 +7,8 @@ mod discord;
 mod summary;
 mod view;
 
+pub use summary::failure_title;
+
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -53,6 +55,8 @@ pub enum Headline {
     Crashed { activity: String },
     /// `main` failed before the game started.
     CouldNotStart,
+    /// `main` failed on an error after the game started, while the player was `activity`.
+    Stopped { activity: String },
 }
 
 /// What the player chose in the crash window.
@@ -159,10 +163,10 @@ pub(crate) fn copy_report(summary: &CrashSummary) -> Result<(), String> {
 /// waits for the player's choice. [`Choice::Unavailable`] means no font, event loop, window or
 /// GPU adapter, so the caller should fall back to a native dialog.
 pub fn show(summary: CrashSummary, layout: &InstallLayout) -> Choice {
-    match bootstrap_ui::font(layout) {
-        Ok(font) => show_with_font(summary, &font, Preferences::load(layout)),
+    match bootstrap_ui::text(layout) {
+        Ok(text) => show_with_text(summary, text, Preferences::load(layout)),
         Err(error) => {
-            eprintln!("crash window unavailable: no UI font ({error:#})");
+            tracing::warn!("crash window unavailable: no usable UI font ({error:#})");
             Choice::Unavailable
         }
     }
@@ -170,10 +174,16 @@ pub fn show(summary: CrashSummary, layout: &InstallLayout) -> Choice {
 
 /// [`show`] with caller-supplied UI font bytes (Cinnangles Sans) and preferences.
 pub fn show_with_font(summary: CrashSummary, font: &[u8], preferences: Preferences) -> Choice {
-    let Some(text) = Text::from_bytes(font) else {
-        eprintln!("crash window unavailable: unusable UI font");
-        return Choice::Unavailable;
-    };
+    match Text::from_bytes(font) {
+        Some(text) => show_with_text(summary, text, preferences),
+        None => {
+            tracing::warn!("crash window unavailable: the UI font does not parse");
+            Choice::Unavailable
+        }
+    }
+}
+
+fn show_with_text(summary: CrashSummary, text: Text, preferences: Preferences) -> Choice {
     let Some(faces) = bootstrap_ui::built_in_faces() else {
         return Choice::Unavailable;
     };

@@ -30,7 +30,7 @@ mod fixture_client {
             unreachable!()
         }
         /// The fixture runs with a console, where failures need no window.
-        pub fn show_startup_failure(_: &anyhow::Error) {}
+        pub fn show_failure(_: &anyhow::Error) {}
         /// Starts file logging, then reproduces a preparation failure before the client runs.
         pub fn before_run(_: bool) -> anyhow::Result<bool> {
             let dir = std::path::PathBuf::from(std::env::var_os("STARTUP_FAILURE_LOG").unwrap());

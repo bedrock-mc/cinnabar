@@ -1,4 +1,4 @@
-//! The crash window lays out both headlines, collapsed and expanded, at any window size.
+//! The crash window lays out every headline, collapsed and expanded, at any window size.
 
 use std::path::PathBuf;
 
@@ -12,7 +12,7 @@ fn font() -> Text {
     .unwrap()
 }
 
-fn summaries() -> [CrashSummary; 2] {
+fn summaries() -> [CrashSummary; 3] {
     let crashed = CrashSummary {
         headline: Headline::Crashed {
             activity: "joining a server".into(),
@@ -37,11 +37,19 @@ fn summaries() -> [CrashSummary; 2] {
         last_packets: Vec::new(),
         ..crashed.clone()
     };
-    [crashed, could_not_start]
+    let stopped = CrashSummary {
+        headline: Headline::Stopped {
+            activity: "playing on a server".into(),
+        },
+        fault: "Bevy app exited after a fatal runtime error: network session stopped unexpectedly"
+            .into(),
+        ..crashed.clone()
+    };
+    [crashed, could_not_start, stopped]
 }
 
 #[test]
-fn both_headlines_fit_collapsed_and_expanded_at_every_size() {
+fn every_headline_fits_collapsed_and_expanded_at_every_size() {
     let mut text = font();
     let mut discord = DiscordMark::new();
     let logo = bootstrap_ui::decode_logo();

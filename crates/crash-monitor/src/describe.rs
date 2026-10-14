@@ -6,7 +6,9 @@ use crash_report::{
     folder::Logs,
     report::{Kind, Report},
 };
-use launcher_host::lifecycle::crash::state::{DIMENSION, SERVER_KIND, SERVER_PACKS, SESSION_PHASE};
+use launcher_host::lifecycle::crash::state::{
+    DIMENSION, Dimension, SERVER_KIND, SERVER_PACKS, SESSION_PHASE, ServerKind, SessionPhase,
+};
 
 use crate::{
     outcome,
@@ -22,6 +24,9 @@ pub(crate) fn summary(report: &Report, logs: &Logs, folder: PathBuf) -> CrashSum
     CrashSummary {
         headline: match report.kind {
             Kind::Startup => Headline::CouldNotStart,
+            Kind::Runtime => Headline::Stopped {
+                activity: activity(report),
+            },
             _ => Headline::Crashed {
                 activity: activity(report),
             },
@@ -44,34 +49,45 @@ pub(crate) fn summary(report: &Report, logs: &Logs, folder: PathBuf) -> CrashSum
 
 /// Completes "while you were …".
 fn activity(report: &Report) -> String {
-    let kind = report.game_state.get(SERVER_KIND).map(String::as_str);
-    match report.game_state.get(SESSION_PHASE).map(String::as_str) {
-        Some("menus") => "in the menus".to_owned(),
-        Some("joining") => format!("joining {}", destination(kind)),
-        Some("in_world") => format!("playing {}", place(kind)),
-        _ => "starting the game".to_owned(),
+    let kind = report
+        .game_state
+        .get(SERVER_KIND)
+        .map(String::as_str)
+        .and_then(ServerKind::from_name);
+    let phase = report
+        .game_state
+        .get(SESSION_PHASE)
+        .map(String::as_str)
+        .and_then(SessionPhase::from_name);
+    match phase {
+        Some(SessionPhase::Menus) => "in the menus".to_owned(),
+        Some(SessionPhase::Joining) => format!("joining {}", destination(kind)),
+        Some(SessionPhase::InWorld) => format!("playing {}", place(kind)),
+        None => "starting the game".to_owned(),
     }
 }
 
-fn destination(kind: Option<&str>) -> &'static str {
+fn destination(kind: Option<ServerKind>) -> &'static str {
     match kind {
-        Some("featured_server") => "a featured server",
-        Some("realm") => "a Realm",
-        Some("friend_world") => "a friend's world",
-        Some("experience") => "an experience",
-        Some("local_world") => "a local world",
-        _ => "a server",
+        Some(ServerKind::Server) => "a server",
+        Some(ServerKind::FeaturedServer) => "a featured server",
+        Some(ServerKind::Realm) => "a Realm",
+        Some(ServerKind::FriendWorld) => "a friend's world",
+        Some(ServerKind::Experience) => "an experience",
+        Some(ServerKind::LocalWorld) => "a local world",
+        None => "a world",
     }
 }
 
-fn place(kind: Option<&str>) -> &'static str {
+fn place(kind: Option<ServerKind>) -> &'static str {
     match kind {
-        Some("featured_server") => "on a featured server",
-        Some("realm") => "on a Realm",
-        Some("friend_world") => "in a friend's world",
-        Some("experience") => "in an experience",
-        Some("local_world") => "in a local world",
-        _ => "on a server",
+        Some(ServerKind::Server) => "on a server",
+        Some(ServerKind::FeaturedServer) => "on a featured server",
+        Some(ServerKind::Realm) => "on a Realm",
+        Some(ServerKind::FriendWorld) => "in a friend's world",
+        Some(ServerKind::Experience) => "in an experience",
+        Some(ServerKind::LocalWorld) => "in a local world",
+        None => "in a world",
     }
 }
 
@@ -113,6 +129,10 @@ fn fault_and_location(report: &Report) -> (String, String) {
             (format!("{}{address}", report.message), location)
         }
         Kind::Startup => (report.message.clone(), "Before the game started".to_owned()),
+        Kind::Runtime => (
+            report.message.clone(),
+            "While the game was running".to_owned(),
+        ),
         _ => (report.message.clone(), "Unknown: no crash dump".to_owned()),
     }
 }
@@ -159,13 +179,12 @@ fn backend_name(backend: &str) -> String {
 fn session(report: &Report) -> String {
     let mut session = uptime(report.uptime_ms);
     if let Some(dimension) = report.game_state.get(DIMENSION) {
-        let name = match dimension.as_str() {
-            "overworld" => "the Overworld",
-            "nether" => "the Nether",
-            "the_end" => "the End",
-            other => other,
-        };
-        session.push_str(&format!(", in {name}"));
+        match Dimension::from_name(dimension) {
+            Some(Dimension::Overworld) => session.push_str(", in the Overworld"),
+            Some(Dimension::Nether) => session.push_str(", in the Nether"),
+            Some(Dimension::TheEnd) => session.push_str(", in the End"),
+            None => session.push_str(&format!(", in dimension {dimension}")),
+        }
     }
     match report.game_state.get(SERVER_PACKS).map(String::as_str) {
         None | Some("0") => {}
@@ -254,14 +273,22 @@ mod tests {
             Headline::Crashed { ref activity } if activity == "starting the game"
         ));
         for (phase, kind, expected) in [
-            ("menus", None, "in the menus"),
-            ("joining", Some("realm"), "joining a Realm"),
-            ("in_world", Some("local_world"), "playing in a local world"),
-            ("in_world", None, "playing on a server"),
+            (SessionPhase::Menus, None, "in the menus"),
+            (
+                SessionPhase::Joining,
+                Some(ServerKind::Realm),
+                "joining a Realm",
+            ),
+            (
+                SessionPhase::InWorld,
+                Some(ServerKind::LocalWorld),
+                "playing in a local world",
+            ),
+            (SessionPhase::InWorld, None, "playing in a world"),
         ] {
-            report.game_state.insert(SESSION_PHASE.into(), phase.into());
+            report.game_state.insert(SESSION_PHASE.into(), phase.name());
             match kind {
-                Some(kind) => report.game_state.insert(SERVER_KIND.into(), kind.into()),
+                Some(kind) => report.game_state.insert(SERVER_KIND.into(), kind.name()),
                 None => report.game_state.remove(SERVER_KIND),
             };
             assert_eq!(activity(&report), expected);
@@ -277,6 +304,27 @@ mod tests {
         let summary = summary(&report, &Logs::default(), PathBuf::new());
         assert!(matches!(summary.headline, Headline::CouldNotStart));
         assert_eq!(summary.fault, "missing carrier at C:/x; run `make assets`");
+        assert_eq!(summary.location, "Before the game started");
+    }
+
+    #[test]
+    fn runtime_failures_say_what_the_player_was_doing() {
+        let mut report = report(Kind::Runtime, "network session stopped unexpectedly");
+        report
+            .game_state
+            .insert(SESSION_PHASE.into(), SessionPhase::InWorld.name());
+        report
+            .game_state
+            .insert(SERVER_KIND.into(), ServerKind::Server.name());
+        let summary = summary(&report, &Logs::default(), PathBuf::new());
+        assert_eq!(
+            summary.headline,
+            Headline::Stopped {
+                activity: "playing on a server".into()
+            }
+        );
+        assert_eq!(summary.fault, "network session stopped unexpectedly");
+        assert_eq!(summary.location, "While the game was running");
     }
 
     #[test]

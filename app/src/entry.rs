@@ -58,7 +58,7 @@ fn fail(error: &anyhow::Error) -> ! {
     launcher_host::lifecycle::update::recover_after_failed_start();
     let _ = writeln!(diagnostics::console::stderr(), "cinnabar failed: {error:#}");
     diagnostics::console::flush_before_exit();
-    lifecycle::show_startup_failure(error);
+    lifecycle::show_failure(error);
     crash::announce_exit(1);
     std::process::exit(1);
 }
