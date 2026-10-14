@@ -183,7 +183,7 @@ impl UiPresentationRuntime {
         let held = held.and_then(|(identifier, metadata)| {
             if let Some(sprite) = self.session_icons.sprite(identifier, metadata) {
                 return Some(PreviewTexture {
-                    rgba: Arc::from(&*sprite.rgba8),
+                    rgba: self.session_icons.sprite_pixels(identifier, metadata)?,
                     width: sprite.width.try_into().ok()?,
                     height: sprite.height.try_into().ok()?,
                     tint: None,

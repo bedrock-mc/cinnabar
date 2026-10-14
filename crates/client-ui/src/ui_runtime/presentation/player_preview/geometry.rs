@@ -129,6 +129,11 @@ pub fn mesh_with_cape(
     }
     for (hand, model) in hands.into_iter().enumerate() {
         if let Some(model) = model {
+            let count = vertices.len().checked_add(model.vertices.len())?;
+            if UiMesh::check_size(count, count, batches.len().checked_add(1)?).is_err() {
+                // One oversized held item must not hide the player's skin and other equipment.
+                continue;
+            }
             held::append(&mut vertices, &mut batches, &rig, model, hand, fancy)?;
         }
     }

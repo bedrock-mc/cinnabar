@@ -82,6 +82,16 @@ impl SessionIconPage {
         self.source.as_ref()?.icons.get(held.index)
     }
 
+    /// Converts admitted pixels once per installed page for the compatibility CPU preview.
+    pub(super) fn sprite_pixels(&self, identifier: &str, metadata: u32) -> Option<Arc<[u8]>> {
+        let source = self.icon(identifier, metadata)?;
+        let held = self.held_sprites.get(&icon_key(source))?;
+        let sprite = self.source.as_ref()?.icons.get(held.index)?;
+        Some(Arc::clone(
+            held.pixels.get_or_init(|| Arc::from(&*sprite.rgba8)),
+        ))
+    }
+
     /// Shares the inventory cell's region and lazily extrudes its admitted sprite's alpha edges.
     pub(super) fn held_sprite(
         &self,
@@ -118,6 +128,7 @@ impl SessionIconPage {
 /// A source index and mesh owned by the installed session page's generation.
 struct HeldSprite {
     index: usize,
+    pixels: OnceLock<Arc<[u8]>>,
     vertices: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
 }
 
@@ -307,6 +318,7 @@ fn install(
                     .entry(icon_key(*source))
                     .or_insert_with(|| HeldSprite {
                         index,
+                        pixels: OnceLock::new(),
                         vertices: OnceLock::new(),
                     });
             }
