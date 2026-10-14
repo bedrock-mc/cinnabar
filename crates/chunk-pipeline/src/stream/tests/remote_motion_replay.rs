@@ -81,7 +81,9 @@ enum Arrival {
 /// One rendered frame of the remote walk.
 #[derive(Clone, Copy)]
 struct Frame {
-    /// Vanilla's ticked interpolation at the frame fraction, which picks read.
+    /// Vanilla's drawn position: the previous and current tick poses at the frame fraction.
+    render: f32,
+    /// The current tick pose that picks read, without frame interpolation.
     pick: f32,
     /// Newest received target.
     target: f32,
@@ -160,7 +162,7 @@ fn block_update_at(chunk_x: i32) -> WorldEvent {
 fn replay(fps: u64, local_moving: bool, worst_case: bool) -> Vec<f32> {
     replay_frames(fps, local_moving, worst_case, Arrival::Jitter)
         .into_iter()
-        .map(|frame| frame.pick)
+        .map(|frame| frame.render)
         .collect()
 }
 
@@ -221,7 +223,8 @@ fn replay_frames(fps: u64, local_moving: bool, worst_case: bool, arrival: Arriva
         let alpha = accumulated as f32 / TICK_NANOS as f32;
         let actor = stream.authority().actor(REMOTE).expect("remote player");
         rendered.push(Frame {
-            pick: actor.interpolated_position(alpha).unwrap()[0],
+            render: actor.interpolated_position(alpha).unwrap()[0],
+            pick: actor.position[0],
             target,
             nanos: now,
         });
@@ -279,8 +282,10 @@ fn remote_walk_renders_continuously_regardless_of_local_activity() {
     }
 }
 
-/// Largest render-to-pick distance a candidate may draw.
-const MAX_PICK_GAP: f32 = 0.10;
+/// Vanilla's own render-to-pick distance this frame, which bounds every candidate.
+fn corridor(frame: &Frame) -> f32 {
+    (frame.pick - frame.render).abs()
+}
 
 /// Finite-duration decay: one at receipt, zero from 100 ms.
 fn receipt_weight(nanos: u64) -> f32 {
@@ -293,10 +298,11 @@ fn receipt_weight(nanos: u64) -> f32 {
     }
 }
 
-/// Decays from the last drawn position toward each new target, projected within the gap.
+/// Decays from the last drawn position toward each new target, projected onto the segment
+/// from the pick toward that target within the corridor.
 fn receipt_anchored(frames: &[Frame]) -> Vec<f32> {
-    let (mut target, mut received, mut anchor) = (frames[0].target, 0, frames[0].pick);
-    let mut drawn = frames[0].pick;
+    let (mut target, mut received, mut anchor) = (frames[0].target, 0, frames[0].render);
+    let mut drawn = frames[0].render;
     frames
         .iter()
         .map(|frame| {
@@ -306,39 +312,46 @@ fn receipt_anchored(frames: &[Frame]) -> Vec<f32> {
             let candidate = target + (anchor - target) * receipt_weight(frame.nanos - received);
             let ahead = target - frame.pick;
             let along = ((candidate - frame.pick) * ahead.signum())
-                .clamp(0.0, ahead.abs().min(MAX_PICK_GAP));
+                .clamp(0.0, ahead.abs().min(corridor(frame)));
             drawn = frame.pick + along * ahead.signum();
             drawn
         })
         .collect()
 }
 
-/// Integrates a low-passed pick velocity, kept within `[pick - behind, pick + gap]` and short
-/// of the newest target.
-fn velocity_tube(frames: &[Frame], tau_millis: f32, behind: f32) -> Vec<f32> {
-    let (mut drawn, mut velocity) = (frames[0].pick, 0.0);
+/// Integrates a low-passed vanilla render velocity within the corridor around the pick, short
+/// of the newest target; `lead_only` also keeps it at or ahead of vanilla's render.
+fn velocity_tube(frames: &[Frame], tau_millis: f32, lead_only: bool) -> Vec<f32> {
+    let (mut drawn, mut velocity) = (frames[0].render, 0.0);
     let mut previous = frames[0];
     frames
         .iter()
         .map(|frame| {
             let elapsed = (frame.nanos - previous.nanos) as f32 / 1.0e6;
             if elapsed > 0.0 {
-                let pick_velocity = (frame.pick - previous.pick) / elapsed;
-                velocity += (pick_velocity - velocity) * (1.0 - (-elapsed / tau_millis).exp());
+                let render_velocity = (frame.render - previous.render) / elapsed;
+                velocity += (render_velocity - velocity) * (1.0 - (-elapsed / tau_millis).exp());
                 drawn += velocity * elapsed;
             }
             previous = *frame;
-            let ahead = (frame.pick + MAX_PICK_GAP).min(frame.target.max(frame.pick));
-            drawn = drawn.clamp(frame.pick - behind, ahead);
+            let width = corridor(frame);
+            let ahead = (frame.pick + width).min(frame.target.max(frame.pick));
+            let behind = if lead_only {
+                frame.render.max(frame.pick - width)
+            } else {
+                frame.pick - width
+            };
+            drawn = drawn.clamp(behind.min(ahead), ahead);
             drawn
         })
         .collect()
 }
 
-/// Second-difference jitter, mean receipt-to-drawn latency and largest pick gap of a walk.
+/// Second-difference jitter, mean receipt-to-drawn latency per received target, and the
+/// largest amount a path exceeds vanilla's render-to-pick distance.
 fn walk_metrics(path: &[f32], frames: &[Frame]) -> (f32, f32, f32, f32) {
     let walking: Vec<usize> = (0..frames.len())
-        .filter(|&index| frames[index].target > 0.5 && frames[index].pick > 0.5)
+        .filter(|&index| frames[index].target > 0.5 && frames[index].render > 0.5)
         .collect();
     let (start, end) = (walking[0] + 1, *walking.last().unwrap());
     let jerk: Vec<f32> = (start..end)
@@ -347,6 +360,7 @@ fn walk_metrics(path: &[f32], frames: &[Frame]) -> (f32, f32, f32, f32) {
     let rms = (jerk.iter().map(|value| value * value).sum::<f32>() / jerk.len() as f32).sqrt();
     let max = jerk.iter().fold(0.0_f32, |max, value| max.max(value.abs()));
     let latencies: Vec<f32> = (start..end)
+        .filter(|&index| frames[index].target != frames[index - 1].target)
         .filter_map(|index| {
             let reached =
                 (index..path.len()).find(|&later| path[later] >= frames[index].target - 1.0e-4)?;
@@ -354,36 +368,38 @@ fn walk_metrics(path: &[f32], frames: &[Frame]) -> (f32, f32, f32, f32) {
         })
         .collect();
     let latency = latencies.iter().sum::<f32>() / latencies.len() as f32;
-    let gap = path
+    let excess = path
         .iter()
         .zip(frames)
-        .map(|(drawn, frame)| (drawn - frame.pick).abs())
-        .fold(0.0_f32, f32::max);
-    (rms, max, latency, gap)
+        .map(|(drawn, frame)| (drawn - frame.pick).abs() - corridor(frame))
+        .fold(f32::MIN, f32::max);
+    (rms, max, latency, excess)
 }
 
-/// Render-only smoothing candidates never draw a remote player more than a tenth of a block
-/// from the position picks read; `--nocapture` prints their jitter and latency against vanilla.
+/// Render-only smoothing candidates never draw a remote player farther from the position
+/// picks read than vanilla's own render; `--nocapture` prints jitter and latency.
 #[test]
-fn smoothing_candidates_stay_within_a_tenth_of_the_pick() {
+fn smoothing_candidates_stay_within_vanillas_render_to_pick_gap() {
     for arrival in [Arrival::Jitter, Arrival::Bunched] {
         for fps in [60, 144] {
             let frames = replay_frames(fps, false, false, arrival);
-            let vanilla: Vec<f32> = frames.iter().map(|frame| frame.pick).collect();
+            let vanilla: Vec<f32> = frames.iter().map(|frame| frame.render).collect();
+            let vanilla_gap = frames.iter().map(corridor).fold(0.0_f32, f32::max);
+            eprintln!("{arrival:?} {fps} fps vanilla render-to-pick gap {vanilla_gap:.3}");
             for (name, path) in [
                 ("vanilla", vanilla),
                 ("receipt-anchored", receipt_anchored(&frames)),
-                ("tube 50 ms", velocity_tube(&frames, 50.0, MAX_PICK_GAP)),
-                ("lead-only 40 ms", velocity_tube(&frames, 40.0, 0.0)),
-                ("lead-only 50 ms", velocity_tube(&frames, 50.0, 0.0)),
+                ("tube 50 ms", velocity_tube(&frames, 50.0, false)),
+                ("lead-only 40 ms", velocity_tube(&frames, 40.0, true)),
+                ("lead-only 50 ms", velocity_tube(&frames, 50.0, true)),
             ] {
-                let (rms, max, latency, gap) = walk_metrics(&path, &frames);
+                let (rms, max, latency, excess) = walk_metrics(&path, &frames);
                 eprintln!(
-                    "{arrival:?} {fps} fps {name}: jitter rms {rms:.4} max {max:.4}, latency {latency:.1} ms, gap {gap:.3}"
+                    "{arrival:?} {fps} fps {name}: jitter rms {rms:.4} max {max:.4}, latency {latency:.1} ms, gap excess {excess:.4}"
                 );
                 assert!(
-                    gap <= MAX_PICK_GAP + 1.0e-5,
-                    "{name} drew {gap} from the pick"
+                    excess <= 1.0e-5,
+                    "{name} exceeded vanilla's pick gap by {excess}"
                 );
             }
         }
