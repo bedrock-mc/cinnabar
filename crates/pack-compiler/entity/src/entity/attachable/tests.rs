@@ -424,3 +424,31 @@ fn equipment_dye_follows_authored_material_defines_instead_of_its_name() {
         }
     }
 }
+
+#[test]
+fn equipment_category_uses_the_admitted_slot_with_neutral_geometry() {
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    for record in &facts.payload().records {
+        let Some(slot) = record.fact.armour_slot else {
+            continue;
+        };
+        if record
+            .fact
+            .traits
+            .contains(assets::facts::ItemTraits::GLIDER)
+        {
+            continue;
+        }
+        use assets::item::armour::ItemArmourSlot as S;
+        let expected = match slot {
+            S::Head => ArmorSlot::Helmet,
+            S::Chest => ArmorSlot::Chestplate,
+            S::Legs => ArmorSlot::Leggings,
+            S::Feet => ArmorSlot::Boots,
+        };
+        assert_eq!(
+            category(&record.identifier, "geometry.trident"),
+            EquipmentCategory::Armor { slot: expected }
+        );
+    }
+}

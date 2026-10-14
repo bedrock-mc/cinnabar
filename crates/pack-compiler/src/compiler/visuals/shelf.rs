@@ -5,27 +5,13 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 /// Identifies vanilla shelves without admitting unrelated names ending in shelf.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
     record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
-        && matches!(
-            record.name.as_ref(),
-            "minecraft:acacia_shelf"
-                | "minecraft:bamboo_shelf"
-                | "minecraft:birch_shelf"
-                | "minecraft:cherry_shelf"
-                | "minecraft:crimson_shelf"
-                | "minecraft:dark_oak_shelf"
-                | "minecraft:jungle_shelf"
-                | "minecraft:mangrove_shelf"
-                | "minecraft:oak_shelf"
-                | "minecraft:pale_oak_shelf"
-                | "minecraft:poplar_shelf"
-                | "minecraft:spruce_shelf"
-                | "minecraft:warped_shelf"
-        )
+        && block_render_fact(&record.name).kind == R::Shelf
 }
 
 /// Checks typed selectors against their registry projection and selects the front region.

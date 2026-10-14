@@ -5,36 +5,11 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 /// Identifies the undyed candle cake and the sixteen vanilla dye families.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    let Some(candle) = record
-        .name
-        .strip_prefix("minecraft:")
-        .and_then(|name| name.strip_suffix("_cake"))
-    else {
-        return false;
-    };
-    matches!(
-        candle,
-        "candle"
-            | "white_candle"
-            | "orange_candle"
-            | "magenta_candle"
-            | "light_blue_candle"
-            | "yellow_candle"
-            | "lime_candle"
-            | "pink_candle"
-            | "gray_candle"
-            | "light_gray_candle"
-            | "cyan_candle"
-            | "purple_candle"
-            | "blue_candle"
-            | "brown_candle"
-            | "green_candle"
-            | "red_candle"
-            | "black_candle"
-    )
+    block_render_fact(&record.name).kind == R::CandleCake
 }
 
 /// Validates the single typed lit selector and the cake collision contract.

@@ -6,7 +6,11 @@ use {super::super::*, assets::BlockFace};
 
 /// Recognizes lantern variants with the registered hanging state.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.ends_with("lantern")
+    (record
+        .traits
+        .contains(assets::registry::BlockTraits::LANTERN_LIKE)
+        || assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Lantern)
         && canonical_state_u32(&record.canonical_state, "hanging").is_some()
 }
 

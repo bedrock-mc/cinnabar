@@ -77,7 +77,7 @@ names!(Trait, ItemTraits,
     Shears => SHEARS, Spear => SPEAR, Trident => TRIDENT, Bow => BOW, Crossbow => CROSSBOW,
     Shield => SHIELD, FishingRod => FISHING_ROD, FlintAndSteel => FLINT_AND_STEEL,
     CarrotStick => CARROT_STICK, FungusStick => FUNGUS_STICK, Compass => COMPASS,
-    Brush => BRUSH, Mace => MACE,
+    Brush => BRUSH, Mace => MACE, Spyglass => SPYGLASS,
 );
 names!(Role, ContainerRoles,
     BrewingFuel => BREWING_FUEL, BrewingBottle => BREWING_BOTTLE, LoomBanner => LOOM_BANNER,
