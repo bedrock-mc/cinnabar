@@ -17,13 +17,13 @@ pub(crate) trait ProfiledQueue {
         site: &'static std::panic::Location<'static>,
     );
 
-    /// Counts a writable queue staging view only when allocation succeeds.
-    #[track_caller]
-    fn profiled_write_buffer_with(
+    /// Retains the owner label when a helper coalesces fallback bytes into a queue view.
+    fn profiled_write_buffer_with_at(
         &self,
         buffer: &wgpu::Buffer,
         offset: u64,
         size: wgpu::BufferSize,
+        site: &'static std::panic::Location<'static>,
     ) -> Option<wgpu::QueueWriteBufferView>;
 
     /// Queues the original texture payload; bytes include any caller-supplied row padding.
@@ -62,16 +62,16 @@ impl ProfiledQueue for wgpu::Queue {
     }
 
     #[inline]
-    #[track_caller]
-    fn profiled_write_buffer_with(
+    fn profiled_write_buffer_with_at(
         &self,
         buffer: &wgpu::Buffer,
         offset: u64,
         size: wgpu::BufferSize,
+        site: &'static std::panic::Location<'static>,
     ) -> Option<wgpu::QueueWriteBufferView> {
         let view = self.write_buffer_with(buffer, offset, size);
         if view.is_some() {
-            record(UploadKind::Buffer, UploadPath::Queue, size.get());
+            record_at(site, UploadKind::Buffer, UploadPath::Queue, size.get());
         }
         view
     }

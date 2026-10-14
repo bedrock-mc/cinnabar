@@ -153,13 +153,13 @@ fn write_merged(uploads: TerrainUploads<'_>, buffer: &Buffer, staged: &mut Vec<(
         .iter()
         .map(|&(offset, bytes)| (&**buffer, offset, bytes))
         .collect();
-    uploads.write(&writes, |rest| {
+    uploads.write(&writes, |rest, site| {
         // The unstaged rest is a suffix of `order`, so it keeps its order and overlap.
         let rest: Vec<(u64, &[u8])> = rest
             .iter()
             .map(|&(_, offset, bytes)| (offset, bytes))
             .collect();
-        queue_merged(uploads.queue, buffer, &rest, overlapping);
+        queue_merged(uploads.queue, buffer, &rest, overlapping, site);
     });
     staged.clear();
 }
@@ -171,13 +171,14 @@ fn queue_merged(
     buffer: &Buffer,
     order: &[(u64, &[u8])],
     overlapping: bool,
+    site: &'static std::panic::Location<'static>,
 ) {
     if overlapping {
         for &(offset, bytes) in order {
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.profiled_write_buffer(buffer, offset, bytes);
+            render_queue.profiled_write_buffer_at(buffer, offset, bytes, site);
         }
         return;
     }
@@ -188,7 +189,7 @@ fn queue_merged(
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.profiled_write_buffer(buffer, offset, bytes);
+            render_queue.profiled_write_buffer_at(buffer, offset, bytes, site);
             continue;
         }
         let size = run.iter().map(|(_, bytes)| bytes.len() as u64).sum();
@@ -201,7 +202,8 @@ fn queue_merged(
         )
         .entered();
         if let Some(size) = NonZeroU64::new(size)
-            && let Some(mut view) = render_queue.profiled_write_buffer_with(buffer, offset, size)
+            && let Some(mut view) =
+                render_queue.profiled_write_buffer_with_at(buffer, offset, size, site)
         {
             let mut at = 0;
             for (_, bytes) in run {
@@ -318,6 +320,52 @@ mod tests {
             .get_mapped_range()
             .expect("readback is mapped")
             .to_vec()
+    }
+
+    /// Checks the original caller and suffix length exposed to a custom fallback.
+    #[track_caller]
+    fn assert_fallback_origin(
+        uploads: TerrainUploads<'_>,
+        writes: &[BufferWrite<'_>],
+        expected_bytes: usize,
+    ) {
+        let expected_site = std::panic::Location::caller();
+        let mut observed = None;
+        uploads.write(writes, |rest, site| {
+            observed = Some((site, rest.iter().map(|write| write.2.len()).sum::<usize>()));
+        });
+        assert_eq!(observed, Some((expected_site, expected_bytes)));
+    }
+
+    /// Direct and partially staged terrain writes preserve their owner through the callback.
+    #[test]
+    fn terrain_fallback_retains_the_original_caller_and_unstaged_suffix() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+        let staging = TerrainUploadStaging::new(&device);
+        let tail = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let bytes = vec![1_u8; staging.capacity_bytes() as usize + tail];
+        let target = create_storage_buffer(
+            &device,
+            "caller-labelled terrain upload",
+            bytes.len() as u64,
+        );
+        let writes = [(&*target, 0, bytes.as_slice())];
+        let uploads = TerrainUploads {
+            device: &device,
+            queue: &queue,
+            staging: None,
+        };
+        assert_fallback_origin(uploads, &writes, bytes.len());
+        assert_fallback_origin(
+            TerrainUploads {
+                staging: Some(&staging),
+                ..uploads
+            },
+            &writes,
+            tail,
+        );
+        assert_eq!(staging.stats().staged_bytes as usize + tail, bytes.len());
     }
 
     /// Warm terrain uploads never miss the pool, and abutting records share one copy.
