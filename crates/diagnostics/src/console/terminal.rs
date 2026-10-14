@@ -1,8 +1,5 @@
 //! The launcher's stderr destination after fd 2 becomes the capture pipe.
-use std::{
-    fs::File,
-    io::{self, Write},
-};
+use std::{fs::File, io::Write};
 
 /// Wraps the duplicated destination. On Windows a console gets UTF-16 writes, as
 /// `std::io::stderr` gives it, so non-ASCII text does not depend on the console code page.
@@ -17,7 +14,7 @@ pub(super) fn writer(file: File) -> Box<dyn Write + Send> {
 #[cfg(windows)]
 mod windows {
     use super::*;
-    use std::os::windows::io::AsRawHandle;
+    use std::{io, os::windows::io::AsRawHandle};
     use windows_sys::Win32::System::Console::{GetConsoleMode, WriteConsoleW};
 
     /// Whether `file` is a console screen buffer rather than a file or pipe.

@@ -103,8 +103,8 @@ impl RawStderr {
             match queued {
                 Ok(()) => {}
                 Err(Rejected::Closed(_)) => return false,
-                Err(Rejected::Full(_)) if deadline.is_some() => return false,
-                Err(Rejected::Full(_)) => {
+                Err(Rejected::Full) if deadline.is_some() => return false,
+                Err(Rejected::Full) => {
                     self.dropped.fetch_add(1, Ordering::Relaxed);
                 }
             }
