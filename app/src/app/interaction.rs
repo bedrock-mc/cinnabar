@@ -13,6 +13,7 @@ pub(super) fn configure(app: &mut App) {
             crate::runtime::telemetry::discard_completed_movement_evidence,
             crate::melee::prepare_melee,
             produce_survival_mining,
+            crate::item_use::prepare_item_release,
             #[cfg(feature = "tracy")]
             crate::tracy::plot_physics_to_send,
             send_player_auth_inputs,

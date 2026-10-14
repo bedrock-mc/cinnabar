@@ -160,3 +160,60 @@ fn aim_assisted_release_follows_the_input_that_carries_its_facing() {
     assert!(!ticker.has_held_release());
     assert_eq!(view.rotation(), rotation);
 }
+
+#[test]
+fn an_assisted_release_keeps_slowdown_until_its_facing_tick_is_simulated() {
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    let mut ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
+        network.physics_epoch_publisher(),
+    );
+    ticker.reset(7, 100, completed(101).position);
+    ticker.set_source(gameplay::movement::MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    let mut swings = SwingTracker::default();
+    admit_on_tick(
+        &mut runtime,
+        &mut swings,
+        &mut ticker,
+        &use_frame(101),
+        42,
+        6,
+        |packets| network.send_inventory_packets(packets),
+    );
+    gameplay::movement::flush_player_auth_inputs_guarded(
+        &mut ticker,
+        8,
+        Some(evidence()),
+        |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+    )
+    .unwrap();
+    captured.drain();
+    let sample = ticker.between_ticks_sample().unwrap();
+    let release = UseFrame {
+        held: false,
+        tick: sample.tick,
+        position: sample.position,
+        ..use_frame(sample.tick)
+    };
+    let mut view = client_presentation::local_player::LocalViewPose::default();
+    super::admit_with_action_aim(
+        &mut runtime,
+        &mut swings,
+        &mut ticker,
+        &mut view,
+        &release,
+        42,
+        6,
+        Some(bevy::prelude::Quat::IDENTITY),
+        &network,
+    );
+    assert!(
+        runtime.is_using(),
+        "the facing tick must still simulate item-use slowdown"
+    );
+    assert!(runtime.movement_modifier().is_some());
+    assert!(!ticker.has_held_release());
+    assert!(captured.drain().is_empty());
+}

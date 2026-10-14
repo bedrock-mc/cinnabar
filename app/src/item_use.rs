@@ -62,12 +62,53 @@ pub(crate) struct ItemUseContext<'w, 's> {
 
 /// Runs after block use so a press that interacted with a block starts no item use.
 pub(crate) fn produce_item_use(
+    player_runtime: ResMut<client_state::PlayerRuntime>,
+    context: ItemUseContext,
+    runtime: ResMut<ItemUseRuntime>,
+    movement: ResMut<MovementTicker>,
+    swings: ResMut<SwingTracker>,
+    view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    produce_use(
+        player_runtime,
+        context,
+        runtime,
+        movement,
+        swings,
+        view,
+        false,
+    );
+}
+
+/// Stages an assisted release on a completed using tick before its facing input drains.
+pub(crate) fn prepare_item_release(
+    player_runtime: ResMut<client_state::PlayerRuntime>,
+    context: ItemUseContext,
+    runtime: ResMut<ItemUseRuntime>,
+    movement: ResMut<MovementTicker>,
+    swings: ResMut<SwingTracker>,
+    view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    produce_use(
+        player_runtime,
+        context,
+        runtime,
+        movement,
+        swings,
+        view,
+        true,
+    );
+}
+
+/// Resolves assisted releases before the drain and other item actions after it.
+fn produce_use(
     mut player_runtime: ResMut<client_state::PlayerRuntime>,
     context: ItemUseContext,
     mut runtime: ResMut<ItemUseRuntime>,
     mut movement: ResMut<MovementTicker>,
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    before_flush: bool,
 ) {
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -100,6 +141,15 @@ pub(crate) fn produce_item_use(
     } else {
         true
     };
+    let held = admitted && use_phase.held;
+    let aim_rotation =
+        client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
+    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !held;
+    if before_flush != assisted_release
+        || (before_flush && movement.newest_unsent_sample().is_none())
+    {
+        return;
+    }
     if !admitted {
         runtime.cancel_pending_input();
     }
@@ -120,16 +170,18 @@ pub(crate) fn produce_item_use(
     if movement.has_held_release() {
         return;
     }
-    let held = admitted && use_phase.held;
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
     };
     if !runtime.has_work(held) {
         return;
     }
-    let aim_rotation =
-        client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-    let Some(sample) = runtime.frame_sample(&movement, held, true) else {
+    let sample = if before_flush {
+        movement.newest_unsent_sample().map(Into::into)
+    } else {
+        runtime.frame_sample(&movement, held, true)
+    };
+    let Some(sample) = sample else {
         return;
     };
     // One press resolves once: item use waits while block use still holds it.
@@ -175,7 +227,8 @@ pub(crate) fn produce_item_use(
         creative,
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
-        press_consumed: (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
+        press_consumed: before_flush
+            || (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
             || context.block_use.press_interacted(),
     };
     if let Some(reason) = runtime.press_drop_reason(&frame) {
@@ -206,8 +259,7 @@ pub(crate) fn produce_item_use(
     }
 }
 
-/// Admits this tick's use. A release aim assist turns the player for waits until this tick's
-/// input carries the new facing, since the server launches with the facing it last received.
+/// Admits item use, holding an assisted release behind the completed input carrying its facing.
 #[allow(clippy::too_many_arguments)]
 fn admit_with_action_aim(
     runtime: &mut gameplay::item_use::ItemUseRuntime,
@@ -220,6 +272,14 @@ fn admit_with_action_aim(
     aim_rotation: Option<bevy::prelude::Quat>,
     network: &NetworkHandle<PackApplication>,
 ) {
+    // Keep the use active until a completed using tick can carry the release facing.
+    if aim_rotation.is_some()
+        && runtime.is_using()
+        && !frame.held
+        && movement.unsent_sample_at(frame.tick).is_none()
+    {
+        return;
+    }
     let mut assisted = None;
     admit_on_tick(
         runtime,
