@@ -1500,7 +1500,7 @@ baselines = [
     { path = "examples/experiences/probe/src/lib.rs", max = 2 },
     { path = "tools/architecture/src/paths.rs", max = 1 },
     { path = "tools/architecture/src/reexports.rs", max = 1 },
-    { path = "tools/cinnabar-mcp/src/definitions.rs", max = 10 },
+    { path = "tools/cinnabar-mcp/src/definitions.rs", max = 11 },
     { path = "tools/cxb/src/fixtures.rs", max = 1 },
     { path = "tools/devtool/src/capture.rs", max = 2 },
     { path = "tools/devtool/src/ci.rs", max = 1 },

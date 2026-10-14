@@ -1,6 +1,7 @@
 //! Client logging setup and ordered startup carrier summaries.
 
 use assets::carriers::startup::{LoadedAssetKind, LoadedAssets};
+use bevy::{app::PluginGroupBuilder, prelude::App};
 use diagnostics::logging::CallerLayer;
 
 /// Which process installs logging: the client adds the build's profiler layers, the
@@ -77,9 +78,17 @@ fn span_trace_on_panic() {
     }));
 }
 
+/// Adds Bevy's default plugins without `LogPlugin`, whose subscriber [`install`] replaced
+/// before startup, and keeps the Chrome trace writer for the app's lifetime.
+pub(super) fn add_default_plugins(app: &mut App, plugins: PluginGroupBuilder) {
+    app.add_plugins(plugins.disable::<bevy::log::LogPlugin>());
+    #[cfg(feature = "frame-trace")]
+    chrome::keep_writer(app);
+}
+
 /// Bevy's Chrome trace layer under `frame-trace`.
 #[cfg(feature = "frame-trace")]
-pub(super) mod chrome {
+mod chrome {
     use bevy::{
         log::tracing_subscriber::{
             Registry,
@@ -123,7 +132,7 @@ pub(super) mod chrome {
     }
 
     /// Hands the trace writer to `app`, which finishes the trace file when it is dropped.
-    pub(in crate::app) fn keep_writer(app: &mut App) {
+    pub(super) fn keep_writer(app: &mut App) {
         if let Some(writer) = WRITER.lock().unwrap_or_else(PoisonError::into_inner).take() {
             app.insert_resource(TraceWriter(SyncCell::new(writer)));
         }

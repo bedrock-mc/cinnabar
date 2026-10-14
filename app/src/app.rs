@@ -715,12 +715,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
-        .disable::<TerminalCtrlCHandlerPlugin>()
-        // `lifecycle::before_run` installed the process subscriber before startup.
-        .disable::<bevy::log::LogPlugin>();
-    app.add_plugins(plugins);
-    #[cfg(feature = "frame-trace")]
-    logging::chrome::keep_writer(&mut app);
+        .disable::<TerminalCtrlCHandlerPlugin>();
+    logging::add_default_plugins(&mut app, plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
