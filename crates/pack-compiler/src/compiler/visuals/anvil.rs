@@ -25,10 +25,8 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<TemplateKey, u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if !matches!(
-        record.name.as_ref(),
-        "minecraft:anvil" | "minecraft:chipped_anvil" | "minecraft:damaged_anvil"
-    ) || record.contributor_role != ContributorRole::Primary
+    if assets::facts::block_render_fact(&record.name).kind != assets::facts::BlockRenderKind::Anvil
+        || record.contributor_role != ContributorRole::Primary
         || record.flags.contains(BlockFlags::AIR)
     {
         return Ok(CompileRuleResult::NoMatch);

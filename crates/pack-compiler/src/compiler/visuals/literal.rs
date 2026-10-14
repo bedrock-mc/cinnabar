@@ -4,6 +4,8 @@
 //! Anything that needs geometry the pack does not carry (hopper, campfire,
 //! candle, cauldron, ...) stays diagnostic until measured.
 
+use assets::facts::{BlockRenderKind as R, block_render_fact};
+
 use super::super::*;
 use super::context::{RuleInputs, diagnostic_visual};
 use super::dispatcher::CompileRuleResult;
@@ -11,27 +13,7 @@ use super::dispatcher::CompileRuleResult;
 /// Whether the state is a plain full cube whose six faces the terrain texture map names.
 pub(in crate::compiler) fn is_literal_cube(record: &RegistryRecord) -> bool {
     record.canonical_state.as_ref() == "{}"
-        && matches!(
-            record.name.as_ref(),
-            "minecraft:redstone_lamp"
-                | "minecraft:lit_redstone_lamp"
-                | "minecraft:glowingobsidian"
-                | "minecraft:lodestone"
-                | "minecraft:cartography_table"
-                | "minecraft:target"
-                | "minecraft:netherreactor"
-                | "minecraft:moss_block"
-                | "minecraft:pale_moss_block"
-                | "minecraft:mud"
-                | "minecraft:soul_sand"
-                | "minecraft:sculk"
-                | "minecraft:dirt_with_roots"
-                | "minecraft:budding_amethyst"
-                | "minecraft:crimson_nylium"
-                | "minecraft:warped_nylium"
-                | "minecraft:allow"
-                | "minecraft:deny"
-        )
+        && block_render_fact(&record.name).kind == R::LiteralCube
 }
 
 /// Whether vanilla terrain draws nothing for this block in normal play.
@@ -40,15 +22,7 @@ pub(in crate::compiler) fn is_literal_cube(record: &RegistryRecord) -> bool {
 /// blocks and structure voids tessellate only into terrain layers drawn while a creative local
 /// player holds that block. Neither kind is full, so neither culls a neighbour's face.
 pub(in crate::compiler) fn is_default_invisible(name: &str) -> bool {
-    matches!(
-        name,
-        "minecraft:barrier"
-            | "minecraft:structure_void"
-            | "minecraft:invisible_bedrock"
-            | "minecraft:moving_block"
-    ) || name
-        .strip_prefix("minecraft:light_block_")
-        .is_some_and(|level| level.parse::<u8>().is_ok_and(|level| level <= 15))
+    block_render_fact(name).kind == R::Invisible
 }
 
 pub(in crate::compiler) fn compile_rule(

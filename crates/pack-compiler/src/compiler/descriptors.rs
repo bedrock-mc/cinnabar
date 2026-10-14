@@ -1,3 +1,4 @@
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::*, assets::BlockFace};
 
 pub(super) fn descriptor_for(
@@ -36,28 +37,11 @@ pub(super) fn descriptor_for(
     };
     if (record.flags.contains(BlockFlags::CUBE_GEOMETRY)
         && !record.flags.contains(BlockFlags::LEAF_MODEL))
-        || record.name.as_ref() == "minecraft:grass_path"
+        || block_render_fact(&record.name).kind == R::GrassPath
     {
         flags |= pack.blocks.isotropic_face_flags(record)[face as usize];
     }
-    if pack_compile_input::respawn_anchor::is_record(record)
-        || visuals::shelf::is_record(record)
-        || visuals::sea_pickle::is_record(record)
-        || visuals::brewing_stand::is_record(record)
-        || visuals::campfire::is_record(record)
-        || visuals::grindstone::is_record(record)
-        || visuals::tripwire_hook::is_record(record)
-        || visuals::lever::is_record(record)
-        || visuals::end_portal_frame::is_record(record)
-        || visuals::end_rod::is_record(record)
-        || visuals::lightning_rod::is_record(record)
-        || visuals::bamboo::is_record(record)
-        || visuals::lantern::is_record(record)
-        || matches!(
-            record.name.as_ref(),
-            "minecraft:flower_pot" | "minecraft:azalea" | "minecraft:flowering_azalea"
-        )
-    {
+    if block_render_fact(&record.name).kind.route().priority_cutout {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     } else if let Some(fallback_flags) = fallback.material_flags(record) {
         flags |= fallback_flags;
@@ -70,17 +54,17 @@ pub(super) fn descriptor_for(
     } else if let Some(named_flags) = named_block_material_flags(record) {
         flags |= named_flags;
     } else if is_pane(record) {
-        flags |= if record.name.contains("stained_glass_pane") {
+        flags |= if block_render_fact(&record.name).kind == R::StainedPane {
             MATERIAL_FLAG_ALPHA_BLEND
         } else {
             MATERIAL_FLAG_ALPHA_CUTOUT
         };
-    } else if is_fence(record) && record.name.contains("bamboo") {
+    } else if is_fence(record) && block_render_fact(&record.name).kind == R::BambooFence {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     } else if is_cutout_model_visual(record) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT | cutout_model_tint_flags(&record.name);
     } else if is_liquid(record) {
-        flags |= liquid_material_flags(&record.name);
+        flags |= liquid_material_flags(record);
     } else if record.flags.contains(BlockFlags::LEAF_MODEL) {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
         flags |= leaf_tint_flags(&record.name);
@@ -89,10 +73,10 @@ pub(super) fn descriptor_for(
         // Native torch tessellation lights the whole torch from its own cell in plain white.
         flags |= assets::MATERIAL_FLAG_DISABLE_AO | assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING;
     }
-    if record.name.as_ref() == "minecraft:glass" {
+    if block_render_fact(&record.name).kind == R::ClearGlass {
         flags |= MATERIAL_FLAG_ALPHA_CUTOUT;
     }
-    if record.name.as_ref() == "minecraft:grass_block" {
+    if block_render_fact(&record.name).kind == R::Grass {
         flags |= match face {
             BlockFace::Down => 0,
             BlockFace::Up => MATERIAL_FLAG_GRASS_TINT,
@@ -101,7 +85,7 @@ pub(super) fn descriptor_for(
             }
         };
     }
-    if record.name.as_ref() == "minecraft:leaf_litter" {
+    if block_render_fact(&record.name).tint == assets::facts::BlockRenderTint::Dry {
         // Grayscale art; the biome dry-foliage colour applies on every geometry route.
         flags |= MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_DRY_FOLIAGE;
     }

@@ -1,7 +1,8 @@
 use super::super::*;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_bee_housing_name(name: &str) -> bool {
-    matches!(name, "minecraft:bee_nest" | "minecraft:beehive")
+    block_render_fact(name).kind == R::BeeHousing
 }
 
 pub(in crate::compiler) fn exact_bee_housing_state(record: &RegistryRecord) -> Option<(u32, u32)> {

@@ -445,14 +445,10 @@ enum Axis {
 
 fn is_reviewed_selector_alias_cube_name(name: &str) -> bool {
     matches!(
-        name,
-        "minecraft:bone_block"
-            | "minecraft:chiseled_quartz_block"
-            | "minecraft:hay_block"
-            | "minecraft:purpur_block"
-            | "minecraft:quartz_block"
-            | "minecraft:smooth_quartz"
-            | "minecraft:tnt"
+        assets::facts::block_render_fact(name).kind,
+        assets::facts::BlockRenderKind::SelectorAliasCube
+            | assets::facts::BlockRenderKind::Tnt
+            | assets::facts::BlockRenderKind::DeprecatedPillar
     )
 }
 

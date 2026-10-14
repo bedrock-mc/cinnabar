@@ -9,6 +9,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Texture slots supplied by the campfire block graphics.
@@ -317,10 +318,8 @@ const BOXES: [[BoxModel; 5]; 4] = [
 
 /// Identifies both campfire blocks before their provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    matches!(
-        record.name.as_ref(),
-        "minecraft:campfire" | "minecraft:soul_campfire"
-    ) && record.contributor_role == ContributorRole::Primary
+    block_render_fact(&record.name).kind == R::Campfire
+        && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
 

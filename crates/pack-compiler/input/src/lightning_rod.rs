@@ -1,20 +1,13 @@
 //! Shared lightning-rod admission for model and terrain-array selection.
+
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use assets::{BlockFlags, ContributorRole, RegistryRecord};
 use serde::Deserialize;
 
 /// Identifies the eight terrain-owned lightning-rod variants.
 pub fn is_record(record: &RegistryRecord) -> bool {
-    matches!(
-        record.name.as_ref(),
-        "minecraft:lightning_rod"
-            | "minecraft:exposed_lightning_rod"
-            | "minecraft:weathered_lightning_rod"
-            | "minecraft:oxidized_lightning_rod"
-            | "minecraft:waxed_lightning_rod"
-            | "minecraft:waxed_exposed_lightning_rod"
-            | "minecraft:waxed_weathered_lightning_rod"
-            | "minecraft:waxed_oxidized_lightning_rod"
-    ) && record.contributor_role == ContributorRole::Primary
+    block_render_fact(&record.name).kind == R::LightningRod
+        && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
 

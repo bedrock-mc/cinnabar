@@ -42,3 +42,9 @@ pub use events::{
     legacy_particle_effect, level_event_sound, level_particle_effect, note_instrument,
 };
 pub use events_generated::ParticleEffect;
+
+mod render;
+pub use render::{
+    BlockRenderFact, BlockRenderKind, BlockRenderRoute, BlockRenderTint, PortalAxis,
+    block_render_fact,
+};

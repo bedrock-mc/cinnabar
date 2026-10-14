@@ -106,8 +106,10 @@ fn video(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "menu.video.group.accessibility.description",
     )?;
     options(content, SettingPanel::VideoAccessibility)?;
-    content.heading("options.cinnabar.advanced", "")?;
-    options(content, SettingPanel::VideoAdvanced)?;
+    if SettingPanel::VideoAdvanced.options().next().is_some() {
+        content.heading("options.cinnabar.advanced", "")?;
+        options(content, SettingPanel::VideoAdvanced)?;
+    }
     reset(content, SettingsGroup::Video, "options.video.resetSettings")
 }
 

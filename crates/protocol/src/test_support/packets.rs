@@ -272,3 +272,14 @@ fn round_trip<T: Encode + Decode>(packet: T) -> T {
     let bytes = packet.encode_to_vec().expect("a fixture packet encodes");
     T::decode_exact(&bytes).expect("an encoded fixture decodes")
 }
+
+/// A successful acknowledgement with no corrections, in either optional-list encoding.
+pub fn empty_stack_response(request_id: i32, list_present: bool) -> Packet {
+    Packet::new(round_trip(packets::ItemStackResponse {
+        responses: vec![bedrock_protocol_1_26_51::types::ItemStackResponseInfo {
+            result: bedrock_protocol_1_26_51::enums::ItemStackNetResult::Success,
+            client_request_id: bedrock_protocol_1_26_51::types::ItemStackRequestID(request_id),
+            containers: list_present.then(Vec::new),
+        }],
+    }))
+}

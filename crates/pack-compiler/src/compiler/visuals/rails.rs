@@ -3,6 +3,7 @@ use super::context::{
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 const FAMILY: u8 = 2;
@@ -54,7 +55,7 @@ pub(in crate::compiler) fn compile_rule(
 /// Returns the rail direction (0..=9) and whether the alternate sprite applies.
 pub(in crate::compiler) fn rail_state(record: &RegistryRecord) -> Option<(u8, bool)> {
     let direction = canonical_state_u32(&record.canonical_state, "rail_direction")?;
-    if record.name.as_ref() == "minecraft:rail" {
+    if block_render_fact(&record.name).kind == R::DefaultRail {
         return (direction <= 9).then_some((direction as u8, direction >= 6));
     }
     let powered = canonical_state_u32(&record.canonical_state, "rail_data_bit")?;
