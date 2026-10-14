@@ -555,7 +555,7 @@ impl SemanticInputRouter {
             );
         }
         let raw = movement;
-        movement = clamp_vector(movement, 1.0);
+        movement = crate::clamp_movement_vector(movement);
 
         let mut raw_look = [
             strengths[Action::LookRight as usize] - strengths[Action::LookLeft as usize],
