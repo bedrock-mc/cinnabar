@@ -131,6 +131,7 @@ fn column(source: Arc<EntityIndex>, previous: Option<&Column>) -> Column {
 pub(crate) fn prepare_spawner_actors(
     world: Res<ClientWorld>,
     view: Res<LocalViewPose>,
+    collisions: Res<client_interaction::movement::PhysicsCollisionRegistries>,
     (artwork, state): (
         Res<render_scene::ActorArtworkResource>,
         Res<ActorFrameState>,
@@ -271,10 +272,10 @@ pub(crate) fn prepare_spawner_actors(
                         )
                     })
                     .and_then(|id| {
-                        assets::facts::BlockEntityFacts::pinned().for_runtime(
+                        assets::facts::BlockEntityFacts::pinned().for_registry(
                             id,
                             stream.network_id_mode(),
-                            stream.runtime_assets(),
+                            collisions.breg_sha256(),
                         )
                     });
                 if !backing.is_some_and(|fact| {

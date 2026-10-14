@@ -268,7 +268,6 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
 
 /// Caches the canonical state and generated route for one admitted runtime identity.
 fn block_info(
-    assets: &assets::RuntimeAssets,
     runtime: &mut BlockEntityRuntime,
     collisions: &PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
@@ -286,8 +285,11 @@ fn block_info(
             Some(Arc::new(BlockInfo {
                 name: Arc::from(name),
                 state,
-                backing: assets::facts::BlockEntityFacts::pinned()
-                    .for_runtime(runtime_id, mode, assets),
+                backing: assets::facts::BlockEntityFacts::pinned().for_registry(
+                    runtime_id,
+                    mode,
+                    collisions.breg_sha256(),
+                ),
             }))
         })
         .clone()
@@ -322,12 +324,15 @@ fn second_crack_part(
 
 /// The portal surface `runtime_id` draws, if any.
 fn portal_kind(
-    assets: &assets::RuntimeAssets,
+    collisions: &PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
     runtime_id: u32,
 ) -> Option<BlockEntityKind> {
-    let backing =
-        assets::facts::BlockEntityFacts::pinned().for_runtime(runtime_id, mode, assets)?;
+    let backing = assets::facts::BlockEntityFacts::pinned().for_registry(
+        runtime_id,
+        mode,
+        collisions.breg_sha256(),
+    )?;
     match backing.entity.renderer {
         assets::facts::BlockEntityRenderer::EndPortal => Some(BlockEntityKind::EndPortal),
         assets::facts::BlockEntityRenderer::EndGateway => Some(BlockEntityKind::EndGateway),
@@ -505,30 +510,24 @@ pub(crate) fn update_block_entity_scene(
                 columns::ColumnScan::is_current,
                 |previous| {
                     let portals = portals::column_cells(chunk_key, chunk, |id| {
-                        portal_kind(stream.runtime_assets(), mode, id)
+                        portal_kind(&collisions, mode, id)
                     });
                     let entities = columns::routed_entities(
                         chunk,
                         previous,
                         |id, runtime_id, nbt, position| {
-                            block_info(
-                                stream.runtime_assets(),
-                                runtime,
-                                &collisions,
-                                mode,
-                                runtime_id,
-                            )
-                            .zip(nbt.parse())
-                            .and_then(|(info, root)| {
-                                describe(
-                                    id,
-                                    info.backing?,
-                                    &info.name,
-                                    &info.state,
-                                    &root,
-                                    position,
-                                )
-                            })
+                            block_info(runtime, &collisions, mode, runtime_id)
+                                .zip(nbt.parse())
+                                .and_then(|(info, root)| {
+                                    describe(
+                                        id,
+                                        info.backing?,
+                                        &info.name,
+                                        &info.state,
+                                        &root,
+                                        position,
+                                    )
+                                })
                         },
                     );
                     columns::ColumnScan::new(chunk, portals, entities)

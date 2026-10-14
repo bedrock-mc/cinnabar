@@ -159,3 +159,23 @@ fn block_entity_facts_preserve_the_pinned_source_inventory_backings() {
         }
     }
 }
+
+#[test]
+fn block_entity_facts_resolve_both_id_modes_without_world_artwork() {
+    use sha2::{Digest, Sha256};
+    let hash: [u8; 32] = Sha256::digest(assets::pinned_block_registry_bytes()).into();
+    let facts = BlockEntityFacts::pinned();
+    for record in records().iter() {
+        let Some(expected) = facts.get(record.sequential_id) else {
+            continue;
+        };
+        for (mode, value) in [
+            (assets::NetworkIdMode::Sequential, record.sequential_id),
+            (assets::NetworkIdMode::Hashed, record.network_hash),
+        ] {
+            let resolved = facts.for_registry(value, mode, hash).unwrap();
+            assert_eq!(resolved, expected);
+            assert!(facts.for_registry(value, mode, [0; 32]).is_none());
+        }
+    }
+}

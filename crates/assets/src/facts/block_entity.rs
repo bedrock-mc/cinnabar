@@ -1,7 +1,7 @@
 //! Registry-bound block-entity routes and backing-state membership.
 
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
 
 use crate::{BlockEntityRouteKind, NetworkIdMode, RuntimeAssets, VisualKind};
 
@@ -137,6 +137,7 @@ pub struct BlockEntityFacts {
     payload: BlockEntityFactsPayload,
     states: Box<[Option<BlockEntityState>]>,
     registry_sha256: [u8; 32],
+    hashes: HashMap<u32, u32>,
 }
 
 impl BlockEntityFacts {
@@ -197,7 +198,13 @@ impl BlockEntityFacts {
         if payload.entries.is_empty() || counts.contains(&0) {
             return Err("block-entity route has no backing states".into());
         }
+        let hashes = payload
+            .states
+            .iter()
+            .map(|state| (state.network_hash, state.sequential_id))
+            .collect();
         Ok(Self {
+            hashes,
             payload,
             states: states.into(),
             registry_sha256: hash,
@@ -221,6 +228,23 @@ impl BlockEntityFacts {
             mount: state.mount,
             network_hash: state.network_hash,
         })
+    }
+
+    /// Resolves backing identity against a checked registry, independently of world artwork.
+    pub fn for_registry(
+        &self,
+        value: u32,
+        mode: NetworkIdMode,
+        registry_sha256: [u8; 32],
+    ) -> Option<BlockEntityBacking<'_>> {
+        if registry_sha256 != self.registry_sha256 {
+            return None;
+        }
+        let sequential = match mode {
+            NetworkIdMode::Sequential => value,
+            NetworkIdMode::Hashed => *self.hashes.get(&value)?,
+        };
+        self.get(sequential)
     }
 
     /// Resolves either runtime-id mode only when the world carrier uses this table's palette.

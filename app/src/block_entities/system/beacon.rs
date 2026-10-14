@@ -37,7 +37,7 @@ pub(super) fn model(
             return assets::beacon::BeaconMedium::Clear;
         };
         let tint = runtime.beacon_tints.get(mode, id);
-        let info = block_info(assets, runtime, collisions, mode, id);
+        let info = block_info(runtime, collisions, mode, id);
         assets::beacon::beacon_medium(
             info.as_ref().map_or("", |info| &info.name),
             tint,
