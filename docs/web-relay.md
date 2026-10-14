@@ -81,3 +81,8 @@ Open the page, connect the relay, sign in, enter an HTTPS asset directory, then 
 The preview supports relay account controls and validates the required startup carriers in memory.
 Gameplay startup, server joining, sound-bank range downloads and playback still need client composition.
 There is no persistent pack import or Dressing Room.
+
+Back/forward-cache navigation suspends input and audio while retaining the page's wasm
+objects and canvas listeners. Returning reopens relay control with any unexpired resume
+capability; sign in again if it expired. Audio resumes on the next canvas click. A final
+navigation frees the page, input and listeners and closes audio.

@@ -21,6 +21,35 @@ export async function boundedBytes(response, maximum, exact = true) {
   } finally { await reader.cancel(); }
 }
 
+/** Suspends cached pages and tears down resources only when navigation is final. */
+export function pageLifecycle(input, audio, page, dispose, view = window) {
+  let cached = false, disposed = false;
+  /** Keeps wasm objects and gesture listeners alive while the page is cached. */
+  const hide = (event) => {
+    if (disposed) return;
+    input.release();
+    if (event.persisted) {
+      cached = true;
+      page()?.suspend();
+      audio.suspend().catch(() => {});
+    } else {
+      disposed = true;
+      view.removeEventListener("pagehide", hide);
+      view.removeEventListener("pageshow", show);
+      dispose();
+    }
+  };
+  /** Reopens relay control; the next canvas gesture unlocks audio again. */
+  const show = () => {
+    if (cached && !disposed) {
+      cached = false;
+      page()?.resume();
+    }
+  };
+  view.addEventListener("pagehide", hide);
+  view.addEventListener("pageshow", show);
+}
+
 /** Installs canvas gesture, focus and size edges, returning an explicit teardown. */
 export function canvasEdges(canvas, input, audio, view = window, doc = document) {
   const listeners = [];
