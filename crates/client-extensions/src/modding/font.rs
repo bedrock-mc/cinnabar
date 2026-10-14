@@ -9,22 +9,21 @@ use sha2::{Digest, Sha256};
 
 /// Optional font selected for the personal controls panel.
 pub const FONT_ENV: &str = "CINNABAR_MOD_FONT";
-/// Upper bound on the local font source read by the registration worker.
-pub use mod_api::MAX_PANEL_FONT_BYTES as MAX_SOURCE_BYTES;
+use mod_api::MAX_PANEL_FONT_BYTES;
 const ATLAS_SIDE: u32 = render_model::UI_LOCAL_FONT_PAGE_SIDE;
 const FONT_EM: f32 = 18.0;
 const RASTER_SCALE: u32 = 2;
 
 /// Reads and rasterizes a bounded local source on the registration worker.
 pub fn load(path: &Path) -> Result<RuntimeFontCatalog, String> {
-    let bytes = mod_host::local_files::read(path, MAX_SOURCE_BYTES)
+    let bytes = mod_host::local_files::read(path, MAX_PANEL_FONT_BYTES)
         .map_err(|error| format!("{}: {error}", path.display()))?;
     rasterize(&bytes)
 }
 
 /// Rasterizes a bounded in-memory font source at the panel density.
 pub fn rasterize(bytes: &[u8]) -> Result<RuntimeFontCatalog, String> {
-    if bytes.len() > MAX_SOURCE_BYTES {
+    if bytes.len() > MAX_PANEL_FONT_BYTES {
         return Err("font source exceeds local byte limit".into());
     }
     rasterize_at(bytes, RASTER_SCALE)
@@ -140,7 +139,7 @@ mod tests {
     fn invalid_and_oversized_optional_fonts_fail_before_attachment() {
         assert!(rasterize(b"not a font").is_err());
         assert!(
-            rasterize(&vec![0; MAX_SOURCE_BYTES + 1])
+            rasterize(&vec![0; MAX_PANEL_FONT_BYTES + 1])
                 .unwrap_err()
                 .contains("byte limit")
         );
@@ -151,7 +150,7 @@ mod tests {
             .create_new(true)
             .open(&path)
             .unwrap();
-        file.set_len((MAX_SOURCE_BYTES + 1) as u64).unwrap();
+        file.set_len((MAX_PANEL_FONT_BYTES + 1) as u64).unwrap();
         assert!(load(&path).unwrap_err().contains("byte limit"));
         drop(file);
         std::fs::remove_file(path).unwrap();

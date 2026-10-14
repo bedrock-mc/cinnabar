@@ -19,6 +19,8 @@ pub(super) enum Command {
     /// Install the checked-in entity facts with checksum and target validation.
     EntityFacts {
         #[arg(long)]
+        source: PathBuf,
+        #[arg(long)]
         out: PathBuf,
     },
     /// Generate pack and actor vocabularies from the pinned sample archive.
