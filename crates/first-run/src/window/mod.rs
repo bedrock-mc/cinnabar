@@ -1,18 +1,25 @@
-//! The first-run setup window. It runs in a child process: winit allows one event loop per
-//! process, and the game opens its own once setup finishes.
+//! The first-run setup window and the crash report window. Each runs in its own process: winit
+//! allows one event loop per process, and the game opens its own once setup finishes.
 
 mod app;
 mod canvas;
+mod crash;
 mod gpu;
 mod input;
 mod view;
 
 use std::process::Command;
 
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::{
+    dpi::{LogicalSize, PhysicalSize},
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowAttributes},
+};
 
 use canvas::{Image, Text};
-use launcher::install_layout::InstallLayout;
+pub use crash::{CrashSummary, EXIT_RESTART, run_crash_preview};
+use launcher::{install_layout::InstallLayout, menu::settings_options::SettingsOptions};
+use ui::oreui_theme::Appearance;
 
 pub const SETUP_FLAG: &str = "--first-run-setup";
 const EXIT_QUIT: i32 = 3;
@@ -106,6 +113,69 @@ fn decode_logo() -> Option<Image> {
     })
 }
 
+/// The setup window's default logical size.
+const SETUP_SIZE: LogicalSize<f64> = LogicalSize::new(1024.0, 640.0);
+/// The smallest window either bootstrap window allows.
+const MIN_SIZE: LogicalSize<f64> = LogicalSize::new(560.0, 420.0);
+
+/// A bootstrap window titled like the game window, so an embedding's `CINNABAR_WINDOW_TITLE`
+/// renames both.
+fn window_attributes(size: LogicalSize<f64>) -> WindowAttributes {
+    titled_window_attributes(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref(), size)
+}
+
+fn titled_window_attributes(title: Option<&str>, size: LogicalSize<f64>) -> WindowAttributes {
+    Window::default_attributes()
+        .with_title(launcher::window_title(title))
+        .with_window_icon(Some(crate::window_icon::icon()))
+        .with_inner_size(size)
+        .with_min_inner_size(MIN_SIZE)
+}
+
+/// Opens connected controllers, or reports why controller input is unavailable.
+fn controllers() -> Option<gilrs::Gilrs> {
+    gilrs::Gilrs::new()
+        .map_err(|error| eprintln!("bootstrap controller input unavailable: {error}"))
+        .ok()
+}
+
+/// The saved menu choices the bootstrap windows honour without loading a resource pack.
+#[derive(Default)]
+struct Preferences {
+    /// Controller confirm/back swapping.
+    settings: SettingsOptions,
+    appearance: Appearance,
+    gui_scale_offset: i8,
+}
+
+impl Preferences {
+    fn load(layout: &InstallLayout) -> Self {
+        let settings = SettingsOptions::load(
+            &layout
+                .server_file()
+                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+        );
+        let appearance = Appearance::from_dark(settings.oreui_dark_mode());
+        let gui_scale_offset = launcher_host::video_settings::load(&layout.user_config_root)
+            .unwrap_or_default()
+            .gui_scale_offset;
+        Self {
+            settings,
+            appearance,
+            gui_scale_offset,
+        }
+    }
+
+    /// Physical pixels per rem for a window of `size`, from the same GUI-scale authority as the
+    /// menus.
+    fn rem(&self, size: PhysicalSize<u32>) -> f32 {
+        f32::from(
+            ui::DesktopGuiScale::for_window([size.width, size.height])
+                .scale_for_offset(self.gui_scale_offset),
+        ) * ui::oreui_theme::GUI_PIXELS_PER_REM
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +193,19 @@ mod tests {
     fn built_in_art_decodes() {
         assert!(decode_logo().is_some());
         assert!(built_in_faces().is_some());
+    }
+
+    #[test]
+    fn windows_use_embedding_title_and_keep_default_for_blank_values() {
+        assert_eq!(
+            titled_window_attributes(Some("Zeno Client"), SETUP_SIZE).title,
+            "Zeno Client"
+        );
+        for title in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                titled_window_attributes(title, SETUP_SIZE).title,
+                launcher::PRODUCT_NAME
+            );
+        }
     }
 }

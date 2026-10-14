@@ -1405,7 +1405,7 @@ minecraft:nether_sprouts	0	0	0	0	-
 minecraft:soul_campfire	0	0	0	0	-
 minecraft:glow_frame	0	0	0	0	-
 minecraft:amethyst_shard	0	40	0	0	trim_materials
-minecraft:spyglass	0	0	0	0	-
+minecraft:spyglass	1000000	0	1000000	0	spyglass
 minecraft:music_disc_otherside	0	0	0	0	-
 minecraft:goat_horn	0	0	0	0	-
 minecraft:frog_spawn_egg	0	0	0	0	-

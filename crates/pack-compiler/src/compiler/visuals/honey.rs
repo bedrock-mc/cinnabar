@@ -5,6 +5,7 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::vanilla_cuboid_quads;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn compile_rule(
@@ -13,7 +14,7 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<[u32; 6], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() != "minecraft:honey_block"
+    if block_render_fact(&record.name).kind != R::Honey
         || record.contributor_role != ContributorRole::Primary
         || record.flags.contains(BlockFlags::AIR)
     {

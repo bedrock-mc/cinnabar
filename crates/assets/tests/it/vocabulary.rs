@@ -363,6 +363,15 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         .enumerate()
     {
         let fields: Vec<_> = line.split('\t').collect();
+        let domain = if file == "facts-expansion-v2193.tsv"
+            && fields
+                .get(3)
+                .is_some_and(|value| value.split(',').any(|status| status == "historical-render"))
+        {
+            "legacy_block"
+        } else {
+            domain
+        };
         add(refs, file, &format!("/{i}/0"), domain, fields[0]);
         if file == "block-placement-v2193.tsv" && fields[3] != "-" {
             add(refs, file, &format!("/{i}/3"), "block", fields[3]);

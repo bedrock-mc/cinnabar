@@ -41,6 +41,8 @@ pub(super) struct Canvas {
     pub height: u32,
     /// Premultiplied RGBA8, row-major.
     pub pixels: Vec<u8>,
+    /// Device-pixel bounds `[left, top, right, bottom)` that drawing may touch.
+    clip: [i64; 4],
 }
 
 impl Canvas {
@@ -49,12 +51,27 @@ impl Canvas {
             width,
             height,
             pixels: vec![0; width as usize * height as usize * 4],
+            clip: [0, 0, i64::from(width), i64::from(height)],
         }
+    }
+
+    /// Limits later drawing to `rect` (rounded to device pixels), or to the whole canvas.
+    pub(super) fn set_clip(&mut self, rect: Option<Rect>) {
+        let (width, height) = (i64::from(self.width), i64::from(self.height));
+        self.clip = rect.map_or([0, 0, width, height], |rect| {
+            [
+                (rect.x.round() as i64).clamp(0, width),
+                (rect.y.round() as i64).clamp(0, height),
+                ((rect.x + rect.w).round() as i64).clamp(0, width),
+                ((rect.y + rect.h).round() as i64).clamp(0, height),
+            ]
+        });
     }
 
     /// Source-over of straight-alpha `color` at `coverage` (0..=255).
     fn blend(&mut self, x: i64, y: i64, color: [u8; 4], coverage: u32) {
-        if x < 0 || y < 0 || x >= i64::from(self.width) || y >= i64::from(self.height) {
+        let [left, top, right, bottom] = self.clip;
+        if x < left || y < top || x >= right || y >= bottom {
             return;
         }
         let alpha = u32::from(color[3]) * coverage / 255;
@@ -74,13 +91,14 @@ impl Canvas {
 
     /// Fills a rectangle with the same linear-light compositing as glyph coverage.
     pub(super) fn fill(&mut self, rect: Rect, color: [u8; 4]) {
+        let [clip_left, clip_top, clip_right, clip_bottom] = self.clip;
         let (x0, y0) = (rect.x.round() as i64, rect.y.round() as i64);
         let (x1, y1) = (
             (rect.x + rect.w).round() as i64,
             (rect.y + rect.h).round() as i64,
         );
-        let left = x0.clamp(0, i64::from(self.width)) as usize;
-        let right = x1.clamp(0, i64::from(self.width)) as usize;
+        let left = x0.clamp(clip_left, clip_right) as usize;
+        let right = x1.clamp(clip_left, clip_right) as usize;
         if right <= left || color[3] == 0 {
             return;
         }
@@ -92,7 +110,7 @@ impl Canvas {
                 linear_to_srgb(source + srgb_to_linear(destination as u8) * (1.0 - opacity))
             })
         });
-        for y in y0.max(0)..y1.min(i64::from(self.height)) {
+        for y in y0.max(clip_top)..y1.min(clip_bottom) {
             let start = (y as usize * self.width as usize + left) * 4;
             let end = (y as usize * self.width as usize + right) * 4;
             for pixel in self.pixels[start..end].as_chunks_mut::<4>().0 {
@@ -234,6 +252,16 @@ impl Text {
         wrap(text, max_width, |s| self.width(s, px))
     }
 
+    /// Fits `text` to `max_width` by replacing its middle with an ellipsis, keeping both ends.
+    pub(super) fn truncate_middle(&mut self, text: &str, px: f32, max_width: f32) -> String {
+        truncate(text, max_width, true, |s| self.width(s, px))
+    }
+
+    /// Fits `text` to `max_width` by ending it with an ellipsis.
+    pub(super) fn truncate_end(&mut self, text: &str, px: f32, max_width: f32) -> String {
+        truncate(text, max_width, false, |s| self.width(s, px))
+    }
+
     /// Draws `text` with its top-left at (`x`, `top`).
     pub(super) fn draw(
         &mut self,
@@ -301,9 +329,44 @@ fn wrap(text: &str, max_width: f32, mut width: impl FnMut(&str) -> f32) -> Vec<S
     lines
 }
 
+/// Drops characters (from the middle, or the end) until the ellipsized text fits `max_width`.
+fn truncate(
+    text: &str,
+    max_width: f32,
+    middle: bool,
+    mut width: impl FnMut(&str) -> f32,
+) -> String {
+    if width(text) <= max_width {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut keep = chars.len();
+    loop {
+        keep -= 1;
+        let head = if middle { keep.div_ceil(2) } else { keep };
+        let tail = keep - head;
+        let candidate: String = chars[..head]
+            .iter()
+            .chain(['…'].iter())
+            .chain(chars[chars.len() - tail..].iter())
+            .collect();
+        if keep == 0 || width(&candidate) <= max_width {
+            return candidate;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncation_keeps_the_ends_that_matter() {
+        let width = |s: &str| s.chars().count() as f32;
+        assert_eq!(truncate("short", 9.0, true, width), "short");
+        assert_eq!(truncate("C:/a/b/c/report", 9.0, true, width), "C:/a…port");
+        assert_eq!(truncate("C:/a/b/c/report", 9.0, false, width), "C:/a/b/c…");
+    }
 
     #[test]
     fn review_overlay_premultiplies_in_linear_light() {
@@ -345,11 +408,8 @@ mod tests {
                 let channel = value as u8;
                 expected.blend(value, 0, [channel, channel, channel, 255], 255);
             }
-            let mut actual = Canvas {
-                width: expected.width,
-                height: expected.height,
-                pixels: expected.pixels.clone(),
-            };
+            let mut actual = Canvas::new(expected.width, expected.height);
+            actual.pixels.clone_from(&expected.pixels);
             let mut color = ui::oreui_theme::PRIMARY_ROLE.fill;
             color[3] = alpha;
             for value in 0..256 {

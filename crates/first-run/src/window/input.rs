@@ -14,29 +14,60 @@ pub(super) enum Source {
     Controller,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(super) struct Input {
-    pub focused: Option<Action>,
-    pub focus_visible: bool,
-    capture: Option<(Action, Source)>,
+/// A screen's focusable buttons, in focus order.
+pub(super) trait Actions {
+    type Action: Copy + Eq;
+    /// Enabled buttons in focus order; a reset focuses the first.
+    fn actions(&self) -> &[Self::Action];
+    /// What Escape and the controller's back button activate.
+    fn cancel(&self) -> Self::Action;
 }
 
-impl Input {
+impl Actions for Screen {
+    type Action = Action;
+
+    fn actions(&self) -> &[Action] {
+        Screen::actions(self)
+    }
+
+    fn cancel(&self) -> Action {
+        Action::Quit
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct Input<A> {
+    pub focused: Option<A>,
+    pub focus_visible: bool,
+    capture: Option<(A, Source)>,
+}
+
+impl<A> Default for Input<A> {
+    fn default() -> Self {
+        Self {
+            focused: None,
+            focus_visible: false,
+            capture: None,
+        }
+    }
+}
+
+impl<A: Copy + Eq> Input<A> {
     /// Keeps focus on an available action and drops presses when the screen changes.
-    pub fn reset(&mut self, screen: &Screen) {
+    pub fn reset(&mut self, screen: &impl Actions<Action = A>) {
         self.focused = screen.actions().first().copied();
         self.capture = None;
     }
 
     /// Worker phases with the same actions keep a held Cancel press and navigation focus.
-    pub fn update_screen(&mut self, before: &Screen, after: &Screen) {
+    pub fn update_screen<S: Actions<Action = A>>(&mut self, before: &S, after: &S) {
         if before.actions() != after.actions() {
             self.reset(after);
         }
     }
 
     /// Moves through available actions with wrapping for both keyboard and D-pad navigation.
-    pub fn navigate(&mut self, screen: &Screen, backwards: bool) {
+    pub fn navigate(&mut self, screen: &impl Actions<Action = A>, backwards: bool) {
         let actions = screen.actions();
         if actions.is_empty() {
             return;
@@ -55,7 +86,7 @@ impl Input {
     }
 
     /// Captures an enabled action until the same input source releases it.
-    pub fn press(&mut self, screen: &Screen, source: Source, hit: Option<Action>) {
+    pub fn press(&mut self, screen: &impl Actions<Action = A>, source: Source, hit: Option<A>) {
         let action = if source == Source::Pointer {
             hit
         } else {
@@ -69,7 +100,7 @@ impl Input {
     }
 
     /// Activates only a matching release; dragging away from a pointer press cancels it.
-    pub fn release(&mut self, source: Source, hit: Option<Action>) -> Option<Action> {
+    pub fn release(&mut self, source: Source, hit: Option<A>) -> Option<A> {
         let (action, captured) = self.capture?;
         if captured != source {
             return None;
@@ -79,7 +110,7 @@ impl Input {
     }
 
     /// The visible depressed face follows the pointer while a pointer press is held.
-    pub fn pressed(&self, hovered: Option<Action>) -> Option<Action> {
+    pub fn pressed(&self, hovered: Option<A>) -> Option<A> {
         self.capture.and_then(|(action, source)| {
             (source != Source::Pointer || hovered == Some(action)).then_some(action)
         })
@@ -134,15 +165,15 @@ fn controller_button(
     }
 }
 
-impl Input {
+impl<A: Copy + Eq> Input<A> {
     /// Returns an action and whether input changed the overlay's interaction state.
     pub fn apply(
         &mut self,
-        screen: &Screen,
+        screen: &impl Actions<Action = A>,
         source: Source,
         command: Command,
-        hit: Option<Action>,
-    ) -> (Option<Action>, bool) {
+        hit: Option<A>,
+    ) -> (Option<A>, bool) {
         let before = *self;
         let action = match command {
             Command::Navigate(backwards) => {
@@ -154,7 +185,7 @@ impl Input {
                 None
             }
             Command::Release => self.release(source, hit),
-            Command::Cancel => Some(Action::Quit),
+            Command::Cancel => Some(screen.cancel()),
             Command::Blur => {
                 self.blur();
                 None
@@ -166,12 +197,12 @@ impl Input {
     /// Synthetic focus events and unrelated keys cannot activate actions or dirty the overlay.
     pub fn keyboard(
         &mut self,
-        screen: &Screen,
+        screen: &impl Actions<Action = A>,
         key: &Key,
         state: ElementState,
         shift: bool,
         synthetic: bool,
-    ) -> (Option<Action>, bool) {
+    ) -> (Option<A>, bool) {
         if synthetic {
             return (None, false);
         }

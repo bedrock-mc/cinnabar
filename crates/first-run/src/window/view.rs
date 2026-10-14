@@ -7,7 +7,7 @@ use super::{
     canvas::{Canvas, Image, Rect, Text},
 };
 
-mod controls;
+pub(super) mod controls;
 use controls::{button, centred};
 
 const MAX_ERROR_LINES: usize = 10;
@@ -145,26 +145,12 @@ pub(super) fn draw(
     let appearance = style.appearance;
     let edge = theme::EDGE * rem;
     let pad = theme::LOADING_PAD * rem;
-    let full = Rect {
-        x: 0.0,
-        y: 0.0,
-        w: canvas.width as f32,
-        h: canvas.height as f32,
-    };
-    canvas.fill(full, appearance.backdrop(theme::OVERLAY_SCREEN));
-    if let Some(logo) = style.logo {
-        canvas.image(logo, layout.logo);
-    }
-    canvas.fill(
-        Rect {
-            x: panel.x + theme::BUTTON_DEPTH * rem,
-            y: panel.y + theme::BUTTON_DEPTH * rem,
-            ..panel
-        },
-        theme::TEXT_SHADOW,
+    backdrop(
+        canvas,
+        appearance,
+        style.logo.map(|logo| (logo, layout.logo)),
     );
-    canvas.fill(panel, appearance.surface(theme::NEUTRAL80.fill));
-    canvas.frame(panel, edge, appearance.surface(theme::BORDER));
+    panel_surface(canvas, appearance, panel, rem);
     let inner = panel.inset(pad);
     let mut y = inner.y;
     for line in &layout.title {
@@ -251,6 +237,34 @@ pub(super) fn draw(
         x += (width + gap) * fit;
     }
     hits
+}
+
+/// Dims the panorama under the whole frame and draws the logo, as the menus' loading screen does.
+pub(super) fn backdrop(canvas: &mut Canvas, appearance: Appearance, logo: Option<(&Image, Rect)>) {
+    let full = Rect {
+        x: 0.0,
+        y: 0.0,
+        w: canvas.width as f32,
+        h: canvas.height as f32,
+    };
+    canvas.fill(full, appearance.backdrop(theme::OVERLAY_SCREEN));
+    if let Some((logo, rect)) = logo {
+        canvas.image(logo, rect);
+    }
+}
+
+/// The raised panel: an offset drop shadow, the panel surface and its one-edge border.
+pub(super) fn panel_surface(canvas: &mut Canvas, appearance: Appearance, panel: Rect, rem: f32) {
+    canvas.fill(
+        Rect {
+            x: panel.x + theme::BUTTON_DEPTH * rem,
+            y: panel.y + theme::BUTTON_DEPTH * rem,
+            ..panel
+        },
+        theme::TEXT_SHADOW,
+    );
+    canvas.fill(panel, appearance.surface(theme::NEUTRAL80.fill));
+    canvas.frame(panel, theme::EDGE * rem, appearance.surface(theme::BORDER));
 }
 
 #[cfg(test)]

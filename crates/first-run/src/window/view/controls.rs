@@ -3,7 +3,7 @@
 use super::*;
 
 /// Centres open-font text within a shared OreUI semantic type size.
-pub(super) fn centred(
+pub(in crate::window) fn centred(
     canvas: &mut Canvas,
     text: &mut Text,
     rect: Rect,
@@ -16,7 +16,15 @@ pub(super) fn centred(
     text.draw(canvas, x, y, px, ink, label);
 }
 
-/// Reproduces the menus' solid raised fallback, including active speculars and focus outline.
+/// One raised button's interaction state.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::window) struct ButtonState {
+    pub hovered: bool,
+    pub focused: bool,
+    pub pressed: bool,
+}
+
+/// The setup screen's buttons: primary green for the screen's default, menu neutral otherwise.
 pub(super) fn button(
     canvas: &mut Canvas,
     text: &mut Text,
@@ -31,9 +39,37 @@ pub(super) fn button(
     } else {
         theme::MENU_NEUTRAL
     });
-    let pressed = style.pressed == Some(action);
-    let focused = style.focused == Some(action);
-    let hovered = style.hovered == Some(action);
+    let state = ButtonState {
+        hovered: style.hovered == Some(action),
+        focused: style.focused == Some(action),
+        pressed: style.pressed == Some(action),
+    };
+    let face = raised_button(canvas, style.appearance, role, state, rect, rem);
+    button_label(
+        canvas,
+        text,
+        face,
+        rem,
+        role.text,
+        screen.button_label(action),
+    );
+}
+
+/// Reproduces the menus' solid raised fallback, including active speculars and focus outline,
+/// and returns the face the label sits on.
+pub(in crate::window) fn raised_button(
+    canvas: &mut Canvas,
+    appearance: Appearance,
+    role: theme::Role,
+    state: ButtonState,
+    rect: Rect,
+    rem: f32,
+) -> Rect {
+    let ButtonState {
+        hovered,
+        focused,
+        pressed,
+    } = state;
     let active = pressed || focused && !hovered;
     let edge = theme::EDGE * rem;
     let depth = theme::BUTTON_DEPTH * rem;
@@ -49,7 +85,7 @@ pub(super) fn button(
     canvas.fill(
         outer,
         if active {
-            style.appearance.surface(theme::BORDER)
+            appearance.surface(theme::BORDER)
         } else {
             role.border
         },
@@ -113,15 +149,19 @@ pub(super) fn button(
     if focused {
         canvas.frame(outer.inset(-edge), edge, theme::OUTLINE);
     }
+    face
+}
+
+/// Centres a button label on its face in the menus' secondary button type.
+pub(in crate::window) fn button_label(
+    canvas: &mut Canvas,
+    text: &mut Text,
+    face: Rect,
+    rem: f32,
+    ink: theme::Rgba,
+    label: &str,
+) {
     let px = theme::SECONDARY_BUTTON.size * rem;
     let label_y = face.y + (face.h - text.line_height(px)) * 0.5;
-    centred(
-        canvas,
-        text,
-        face,
-        label_y,
-        px,
-        role.text,
-        screen.button_label(action),
-    );
+    centred(canvas, text, face, label_y, px, ink, label);
 }

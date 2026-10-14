@@ -1,22 +1,16 @@
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 #[cfg(test)]
 #[path = "selector_alias/tests.rs"]
 mod tests;
 
-const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
-    "minecraft:bone_block",
-    "minecraft:chiseled_quartz_block",
-    "minecraft:hay_block",
-    "minecraft:purpur_block",
-    "minecraft:quartz_block",
-    "minecraft:smooth_quartz",
-    "minecraft:tnt",
-];
-
 pub(in crate::compiler) fn is_selector_alias_cube_name(name: &str) -> bool {
-    SELECTOR_ALIAS_CUBE_NAMES.binary_search(&name).is_ok()
+    matches!(
+        block_render_fact(name).kind,
+        R::SelectorAliasCube | R::Tnt | R::DeprecatedPillar
+    )
 }
 
 /// The record's slot within its block (`explode_bit`, or `axis * 4 + deprecated`), taken
@@ -25,17 +19,14 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
     let state =
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
             .ok()?;
-    if record.name.as_ref() == "minecraft:tnt" {
+    if block_render_fact(&record.name).kind == R::Tnt {
         if state.len() != 1 || record.model_state.mask() != 0 {
             return None;
         }
         return Some(u32::from(exact_tagged_byte(state.get("explode_bit")?, 1)?));
     }
 
-    let has_deprecated = matches!(
-        record.name.as_ref(),
-        "minecraft:hay_block" | "minecraft:bone_block"
-    );
+    let has_deprecated = block_render_fact(&record.name).kind == R::DeprecatedPillar;
     if state.len() != if has_deprecated { 2 } else { 1 } {
         return None;
     }

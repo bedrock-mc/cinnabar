@@ -1,5 +1,6 @@
 use super::super::{Descriptor, PackSources, RegistryRecord};
 use super::context::RuleInputs;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use assets::{
     BLOCK_VISUAL_VARIANT_COVERED_GRASS, BLOCK_VISUAL_VARIANT_SNOW_COVER, BlockVisual,
     SNOWED_GRASS_SIDE_TEXTURE, VisualKind,
@@ -51,15 +52,15 @@ pub(in crate::compiler) fn apply(
     if visual.kind == VisualKind::Diagnostic {
         return;
     }
-    match record.name.as_ref() {
-        "minecraft:grass_block" if visual.kind == VisualKind::Cube => {
+    match block_render_fact(&record.name).kind {
+        R::Grass if visual.kind == VisualKind::Cube => {
             if let Some(material) = material_descriptor(inputs.pack)
                 .and_then(|(descriptor, _)| inputs.material_by_descriptor.get(&descriptor))
             {
                 visual.variant = BLOCK_VISUAL_VARIANT_COVERED_GRASS | *material;
             }
         }
-        "minecraft:snow" | "minecraft:powder_snow" => {
+        R::Snow | R::PowderSnow => {
             visual.variant |= BLOCK_VISUAL_VARIANT_SNOW_COVER;
         }
         _ => {}

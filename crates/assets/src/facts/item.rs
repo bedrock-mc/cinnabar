@@ -57,6 +57,7 @@ flags!(
     COMPASS = 21,
     BRUSH = 22,
     MACE = 23,
+    SPYGLASS = 24,
 );
 flags!(
     ContainerRoles,

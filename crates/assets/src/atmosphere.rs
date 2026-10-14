@@ -308,7 +308,7 @@ impl RuntimeAtmosphereAssets {
         let carrier_identity = crate::encoding::sealed_identity(bytes, environment_end)
             .ok_or_else(|| invalid("MCBEATM2 envelope hash mismatch"))?;
 
-        let specs = source_specs();
+        let specs = atmosphere_texture_specs();
         let mut expected_path_offset = paths_offset;
         let mut expected_payload_offset = payload_offset;
         let mut textures = Vec::with_capacity(specs.len());
@@ -617,7 +617,8 @@ pub fn encode_atmosphere_blob(
     Ok(bytes.into_boxed_slice())
 }
 
-const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
+/// Required atmosphere textures and their source dimensions.
+pub const fn atmosphere_texture_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
     [
         (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
         (
@@ -647,7 +648,9 @@ fn validate_compiled(compiled: &CompiledAtmosphereAssets) -> Result<(), AssetErr
     {
         return Err(invalid("invalid atmosphere provenance or texture count"));
     }
-    for (texture, (role, path, width, height)) in compiled.textures.iter().zip(source_specs()) {
+    for (texture, (role, path, width, height)) in
+        compiled.textures.iter().zip(atmosphere_texture_specs())
+    {
         if texture.role != role
             || texture.source_path.as_ref() != path
             || texture.width != width
@@ -800,8 +803,8 @@ mod tests {
 
     use super::{
         AtmosphereTexture, BiomeVisualProfile, CompiledAtmosphereAssets, FogDistance,
-        FogDistanceMode, FogMedium, FogProfile, RuntimeAtmosphereAssets, encode_atmosphere_blob,
-        source_specs,
+        FogDistanceMode, FogMedium, FogProfile, RuntimeAtmosphereAssets, atmosphere_texture_specs,
+        encode_atmosphere_blob,
     };
 
     #[test]
@@ -907,7 +910,7 @@ mod tests {
     }
 
     fn synthetic_textures() -> Box<[AtmosphereTexture]> {
-        source_specs()
+        atmosphere_texture_specs()
             .into_iter()
             .map(|(role, path, width, height)| {
                 let rgba8 = vec![role as u8; (width * height * 4) as usize].into_boxed_slice();

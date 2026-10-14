@@ -91,7 +91,7 @@ use visuals::{
         mineral_cube_material_descriptor, mineral_cube_sources_are_exact,
     },
     multiface::multiface_quads,
-    named_blocks::{is_named_block, named_block_material_flags},
+    named_blocks::named_block_material_flags,
     resin_clump::{
         is_resin_clump, is_resin_clump_name, is_resin_clump_record, resin_clump_inventory_is_exact,
         resin_clump_material_descriptor,
@@ -266,10 +266,9 @@ fn compile_pack_inner(
     let admit_bee_housing = bee_housing_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
-    if records
-        .iter()
-        .any(|record| record.name.as_ref() == "minecraft:grass_block")
-        && let Some((descriptor, key)) = visuals::snowy_grass::material_descriptor(&pack)
+    if records.iter().any(|record| {
+        assets::facts::block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Grass
+    }) && let Some((descriptor, key)) = visuals::snowy_grass::material_descriptor(&pack)
     {
         descriptor_keys.insert(descriptor, key);
     }
@@ -311,7 +310,8 @@ fn compile_pack_inner(
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
-            || record.name.as_ref() == "minecraft:enchanting_table"
+            || assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
             || fallback.contains(record)

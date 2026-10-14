@@ -1,5 +1,6 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn chiseled_bookshelf_quads(
     empty: u32,
@@ -134,7 +135,7 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
 }
 
 pub(in crate::compiler) fn is_chiseled_bookshelf_name(name: &str) -> bool {
-    name == "minecraft:chiseled_bookshelf"
+    block_render_fact(name).kind == R::ChiseledBookshelf
 }
 
 pub(in crate::compiler) fn exact_chiseled_bookshelf_state(
