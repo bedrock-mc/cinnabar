@@ -241,6 +241,7 @@ fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> Act
         off_hand_animation: [ItemAnimationState::default(); 2],
         animation_variables: ActorAnimationVariables::default(),
         java: Default::default(),
+        main_hand_equipped: None,
         java_equipped: None,
     }
 }
@@ -251,6 +252,7 @@ fn equipped(dye_rgb: Option<u32>, enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                charged_projectile: None,
                 grip: assets::item::grip::builtin_item_grip(ITEM),
                 use_facts: Default::default(),
                 identifier: ITEM.into(),

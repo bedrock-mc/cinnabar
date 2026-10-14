@@ -1,7 +1,7 @@
 //! What a player mod package's screens exchange with the host: the events its callbacks
 //! receive, the screens it commits, and the declarations a package carries.
 
-use crate::{ModHost, package::Package, runtime::Declared};
+use crate::{CallbackOutcome, ModHost, package::Package, runtime::Declared};
 use anyhow::Result;
 use experience_sdk::mod_manifest::KeyDecl;
 use server_experience::{
@@ -122,36 +122,106 @@ pub struct LoadedPackage {
 }
 
 impl ModHost {
-    /// Delivers one frame's events, coalesced, each with its own budget. A layout event also
-    /// sets what `screen.layout` returns. Stops at the first failure: an undeclared event is
-    /// refused, and a trap quarantines the guest.
-    pub fn dispatch(&mut self, events: Vec<ModEvent>) -> Result<()> {
+    /// Delivers coalesced events, retaining lifecycle notifications until they actually run.
+    /// Latest edit text remains scoped to its screen; key, click and scroll edges are not replayed.
+    pub fn dispatch(&mut self, events: Vec<ModEvent>) -> Result<CallbackOutcome> {
         let result = self.dispatch_coalesced(events);
+        if !self.is_active() {
+            self.pending_events.clear();
+        }
         self.queue_settings();
         result
     }
 
-    fn dispatch_coalesced(&mut self, events: Vec<ModEvent>) -> Result<()> {
-        for event in ModEvent::coalesce(events) {
+    /// Retries pending lifecycle state before current events without replaying old input.
+    fn dispatch_coalesced(&mut self, mut events: Vec<ModEvent>) -> Result<CallbackOutcome> {
+        if !self.is_active() {
+            self.pending_events.clear();
+            return Ok(CallbackOutcome::Executed);
+        }
+        self.scope_text_changes(&mut events)?;
+        let mut incoming = std::mem::take(&mut self.pending_events);
+        incoming.extend(events);
+        let mut incoming = ModEvent::coalesce(incoming).into_iter();
+        while let Some(event) = incoming.next() {
             let mut closed = false;
             if let ModEvent::ScreenChanged(layout) = &event {
                 self.layout.clone_from(layout);
                 closed = layout.is_none() && self.instance.view_open();
                 self.instance.set_layout(layout.clone());
             }
-            self.instance.dispatch(&event)?;
-            if closed {
-                self.instance.dispatch(&ModEvent::ViewClosed)?;
+            let outcome = self.instance.dispatch(&event)?;
+            if outcome == CallbackOutcome::Deferred {
+                self.retain_lifecycle(std::iter::once(event).chain(incoming));
+                if closed {
+                    self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
+                }
+                return Ok(outcome);
+            }
+            if closed && self.instance.dispatch(&ModEvent::ViewClosed)? == CallbackOutcome::Deferred
+            {
+                self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
             }
         }
+        Ok(if self.pending_events.is_empty() {
+            CallbackOutcome::Executed
+        } else {
+            CallbackOutcome::Deferred
+        })
+    }
+
+    /// Validates edit values and drops queued text when its screen or view departs.
+    fn scope_text_changes(&mut self, events: &mut Vec<ModEvent>) -> Result<()> {
+        for event in events
+            .iter()
+            .filter(|event| matches!(event, ModEvent::TextChanged { .. }))
+        {
+            self.instance.validate_event(event)?;
+        }
+        let layout = events.iter().rev().find_map(|event| match event {
+            ModEvent::ScreenChanged(layout) => Some(layout),
+            _ => None,
+        });
+        let closed = events.contains(&ModEvent::ViewClosed) || layout == Some(&None);
+        let same_screen = layout.is_none_or(|next| match (&self.layout, next) {
+            (Some(old), Some(new)) => {
+                old.screen == new.screen && old.view.is_some() == new.view.is_some()
+            }
+            (None, None) => true,
+            _ => false,
+        });
+        if closed || !same_screen {
+            self.pending_events
+                .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
+        if closed {
+            events.retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        }
         Ok(())
+    }
+
+    /// Keeps latest lifecycle state and one bounded edit value per declared control.
+    fn retain_lifecycle(&mut self, events: impl Iterator<Item = ModEvent>) {
+        let mut pending = std::mem::take(&mut self.pending_events);
+        for event in events {
+            match event {
+                ModEvent::ScreenChanged(_)
+                | ModEvent::DataChanged(_)
+                | ModEvent::TextChanged { .. } => pending.push(event),
+                ModEvent::ViewClosed if !pending.contains(&ModEvent::ViewClosed) => {
+                    pending.push(event)
+                }
+                _ => {}
+            }
+        }
+        self.pending_events = ModEvent::coalesce(pending);
     }
 
     /// The session's items and recipes the guest reads from now on; a changed revision
     /// delivers `data-changed`.
     pub fn set_session(&mut self, session: Arc<SessionData>) -> Result<()> {
         match self.update_session(session) {
-            Some(event) => self.dispatch(vec![event]),
+            Some(event) => self.dispatch(vec![event]).map(|_| ()),
             None => Ok(()),
         }
     }
@@ -176,10 +246,28 @@ impl ModHost {
         (!sources.is_empty()).then_some(ModEvent::DataChanged(sources))
     }
 
+    /// Stops current authority immediately, preserving an existing quarantine reason.
+    pub fn revoke(&mut self) {
+        self.pending_events.clear();
+        self.instance.revoke();
+    }
+
     /// Stops the guest as a trap would, removing everything it presented: the host refused
     /// what it asked to draw.
     pub fn quarantine(&mut self) {
+        self.pending_events.clear();
         self.instance.quarantine();
+    }
+
+    /// Cancels edits for a departing view, delivers its other input, then closes it.
+    /// Pointer actions run before closure so they cannot reopen the escaped view.
+    pub fn dispatch_and_close_view(&mut self, mut events: Vec<ModEvent>) -> Result<()> {
+        self.pending_events
+            .retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        events.retain(|event| !matches!(event, ModEvent::TextChanged { .. }));
+        let result = self.dispatch(events).map(|_| ());
+        self.close_view()?;
+        result
     }
 
     /// Closes the view as Escape does over it, and tells the guest with `view-closed`.

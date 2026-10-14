@@ -40,8 +40,7 @@ impl GameSensitivity {
             return;
         };
         self.sensitivity = sensitivity;
-        // Rounded once from double so every platform derives the same value.
-        let curve = f64::from(sensitivity * 1.1).powf(f64::from(0.6125_f32)) as f32;
+        let curve = (sensitivity * 1.1).powf(0.6125);
         if let Some(value) = written_unit_option(self.value, curve * 0.81) {
             self.value = value;
         }

@@ -2,7 +2,7 @@
 
 use super::super::paint::{Bounds, Canvas};
 use super::super::theme::{self, BODY, CAPTION, EDGE, TEXT, TEXT_DIMMER};
-use super::super::transitions::resources::{Group, Resources};
+use super::super::transitions::resources::{Card, CardItem, Cards, Group, Resources};
 use super::super::widgets::{self, Variant};
 use super::{Content, picker};
 use crate::images::{BASE_PACK_IMAGE, CHEVRON_DOWN_IMAGE, CHEVRON_UP_IMAGE, MISSING_PACK_IMAGE};
@@ -59,14 +59,14 @@ fn draw_sections(
         content,
         &format!("Active packs ({})", snapshot.active.len() + 1),
         motion.expanded[0],
-        Action::ToggleActive,
+        command(Action::ToggleActive),
     )?;
     reveal(
         content,
         motion.expanded[0],
         snapshot.active_expanded,
         |content| {
-            cards(content, snapshot, motion, Group::Active)?;
+            pack_cards(content, snapshot, motion, Group::Active)?;
             base_card(content)?;
             caption(content, "Packs at the top override packs below them.")
         },
@@ -76,22 +76,29 @@ fn draw_sections(
         content,
         &format!("My packs ({})", snapshot.available.len()),
         motion.expanded[1],
-        Action::ToggleAvailable,
+        command(Action::ToggleAvailable),
     )?;
     reveal(
         content,
         motion.expanded[1],
         snapshot.available_expanded,
         |content| {
-            reveal(content, motion.empty_fraction, false, empty_library)?;
-            cards(content, snapshot, motion, Group::Available)
+            reveal(content, motion.empty_fraction, false, |content| {
+                empty(
+                    content,
+                    "No imported packs",
+                    "Import a .mcpack or .mcaddon to add your own textures.",
+                )
+            })?;
+            pack_cards(content, snapshot, motion, Group::Available)
         },
     )?;
     content.y += content.canvas.r(2.4);
     Ok(())
 }
 
-fn reveal(
+/// Draws `draw` clipped to `fraction` of its height; hits survive only when `interactive`.
+pub(super) fn reveal(
     content: &mut Content<'_, '_>,
     fraction: f32,
     interactive: bool,
@@ -122,31 +129,41 @@ fn reveal(
     Ok(())
 }
 
-fn cards(
+/// Draws one group's retained cards, each fading as it moves between groups.
+pub(super) fn cards<T: CardItem>(
+    content: &mut Content<'_, '_>,
+    motion: &Cards<T>,
+    group: Group,
+    mut draw: impl FnMut(&mut Content<'_, '_>, &Card<T>) -> Result<(), PaintError>,
+) -> Result<(), PaintError> {
+    for card in motion.cards.iter().filter(|card| card.group == group) {
+        let previous = content.canvas.surface;
+        content.canvas.surface = card.item.surface(group == Group::Active);
+        reveal(content, card.visibility, card.present, |content| {
+            draw(content, card)
+        })?;
+        content.canvas.surface = previous;
+    }
+    Ok(())
+}
+
+fn pack_cards(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
     motion: &Resources,
     group: Group,
 ) -> Result<(), PaintError> {
-    for card in motion.cards.iter().filter(|card| card.group == group) {
-        let previous = content.canvas.surface;
-        let active = group == Group::Active;
-        content.canvas.surface =
-            super::super::motion::Surface::ResourcePack(card.pack.id.as_u128(), active);
-        reveal(content, card.visibility, card.present, |content| {
-            pack_card(
-                content,
-                snapshot,
-                &card.pack,
-                active,
-                card.index,
-                card.details,
-                card.present,
-            )
-        })?;
-        content.canvas.surface = previous;
-    }
-    Ok(())
+    cards(content, motion, group, |content, card| {
+        pack_card(
+            content,
+            snapshot,
+            &card.item,
+            group == Group::Active,
+            card.index,
+            card.details,
+            card.present,
+        )
+    })
 }
 
 fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), PaintError> {
@@ -156,12 +173,13 @@ fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), Pai
             (
                 "Import pack",
                 Variant::Secondary,
-                (!snapshot.busy).then_some(Action::Import),
+                (!snapshot.busy).then_some(command(Action::Import)),
             ),
             (
                 "Apply changes",
                 Variant::Primary,
-                (!snapshot.busy && snapshot.has_pending_changes()).then_some(Action::Apply),
+                (!snapshot.busy && snapshot.has_pending_changes())
+                    .then_some(command(Action::Apply)),
             ),
         ],
     )?;
@@ -169,7 +187,7 @@ fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), Pai
     Ok(())
 }
 
-fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
+pub(super) fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let height = content.canvas.text(
         text,
@@ -183,7 +201,11 @@ fn caption(content: &mut Content<'_, '_>, text: &str) -> Result<(), PaintError> 
     Ok(())
 }
 
-fn note(content: &mut Content<'_, '_>, text: &str, fill: theme::Rgba) -> Result<(), PaintError> {
+pub(super) fn note(
+    content: &mut Content<'_, '_>,
+    text: &str,
+    fill: theme::Rgba,
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let pad = content.canvas.r(1.2);
     let height =
@@ -205,15 +227,15 @@ fn note(content: &mut Content<'_, '_>, text: &str, fill: theme::Rgba) -> Result<
     Ok(())
 }
 
-fn accordion(
+/// A group header whose chevron follows the group's disclosure `fraction`.
+pub(super) fn accordion(
     content: &mut Content<'_, '_>,
     label: &str,
     fraction: f32,
-    action: Action,
+    action: MenuAction,
 ) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let bounds = [left, content.y, right, content.y + content.canvas.r(4.8)];
-    let action = command(action);
     let state = content.canvas.interaction(content.view, Some(action));
     let motion = content
         .canvas
@@ -294,15 +316,15 @@ fn chevron(canvas: &mut Canvas<'_>, centre: [f32; 2], fraction: f32) -> Result<(
     Ok(())
 }
 
+/// A card's artwork icon, else the base-pack or missing-icon placeholder.
 fn thumbnail(
     content: &mut Content<'_, '_>,
     bounds: Bounds,
-    snapshot: Option<(&Snapshot, &resource_pack::InstalledPack)>,
+    icon: Option<&str>,
+    base: bool,
 ) -> Result<(), PaintError> {
     content.canvas.fill(bounds, theme::NEUTRAL80.fill)?;
-    let icon = snapshot
-        .and_then(|(snapshot, pack)| snapshot.icons.get(&(pack.id.to_string(), pack.revision)))
-        .and_then(|path| content.canvas.artwork?.get(path).copied());
+    let icon = icon.and_then(|path| content.canvas.artwork?.get(path).copied());
     if let Some(icon) = icon {
         let source = [
             (icon.uv[2] - icon.uv[0]) as f32,
@@ -319,7 +341,7 @@ fn thumbnail(
             .canvas
             .icon_ref(icon, [at[0], at[1], at[0] + size[0], at[1] + size[1]])?;
     } else if !content.canvas.sprite(
-        if snapshot.is_none() {
+        if base {
             BASE_PACK_IMAGE
         } else {
             MISSING_PACK_IMAGE
@@ -328,7 +350,7 @@ fn thumbnail(
         [255; 4],
     )? {
         content.canvas.text_centred(
-            if snapshot.is_none() { "V" } else { "?" },
+            if base { "V" } else { "?" },
             bounds,
             theme::SECTION_HEADER,
             TEXT_DIMMER,
@@ -354,6 +376,7 @@ fn base_card(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             content.y + pad + side,
         ],
         None,
+        true,
     )?;
     let text_left = left + side + 2.0 * pad;
     let width = (right - text_left - pad).max(1.0);
@@ -375,25 +398,31 @@ fn base_card(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-fn pack_card(
+/// A library card's header row; details reveal `body` under it inside the card's frame.
+pub(super) struct Face<'a> {
+    pub(super) icon: Option<&'a str>,
+    pub(super) title: &'a str,
+    pub(super) subtitle: &'a str,
+    pub(super) expanded: bool,
+    pub(super) toggle: MenuAction,
+    pub(super) details: f32,
+    pub(super) interactive: bool,
+}
+
+/// Draws a card's header and its revealed details, whose contents `body` draws.
+pub(super) fn card(
     content: &mut Content<'_, '_>,
-    snapshot: &Snapshot,
-    pack: &resource_pack::InstalledPack,
-    active: bool,
-    index: usize,
-    details: f32,
-    interactive: bool,
+    face: Face<'_>,
+    body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
 ) -> Result<(), PaintError> {
     let [left, right] = content.inset();
-    let expanded = snapshot.details_expanded == Some((active, index));
-    let action = command(Action::ReadMore(active, index));
     let header = [left, content.y, right, content.y + content.canvas.r(7.2)];
     widgets::row(
         content.canvas,
         content.view,
         header,
-        expanded,
-        interactive.then_some(action),
+        face.expanded,
+        face.interactive.then_some(face.toggle),
     )?;
     let pad = content.canvas.r(1.2);
     let side = content.canvas.r(4.8);
@@ -405,25 +434,20 @@ fn pack_card(
             left + pad + side,
             content.y + pad + side,
         ],
-        Some((snapshot, pack)),
+        face.icon,
+        false,
     )?;
     let text_left = left + side + 2.0 * pad;
     let width = (right - text_left - pad - content.canvas.r(2.4)).max(1.0);
     content.canvas.text_line(
-        &pack.name,
+        face.title,
         [text_left, content.y + content.canvas.r(1.6)],
         width,
         BODY,
         TEXT,
     )?;
-    let version = pack.version.map(|part| part.to_string()).join(".");
-    let subtitle = if active {
-        format!("Priority {} · v{version}", index + 1)
-    } else {
-        format!("Ready to activate · v{version}")
-    };
     content.canvas.text_line(
-        &subtitle,
+        face.subtitle,
         [text_left, content.y + content.canvas.r(3.6)],
         width,
         CAPTION,
@@ -435,20 +459,68 @@ fn pack_card(
             right - pad - content.canvas.r(1.2),
             (header[1] + header[3]) * 0.5,
         ],
-        details,
+        face.details,
     )?;
     content.y = header[3];
-    reveal(content, details, expanded && interactive, |content| {
-        let top = content.y;
-        let background = content.canvas.nodes.len();
-        content.canvas.fill(
-            [left, top, right, top + content.canvas.r(EDGE)],
-            theme::NEUTRAL80.fill,
-        )?;
-        let span = content.span;
-        content.span = [span[0] + pad, span[1] - pad];
+    reveal(
+        content,
+        face.details,
+        face.expanded && face.interactive,
+        |content| {
+            let top = content.y;
+            let background = content.canvas.nodes.len();
+            content.canvas.fill(
+                [left, top, right, top + content.canvas.r(EDGE)],
+                theme::NEUTRAL80.fill,
+            )?;
+            let span = content.span;
+            content.span = [span[0] + pad, span[1] - pad];
+            content.y += content.canvas.r(1.2);
+            body(content)?;
+            content.y += content.canvas.r(1.2);
+            content.span = span;
+            content
+                .canvas
+                .resize_fill(background, [left, top, right, content.y])?;
+            content
+                .canvas
+                .frame([left, top, right, content.y], EDGE, theme::BORDER)?;
+            Ok(())
+        },
+    )?;
+    content.y += content.canvas.r(0.8);
+    Ok(())
+}
+
+fn pack_card(
+    content: &mut Content<'_, '_>,
+    snapshot: &Snapshot,
+    pack: &resource_pack::InstalledPack,
+    active: bool,
+    index: usize,
+    details: f32,
+    interactive: bool,
+) -> Result<(), PaintError> {
+    let version = pack.version.map(|part| part.to_string()).join(".");
+    let subtitle = if active {
+        format!("Priority {} · v{version}", index + 1)
+    } else {
+        format!("Ready to activate · v{version}")
+    };
+    let face = Face {
+        icon: snapshot
+            .icons
+            .get(&(pack.id.to_string(), pack.revision))
+            .map(String::as_str),
+        title: &pack.name,
+        subtitle: &subtitle,
+        expanded: snapshot.details_expanded == Some((active, index)),
+        toggle: command(Action::ReadMore(active, index)),
+        details,
+        interactive,
+    };
+    card(content, face, |content| {
         let [inner_left, inner_right] = content.inset();
-        content.y += content.canvas.r(1.2);
         if !pack.description.is_empty() {
             caption(content, &pack.description)?;
         }
@@ -502,48 +574,41 @@ fn pack_card(
                 buttons.push((
                     "Move up",
                     Variant::Neutral,
-                    available.then_some(Action::MoveUp(index)),
+                    available.then_some(command(Action::MoveUp(index))),
                 ));
             }
             if index + 1 < snapshot.active.len() {
                 buttons.push((
                     "Move down",
                     Variant::Neutral,
-                    available.then_some(Action::MoveDown(index)),
+                    available.then_some(command(Action::MoveDown(index))),
                 ));
             }
             buttons.push((
                 "Deactivate",
                 Variant::Secondary,
-                available.then_some(Action::Deactivate(index)),
+                available.then_some(command(Action::Deactivate(index))),
             ));
         } else {
             buttons.push((
                 "Activate",
                 Variant::Primary,
-                available.then_some(Action::Activate(index)),
+                available.then_some(command(Action::Activate(index))),
             ));
         }
-        actions(content, &buttons)?;
-        content.y += content.canvas.r(1.2);
-        content.span = span;
-        content
-            .canvas
-            .resize_fill(background, [left, top, right, content.y])?;
-        content
-            .canvas
-            .frame([left, top, right, content.y], EDGE, theme::BORDER)?;
-        Ok(())
-    })?;
-    content.y += content.canvas.r(0.8);
-    Ok(())
+        actions(content, &buttons)
+    })
 }
 
-fn empty_library(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
+/// The empty-library panel: a title over a one-line explanation.
+pub(super) fn empty(
+    content: &mut Content<'_, '_>,
+    title: &str,
+    text: &str,
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let pad = content.canvas.r(1.2);
     let width = (right - left - 2.0 * pad).max(1.0);
-    let text = "Import a .mcpack or .mcaddon to add your own textures.";
     let description = content.canvas.measure_height(text, width, CAPTION)?;
     let bounds = [
         left,
@@ -552,13 +617,9 @@ fn empty_library(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         content.y + description + content.canvas.r(4.8),
     ];
     widgets::panel(content.canvas, bounds)?;
-    content.canvas.text_line(
-        "No imported packs",
-        [left + pad, content.y + pad],
-        width,
-        BODY,
-        TEXT,
-    )?;
+    content
+        .canvas
+        .text_line(title, [left + pad, content.y + pad], width, BODY, TEXT)?;
     content.canvas.text(
         text,
         [left + pad, content.y + content.canvas.r(3.2)],
@@ -571,9 +632,10 @@ fn empty_library(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     Ok(())
 }
 
-fn actions(
+/// Lays buttons out in as many equal columns as their labels fit.
+pub(super) fn actions(
     content: &mut Content<'_, '_>,
-    buttons: &[(&str, Variant, Option<Action>)],
+    buttons: &[(&str, Variant, Option<MenuAction>)],
 ) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let gap = content.canvas.r(0.8);
@@ -597,7 +659,7 @@ fn actions(
             [x, y, x + cell, y + height],
             *variant,
             label,
-            action.map(command),
+            *action,
         )?;
     }
     let rows = buttons.len().div_ceil(columns);

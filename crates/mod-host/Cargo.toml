@@ -16,48 +16,36 @@ reads = [
 ]
 
 [features]
-default = ["execution"]
-# The Wasmtime component host (local mods and the server helper); clients spawning helpers opt out.
-execution = [
-    "dep:experience-sdk",
-    "dep:mod-api",
-    "dep:mod-render",
-    "dep:sha2",
-    "dep:ui",
-    "dep:wasmtime",
-    "dep:wit-component",
-    "dep:rustix",
-]
 # Links the native AV1/Opus decoders into the memory-limited media helper.
 media = ["server-experience/developer-media"]
 
 [[bin]]
 name = "mod-host"
 path = "src/main.rs"
-required-features = ["execution"]
 
 [[bin]]
 name = "cinnabar-media-helper"
 path = "src/bin/media_helper.rs"
 
 [dependencies]
-experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"], optional = true }
-mod-api = { path = "../mod-api", optional = true }
-mod-render = { path = "../mod-render", optional = true }
-ui = { path = "../ui", optional = true }
+experience-sdk = { path = "../experience-sdk", default-features = false, features = ["declarations"] }
+mod-api = { path = "../mod-api" }
+mod-render = { path = "../mod-render" }
+ui = { path = "../ui" }
 anyhow.workspace = true
-sha2 = { workspace = true, optional = true }
+sha2 = { workspace = true }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 server-experience = { path = "../server-experience" }
-wasmtime = { workspace = true, optional = true }
-wit-component = { workspace = true, optional = true }
+wasmtime = { workspace = true }
+wit-component = { workspace = true }
+wasmparser = { version = "=0.247.0" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_Storage_FileSystem"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "=1.1.4", features = ["fs"], optional = true }
+rustix = { version = "=1.1.4", features = ["fs"] }
 
 [dev-dependencies]
 test-time = { path = "../test-time" }

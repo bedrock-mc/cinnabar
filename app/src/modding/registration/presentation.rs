@@ -2,43 +2,6 @@
 
 use super::*;
 
-/// Removes only the registered component; environment-loaded components retain their state.
-pub(super) fn clear_owned_state(world: &mut World) -> Option<ModHost> {
-    if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
-        presentation
-            .mod_ui_mut()
-            .set_prepared_panel_ui(mod_ui::PanelUiOwner::Registration, None);
-    }
-    let Some(runtime) = world.get_resource::<ModRuntime>() else {
-        clear_presentation(world);
-        return None;
-    };
-    let index = runtime.registration_host?;
-    if index > 0 {
-        let mut runtime = world.resource_mut::<ModRuntime>();
-        runtime.registration_host = None;
-        runtime.registration_identity = None;
-        runtime.registration_request = None;
-        if runtime
-            .hud_editor_owner
-            .is_some_and(|owner| owner.host == index)
-        {
-            runtime.hud_editor_owner = None;
-        }
-        runtime.controls = mod_host::empty_controls();
-        runtime.panel_fonts.remove(index);
-        runtime.render_sources.clear();
-        return Some(runtime.hosts.remove_companion(index));
-    }
-    let previous = world
-        .remove_resource::<ModRuntime>()
-        .map(|runtime| runtime.hosts.host);
-    world.remove_resource::<VisualTimeOverride>();
-    world.remove_resource::<ModInteraction>();
-    clear_presentation(world);
-    previous
-}
-
 /// Restores retained surfaces from the remaining hosts after a registration transition.
 pub(super) fn refresh_presentation(world: &mut World) {
     if !world.contains_resource::<ModRuntime>() {
@@ -49,7 +12,7 @@ pub(super) fn refresh_presentation(world: &mut World) {
             return;
         };
         let owner = runtime.hosts.panel_owner();
-        let _ = presentation.set_mod_panel_font(runtime.panel_fonts[owner].clone());
+        let _ = presentation.set_mod_panel_font(runtime.metadata[owner].font.clone());
         let _ = presentation.mod_ui_mut().set_mod_panel(
             runtime.panel_ui_owner(owner),
             runtime.hosts.host(owner).panel(),
@@ -57,11 +20,8 @@ pub(super) fn refresh_presentation(world: &mut World) {
         presentation
             .mod_ui_mut()
             .set_mod_panel_open(runtime.hosts.host(owner).panel_open());
-        let hud = runtime
-            .hosts
-            .hud_owner()
-            .and_then(|index| runtime.hosts.host(index).hud());
-        let _ = presentation.set_mod_hud(hud);
+        let hud = runtime.hosts.merged_hud();
+        let _ = presentation.set_mod_hud(hud.as_ref());
         let crosshair = runtime
             .hosts
             .crosshair_owner()
@@ -102,12 +62,7 @@ pub(super) fn clear_presentation(world: &mut World) {
         camera.set_view_scale(1.0, 1.0);
     }
     if let Some(mut presentation) = world.get_resource_mut::<UiPresentationResource>() {
-        presentation
-            .mod_ui_mut()
-            .set_prepared_panel_ui(mod_ui::PanelUiOwner::Registration, None);
-        let _ = presentation
-            .mod_ui_mut()
-            .set_mod_panel(mod_ui::PanelUiOwner::Registration, None);
+        presentation.mod_ui_mut().clear_mod_panels();
         let _ = presentation.mod_ui_mut().set_mod_label(None);
         let _ = presentation.set_mod_hud(None);
         let _ = presentation.mod_ui_mut().set_mod_crosshair(None);

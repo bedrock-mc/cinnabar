@@ -30,7 +30,10 @@ impl Category {
 
 /// Classifies a destination using the import registry and accepted keyboard controls.
 pub fn category(key: &str) -> Category {
-    if let Some(mapping) = MAPPINGS.iter().find(|mapping| mapping.destination == key) {
+    if let Some(mapping) = MAPPINGS
+        .iter()
+        .find(|mapping| mapping.destination.name() == key)
+    {
         mapping.category
     } else if KEY_BINDINGS.iter().any(|(_, name)| *name == key)
         || EXTRA_KEYS.iter().any(|(name, _)| *name == key)

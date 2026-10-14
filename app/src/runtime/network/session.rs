@@ -28,7 +28,6 @@ pub struct NetworkConfig {
 pub fn spawn_network(
     config: NetworkConfig,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
-    #[cfg(feature = "local-mods")]
     let socket_dir = config.socket_dir.clone();
     let actor_artwork = config.actor_artwork;
     let ui_catalog = config.ui_catalog;
@@ -82,16 +81,7 @@ pub fn spawn_network(
             fast_transfer_action_marker: Some(client_ui::diagnostic_markers::FAST_TRANSFER_ACTION),
         },
     )
-    .map(|inner| {
-        #[cfg(feature = "local-mods")]
-        {
-            NetworkHandle::connected(inner, socket_dir)
-        }
-        #[cfg(not(feature = "local-mods"))]
-        {
-            inner.into()
-        }
-    })
+    .map(|inner| NetworkHandle::connected(inner, socket_dir))
 }
 
 /// Attaches the acceptance-owned marker to the transport's serialized observation.

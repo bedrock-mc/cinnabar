@@ -4,6 +4,8 @@ use render_api::{BEDROCK_112, CombatVisuals};
 use render_model::legacy_combat::legacy_swing_pose;
 
 #[cfg(test)]
+mod pack_tests;
+#[cfg(test)]
 mod tests;
 
 /// Leaves item-use and special movement postures on their authored animation path.

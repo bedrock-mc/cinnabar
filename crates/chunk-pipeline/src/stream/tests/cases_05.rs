@@ -145,7 +145,7 @@ fn request_modes_use_vanilla_dimension_base_and_bounded_counts() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
 
@@ -207,7 +207,7 @@ fn publication_distinguishes_ready_from_transport_pending_requests() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 2, -3);
@@ -264,7 +264,7 @@ fn outbound_request_fifo_has_a_hard_admission_capacity() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for index in 0..super::OUTBOUND_REQUEST_CAPACITY {
@@ -839,7 +839,7 @@ fn unavailable_value_is_preserved_and_y_out_of_bounds_leaves_empty_slot_as_air()
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let chunk = ChunkKey::new(0, 0, 0);
@@ -1004,7 +1004,7 @@ fn request_mode_evicts_the_old_column_and_invalidates_its_neighbours() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 3, -4, -2);
@@ -1077,7 +1077,7 @@ fn changed_sub_chunk_dirties_center_and_six_face_neighbours_once() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 4, -2, 9);

@@ -30,6 +30,16 @@ pub(super) struct Modal<'a> {
 }
 
 impl<'a> Modal<'a> {
+    /// Measures the pinned button tray in rem, including its padding and gaps.
+    fn tray_height(&self) -> f32 {
+        let count = self.buttons.len() as f32;
+        if count > 0.0 {
+            count * BUTTON + (count - 1.0) * BUTTON_GAP + PAD * 2.0
+        } else {
+            0.0
+        }
+    }
+
     fn text(title: &'a str, body: impl Into<Cow<'a, str>>) -> Self {
         Self {
             title,
@@ -46,6 +56,7 @@ const MAX_WIDTH: f32 = 47.6;
 const HEADER: f32 = 4.8;
 const ITEM: f32 = 4.8;
 const BUTTON: f32 = 4.4;
+const BUTTON_GAP: f32 = 0.4;
 /// Text and button tray padding.
 const PAD: f32 = 1.6;
 /// The overlay's padding above and below the panel.
@@ -95,8 +106,33 @@ pub(super) fn draw_bounded(
     draw_inner(canvas, view, size, modal, false, max_height)
 }
 
-/// Shares modal geometry while allowing one caller to reserve more space around its panel.
+/// Fits fixed modal chrome and a visible content row within the caller's height cap.
 fn draw_inner(
+    canvas: &mut Canvas<'_>,
+    view: &MenuView,
+    size: [f32; 2],
+    modal: &Modal<'_>,
+    dismiss_overlay: bool,
+    max_height: f32,
+) -> Result<Option<FocusedItem>, PaintError> {
+    let tray = modal.tray_height();
+    let content = if !modal.items.is_empty() {
+        ITEM * 0.5
+    } else if !modal.body.is_empty() {
+        CAPTION.line + PAD * 2.0
+    } else {
+        0.0
+    };
+    let header_edge = if modal.items.is_empty() { EDGE } else { 0.0 };
+    let minimum = MARGIN * 2.0 + EDGE * 2.0 + HEADER + header_edge + tray + content;
+    let scale = (max_height.min(size[1]) / canvas.r(minimum)).min(1.0);
+    canvas.with_scale(scale, |canvas| {
+        draw_fitted(canvas, view, size, modal, dismiss_overlay, max_height)
+    })
+}
+
+/// Draws a modal whose fixed controls and minimum content fit at the current canvas scale.
+fn draw_fitted(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
     size: [f32; 2],
@@ -122,12 +158,7 @@ fn draw_inner(
         canvas.measure_height(&modal.body, inner - pad * 2.0, CAPTION)? + pad * 2.0
     };
     let header = canvas.r(HEADER) + if list > 0.0 { 0.0 } else { edge };
-    let buttons = modal.buttons.len() as f32;
-    let tray = if buttons > 0.0 {
-        buttons * canvas.r(BUTTON) + (buttons - 1.0) * canvas.r(0.4) + pad * 2.0
-    } else {
-        0.0
-    };
+    let tray = canvas.r(modal.tray_height());
     let overlap = if dismiss_overlay && list > 0.0 {
         edge
     } else {
@@ -211,7 +242,7 @@ fn draw_inner(
         for (label, variant, action) in &modal.buttons {
             let button_bounds = [b[0] + pad, y, b[2] - pad, y + canvas.r(BUTTON)];
             button(canvas, view, button_bounds, *variant, label, *action)?;
-            y = button_bounds[3] + canvas.r(0.4);
+            y = button_bounds[3] + canvas.r(BUTTON_GAP);
         }
     }
     if content <= 0.0 {

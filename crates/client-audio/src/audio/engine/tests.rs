@@ -5,6 +5,7 @@ use assets::{
     sound_bank::SoundBankIndex,
 };
 
+use assets::audio_category::AudioCategory;
 mod weather;
 
 fn definition(name: &str, category: &str) -> AudioDefinition {

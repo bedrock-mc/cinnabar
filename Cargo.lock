@@ -453,6 +453,7 @@ dependencies = [
  "flate2",
  "glam",
  "lewton",
+ "protocol-ids",
  "rayon",
  "rustix 1.1.4",
  "serde",
@@ -2042,11 +2043,13 @@ dependencies = [
  "client-world",
  "criterion",
  "crossbeam-channel",
+ "far-terrain",
  "hashbrown 0.16.1",
  "libc",
  "meshing",
  "mimalloc",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "serde_json",
@@ -2115,6 +2118,7 @@ dependencies = [
  "diagnostics",
  "env-compat",
  "experience-sdk",
+ "far-terrain",
  "first-run",
  "fontdue",
  "gameplay",
@@ -2145,6 +2149,7 @@ dependencies = [
  "player-state",
  "profiling",
  "protocol",
+ "protocol-ids",
  "raw-window-handle",
  "rayon",
  "render",
@@ -2304,6 +2309,7 @@ dependencies = [
  "particles",
  "player-state",
  "protocol",
+ "protocol-ids",
  "resource-pack",
  "rodio",
  "serde_json",
@@ -2362,6 +2368,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "semantic-input",
  "sha2",
  "sim",
@@ -2391,6 +2398,7 @@ dependencies = [
  "pack-entity-compiler",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "render-scene",
@@ -2429,6 +2437,7 @@ dependencies = [
  "meshing",
  "pack-runtime",
  "protocol",
+ "protocol-ids",
  "redb",
  "render",
  "render-api",
@@ -2448,6 +2457,7 @@ dependencies = [
  "bytes",
  "crossbeam-channel",
  "protocol",
+ "protocol-ids",
  "serde_json",
  "server-experience",
  "simulation-clock",
@@ -2541,6 +2551,7 @@ dependencies = [
  "pack-json",
  "player-state",
  "protocol",
+ "protocol-ids",
  "rayon",
  "render-api",
  "render-model",
@@ -2575,6 +2586,7 @@ dependencies = [
  "bytes",
  "hashbrown 0.16.1",
  "protocol",
+ "protocol-ids",
  "render-api",
  "render-model",
  "sha2",
@@ -3522,6 +3534,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
+name = "far-terrain"
+version = "0.1.19"
+dependencies = [
+ "assets",
+ "criterion",
+ "crossbeam-channel",
+ "flate2",
+ "rayon",
+ "render-api",
+ "sha2",
+ "tempfile",
+ "test-time",
+ "thiserror 2.0.18",
+ "tracing",
+ "world",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3783,6 +3814,7 @@ dependencies = [
  "inventory 0.1.19",
  "player-state",
  "protocol",
+ "protocol-ids",
  "render-api",
  "semantic-input",
  "serde",
@@ -3925,6 +3957,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gl_generator"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a95dfc23a2b4a9a2f5ab41d194f8bfda3cabec42af4e39f08c339eb2a0c124d"
+dependencies = [
+ "khronos_api",
+ "log",
+ "xml-rs",
+]
+
+[[package]]
 name = "glam"
 version = "0.33.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3943,6 +3986,27 @@ name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
+
+[[package]]
+name = "glow"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29038e1c483364cc6bb3cf78feee1816002e127c331a1eec55a4d202b9e1adb5"
+dependencies = [
+ "js-sys",
+ "slotmap",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "glutin_wgl_sys"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c4ee00b289aba7a9e5306d57c2d05499b2e5dc427f84ac708bd2c090212cf3e"
+dependencies = [
+ "gl_generator",
+]
 
 [[package]]
 name = "gpu-allocator"
@@ -4019,6 +4083,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
  "foldhash 0.2.0",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -4340,6 +4406,7 @@ dependencies = [
  "assets",
  "bytes",
  "protocol",
+ "protocol-ids",
  "serde",
  "serde_json",
  "sha2",
@@ -4552,6 +4619,23 @@ dependencies = [
  "serde_json",
  "uuid",
 ]
+
+[[package]]
+name = "khronos-egl"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
+dependencies = [
+ "libc",
+ "libloading",
+ "pkg-config",
+]
+
+[[package]]
+name = "khronos_api"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "ktx2"
@@ -5012,6 +5096,7 @@ dependencies = [
  "tempfile",
  "test-time",
  "ui",
+ "wasmparser 0.247.0",
  "wasmtime",
  "wat",
  "windows-sys 0.61.2",
@@ -6141,6 +6226,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "futures",
+ "protocol-ids",
  "render-api",
  "serde",
  "serde_json",
@@ -6156,6 +6242,10 @@ dependencies = [
  "xxhash-rust",
  "zeroize",
 ]
+
+[[package]]
+name = "protocol-ids"
+version = "0.1.19"
 
 [[package]]
 name = "pulley-interpreter"
@@ -6484,6 +6574,7 @@ dependencies = [
  "block-transform",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "image",
  "libc",
@@ -6552,6 +6643,7 @@ dependencies = [
  "bevy",
  "bytemuck",
  "env-compat",
+ "far-terrain",
  "glam",
  "meshing",
  "mod-api",
@@ -8157,6 +8249,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
  "semver",
+ "serde",
 ]
 
 [[package]]
@@ -8544,6 +8637,7 @@ checksum = "d8eab23fefc9e41f8e841df4a9c707e8a8c4ed26e944ef69297184de2785e3be"
 dependencies = [
  "dlib",
  "log",
+ "once_cell",
  "pkg-config",
 ]
 
@@ -8693,6 +8787,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.18",
  "wgpu-core-deps-apple",
+ "wgpu-core-deps-emscripten",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
  "wgpu-naga-bridge",
@@ -8701,6 +8796,14 @@ dependencies = [
 
 [[package]]
 name = "wgpu-core-deps-apple"
+version = "30.0.1"
+source = "git+https://github.com/bedrock-mc/wgpu?rev=9686723e5deb6341cf9f088515ced3c8e6fe4f29#9686723e5deb6341cf9f088515ced3c8e6fe4f29"
+dependencies = [
+ "wgpu-hal",
+]
+
+[[package]]
+name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
 source = "git+https://github.com/bedrock-mc/wgpu?rev=9686723e5deb6341cf9f088515ced3c8e6fe4f29#9686723e5deb6341cf9f088515ced3c8e6fe4f29"
 dependencies = [
@@ -8729,13 +8832,18 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
+ "glow",
+ "glutin_wgl_sys",
  "gpu-allocator",
  "hashbrown 0.17.1",
+ "js-sys",
+ "khronos-egl",
  "libc",
  "libloading",
  "log",
  "naga",
  "naga-types",
+ "ndk-sys 0.6.0+11769913",
  "objc2 0.6.4",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -8755,10 +8863,14 @@ dependencies = [
  "smallvec",
  "static_assertions",
  "thiserror 2.0.18",
+ "wasm-bindgen",
+ "wayland-sys",
+ "web-sys",
  "wgpu-naga-bridge",
  "wgpu-types",
  "windows 0.62.2",
  "windows-core 0.62.2",
+ "windows-result 0.4.1",
 ]
 
 [[package]]
@@ -9608,6 +9720,12 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
+
+[[package]]
+name = "xml-rs"
+version = "0.8.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xxhash-rust"

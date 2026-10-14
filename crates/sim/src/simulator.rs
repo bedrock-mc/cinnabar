@@ -71,7 +71,7 @@ pub const JUMP_DELAY_TICKS: u8 = 10;
 // Vanilla move finalization uses the f32 epsilon.
 const COLLISION_EPSILON: f64 = f32::EPSILON as f64;
 /// `bedsim v0.1.3` `ClimbSpeed`, vanilla's ladder ascent speed.
-const CLIMB_SPEED: f64 = 0.2;
+const CLIMB_SPEED: f64 = 0.2_f32 as f64;
 /// Jump power scale for blocks that prevent jumping (honey).
 const HONEY_JUMP_FACTOR: f32 = 0.6;
 const SOUL_SAND_ACCELERATION_FRICTION: f32 = 1.225;
@@ -108,7 +108,7 @@ impl Simulator {
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
-        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        let mut sampled = sample(world, position, height, None)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
@@ -169,7 +169,7 @@ impl Simulator {
             .tick
             .checked_add(1)
             .ok_or(SimulationError::TickOverflow)?;
-        if next.velocity.length_squared() < 1.0e-12 {
+        if next.velocity.length_squared() < f64::from(1.0e-12_f32) {
             next.velocity = Vec3::ZERO;
         }
 
@@ -185,7 +185,6 @@ impl Simulator {
         let mut sampled = sample(
             world,
             next.position,
-            next.velocity,
             input.mode.hitbox_height(input.sneaking),
             input.liquid_contact_height,
         )?;

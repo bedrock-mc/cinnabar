@@ -25,6 +25,8 @@ pub enum AirUse {
     Throw {
         cooldown: Option<Cooldown>,
     },
+    /// A gliding rocket swings without starting a held use or consuming a stack locally.
+    GlideRocket,
     Instant {
         unloaded: CrossbowUse,
     },
@@ -36,6 +38,7 @@ impl AirUse {
         match self {
             Self::Throw { cooldown } | Self::Hold { cooldown, .. } => cooldown,
             Self::Instant { unloaded } => unloaded.cooldown,
+            Self::GlideRocket => None,
         }
     }
     /// Crossbow actions consume fresh presses; other admitted actions may repeat.
@@ -85,6 +88,7 @@ pub fn classify(profile: EffectiveItemUse, charged: bool, quick_charge: u8) -> O
         ItemUseKind::Throw => Some(AirUse::Throw {
             cooldown: profile.cooldown,
         }),
+        ItemUseKind::GlideRocket => Some(AirUse::GlideRocket),
         ItemUseKind::Hold | ItemUseKind::Crossbow => {
             let max_ticks = profile.ticks?;
             let max_ticks = if profile.kind == Some(ItemUseKind::Crossbow) {

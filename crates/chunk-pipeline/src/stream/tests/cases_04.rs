@@ -8,7 +8,7 @@ fn local_actor_motion_commits_as_a_control_event_and_foreign_motion_is_dropped()
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let motion = |actor_runtime_id: u64| {
@@ -42,7 +42,7 @@ fn latency_fences_retain_motion_order_and_restored_controls_keep_admission_bound
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -90,7 +90,7 @@ fn player_list_only_updates_commit_a_tab_cache_refresh_marker() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream
@@ -117,7 +117,7 @@ fn respawn_commits_as_a_local_position_authority_change() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let respawn = RespawnEvent {
@@ -150,7 +150,7 @@ fn respawn_search_and_unknown_phases_keep_live_position_authority() {
         local_player_unique_id: 1,
         player_position: position,
         world_spawn_position: [3, 70, -5],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     for (sequence, state) in [(1, 0), (2, 2), (3, u8::MAX)] {
@@ -188,7 +188,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let correction = |tick, position| PlayerMovementCorrectionEvent {
@@ -231,7 +231,7 @@ fn vehicle_correction_subject_commits_nothing_and_cannot_advance_the_tick_guard(
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let correction = |subject, tick| PlayerMovementCorrectionEvent {
@@ -290,7 +290,7 @@ fn render_backpressure_retry_preserves_change_order_for_eventual_delivery() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let first = SubChunkKey::new(0, 1, 2, 3);
@@ -337,7 +337,7 @@ fn urgent_mesh_change_preempts_queued_bulk_publication() {
         local_player_unique_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let bulk = SubChunkKey::new(0, 8, 0, 0);
@@ -377,7 +377,7 @@ fn render_publication_retry_and_eviction_preserve_diagnostic_identity_summary() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 1, 2, 3);
@@ -443,7 +443,7 @@ fn mesh_completion_carries_current_palette_native_biome_record() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -510,7 +510,7 @@ fn stale_biome_snapshot_cannot_publish_an_old_tint_record() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -581,7 +581,7 @@ fn changed_neighbour_biome_cannot_publish_a_stale_cross_chunk_blend() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -654,7 +654,7 @@ fn remesh_latency_closes_only_when_the_exact_generation_is_applied() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
@@ -752,7 +752,7 @@ fn timed_session_resets_pre_ready_duration_high_water_marks_only() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.stats.max_decode_duration = std::time::Duration::from_secs(3);
@@ -837,7 +837,7 @@ fn mesh_ack_diagnostic_retains_latest_timestamp_when_acks_arrive_out_of_order() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let started = Instant::now();
@@ -862,13 +862,17 @@ fn starved_publication_tokens_still_dispatch_when_nothing_is_in_flight() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let key = SubChunkKey::new(0, 0, -4, 0);
     stream
         .authority
-        .update_block(key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+        .update_block(
+            key,
+            BlockUpdate::new(0, 0, 0, 0, 99),
+            protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        )
         .unwrap();
     stream.resident.insert(key);
     stream.mark_light_changed_sources([key]);
@@ -899,7 +903,7 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     // Six dispatchable resident meshes exceed the floor, so the exact-count
@@ -911,7 +915,11 @@ fn starved_mesh_dispatch_floor_admits_exactly_the_floor_through_poll() {
     for key in &keys {
         stream
             .authority
-            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(
+                *key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            )
             .unwrap();
         stream.resident.insert(*key);
     }
@@ -954,7 +962,7 @@ fn starved_mesh_dispatch_floor_never_exceeds_the_callers_budget() {
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     let keys = (0..6)
@@ -963,7 +971,11 @@ fn starved_mesh_dispatch_floor_never_exceeds_the_callers_budget() {
     for key in &keys {
         stream
             .authority
-            .update_block(*key, BlockUpdate::new(0, 0, 0, 0, 99), 12_530)
+            .update_block(
+                *key,
+                BlockUpdate::new(0, 0, 0, 0, 99),
+                protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+            )
             .unwrap();
         stream.resident.insert(*key);
     }
@@ -994,7 +1006,7 @@ fn starved_mesh_dispatch_floor_never_invents_work_with_an_empty_pending_queue() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     // Same exhausted publication window as the floor witness, but with no
@@ -1038,7 +1050,7 @@ fn normalization_breakdown_distinguishes_inactive_and_malformed_world_traffic() 
         local_player_runtime_id: 1,
         player_position: [0.0; 3],
         world_spawn_position: [0; 3],
-        air_network_id: 12_530,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     });
     stream.chunk_radius = Some(0);
@@ -1096,7 +1108,7 @@ fn max_block_update_batch_prepares_off_thread_and_commits_atomically_in_fifo() {
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 12_530,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         },
         Arc::new(block_entity_visual_assets()),

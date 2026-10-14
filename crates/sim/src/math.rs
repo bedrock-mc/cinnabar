@@ -60,6 +60,13 @@ impl Vec3 {
 
 const TRIG_INDEX_SCALE: f32 = 10_430.378;
 
+/// Normalizes a ray in float precision, rejecting nonfinite and near-zero directions.
+pub fn normalize_direction(direction: [f32; 3]) -> Option<[f32; 3]> {
+    let [x, y, z] = direction;
+    let length = (y * y + x * x + z * z).sqrt();
+    (length.is_finite() && length >= 0.0001).then(|| direction.map(|axis| axis / length))
+}
+
 /// Samples the native float table, including float division during initialization.
 fn sine_table(index: i32) -> f64 {
     // The divisor is also the lookup's index multiplier.

@@ -19,6 +19,7 @@ use {
     client_state::PlayerRuntime,
 };
 
+use launcher::menu::settings_options::SettingId;
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
 pub(crate) fn publish_local_actor_damage(
     world: Res<ClientWorld>,
@@ -168,8 +169,8 @@ pub(crate) fn advance_actor_frame(
         hide_hand: menu.as_ref().is_some_and(|menu| {
             let settings = menu.settings_snapshot().0;
             !client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
-                settings.value("hide_hud") != 0,
-                settings.value("hide_hand") != 0,
+                settings.value(SettingId::HideHud) != 0,
+                settings.value(SettingId::HideHand) != 0,
                 player.facts.player_game_mode() == Some(protocol::PlayerGameMode::Spectator),
             )
             .hand

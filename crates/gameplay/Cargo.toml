@@ -36,6 +36,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+protocol-ids = { path = "../protocol-ids" }
 protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]

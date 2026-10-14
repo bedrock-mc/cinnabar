@@ -8,6 +8,7 @@ fn event(session: u64, sequence: u64) -> SequencedAudioEvent {
         origin_stream_session_id: session,
         dimension: 0,
         dimension_epoch: 0,
+        client_generated: false,
         actor_synchronization: None,
         sequence,
         event: protocol::AudioEvent::Play(protocol::PlayAudioEvent {
@@ -28,7 +29,7 @@ fn stream() -> chunk_pipeline::WorldStream {
         local_player_unique_id: 1,
         player_position: [0.0, 64.0, 0.0],
         world_spawn_position: [0, 64, 0],
-        air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
         block_network_ids_are_hashes: false,
     })
 }

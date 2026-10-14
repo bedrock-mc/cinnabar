@@ -340,3 +340,23 @@ fn play_icon_glimmers_restart_on_selection_and_obey_motion_configuration() {
     transitions.end_frame();
     assert_eq!(transitions.play_icon_frame(2), None);
 }
+
+#[test]
+fn permission_switches_keep_focus_hover_and_press_feedback_across_value_changes() {
+    use launcher::{menu::MenuView, mods::Action};
+    let action =
+        |id, capability, value| MenuAction::Mods(Action::Permission(id, capability, value));
+    let mut view = MenuView::new(true, "Player".into());
+    view.navigation_focus_visible = true;
+    view.focused_action = Some(action(7, 2, false));
+    view.hovered = Some(action(7, 2, false));
+    view.pressed = Some(action(7, 2, false));
+    let _ = crate::review_tests::paint(Default::default(), |canvas| {
+        let feedback = canvas.switch_interaction(&view, Some(action(7, 2, true)));
+        assert!(feedback.focused && feedback.hovered && feedback.pressed);
+        for other in [action(8, 2, true), action(7, 3, true)] {
+            let feedback = canvas.switch_interaction(&view, Some(other));
+            assert!(!feedback.focused && !feedback.hovered && !feedback.pressed);
+        }
+    });
+}

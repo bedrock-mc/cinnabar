@@ -282,7 +282,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
             local_player_unique_id: 42,
             player_position: [8.0, 64.0, 8.0],
             world_spawn_position: [8, 64, 8],
-            air_network_id: protocol::SEQUENTIAL_AIR_NETWORK_ID,
+            air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
             block_network_ids_are_hashes: false,
         })),
         ..ClientWorld::default()

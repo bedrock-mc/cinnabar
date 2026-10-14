@@ -7,13 +7,15 @@ use crate::{Aabb, Vec3};
 
 mod camera;
 mod placement;
+mod precision;
 pub use camera::CameraBlockHit;
 pub use placement::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y};
+use precision::FloatRay;
 
 // Normalization plus boundary subtraction/division can separate one exact
 // geometric event by several representable values. Eight ULPs covers those
 // operations while retaining a scale-relative, finite comparison window.
-const SIMULTANEOUS_CROSSING_ULPS: u64 = 8;
+const SIMULTANEOUS_CROSSING_ULPS: u32 = 8;
 
 /// Authoritative selection-shape intercept for a block interaction ray.
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +26,8 @@ pub struct BlockHit {
     pub face: u8,
     /// Finite block-local intercept coordinates, each clamped to `[0, 1]`.
     pub hit_local: Vec3,
+    /// Unclamped world-space intercept, including selection geometry outside the block cell.
+    pub hit_world: Vec3,
     /// Runtime ID whose authoritative selection shape was intercepted.
     pub runtime_id: u32,
     /// Finite physical distance from the origin along the normalized ray.
@@ -37,8 +41,10 @@ struct Candidate {
     block_pos: [i32; 3],
     face: u8,
     hit_local: Vec3,
+    hit_world: Vec3,
     runtime_id: u32,
     distance: f64,
+    fraction: f32,
     shape_index: usize,
 }
 
@@ -83,10 +89,13 @@ impl PaletteWorld<'_> {
         max_distance: f64,
         expected_identity: Option<&WorldCollisionIdentity>,
     ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let origin = origin.rounded();
+        let max_distance = f64::from(max_distance as f32);
         let direction = validate_ray(origin, direction, max_distance)?;
         let halo = self.registry.selection_ray_halo();
-        let inspection_limit = inspection_limit(direction, max_distance, halo)?;
-        let mut state = TraversalState::new(origin, direction)?;
+        let inspection_limit =
+            inspection_limit(FloatRay::new(origin, direction, max_distance), halo)?;
+        let mut state = TraversalState::new(origin, direction, max_distance)?;
         let mut inspected = BTreeSet::new();
         let mut inspected_count = 0_usize;
         let mut revisions = BTreeMap::new();
@@ -109,8 +118,8 @@ impl PaletteWorld<'_> {
             let next = state.next_crossing();
             if best
                 .as_ref()
-                .is_some_and(|hit| strictly_precedes(hit.distance, next))
-                || next > max_distance
+                .is_some_and(|hit| crossing_order(hit.fraction, next).is_lt())
+                || next > 1.0
             {
                 break;
             }
@@ -139,6 +148,7 @@ impl PaletteWorld<'_> {
             block_pos: best.block_pos,
             face: best.face,
             hit_local: best.hit_local,
+            hit_world: best.hit_world,
             runtime_id: best.runtime_id,
             distance: best.distance,
             identity,
@@ -243,7 +253,7 @@ impl PaletteWorld<'_> {
                 {
                     continue;
                 }
-                let Some((distance, face, point)) = ray_union_box(
+                let Some((fraction, distance, face, point)) = ray_union_box(
                     origin,
                     direction,
                     max_distance,
@@ -253,16 +263,19 @@ impl PaletteWorld<'_> {
                 ) else {
                     continue;
                 };
+                let local = point - offset;
                 let candidate = Candidate {
                     block_pos: block,
                     face,
                     hit_local: Vec3::new(
-                        (point.x - offset.x).clamp(0.0, 1.0),
-                        (point.y - offset.y).clamp(0.0, 1.0),
-                        (point.z - offset.z).clamp(0.0, 1.0),
+                        local.x.clamp(0.0, 1.0),
+                        local.y.clamp(0.0, 1.0),
+                        local.z.clamp(0.0, 1.0),
                     ),
+                    hit_world: point,
                     runtime_id,
                     distance,
+                    fraction,
                     shape_index,
                 };
                 if best
@@ -315,19 +328,12 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
     if !direction.is_finite() {
         return Err(WorldQueryError::InvalidRayDirection);
     }
-    let length = direction.x.hypot(direction.y).hypot(direction.z);
-    if !length.is_finite() || length == 0.0 {
-        return Err(WorldQueryError::InvalidRayDirection);
-    }
     if !max_distance.is_finite() || max_distance <= 0.0 || max_distance > MAX_COLLISION_QUERY_EXTENT
     {
         return Err(WorldQueryError::InvalidRayDistance);
     }
-    let normalized = Vec3::new(
-        direction.x / length,
-        direction.y / length,
-        direction.z / length,
-    );
+    let normalized =
+        precision::normalized(direction).ok_or(WorldQueryError::InvalidRayDirection)?;
     let endpoint = origin + normalized * max_distance;
     if !endpoint.is_finite()
         || [endpoint.x, endpoint.y, endpoint.z]
@@ -340,21 +346,18 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
 }
 
 /// Bounds inspections by supercover traversal length and the registered owner-cell reach.
-fn inspection_limit(
-    direction: Vec3,
-    max_distance: f64,
-    halo: [(i32, i32); 3],
-) -> Result<usize, WorldQueryError> {
+fn inspection_limit(ray: FloatRay, halo: [(i32, i32); 3]) -> Result<usize, WorldQueryError> {
     let halo_cells = halo
         .into_iter()
         .try_fold(1_usize, |count, (min, max)| {
             count.checked_mul(usize::try_from(i64::from(max) - i64::from(min) + 1).ok()?)
         })
         .ok_or(WorldQueryError::RayInspectionLimitExceeded)?;
-    let crossings = [direction.x, direction.y, direction.z]
+    let crossings = ray
+        .delta
         .into_iter()
         .try_fold(0_usize, |total, component| {
-            let axis = (component.abs() * max_distance).ceil() as usize;
+            let axis = component.abs().ceil() as usize;
             total.checked_add(axis.checked_add(2)?)
         })
         .ok_or(WorldQueryError::RayInspectionLimitExceeded)?;
@@ -385,7 +388,7 @@ pub(super) fn checked_offset(
 }
 
 fn candidate_precedes(candidate: &Candidate, previous: &Candidate) -> bool {
-    crossing_order(candidate.distance, previous.distance)
+    crossing_order(candidate.fraction, previous.fraction)
         .then_with(|| candidate.block_pos.cmp(&previous.block_pos))
         .then_with(|| candidate.runtime_id.cmp(&previous.runtime_id))
         .then_with(|| candidate.shape_index.cmp(&previous.shape_index))
@@ -397,7 +400,9 @@ pub(super) fn strictly_precedes(left: f64, right: f64) -> bool {
     crossing_order(left, right).is_lt()
 }
 
-fn crossing_order(left: f64, right: f64) -> std::cmp::Ordering {
+fn crossing_order(left: impl Into<f64>, right: impl Into<f64>) -> std::cmp::Ordering {
+    let left = left.into() as f32;
+    let right = right.into() as f32;
     if simultaneous_crossing(left, right) {
         std::cmp::Ordering::Equal
     } else {
@@ -405,7 +410,7 @@ fn crossing_order(left: f64, right: f64) -> std::cmp::Ordering {
     }
 }
 
-fn simultaneous_crossing(left: f64, right: f64) -> bool {
+fn simultaneous_crossing(left: f32, right: f32) -> bool {
     if !left.is_finite()
         || !right.is_finite()
         || left.is_sign_negative()
@@ -422,7 +427,7 @@ fn ray_box(
     direction: Vec3,
     max_distance: f64,
     bounds: Aabb,
-) -> Option<(f64, u8, Vec3)> {
+) -> Option<(f32, f64, u8, Vec3)> {
     ray_union_box(
         origin,
         direction,
@@ -441,17 +446,30 @@ fn ray_union_box(
     bounds: Aabb,
     pieces: &[Aabb],
     offset: Vec3,
-) -> Option<(f64, u8, Vec3)> {
+) -> Option<(f32, f64, u8, Vec3)> {
+    let bounds = Aabb::new(bounds.min.rounded(), bounds.max.rounded());
+    let ray = FloatRay::new(origin, direction, max_distance);
+    let origin = ray.point(0.0);
+    let low = [
+        bounds.min.x as f32,
+        bounds.min.y as f32,
+        bounds.min.z as f32,
+    ];
+    let high = [
+        bounds.max.x as f32,
+        bounds.max.y as f32,
+        bounds.max.z as f32,
+    ];
     if strictly_inside(origin, bounds) {
-        return Some((0.0, opposite_dominant_face(direction), origin));
+        return Some((0.0, 0.0, opposite_dominant_face(direction), origin));
     }
-    let mut entry = 0.0_f64;
-    let mut exit = max_distance;
+    let mut entry = 0.0_f32;
+    let mut exit = 1.0_f32;
     let mut face = None;
     let mut entry_faces = 0_u8;
     let mut parallel_face = false;
     for axis in 0..3 {
-        let component = direction[axis];
+        let component = ray.delta[axis];
         if component == 0.0 {
             if origin[axis] < bounds.min[axis] || origin[axis] > bounds.max[axis] {
                 return None;
@@ -461,14 +479,14 @@ fn ray_union_box(
         }
         let (near, far, near_face) = if component > 0.0 {
             (
-                (bounds.min[axis] - origin[axis]) / component,
-                (bounds.max[axis] - origin[axis]) / component,
+                (low[axis] - ray.origin[axis]) / component,
+                (high[axis] - ray.origin[axis]) / component,
                 min_face(axis),
             )
         } else {
             (
-                (bounds.max[axis] - origin[axis]) / component,
-                (bounds.min[axis] - origin[axis]) / component,
+                (high[axis] - ray.origin[axis]) / component,
+                (low[axis] - ray.origin[axis]) / component,
                 max_face(axis),
             )
         };
@@ -488,25 +506,28 @@ fn ray_union_box(
             std::cmp::Ordering::Less => {}
         }
         exit = exit.min(far);
-        if strictly_precedes(exit, entry) {
+        if crossing_order(exit, entry).is_lt() {
             return None;
         }
     }
-    if exit <= 0.0 || entry > max_distance {
+    if exit <= 0.0 || entry > 1.0 {
         return None;
     }
-    let distance = entry.max(0.0);
-    let point = origin + direction * distance;
-    // Membership uses slab coordinates; Vec3 arithmetic rounds the returned point to f32.
+    let point = ray.point(entry.max(0.0));
+    let distance = ray.distance(point);
     let clipped = std::array::from_fn::<_, 3, _>(|axis| {
-        (origin[axis] + direction[axis] * distance).clamp(bounds.min[axis], bounds.max[axis])
+        f64::from((point[axis] as f32).clamp(low[axis], high[axis]))
     });
     let geometric_point = Vec3::new(clipped[0], clipped[1], clipped[2]);
     if distance == 0.0 && union_covers_parallel_neighbourhood(origin, Vec3::ZERO, pieces, offset) {
-        return Some((0.0, opposite_dominant_face(direction), origin));
+        return Some((0.0, 0.0, opposite_dominant_face(direction), origin));
     }
-    if parallel_face
-        && !union_covers_parallel_neighbourhood(geometric_point, direction, pieces, offset)
+    let delta = Vec3::new(
+        f64::from(ray.delta[0]),
+        f64::from(ray.delta[1]),
+        f64::from(ray.delta[2]),
+    );
+    if parallel_face && !union_covers_parallel_neighbourhood(geometric_point, delta, pieces, offset)
     {
         return None;
     }
@@ -528,7 +549,7 @@ fn ray_union_box(
         None if parallel_face => opposite_dominant_face(direction),
         None => surface_face(origin, bounds, direction),
     };
-    Some((distance, face, point))
+    Some((entry.max(0.0), distance, face, point))
 }
 
 /// Prefers an exposed entry face when a ray also crosses an internal piece plane.
@@ -655,47 +676,70 @@ const fn max_face(axis: usize) -> u8 {
 pub(super) struct TraversalState {
     pub(super) cell: [i32; 3],
     step: [i32; 3],
-    next: [f64; 3],
-    delta: [f64; 3],
+    next: [f32; 3],
+    ray: FloatRay,
 }
 
 impl TraversalState {
-    pub(super) fn new(origin: Vec3, direction: Vec3) -> Result<Self, WorldQueryError> {
+    /// Starts traversal of the same rounded segment used by shape clipping.
+    pub(super) fn new(origin: Vec3, direction: Vec3, reach: f64) -> Result<Self, WorldQueryError> {
+        let ray = FloatRay::new(origin, direction, reach);
         let cell = [
             origin.x.floor() as i32,
             origin.y.floor() as i32,
             origin.z.floor() as i32,
         ];
-        let mut step = [0; 3];
-        let mut next = [f64::INFINITY; 3];
-        let mut delta = [f64::INFINITY; 3];
-        for axis in 0..3 {
-            if direction[axis] > 0.0 {
-                step[axis] = 1;
-                next[axis] = (f64::from(cell[axis] + 1) - origin[axis]) / direction[axis];
-                delta[axis] = 1.0 / direction[axis];
-            } else if direction[axis] < 0.0 {
-                step[axis] = -1;
-                next[axis] = (origin[axis] - f64::from(cell[axis])) / -direction[axis];
-                delta[axis] = -1.0 / direction[axis];
+        let step = ray.delta.map(|component| {
+            if component > 0.0 {
+                1
+            } else if component < 0.0 {
+                -1
+            } else {
+                0
             }
-        }
-        Ok(Self {
+        });
+        let mut state = Self {
             cell,
             step,
-            next,
-            delta,
-        })
+            next: [f32::INFINITY; 3],
+            ray,
+        };
+        for axis in 0..3 {
+            state.next[axis] = state.axis_crossing(axis)?;
+        }
+        Ok(state)
     }
 
-    pub(super) fn next_crossing(&self) -> f64 {
+    /// Computes a boundary fraction from its integer cell, without accumulating rounding error.
+    fn axis_crossing(&self, axis: usize) -> Result<f32, WorldQueryError> {
+        let boundary = match self.step[axis] {
+            1 => self.cell[axis]
+                .checked_add(1)
+                .ok_or(WorldQueryError::CoordinateOutOfRange)?,
+            -1 => self.cell[axis],
+            _ => return Ok(f32::INFINITY),
+        };
+        Ok((boundary as f32 - self.ray.origin[axis]) / self.ray.delta[axis])
+    }
+
+    /// Steps one axis and recomputes its next boundary on the original rounded segment.
+    fn advance_axis(&mut self, axis: usize) -> Result<(), WorldQueryError> {
+        self.cell[axis] = self.cell[axis]
+            .checked_add(self.step[axis])
+            .ok_or(WorldQueryError::CoordinateOutOfRange)?;
+        self.next[axis] = self.axis_crossing(axis)?;
+        Ok(())
+    }
+
+    /// Fraction of the next boundary along the rounded segment.
+    pub(super) fn next_crossing(&self) -> f32 {
         self.next[0].min(self.next[1]).min(self.next[2])
     }
 
     /// Returns the at most six partial cells of a simultaneous boundary crossing.
     pub(super) fn advance(
         &mut self,
-        crossing: f64,
+        crossing: f32,
     ) -> Result<impl Iterator<Item = [i32; 3]>, WorldQueryError> {
         let mut axes = [0; 3];
         let mut count = 0;
@@ -721,10 +765,7 @@ impl TraversalState {
             length += 1;
         }
         for &axis in &axes[..count] {
-            self.cell[axis] = self.cell[axis]
-                .checked_add(self.step[axis])
-                .ok_or(WorldQueryError::CoordinateOutOfRange)?;
-            self.next[axis] += self.delta[axis];
+            self.advance_axis(axis)?;
         }
         Ok(tied_cells.into_iter().take(length))
     }
