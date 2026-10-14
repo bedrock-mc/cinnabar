@@ -58,6 +58,8 @@ pub struct SummaryStore {
     pinned_bytes: usize,
     /// Bounded by the entries: an evicted position leaves the set.
     changed: BTreeSet<ColumnPos>,
+    /// Positions dropped for the budget since the last [`SummaryStore::take_evicted`].
+    evicted: Vec<ColumnPos>,
 }
 
 impl SummaryStore {
@@ -72,6 +74,7 @@ impl SummaryStore {
             pinned: HashSet::new(),
             pinned_bytes: 0,
             changed: BTreeSet::new(),
+            evicted: Vec::new(),
         }
     }
 
@@ -203,6 +206,11 @@ impl SummaryStore {
         }
     }
 
+    /// Positions dropped to fit the budget since the last call.
+    pub fn take_evicted(&mut self) -> Vec<ColumnPos> {
+        std::mem::take(&mut self.evicted)
+    }
+
     /// Resident positions whose content was inserted or replaced since the last call.
     pub fn take_changed(&mut self) -> Vec<ColumnPos> {
         std::mem::take(&mut self.changed).into_iter().collect()
@@ -222,6 +230,7 @@ impl SummaryStore {
         self.pinned.clear();
         self.pinned_bytes = 0;
         self.changed.clear();
+        self.evicted.clear();
     }
 
     fn touch(&mut self, pos: ColumnPos) -> Option<()> {
@@ -256,6 +265,7 @@ impl SummaryStore {
             };
             if let Some(entry) = self.entries.remove(&pos) {
                 self.bytes -= entry_bytes(&entry.summary);
+                self.evicted.push(pos);
             }
             self.changed.remove(&pos);
         }

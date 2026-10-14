@@ -1,7 +1,7 @@
 //! The disk cache: one IO thread owns every file, enforces the caps and evicts by recency.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     thread::JoinHandle,
@@ -65,6 +65,7 @@ enum Command {
     },
     ResolveWrite {
         world: WorldKey,
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
@@ -92,6 +93,8 @@ impl DiskCache {
                     bounds,
                     index: None,
                     events,
+                    claimed: HashSet::new(),
+                    visits: HashMap::new(),
                 };
                 for command in commands {
                     worker.run(command);
@@ -132,16 +135,18 @@ impl DiskCache {
         });
     }
 
-    /// Writes `columns` to the epoch of `world` that `probes` resolve to, for a world left
-    /// before its namespace resolved.
+    /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
+    /// first if no earlier request of that visit did, for a world left before it resolved.
     pub fn resolve_and_write(
         &self,
         world: WorldKey,
+        entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     ) {
         self.send(Command::ResolveWrite {
             world,
+            entry,
             probes,
             columns,
         });
@@ -195,6 +200,11 @@ struct Worker {
     /// Built on first use, so a session that only reads never walks the whole cache.
     index: Option<FileIndex>,
     events: Sender<DiskEvent>,
+    /// Namespaces handed out by this run, so two worlds resolved before either writes
+    /// never share one.
+    claimed: HashSet<NamespaceKey>,
+    /// The epoch each world visit resolved to, so every later write of that visit lands in it.
+    visits: HashMap<(WorldKey, u64), u32>,
 }
 
 impl Worker {
@@ -228,7 +238,7 @@ impl Worker {
                 entry,
                 probes,
             } => {
-                let epoch = self.resolve(world, &probes);
+                let epoch = self.resolve_entry(world, entry, &probes);
                 let _ = self.events.send(DiskEvent::Resolved {
                     world,
                     entry,
@@ -237,10 +247,11 @@ impl Worker {
             }
             Command::ResolveWrite {
                 world,
+                entry,
                 probes,
                 columns,
             } => {
-                let namespace = world.namespace(self.resolve(world, &probes));
+                let namespace = world.namespace(self.resolve_entry(world, entry, &probes));
                 let mut regions = BTreeMap::<RegionPos, Vec<(u16, Versioned)>>::new();
                 for (pos, column) in columns {
                     regions
@@ -312,16 +323,41 @@ impl Worker {
         }
     }
 
+    /// The epoch of visit `entry` to `world`, resolved by its first request and reused after.
+    fn resolve_entry(
+        &mut self,
+        world: WorldKey,
+        entry: u64,
+        probes: &[(ColumnPos, ColumnSummary)],
+    ) -> u32 {
+        if let Some(&epoch) = self.visits.get(&(world, entry)) {
+            return epoch;
+        }
+        let epoch = self.resolve(world, probes);
+        self.visits.insert((world, entry), epoch);
+        epoch
+    }
+
     fn resolve(&mut self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
+        let epoch = self.pick_epoch(world, probes);
+        self.claim(world.namespace(epoch));
+        epoch
+    }
+
+    /// The epoch whose cached columns match `probes`, else the newest when it holds nothing
+    /// the probes cover and no world resolved this run took it, else a new one.
+    fn pick_epoch(&self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
         let mut epochs: Vec<u32> = fs::read_dir(self.root.join(world.server.to_string()))
             .into_iter()
             .flatten()
             .flatten()
             .filter_map(|entry| NamespaceKey::parse(world.server, entry.file_name().to_str()?))
+            .chain(self.claimed.iter().copied())
             .filter(|namespace| namespace.world() == world)
             .map(|namespace| namespace.epoch)
             .collect();
         epochs.sort_unstable_by(|a, b| b.cmp(a));
+        epochs.dedup();
         let Some(&newest) = epochs.first() else {
             return 0;
         };
@@ -337,7 +373,23 @@ impl Worker {
                 newest_overlaps = present > 0;
             }
         }
-        if newest_overlaps { newest + 1 } else { newest }
+        if newest_overlaps || self.claimed.contains(&world.namespace(newest)) {
+            newest + 1
+        } else {
+            newest
+        }
+    }
+
+    /// Reserves `namespace` before it is acknowledged, on disk as well as for this run.
+    fn claim(&mut self, namespace: NamespaceKey) {
+        let directory = self
+            .root
+            .join(namespace.server.to_string())
+            .join(namespace.directory());
+        if let Err(error) = fs::create_dir_all(&directory) {
+            tracing::warn!(server = %namespace.server, %error, "far-terrain epoch reservation failed");
+        }
+        self.claimed.insert(namespace);
     }
 
     /// Counts probes the namespace holds, and how many of those match closely.

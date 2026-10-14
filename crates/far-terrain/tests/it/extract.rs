@@ -2,7 +2,7 @@ use far_terrain::{SurfaceCell, SurfaceContext, summarise_column};
 
 use crate::fixture::{
     AIR, CAPPED, FLOWER, FOLIAGE_TINT, GRASS, GRASS_TINT, LEAF_RGB, LEAVES, NUB, SAND, SAND_RGB,
-    SEASONAL_MATERIAL, SLAB, TORCH, WATER, column, context, section, tints,
+    SEASONAL_LEAVES, SEASONAL_MATERIAL, SLAB, TORCH, WATER, column, context, section, tints,
 };
 
 fn srgb(linear: f32) -> f32 {
@@ -171,4 +171,15 @@ fn seasonal_foliage_uses_the_seasonal_palette() {
         colours.tinted(SEASONAL_MATERIAL, Some(&seasonal)),
         colours.tinted(SEASONAL_MATERIAL, Some(&tints().records[0]))
     );
+}
+
+/// Surface seasonal leaves are open to the sky, so they take their exposed material.
+#[test]
+fn surface_seasonal_leaves_use_their_exposed_material() {
+    let canopy = section(|_, y, _| match y {
+        0 => [SEASONAL_LEAVES, AIR],
+        _ => [AIR, AIR],
+    });
+    let cell = summarise_column(&context(), &column([(0, canopy)])).cell(4, 4);
+    assert_eq!((cell.height, cell.rgb), (1, SAND_RGB));
 }

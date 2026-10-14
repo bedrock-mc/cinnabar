@@ -93,6 +93,7 @@ impl WorldAuthority {
                     sequence,
                     dimension: self.current_dimension,
                     dimension_epoch: self.form_dimension_epoch,
+                    client_generated: false,
                     actor_synchronization: None,
                     event,
                 };
@@ -239,6 +240,7 @@ impl WorldAuthority {
                         sequence,
                         dimension: self.current_dimension,
                         dimension_epoch: self.form_dimension_epoch,
+                        client_generated: false,
                         actor_synchronization: None,
                         event: AudioEvent::Level(protocol::LevelAudioEvent {
                             sound_event: "pop".into(),

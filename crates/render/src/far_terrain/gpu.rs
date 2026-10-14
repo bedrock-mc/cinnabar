@@ -101,7 +101,10 @@ impl FarTerrainGpu {
                     },
                     count: None,
                 },
-                storage(4),
+                BindGroupLayoutEntry {
+                    visibility: ShaderStages::VERTEX_FRAGMENT,
+                    ..storage(4)
+                },
             ],
         );
         let (colours, colours_view) = colour_texture(device, 1);
@@ -165,16 +168,39 @@ impl FarTerrainGpu {
             self.ranges.release(resident.quads);
             self.free_slots.push(resident.slot);
         }
-        for mesh in tiles {
+        // Finer tiles first, retained fallbacks included; when space runs out, coarser
+        // residents make room, and only what nothing coarser can free is left out.
+        let order = upload_order(tiles.iter().map(|mesh| mesh.key));
+        let priority: HashMap<TileKey, (u8, usize)> = order
+            .iter()
+            .map(|&(index, rank)| (tiles[index].key, rank))
+            .collect();
+        for (index, rank) in order {
+            let mesh = &tiles[index];
             if self.resident.contains_key(&mesh.key) {
                 continue;
             }
-            // Tiles come finest first, so a full array leaves out the farthest coarse ones.
-            let Some(slot) = self.allocate_slot(device, queue) else {
-                break;
+            let (slot, quads) = loop {
+                if let Some(slot) = self.allocate_slot(device, queue) {
+                    match self.allocate_quads(device, queue, mesh.quads.len() as u32) {
+                        Some(quads) => break (Some(slot), quads),
+                        None => self.free_slots.push(slot),
+                    }
+                }
+                let Some(evicted) = self
+                    .resident
+                    .keys()
+                    .copied()
+                    .filter(|key| priority.get(key).is_some_and(|&other| other > rank))
+                    .max_by_key(|key| priority[key])
+                else {
+                    break (None, 0..0);
+                };
+                let resident = self.resident.remove(&evicted).expect("listed above");
+                self.ranges.release(resident.quads);
+                self.free_slots.push(resident.slot);
             };
-            let Some(quads) = self.allocate_quads(device, queue, mesh.quads.len() as u32) else {
-                self.free_slots.push(slot);
+            let Some(slot) = slot else {
                 break;
             };
             self.upload(queue, mesh, slot, &quads);
@@ -335,6 +361,17 @@ impl crate::pipeline_warmup::PrewarmPipelines for FarTerrainGpu {
         ids.push(self.pipeline(cache, format, view.msaa.samples()));
         Ok(())
     }
+}
+
+/// Indices of `keys` in upload priority with their ranks: finer levels first, then the given
+/// order, so a fine retained fallback near the player outranks a farther coarse tile.
+fn upload_order(keys: impl Iterator<Item = TileKey>) -> Vec<(usize, (u8, usize))> {
+    let mut order: Vec<(usize, (u8, usize))> = keys
+        .enumerate()
+        .map(|(index, key)| (index, (key.level, index)))
+        .collect();
+    order.sort_unstable_by_key(|&(_, rank)| rank);
+    order
 }
 
 fn storage_buffer(device: &RenderDevice, label: &'static str, size: u64) -> Buffer {
@@ -570,5 +607,21 @@ pub(super) fn prepare_far_terrain_views(
             ],
         );
         state.bind_group = Some((key, group));
+    }
+}
+
+#[cfg(test)]
+mod upload_order_tests {
+    use super::*;
+
+    /// A fine retained fallback, listed after the selected tiles, still outranks coarse ones.
+    #[test]
+    fn finer_tiles_rank_first_wherever_they_are_listed() {
+        let key = |level, x| TileKey { level, x, z: 0 };
+        let order: Vec<usize> = upload_order([key(0, 0), key(2, 1), key(0, 5)].into_iter())
+            .into_iter()
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(order, [0, 2, 1]);
     }
 }

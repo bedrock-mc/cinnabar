@@ -147,12 +147,10 @@ impl WorldStream {
                 {
                     continue;
                 }
-                // A column still handing over keeps its meshes and needs no remesh.
-                if self.full_detail.handoffs.remove(&column).is_some() {
-                    self.full_detail.columns.insert(column);
-                } else {
-                    promoted.push(column);
-                }
+                // A column still handing over keeps its meshes on screen, but is relit and
+                // remeshed like any other, as its light may have moved on meanwhile.
+                self.full_detail.handoffs.remove(&column);
+                promoted.push(column);
             }
         }
         let unlit_before: HashSet<ChunkKey> = promoted
@@ -190,11 +188,17 @@ impl WorldStream {
         self.note_near_drawn(column);
     }
 
-    /// Starts handing a column to far terrain: a drawn one is re-summarised and keeps its
-    /// meshes until [`WorldStream::finish_far_handoff`]; any other is withdrawn now, as far
-    /// terrain still draws it.
+    /// Starts handing a column to far terrain: one with any mesh on screen is re-summarised
+    /// and keeps its meshes until [`WorldStream::finish_far_handoff`]; one with none is
+    /// withdrawn now, as nothing near draws it.
     fn demote_full_detail_column(&mut self, column: ChunkKey) {
-        if self.near_drawn_contains(column) {
+        let on_screen = self.near_drawn_contains(column)
+            || self
+                .resident
+                .column(column)
+                .chain(self.known_air.column(column))
+                .any(|key| self.applied_mesh_generations.contains_key(key));
+        if on_screen {
             let handoff = self.pending_handoff();
             self.full_detail.handoffs.insert(column, handoff);
             self.note_far_column_complete(column);

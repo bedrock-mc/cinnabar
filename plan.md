@@ -19,16 +19,19 @@ batches and evicts the least recently used regions past the per-server (64 MiB) 
 (512 MiB) caps.
 
 The far pass draws the cached terrain beyond near terrain as blocky tiles of 64×64 cells,
-1 to 16 blocks wide, finer toward the near edge; only the finest level meets near terrain.
-Its quads hide over exactly the columns near terrain has drawn, those loaded with every mesh
-uploaded, so each column has one drawer and loading or eviction opens no hole. Tile meshes merge equal-height
-tops and runs of walls on worker threads, rebuild at most every 250 ms when their columns
-change, and keep a replaced tile drawn until its replacements are ready. The GPU holds only
+1 to 16 blocks wide, finer toward the near edge. Far terrain hides over exactly the columns
+near terrain has drawn, those loaded with every mesh uploaded: finest quads whole, coarser
+ones per fragment, so each column has one drawer and loading or eviction opens no hole. Tile
+meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
+the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
+keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
 the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
 terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
 far the player sees: far terrain fills the gap between what the server sends and the render
 distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far
-Terrain (LOD) turns it on or off (default off).
+Terrain (LOD) is Auto (the default), On or Off. Auto runs it only when the render distance
+exceeds the tier's automatic full-detail radius; below that nothing of it runs. An earlier
+saved on/off reads as On/Auto.
 
 With far terrain on, only columns within the full-detail radius are lit, meshed and uploaded;
 the rest of what the server sends keeps its block data and is drawn by far terrain from its
@@ -6305,6 +6308,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Glide travel, firework glide boosts (replayed from their stamped tick), glide start/stop and
   the seven-tick flight double-tap follow the identified vanilla systems; the held-jump glide
   lift gated by an unidentified movement ability and geyser boosts remain incomplete.
+  Rocket launch audio has a first-tick actor request with packet echo pairing. Integrated
+  audio acceptance, offhand air use and a comparison of boost timing and flight speed remain
+  incomplete; numerical travel regressions alone do not close these gates.
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does; riptide launches remain unimplemented.
   Incomplete safety bound (a known divergence; vanilla is unbounded): Depth Strider's water-speed
@@ -7354,6 +7360,9 @@ and exhaustive Windows-versus-host sinf bit equivalence still need validation.
 Water acceleration now multiplies the effective Depth Strider level before dividing by
 its maximum.
 Collision flags use the native float epsilon, with exact boundary witnesses.
+Processed control limits, block-height contact, support offsets, climb requests and
+fallback travel drag now round within the same f32 simulation boundaries. New
+precision regressions await CI; these changes do not close D01.
 
 ### Registry collision continuation (2026-10-02)
 

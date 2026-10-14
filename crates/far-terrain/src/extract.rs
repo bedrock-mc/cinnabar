@@ -5,7 +5,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use assets::{
     BLOCK_VISUAL_VARIANT_MATERIAL_MASK, BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF,
     BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFace, BlockFlags,
-    LinearBiomeTints, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets, VisualKind,
+    LinearBiomeTints, NetworkIdMode, ResolvedBiomeTints, RuntimeAssets,
+    SEASONAL_LEAF_EXPOSED_OFFSET, VisualKind,
 };
 use world::{BLOCKS_PER_SUB_CHUNK, BiomeStorage, Chunk, SubChunk};
 
@@ -94,7 +95,14 @@ impl SurfaceContext {
             & (BLOCK_VISUAL_VARIANT_SEASONAL_LEAF | BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF)
             != 0
         {
-            (variant & BLOCK_VISUAL_VARIANT_MATERIAL_MASK) + BlockFace::Up as u32
+            // A surface leaf has open sky above it, so seasonal ones take their exposed
+            // material, as the terrain mesher picks for sky-exposed leaves.
+            let exposed = if variant & BLOCK_VISUAL_VARIANT_SEASONAL_LEAF != 0 {
+                SEASONAL_LEAF_EXPOSED_OFFSET
+            } else {
+                0
+            };
+            (variant & BLOCK_VISUAL_VARIANT_MATERIAL_MASK) + BlockFace::Up as u32 + exposed
         } else {
             block.face(BlockFace::Up).material_id()
         };

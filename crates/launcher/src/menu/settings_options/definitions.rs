@@ -71,8 +71,27 @@ pub const ANIMATIONS_OPTION: SettingDefinition = SettingId::Animations.definitio
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
 
-/// Far terrain draws cached terrain past the render distance.
+/// Far terrain draws cached terrain past the render distance: Auto, On or Off.
 pub const FAR_TERRAIN_OPTION: SettingDefinition = SettingId::FarTerrain.definition();
+
+/// Labels of `render_api::far_terrain::FarTerrainMode`, in its saved order.
+pub const FAR_TERRAIN_CHOICES: &[SettingChoice] = &[
+    SettingChoice {
+        name: "far_terrain_radio_auto",
+        label: "Auto",
+    },
+    SettingChoice {
+        name: "far_terrain_radio_on",
+        label: "On",
+    },
+    SettingChoice {
+        name: "far_terrain_radio_off",
+        label: "Off",
+    },
+];
+
+const _: () =
+    assert!(FAR_TERRAIN_CHOICES.len() == render_api::far_terrain::FarTerrainMode::ALL.len());
 
 /// Advanced: chunks meshed in full detail around the player; 0 is Auto, by device tier.
 pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition =
@@ -582,7 +601,7 @@ settings! {
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 5), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
-    FarTerrain => "far_terrain", toggle("Far Terrain (LOD)", render_api::far_terrain::DEFAULT_ENABLED),
+    FarTerrain => "far_terrain", dropdown("Far Terrain (LOD)", FAR_TERRAIN_CHOICES, render_api::far_terrain::FarTerrainMode::Auto.index()),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
     FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
         [(SettingPanel::VideoAdvanced, 0)], [SettingsGroup::Video], None, None;

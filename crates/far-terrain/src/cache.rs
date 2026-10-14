@@ -29,6 +29,29 @@ struct DirtyRegion {
     columns: BTreeMap<ColumnPos, Versioned>,
 }
 
+/// A world just left, which late summaries still reach.
+enum Retired {
+    Resolved(NamespaceKey),
+    /// Left before its namespace resolved; late columns are written by resolving with its
+    /// probes on the IO thread.
+    Unresolved {
+        world: WorldKey,
+        /// Its visit, so every late batch resolves to the same epoch.
+        entry: u64,
+        probes: Vec<(ColumnPos, ColumnSummary)>,
+        columns: Vec<(ColumnPos, Versioned)>,
+    },
+}
+
+impl Retired {
+    const fn dimension(&self) -> i32 {
+        match self {
+            Self::Resolved(namespace) => namespace.dimension,
+            Self::Unresolved { world, .. } => world.dimension,
+        }
+    }
+}
+
 /// A session whose final summaries are still being extracted, from
 /// [`FarTerrainCache::retire_session`]; hand it back to [`FarTerrainCache::persist`]. Its
 /// summaries carry the version stamped at retirement, so anything taken later wins.
@@ -36,6 +59,8 @@ struct DirtyRegion {
 #[must_use]
 pub struct RetiringSession {
     world: WorldKey,
+    /// The visit retiring, whose namespace its summaries share once resolved.
+    entry: u64,
     namespace: Option<NamespaceKey>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     version: u64,
@@ -60,8 +85,8 @@ pub struct FarTerrainCache {
     store: SummaryStore,
     world: Option<WorldKey>,
     namespace: Option<NamespaceKey>,
-    /// The namespace left by the last world change; late summaries for it go straight to disk.
-    retired: Option<NamespaceKey>,
+    /// The world left by the last world change; late summaries for it go straight to disk.
+    retired: Option<Retired>,
     /// Columns shown before the namespace resolved, written once it does.
     unresolved: Vec<(ColumnPos, Versioned)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
@@ -73,6 +98,8 @@ pub struct FarTerrainCache {
     /// Changes handed to the IO thread and not yet reported written.
     writing: HashMap<(NamespaceKey, ColumnPos), Versioned>,
     requested: HashSet<RegionPos>,
+    /// Regions read again after memory dropped some of their columns, once per focus.
+    reread: HashSet<RegionPos>,
     focus: Option<(ColumnPos, i32)>,
     /// Bumped on every world change, so a resolution for an earlier visit is ignored.
     entry: u64,
@@ -102,6 +129,7 @@ impl FarTerrainCache {
             dirty: BTreeMap::new(),
             writing: HashMap::new(),
             requested: HashSet::new(),
+            reread: HashSet::new(),
             focus: None,
             entry: 0,
             next_version: version_base,
@@ -136,17 +164,28 @@ impl FarTerrainCache {
     /// probes it has when it never resolved.
     fn end_entry(&mut self) {
         self.flush_all();
+        self.flush_retired();
         if self.namespace.is_none()
             && let (Some(world), Some(disk)) = (self.world, &self.disk)
             && !self.unresolved.is_empty()
         {
             disk.resolve_and_write(
                 world,
-                std::mem::take(&mut self.probes),
+                self.entry,
+                self.probes.clone(),
                 std::mem::take(&mut self.unresolved),
             );
         }
-        self.retired = self.namespace.take();
+        self.retired = match (self.namespace.take(), self.world) {
+            (Some(namespace), _) => Some(Retired::Resolved(namespace)),
+            (None, Some(world)) => Some(Retired::Unresolved {
+                world,
+                entry: self.entry,
+                probes: std::mem::take(&mut self.probes),
+                columns: Vec::new(),
+            }),
+            (None, None) => None,
+        };
         self.entry += 1;
         self.store.clear();
         self.unresolved.clear();
@@ -154,6 +193,24 @@ impl FarTerrainCache {
         self.resolving = false;
         self.pending_since = None;
         self.requested.clear();
+        self.reread.clear();
+    }
+
+    /// Writes late columns of a world left before its namespace resolved.
+    fn flush_retired(&mut self) {
+        if let (
+            Some(Retired::Unresolved {
+                world,
+                entry,
+                probes,
+                columns,
+            }),
+            Some(disk),
+        ) = (&mut self.retired, &self.disk)
+            && !columns.is_empty()
+        {
+            disk.resolve_and_write(*world, *entry, probes.clone(), std::mem::take(columns));
+        }
     }
 
     /// Records a column's encoded summary as the newest of it. Columns show at once and are
@@ -163,12 +220,24 @@ impl FarTerrainCache {
             version: self.stamp(),
             summary,
         };
-        if let Some(retired) = self
+        if self
             .retired
-            .filter(|retired| retired.dimension == dimension)
+            .as_ref()
+            .is_some_and(|retired| retired.dimension() == dimension)
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
-            self.queue_write(retired, pos, column, now);
+            match &mut self.retired {
+                Some(Retired::Resolved(namespace)) => {
+                    let namespace = *namespace;
+                    self.queue_write(namespace, pos, column, now);
+                }
+                Some(Retired::Unresolved { columns, .. }) => {
+                    if self.disk.is_some() && columns.len() < MAX_UNRESOLVED_COLUMNS {
+                        columns.push((pos, column));
+                    }
+                }
+                None => {}
+            }
             return;
         }
         if self.world.is_none_or(|world| world.dimension != dimension) {
@@ -202,6 +271,7 @@ impl FarTerrainCache {
             return;
         }
         self.focus = Some((center, radius));
+        self.reread.clear();
         self.request_focus();
     }
 
@@ -250,6 +320,9 @@ impl FarTerrainCache {
         {
             self.start_resolving(now);
         }
+        self.flush_retired();
+        let evicted = self.store.take_evicted();
+        self.reread_evicted(&evicted);
         let due: Vec<(NamespaceKey, RegionPos)> = self
             .dirty
             .iter()
@@ -278,6 +351,7 @@ impl FarTerrainCache {
         let world = self.world?;
         Some(RetiringSession {
             world,
+            entry: self.entry,
             namespace: self.namespace,
             probes: self.probes.clone(),
             version: self.stamp(),
@@ -294,6 +368,7 @@ impl FarTerrainCache {
     ) {
         let RetiringSession {
             world,
+            entry,
             namespace,
             mut probes,
             version,
@@ -301,6 +376,9 @@ impl FarTerrainCache {
         let mut unresolved = Vec::new();
         for (pos, summary) in columns {
             let column = Versioned { version, summary };
+            if namespace.is_some_and(|namespace| self.newer_queued(namespace, pos, version)) {
+                continue;
+            }
             if namespace.is_some() && namespace == self.namespace {
                 self.store.admit_versioned(pos, column.clone());
             }
@@ -322,7 +400,7 @@ impl FarTerrainCache {
                     probes.push((*pos, decoded));
                 }
             }
-            disk.resolve_and_write(world, probes, unresolved);
+            disk.resolve_and_write(world, entry, probes, unresolved);
         }
     }
 
@@ -347,6 +425,18 @@ impl FarTerrainCache {
     /// Summaries of the current world, including those shown before its namespace resolves.
     pub fn store(&mut self) -> &mut SummaryStore {
         &mut self.store
+    }
+
+    /// True when a version of `pos` at least `version` waits to be written or is being written.
+    fn newer_queued(&self, namespace: NamespaceKey, pos: ColumnPos, version: u64) -> bool {
+        let waiting = self
+            .dirty
+            .get(&(namespace, RegionPos::of(pos)))
+            .and_then(|dirty| dirty.columns.get(&pos));
+        waiting
+            .into_iter()
+            .chain(self.writing.get(&(namespace, pos)))
+            .any(|queued| queued.version >= version)
     }
 
     fn stamp(&mut self) -> u64 {
@@ -456,6 +546,27 @@ impl FarTerrainCache {
             columns.push((region_index(pos), column));
         }
         disk.write(key.0, key.1, columns);
+    }
+
+    /// Reads regions again whose columns memory dropped while still in focus, once per
+    /// focus, so a budget shortfall cannot turn into a read loop.
+    fn reread_evicted(&mut self, evicted: &[ColumnPos]) {
+        let Some((center, radius)) = self.focus else {
+            return;
+        };
+        let mut forgot = false;
+        for pos in evicted {
+            let region = RegionPos::of(*pos);
+            if (pos.x - center.x).abs() <= radius
+                && (pos.z - center.z).abs() <= radius
+                && self.reread.insert(region)
+            {
+                forgot |= self.requested.remove(&region);
+            }
+        }
+        if forgot {
+            self.request_focus();
+        }
     }
 
     fn request_focus(&mut self) {
