@@ -1,17 +1,19 @@
-//! Player-list XUIDs and which of those players the Cinnabar API reports, for the roster badge.
+//! The tab roster's player-list entries, each badged by its own XUID when the Cinnabar API reports it.
 
 use std::{collections::HashSet, sync::Arc};
 
-/// The session's named roster entries and the names that carry a Cinnabar badge.
+use ui_screens::player_list::RosterRow;
+
+/// The session's named roster entries and their tab-list rows.
 #[derive(Clone, Debug, Default)]
-pub struct CinnabarRoster {
+pub struct PlayerRoster {
     entries: Vec<(Arc<str>, Arc<str>)>,
     revision: u64,
     reported: Arc<HashSet<String>>,
-    badged: HashSet<Arc<str>>,
+    rows: Vec<RosterRow>,
 }
 
-impl CinnabarRoster {
+impl PlayerRoster {
     /// Replaces the `(username, xuid)` roster; the revision advances only when it changed.
     pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>)>) {
         if self.entries != entries {
@@ -42,17 +44,19 @@ impl CinnabarRoster {
         }
     }
 
-    /// Usernames to draw with the Cinnabar badge.
-    pub fn badged(&self) -> &HashSet<Arc<str>> {
-        &self.badged
+    /// One tab-list row per entry, in roster order.
+    pub fn rows(&self) -> &[RosterRow] {
+        &self.rows
     }
 
     fn rebadge(&mut self) {
-        self.badged = self
+        self.rows = self
             .entries
             .iter()
-            .filter(|(_, xuid)| !xuid.is_empty() && self.reported.contains(&**xuid))
-            .map(|(name, _)| Arc::clone(name))
+            .map(|(name, xuid)| RosterRow {
+                name: Arc::clone(name),
+                badged: !xuid.is_empty() && self.reported.contains(&**xuid),
+            })
             .collect();
     }
 }
@@ -65,10 +69,18 @@ mod tests {
         (name.into(), xuid.into())
     }
 
+    fn badges(roster: &PlayerRoster) -> Vec<(&str, bool)> {
+        roster
+            .rows()
+            .iter()
+            .map(|row| (&*row.name, row.badged))
+            .collect()
+    }
+
     /// Badges follow both the roster and the reported set, and only roster changes advance the revision.
     #[test]
-    fn badges_join_reported_xuids_to_roster_names() {
-        let mut roster = CinnabarRoster::default();
+    fn badges_join_reported_xuids_to_roster_entries() {
+        let mut roster = PlayerRoster::default();
         roster.set_entries(vec![
             entry("Alex", "11"),
             entry("Steve", ""),
@@ -77,7 +89,10 @@ mod tests {
         let revision = roster.revision();
         assert_eq!(roster.xuids().collect::<Vec<_>>(), ["11", "33"]);
         roster.set_cinnabar(Arc::new(HashSet::from(["33".to_owned(), String::new()])));
-        assert_eq!(roster.badged(), &HashSet::from([Arc::<str>::from("Zoe")]));
+        assert_eq!(
+            badges(&roster),
+            [("Alex", false), ("Steve", false), ("Zoe", true)]
+        );
         roster.set_entries(vec![
             entry("Alex", "11"),
             entry("Steve", ""),
@@ -86,6 +101,22 @@ mod tests {
         assert_eq!(roster.revision(), revision);
         roster.set_entries(vec![entry("Alex", "11")]);
         assert_ne!(roster.revision(), revision);
-        assert!(roster.badged().is_empty());
+        assert_eq!(badges(&roster), [("Alex", false)]);
+    }
+
+    /// Two players sharing a display name are badged by their own XUIDs, never by the name.
+    #[test]
+    fn same_name_entries_keep_their_own_identity() {
+        let mut roster = PlayerRoster::default();
+        roster.set_entries(vec![
+            entry("Alex", ""),
+            entry("Alex", "11"),
+            entry("Alex", "22"),
+        ]);
+        roster.set_cinnabar(Arc::new(HashSet::from(["11".to_owned()])));
+        assert_eq!(
+            badges(&roster),
+            [("Alex", false), ("Alex", true), ("Alex", false)]
+        );
     }
 }

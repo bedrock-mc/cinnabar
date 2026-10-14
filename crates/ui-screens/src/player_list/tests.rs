@@ -1,6 +1,5 @@
 use super::*;
 use json_ui::{Draw, LayoutEnv, TextMeasure, TextureMeta, TextureSource};
-use std::collections::HashSet;
 
 struct Measure;
 impl TextMeasure for Measure {
@@ -14,9 +13,16 @@ impl TextureSource for Measure {
     }
 }
 
-fn names(count: usize) -> Vec<Arc<str>> {
+fn row(name: &str, badged: bool) -> RosterRow {
+    RosterRow {
+        name: Arc::from(name),
+        badged,
+    }
+}
+
+fn names(count: usize) -> Vec<RosterRow> {
     (0..count)
-        .map(|index| Arc::from(format!("Player{index:02}")))
+        .map(|index| row(&format!("Player{index:02}"), false))
         .collect()
 }
 
@@ -52,7 +58,7 @@ fn render(list: &mut PlayerList) -> Vec<json_ui::DrawNode> {
 #[test]
 fn list_fills_down_columns_and_never_shows_padding_as_a_player() {
     let mut list = PlayerList::new();
-    assert_eq!(list.refresh(&names(23), &HashSet::new(), MAX_ROWS), [2, 12]);
+    assert_eq!(list.refresh(&names(23), MAX_ROWS), [2, 12]);
     let nodes = render(&mut list);
     let labels: Vec<_> = nodes
         .iter()
@@ -74,37 +80,47 @@ fn list_fills_down_columns_and_never_shows_padding_as_a_player() {
 #[test]
 fn bounded_roster_and_unchanged_controller_share_the_same_data() {
     let mut list = PlayerList::new();
-    assert_eq!(
-        list.refresh(&names(100), &HashSet::new(), MAX_ROWS),
-        [4, 20]
-    );
-    assert_eq!(list.names.len(), MAX_PLAYERS);
+    assert_eq!(list.refresh(&names(100), MAX_ROWS), [4, 20]);
+    assert_eq!(list.rows.len(), MAX_PLAYERS);
     assert_eq!(list.total, 100);
     let before = Arc::clone(&list.data);
-    list.refresh(&names(100), &HashSet::new(), MAX_ROWS);
+    list.refresh(&names(100), MAX_ROWS);
     assert!(Arc::ptr_eq(&before, &list.data));
-    list.refresh(&names(1), &HashSet::new(), MAX_ROWS);
+    list.refresh(&names(1), MAX_ROWS);
     assert_eq!(list.dimensions, [1, 1]);
-    list.refresh(&[], &HashSet::new(), MAX_ROWS);
+    list.refresh(&[], MAX_ROWS);
     assert_eq!(list.dimensions, [1, 1]);
-    assert!(list.names.is_empty());
+    assert!(list.rows.is_empty());
 }
 
 /// Only rows of reported Cinnabar players draw the badge, and a new badge set rebinds the rows.
 #[test]
 fn cinnabar_players_alone_carry_the_badge() {
     let mut list = PlayerList::new();
-    let roster = names(3);
-    list.refresh(&roster, &HashSet::new(), MAX_ROWS);
+    let mut roster = names(3);
+    list.refresh(&roster, MAX_ROWS);
     let before = Arc::clone(&list.data);
-    let badges = |nodes: &[json_ui::DrawNode]| {
-        nodes
-            .iter()
-            .filter(|node| matches!(&node.draw, Draw::Sprite { texture, .. } if texture == CINNABAR_BADGE))
-            .count()
-    };
     assert_eq!(badges(&render(&mut list)), 0);
-    list.refresh(&roster, &HashSet::from([Arc::clone(&roster[1])]), MAX_ROWS);
+    roster[1].badged = true;
+    list.refresh(&roster, MAX_ROWS);
     assert!(!Arc::ptr_eq(&before, &list.data));
     assert_eq!(badges(&render(&mut list)), 1);
+}
+
+/// Two players sharing a display name draw only the badge their own row carries.
+#[test]
+fn same_name_rows_keep_their_own_badge() {
+    let mut list = PlayerList::new();
+    list.refresh(&[row("Alex", true), row("Alex", false)], MAX_ROWS);
+    assert_eq!(badges(&render(&mut list)), 1);
+}
+
+/// Counts rendered badge sprites.
+fn badges(nodes: &[json_ui::DrawNode]) -> usize {
+    nodes
+        .iter()
+        .filter(
+            |node| matches!(&node.draw, Draw::Sprite { texture, .. } if texture == CINNABAR_BADGE),
+        )
+        .count()
 }

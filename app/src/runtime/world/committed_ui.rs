@@ -67,7 +67,7 @@ pub(crate) fn drain_committed_ui_before_authority(
             known_player_names,
         );
         ui_runtime
-            .cinnabar_roster
+            .player_roster
             .set_entries(stream.authority().player_list_roster());
     }
     for committed in committed_ui {
@@ -271,7 +271,7 @@ pub(super) fn refresh_player_list_cache_for_controls(
         stream.authority().player_list_usernames(),
     );
     ui_runtime
-        .cinnabar_roster
+        .player_roster
         .set_entries(stream.authority().player_list_roster());
 }
 
