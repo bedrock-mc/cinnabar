@@ -22,6 +22,17 @@ pub fn extruded_sprite_vertices(
     rgba8: &[u8],
     uv_rect: [f32; 4],
 ) -> Option<Vec<ActorRigVertex>> {
+    sprite_vertices(width, height, rgba8, uv_rect, 1)
+}
+
+/// Builds a centered slab whose side faces follow texels at or above `minimum_alpha`.
+fn sprite_vertices(
+    width: usize,
+    height: usize,
+    rgba8: &[u8],
+    uv_rect: [f32; 4],
+    minimum_alpha: u8,
+) -> Option<Vec<ActorRigVertex>> {
     if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
         return None;
     }
@@ -32,7 +43,7 @@ pub fn extruded_sprite_vertices(
             && row >= 0
             && (column as usize) < width
             && (row as usize) < height
-            && rgba8[(row as usize * width + column as usize) * 4 + 3] != 0
+            && rgba8[(row as usize * width + column as usize) * 4 + 3] >= minimum_alpha
     };
     let texel = 1.0 / width.max(height) as f32;
     let half_depth = texel * 0.5;
@@ -131,7 +142,7 @@ pub fn extruded_sprite_vertices(
 /// The slab in vanilla's held-item tessellation frame: column `c` at `X = -c`, row `r` at
 /// `Y = height - r`, divided by the longer side. Depth spans 1/16 model unit towards `-Z`,
 /// independent of sprite resolution. Both faces sample the same texel at a point, so the
-/// back reads mirrored, as vanilla's.
+/// back reads mirrored, as vanilla's. Alpha 0 and 1 do not contribute side faces.
 #[must_use]
 pub fn held_sprite_vertices(
     width: usize,
@@ -141,7 +152,7 @@ pub fn held_sprite_vertices(
 ) -> Option<Vec<ActorRigVertex>> {
     let texel = 1.0 / width.max(height) as f32;
     let offset = [width as f32 * texel * 0.5, height as f32 * texel * 0.5];
-    let mut vertices = extruded_sprite_vertices(width, height, rgba8, uv_rect)?;
+    let mut vertices = sprite_vertices(width, height, rgba8, uv_rect, 2)?;
     for vertex in &mut vertices {
         let [x, y, z] = vertex.position;
         vertex.position = [
@@ -348,7 +359,7 @@ mod tests {
         let region = [0.25, 0.5, 0.5, 0.75];
         for aspect in [0, 1, 2] {
             let mut reference_areas = None;
-            for side in [8, 16, 32, 64] {
+            for side in [8, 16, 32, 64, 128] {
                 let (width, height) = match aspect {
                     1 => (side, side / 2),
                     2 => (side / 2, side),
@@ -393,7 +404,7 @@ mod tests {
 
     #[test]
     fn centered_sprite_keeps_source_texel_depth_at_every_resolution() {
-        for side in [8, 16, 32, 64] {
+        for side in [8, 16, 32, 64, 128] {
             let vertices = extruded_sprite_vertices(side, side, &opaque(side, side), FULL).unwrap();
             let half_depth = 0.5 / side as f32;
             assert!(
@@ -412,6 +423,57 @@ mod tests {
                     .any(|vertex| vertex.position[2] == -half_depth)
             );
         }
+    }
+
+    #[test]
+    fn held_sprite_edges_ignore_alpha_one_without_hiding_their_neighbours() {
+        let region = [0.25, 0.5, 0.5, 0.75];
+        for side in [16, 32, 64, 128] {
+            let mut pixels = resolution_fixture(side, side);
+            let expected = held_sprite_vertices(side, side, &pixels, region).unwrap();
+            for pixel in pixels.as_chunks_mut::<4>().0 {
+                if pixel[3] == 0 {
+                    pixel[3] = 1;
+                }
+            }
+            let actual = held_sprite_vertices(side, side, &pixels, region).unwrap();
+            assert_eq!(actual, expected, "resolution {side}");
+            assert!(actual.iter().any(|vertex| vertex.normal[0] != 0.0));
+            assert!(actual.iter().any(|vertex| vertex.normal[1] != 0.0));
+        }
+    }
+
+    #[test]
+    fn held_sprite_edge_mask_keeps_alpha_two_and_partial_coverage() {
+        for side in [16, 32, 64, 128] {
+            for alpha in [0, 1, 2, 127, 128, 255] {
+                let mut pixels = vec![0; side * side * 4];
+                let (column, row) = (side / 2, side / 4);
+                pixels[(row * side + column) * 4..][..4].copy_from_slice(&[23, 149, 211, alpha]);
+                let vertices = held_sprite_vertices(side, side, &pixels, FULL).unwrap();
+                let sides = &vertices[12..];
+                assert_eq!(sides.len(), if alpha < 2 { 0 } else { 24 });
+                let uv = [
+                    (column as f32 + 0.5) / side as f32,
+                    (row as f32 + 0.5) / side as f32,
+                ];
+                for vertex in sides {
+                    assert_eq!(vertex.uv, uv);
+                    assert_eq!(vertex.back_uv, uv);
+                    assert!(
+                        vertex.position[2] == 0.0
+                            || vertex.position[2] == -super::HELD_SPRITE_DEPTH
+                    );
+                }
+            }
+        }
+        // Centered sprites retain their separate nonzero-alpha edge contract.
+        assert_eq!(
+            extruded_sprite_vertices(1, 1, &[255, 255, 255, 1], FULL)
+                .unwrap()
+                .len(),
+            36
+        );
     }
 
     #[test]

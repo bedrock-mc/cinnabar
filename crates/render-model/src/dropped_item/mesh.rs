@@ -107,15 +107,8 @@ pub fn native_dropped_sprite_mesh(
     let side = layer_side as f32;
     let rect = [0.0, 0.0, width as f32 / side, height as f32 / side];
     let glint_scale = ActorGlint::item(0.0, [rect[2], rect[3]]).uv_scale;
-    // Native tessellation excludes alpha 0 and 1; retain the original texture for sampling.
-    let mut mask = rgba8.to_vec();
-    for pixel in mask.as_chunks_mut::<4>().0 {
-        if pixel[3] < 2 {
-            pixel[3] = 0;
-        }
-    }
     let longest = width.max(height) as f32;
-    let mut vertices = held_sprite_vertices(width as usize, height as usize, &mask, rect)?;
+    let mut vertices = held_sprite_vertices(width as usize, height as usize, rgba8, rect)?;
     for vertex in &mut vertices {
         vertex.position[0] += 0.5;
         vertex.position[1] += 1.0 - height as f32 / longest;
