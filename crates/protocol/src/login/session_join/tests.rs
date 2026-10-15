@@ -593,7 +593,7 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
             let mut core = FakeCore::accept(&listener).await;
             core.receive().await;
             core.send(handoff_frame(
-                serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs": []}),
+                serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
                 &[start_game()],
             )).await;
             core.receive_packets().await;
