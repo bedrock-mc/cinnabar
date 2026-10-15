@@ -139,6 +139,9 @@ def validate_api_origin() -> None:
     """Reject placeholder or malformed API origins before any release refs are changed."""
     contract = json.loads((ROOT / "crates/bridge/data/contract.json").read_text())
     origins = [row["value"] for row in contract["constants"] if row.get("go_name") == "CinnabarAPIBaseURL"]
+    if not origins:
+        # Older source revisions do not connect to the API and have no origin to validate.
+        return
     if len(origins) != 1:
         raise ReleaseError("the bridge contract must declare one Cinnabar API origin")
     origin = urlsplit(origins[0])

@@ -217,6 +217,16 @@ else:
     def assert_no_outputs(self):
         self.assertFalse(self.output.exists())
 
+    def test_releases_that_predate_the_api_do_not_require_an_origin(self):
+        """An older source revision has no API connection or origin to validate."""
+        contract = self.root / "crates/bridge/data/contract.json"
+        contract.write_text(json.dumps({"constants": []}))
+        self.git("add", ".")
+        self.git("commit", "-m", "Model a release before the API was added")
+        result = self.prepare(check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs()["version"], SOURCE_VERSION)
+
     def test_placeholder_api_origin_is_rejected_before_creating_a_tag(self):
         """A release cannot publish a client whose API still has a reserved placeholder host."""
         contract = self.root / "crates/bridge/data/contract.json"
