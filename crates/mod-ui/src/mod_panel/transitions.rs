@@ -19,14 +19,19 @@ struct Tween {
 }
 
 impl Tween {
-    /// The displayed components at `now`, exactly `to` once the duration has elapsed.
-    fn sample(&self, now: f64) -> Vec<f64> {
+    /// Eased progress at `now`: exactly 1 once the duration has elapsed.
+    fn progress(&self, now: f64) -> f64 {
         let t = if self.duration > 0.0 {
             (now - self.began) / self.duration
         } else {
             1.0
         };
-        let progress = self.easing.progress(t);
+        self.easing.progress(t)
+    }
+
+    /// The displayed components at `now`, exactly `to` once the duration has elapsed.
+    fn sample(&self, now: f64) -> Vec<f64> {
+        let progress = self.progress(now);
         self.from
             .iter()
             .zip(&self.to)
@@ -34,15 +39,10 @@ impl Tween {
             .collect()
     }
 
-    /// The first displayed component at `now`.
+    /// The first displayed component at `now`, without allocating.
     fn first(&self, now: f64) -> Option<f64> {
-        let t = if self.duration > 0.0 {
-            (now - self.began) / self.duration
-        } else {
-            1.0
-        };
-        let progress = self.easing.progress(t);
-        Some(self.from.first()? + (self.to.first()? - self.from.first()?) * progress)
+        let (from, to) = (self.from.first()?, self.to.first()?);
+        Some(from + (to - from) * self.progress(now))
     }
 
     /// Whether the displayed value has reached its target by `now`.
@@ -322,12 +322,12 @@ mod tests {
         );
         let mut transitions = SurfaceTransitions::default();
         assert!(transitions.world_backdrop(&surface).blur == 3.0);
-        transitions.advance(&surface, 1.0);
+        transitions.advance(&surface, 1.0, true);
         let opening = transitions.world_backdrop(&surface);
         assert_eq!((opening.blur, opening.brightness), (0.0, 0.62));
-        transitions.advance(&surface, 1.125);
+        transitions.advance(&surface, 1.125, true);
         assert_eq!(transitions.world_backdrop(&surface).blur, 1.5);
-        transitions.advance(&surface, 1.25);
+        transitions.advance(&surface, 1.25, true);
         let open = transitions.world_backdrop(&surface);
         assert_eq!((open.blur, open.saturation), (3.0, 1.0));
     }

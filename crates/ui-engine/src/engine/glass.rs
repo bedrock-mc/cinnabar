@@ -138,6 +138,8 @@ type GlassKey = ([u32; 4], u8, [u32; 3]);
 thread_local! {
     /// Backdrop geometry derived from rounded shapes, keyed by outline and paint.
     static GLASS: RefCell<MeshCache<GlassKey>> = RefCell::default();
+    /// Top-edge highlights, keyed by outline and width, colour and display density.
+    static HIGHLIGHTS: RefCell<MeshCache<([u32; 4], [u8; 4], u32)>> = RefCell::default();
     /// Whole-content world backdrop quads, keyed by page and paint.
     static WORLD: RefCell<MeshCache<BackdropKey>> = RefCell::default();
 }
@@ -230,17 +232,21 @@ impl Canvas<'_> {
                 .or_else(|| data.get(name))
                 .and_then(json_ui::color_value)
         };
-        let px = self.px;
+        // A scaled panel bakes its drawn size, so its lengths and blur scale with it.
+        let (px, scale) = (self.px, self.length_scale);
         let length = |name: &str, default: f64| {
             number(&format!("#{name}"), name)
                 .unwrap_or(default)
                 .max(0.0) as f32
                 * px
+                * scale
         };
         let radius = length("radius", DEFAULT_RADIUS);
         let gui_physical = px * self.metrics.dpi_scale.get();
         let glass = Backdrop::read(|property| number(property.bound, property.name));
-        let paint = glass.paint(gui_physical).over(world.paint(gui_physical));
+        let paint = glass
+            .paint(gui_physical * scale)
+            .over(world.paint(gui_physical));
         let opacity = node.alpha([255; 4])[3];
         let shape = RoundedPaint {
             size,
@@ -278,51 +284,69 @@ impl Canvas<'_> {
             }
         }
         let highlight = node.alpha(color("highlight_color").unwrap_or([0; 4]));
-        if highlight[3] > 0 {
-            self.highlight(
-                shape,
-                highlight,
-                length("highlight_width", DEFAULT_HIGHLIGHT_WIDTH),
-                dest,
-            )?;
+        let width = length("highlight_width", DEFAULT_HIGHLIGHT_WIDTH);
+        if highlight[3] > 0
+            && width > 0.0
+            && let Some(mesh) = self.highlight(shape, highlight, width)
+        {
+            self.push(UiVisual::Mesh(mesh), dest)?;
         }
         Ok(())
     }
 
-    /// Strokes `shape`'s outline in `color`, showing only the band across its top edge and
-    /// corners, like a CSS `inset 0 1px 0` highlight.
-    fn highlight(
-        &mut self,
-        shape: RoundedPaint,
-        color: [u8; 4],
-        width: f32,
-        dest: [f32; 4],
-    ) -> Result<(), PaintError> {
-        let Some(current) = self.clip() else {
-            return Ok(());
-        };
-        let band = dest[1] + (shape.radius * 0.5).max(width);
-        let clip = [
-            current[0].max(dest[0]),
-            current[1].max(dest[1]),
-            current[2].min(dest[2]),
-            current[3].min(band),
-        ];
-        if clip[0] >= clip[2] || clip[1] >= clip[3] || width <= 0.0 {
-            return Ok(());
+    /// A `width` line in `color` along the inside of `shape`'s top edge that thins to nothing
+    /// down each top corner, like a CSS `inset 0 1px 0` highlight. Built as geometry rather
+    /// than clipped, so it rotates with its panel.
+    fn highlight(&self, shape: RoundedPaint, color: [u8; 4], width: f32) -> Option<Arc<UiMesh>> {
+        let width = width.min(shape.size[1] * 0.5);
+        if shape.radius <= width {
+            return self.rounded_shape(RoundedPaint {
+                size: [shape.size[0], width],
+                radius: 0.0,
+                fill: color,
+                ..shape
+            });
         }
-        let Some(mesh) = self.rounded_shape(RoundedPaint {
+        let border = self.rounded_shape(RoundedPaint {
             fill: [0; 4],
             border: width,
             border_color: color,
             ..shape
-        }) else {
-            return Ok(());
-        };
-        // Later nodes open their own clip group.
-        self.group(clip)?;
-        self.push(UiVisual::Mesh(mesh), dest)
+        })?;
+        let key = (
+            [shape.size[0], shape.size[1], shape.radius, width].map(f32::to_bits),
+            color,
+            self.metrics.dpi_scale.get().to_bits(),
+        );
+        HIGHLIGHTS.with(|cache| {
+            cache.borrow_mut().get_or_build(key, |_| {
+                top_band(&border, shape.size[1], shape.radius, width)
+            })
+        })
     }
+}
+
+/// `border` with its coverage kept across the top edge and faded to zero where each top
+/// corner meets its side, `radius` below the top.
+fn top_band(border: &UiMesh, height: f32, radius: f32, width: f32) -> Option<UiMesh> {
+    let vertices: Vec<_> = border
+        .vertices()
+        .iter()
+        .map(|vertex| {
+            let y = vertex.position[1] * height;
+            let fade = ((radius - y) / (radius - width)).clamp(0.0, 1.0);
+            UiMeshVertex {
+                model_light: vertex.model_light * fade,
+                ..*vertex
+            }
+        })
+        .collect();
+    UiMesh::new(
+        vertices.into(),
+        Arc::from(border.indices()),
+        Arc::from(border.batches()),
+    )
+    .ok()
 }
 
 #[cfg(test)]

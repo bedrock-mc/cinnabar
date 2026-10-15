@@ -100,3 +100,24 @@ fn authored_backdrops_clamp_and_identity_draws_nothing() {
     assert!(Backdrop::read(|_| None).is_identity());
     assert!(!read.is_identity());
 }
+
+#[test]
+fn highlight_keeps_the_top_edge_and_fades_out_down_each_corner() {
+    let border = shape();
+    // Normalized y 0 is the top edge and 1 the bottom, in a 20-pixel-tall shape.
+    let band = top_band(&border, 20.0, 8.0, 1.0).unwrap();
+    let lights: Vec<_> = band
+        .vertices()
+        .iter()
+        .map(|vertex| (vertex.position[1], vertex.model_light))
+        .collect();
+    assert_eq!(lights, [(0.0, 0.5), (0.0, 0.5), (1.0, 0.0), (1.0, 0.0)]);
+    assert_eq!(band.indices(), border.indices());
+    let halfway = top_band(&border, 2.0 * (8.0 + 1.0) / 2.0, 8.0, 1.0).unwrap();
+    assert!(
+        halfway
+            .vertices()
+            .iter()
+            .all(|vertex| (0.0..=0.5).contains(&vertex.model_light))
+    );
+}

@@ -8,8 +8,9 @@ use ui::{UiNode, UiTransform};
 use super::Canvas;
 
 /// Custom renderers whose antialiasing is baked into geometry built for one size.
-const COVERAGE_RENDERERS: [&str; 3] = [
+const COVERAGE_RENDERERS: [&str; 4] = [
     "cinnabar_rounded_rectangle",
+    ui::mod_panel::backdrop::GLASS_RENDERER,
     "cinnabar_vector_icon",
     json_ui::vector_path::RENDERER,
 ];

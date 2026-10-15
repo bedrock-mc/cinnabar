@@ -440,13 +440,17 @@ when they close (`docs/modding-spike.md`). Surface transitions, exits and `motio
 feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
 to scale about an origin and rotate their drawing and hits without changing layout,
 bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
-subtrees cannot clip. These are Cinnabar extensions for mod
+subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred and
+filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
+`#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
+pyramid of the post-processed scene serves every backdrop in a frame, built only while one
+is published. These are Cinnabar extensions for mod
 surfaces; server-pack JSON-UI is unchanged.
 
 Incomplete toward expressive mod menus:
 - Element blur.
-- A shared blurred-world material for glass panels and blurring the world behind an open
-  menu, measured against the frame budget.
+- The shared scene blur is unmeasured on the reference hardware tiers. Backdrops blur only
+  the 3-D scene: UI beneath a glass panel, including the HUD and nested glass, stays sharp.
 - Exits between routes: replacing an open panel's surface swaps it at once without playing
   the old surface's exit values.
 

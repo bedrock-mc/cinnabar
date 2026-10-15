@@ -462,6 +462,53 @@ translucent fills do not paint underneath it. Edge coverage spans one physical p
 every display density, including subpixel borders and square inner corners.
 Coverage is centered on the authored outline; layout and hit bounds stay fixed.
 
+`cinnabar_glass` draws a frosted panel: the world behind its rounded outline blurred and
+filtered like CSS `backdrop-filter`, then a tint, border and top highlight above it:
+
+```json
+{"type":"custom","renderer":"cinnabar_glass","size":[300,200],"radius":13,
+ "blur":13,"saturation":1.12,"color":[0.04,0.07,0.11,0.78],
+ "border_color":[0.8,0.88,1,0.1],"highlight_color":[0.94,0.96,1,0.14]}
+```
+
+`blur` is a Gaussian standard deviation in GUI pixels within 0–32 (default 0), and
+`saturation` and `brightness` are CSS `saturate()` and `brightness()` factors within
+0–2 (default 1), applied to sRGB-encoded values. `radius`, `color`, `border_color` and
+`border_width` match `cinnabar_rounded_rectangle`; `color` defaults to transparent.
+`highlight_color` draws a `highlight_width` GUI-pixel line (default 1) along the inside of
+the top edge that thins out down each top corner, like CSS `inset 0 1px 0`. Literal values
+outside their bounds are rejected; values bound through `#blur`, `#saturation`,
+`#brightness`, `#color`, `#border_color`, `#highlight_color` or `#radius` win over the
+authored ones and are clamped, so transitions can animate them. The node's `#alpha` fades
+the backdrop with the tint. Under `cinnabar_transform` the panel, its blur and its
+highlight scale and rotate with it, and the backdrop is sampled where the panel is drawn.
+
+Surface bindings named `#world_blur` (GUI pixels, 0–32), `#world_brightness` and
+`#world_saturation` (0–2) blur and filter the whole world behind the open personal panel or
+HUD editor; other values are rejected. Declare transitions on them to ease the world in
+and out, as the panel opens and, with `exit`, as it closes:
+
+```json
+"bindings": { "#world_blur": 3, "#world_brightness": 0.62 },
+"transitions": {
+  "#world_blur": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": 0, "exit": 0 },
+  "#world_brightness": { "duration": 0.25, "from": 1, "exit": 1 }
+}
+```
+
+Glass sees the world through this backdrop: its blur adds in quadrature and its factors
+multiply. Both act on the 3-D scene only. HUD elements, other UI beneath a panel and
+nested glass are not blurred and stay sharp through the tint, as the mockup's HUD layer
+does. Only extension surfaces draw glass or a world backdrop; resource packs and server
+UI cannot name the renderer.
+
+The client blurs the world once per frame, and only while a glass panel or world
+backdrop is published: it downsamples the post-processed scene into a half-resolution
+dual-Kawase pyramid of up to eight levels, then copies the scene into the next frame
+target while each backdrop shape samples the level its blur needs. Retained UI layers
+never hold world pixels, so a moving world redraws no UI. Without glass no pass runs and
+no pyramid stays allocated. `CINNABAR_GPU_UI=1` reports the passes as `gpu_ui_backdrop`.
+
 `cinnabar_vector_path` draws caller-authored geometry without registering product
 icons in the runtime. `view_box` is `[x, y, width, height]`; `paths` contains arrays
 of finite `[x, y]` points in that coordinate space. Without `stroke_width`, closed
