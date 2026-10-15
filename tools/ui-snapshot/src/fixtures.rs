@@ -220,7 +220,13 @@ pub const STATES: &[State] = &[
         name: "tab-list-badges",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: tab_list_badges,
+        fixture: || tab_list_badges(true),
+    },
+    State {
+        name: "tab-list-expired-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(false),
     },
     State {
         name: "settings-video",
@@ -376,13 +382,13 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
 }
 
 /// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
-fn tab_list_badges() -> Fixture {
+fn tab_list_badges(visible: bool) -> Fixture {
     Fixture::TabList(
         [
             ("Alex", true),
             ("Alex", false),
             ("Riley", false),
-            ("Steve", true),
+            ("Steve", visible),
             ("Zoe", false),
         ]
         .map(|(name, badged)| RosterRow {

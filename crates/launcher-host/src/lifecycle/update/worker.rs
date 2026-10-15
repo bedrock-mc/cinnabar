@@ -50,12 +50,34 @@ pub(super) fn retry_missing(
     }
 }
 
+/// The signed channel manifest has not caught up with a release push yet.
+#[derive(Debug, thiserror::Error)]
+#[error("the signed manifest is older than the announced release")]
+struct ManifestBehind;
+
+/// Waits on the edge clock while allowing preference changes to cancel a delayed check promptly.
+fn wait_announcement(generation: u64, mut hint: Announcement) -> Option<Announcement> {
+    loop {
+        let state = STATE.lock().ok()?;
+        if !state.accepts_worker(generation) {
+            return None;
+        }
+        hint = state.announcement.clone().unwrap_or(hint);
+        let remaining = hint.not_before.saturating_sub(now_secs());
+        drop(state);
+        if remaining == 0 {
+            return Some(hint);
+        }
+        std::thread::park_timeout(Duration::from_secs(remaining.min(1)));
+    }
+}
+
 /// Runs one worker at a time and retries when a preference changes during its request.
 pub(super) fn start(force: bool) {
     let Some(layout) = LAYOUT.get().cloned() else {
         return;
     };
-    let (preferences, switch_now, check_now, generation) = {
+    let (preferences, switch_now, check_now, generation, announcement) = {
         let Ok(mut state) = STATE.lock() else {
             return;
         };
@@ -73,9 +95,13 @@ pub(super) fn start(force: bool) {
             state.switch_now,
             check_now,
             state.generation,
+            (!force && !check_now)
+                .then(|| state.announcement.clone())
+                .flatten(),
         )
     };
     std::thread::spawn(move || {
+        let announcement = announcement.and_then(|hint| wait_announcement(generation, hint));
         let result = retry_missing(
             || {
                 run(
@@ -83,8 +109,9 @@ pub(super) fn start(force: bool) {
                     preferences,
                     switch_now,
                     generation,
-                    force || check_now,
+                    force || check_now || announcement.is_some(),
                     force,
+                    announcement.as_ref(),
                 )
             },
             || active(generation),
@@ -92,15 +119,23 @@ pub(super) fn start(force: bool) {
         if let Err(error) = &result {
             tracing::debug!("update check: {error:#}");
         }
-        let (changed, check_now) = if let Ok(mut state) = STATE.lock() {
+        let (changed, pending) = if let Ok(mut state) = STATE.lock() {
+            state.finish_announcement(
+                announcement.as_ref(),
+                result
+                    .as_ref()
+                    .is_err_and(|error| error.is::<ManifestBehind>()),
+                now_secs(),
+                announcements::jitter(),
+            );
             let changed = state.finish_check(generation, switch_now, result.is_err());
-            (changed, state.check_now)
+            (changed, state.check_now || state.announcement.is_some())
         } else {
             (false, false)
         };
         if changed {
             start(true);
-        } else if check_now {
+        } else if pending {
             // A notice that arrived during this check may name a release it started too early to see.
             start(false);
         }
@@ -123,6 +158,7 @@ fn run(
     generation: u64,
     immediate: bool,
     cached: bool,
+    announcement: Option<&Announcement>,
 ) -> Result<()> {
     let Some(manifest_url) = preferences.channel.manifest_url() else {
         return Ok(());
@@ -239,6 +275,11 @@ fn run(
                 },
                 OffsetDateTime::now_utc(),
             )?;
+            if announcement.is_some_and(|hint| {
+                hint.ahead_of(&selected.manifest.version, selected.manifest.build_number)
+            }) {
+                return Err(ManifestBehind.into());
+            }
             let _ = fs::write(&channel_cache, &envelope);
             selected
         };
@@ -550,7 +591,7 @@ pub(super) fn http_client() -> Result<reqwest::Client> {
 }
 
 /// Reads the edge clock for the check stamp.
-fn now_secs() -> u64 {
+pub(super) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())

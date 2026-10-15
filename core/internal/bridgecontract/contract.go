@@ -163,8 +163,16 @@ const (
 	CinnabarAPIBaseURL = "https://cinnabar-api.invalid"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128
-	// CinnabarAPILookupsPerMinute: Cinnabar player lookups the API admits per rolling minute.
-	CinnabarAPILookupsPerMinute = 20
+	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
+	CinnabarAPICacheTTLMS = 120000
+	// CinnabarAPILookupBucketCapacity: Fallback lookup budget in XUIDs.
+	CinnabarAPILookupBucketCapacity = 1024
+	// CinnabarAPILookupRefillPerMin: Fallback lookup refill in XUIDs per minute.
+	CinnabarAPILookupRefillPerMin = 512
+	// CinnabarAPIPingIntervalMS: Fallback keepalive interval.
+	CinnabarAPIPingIntervalMS = 30000
+	// CinnabarAPIReconnectMaxMS: Fallback reconnect backoff cap.
+	CinnabarAPIReconnectMaxMS = 300000
 	// PresenceGameModeSurvival: Xbox presence game mode for survival.
 	PresenceGameModeSurvival = 0
 	// PresenceGameModeCreative: Xbox presence game mode for creative.
@@ -311,7 +319,9 @@ type CinnabarRelease struct {
 	Channel string `json:"channel"`
 	// Version: App version; rolling channels reuse one across builds.
 	Version string `json:"version"`
-	// PublishedAt: When the API recorded it, which tells successive builds of one version apart.
+	// Build: Signed manifest build number; absent in older v1 notices.
+	Build uint64 `json:"build"`
+	// PublishedAt: When the API recorded the release.
 	PublishedAt string `json:"published_at"`
 }
 

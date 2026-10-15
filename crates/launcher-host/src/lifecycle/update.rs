@@ -1,6 +1,8 @@
 //! One background signed-release check and the launcher's explicit update decisions.
 
+mod announcements;
 mod handoff;
+use announcements::Announcement;
 #[cfg(test)]
 mod tests;
 mod worker;
@@ -83,6 +85,7 @@ struct State {
     running: bool,
     /// A launch or release notice wants a fresh check regardless of the completion stamp.
     check_now: bool,
+    announcement: Option<Announcement>,
     startup: StartupPhase,
 }
 
@@ -127,11 +130,15 @@ impl State {
         }
         let channel_changed = self.preferences.channel != preferences.channel;
         if channel_changed {
+            self.announcement = None;
             self.ready = None;
             self.dismissed = false;
             self.switch_now = false;
             self.switch_available = false;
             self.message = None;
+        }
+        if !preferences.checks {
+            self.announcement = None;
         }
         self.preferences = preferences;
         self.generation += 1;
@@ -195,6 +202,7 @@ impl State {
             generation: 0,
             running: false,
             check_now: false,
+            announcement: None,
             startup: StartupPhase::Preparing,
         }
     }
@@ -221,17 +229,48 @@ impl State {
         true
     }
 
-    /// Requests a fresh check when `version` on the selected channel is not older than `current`;
-    /// a rolling channel republishes one version with newer builds that only the manifest orders.
-    fn release_published(&mut self, channel: &str, version: &str, current: &str) -> bool {
-        if !self.preferences.checks || channel != self.preferences.channel.name() {
+    /// Coalesces newer release hints on the selected channel without trusting their payloads.
+    fn release_published(
+        &mut self,
+        release: &bridge::CinnabarRelease,
+        current: (&str, u64),
+        now: u64,
+        jitter: u64,
+    ) -> bool {
+        if !self.preferences.checks || release.channel != self.preferences.channel.name() {
             return false;
         }
-        if update_manifest::select::newer(current, version).unwrap_or(true) {
+        let hint = Announcement::new(&release.version, release.build, now, jitter);
+        if !hint.ahead_of(current.0, current.1)
+            || self
+                .announcement
+                .as_ref()
+                .is_some_and(|pending| !hint.ahead_of(&pending.version, pending.build))
+        {
             return false;
         }
-        self.check_now = true;
+        self.announcement = Some(hint);
         true
+    }
+
+    /// Retains a bounded retry only for the hint this worker actually checked.
+    fn finish_announcement(
+        &mut self,
+        checked: Option<&Announcement>,
+        behind: bool,
+        now: u64,
+        jitter: u64,
+    ) {
+        if checked.is_some()
+            && self.announcement.as_ref() == checked
+            && (!behind
+                || !self
+                    .announcement
+                    .as_mut()
+                    .is_some_and(|hint| hint.retry(now, jitter)))
+        {
+            self.announcement = None;
+        }
     }
 
     /// Only the current worker may change stages, and accepted shutdown freezes its choice.
@@ -482,9 +521,14 @@ fn startup_marker(layout: &InstallLayout) -> Option<PathBuf> {
 }
 
 /// Starts a fresh signed-manifest check for a release the Cinnabar API announced.
-pub fn release_published(channel: &str, version: &str) {
+pub fn release_published(release: &bridge::CinnabarRelease) {
     let wanted = STATE.lock().is_ok_and(|mut state| {
-        state.release_published(channel, version, env!("CARGO_PKG_VERSION"))
+        state.release_published(
+            release,
+            (env!("CARGO_PKG_VERSION"), update_manifest::build_number()),
+            worker::now_secs(),
+            announcements::jitter(),
+        )
     });
     if wanted {
         worker::start(false);

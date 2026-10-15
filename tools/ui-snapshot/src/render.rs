@@ -56,7 +56,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } => false,
+        Fixture::Chat { .. } | Fixture::TabList(_) => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);

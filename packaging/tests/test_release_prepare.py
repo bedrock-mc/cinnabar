@@ -72,6 +72,9 @@ def fixture(root: Path) -> None:
         directory = root / path
         directory.mkdir(parents=True)
         (directory / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n{declaration}\n')
+    contract = root / "crates/bridge/data/contract.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps({"constants": [{"go_name": "CinnabarAPIBaseURL", "value": "https://api.example.test"}]}))
     (root / "packaging").mkdir()
     for name in ["bump-version.py", "prepare-release.py", "release-assets.json"]:
         shutil.copyfile(PACKAGING / name, root / "packaging" / name)
@@ -213,6 +216,19 @@ else:
 
     def assert_no_outputs(self):
         self.assertFalse(self.output.exists())
+
+    def test_placeholder_api_origin_is_rejected_before_creating_a_tag(self):
+        """A release cannot publish a client whose API still has a reserved placeholder host."""
+        contract = self.root / "crates/bridge/data/contract.json"
+        contract.write_text(json.dumps({"constants": [{"go_name": "CinnabarAPIBaseURL", "value": "https://api.example.invalid"}]}))
+        self.git("add", ".")
+        self.git("commit", "-m", "Use a placeholder API origin")
+        before = self.refs()
+        result = self.prepare(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("placeholder", result.stderr)
+        self.assertEqual(self.refs(), before)
+        self.assert_no_outputs()
 
     def test_main_push_is_read_only_nightly_at_the_event_commit(self):
         before = self.refs()

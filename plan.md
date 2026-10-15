@@ -641,13 +641,17 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## Cinnabar API
 
-- The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`) with a fresh
-  key-bound multiplayer token per connection. Release notices start an immediate signed-manifest
-  check; the tab roster badges visible Cinnabar players from batched, paced, session-cached lookups.
-  Settings → General → Network has the default-on visibility toggle.
-- Go tests cover the handshake, lookups, releases, visibility and reconnects against a fake server,
-  plus conformance with the pinned API schema.
-- Incomplete: no live run against the deployed API yet, and name tags carry no badge.
+- The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`). It dials
+  before minting and reuses unexpired key-bound credentials with fresh challenge proofs. Negotiated
+  limits, retry minima, reconnect jitter and bounded frame-rejection retries control its traffic.
+- Player lookups prioritize new joiners, coalesce refreshes, expire visible positives and discard
+  older-session replies. Release notices include manifest builds and schedule jittered checks with
+  bounded retries for older signed manifests. Packaging rejects placeholder origins and announces
+  only changed signed manifests.
+- Go tests cover the handshake, lookups, release identities, retry policy and schema conformance.
+  Rust tests cover roster-cache lifetimes, session changes and release-check scheduling.
+- Incomplete: an authenticated live run against the deployed API, the production origin, and
+  name-tag badges remain outstanding. No vanilla parity gate closes for this optional feature.
 
 ## Small-surface render safety
 

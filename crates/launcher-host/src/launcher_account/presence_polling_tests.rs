@@ -51,6 +51,7 @@ fn presence_reporting_keeps_account_events_running() {
         joining: true,
         cinnabar_api: Some(bridge::CinnabarApiConfig {
             client_version: "0.1.18".into(),
+            client_build: 42,
             channel: "beta".into(),
             visible: true,
         }),

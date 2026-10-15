@@ -25,6 +25,8 @@ const (
 type CinnabarAPI interface {
 	Configure(cinnabarapi.Config)
 	Lookup(ctx context.Context, xuids []string) ([]string, error)
+	CacheTTLMS() int64
+	LookupLimit() int
 }
 
 // CinnabarReleaseV1 is a release the Cinnabar API announced.
@@ -33,6 +35,8 @@ type CinnabarReleaseV1 = bridgecontract.CinnabarRelease
 type cinnabarLookupResultV1 struct {
 	SchemaVersion uint32   `json:"schema_version"`
 	Cinnabar      []string `json:"cinnabar"`
+	CacheTTLMS    int64    `json:"cache_ttl_ms"`
+	Resolved      []string `json:"resolved"`
 }
 
 // SetCinnabarAPI attaches the API connection; nil leaves lookups unavailable.
@@ -60,13 +64,14 @@ func (server *Server) serveCinnabarAPI(conn net.Conn, id uint64, raw json.RawMes
 	reply := responseWriter{server: server, conn: conn, id: id}
 	var params struct {
 		ClientVersion *string `json:"client_version"`
+		ClientBuild   uint64  `json:"client_build"`
 		Channel       *string `json:"channel"`
 		Visible       *bool   `json:"visible"`
 	}
 	if !decodeStrict(raw, &params) || params.ClientVersion == nil || params.Channel == nil || params.Visible == nil {
 		return reply.invalid()
 	}
-	config := cinnabarapi.Config{ClientVersion: *params.ClientVersion, Channel: *params.Channel, Visible: *params.Visible}
+	config := cinnabarapi.Config{ClientVersion: *params.ClientVersion, ClientBuild: params.ClientBuild, Channel: *params.Channel, Visible: *params.Visible}
 	if !config.Valid() {
 		return reply.invalid()
 	}
@@ -96,7 +101,8 @@ func (server *Server) serveCinnabarLookup(conn net.Conn, id uint64, raw json.Raw
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cinnabarLookupTimeout)
 	defer cancel()
-	cinnabar, err := api.Lookup(ctx, params.XUIDs)
+	batch := params.XUIDs[:min(len(params.XUIDs), api.LookupLimit())]
+	cinnabar, err := api.Lookup(ctx, batch)
 	switch {
 	case errors.Is(err, cinnabarapi.ErrRateLimited):
 		return reply.fail(codeRateLimited, "Rate limited")
@@ -106,7 +112,7 @@ func (server *Server) serveCinnabarLookup(conn net.Conn, id uint64, raw json.Raw
 	if cinnabar == nil {
 		cinnabar = []string{}
 	}
-	return reply.ok(cinnabarLookupResultV1{SchemaVersion: 1, Cinnabar: cinnabar})
+	return reply.ok(cinnabarLookupResultV1{SchemaVersion: 1, Cinnabar: cinnabar, CacheTTLMS: api.CacheTTLMS(), Resolved: batch})
 }
 
 // decodeStrict decodes exactly one object with no unknown fields.

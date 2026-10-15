@@ -42,10 +42,14 @@ var (
 // maxVersionLen bounds client_version as the API does.
 const maxVersionLen = 64
 
+// maxBuildNumber is the largest integer represented exactly by the v1 JSON server.
+const maxBuildNumber = 1<<53 - 1
+
 type helloMessage struct {
 	Type          string `json:"type"`
 	Protocol      int    `json:"protocol"`
 	ClientVersion string `json:"client_version"`
+	ClientBuild   uint64 `json:"client_build,omitempty"`
 	Channel       string `json:"channel"`
 	Visible       bool   `json:"visible"`
 	Token         string `json:"token"`
@@ -69,6 +73,8 @@ type lookupMessage struct {
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
+	parameters
+	Build       uint64   `json:"build"`
 	Type        string   `json:"type"`
 	Nonce       string   `json:"nonce"`
 	Code        string   `json:"code"`
@@ -106,5 +112,5 @@ func (c Config) Valid() bool {
 	default:
 		return false
 	}
-	return len(c.ClientVersion) <= maxVersionLen && versionPattern.MatchString(c.ClientVersion)
+	return c.ClientBuild <= maxBuildNumber && len(c.ClientVersion) <= maxVersionLen && versionPattern.MatchString(c.ClientVersion)
 }

@@ -29,6 +29,7 @@ type fakeAPI struct {
 	server   *httptest.Server
 	keys     sync.Map // token → *ecdsa.PublicKey
 	minted   atomic.Int64
+	welcome  parameters
 	sessions chan *fakeSession
 }
 
@@ -48,7 +49,8 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 
 // token mints a distinct token per key so the server can find the proof key.
 func (api *fakeAPI) token(_ context.Context, key *ecdsa.PublicKey) (string, error) {
-	token := fmt.Sprintf("header.payload%d.signature", api.minted.Add(1))
+	payload, _ := json.Marshal(map[string]any{"exp": time.Now().Add(time.Hour).Unix(), "serial": api.minted.Add(1)})
+	token := "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
 	api.keys.Store(token, key)
 	return token, nil
 }
@@ -89,7 +91,11 @@ func (api *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		conn.Close(4401, "")
 		return
 	}
-	_ = writeJSON(ctx, conn, map[string]string{"type": typeWelcome, "xuid": "2535400000000001", "display_name": "Player"})
+	_ = writeJSON(ctx, conn, struct {
+		Type string `json:"type"`
+		XUID string `json:"xuid"`
+		parameters
+	}{Type: typeWelcome, XUID: "2535400000000001", parameters: api.welcome})
 	session := &fakeSession{conn: conn, hello: hello, key: key.(*ecdsa.PublicKey), done: make(chan struct{})}
 	api.sessions <- session
 	select {
@@ -147,7 +153,8 @@ func receive[T any](t *testing.T, values <-chan T) T {
 func newTestClient(t *testing.T, api *fakeAPI, onRelease func(Release)) *Client {
 	client := New(context.Background(), Options{
 		Base: api.server.URL, Token: api.token, OnRelease: onRelease,
-		delay: func(int) time.Duration { return time.Millisecond },
+		delay:  func(int) time.Duration { return time.Millisecond },
+		random: func(int64) int64 { return 0 },
 	})
 	t.Cleanup(client.Close)
 	return client
@@ -243,8 +250,8 @@ func TestReleasesOnlyForTheConfiguredChannel(t *testing.T) {
 		t.Fatalf("release = %+v", got)
 	}
 	// A rolling channel republishes one version; each build is still announced.
-	session.send(t, map[string]string{"type": typeRelease, "channel": "beta", "version": "0.1.19", "published_at": "2026-10-14T00:00:00.000Z"})
-	if got := receive(t, releases); got.PublishedAt != "2026-10-14T00:00:00.000Z" {
+	session.send(t, map[string]any{"type": typeRelease, "channel": "beta", "version": "0.1.19", "build": 42, "published_at": "2026-10-14T00:00:00.000Z"})
+	if got := receive(t, releases); got.PublishedAt != "2026-10-14T00:00:00.000Z" || got.Build != 42 {
 		t.Fatalf("second build of one version = %+v", got)
 	}
 }
@@ -264,7 +271,7 @@ func TestVisibilityChangesAreSentLive(t *testing.T) {
 	}
 }
 
-func TestChannelChangeReconnectsWithAFreshKey(t *testing.T) {
+func TestChannelChangeReusesUnexpiredCredential(t *testing.T) {
 	api := newFakeAPI(t)
 	client := newTestClient(t, api, nil)
 	client.Configure(testConfig)
@@ -276,8 +283,8 @@ func TestChannelChangeReconnectsWithAFreshKey(t *testing.T) {
 	if second.hello.Channel != "nightly" {
 		t.Fatalf("reconnected hello = %+v", second.hello)
 	}
-	if first.key.Equal(second.key) || first.hello.Token == second.hello.Token {
-		t.Fatal("reconnect reused the previous key or token")
+	if !first.key.Equal(second.key) || first.hello.Token != second.hello.Token {
+		t.Fatal("reconnect replaced an unexpired key or token")
 	}
 }
 
@@ -288,8 +295,8 @@ func TestReconnectsAfterTheServerDrops(t *testing.T) {
 	first := receive(t, api.sessions)
 	close(first.done)
 	second := receive(t, api.sessions)
-	if second.hello.Token == first.hello.Token {
-		t.Fatal("reconnect reused the previous token")
+	if second.hello.Token != first.hello.Token {
+		t.Fatal("reconnect replaced an unexpired token")
 	}
 }
 
@@ -301,10 +308,10 @@ func TestBackoffIsCappedAndJittered(t *testing.T) {
 		3:  {2 * minBackoff, 4 * minBackoff},
 		40: {maxBackoff / 2, maxBackoff},
 	} {
-		if got := backoff(failures, lowest); got != want[0] {
+		if got := backoff(failures, maxBackoff, lowest); got != want[0] {
 			t.Fatalf("failures %d lowest = %v, want %v", failures, got, want[0])
 		}
-		if got := backoff(failures, highest); got != want[1] {
+		if got := backoff(failures, maxBackoff, highest); got != want[1] {
 			t.Fatalf("failures %d highest = %v, want %v", failures, got, want[1])
 		}
 	}
@@ -339,15 +346,56 @@ func TestOnlyFrameRejectionsBackOffLong(t *testing.T) {
 
 func TestConfigValidityMatchesTheHelloSchema(t *testing.T) {
 	for config, want := range map[Config]bool{
-		{ClientVersion: "0.1.18", Channel: "beta"}:          true,
-		{ClientVersion: "1.2.3-rc.1", Channel: "nightly"}:   true,
-		{ClientVersion: "0.1.18+7", Channel: "beta"}:        false,
-		{ClientVersion: "0.1", Channel: "beta"}:             false,
-		{ClientVersion: "0.1.18", Channel: "canary"}:        false,
-		{ClientVersion: "1.2.3-" + strings.Repeat("a", 60)}: false,
+		{ClientVersion: "0.1.18", Channel: "beta"}:                       true,
+		{ClientVersion: "0.1.18", Channel: "beta", ClientBuild: 1 << 53}: false,
+		{ClientVersion: "1.2.3-rc.1", Channel: "nightly"}:                true,
+		{ClientVersion: "0.1.18+7", Channel: "beta"}:                     false,
+		{ClientVersion: "0.1", Channel: "beta"}:                          false,
+		{ClientVersion: "0.1.18", Channel: "canary"}:                     false,
+		{ClientVersion: "1.2.3-" + strings.Repeat("a", 60)}:              false,
 	} {
 		if got := config.Valid(); got != want {
 			t.Fatalf("%+v valid = %v", config, got)
 		}
+	}
+}
+
+// A refused upgrade must not make a request to the token issuer.
+func TestDialFailureDoesNotMint(t *testing.T) {
+	var minted atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "90")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	client := New(context.Background(), Options{Base: server.URL, Token: func(context.Context, *ecdsa.PublicKey) (string, error) {
+		minted.Add(1)
+		return "unused", nil
+	}})
+	defer client.Close()
+	_, _, err := client.connect(context.Background(), testConfig)
+	if err == nil || minted.Load() != 0 {
+		t.Fatalf("dial: %v, minted %d", err, minted.Load())
+	}
+}
+
+// Every correlated error must complete the lookup, including future error codes.
+func TestUnknownLookupErrorCompletesPendingRequest(t *testing.T) {
+	api := newFakeAPI(t)
+	client := newTestClient(t, api, nil)
+	client.Configure(testConfig)
+	session := receive(t, api.sessions)
+	testwait.Eventually(t, testwait.DefaultTimeout, "an authenticated session", func() bool {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		return client.live != nil
+	})
+	done := make(chan error, 1)
+	go func() { _, err := client.Lookup(context.Background(), []string{"11"}); done <- err }()
+	var lookup lookupMessage
+	session.receive(t, &lookup)
+	session.send(t, map[string]any{"type": typeError, "code": "future_error", "id": lookup.ID})
+	if err := receive(t, done); err == nil {
+		t.Fatal("lookup error was lost")
 	}
 }

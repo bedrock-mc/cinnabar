@@ -81,7 +81,11 @@
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
     {"rust_name": "", "go_name": "CinnabarAPIBaseURL", "value": "https://cinnabar-api.invalid", "rust_type": "str", "doc": "Cinnabar API origin; the package workflow reads it from this manifest."},
     {"rust_name": "CINNABAR_API_MAX_LOOKUP_XUIDS", "go_name": "CinnabarAPIMaxLookupXUIDs", "value": 128, "rust_type": "usize", "doc": "Most XUIDs in one Cinnabar player lookup."},
-    {"rust_name": "CINNABAR_API_LOOKUPS_PER_MINUTE", "go_name": "CinnabarAPILookupsPerMinute", "value": 20, "rust_type": "u32", "doc": "Cinnabar player lookups the API admits per rolling minute."},
+    {"rust_name": "CINNABAR_API_CACHE_TTL_MS", "go_name": "CinnabarAPICacheTTLMS", "value": 120000, "rust_type": "u32", "doc": "Fallback lifetime of a Cinnabar lookup answer."},
+    {"rust_name": "", "go_name": "CinnabarAPILookupBucketCapacity", "value": 1024, "rust_type": "u32", "doc": "Fallback lookup budget in XUIDs."},
+    {"rust_name": "", "go_name": "CinnabarAPILookupRefillPerMin", "value": 512, "rust_type": "u32", "doc": "Fallback lookup refill in XUIDs per minute."},
+    {"rust_name": "", "go_name": "CinnabarAPIPingIntervalMS", "value": 30000, "rust_type": "u32", "doc": "Fallback keepalive interval."},
+    {"rust_name": "", "go_name": "CinnabarAPIReconnectMaxMS", "value": 300000, "rust_type": "u32", "doc": "Fallback reconnect backoff cap."},
     {"rust_name": "PRESENCE_GAME_MODE_SURVIVAL", "go_name": "PresenceGameModeSurvival", "value": 0, "rust_type": "i32", "doc": "Xbox presence game mode for survival."},
     {"rust_name": "PRESENCE_GAME_MODE_CREATIVE", "go_name": "PresenceGameModeCreative", "value": 1, "rust_type": "i32", "doc": "Xbox presence game mode for creative."},
     {"rust_name": "PRESENCE_GAME_MODE_ADVENTURE", "go_name": "PresenceGameModeAdventure", "value": 2, "rust_type": "i32", "doc": "Xbox presence game mode for adventure."},
@@ -253,7 +257,8 @@
       "fields": [
         {"name": "channel", "go_name": "Channel", "type": "string", "doc": "Release channel name."},
         {"name": "version", "go_name": "Version", "type": "string", "doc": "App version; rolling channels reuse one across builds."},
-        {"name": "published_at", "go_name": "PublishedAt", "type": "string", "doc": "When the API recorded it, which tells successive builds of one version apart."}
+        {"name": "build", "go_name": "Build", "type": "u64", "default": true, "doc": "Signed manifest build number; absent in older v1 notices."},
+        {"name": "published_at", "go_name": "PublishedAt", "type": "string", "doc": "When the API recorded the release."}
       ]
     }
   ],

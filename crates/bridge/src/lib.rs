@@ -3,7 +3,9 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod account;
 mod cinnabar_api;
-pub use cinnabar_api::{CinnabarApiConfig, configure_cinnabar_api, lookup_cinnabar_players};
+pub use cinnabar_api::{
+    CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
+};
 /// Shared values and wire enums for the Rust and Go bridge.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub mod contract;

@@ -640,6 +640,7 @@ jobs:
               gh release delete-asset "$RELEASE_TAG" "$name" --yes
           done
       - name: Publish the signed update manifest
+        id: publish_manifest
         # New payloads, then the manifest naming them; retain the preceding publication too.
         # Without a new manifest, the current one and its payloads stay untouched.
         run: |
@@ -680,6 +681,7 @@ jobs:
           done
           if [[ ! -e "$previous/$UPDATE_MANIFEST" ]] || ! cmp -s "$previous/$UPDATE_MANIFEST" "$manifest"; then
             gh release upload "$UPDATE_MANIFEST_TAG" "$manifest" --clobber
+            echo "published=true" >> "$GITHUB_OUTPUT"
           fi
           # A renewed signature over the same payloads must not shorten their predecessor's grace.
           LC_ALL=C sort -o "$RUNNER_TEMP/new-payload-names" "$RUNNER_TEMP/new-payload-names"
@@ -720,19 +722,22 @@ jobs:
           gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" \
             --draft=false --prerelease=false --latest=true
       - name: Announce the release to the Cinnabar API
+        if: steps.publish_manifest.outputs.published == 'true'
         # Clients still verify the signed manifest; a failed notice only waits for their next check.
         continue-on-error: true
         env:
+          MANIFEST_PUBLISHED: ${{ steps.publish_manifest.outputs.published }}
           CINNABAR_API_RELEASE_HOOK_SECRET: ${{ secrets.CINNABAR_API_RELEASE_HOOK_SECRET }}
         run: |
+          [[ "$MANIFEST_PUBLISHED" == true ]] || exit 0
           if [[ -z "$CINNABAR_API_RELEASE_HOOK_SECRET" ]]; then
             echo "::warning::CINNABAR_API_RELEASE_HOOK_SECRET is unset; skipping the Cinnabar API release notice"
             exit 0
           fi
           base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
             "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
-          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --arg version "$RELEASE_VERSION" \
-            '{channel: $channel, version: $version}')"
+          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --arg version "$RELEASE_VERSION" --argjson build "$GITHUB_RUN_NUMBER" \
+            '{channel: $channel, version: $version, build: $build}')"
           # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$base/v1/releases" \
             -A "cinnabar-release/$RELEASE_VERSION" \

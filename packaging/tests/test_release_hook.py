@@ -39,10 +39,10 @@ class ReleaseHookTests(unittest.TestCase):
         (self.root / "curl").write_text(FAKE_CURL)
         (self.root / "curl").chmod(0o755)
 
-    def announce(self, secret=SECRET, status="204"):
+    def announce(self, secret=SECRET, status="204", published="true"):
         """Runs the workflow step against the fake curl."""
         env = dict(os.environ, PATH=f"{self.root}:{os.environ['PATH']}", GITHUB_WORKSPACE=str(self.root),
-                   RELEASE_CHANNEL="nightly", RELEASE_VERSION="0.1.18", FAKE_STATUS=status,
+                   RELEASE_CHANNEL="nightly", RELEASE_VERSION="0.1.18", GITHUB_RUN_NUMBER="42", MANIFEST_PUBLISHED=published, FAKE_STATUS=status,
                    CINNABAR_API_RELEASE_HOOK_SECRET=secret)
         result = subprocess.run(["bash", "-e", "-c", manifest_publish.step(STEP)], cwd=self.root, env=env,
                                 capture_output=True, text=True)
@@ -58,11 +58,16 @@ class ReleaseHookTests(unittest.TestCase):
         self.assertNotIn(SECRET, argv)
         self.assertNotIn(SECRET, result.stdout + result.stderr)
         self.assertEqual((self.root / "headers").read_text().strip(), f"Authorization: Bearer {SECRET}")
-        self.assertEqual(json.loads((self.root / "body").read_text()), {"channel": "nightly", "version": "0.1.18"})
+        self.assertEqual(json.loads((self.root / "body").read_text()), {"channel": "nightly", "version": "0.1.18", "build": 42})
 
     def test_a_failed_notice_warns_without_failing_the_release(self):
         result = self.announce(status="500")
         self.assertIn("::warning::Cinnabar API release notice failed (HTTP 500)", result.stdout)
+
+    def test_an_unpublished_manifest_does_not_announce(self):
+        """The step guards its own execution as well as the workflow's output condition."""
+        self.announce(published="")
+        self.assertFalse((self.root / "argv").exists())
 
     def test_a_missing_secret_skips_the_notice(self):
         result = self.announce(secret="")

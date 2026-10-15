@@ -83,22 +83,37 @@ fn checks_remain_periodic_when_the_clock_moves_back() {
     assert!(due(Some(5_000), 100));
 }
 
-/// Release notices request a fresh check only for the selected channel and a release not older than this build.
+/// Release hints are channel-scoped and compare nightly build numbers before scheduling.
 #[test]
-fn release_notices_check_only_the_selected_channel_at_or_above_this_version() {
+fn release_notices_check_only_newer_builds_on_the_selected_channel() {
+    let release = |channel: &str, version: &str, build| bridge::CinnabarRelease {
+        channel: channel.into(),
+        version: version.into(),
+        build,
+        ..Default::default()
+    };
     let mut state = State::new();
-    assert_eq!(state.preferences.channel, Channel::Beta);
-    assert!(!state.release_published("nightly", "9.0.0", "1.2.3"));
-    assert!(!state.release_published("beta", "1.2.2", "1.2.3"));
-    assert!(!state.release_published("beta", "not a version", "1.2.3"));
+    for hint in [
+        release("nightly", "9.0.0", 50),
+        release("beta", "1.2.2", 50),
+        release("beta", "not a version", 50),
+        release("beta", "1.2.3", 42),
+    ] {
+        assert!(!state.release_published(&hint, ("1.2.3", 42), 1000, 300));
+    }
+    let hint = release("beta", "1.2.3", 43);
+    assert!(state.release_published(&hint, ("1.2.3", 42), 1000, 300));
     assert!(!state.check_now);
-    assert!(state.release_published("beta", "1.2.3", "1.2.3"));
-    assert!(std::mem::take(&mut state.check_now));
-    assert!(state.release_published("beta", "1.3.0", "1.2.3"));
-    assert!(state.check_now);
-    let mut disabled = State::new();
-    disabled.preferences.checks = false;
-    assert!(!disabled.release_published("beta", "1.3.0", "1.2.3"));
+    assert_eq!(state.announcement.as_ref().unwrap().not_before, 1300);
+    assert!(!state.release_published(&hint, ("1.2.3", 42), 1100, 0));
+    let checked = state.announcement.clone();
+    state.finish_announcement(checked.as_ref(), true, 1300, 0);
+    assert_eq!(state.announcement.as_ref().unwrap().not_before, 1330);
+    let checked = state.announcement.clone();
+    state.finish_announcement(checked.as_ref(), false, 1330, 0);
+    assert!(state.announcement.is_none());
+    state.preferences.checks = false;
+    assert!(!state.release_published(&hint, ("1.2.3", 42), 1000, 0));
 }
 
 /// A verified notice model lets consent tests avoid any network or platform installer.

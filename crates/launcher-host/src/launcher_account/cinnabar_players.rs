@@ -11,18 +11,17 @@ use std::{
 use bridge::{
     BridgeError,
     contract::{
-        CINNABAR_API_LOOKUPS_PER_MINUTE, CINNABAR_API_MAX_LOOKUP_XUIDS, RPC_CINNABAR_RATE_LIMITED,
+        CINNABAR_API_CACHE_TTL_MS, CINNABAR_API_MAX_LOOKUP_XUIDS, RPC_CINNABAR_RATE_LIMITED,
     },
 };
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender, bounded, select, unbounded};
 
 use super::{Snapshot, publish, runtime};
 
-/// Spacing that keeps lookups within the API's per-minute budget.
-const LOOKUP_SPACING: Duration =
-    Duration::from_millis(60_000 / CINNABAR_API_LOOKUPS_PER_MINUTE as u64);
+/// A short gap coalesces roster churn; the core enforces the negotiated XUID budget.
+const LOOKUP_SPACING: Duration = Duration::from_secs(3);
 /// How long a resolved XUID stays answered before it is asked again.
-const RESOLVED_TTL: Duration = Duration::from_secs(120);
+const RESOLVED_TTL: Duration = Duration::from_millis(CINNABAR_API_CACHE_TTL_MS as u64);
 /// Pause after the core reports the API unavailable.
 const UNAVAILABLE_RETRY: Duration = Duration::from_secs(15);
 /// Pause after the API refuses a lookup over its rate limit.
@@ -38,12 +37,27 @@ pub(super) struct Roster {
 }
 
 /// Which roster XUIDs to ask about next and what each lookup answered.
-#[derive(Default)]
 pub(super) struct Lookups {
     session: Option<u64>,
     roster: Vec<String>,
     resolved: HashMap<String, (Instant, bool)>,
     not_before: Option<Instant>,
+    ttl: Duration,
+    refresh: HashSet<String>,
+}
+
+impl Default for Lookups {
+    /// Starts with the v1 fallback lifetime until a server advertises another one.
+    fn default() -> Self {
+        Self {
+            session: None,
+            roster: Vec::new(),
+            resolved: HashMap::new(),
+            not_before: None,
+            ttl: RESOLVED_TTL,
+            refresh: HashSet::new(),
+        }
+    }
 }
 
 impl Lookups {
@@ -52,6 +66,8 @@ impl Lookups {
         if self.session != Some(roster.session) {
             self.session = Some(roster.session);
             self.resolved.clear();
+            self.refresh.clear();
+            self.not_before = None;
         }
         let mut seen = HashSet::new();
         self.roster = roster
@@ -59,6 +75,8 @@ impl Lookups {
             .into_iter()
             .filter(|xuid| valid_xuid(xuid) && seen.insert(xuid.clone()))
             .collect();
+        self.resolved.retain(|xuid, _| seen.contains(xuid));
+        self.refresh.retain(|xuid| seen.contains(xuid));
     }
 
     /// The next batch of unresolved or expired XUIDs once the pacing allows another lookup.
@@ -66,10 +84,32 @@ impl Lookups {
         if self.not_before.is_some_and(|at| now < at) {
             return None;
         }
+        if self.roster.iter().any(|xuid| {
+            self.resolved
+                .get(xuid)
+                .is_some_and(|(at, _)| now.saturating_duration_since(*at) >= self.ttl)
+        }) {
+            self.refresh.extend(
+                self.roster
+                    .iter()
+                    .filter(|xuid| {
+                        self.resolved.get(*xuid).is_some_and(|(at, _)| {
+                            now.saturating_duration_since(*at) > self.ttl / 2
+                        })
+                    })
+                    .cloned(),
+            );
+        }
+        // Unanswered joiners go first, even during a large refresh round.
         let batch: Vec<String> = self
             .roster
             .iter()
-            .filter(|xuid| self.due(xuid, now))
+            .filter(|xuid| !self.resolved.contains_key(*xuid))
+            .chain(
+                self.roster
+                    .iter()
+                    .filter(|xuid| self.refresh.contains(*xuid)),
+            )
             .take(CINNABAR_API_MAX_LOOKUP_XUIDS)
             .cloned()
             .collect();
@@ -81,9 +121,22 @@ impl Lookups {
     }
 
     /// Records a lookup's answer for every XUID it asked about.
-    pub(super) fn resolve(&mut self, now: Instant, batch: &[String], cinnabar: &[String]) {
+    pub(super) fn resolve(
+        &mut self,
+        now: Instant,
+        session: u64,
+        batch: &[String],
+        cinnabar: &[String],
+    ) {
+        if self.session != Some(session) {
+            return;
+        }
         let cinnabar: HashSet<&str> = cinnabar.iter().map(String::as_str).collect();
         for xuid in batch {
+            if !self.roster.contains(xuid) {
+                continue;
+            }
+            self.refresh.remove(xuid);
             self.resolved
                 .insert(xuid.clone(), (now, cinnabar.contains(xuid.as_str())));
         }
@@ -103,7 +156,10 @@ impl Lookups {
         self.roster
             .iter()
             .map(|xuid| match self.resolved.get(xuid) {
-                Some((at, _)) => (*at + RESOLVED_TTL).saturating_duration_since(now),
+                Some((at, _)) if !self.refresh.contains(xuid) => {
+                    (*at + self.ttl).saturating_duration_since(now)
+                }
+                Some(_) => Duration::ZERO,
                 None => Duration::ZERO,
             })
             .min()
@@ -111,21 +167,29 @@ impl Lookups {
     }
 
     /// Roster XUIDs the API last reported as Cinnabar players.
-    pub(super) fn players(&self) -> HashSet<String> {
+    pub(super) fn players(&self, now: Instant) -> HashSet<String> {
         self.roster
             .iter()
-            .filter(|xuid| self.resolved.get(*xuid).is_some_and(|(_, found)| *found))
+            .filter(|xuid| {
+                self.resolved.get(*xuid).is_some_and(|(at, found)| {
+                    *found && now.saturating_duration_since(*at) < self.ttl
+                })
+            })
             .cloned()
             .collect()
     }
 
-    fn due(&self, xuid: &str, now: Instant) -> bool {
+    /// The next visible positive's expiry, even when a request is pending or retries are deferred.
+    fn next_expiry(&self, now: Instant) -> Option<Duration> {
         self.resolved
-            .get(xuid)
-            .is_none_or(|(at, _)| now.saturating_duration_since(*at) >= RESOLVED_TTL)
+            .values()
+            .filter(|(at, found)| *found && *at + self.ttl > now)
+            .map(|(at, _)| (*at + self.ttl).saturating_duration_since(now))
+            .min()
     }
 }
 
+/// Accepts only decimal XUIDs with the protocol's bounded length.
 fn valid_xuid(xuid: &str) -> bool {
     !xuid.is_empty() && xuid.len() <= MAX_XUID_DIGITS && xuid.bytes().all(|b| b.is_ascii_digit())
 }
@@ -137,51 +201,83 @@ pub(super) fn start(socket_dir: PathBuf, shared: Arc<Mutex<Snapshot>>) -> Sender
     rosters
 }
 
+/// Schedules lookups and expirations while the network thread handles a single pending request.
 fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiver<Roster>) {
     let Some(runtime) = runtime() else {
         return;
     };
-    let mut lookups = Lookups::default();
-    let mut published = HashSet::new();
-    loop {
-        let wait = lookups
-            .next_wake(Instant::now())
-            .unwrap_or(Duration::from_secs(3600));
-        match requests.recv_timeout(wait) {
-            Ok(roster) => {
-                // Only the newest roster matters.
-                let roster = requests.try_iter().last().unwrap_or(roster);
+    thread::scope(|scope| {
+        let (send, work) = bounded::<Vec<String>>(1);
+        let (results, answers) = bounded(1);
+        scope.spawn(move || {
+            while let Ok(batch) = work.recv() {
+                let answer = runtime.block_on(async {
+                    tokio::time::timeout(
+                        LOOKUP_TIMEOUT,
+                        bridge::lookup_cinnabar_players(socket_dir, &batch),
+                    )
+                    .await
+                });
+                if results.send(answer).is_err() {
+                    break;
+                }
+            }
+        });
+        let mut lookups = Lookups::default();
+        let mut pending: Option<u64> = None;
+        loop {
+            let now = Instant::now();
+            let due = pending.is_none().then(|| lookups.next_wake(now)).flatten();
+            let wait = due
+                .into_iter()
+                .chain(lookups.next_expiry(now))
+                .min()
+                .unwrap_or(Duration::from_secs(3600));
+            select! {
+                recv(requests) -> roster => {
+                    let Ok(roster) = roster else { return; };
+                    lookups.set_roster(requests.try_iter().last().unwrap_or(roster));
+                }
+                recv(answers) -> answer => {
+                    let Some(session) = pending.take() else { return; };
+                    if lookups.session == Some(session) {
+                        match answer {
+                            Ok(Ok(Ok(answer))) => {
+                                lookups.ttl = Duration::from_millis(answer.cache_ttl_ms.max(1));
+                                lookups.resolve(Instant::now(), session, &answer.resolved, &answer.cinnabar);
+                            }
+                            Ok(Ok(Err(BridgeError::ControlRpc { code, .. }))) if code == RPC_CINNABAR_RATE_LIMITED => {
+                                lookups.fail(Instant::now(), RATE_LIMITED_RETRY);
+                            }
+                            _ => lookups.fail(Instant::now(), UNAVAILABLE_RETRY),
+                        }
+                    }
+                }
+                default(wait) => {}
+            }
+            // Adopt roster changes before applying or publishing an answer from the previous session.
+            if let Some(roster) = requests.try_iter().last() {
                 lookups.set_roster(roster);
             }
-            Err(RecvTimeoutError::Disconnected) => return,
-            Err(RecvTimeoutError::Timeout) => {}
-        }
-        if let Some(batch) = lookups.next_batch(Instant::now()) {
-            let answer = runtime.block_on(async {
-                tokio::time::timeout(
-                    LOOKUP_TIMEOUT,
-                    bridge::lookup_cinnabar_players(socket_dir, &batch),
-                )
-                .await
-            });
-            match answer {
-                Ok(Ok(cinnabar)) => lookups.resolve(Instant::now(), &batch, &cinnabar),
-                Ok(Err(BridgeError::ControlRpc { code, .. }))
-                    if code == RPC_CINNABAR_RATE_LIMITED =>
-                {
-                    lookups.fail(Instant::now(), RATE_LIMITED_RETRY);
+            let now = Instant::now();
+            publish(shared, |snapshot| {
+                if snapshot.cinnabar_roster_key.map(|key| key.0) == lookups.session {
+                    let players = lookups.players(now);
+                    if *snapshot.cinnabar_players != players {
+                        snapshot.cinnabar_players = Arc::new(players);
+                    }
                 }
-                _ => lookups.fail(Instant::now(), UNAVAILABLE_RETRY),
+            });
+            if pending.is_none()
+                && let Some(batch) = lookups.next_batch(now)
+            {
+                pending = lookups.session;
+                if send.send(batch).is_err() {
+                    return;
+                }
             }
         }
-        let players = lookups.players();
-        if players != published {
-            published = players.clone();
-            publish(shared, |snapshot| {
-                snapshot.cinnabar_players = Arc::new(players);
-            });
-        }
-    }
+    });
 }
 
 #[cfg(test)]
@@ -206,15 +302,15 @@ mod tests {
         ));
         let batch = lookups.next_batch(start).unwrap();
         assert_eq!(batch, ["11", "22"]);
-        lookups.resolve(start, &batch, &["22".to_owned()]);
-        assert_eq!(lookups.players(), HashSet::from(["22".to_owned()]));
+        lookups.resolve(start, 1, &batch, &["22".to_owned()]);
+        assert_eq!(lookups.players(start), HashSet::from(["22".to_owned()]));
         lookups.set_roster(roster(1, &["11", "22", "33"]));
         let batch = lookups.next_batch(start + LOOKUP_SPACING).unwrap();
         assert_eq!(batch, ["33"]);
-        lookups.resolve(start + LOOKUP_SPACING, &batch, &[]);
+        lookups.resolve(start + LOOKUP_SPACING, 1, &batch, &[]);
         assert!(lookups.next_batch(start + 2 * LOOKUP_SPACING).is_none());
         let expired = start + RESOLVED_TTL;
-        assert_eq!(lookups.next_batch(expired).unwrap(), ["11", "22"]);
+        assert_eq!(lookups.next_batch(expired).unwrap(), ["11", "22", "33"]);
     }
 
     /// Lookups never run closer together than the API's rate limit allows.
@@ -231,13 +327,60 @@ mod tests {
         assert_eq!(first.len(), CINNABAR_API_MAX_LOOKUP_XUIDS);
         assert!(lookups.next_batch(start).is_none());
         assert_eq!(lookups.next_wake(start), Some(LOOKUP_SPACING));
-        assert!(LOOKUP_SPACING * CINNABAR_API_LOOKUPS_PER_MINUTE >= Duration::from_secs(60));
+
         lookups.fail(start, RATE_LIMITED_RETRY);
         assert!(lookups.next_batch(start + LOOKUP_SPACING).is_none());
         assert_eq!(
             lookups.next_batch(start + RATE_LIMITED_RETRY).unwrap(),
             first
         );
+    }
+
+    /// A refresh also covers answers past half their lifetime, avoiding staggered expiry requests.
+    #[test]
+    fn refresh_coalesces_older_answers() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11", "22"]));
+        lookups.resolve(start, 1, &["11".into()], &[]);
+        lookups.resolve(start + RESOLVED_TTL / 4, 1, &["22".into()], &[]);
+        assert_eq!(
+            lookups.next_batch(start + RESOLVED_TTL).unwrap(),
+            ["11", "22"]
+        );
+    }
+
+    /// Failed refreshes never extend a visible badge's lifetime.
+    #[test]
+    fn positive_expires_during_retry_backoff() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11"]));
+        lookups.resolve(start, 1, &["11".into()], &["11".into()]);
+        lookups.fail(start, RESOLVED_TTL * 2);
+        assert!(
+            !lookups
+                .players(start + RESOLVED_TTL - Duration::from_millis(1))
+                .is_empty()
+        );
+        assert!(lookups.players(start + RESOLVED_TTL).is_empty());
+        assert_eq!(lookups.next_expiry(start), Some(RESOLVED_TTL));
+    }
+
+    /// Departed players and answers from older sessions cannot reappear in the cache.
+    #[test]
+    fn late_answers_and_departed_xuids_are_discarded() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11", "22"]));
+        lookups.resolve(start, 1, &["11".into()], &["11".into()]);
+        lookups.set_roster(roster(1, &["22"]));
+        assert!(!lookups.resolved.contains_key("11"));
+        lookups.resolve(start, 1, &["11".into()], &["11".into()]);
+        assert!(!lookups.resolved.contains_key("11"));
+        lookups.set_roster(roster(2, &["22"]));
+        lookups.resolve(start, 1, &["22".into()], &["22".into()]);
+        assert!(lookups.players(start).is_empty());
     }
 
     /// A new server session forgets every earlier answer.
@@ -247,9 +390,9 @@ mod tests {
         let mut lookups = Lookups::default();
         lookups.set_roster(roster(1, &["11"]));
         let batch = lookups.next_batch(start).unwrap();
-        lookups.resolve(start, &batch, &batch);
+        lookups.resolve(start, 1, &batch, &batch);
         lookups.set_roster(roster(2, &["11"]));
-        assert!(lookups.players().is_empty());
+        assert!(lookups.players(start).is_empty());
         assert_eq!(lookups.next_batch(start + LOOKUP_SPACING).unwrap(), ["11"]);
         lookups.set_roster(roster(2, &[]));
         assert_eq!(lookups.next_wake(start), None);

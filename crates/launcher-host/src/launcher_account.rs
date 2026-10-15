@@ -230,6 +230,7 @@ impl LauncherAccount {
             }
             snapshot.cinnabar_api = Some(bridge::CinnabarApiConfig {
                 client_version: env!("CARGO_PKG_VERSION").to_owned(),
+                client_build: update_manifest::build_number(),
                 channel: channel.name().to_owned(),
                 visible,
             });
@@ -245,8 +246,13 @@ impl LauncherAccount {
         xuids: impl IntoIterator<Item = &'a str>,
     ) {
         let key = Some((session, revision));
-        let changed =
-            self.with(|snapshot| std::mem::replace(&mut snapshot.cinnabar_roster_key, key) != key);
+        let changed = self.with(|snapshot| {
+            let previous = std::mem::replace(&mut snapshot.cinnabar_roster_key, key);
+            if previous.map(|key| key.0) != Some(session) {
+                snapshot.cinnabar_players = Arc::default();
+            }
+            previous != key
+        });
         if changed {
             let _ = self.cinnabar_rosters.send(cinnabar_players::Roster {
                 session,
@@ -389,7 +395,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
         if let Ok(events) = runtime.block_on(bridge::poll_events(socket_dir)) {
             if let Some(release) = new_release(&mut seen_release, events.cinnabar_release.as_ref())
             {
-                crate::lifecycle::update::release_published(&release.channel, &release.version);
+                crate::lifecycle::update::release_published(release);
             }
             publish(shared, |snapshot| {
                 if let Some(disconnect) = events.disconnect
@@ -434,8 +440,7 @@ fn poll_events(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests:
     }
 }
 
-/// The announced release when it differs from the last one seen; `published_at` tells apart
-/// successive builds a rolling channel publishes under one version.
+/// The announced release when its identity differs from the last one seen.
 fn new_release<'a>(
     seen: &mut Option<bridge::CinnabarRelease>,
     latest: Option<&'a bridge::CinnabarRelease>,

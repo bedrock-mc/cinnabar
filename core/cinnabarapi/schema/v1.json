@@ -2,8 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/bedrock-mc/cinnabar-api/main/schema/v1.json",
   "title": "Cinnabar API v1",
-  "description": "HTTP bodies and WebSocket messages of the Cinnabar API. Receivers ignore unknown message types and unknown fields.",
+  "description": "HTTP bodies and WebSocket messages of the Cinnabar API. Receivers ignore unknown fields and, after authentication, unknown message types.",
   "x-protocol": 1,
+  "x-close-codes": {
+    "4429": "Stay away: reason retry_after=<seconds>; reconnect only after that delay plus jitter. HTTP 429 Retry-After has the same meaning on dial."
+  },
   "anyOf": [
     { "$ref": "#/$defs/ClientMessage" },
     { "$ref": "#/$defs/ServerMessage" },
@@ -20,6 +23,7 @@
     },
     "Xuid": { "type": "string", "pattern": "^[0-9]{1,20}$" },
     "U32": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "Build": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "Timestamp": {
       "description": "RFC 3339 UTC timestamp with millisecond precision.",
       "type": "string",
@@ -38,16 +42,18 @@
       "required": ["channel", "version"],
       "properties": {
         "channel": { "$ref": "#/$defs/Channel" },
-        "version": { "$ref": "#/$defs/Version" }
+        "version": { "$ref": "#/$defs/Version" },
+        "build": { "$ref": "#/$defs/Build" }
       }
     },
     "ReleaseRecord": {
-      "description": "GET /v1/releases/latest response.",
+      "description": "Latest accepted release identity for a channel.",
       "type": "object",
       "required": ["channel", "version", "published_at"],
       "properties": {
         "channel": { "$ref": "#/$defs/Channel" },
         "version": { "$ref": "#/$defs/Version" },
+        "build": { "$ref": "#/$defs/Build" },
         "published_at": { "$ref": "#/$defs/Timestamp" }
       }
     },
@@ -67,6 +73,7 @@
         "type": { "const": "hello" },
         "protocol": { "const": 1 },
         "client_version": { "$ref": "#/$defs/Version" },
+        "client_build": { "$ref": "#/$defs/Build" },
         "channel": { "$ref": "#/$defs/Channel" },
         "visible": { "type": "boolean" },
         "token": {
@@ -130,11 +137,16 @@
     },
     "Welcome": {
       "type": "object",
-      "required": ["type", "xuid", "display_name"],
+      "required": ["type", "xuid"],
       "properties": {
         "type": { "const": "welcome" },
         "xuid": { "$ref": "#/$defs/Xuid" },
-        "display_name": { "type": "string", "minLength": 1, "maxLength": 64 }
+        "lookup_batch_max": { "type": "integer", "minimum": 1, "default": 128 },
+        "lookup_bucket_capacity": { "type": "integer", "minimum": 1, "default": 1024 },
+        "lookup_refill_per_min": { "type": "integer", "minimum": 1, "default": 512 },
+        "cache_ttl_ms": { "type": "integer", "minimum": 1, "default": 120000 },
+        "ping_interval_ms": { "type": "integer", "minimum": 1, "default": 30000 },
+        "reconnect_max_ms": { "type": "integer", "minimum": 1, "default": 300000 }
       }
     },
     "Error": {
@@ -163,6 +175,7 @@
         "type": { "const": "release" },
         "channel": { "$ref": "#/$defs/Channel" },
         "version": { "$ref": "#/$defs/Version" },
+        "build": { "$ref": "#/$defs/Build" },
         "published_at": { "$ref": "#/$defs/Timestamp" }
       }
     }

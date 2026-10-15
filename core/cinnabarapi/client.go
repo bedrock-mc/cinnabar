@@ -4,8 +4,6 @@ package cinnabarapi
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -24,14 +22,14 @@ const (
 	tokenTimeout = 30 * time.Second
 	// authTimeout matches the server's deadline for an unauthenticated socket.
 	authTimeout  = 10 * time.Second
-	pingInterval = 30 * time.Second
+	pingInterval = time.Duration(bridgecontract.CinnabarAPIPingIntervalMS) * time.Millisecond
 	// idleTimeout ends a session that stopped answering keepalives.
 	idleTimeout   = 2*pingInterval + 15*time.Second
 	writeTimeout  = 10 * time.Second
 	lookupTimeout = 10 * time.Second
 	maxFrameBytes = 64 << 10
 	minBackoff    = time.Second
-	maxBackoff    = 5 * time.Minute
+	maxBackoff    = time.Duration(bridgecontract.CinnabarAPIReconnectMaxMS) * time.Millisecond
 	// stableSession is how long a session must last before failures stop compounding.
 	stableSession = time.Minute
 )
@@ -39,7 +37,7 @@ const (
 var (
 	// ErrUnavailable means no authenticated connection can answer right now.
 	ErrUnavailable = errors.New("cinnabarapi: not connected")
-	// ErrRateLimited means the server refused a lookup over its per-minute budget.
+	// ErrRateLimited means a lookup exceeded the negotiated XUID budget.
 	ErrRateLimited = errors.New("cinnabarapi: lookup rate limited")
 	// ErrInvalidLookup means a lookup had too many XUIDs or a malformed one.
 	ErrInvalidLookup = errors.New("cinnabarapi: invalid lookup")
@@ -52,6 +50,7 @@ type TokenSource func(ctx context.Context, key *ecdsa.PublicKey) (string, error)
 // Config is the client identity the hello carries; Visible may change live.
 type Config struct {
 	ClientVersion string `json:"client_version"`
+	ClientBuild   uint64 `json:"client_build"`
 	Channel       string `json:"channel"`
 	Visible       bool   `json:"visible"`
 }
@@ -67,20 +66,25 @@ type Options struct {
 	OnRelease func(Release)
 	Logger    *slog.Logger
 	// delay overrides the reconnect backoff in tests.
-	delay func(failures int) time.Duration
+	delay  func(failures int) time.Duration
+	random func(int64) int64
 }
 
 // Client owns at most one connection; nothing connects until the first Configure.
 type Client struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	done      chan struct{}
-	url       string
-	token     TokenSource
-	onRelease func(Release)
-	logger    *slog.Logger
-	delay     func(int) time.Duration
-	wake      chan struct{}
+	ctx        context.Context
+	cancel     context.CancelFunc
+	done       chan struct{}
+	url        string
+	token      TokenSource
+	onRelease  func(Release)
+	logger     *slog.Logger
+	delay      func(int) time.Duration
+	wake       chan struct{}
+	random     func(int64) int64
+	credential credential
+	parameters parameters   // guarded by mu
+	budget     lookupBudget // guarded by mu
 
 	mu         sync.Mutex
 	config     Config
@@ -91,13 +95,14 @@ type Client struct {
 
 // session is one authenticated connection.
 type session struct {
-	conn    *websocket.Conn
-	out     chan []byte
-	dirty   chan struct{} // visibility changed
-	visible bool          // what the server holds; written only by the writer
-	nextID  uint32
-	pending map[uint32]chan lookupReply // guarded by Client.mu
-	closed  chan struct{}
+	conn       *websocket.Conn
+	out        chan []byte
+	dirty      chan struct{} // visibility changed
+	visible    bool          // what the server holds; written only by the writer
+	nextID     uint32
+	pending    map[uint32]chan lookupReply // guarded by Client.mu
+	closed     chan struct{}
+	parameters parameters
 }
 
 type lookupReply struct {
@@ -117,13 +122,14 @@ func New(ctx context.Context, options Options) *Client {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	delay := options.delay
-	if delay == nil {
-		delay = func(failures int) time.Duration { return backoff(failures, mathrand.Int64N) }
+	random := options.random
+	if random == nil {
+		random = mathrand.Int64N
 	}
 	c := &Client{
 		ctx: ctx, cancel: cancel, done: make(chan struct{}),
 		url: socketURL(base), token: options.Token, onRelease: options.OnRelease,
-		logger: logger, delay: delay, wake: make(chan struct{}, 1),
+		logger: logger, delay: delay, random: random, parameters: defaults(), wake: make(chan struct{}, 1),
 	}
 	go c.run()
 	return c
@@ -144,7 +150,7 @@ func (c *Client) Configure(config Config) {
 		case c.wake <- struct{}{}:
 		default:
 		}
-	case previous.ClientVersion != config.ClientVersion || previous.Channel != config.Channel:
+	case previous.ClientVersion != config.ClientVersion || previous.ClientBuild != config.ClientBuild || previous.Channel != config.Channel:
 		if c.reconnect != nil {
 			c.reconnect()
 		}
@@ -172,6 +178,42 @@ func (c *Client) Lookup(ctx context.Context, xuids []string) ([]string, error) {
 	c.mu.Lock()
 	s := c.live
 	if s == nil {
+		c.mu.Unlock()
+		return nil, ErrUnavailable
+	}
+	p := s.parameters
+	if !c.budget.take(time.Now(), len(xuids), p) {
+		c.mu.Unlock()
+		return nil, ErrRateLimited
+	}
+	c.mu.Unlock()
+	found := []string{}
+	for len(xuids) > 0 {
+		size := min(len(xuids), p.LookupBatchMax, p.LookupBucketCapacity)
+		part, err := c.lookup(ctx, s, xuids[:size])
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, part...)
+		xuids = xuids[size:]
+	}
+	return found, nil
+}
+
+// LookupLimit returns the negotiated per-frame size bounded by the account bucket.
+func (c *Client) LookupLimit() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return min(c.parameters.LookupBatchMax, c.parameters.LookupBucketCapacity)
+}
+
+// CacheTTLMS returns the current server's answer lifetime for the roster cache.
+func (c *Client) CacheTTLMS() int64 { c.mu.Lock(); defer c.mu.Unlock(); return c.parameters.CacheTTLMS }
+
+// lookup sends one negotiated batch on the session chosen by its caller.
+func (c *Client) lookup(ctx context.Context, s *session, xuids []string) ([]string, error) {
+	c.mu.Lock()
+	if c.live != s {
 		c.mu.Unlock()
 		return nil, ErrUnavailable
 	}
@@ -203,6 +245,8 @@ func (c *Client) Lookup(ctx context.Context, xuids []string) ([]string, error) {
 	select {
 	case result := <-reply:
 		return result.cinnabar, result.err
+	case <-s.closed:
+		return nil, ErrUnavailable
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-timer.C:
@@ -225,7 +269,7 @@ func (c *Client) run() {
 	case <-c.wake:
 	}
 	failures := 0
-	rejectionLogged := false
+	rejections := 0
 	for {
 		sessionCtx, cancel := context.WithCancel(c.ctx)
 		c.mu.Lock()
@@ -246,13 +290,24 @@ func (c *Client) run() {
 			continue
 		}
 		failures++
-		delay := c.delay(failures)
+		c.mu.Lock()
+		cap := time.Duration(c.parameters.ReconnectMaxMS) * time.Millisecond
+		c.mu.Unlock()
+		base := backoff(failures, cap, c.random)
+		if c.delay != nil {
+			base = c.delay(failures)
+		}
+		delay := retryDelay(err, stage, base, cap, time.Now(), c.random)
+		if errors.Is(err, errUnauthorized) || websocket.CloseStatus(err) == 4401 {
+			c.credential = credential{}
+		}
 		if rejectedFrames(err) {
-			// The server refused a frame this client built; retrying soon would only repeat it.
-			delay = maxBackoff
-			if !rejectionLogged {
-				rejectionLogged = true
+			rejections++
+			if rejections == 1 {
 				c.logger.Error("Cinnabar API rejected a client message", "close_code", int(websocket.CloseStatus(err)))
+			}
+			if rejections >= rejectionLimit {
+				return
 			}
 		} else if failures == 1 {
 			c.logger.Warn("Cinnabar API unavailable; retrying", "stage", stage, "close_code", int(websocket.CloseStatus(err)))
@@ -276,7 +331,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	defer conn.CloseNow()
 	s := &session{
 		conn: conn, out: make(chan []byte, 8), dirty: make(chan struct{}, 1),
-		visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
+		parameters: c.parameters, visible: config.Visible, pending: make(map[uint32]chan lookupReply), closed: make(chan struct{}),
 	}
 	c.mu.Lock()
 	c.live = s
@@ -304,28 +359,25 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	return true, "session", err
 }
 
-// connect performs hello → challenge → proof → welcome with a fresh ephemeral key and token.
+// connect dials before minting and reuses credentials until they approach expiry.
 func (c *Client) connect(ctx context.Context, config Config) (*websocket.Conn, string, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
-	if err != nil {
-		return nil, "key", err
-	}
-	tokenCtx, cancel := context.WithTimeout(ctx, tokenTimeout)
-	token, err := c.token(tokenCtx, &key.PublicKey)
-	cancel()
-	if err != nil {
-		return nil, "token", err
-	}
 	authCtx, cancel := context.WithTimeout(ctx, authTimeout)
 	defer cancel()
-	conn, _, err := websocket.Dial(authCtx, c.url, &websocket.DialOptions{
+	conn, response, err := websocket.Dial(authCtx, c.url, &websocket.DialOptions{
 		HTTPHeader: http.Header{"User-Agent": {userAgent(config.ClientVersion)}},
 	})
 	if err != nil {
+		if response != nil && response.StatusCode == http.StatusTooManyRequests {
+			err = retryError{error: err, after: retryAfter(response.Header.Get("Retry-After"), time.Now())}
+		}
 		return nil, "dial", err
 	}
 	conn.SetReadLimit(maxFrameBytes)
-	if err := c.handshake(authCtx, conn, key, token, config); err != nil {
+	if err := c.credential.refresh(authCtx, c.token, time.Now()); err != nil {
+		_ = conn.CloseNow()
+		return nil, "token", err
+	}
+	if err := c.handshake(authCtx, conn, c.credential.key, c.credential.token, config); err != nil {
 		_ = conn.CloseNow()
 		return nil, "handshake", err
 	}
@@ -335,7 +387,7 @@ func (c *Client) connect(ctx context.Context, config Config) (*websocket.Conn, s
 // handshake authenticates conn, ignoring server messages it does not know.
 func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa.PrivateKey, token string, config Config) error {
 	if err := writeJSON(ctx, conn, helloMessage{
-		Type: typeHello, Protocol: protocolVersion, ClientVersion: config.ClientVersion,
+		Type: typeHello, Protocol: protocolVersion, ClientVersion: config.ClientVersion, ClientBuild: config.ClientBuild,
 		Channel: config.Channel, Visible: config.Visible, Token: token,
 	}); err != nil {
 		return err
@@ -359,6 +411,9 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 				return err
 			}
 		case typeWelcome:
+			c.mu.Lock()
+			c.parameters = msg.parameters.normalized()
+			c.mu.Unlock()
 			return nil
 		case typeError:
 			return errUnauthorized
@@ -371,7 +426,7 @@ func (c *Client) handshake(ctx context.Context, conn *websocket.Conn, key *ecdsa
 // read dispatches server messages until the connection fails or goes idle.
 func (c *Client) read(ctx context.Context, s *session) error {
 	for {
-		readCtx, cancel := context.WithTimeout(ctx, idleTimeout)
+		readCtx, cancel := context.WithTimeout(ctx, max(idleTimeout, 3*time.Duration(s.parameters.PingIntervalMS)*time.Millisecond))
 		kind, data, err := s.conn.Read(readCtx)
 		cancel()
 		if err != nil {
@@ -388,16 +443,18 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		case typeLookupResult:
 			c.answer(s, msg.ID, lookupReply{cinnabar: msg.Cinnabar})
 		case typeError:
+			err := ErrUnavailable
 			if msg.Code == codeRateLimited {
-				c.answer(s, msg.ID, lookupReply{err: ErrRateLimited})
+				err = ErrRateLimited
 			}
+			c.answer(s, msg.ID, lookupReply{err: err})
 		}
 	}
 }
 
 // write serializes lookups, coalesced visibility changes and keepalives on one goroutine.
 func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session) {
-	ticker := time.NewTicker(pingInterval)
+	ticker := time.NewTicker(time.Duration(s.parameters.PingIntervalMS) * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		var payload []byte
@@ -433,7 +490,7 @@ func (c *Client) release(msg inbound) {
 	channel := c.config.Channel
 	c.mu.Unlock()
 	if msg.Channel == channel && msg.Version != "" && c.onRelease != nil {
-		c.onRelease(Release{Channel: msg.Channel, Version: msg.Version, PublishedAt: msg.PublishedAt})
+		c.onRelease(Release{Channel: msg.Channel, Version: msg.Version, Build: msg.Build, PublishedAt: msg.PublishedAt})
 	}
 }
 
@@ -484,11 +541,11 @@ func socketURL(base string) string {
 	return base + connectPath
 }
 
-// backoff returns an equal-jitter delay: half the capped exponential step plus a random share of the rest.
-func backoff(failures int, random func(int64) int64) time.Duration {
-	ceiling := maxBackoff
+// backoff applies equal jitter under this server's advertised cap.
+func backoff(failures int, cap time.Duration, random func(int64) int64) time.Duration {
+	ceiling := cap
 	if failures >= 1 && failures <= 32 {
-		if step := minBackoff << (failures - 1); step > 0 && step < maxBackoff {
+		if step := minBackoff << (failures - 1); step > 0 && step < cap {
 			ceiling = step
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 )
 
 type fakeCinnabarAPI struct {
@@ -14,7 +15,19 @@ type fakeCinnabarAPI struct {
 	lookups chan []string
 	answer  []string
 	err     error
+	limit   int
 }
+
+// LookupLimit supplies the fallback wire batch size for the test API.
+func (api *fakeCinnabarAPI) LookupLimit() int {
+	if api.limit > 0 {
+		return api.limit
+	}
+	return bridgecontract.CinnabarAPIMaxLookupXUIDs
+}
+
+// CacheTTLMS supplies the fallback lifetime used by the test API.
+func (api *fakeCinnabarAPI) CacheTTLMS() int64 { return bridgecontract.CinnabarAPICacheTTLMS }
 
 func (api *fakeCinnabarAPI) Configure(config cinnabarapi.Config) { api.configs <- config }
 
@@ -51,11 +64,11 @@ func rpcError(t *testing.T, payload []byte) *responseError {
 func TestCinnabarConfigurationReachesTheConnection(t *testing.T) {
 	api := &fakeCinnabarAPI{configs: make(chan cinnabarapi.Config, 1)}
 	dir, _ := startCinnabarControl(t, api)
-	payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"cinnabar_api.v1","params":{"client_version":"0.1.18","channel":"beta","visible":false}}`))
+	payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"cinnabar_api.v1","params":{"client_version":"0.1.18","client_build":42,"channel":"beta","visible":false}}`))
 	if err := rpcError(t, payload); err != nil {
 		t.Fatalf("configuration rejected: %s", payload)
 	}
-	if got := <-api.configs; got != (cinnabarapi.Config{ClientVersion: "0.1.18", Channel: "beta", Visible: false}) {
+	if got := <-api.configs; got != (cinnabarapi.Config{ClientVersion: "0.1.18", ClientBuild: 42, Channel: "beta", Visible: false}) {
 		t.Fatalf("config = %+v", got)
 	}
 	for _, params := range []string{
@@ -102,6 +115,25 @@ func TestCinnabarLookupForwardsValidBatches(t *testing.T) {
 	}
 }
 
+// The roster worker can resolve a prefix without marking unasked XUIDs negative.
+func TestCinnabarLookupReportsOnlyTheNegotiatedPrefix(t *testing.T) {
+	api := &fakeCinnabarAPI{lookups: make(chan []string, 1), answer: []string{"11"}, limit: 1}
+	dir, _ := startCinnabarControl(t, api)
+	payload := exchange(t, dir, []byte(`{"jsonrpc":"2.0","id":1,"method":"cinnabar_lookup.v1","params":{"xuids":["11","22"]}}`))
+	var answer struct {
+		Result cinnabarLookupResultV1 `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &answer); err != nil {
+		t.Fatal(err)
+	}
+	if len(answer.Result.Resolved) != 1 || answer.Result.Resolved[0] != "11" || answer.Result.CacheTTLMS != api.CacheTTLMS() {
+		t.Fatalf("lookup: %s", payload)
+	}
+	if got := <-api.lookups; len(got) != 1 {
+		t.Fatal(got)
+	}
+}
+
 func TestCinnabarLookupFailuresKeepTheirMeaning(t *testing.T) {
 	dir, _ := startCinnabarControl(t, nil)
 	request := []byte(`{"jsonrpc":"2.0","id":1,"method":"cinnabar_lookup.v1","params":{"xuids":["1"]}}`)
@@ -120,7 +152,7 @@ func TestCinnabarReleaseAppearsInEvents(t *testing.T) {
 	if store.Events().CinnabarRelease != nil {
 		t.Fatal("release before any announcement")
 	}
-	release := CinnabarReleaseV1{Channel: "beta", Version: "0.1.19", PublishedAt: "2026-10-13T00:00:00.000Z"}
+	release := CinnabarReleaseV1{Channel: "beta", Version: "0.1.19", Build: 42, PublishedAt: "2026-10-13T00:00:00.000Z"}
 	store.ObserveCinnabarRelease(release)
 	if got := store.Events().CinnabarRelease; got == nil || *got != release {
 		t.Fatalf("release = %+v", got)

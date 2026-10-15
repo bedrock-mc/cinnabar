@@ -239,8 +239,8 @@ pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
 /// Most XUIDs in one Cinnabar player lookup.
 pub const CINNABAR_API_MAX_LOOKUP_XUIDS: usize = 128;
 
-/// Cinnabar player lookups the API admits per rolling minute.
-pub const CINNABAR_API_LOOKUPS_PER_MINUTE: u32 = 20;
+/// Fallback lifetime of a Cinnabar lookup answer.
+pub const CINNABAR_API_CACHE_TTL_MS: u32 = 120000;
 
 /// Xbox presence game mode for survival.
 pub const PRESENCE_GAME_MODE_SURVIVAL: i32 = 0;
@@ -506,6 +506,9 @@ pub struct CinnabarRelease {
     pub channel: String,
     /// App version; rolling channels reuse one across builds.
     pub version: String,
-    /// When the API recorded it, which tells successive builds of one version apart.
+    /// Signed manifest build number; absent in older v1 notices.
+    #[serde(default)]
+    pub build: u64,
+    /// When the API recorded the release.
     pub published_at: String,
 }

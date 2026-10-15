@@ -207,6 +207,7 @@ fn successive_builds_of_one_version_each_announce_a_release() {
         channel: "nightly".into(),
         version: "0.1.19".into(),
         published_at: published_at.into(),
+        build: 42,
     };
     let (first, second) = (
         release("2026-10-13T00:00:00.000Z"),
