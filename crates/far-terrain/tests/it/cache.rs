@@ -64,6 +64,47 @@ fn reload(cache: &mut FarTerrainCache, pos: ColumnPos, now: Instant) -> Option<C
     cache.store().summary(pos).map(Result::unwrap)
 }
 
+/// Resolves identical terrain probes under the selected resource generation.
+fn join_resources(cache: &mut FarTerrainCache, resources: [u8; 32], now: Instant) {
+    cache.begin_visit_with_resources(SERVER, 42, 0, resources);
+    for x in 0..=WORLD_PROBE_COLUMNS as i32 {
+        cache.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    cache.sync();
+    cache.poll(now);
+    assert!(cache.namespace().is_some());
+}
+
+#[test]
+fn resource_generations_keep_separate_surface_colors_on_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let position = ColumnPos::new(100, 100);
+    let mut cache = cache(root.path());
+    join_resources(&mut cache, [1; 32], now);
+    let first = cache.namespace().unwrap();
+    cache.admit(0, position, flat(80).encode(), now);
+    cache.flush_all();
+    cache.sync();
+
+    join_resources(&mut cache, [2; 32], now);
+    assert_ne!(cache.namespace().unwrap(), first);
+    assert!(reload(&mut cache, position, now).is_none());
+    let mut green = flat(80);
+    for cell in green.cells_mut() {
+        cell.rgb = [30, 200, 70];
+    }
+    cache.admit(0, position, green.encode(), now);
+    cache.flush_all();
+    cache.sync();
+
+    join_resources(&mut cache, [1; 32], now);
+    assert_eq!(cache.namespace().unwrap(), first);
+    assert_eq!(reload(&mut cache, position, now), Some(flat(80)));
+    join_resources(&mut cache, [2; 32], now);
+    assert_eq!(reload(&mut cache, position, now), Some(green));
+}
+
 #[test]
 fn rejoining_the_same_world_reuses_its_cache() {
     let root = tempfile::tempdir().unwrap();

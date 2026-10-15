@@ -11,6 +11,20 @@ use crate::{COLUMN_CELLS, ColumnSummary};
 pub struct ServerKey([u8; 16]);
 
 impl ServerKey {
+    /// Separates cached surface colors produced by different resource-pack inputs.
+    #[must_use]
+    pub fn with_resources(self, resources: [u8; 32]) -> Self {
+        if resources == [0; 32] {
+            return self;
+        }
+        let digest = Sha256::new()
+            .chain_update(b"cinnabar far-terrain resources\0")
+            .chain_update(self.0)
+            .chain_update(resources)
+            .finalize();
+        Self(std::array::from_fn(|index| digest[index]))
+    }
+
     /// Hashes a destination such as `remote:host:port` or `local:<world id>`.
     #[must_use]
     pub fn from_destination(destination: &str) -> Self {

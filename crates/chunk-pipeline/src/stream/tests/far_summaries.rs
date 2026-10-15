@@ -26,6 +26,29 @@ fn drain_until(stream: &mut WorldStream, count: usize) -> Vec<FarColumnSummary> 
     summaries
 }
 
+#[test]
+fn resource_reload_resummarizes_resident_columns_without_a_geometry_change() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let first = drain_until(&mut stream, 1).pop().unwrap();
+    let session = stream.authority().actor_session_id();
+    let replacement = Arc::new(RuntimeAssets::diagnostic());
+    assert!(replacement.has_same_geometry(stream.runtime_assets()));
+    stream.reload_resource_assets(Arc::clone(&replacement));
+    let fresh = drain_until(&mut stream, 1).pop().unwrap();
+    assert_eq!(fresh.column, first.column);
+    assert!(fresh.generation > first.generation);
+    assert_eq!(stream.authority().actor_session_id(), session);
+    stream.reload_resource_assets(replacement);
+    assert!(
+        stream.far_summaries_idle(),
+        "the same carrier does not rebuild summaries"
+    );
+}
+
 /// An inline column, its resend and its eviction are each summarised from complete data.
 #[test]
 fn complete_resent_and_retiring_columns_are_summarised() {

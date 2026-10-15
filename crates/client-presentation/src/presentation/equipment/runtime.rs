@@ -20,6 +20,7 @@ use render_model::{
 
 mod alpha;
 mod attack;
+mod block_reload;
 mod camera;
 mod combat;
 mod diagnostics;
@@ -34,6 +35,7 @@ mod push;
 mod readiness;
 mod session;
 mod types;
+pub use block_reload::{BlockItemPreparer, PreparedBlockItems};
 pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
@@ -98,6 +100,8 @@ pub struct EquipmentRuntime {
     block_sheets: BTreeMap<u32, usize>,
     block_models: BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
     block_alpha: BTreeMap<u32, render_model::HandItemAlphaMode>,
+    block_world: Option<Arc<RuntimeAssets>>,
+    reloaded_blocks: Option<crate::prepared_actor_artwork::PlacedBlockItems>,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
@@ -323,6 +327,8 @@ impl EquipmentRuntime {
             block_sheets,
             block_models,
             block_alpha,
+            block_world: world,
+            reloaded_blocks: None,
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),
@@ -691,9 +697,9 @@ impl EquipmentRuntime {
             MeshKey::Block(_) | MeshKey::SessionBlock(_) => None,
         };
         let vertices = match (key, sprite) {
-            (MeshKey::Block(visual), _) if self.block_models.contains_key(&visual) => {
+            (MeshKey::Block(visual), _) if self.block_model(visual).is_some() => {
                 let rect = placement.uv_rect();
-                self.block_models[&visual]
+                self.block_model(visual)?
                     .iter()
                     .copied()
                     .map(|mut vertex| {
@@ -726,8 +732,8 @@ impl EquipmentRuntime {
             // held stained glass block's far side; cutout blocks (glass, leaves) render both
             // sides. A session cube's alpha mode is not known here, so it keeps both sides.
             MeshKey::Block(visual)
-                if self.block_alpha.get(&visual)
-                    != Some(&render_model::HandItemAlphaMode::Cutout) =>
+                if self.block_alpha_mode(visual)
+                    != Some(render_model::HandItemAlphaMode::Cutout) =>
             {
                 one_sided(vertices)
             }

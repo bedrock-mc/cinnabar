@@ -23,6 +23,8 @@ pub struct PackApplication {
     /// One-shot block state prepared after reusable pack compilation.
     pub(super) registries: Option<super::session_registries::PreparedSessionRegistries>,
     pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
+    /// Finalized by the join or reload worker after all terrain reads have been recorded.
+    pub(super) terrain_identity: [u8; 32],
     /// Inert metadata only; accepting a pack does not authorize execution.
     pub(crate) extension_marker: Option<Arc<[u8]>>,
     pub(crate) admission: PackAdmission,
@@ -51,6 +53,7 @@ impl Default for PackApplication {
         Self {
             registries: None,
             dependencies: Default::default(),
+            terrain_identity: [0; 32],
             extension_marker: None,
             admission: PackAdmission::None,
             inputs: Arc::default(),
@@ -80,10 +83,14 @@ impl PackApplication {
     }
 
     /// Prepares against the exact base snapshot that this application will publish over.
-    pub(super) fn prepare_actor_artwork(&mut self, base: Option<&render_model::ActorArtworkPages>) {
-        let Some(base) =
-            base.filter(|_| self.entities.is_some() || self.block_entity_art.is_some())
-        else {
+    pub(super) fn prepare_actor_artwork(
+        &mut self,
+        base: Option<&render_model::ActorArtworkPages>,
+        blocks: Option<Arc<client_presentation::presentation::equipment::PreparedBlockItems>>,
+    ) {
+        let Some(base) = base.filter(|_| {
+            self.entities.is_some() || self.block_entity_art.is_some() || blocks.is_some()
+        }) else {
             self.prepared_actor_artwork = None;
             return;
         };
@@ -93,12 +100,16 @@ impl PackApplication {
                 self.entities.as_ref(),
                 self.block_entity_art.as_ref(),
             )
+            && previous.matches_block_items(blocks.as_ref())
         {
             return;
         }
         self.prepared_actor_artwork = Some(Arc::new(
-            client_presentation::prepared_actor_artwork::PreparedActorArtwork::new_with_block_entity_artwork(
-                base, self.entities.as_ref(), self.block_entity_art.as_ref(),
+            client_presentation::prepared_actor_artwork::PreparedActorArtwork::new_with_block_items(
+                base,
+                self.entities.as_ref(),
+                self.block_entity_art.as_ref(),
+                blocks,
             ),
         ));
     }
@@ -159,7 +170,10 @@ fn prepare_join_with(
         },
     )?;
     Some(packs.map(|mut packs| {
-        packs.prepare_actor_artwork(bases.actor_artwork);
+        if let PackAdmission::Validated(stack) = &packs.admission {
+            packs.terrain_identity = terrain_identity(stack, &packs.dependencies);
+        }
+        packs.prepare_actor_artwork(bases.actor_artwork, None);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
         let now = reuse::CompileEnvironment::current();
@@ -470,6 +484,7 @@ fn compile_application(
             .or_default()
             .extend(inputs);
     }
+    let terrain_identity = previous.map_or([0; 32], |previous| previous.terrain_identity);
     client_runtime::item_diagnostics::session_icons(icon_keys, item_icons.as_deref());
     if entities_stopped || cancelled() {
         return None;
@@ -509,7 +524,24 @@ fn compile_application(
         admission: PackAdmission::Validated(stack),
         block_overlay,
         dependencies,
+        terrain_identity,
     })
+}
+
+/// Separates cached terrain colors using the base pack and the block compiler's tracked reads.
+pub(super) fn terrain_identity(
+    stack: &resource_pack::ValidatedPackStack,
+    dependencies: &pack_runtime::reload_diff::Dependencies,
+) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let inputs = &dependencies[&pack_runtime::reload_diff::Subscriber::Blocks];
+    Sha256::new()
+        .chain_update(assets::vanilla_source_manifest_sha256())
+        .chain_update(pack_runtime::reload_diff::dependency_fingerprint(
+            stack, inputs,
+        ))
+        .finalize()
+        .into()
 }
 
 pub(super) fn install_server_ui(

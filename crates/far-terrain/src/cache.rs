@@ -177,12 +177,23 @@ impl FarTerrainCache {
     /// already entered, as after a transfer: nothing from the previous visit stays shown,
     /// and its namespace is resolved again from new probes.
     pub fn begin_visit(&mut self, destination: &str, level: u64, dimension: i32) {
+        self.begin_visit_with_resources(destination, level, dimension, [0; 32]);
+    }
+
+    /// Starts a visit whose disk and memory summaries belong to these resource inputs.
+    pub fn begin_visit_with_resources(
+        &mut self,
+        destination: &str,
+        level: u64,
+        dimension: i32,
+        resources: [u8; 32],
+    ) {
         self.end_entry();
         if let Some((root, bounds)) = self.disk_root.take() {
             self.disk = DiskCache::spawn(root, bounds);
         }
         self.world = Some(WorldKey {
-            server: ServerKey::from_destination(destination),
+            server: ServerKey::from_destination(destination).with_resources(resources),
             dimension,
             level,
         });
@@ -191,7 +202,17 @@ impl FarTerrainCache {
     /// Starts a visit without a stable world identity. Its empty probe set reserves a new
     /// epoch before live summaries arrive, so matching lobby columns cannot enable reuse.
     pub fn begin_uncertain_visit(&mut self, destination: &str, dimension: i32) {
-        self.begin_visit(destination, 0, dimension);
+        self.begin_uncertain_visit_with_resources(destination, dimension, [0; 32]);
+    }
+
+    /// Reserves a fresh world epoch while keeping other resource generations separate.
+    pub fn begin_uncertain_visit_with_resources(
+        &mut self,
+        destination: &str,
+        dimension: i32,
+        resources: [u8; 32],
+    ) {
+        self.begin_visit_with_resources(destination, 0, dimension, resources);
         self.start_resolving();
     }
 

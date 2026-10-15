@@ -12,6 +12,9 @@ mod held_model_residency_tests;
 #[path = "held_block_entity_reload_tests.rs"]
 mod held_block_entity_reload_tests;
 
+#[path = "block_reload_tests.rs"]
+mod block_reload_tests;
+
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
 use render_api::PoseGeneration;
@@ -151,6 +154,13 @@ fn unchanged_authored_pose_sampling_allocates_nothing_and_keeps_matrix_identity(
 /// The cube sheet is injected after atlas construction: these tests cover placement and
 /// routing, not block-carrier admission (which has separate asset tests).
 fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
+    block_fixture_with_visuals(Vec::new())
+}
+
+/// Builds the isolated player and equipment fixture with explicit item-to-block routes.
+fn block_fixture_with_visuals(
+    item_visuals: Vec<assets::ItemVisualDefinition>,
+) -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
     let entities = RuntimeEntityAssets::from_compiled(
         assets::CompiledEntityAssets {
             item_use_profiles: Box::new([]),
@@ -189,7 +199,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
             rig_geometries: Box::new([]),
             rig_animations: Box::new([]),
             rig_controllers: Box::new([]),
-            item_visuals: Box::new([]),
+            item_visuals: item_visuals.into(),
             item_visual_aliases: Box::new([]),
             render: Default::default(),
         }
