@@ -551,10 +551,10 @@ impl ActorAnimationStore {
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME,
             transitions_left: 0,
             used: 0,
-            stack: Vec::new(),
+            stack: OperandStack::lease(),
             static_draw: None,
         };
-        let mut variables = frame.motion.variables.clone();
+        let mut variables = ScratchVariables::copy_of(&frame.motion.variables);
         if let Some(swing) = swing {
             variables.set(layout.engine.attack_time, swing);
         }

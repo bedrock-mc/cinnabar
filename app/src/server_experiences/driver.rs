@@ -69,6 +69,7 @@ fn drive(
     mut presentation: ResMut<UiPresentationResource>,
     network: Res<NetworkHandle<PackApplication>>,
     world: Res<crate::runtime::world::ClientWorld>,
+    fatal_error: Res<crate::runtime::shutdown::FatalError>,
     windows: Query<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -90,7 +91,7 @@ fn drive(
         service.live = None;
         let _ = presentation.mod_ui_mut().set_experience_chrome(None, false);
     }
-    if world.fatal_error.is_some()
+    if fatal_error.0.is_some()
         || world.transfer_notice.is_some()
         || network.experience_failed()
         || presentation.mod_ui().experience_chrome_failed()

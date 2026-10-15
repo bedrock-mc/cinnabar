@@ -265,3 +265,45 @@ fn gpu_preparation_uploads_once_per_stable_asset_identity() {
         );
     }
 }
+
+/// Runs uniform preparation once and returns the cumulative frame and skybox writes.
+fn prepare_uniforms(world: &mut bevy::prelude::World) -> [u32; 2] {
+    world
+        .run_system_once(super::prepare_atmosphere_uniform)
+        .unwrap();
+    world.resource::<AtmosphereGpu>().uniform_writes
+}
+
+#[test]
+fn uniform_preparation_writes_only_changed_bytes() {
+    let mut app = app_with_noop_render_sub_app();
+    app.add_plugins(ChunkRenderPlugin::new(1));
+    app.finish();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.run_schedule(RenderStartup);
+    world.insert_resource(AtmosphereTextureAssets::new(
+        synthetic_runtime(0x10),
+        [0x31; 32],
+    ));
+    let settings = render_scene::SkyboxSettings::default();
+    world.insert_resource(settings);
+    world.insert_resource(render_scene::AtmosphereFrame::default());
+    assert_eq!(prepare_uniforms(world), [1, 1]);
+    assert_eq!(prepare_uniforms(world), [1, 1]);
+
+    world.insert_resource(
+        render_scene::AtmosphereFrame::default().with_sky_kind(render_scene::SkyKind::End),
+    );
+    assert_eq!(prepare_uniforms(world), [2, 2]);
+    assert_eq!(prepare_uniforms(world), [2, 2]);
+
+    world.insert_resource(render_scene::SkyboxSettings {
+        visible: !settings.visible,
+        ..settings
+    });
+    assert_eq!(prepare_uniforms(world), [2, 3]);
+
+    // A recreated GPU resource starts from its initial buffer contents and must write again.
+    world.run_system_once(super::init_atmosphere_gpu).unwrap();
+    assert_eq!(prepare_uniforms(world), [1, 1]);
+}

@@ -355,6 +355,9 @@ fn fill_direct_sky(grid: Grid, full: &mut FullSolveScratch) {
 
 /// Spreads `values` from every lit cell through open neighbours, each step losing the
 /// destination's filter (at least one level), until no cell can rise.
+///
+/// A lit cell that cannot raise any neighbour when seeding is never queued: values only rise,
+/// so it could not raise one later either, and if it rises itself it is queued at that level.
 fn spread(
     grid: Grid,
     filter: &[u8],
@@ -368,12 +371,21 @@ fn spread(
     for bucket in buckets.iter_mut() {
         bucket.clear();
     }
+    let steps = grid.steps();
     for x in 0..grid.x_len {
         for y in 0..grid.y_len {
             let row = grid.index(x, y, 0);
             for cell in row..row + grid.z_len {
                 let level = values[cell];
-                if level > 1 && filter[cell] != BLOCKED {
+                if level > 1
+                    && filter[cell] != BLOCKED
+                    && steps.iter().any(|&step| {
+                        let next = cell.wrapping_add_signed(step);
+                        let next_filter = filter[next];
+                        next_filter != BLOCKED
+                            && level.saturating_sub(next_filter.max(1)) > values[next]
+                    })
+                {
                     enqueue_counted(queued_total, 1, limits.max_queue_entries)?;
                     buckets[usize::from(level)].push(cell as u32);
                     pending += 1;
@@ -382,7 +394,6 @@ fn spread(
         }
     }
     stats.queue_peak = stats.queue_peak.max(pending);
-    let steps = grid.steps();
     for level in (2..LEVELS).rev() {
         while let Some(cell) = buckets[level].pop() {
             pending -= 1;

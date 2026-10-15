@@ -755,6 +755,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         Arc::clone(&runtime_assets),
         Arc::clone(&entity_runtime),
     ))
+    .init_resource::<crate::runtime::shutdown::FatalError>()
     .insert_resource(UiRuntimeResource({
         let mut ui_runtime = UiRuntime::new(0);
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entity_runtime));

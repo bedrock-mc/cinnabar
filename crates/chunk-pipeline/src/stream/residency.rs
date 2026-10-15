@@ -73,6 +73,8 @@ impl WorldStream {
         }
         self.block_entity_visuals.remove_chunks(&columns);
         self.requests.purge_columns(&columns);
+        // A sorted, deduplicated Vec visits keys in the same ascending order a BTreeSet
+        // would, without a node allocation per key on a full-view teleport.
         let mut changed = self.resident_keys_in_columns(&columns);
         let removing_all = changed.len() == self.resident.len();
         for &column in &columns {
@@ -81,7 +83,7 @@ impl WorldStream {
                     let key =
                         SubChunkKey::from_chunk(column, range.base_sub_chunk_y + offset as i32);
                     if self.authority.terrain().biome_storage(key).is_some() {
-                        changed.insert(key);
+                        changed.push(key);
                     }
                 }
             }
@@ -92,6 +94,8 @@ impl WorldStream {
             self.authority.detach_chunks(&columns)
         };
         changed.extend(removed);
+        changed.sort_unstable();
+        changed.dedup();
         let old_connectivity_len = self.connectivity.len();
         let retired_indexes = removing_all.then(|| {
             (
@@ -103,7 +107,9 @@ impl WorldStream {
                 std::mem::take(&mut self.connectivity),
             )
         });
-        if !changed.is_empty() {
+        // Taking every index above already retired each record; the sweep would visit
+        // only empty maps.
+        if !removing_all && !changed.is_empty() {
             // Records exist only for resident or known-air keys; keys that left residency
             // earlier retire their own records when their removal publishes.
             let retiring = columns
@@ -167,7 +173,7 @@ impl WorldStream {
     /// a retired column, so only the eight surrounding columns can hold survivors.
     fn surviving_neighbours_of(
         &self,
-        removed: &BTreeSet<SubChunkKey>,
+        removed: &[SubChunkKey],
     ) -> (BTreeSet<SubChunkKey>, BTreeSet<SubChunkKey>) {
         let mut heights = BTreeMap::<ChunkKey, BTreeSet<i32>>::new();
         for key in removed {
@@ -207,8 +213,8 @@ impl WorldStream {
         (light, mesh)
     }
 
-    /// Collects only the sections belonging to the columns being retired.
-    fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> BTreeSet<SubChunkKey> {
+    /// Collects only the sections belonging to the columns being retired, each once.
+    fn resident_keys_in_columns(&self, columns: &BTreeSet<ChunkKey>) -> Vec<SubChunkKey> {
         columns
             .iter()
             .flat_map(|column| self.resident.column(*column).copied())

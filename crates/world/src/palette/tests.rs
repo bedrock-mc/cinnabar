@@ -393,3 +393,98 @@ fn large_palettes_keep_counts_across_single_and_batch_edits() {
         }
     }
 }
+
+mod batch_tests {
+    use super::*;
+
+    /// The position-by-position definition of a batch: each position's last update wins,
+    /// then used values keep palette order and new ones follow in update order.
+    fn reference_batch(storage: &PalettedStorage, updates: &[(usize, u32)]) -> PalettedStorage {
+        let final_update = |linear: usize| {
+            updates
+                .iter()
+                .rev()
+                .find(|&&(candidate, _)| candidate == linear)
+                .map(|&(_, value)| value)
+        };
+        let value_at = |linear: usize| {
+            final_update(linear).unwrap_or_else(|| {
+                storage
+                    .palette
+                    .get(storage.palette_index(linear).unwrap())
+                    .unwrap()
+            })
+        };
+        let finals: Vec<u32> = (0..BLOCKS_PER_SUB_CHUNK).map(value_at).collect();
+        let mut values = Vec::new();
+        for &value in storage.palette.values.iter() {
+            if finals.contains(&value) && !values.contains(&value) {
+                values.push(value);
+            }
+        }
+        for &(linear, value) in updates {
+            if final_update(linear) == Some(value) && !values.contains(&value) {
+                values.push(value);
+            }
+        }
+        let bits_per_index = bits_for_palette_len(values.len());
+        let mut words = vec![0; word_count(bits_per_index)];
+        for (linear, value) in finals.iter().enumerate() {
+            let index = values
+                .iter()
+                .position(|candidate| candidate == value)
+                .unwrap();
+            write_palette_index(&mut words, bits_per_index, linear, index);
+        }
+        PalettedStorage::new(bits_per_index, words, values)
+    }
+
+    /// Batches with repeated, out-of-section and no-op positions match the reference.
+    #[test]
+    fn batch_updates_match_position_reference() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for bits in PACKED_BITS {
+            for palette_len in [1_usize, 2, 5, 40] {
+                let palette_len = palette_len.min(1 << bits);
+                let palette = (0..palette_len).map(|_| (next() % 9) as u32).collect();
+                let words = (0..word_count(bits)).map(|_| next() as u32).collect();
+                let mut storage = PalettedStorage::new(bits, words, palette);
+                storage.zero_indices_at_or_above(palette_len);
+                for batch_len in [2_usize, 7, 300] {
+                    let updates: Vec<_> = (0..batch_len)
+                        .map(|_| {
+                            let linear = match next() % 8 {
+                                0 => BLOCKS_PER_SUB_CHUNK + (next() % 3) as usize,
+                                1 => 5,
+                                _ => (next() % BLOCKS_PER_SUB_CHUNK as u64) as usize,
+                            };
+                            (linear, (next() % 12) as u32)
+                        })
+                        .collect();
+                    let expected = reference_batch(&storage, &updates);
+                    let mut actual = storage.clone();
+                    if actual.apply_runtime_updates(&updates) {
+                        assert_eq!(actual, expected, "bits={bits} batch={batch_len}");
+                    } else {
+                        assert_eq!(actual, storage);
+                        assert!((0..BLOCKS_PER_SUB_CHUNK).all(|linear| {
+                            expected.runtime_id_at(linear) == storage.runtime_id_at(linear)
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    impl PalettedStorage {
+        fn runtime_id_at(&self, linear: usize) -> Option<u32> {
+            self.palette.get(self.palette_index(linear)?)
+        }
+    }
+}

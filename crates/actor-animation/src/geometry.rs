@@ -55,7 +55,7 @@ pub(super) fn resolve_binding(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: OperandStack::lease(),
         static_draw: None,
     };
     let placement_frame = match actor.entity_fact().placement {

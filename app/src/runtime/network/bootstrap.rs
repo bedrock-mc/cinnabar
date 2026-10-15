@@ -59,6 +59,7 @@ pub(super) fn apply(
     } = resources;
     let AppWorldState {
         client_world,
+        fatal_error,
         clock,
         weather,
         movement,
@@ -115,7 +116,7 @@ pub(super) fn apply(
         }
         BootstrapGenerationDisposition::Unexpected => {
             record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 format!(
                     "unexpected StartGame session generation: UI {}, world {}, incoming {session_generation}",
                     ui_runtime.session_id(),
@@ -127,7 +128,7 @@ pub(super) fn apply(
     }
     let Some(registries) = packs.registries.take() else {
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             "StartGame block registries were not prepared".to_owned(),
         );
         return;
@@ -141,7 +142,7 @@ pub(super) fn apply(
     ) {
         client_runtime::session::release_off_frame(registries);
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             "StartGame block registries do not match the active session inputs".to_owned(),
         );
         return;
@@ -172,7 +173,7 @@ pub(super) fn apply(
     if !publish_bootstrap_inventory(&mut player_runtime, ui_runtime, item_registry, inventory) {
         client_runtime::session::release_off_frame(registries);
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             "StartGame inventory fanout was not an authority event".to_owned(),
         );
         return;
@@ -252,7 +253,7 @@ pub(super) fn apply(
     .apply(***physics_authority, movement, local_physics)
     {
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             format!("local Physics authority failed closed: {fault:?}"),
         );
     }
@@ -264,6 +265,7 @@ pub(super) fn apply(
         &mut player_runtime,
         ui_runtime,
         client_world,
+        &mut fatal_error.0,
         session_generation,
         bootstrap.local_player_runtime_id,
     ) {
@@ -274,19 +276,19 @@ pub(super) fn apply(
         &mut packs,
         ui_runtime,
         session_generation,
-        client_world.fatal_error.is_none(),
+        fatal_error.0.is_none(),
     );
     player_runtime.facts.install_block_breaking_mode(
         session_generation,
         server_authoritative_block_breaking,
-        client_world.fatal_error.is_none(),
+        fatal_error.0.is_none(),
     );
     if let Some(stream) = client_world.stream.as_ref() {
         player_runtime.facts.bind_local_abilities(
             session_generation,
             stream.biome_tint_identity().stream(),
             bootstrap.local_player_unique_id,
-            client_world.fatal_error.is_none(),
+            fatal_error.0.is_none(),
         );
     }
     timings.mark(bootstrap_timing::BootstrapPhase::Presentation);
