@@ -20,6 +20,7 @@ fn reclaim_stale_entries(root: &Path, policy: &StaleReclaimPolicy) -> StaleRecla
     super::reclaim_stale_entries_with(root, policy, &|_| OwnerState::Dead)
 }
 
+#[path = "session_cleanup_tests/liveness.rs"]
 mod liveness;
 
 /// A unique temporary root removed on drop.
