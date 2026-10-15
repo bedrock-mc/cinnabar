@@ -4,7 +4,7 @@ use assets::gui_item::{
     SHIELD_GUI_ROTATION_RADIANS as GUI_ROTATION_RADIANS, SHIELD_GUI_TRANSLATION as GUI_TRANSLATION,
     SHIELD_MODEL_PART_HEIGHT as MODEL_PART_HEIGHT, SHIELD_MODEL_UNIT as MODEL_UNIT,
 };
-use assets::{EntityGeometryScalar as Scalar, EntityGeometryUv};
+use assets::{EntityGeometryBone, EntityGeometryScalar as Scalar, EntityGeometryUv};
 
 fn scalar(value: f32) -> Scalar {
     Scalar::new(value).unwrap()
@@ -185,5 +185,68 @@ fn review_shared_triangle_edges_blend_once() {
         for x in 0..4 {
             assert_eq!(pixels[(y * SIDE + x) * 4 + 3], 128, "pixel {x},{y}");
         }
+    }
+}
+
+#[test]
+fn compiled_shield_defaults_and_explicit_overrides_are_rasterized_once() {
+    let scratch = tempfile::tempdir().unwrap();
+    for family in [
+        "entity",
+        "models/entity",
+        "animations",
+        "animation_controllers",
+        "render_controllers",
+        "textures/entity",
+    ] {
+        std::fs::create_dir_all(scratch.path().join(family)).unwrap();
+    }
+    let mut source = serde_json::json!({"format_version":"1.8.0"});
+    for (name, override_cube) in [
+        ("geometry.default_shield", false),
+        ("geometry.override_shield", true),
+    ] {
+        let mut cube = serde_json::json!({"origin":[-4,16,-2],"size":[10,18,2],"uv":[0,0]});
+        if override_cube {
+            cube["inflate"] = 0.0.into();
+            cube["mirror"] = false.into();
+        }
+        source[name] = serde_json::json!({
+            "texturewidth":32, "textureheight":32,
+            "bones":[{"name":ROOT_BONE,"mirror":true,"inflate":0.75,"cubes":[cube]}]
+        });
+    }
+    std::fs::write(
+        scratch.path().join("models/entity/shields.geo.json"),
+        source.to_string(),
+    )
+    .unwrap();
+    let compiled = crate::compile_entity_assets(
+        scratch.path(),
+        include_bytes!("../../../../../../assets/vanilla-source.json"),
+    )
+    .unwrap();
+    assert_eq!(compiled.geometries.len(), 2);
+    let mut checker = texture(255);
+    checker.rgba8 = (0u8..32)
+        .flat_map(|y| (0u8..32).flat_map(move |x| [x * 7, y * 7, (x ^ y) * 7, 255]))
+        .collect::<Vec<_>>()
+        .into();
+    for geometry in &compiled.geometries {
+        let overridden = geometry.identifier.as_ref() == "geometry.override_shield";
+        assert_eq!(geometry.bones[0].cubes[0].mirror, !overridden);
+        assert_eq!(
+            geometry.bones[0].cubes[0].inflate.get(),
+            if overridden { 0.0 } else { 0.75 }
+        );
+        let mut resolved_only = geometry.clone();
+        resolved_only.bones[0].mirror = None;
+        resolved_only.bones[0].inflate = None;
+        assert_eq!(
+            bake(geometry, &checker).unwrap(),
+            bake(&resolved_only, &checker).unwrap(),
+            "{}",
+            geometry.identifier
+        );
     }
 }

@@ -136,3 +136,32 @@ fn eligibility_uses_the_same_explicit_zero_inflate_as_mesh_generation() {
     assert_eq!(mesh.vertices.len(), 12);
     assert!(mesh.vertices.iter().all(|vertex| vertex.position[2] == 0.0));
 }
+
+#[test]
+fn compiled_fin_defaults_and_overrides_validate_every_face_that_gained_area() {
+    let catalog = catalog();
+    for (name, inflate, supported, vertices) in [
+        ("geometry.fin_bone_default", 0.1, false, 36),
+        ("geometry.fin_cube_inflate", 0.1, false, 36),
+        ("geometry.fin_explicit_zero", 0.0, true, 12),
+    ] {
+        let index = find_geometry_index(&catalog, name).unwrap() as usize;
+        let geometry = &catalog.geometries()[index];
+        assert_eq!(geometry.bones[0].cubes[0].inflate.get(), inflate, "{name}");
+        assert_eq!(
+            assets::neutral_actor_geometry_uvs_are_supported(catalog.geometries(), index),
+            supported,
+            "UVs on the resolved cube: {name}"
+        );
+        let mesh = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
+        assert_eq!(mesh.vertices.len(), vertices, "drawable faces: {name}");
+        let patch = serde_json::json!({"geometry":{"default":name}}).to_string();
+        let skin = assets::parse_skin_geometry(&patch, SOURCE)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            mesh.vertices,
+            skin_geometry(&skin, EntityRigId(0)).unwrap().vertices
+        );
+    }
+}
