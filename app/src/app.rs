@@ -368,6 +368,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let mut app = logging::startup_app();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -679,7 +680,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
-    let mut app = App::new();
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -700,7 +700,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(logging::plugin());
+    let plugins = plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
