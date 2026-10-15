@@ -101,14 +101,23 @@ impl UiPresentationRuntime {
             self.settings_slider_drag_targets.clear();
             self.projections.oreui_settings_input = true;
         }
-        let mut hits = output.hits;
+        let mut hits = self.window_hits(output.hits)?;
         let geometry = std::mem::take(&mut paint.geometry);
-        self.projections.oreui_slider_tracks = geometry.slider_tracks;
-        self.projections.menu_focus_geometry = geometry.focus_targets;
-        self.projections.menu_focus_landmarks = geometry.focus_landmarks;
-        self.menu_scrolls
-            .set_areas(std::mem::take(&mut paint.scrolls));
-        self.add_menu_text_spots(std::mem::take(&mut paint.spots));
+        self.projections.oreui_slider_tracks = self.window_slider_tracks(geometry.slider_tracks)?;
+        self.projections.menu_focus_geometry = self.window_focus_targets(geometry.focus_targets)?;
+        self.projections.menu_focus_landmarks =
+            self.window_focus_landmarks(geometry.focus_landmarks)?;
+        let popup_owns_scrolls = view.out_of_game()
+            && (view.dialog.is_some()
+                || view.server_trust_prompt().is_some()
+                || view.join_request_prompt().is_some());
+        // Repainting the underlying route must not discard the popup's wheel animation.
+        if !popup_owns_scrolls {
+            let scrolls = self.window_scrolls(std::mem::take(&mut paint.scrolls))?;
+            self.menu_scrolls.set_areas(scrolls);
+        }
+        let spots = self.window_spots(std::mem::take(&mut paint.spots))?;
+        self.add_menu_text_spots(spots);
         if let Some(preview) = paint.character_preview.take() {
             self.append_menu_player_preview(
                 nodes,
@@ -165,10 +174,13 @@ impl UiPresentationRuntime {
                     &mut frame,
                 )?;
                 self.projections.menu_focus = editor.focus;
-                self.projections.menu_focus_geometry = editor.focus_targets;
-                self.projections.menu_focus_landmarks = editor.focus_landmarks;
-                hits = editor.hits;
-                self.add_menu_text_spots(editor.spots);
+                self.projections.menu_focus_geometry =
+                    self.window_focus_targets(editor.focus_targets)?;
+                self.projections.menu_focus_landmarks =
+                    self.window_focus_landmarks(editor.focus_landmarks)?;
+                hits = self.window_hits(editor.hits)?;
+                let spots = self.window_spots(editor.spots)?;
+                self.add_menu_text_spots(spots);
                 self.menu_scrolls.set_areas(Vec::new());
             }
         } else {
@@ -176,6 +188,43 @@ impl UiPresentationRuntime {
         }
         self.screens.menu_sounds.clear();
         Ok(Some(hits))
+    }
+
+    /// Draws a launcher question without resolving any JSON-UI screen root.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn append_oreui_popup(
+        &mut self,
+        view: &MenuView,
+        popup: &launcher::menu::dialogs::Popup,
+        nodes: &mut Vec<UiNode>,
+        next: &mut u32,
+        metrics: TextMetrics,
+        size: [f32; 2],
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        let mut frame = PaintFrame {
+            layouts: &mut self.layouts,
+            font: &self.font,
+            metrics,
+            solid_page: self.solid_texture_page,
+            safe_area: self.safe_area,
+            content: size,
+            translate: &|_| None,
+            language: [0; 3],
+            now: self.menu_seconds,
+            nodes,
+            next,
+            renderers: &mut [],
+        };
+        let (output, scrolls) =
+            self.screens
+                .oreui
+                .paint_popup(view, popup, size, &self.menu_scrolls, &mut frame)?;
+        self.projections.menu_focus = output.focus.unwrap_or_default();
+        let scrolls = self.window_scrolls(scrolls)?;
+        let hits = self.window_hits(output.hits)?;
+        self.menu_scrolls.set_areas(scrolls);
+        self.screens.menu_sounds.clear();
+        Ok(hits)
     }
 
     /// Draws the import flow with its own scroll area and modal-only targets.
@@ -201,12 +250,16 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        Ok(self.screens.oreui.paint_minecraft_import(
+        let hits = self.screens.oreui.paint_minecraft_import(
             view,
             size,
             &mut self.menu_scrolls,
             &mut frame,
-        )?)
+        )?;
+        self.menu_scrolls
+            .translate_areas(self.oreui_origin())
+            .map_err(UiPresentationError::Geometry)?;
+        self.window_hits(hits)
     }
 
     /// Draws the quit confirmation; its targets alone then count.
@@ -237,8 +290,9 @@ impl UiPresentationRuntime {
             .screens
             .oreui
             .paint_exit(view, size, translate, &mut frame)?;
+        let scrolls = self.window_scrolls(scrolls)?;
         self.menu_scrolls.set_areas(scrolls);
-        Ok(hits)
+        self.window_hits(hits)
     }
 
     /// Draws the saved-accounts picker over the current screen; its targets alone then count.
@@ -264,13 +318,17 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        Ok(self.screens.oreui.paint_accounts(
+        let hits = self.screens.oreui.paint_accounts(
             view,
             size,
             &self.menu_artwork.refs,
             &mut self.menu_scrolls,
             &mut frame,
-        )?)
+        )?;
+        self.menu_scrolls
+            .translate_areas(self.oreui_origin())
+            .map_err(UiPresentationError::Geometry)?;
+        self.window_hits(hits)
     }
 
     /// Plays out OreUI's exit and capture effects over the frame.
@@ -479,5 +537,94 @@ impl UiPresentationRuntime {
             .checked_sub(resident)
             .ok_or("Resident UI textures exceed the texture budget")?;
         self.enable_oreui_originals(images.with_artwork_budget(keys, available)?)
+    }
+}
+
+/// OreUI paints in safe-content space while the retained tree moves its visuals by the
+/// safe-area origin, so every input rectangle it publishes moves by that origin too.
+impl UiPresentationRuntime {
+    fn oreui_origin(&self) -> [f32; 2] {
+        [self.safe_area.left(), self.safe_area.top()]
+    }
+
+    fn window_rect(&self, rect: UiRect) -> Result<UiRect, UiPresentationError> {
+        rect.translated(self.oreui_origin())
+            .map_err(UiPresentationError::Geometry)
+    }
+
+    fn window_hits(
+        &self,
+        hits: Vec<(MenuAction, UiRect)>,
+    ) -> Result<Vec<(MenuAction, UiRect)>, UiPresentationError> {
+        hits.into_iter()
+            .map(|(action, rect)| Ok((action, self.window_rect(rect)?)))
+            .collect()
+    }
+
+    fn window_scrolls(
+        &self,
+        areas: Vec<ui_engine::scroll::ScrollArea>,
+    ) -> Result<Vec<ui_engine::scroll::ScrollArea>, UiPresentationError> {
+        areas
+            .into_iter()
+            .map(|area| {
+                area.translated(self.oreui_origin())
+                    .map_err(UiPresentationError::Geometry)
+            })
+            .collect()
+    }
+
+    fn window_slider_tracks(
+        &self,
+        tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    ) -> Result<Vec<(u16, UiRect, Option<UiRect>)>, UiPresentationError> {
+        tracks
+            .into_iter()
+            .map(|(index, track, thumb)| {
+                let thumb = thumb.map(|thumb| self.window_rect(thumb)).transpose()?;
+                Ok((index, self.window_rect(track)?, thumb))
+            })
+            .collect()
+    }
+
+    fn window_focus_targets(
+        &self,
+        targets: Vec<launcher::menu::view::SettingsFocusTarget>,
+    ) -> Result<Vec<launcher::menu::view::SettingsFocusTarget>, UiPresentationError> {
+        targets
+            .into_iter()
+            .map(|mut target| {
+                target.bounds = self.window_rect(target.bounds)?;
+                Ok(target)
+            })
+            .collect()
+    }
+
+    fn window_focus_landmarks(
+        &self,
+        landmarks: Vec<launcher::menu::view::SettingsFocusLandmark>,
+    ) -> Result<Vec<launcher::menu::view::SettingsFocusLandmark>, UiPresentationError> {
+        landmarks
+            .into_iter()
+            .map(|mut landmark| {
+                landmark.bounds = self.window_rect(landmark.bounds)?;
+                Ok(landmark)
+            })
+            .collect()
+    }
+
+    fn window_spots(
+        &self,
+        spots: Vec<ui_engine::caret::TextSpot<launcher::menu::MenuField>>,
+    ) -> Result<Vec<ui_engine::caret::TextSpot<launcher::menu::MenuField>>, UiPresentationError>
+    {
+        spots
+            .into_iter()
+            .map(|mut spot| {
+                spot.bounds = self.window_rect(spot.bounds)?;
+                spot.left += self.oreui_origin()[0];
+                Ok(spot)
+            })
+            .collect()
     }
 }

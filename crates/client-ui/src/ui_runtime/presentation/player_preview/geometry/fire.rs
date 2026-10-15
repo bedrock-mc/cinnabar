@@ -1,5 +1,6 @@
 //! Vanilla actor flame geometry projected in the UI actor frame.
 
+use render_model::actor::flame::{FLAME_FACES, FLAME_SCALE, FLAME_V_INSET_TEXELS, flame_depth};
 use ui::{UiBlendMode, UiMeshBatch, UiMeshVertex};
 
 use {
@@ -16,12 +17,6 @@ pub struct PreviewFire {
     pub outer_y: f32,
 }
 
-const FACES: [(f32, f32, f32, f32, bool); 4] = [
-    (0.5, 0.0, 1.4, 0.0, false),
-    (0.45, 0.45, 1.85, 0.03, false),
-    (0.5, 0.0, 1.4, 0.0, true),
-    (0.45, 0.45, 1.85, -0.03, true),
-];
 const CORNERS: [usize; 6] = [0, 1, 2, 0, 2, 3];
 
 impl PreviewFire {
@@ -36,7 +31,7 @@ impl PreviewFire {
             && left < right
             && top < bottom
             && right - left == bottom - top)
-            .then_some(FACES.len() * CORNERS.len())
+            .then_some(FLAME_FACES.len() * CORNERS.len())
     }
 }
 
@@ -47,15 +42,15 @@ pub(super) fn append(
 ) -> Option<()> {
     fire.vertex_count()?;
     let [width, height] = fire.size;
-    let horizontal = width * 1.4;
-    let vertical = width.min(height) * 1.4;
+    let horizontal = width * FLAME_SCALE;
+    let vertical = width.min(height) * FLAME_SCALE;
     // UI rendering skips the world camera billboard and reverses the native depth offset.
-    let depth = -((height / horizontal).floor() * 0.02 - 0.3);
+    let depth = -flame_depth(width, height);
     let [left, top, right, bottom] = fire.texture.uv.map(f32::from);
     let start = u32::try_from(vertices.len()).ok()?;
     // The lower and upper pair each have independently reversed faces. Native's
     // upper faces are separated by +/-0.03 before collision-box scaling.
-    for (half, low, high, z, reverse) in FACES {
+    for (half, low, high, z, reverse) in FLAME_FACES {
         let positions = [
             [half * horizontal, low * vertical],
             [-half * horizontal, low * vertical],
@@ -64,10 +59,10 @@ pub(super) fn append(
         ];
         // Preserve the native 0.05-texel V inset, without quantizing UV edges.
         let uv = [
-            [right, bottom - 0.05],
-            [left, bottom - 0.05],
-            [left, top + 0.05],
-            [right, top + 0.05],
+            [right, bottom - FLAME_V_INSET_TEXELS],
+            [left, bottom - FLAME_V_INSET_TEXELS],
+            [left, top + FLAME_V_INSET_TEXELS],
+            [right, top + FLAME_V_INSET_TEXELS],
         ];
         let corners = if reverse {
             CORNERS.map(|corner| positions.len() - 1 - corner)

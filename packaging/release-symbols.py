@@ -39,7 +39,10 @@ def source_root():
 
 
 def has_symbols(source):
-    """Whether the source's release profile writes split debug info, so a symbol archive exists."""
+    """Whether packaging enables symbols, falling back to the selected source's profile."""
+    debug = os.environ.get("CARGO_PROFILE_RELEASE_DEBUG")
+    if debug is not None:
+        return debug.lower() not in ("false", "0", "none", "")
     with (source / "Cargo.toml").open("rb") as manifest:
         profile = tomllib.load(manifest).get("profile", {}).get("release", {})
     return (profile.get("split-debuginfo", "off") != "off"

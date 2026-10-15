@@ -218,7 +218,7 @@ pub struct UiRuntime {
     player_list_held: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
-    loading_screen: bool,
+    loading_screen: Option<ui::LoadingStage>,
     hurt_pending: bool, // a health drop the scene stack has not yet answered
 }
 
@@ -239,7 +239,7 @@ impl UiRuntime {
             known_player_names: Vec::new(),
             player_list_held: false,
             screen_settings: Arc::default(),
-            loading_screen: false,
+            loading_screen: None,
             hurt_pending: false,
             hud: HudStore::default(),
             death_reason: Arc::from(""),

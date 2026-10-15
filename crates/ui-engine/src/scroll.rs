@@ -66,6 +66,17 @@ pub struct ScrollArea {
 }
 
 impl ScrollArea {
+    /// This area moved by `by` logical px, as when content-space geometry enters window space.
+    pub fn translated(mut self, by: [f32; 2]) -> Result<Self, ui::GeometryError> {
+        self.viewport = self.viewport.translated(by)?;
+        self.track = self.track.map(|rect| rect.translated(by)).transpose()?;
+        self.thumb = self.thumb.map(|rect| rect.translated(by)).transpose()?;
+        if let Some((_, origin)) = &mut self.engine {
+            *origin = [origin[0] + by[0], origin[1] + by[1]];
+        }
+        Ok(self)
+    }
+
     /// The engine metrics at the current offset, and `point` in virtual pixels.
     pub fn engine_at(&self, point: UiPoint) -> Option<(json_ui::ScrollMetrics, [f64; 2])> {
         let (metrics, origin) = self.engine.as_ref()?;

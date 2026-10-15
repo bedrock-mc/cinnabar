@@ -268,7 +268,8 @@ fn collision_box_maps_sixteenths_to_block_units() {
     assert_eq!((full.min, full.max), ([0.0; 3], [1.0; 3]));
     let slab = super::box_component(&boxed([-8.0, 0.0, -8.0], [16.0, 8.0, 16.0])).unwrap();
     assert_eq!(slab.max, [1.0, 0.5, 1.0]);
-    assert!(super::box_component(&boxed([0.0; 3], [0.0; 3])).is_none());
+    let empty = super::box_component(&boxed([0.0; 3], [0.0; 3])).unwrap();
+    assert_eq!(empty.min, empty.max);
 }
 
 #[test]

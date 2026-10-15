@@ -255,6 +255,8 @@ pub fn prune(crash_dir: &Path, keep: usize) {
     }
 }
 
+/// Creates and returns `crash_dir/base`, or the first free `base-N` when other writers already
+/// hold it; fails after [`MAX_COLLISIONS`] taken names or on any other I/O error.
 fn create_unique(crash_dir: &Path, base: &str) -> io::Result<PathBuf> {
     for suffix in 0..MAX_COLLISIONS {
         let folder = if suffix == 0 {
@@ -274,6 +276,7 @@ fn create_unique(crash_dir: &Path, base: &str) -> io::Result<PathBuf> {
     ))
 }
 
+/// Writes `bytes` to a file that must not exist yet and syncs it to disk before returning.
 fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = fs::File::options()
         .write(true)
@@ -290,6 +293,7 @@ mod tests {
 
     const NOW_MS: u64 = 1_760_443_200_000;
 
+    /// Creates a report for the fixture session at its fixed timestamp.
     fn report(message: &str) -> Report {
         let identity = Identity {
             session_id: "0123456789abcdef".into(),
@@ -301,6 +305,7 @@ mod tests {
         Report::new(Kind::Panic, message.into(), &identity, NOW_MS)
     }
 
+    /// Lists retained folder names in their chronological order.
     fn names(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
             .unwrap()

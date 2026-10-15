@@ -349,7 +349,8 @@ def pack(paths, archive):
                 last = index
             sizes.add(root, path, kept)
             if kept:
-                tar.add(path, arcname=f"{index}/{path.relative_to(root).as_posix()}", recursive=False)
+                tar.add(path, arcname=f"{index}/{path.relative_to(root).as_posix()}", recursive=False,
+                        filter=without_symlinks)
     sizes.report()
     return sizes
 

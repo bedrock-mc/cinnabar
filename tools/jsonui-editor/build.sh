@@ -22,7 +22,8 @@ if [[ "$installed" != "$pinned" ]]; then
     exit 1
 fi
 
-"$cargo" build --locked --release -p jsonui-editor --lib --target wasm32-unknown-unknown \
+# WebAssembly does not use the native release symbol sidecars.
+CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=off "$cargo" build --locked --release -p jsonui-editor --lib --target wasm32-unknown-unknown \
     --manifest-path "$repo/Cargo.toml"
 target_dir="${CARGO_TARGET_DIR:-$repo/target}"
 
@@ -30,7 +31,7 @@ rm -rf "$out"
 mkdir -p "$out/pkg" "$out/examples"
 wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
     "$target_dir/wasm32-unknown-unknown/release/jsonui_editor.wasm"
-cp "$here/web/index.html" "$here/web/style.css" "$here/web/app.js" "$out/"
+cp -R "$here/web/." "$out/"
 touch "$out/.nojekyll"
 
 # The authored example packs, plus the listing the page fetches them by.

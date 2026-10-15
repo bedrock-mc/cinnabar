@@ -22,8 +22,9 @@ pub struct GameData {
     pub custom_blocks: CustomBlocks,
     /// Every block definition StartGame carried, including vanilla and skipped ones.
     pub block_definition_count: usize,
-    /// Hash of StartGame's world seed, level ID and level name; equal on every join of one world.
-    pub level_identity: u64,
+    /// Hash of StartGame's seed, level ID and name, when the server supplies a level ID.
+    /// An absent ID cannot establish which world a later connection visits.
+    pub level_identity: Option<u64>,
 }
 
 /// StartGame's session settings and world rules.
@@ -99,13 +100,16 @@ impl GameData {
 }
 
 /// Length-framed so the seed, ID and name cannot run into one another.
-fn level_identity(start_game: &StartGame) -> u64 {
+fn level_identity(start_game: &StartGame) -> Option<u64> {
+    if start_game.level_id.is_empty() {
+        return None;
+    }
     let mut bytes = start_game.settings.seed.0.to_le_bytes().to_vec();
     for text in [&start_game.level_id, &start_game.level_name] {
         bytes.extend_from_slice(&(text.len() as u64).to_le_bytes());
         bytes.extend_from_slice(text.as_bytes());
     }
-    xxhash_rust::xxh64::xxh64(&bytes, 0)
+    Some(xxhash_rust::xxh64::xxh64(&bytes, 0))
 }
 
 impl Default for GameData {
@@ -184,6 +188,18 @@ mod tests {
         assert_ne!(base, identity(2, "ab", "c"));
         assert_ne!(base, identity(1, "a", "bc"));
         assert_ne!(base, identity(1, "ab", "d"));
+    }
+
+    /// Names and seeds alone may be shared by unrelated worlds on the same endpoint.
+    #[test]
+    fn missing_level_id_does_not_claim_a_stable_world_identity() {
+        let mut start_game = StartGame::default();
+        start_game.settings.seed = wire::U64LE(42);
+        start_game.level_name = "Shared world name".into();
+        assert_eq!(
+            GameData::from_wire(&start_game, &ItemRegistry::default()).level_identity,
+            None
+        );
     }
 
     #[test]

@@ -43,6 +43,9 @@ type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
 /// Block state property names and their value ids, by block id.
 type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
 
+/// Sequential and hashed IDs grouped by block identity and canonical state.
+type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
+
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
 /// The two maps are intentionally distinct: a 32-bit network hash may have
@@ -383,7 +386,7 @@ impl PhysicsCollisionRegistries {
                     InteractionBlock {
                         identifier: Arc::clone(&block.name),
                         facts: assets::facts::BlockFact::custom(&block.name),
-                        full_cube: effective.collides && effective.collision_boxes.is_none(),
+                        full_cube: custom_block_is_full_cube(&effective),
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
@@ -436,7 +439,7 @@ impl PhysicsCollisionRegistries {
                         InteractionBlock {
                             identifier: Arc::clone(&block.name),
                             facts: assets::facts::BlockFact::custom(&block.name),
-                            full_cube: effective.collides && effective.collision_boxes.is_none(),
+                            full_cube: custom_block_is_full_cube(&effective),
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
@@ -614,7 +617,7 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
     let defaults = block
         .collision_boxes
         .is_none()
-        .then(|| Aabb::new(Vec3::ZERO, Vec3::ONE));
+        .then(|| box_to_aabb(protocol::CustomBox::FULL));
     let boxes = block
         .collision_boxes
         .as_deref()
@@ -624,7 +627,18 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
     defaults
         .into_iter()
         .chain(boxes.map(box_to_aabb))
-        .filter(move |_| block.collides)
+        .filter(move |shape| {
+            block.collides
+                && shape.min.x < shape.max.x
+                && shape.min.y < shape.max.y
+                && shape.min.z < shape.max.z
+        })
+}
+
+/// Whether the final movement bounds fill exactly one block after transformation.
+fn custom_block_is_full_cube(block: &protocol::CustomBlockPhysics) -> bool {
+    let mut boxes = custom_block_boxes(block);
+    boxes.next() == Some(box_to_aabb(protocol::CustomBox::FULL)) && boxes.next().is_none()
 }
 
 /// The bounds of one authored box under a state's transformation, so collision and
@@ -665,7 +679,7 @@ fn apply_selection(
     transform: Option<protocol::CustomTransformation>,
 ) {
     let shapes = match selection {
-        protocol::CustomSelection::Default => vec![Aabb::new(Vec3::ZERO, Vec3::ONE)],
+        protocol::CustomSelection::Default => vec![box_to_aabb(protocol::CustomBox::FULL)],
         protocol::CustomSelection::Disabled => Vec::new(),
         protocol::CustomSelection::Box(shape) => {
             vec![box_to_aabb(transformed_box(shape, transform))]

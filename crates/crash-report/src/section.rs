@@ -87,6 +87,14 @@ fn header_timestamp_ms(section: &[u8]) -> Option<u64> {
     digits.parse().ok()
 }
 
+/// Whether `text` holds `marker` anywhere; an empty marker matches nothing.
+fn contains(text: &[u8], marker: &str) -> bool {
+    let marker = marker.as_bytes();
+    !marker.is_empty()
+        && marker.len() <= text.len()
+        && text.windows(marker.len()).any(|window| window == marker)
+}
+
 /// Byte offset of the start of the line holding the last `marker`.
 fn latest_start(text: &[u8], marker: &str) -> Option<usize> {
     let marker = marker.as_bytes();

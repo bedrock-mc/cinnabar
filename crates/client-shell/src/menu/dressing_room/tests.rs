@@ -420,7 +420,7 @@ fn busy_skin_name_cannot_receive_text_or_focus() {
 }
 
 #[test]
-fn changing_only_the_skin_engine_version_updates_the_local_and_wire_selection() {
+fn changing_skin_metadata_updates_the_local_and_wire_selection() {
     let mut view = DressingRoomView::default();
     let skin = crate::player_skin::LocalPlayerSkin::generated_default("fixture").standard_skin();
     view.skins = vec![launcher::dressing_room::DressingRoomSkin {
@@ -434,7 +434,8 @@ fn changing_only_the_skin_engine_version_updates_the_local_and_wire_selection() 
     }]
     .into();
     view.selected = Some(0);
-    let previous = Some((SkinModel::Custom, Arc::from("0.0.0")));
+    let id = crate::player_skin::selected_skin_id(view.selected_skin().unwrap());
+    let previous = Some((SkinModel::Custom, Arc::from("0.0.0"), id.clone()));
     let outcome = Outcome::new(&view, Some(skin.clone()), previous, [9; 16], true);
     assert!(outcome.changed);
     let packet = outcome.packet.unwrap();
@@ -445,12 +446,17 @@ fn changing_only_the_skin_engine_version_updates_the_local_and_wire_selection() 
     );
     let unchanged = Outcome::new(
         &view,
-        Some(skin),
-        Some((SkinModel::Custom, "1.12.0".into())),
+        Some(skin.clone()),
+        Some((SkinModel::Custom, "1.12.0".into(), id)),
         [9; 16],
         true,
     );
     assert!(!unchanged.changed);
+    let previous = view.selected_skin().map(selection_key);
+    Arc::make_mut(&mut view.skins)[0].path = "other.png".into();
+    let identity_change = Outcome::new(&view, Some(skin), previous, [9; 16], true);
+    assert!(identity_change.changed);
+    assert!(identity_change.packet.is_some());
 }
 
 #[test]

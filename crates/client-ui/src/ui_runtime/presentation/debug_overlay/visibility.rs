@@ -18,7 +18,7 @@ impl UiPresentationRuntime {
         SceneHost {
             menu: self.menu_view.as_ref().map(|view| view.screen),
             over_world: self.menu_view.as_ref().is_none_or(|view| view.over_world),
-            loading: self.loading_stage.is_some(),
+            loading: self.loading_stage,
         }
     }
 }
