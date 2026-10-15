@@ -24,8 +24,10 @@ pub struct Particle {
     pub timeline_next: usize,
     pub travelled: f32,
     pub travel_next: usize,
-    /// Times each looping travel event has fired.
+    /// Consumed occurrences of each looping travel event, including refused scheduling.
     pub loop_counts: Vec<u32>,
+    /// Prefix of looping definitions scanned during the previous particle update.
+    pub loop_scanned: usize,
 }
 
 impl Particle {
@@ -45,6 +47,7 @@ impl Particle {
             travelled: 0.0,
             travel_next: 0,
             loop_counts: Vec::new(),
+            loop_scanned: 0,
         }
     }
 }
@@ -255,6 +258,8 @@ impl Emitter {
         let mut pending: Vec<(&str, [f32; 3], [f32; 3])> = Vec::new();
         let rng = &mut self.rng;
         particles.retain_mut(|p| {
+            let previous_travelled = p.travelled;
+            let previously_scanned = std::mem::take(&mut p.loop_scanned);
             p.age += dt;
             set_var(&mut p.vars, V_PARTICLE_AGE, p.age);
             eval_curves(&def.curves, &mut p.vars, rng, &queries);
@@ -423,21 +428,27 @@ impl Emitter {
                             .skip_deferred(def.particle.looping_travel_events.len() - index);
                         break;
                     }
+                    p.loop_scanned = index + 1;
                     if *interval <= 1e-4 {
                         continue;
                     }
                     if index >= p.loop_counts.len() {
                         p.loop_counts.resize(index + 1, 0);
                     }
-                    let due = ((p.travelled / interval) as u32)
-                        .min(p.loop_counts[index].saturating_add(8));
+                    if index >= previously_scanned {
+                        // A skipped suffix is consumed lazily, without walking it on refusal.
+                        p.loop_counts[index] =
+                            p.loop_counts[index].max((previous_travelled / interval) as u32);
+                    }
+                    let crossed = (p.travelled / interval) as u32;
+                    let due = crossed.min(p.loop_counts[index].saturating_add(8));
                     while p.loop_counts[index] < due {
                         p.loop_counts[index] += 1;
                         if !defer(output, &mut pending, event, world_pos, p.vel) {
-                            output
-                                .budget
-                                .skip_deferred((due - p.loop_counts[index]) as usize);
-                            p.loop_counts[index] = due;
+                            output.budget.skip_deferred(
+                                crossed.saturating_sub(p.loop_counts[index]) as usize,
+                            );
+                            p.loop_counts[index] = crossed;
                             break;
                         }
                     }

@@ -257,6 +257,174 @@ fn rejected_due_timeline_and_travel_events_advance_without_losing_future_events(
     assert_eq!(names(&next), ["future"]);
 }
 
+/// Three distinct intervals publish both audio and nested-emitter requests.
+fn looping_travel_emitter() -> Emitter {
+    let mut events = serde_json::Map::new();
+    for name in ["quarter", "whole", "double"] {
+        events.insert(
+            name.into(),
+            json!({
+                "sound_effect": {"event_name": name},
+                "particle_effect": {"effect": format!("test:child-{name}")}
+            }),
+        );
+    }
+    let mut emitter = emitter(
+        json!({
+            "minecraft:particle_lifetime_expression": {"max_lifetime": 20},
+            "minecraft:particle_initial_speed": 1,
+            "minecraft:particle_motion_dynamic": {},
+            "minecraft:particle_lifetime_events": {
+                "looping_travel_distance_events": [
+                    {"distance": 0, "event": "quarter"},
+                    {"distance": 0.25, "event": "quarter"},
+                    {"distance": 1, "event": "whole"},
+                    {"distance": 2, "event": "double"}
+                ]
+            }
+        }),
+        events.into(),
+    );
+    emitter.advance(0.001, &mut Outputs::default(), 100);
+    emitter
+}
+
+/// Checks the observable order of both outputs from each admitted looping occurrence.
+fn assert_looping_output(output: &Outputs, expected: &[&str]) {
+    assert_eq!(names(output), expected);
+    assert_eq!(output.spawns.len(), expected.len());
+    for (spawn, name) in output.spawns.iter().zip(expected) {
+        assert_eq!(spawn.effect, format!("test:child-{name}"));
+    }
+}
+
+#[test]
+fn travel_overflow_does_not_replay_looping_events_after_work_or_deferred_refusal() {
+    for allowance in [limits(0, 8, 8, 8), limits(3, 8, 8, 8), limits(100, 0, 8, 8)] {
+        for previously_scanned in [false, true] {
+            let mut emitter = looping_travel_emitter();
+            let mut boxes = Vec::new();
+            if previously_scanned {
+                let mut first = Outputs::default();
+                emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut first);
+                assert_looping_output(&first, &["quarter", "quarter"]);
+            }
+            let mut refused = Outputs::with_limits(allowance);
+            let distance = if previously_scanned { 2.5 } else { 3.0 };
+            emitter.update_particles(distance, &EmptyWorld, &mut boxes, &mut refused);
+            assert_looping_output(&refused, &[]);
+            assert!(refused.budget.overflow.deferred > 0);
+
+            emitter.particles.front_mut().unwrap().vel = [0.0; 3];
+            let mut stationary = Outputs::default();
+            emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut stationary);
+            assert_looping_output(&stationary, &[]);
+            assert_eq!(stationary.budget.overflow, EventOverflows::default());
+
+            emitter.particles.front_mut().unwrap().vel = [1.0, 0.0, 0.0];
+            let mut moved = Outputs::default();
+            emitter.update_particles(1.0, &EmptyWorld, &mut boxes, &mut moved);
+            assert_looping_output(
+                &moved,
+                &[
+                    "quarter", "quarter", "quarter", "quarter", "whole", "double",
+                ],
+            );
+            assert!(
+                moved
+                    .spawns
+                    .iter()
+                    .all(|spawn| spawn.position == [4.0, 0.0, 0.0])
+            );
+            assert_eq!(moved.budget.overflow, EventOverflows::default());
+        }
+    }
+}
+
+#[test]
+fn travel_overflow_preserves_the_admitted_eight_occurrence_backlog() {
+    for (allowance, exhausted) in [(EventLimits::default(), false), (limits(10, 8, 8, 8), true)] {
+        let mut emitter = looping_travel_emitter();
+        let mut boxes = Vec::new();
+        let mut first = Outputs::with_limits(allowance);
+        emitter.update_particles(3.0, &EmptyWorld, &mut boxes, &mut first);
+        if exhausted {
+            assert_looping_output(&first, &[]);
+            assert!(first.budget.overflow.work > 0);
+        } else {
+            assert_looping_output(
+                &first,
+                &[
+                    "quarter", "quarter", "quarter", "quarter", "quarter", "quarter", "quarter",
+                    "quarter", "whole", "whole", "whole", "double",
+                ],
+            );
+            assert_eq!(first.budget.overflow, EventOverflows::default());
+        }
+        emitter.particles.front_mut().unwrap().vel = [0.0; 3];
+        let mut stationary = Outputs::default();
+        emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut stationary);
+        assert_looping_output(&stationary, &["quarter", "quarter", "quarter", "quarter"]);
+        assert_eq!(stationary.budget.overflow, EventOverflows::default());
+        let mut settled = Outputs::default();
+        emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut settled);
+        assert_looping_output(&settled, &[]);
+    }
+}
+
+#[test]
+fn travel_overflow_consumes_saturated_loop_thresholds() {
+    let mut emitter = looping_travel_emitter();
+    emitter.particles.front_mut().unwrap().vel = [u32::MAX as f32, 0.0, 0.0];
+    let mut boxes = Vec::new();
+    let mut refused = Outputs::with_limits(limits(0, 8, 8, 8));
+    emitter.update_particles(1.0, &EmptyWorld, &mut boxes, &mut refused);
+    assert_looping_output(&refused, &[]);
+    emitter.particles.front_mut().unwrap().vel = [0.0; 3];
+    for _ in 0..2 {
+        let mut stationary = Outputs::default();
+        emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut stationary);
+        assert_looping_output(&stationary, &[]);
+        assert_eq!(stationary.budget.overflow, EventOverflows::default());
+    }
+}
+
+#[test]
+fn travel_overflow_does_not_replay_one_shot_or_timeline_events() {
+    let mut events = serde_json::Map::new();
+    for name in ["old-travel", "future-travel", "old-time", "future-time"] {
+        events.insert(name.into(), json!({"sound_effect": {"event_name": name}}));
+    }
+    let mut emitter = emitter(
+        json!({
+            "minecraft:particle_lifetime_expression": {"max_lifetime": 20},
+            "minecraft:particle_initial_speed": 1,
+            "minecraft:particle_motion_dynamic": {},
+            "minecraft:particle_lifetime_events": {
+                "travel_distance_events": [
+                    {"distance": 1, "event": "old-travel"},
+                    {"distance": 4, "event": "future-travel"}
+                ],
+                "timeline": {"1": "old-time", "4": "future-time"}
+            }
+        }),
+        events.into(),
+    );
+    emitter.advance(0.001, &mut Outputs::default(), 100);
+    let mut boxes = Vec::new();
+    let mut refused = Outputs::with_limits(limits(0, 8, 8, 8));
+    emitter.update_particles(3.0, &EmptyWorld, &mut boxes, &mut refused);
+    assert!(refused.sounds.is_empty());
+    emitter.particles.front_mut().unwrap().vel = [0.0; 3];
+    let mut stationary = Outputs::default();
+    emitter.update_particles(0.5, &EmptyWorld, &mut boxes, &mut stationary);
+    assert!(stationary.sounds.is_empty());
+    emitter.particles.front_mut().unwrap().vel = [1.0, 0.0, 0.0];
+    let mut moved = Outputs::default();
+    emitter.update_particles(1.0, &EmptyWorld, &mut boxes, &mut moved);
+    assert_eq!(names(&moved), ["future-travel", "future-time"]);
+}
+
 struct Floor;
 
 impl crate::ParticleWorld for Floor {
