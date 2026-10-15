@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn automatic_allocation_moves_past_a_reusable_but_udp_blocked_candidate() {
+    let players = 3;
+    let blocked = free_bds_port(players, 0).expect("first window");
+    let first_tcp = TcpListener::bind((LOCAL_SERVER_HOST, blocked)).expect("hold first TCP");
+    let _blocked_udp: Vec<_> = (0..players)
+        .map(|offset| {
+            let port = u16::try_from(u32::from(blocked) + offset).expect("port");
+            UdpSocket::bind((LOCAL_SERVER_HOST, port)).expect("occupy first UDP window")
+        })
+        .collect();
+    let available = free_bds_port(players, 0).expect("second window");
+    drop(first_tcp);
+
+    let selected = automatic_bds_port(players, || {
+        // Model an allocator that reuses the first port whenever its listener is dropped.
+        TcpListener::bind((LOCAL_SERVER_HOST, blocked))
+            .or_else(|_| TcpListener::bind((LOCAL_SERVER_HOST, available)))
+    })
+    .expect("the second candidate has an available TCP and UDP window");
+    assert_eq!(selected, available);
+    TcpListener::bind((LOCAL_SERVER_HOST, blocked)).expect("rejected TCP candidate released");
+    TcpListener::bind((LOCAL_SERVER_HOST, available)).expect("selected TCP candidate released");
+}
+
+#[test]
+fn exhausted_automatic_allocation_releases_rejected_signaling_ports() {
+    let mut occupied_udp = Vec::new();
+    let mut candidates = Vec::new();
+    let error = automatic_bds_port(1, || {
+        let tcp = TcpListener::bind((LOCAL_SERVER_HOST, 0))?;
+        let port = tcp.local_addr()?.port();
+        occupied_udp.push(UdpSocket::bind((LOCAL_SERVER_HOST, port))?);
+        candidates.push(port);
+        Ok(tcp)
+    })
+    .expect_err("every candidate has an occupied UDP port");
+    assert!(error.to_string().contains("UDP transport port"), "{error}");
+    assert_eq!(candidates.len(), AUTOMATIC_ATTEMPTS);
+    for port in candidates {
+        TcpListener::bind((LOCAL_SERVER_HOST, port)).expect("rejected TCP candidate released");
+    }
+}
+
+#[test]
 fn automatic_windows_reserve_both_protocols_and_release_every_port() {
     let players = 3;
     let port = free_bds_port(players, 0).expect("window");
