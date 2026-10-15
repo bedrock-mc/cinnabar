@@ -93,6 +93,8 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    cape: Option<render_model::cape::CapeRig>,
+    pub(super) wearing_elytra: bool,
     models: BTreeMap<IconKey, Arc<UiMesh>>,
     optional_models: BTreeSet<IconKey>,
     faded_thumbnails: BTreeSet<IconKey>,
@@ -309,6 +311,7 @@ impl UiPresentationRuntime {
         self.gui_models.textures = textures;
         self.gui_models.held = held;
         self.gui_models.hand_pivots = held::player_hands(entities);
+        self.gui_models.cape = render_model::cape::CapeRig::resolve(entities);
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
         self.gui_models.enabled = true;
@@ -592,8 +595,19 @@ impl UiPresentationRuntime {
                 .map(|vertices| (vertices, &unposed))
         };
         let cape = self.menu_preview_model.cape_key.as_deref().and_then(|key| {
-            self.menu_artwork_icon(key)
-                .map(|icon| (player_preview::cape::rest_vertices(), icon))
+            if self.gui_models.wearing_elytra {
+                return None;
+            }
+            let vertices = if self.player_preview_view == player_preview::PreviewView::Hud {
+                let vertices = self.gui_models.live_player.cape_vertices.as_slice();
+                if vertices.is_empty() {
+                    return None;
+                }
+                vertices
+            } else {
+                player_preview::cape::rest_vertices()
+            };
+            self.menu_artwork_icon(key).map(|icon| (vertices, icon))
         });
         Some(player_preview::geometry::MeshSources::new(
             body,

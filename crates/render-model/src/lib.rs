@@ -3,6 +3,7 @@
 //! Engine-free: no Bevy or wgpu types, so presentation compiles without waiting on the renderer.
 
 pub mod actor;
+pub mod cape;
 mod chunk_metrics;
 pub mod dropped_item;
 mod entity_shadow;
