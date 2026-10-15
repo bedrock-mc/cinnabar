@@ -3538,8 +3538,12 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-15 actor attacks retain the previously published frame's actor and world-space
 hit point through later movement and look input, including selected aim-assist coordinates.
-Position resets retire the pick; removed or replaced actors turn it into a miss. Exact camera sampling, network batch
-boundaries and latency-reply timing remain incomplete pending a matched packet capture.
+Position resets retire the pick; removed or replaced actors turn it into a miss. Attacks
+use the network pose before this frame's first movement input, including catch-up frames,
+and enter the queue before their swing and those inputs. Older queued inputs and held
+releases must drain first. Lowered visual eyes do not change the network anchor. Exact
+camera sampling, held-item user-data bytes, network batch boundaries and latency-reply
+timing remain incomplete pending a matched packet capture.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the

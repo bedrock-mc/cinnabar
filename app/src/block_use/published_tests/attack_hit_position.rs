@@ -3,7 +3,7 @@ use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
 /// Supplies one selectable actor and drains movement before a frame-time attack.
-fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
+pub(super) fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     actor_use_tests::spawn(&mut world, z);
     world.init_resource::<crate::melee::MeleeTarget>();
@@ -28,7 +28,7 @@ fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
 }
 
 /// Admits a fresh attack through the production pick and packet producers.
-fn attack(world: &mut World) {
+pub(super) fn attack(world: &mut World) {
     let snapshot = world
         .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
         .route_and_finalize(semantic_input::DeviceFrame {

@@ -32,7 +32,7 @@ use {
 
 use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send, swing_duration};
 
-/// The published frame pick and the press awaiting admission after movement drains.
+/// The published frame pick and the press awaiting admission before its movement input.
 #[derive(Resource, Default)]
 pub(crate) struct MeleeTarget {
     published: Option<crosshair::FrameTarget>,
@@ -141,7 +141,7 @@ pub(crate) fn prepare_melee(
     target.pressed = Some(crosshair);
 }
 
-/// Admits the picked press after completed movement, using the pose before the next tick.
+/// Admits the picked press before this frame's inputs, using their preceding pose.
 pub(crate) fn produce_melee(
     player_runtime: Res<client_state::PlayerRuntime>,
     context: MeleeContext,
@@ -161,8 +161,19 @@ pub(crate) fn produce_melee(
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     let input_mode = protocol_input_mode(input.input_mode);
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
-    // Completed movement must enter the FIFO before this frame's press.
-    let Some(sample) = runtime.between_ticks_press(&movement) else {
+    if movement.has_held_release() {
+        runtime.defer(now_millis);
+        return;
+    }
+    let sample = runtime.between_ticks_press(&movement).or_else(|| {
+        runtime.press_sample(
+            crosshair,
+            &movement,
+            context.effects.recent_tick_count(),
+            now_millis,
+        )
+    });
+    let Some(sample) = sample else {
         runtime.defer(now_millis);
         return;
     };
