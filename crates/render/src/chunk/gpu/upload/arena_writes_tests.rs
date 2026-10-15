@@ -1,9 +1,9 @@
 use super::*;
-use crate::chunk::gpu::arena::plan_chunk_range_update;
+use crate::chunk::gpu::arena::{ChunkRangePlan, plan_chunk_range_update};
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
 /// Exercises every terrain stream with nonzero relocation bases and distinct records.
-fn mixed_chunk() -> (ChunkRenderInstance, ChunkRangePlan, GpuChunkOrigin) {
+fn mixed_chunk() -> (ChunkRenderInstance, FreshChunkRanges, GpuChunkOrigin) {
     let instance = ChunkRenderInstance {
         key: SubChunkKey::new(0, 0, 0, 0),
         cube_quads: (0..256)
@@ -89,7 +89,7 @@ fn mixed_chunk() -> (ChunkRenderInstance, ChunkRangePlan, GpuChunkOrigin) {
         plan.liquid_lighting_start,
     )
     .unwrap();
-    (instance, plan, origin)
+    (instance, fresh_ranges(&plan), origin)
 }
 
 /// Counts payload materialized by collection before it reaches mapped staging.
@@ -138,7 +138,7 @@ fn warm_mixed_terrain_collection_reuses_storage_and_borrows_unchanged_streams() 
 /// Recreates the former word-vector encoder as an independent byte-level oracle.
 fn expected_streams(
     instance: &ChunkRenderInstance,
-    plan: &ChunkRangePlan,
+    plan: &FreshChunkRanges,
     metadata: u32,
     origin: GpuChunkOrigin,
 ) -> [(ArenaStream, Vec<u8>); 4] {
@@ -373,5 +373,27 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
                 bytemuck::cast_slice::<u32, u8>(&expected)
             );
         }
+    }
+}
+
+/// The fresh-allocation view of a planned update, which is what uploads consume.
+fn fresh_ranges(plan: &ChunkRangePlan) -> FreshChunkRanges {
+    FreshChunkRanges {
+        quad_start: plan.quad_start,
+        quad_capacity: plan.quad_capacity,
+        geometry_stream_start: plan.geometry_stream_start,
+        geometry_stream_capacity: plan.geometry_stream_capacity,
+        model_start: plan.model_start,
+        model_lighting_start: plan.model_lighting_start,
+        model_draw_start: plan.model_draw_start,
+        transparent_model_draw_start: plan.transparent_model_draw_start,
+        liquid_start: plan.liquid_start,
+        liquid_lighting_start: plan.liquid_lighting_start,
+        cube_lighting_start: plan.cube_lighting_start,
+        biome_start: plan.biome_start,
+        biome_capacity: plan.biome_capacity,
+        quad_len: plan.quad_len,
+        geometry_stream_len: plan.geometry_stream_len,
+        biome_len: plan.biome_len,
     }
 }

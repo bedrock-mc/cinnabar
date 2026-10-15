@@ -179,3 +179,36 @@ fn cached_foliage_uses_actual_pinned_shape_motion_and_colour_variables() {
         }
     }
 }
+
+#[test]
+fn cached_manual_emission_updates_effect_counts_before_the_next_tick() {
+    let mut system = system(MAX_LIVE_PARTICLES, false);
+    for index in 0..=super::super::TERRAIN_PARTICLE_LIMIT as i32 {
+        system
+            .spawn_biome_tinted(TEST_EFFECT, [index % 32, 0, index / 32], [1.0; 4])
+            .unwrap();
+        let count = system.bookkeeping.effect(TEST_EFFECT);
+        assert_eq!(count.emitters, 1);
+        assert_eq!(count.particles, index as usize + 1);
+        assert_eq!(system.live_particles(), count.particles);
+    }
+    assert!(
+        system
+            .spawn_terrain(&SpawnRequest {
+                effect: TEST_EFFECT.into(),
+                ..Default::default()
+            })
+            .is_none()
+    );
+    for _ in 0..64 {
+        system.tick(0.25, &crate::world::EmptyWorld);
+    }
+    assert_eq!(system.bookkeeping.effect(TEST_EFFECT).particles, 0);
+    assert_eq!(system.bookkeeping.effect(TEST_EFFECT).emitters, 1);
+    system
+        .spawn_biome_tinted(TEST_EFFECT, [0; 3], [1.0; 4])
+        .unwrap();
+    assert_eq!(system.bookkeeping.effect(TEST_EFFECT).particles, 1);
+    system.clear();
+    assert_eq!(system.bookkeeping.effect(TEST_EFFECT), Default::default());
+}

@@ -54,19 +54,39 @@ impl Palette {
 ///
 /// This is the runtime representation used by the client. It never expands
 /// into a 4,096-element per-block array.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PalettedStorage {
     bits_per_index: u8,
     words: Box<[u32]>,
     palette: Palette,
+    usage: Option<PaletteUsage>,
 }
 
+/// Derived counts are owned by each snapshot and never participate in storage equality.
+#[derive(Debug, Clone)]
+struct PaletteUsage {
+    counts: Box<[u16]>,
+    canonical: bool,
+}
+
+impl PartialEq for PalettedStorage {
+    /// Compares the exact packed representation independently of retained bookkeeping.
+    fn eq(&self, other: &Self) -> bool {
+        self.bits_per_index == other.bits_per_index
+            && self.words == other.words
+            && self.palette == other.palette
+    }
+}
+impl Eq for PalettedStorage {}
+
 impl PalettedStorage {
+    /// Retains the supplied representation; mutation bookkeeping is initialized on demand.
     pub(crate) fn new(bits_per_index: u8, words: Vec<u32>, palette: Vec<u32>) -> Self {
         Self {
             bits_per_index,
             words: words.into_boxed_slice(),
             palette: Palette::new(palette),
+            usage: None,
         }
     }
 
@@ -188,6 +208,7 @@ impl PalettedStorage {
         if self.bits_per_index == 0 || palette_len >= 1_usize << self.bits_per_index {
             return;
         }
+        self.usage = None;
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
             if self
                 .palette_index(linear)
@@ -202,72 +223,48 @@ impl PalettedStorage {
         Self::new(0, Vec::new(), vec![runtime_id])
     }
 
-    /// Single-mutation form of [`Self::apply_runtime_updates`] with identical
-    /// canonical output, counting palette use instead of hashing every block.
+    /// Patches one word when all existing indices remain canonical, otherwise rebuilds.
+    /// Both paths produce the exact representation of [`Self::apply_runtime_updates`].
     pub(crate) fn apply_runtime_update(&mut self, linear: usize, runtime_id: u32) -> bool {
-        const MAX_COUNTED_PALETTE: usize = 256;
-        let old = &self.palette.values;
         let Some(updated_index) = self
             .palette_index(linear)
-            .filter(|&index| index < old.len())
+            .filter(|&index| index < self.palette.len())
         else {
             return self.apply_runtime_updates(&[(linear, runtime_id)]);
         };
-        if old[updated_index] == runtime_id {
+        if self.palette.values[updated_index] == runtime_id {
             return false;
         }
-        if old.len() > MAX_COUNTED_PALETTE {
+        if self.bits_per_index == 0 {
             return self.apply_runtime_updates(&[(linear, runtime_id)]);
         }
-        let mut counts = [0_u16; MAX_COUNTED_PALETTE];
-        for position in 0..BLOCKS_PER_SUB_CHUNK {
-            match self.palette_index(position) {
-                Some(index) if index < old.len() => counts[index] += 1,
-                _ => return self.apply_runtime_updates(&[(linear, runtime_id)]),
+        if self.usage.is_none() {
+            self.usage = Some(self.count_usage());
+        }
+        let usage = self.usage.as_mut().expect("initialized palette usage");
+        if usage.canonical && usage.counts[updated_index] > 1 {
+            let destination = self.palette.values.iter().position(|&id| id == runtime_id);
+            let destination = destination.or_else(|| {
+                let index = self.palette.len();
+                if bits_for_palette_len(index + 1) != self.bits_per_index {
+                    return None;
+                }
+                let mut values = self.palette.values.to_vec();
+                values.push(runtime_id);
+                self.palette.values = values.into_boxed_slice();
+                let mut counts = usage.counts.to_vec();
+                counts.push(0);
+                usage.counts = counts.into_boxed_slice();
+                Some(index)
+            });
+            if let Some(destination) = destination {
+                write_palette_index(&mut self.words, self.bits_per_index, linear, destination);
+                usage.counts[updated_index] -= 1;
+                usage.counts[destination] += 1;
+                return true;
             }
         }
-        counts[updated_index] -= 1;
-        let used = |value: u32| {
-            value == runtime_id
-                || old
-                    .iter()
-                    .zip(&counts)
-                    .any(|(&candidate, &count)| candidate == value && count != 0)
-        };
-        let mut values = Vec::with_capacity(old.len() + 1);
-        for &value in old.iter() {
-            if used(value) && !values.contains(&value) {
-                values.push(value);
-            }
-        }
-        if !values.contains(&runtime_id) {
-            values.push(runtime_id);
-        }
-        let position_of = |value: u32| {
-            values
-                .iter()
-                .position(|&candidate| candidate == value)
-                .unwrap_or(0)
-        };
-        let mut remap = [0_usize; MAX_COUNTED_PALETTE];
-        for (index, &value) in old.iter().enumerate() {
-            remap[index] = position_of(value);
-        }
-        let updated = position_of(runtime_id);
-        let bits_per_index = bits_for_palette_len(values.len());
-        let mut words = vec![0; word_count(bits_per_index)];
-        for position in 0..BLOCKS_PER_SUB_CHUNK {
-            let index = if position == linear {
-                updated
-            } else {
-                remap[self.palette_index(position).unwrap_or(0)]
-            };
-            write_palette_index(&mut words, bits_per_index, position, index);
-        }
-        self.bits_per_index = bits_per_index;
-        self.words = words.into_boxed_slice();
-        self.palette.values = values.into_boxed_slice();
-        true
+        self.apply_runtime_updates(&[(linear, runtime_id)])
     }
 
     /// Applies a whole layer's final mutations with one palette-map build and
@@ -312,6 +309,7 @@ impl PalettedStorage {
 
         let bits_per_index = bits_for_palette_len(values.len());
         let mut words = vec![0; word_count(bits_per_index)];
+        let mut counts = vec![0_u16; values.len()];
         for linear in 0..BLOCKS_PER_SUB_CHUNK {
             let current = self
                 .palette_index(linear)
@@ -319,12 +317,66 @@ impl PalettedStorage {
                 .expect("valid packed storage has a runtime value");
             let value = final_updates.get(&linear).copied().unwrap_or(current);
             let index = value_indices[&value];
+            counts[index] += 1;
             write_palette_index(&mut words, bits_per_index, linear, index);
         }
         self.bits_per_index = bits_per_index;
         self.words = words.into_boxed_slice();
         self.palette.values = values.into_boxed_slice();
+        self.usage = Some(PaletteUsage {
+            canonical: counts.iter().all(|&count| count != 0),
+            counts: counts.into_boxed_slice(),
+        });
         true
+    }
+
+    /// Counts valid cells once and checks whether a word patch could preserve canonical output.
+    fn count_usage(&self) -> PaletteUsage {
+        let mut counts = vec![0_u16; self.palette.len()];
+        let mut valid = true;
+        for linear in 0..BLOCKS_PER_SUB_CHUNK {
+            match self
+                .palette_index(linear)
+                .and_then(|index| counts.get_mut(index))
+            {
+                Some(count) => *count += 1,
+                None => valid = false,
+            }
+        }
+        let canonical = valid
+            && (1..=BLOCKS_PER_SUB_CHUNK).contains(&self.palette.len())
+            && counts.iter().all(|&count| count != 0)
+            && self
+                .palette
+                .values
+                .iter()
+                .copied()
+                .collect::<HashSet<_>>()
+                .len()
+                == self.palette.len()
+            && bits_for_palette_len(self.palette.len()) == self.bits_per_index
+            && self.has_zero_padding();
+        PaletteUsage {
+            counts: counts.into_boxed_slice(),
+            canonical,
+        }
+    }
+
+    /// Requires the exact word count and zero bits outside the valid packed cell slots.
+    fn has_zero_padding(&self) -> bool {
+        if self.words.len() != word_count(self.bits_per_index) {
+            return false;
+        }
+        if self.bits_per_index == 0 {
+            return true;
+        }
+        let bits = usize::from(self.bits_per_index);
+        let per_word = 32 / bits;
+        self.words.iter().enumerate().all(|(index, &word)| {
+            let slots = (BLOCKS_PER_SUB_CHUNK - index * per_word).min(per_word);
+            let used_bits = slots * bits;
+            used_bits == 32 || word >> used_bits == 0
+        })
     }
 
     pub(crate) fn contains_only(&self, runtime_id: u32) -> bool {
@@ -366,75 +418,4 @@ fn write_palette_index(words: &mut [u32], bits_per_index: u8, linear: usize, ind
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Column decoding agrees with per-block lookup at every width, including truncated words.
-    #[test]
-    fn column_indices_match_block_lookup() {
-        for bits in SUPPORTED_BITS {
-            let words = (0..word_count(bits))
-                .map(|index| (index as u32).wrapping_mul(0x9e37_79b9))
-                .take(word_count(bits).saturating_sub(3))
-                .collect();
-            let storage = PalettedStorage::new(bits, words, vec![0; 1 << bits.min(12)]);
-            let mut column = [0; SUB_CHUNK_SIDE];
-            for x in 0..16 {
-                for z in 0..16 {
-                    storage.column_palette_indices(x, z, &mut column);
-                    for (y, &index) in column.iter().enumerate() {
-                        let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | y;
-                        let expected = storage
-                            .palette_index(linear)
-                            .map_or(u16::MAX, |index| index as u16);
-                        assert_eq!(index, expected, "bits={bits} x={x} z={z} y={y}");
-                    }
-                }
-            }
-        }
-    }
-
-    /// The counted single-update path must reproduce the batch path's canonical storage.
-    #[test]
-    fn single_update_matches_batch_canonicalization() {
-        let mut state = 0x2545_f491_4f6c_dd1d_u64;
-        let mut next = move || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        let mut cases = vec![PalettedStorage::uniform(7), PalettedStorage::uniform(0)];
-        for bits in PACKED_BITS {
-            for palette_len in [1_usize, 2, 3, 9, 40, 300] {
-                let palette_len = palette_len.min(1 << bits);
-                // Duplicates, unused entries and garbage padding stay non-canonical.
-                let palette = (0..palette_len).map(|_| (next() % 12) as u32).collect();
-                let words = (0..word_count(bits)).map(|_| next() as u32).collect();
-                let mut storage = PalettedStorage::new(bits, words, palette);
-                storage.zero_indices_at_or_above(palette_len);
-                cases.push(storage.clone());
-                let mut single_owner = storage.clone();
-                single_owner.apply_runtime_updates(&[(17, 99)]);
-                cases.push(single_owner);
-            }
-        }
-        for storage in cases {
-            for _ in 0..24 {
-                let linear = (next() % BLOCKS_PER_SUB_CHUNK as u64) as usize;
-                let runtime_id = match next() % 4 {
-                    0 => 99,
-                    _ => (next() % 14) as u32,
-                };
-                let mut batch = storage.clone();
-                let mut single = storage.clone();
-                let batch_changed = batch.apply_runtime_updates(&[(linear, runtime_id)]);
-                assert_eq!(
-                    single.apply_runtime_update(linear, runtime_id),
-                    batch_changed
-                );
-                assert_eq!(single, batch, "linear={linear} runtime_id={runtime_id}");
-            }
-        }
-    }
-}
+mod tests;

@@ -158,6 +158,84 @@ fn mutations_and_changed_registry_contexts_invalidate_reuse() {
     );
 }
 
+/// Warm mutation counts must not prevent structural reuse or keep a stale inline identity.
+#[test]
+fn edited_sections_refresh_identity_after_equal_resends() {
+    let ids = RawBlockIds { air: 0 };
+    let key = ChunkKey::new(0, 0, 0);
+    let mut store = ChunkStore::new();
+    store
+        .commit_level_chunk(key, decode(&payload(2, 0), &ids, None))
+        .unwrap();
+    let original = store.chunk(key).unwrap().shared_sub_chunks();
+    let section_key = SubChunkKey::from_chunk(key, 0);
+    for (y, value) in [(0, 7), (1, 7), (0, 1), (1, 1)] {
+        store
+            .update_block(section_key, BlockUpdate::new(0, y, 0, 0, value), 0)
+            .unwrap();
+    }
+    let edited = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(!Arc::ptr_eq(&original[&0], &edited[&0]));
+    assert!(original[&0].blocks_match(&edited[&0]));
+    let decoded = decode(&payload(2, 0), &ids, Some(&edited));
+    assert_eq!(decoded.decode_work().decoded_sections, 1);
+    let applied = store.commit_level_chunk(key, decoded).unwrap();
+    assert!(applied.changed.is_empty());
+    assert!(applied.dirty.is_empty());
+    let resident = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(Arc::ptr_eq(&edited[&0], &resident[&0]));
+    assert_eq!(
+        decode(&payload(2, 0), &ids, Some(&resident))
+            .decode_work()
+            .reused_sections,
+        2
+    );
+
+    let mut equivalent = vec![8, 1, 3];
+    equivalent.extend(std::iter::repeat_n(0xaa, crate::palette::word_count(1) * 4));
+    equivalent.extend([4, 2, 2]);
+    equivalent.extend_from_slice(&payload(2, 0)[5..]);
+    let decoded = decode(&equivalent, &ids, Some(&resident));
+    assert_eq!(decoded.decode_work().decoded_sections, 1);
+    assert!(
+        store
+            .commit_level_chunk(key, decoded)
+            .unwrap()
+            .dirty
+            .is_empty()
+    );
+    let resident = store.chunk(key).unwrap().shared_sub_chunks();
+    assert!(Arc::ptr_eq(&edited[&0], &resident[&0]));
+    assert_eq!(
+        decode(&equivalent, &ids, Some(&resident))
+            .decode_work()
+            .reused_sections,
+        2
+    );
+    assert_eq!(
+        decode(&equivalent, &RawBlockIds { air: 99 }, Some(&resident))
+            .decode_work()
+            .decoded_sections,
+        2
+    );
+
+    let mut moved = resident.as_ref().clone();
+    moved.insert(1, Arc::clone(&original[&0]));
+    let mut wrong_y = payload(2, 0);
+    wrong_y[7] = 0;
+    wrong_y[9] = 2;
+    let cached = decode(&wrong_y, &ids, Some(&moved));
+    let ordinary = decode(&wrong_y, &ids, None);
+    assert_eq!(cached, ordinary);
+    assert!(cached.sub_chunk(1).is_none());
+    assert_eq!(
+        decode(&payload(2, 0), &ids, Some(&original))
+            .decode_work()
+            .reused_sections,
+        2
+    );
+}
+
 /// Sections loaded by request-mode replies acquire an inline identity without changing their Arcs.
 #[test]
 fn structural_reuse_retains_new_wire_hashes_for_later_resends() {
