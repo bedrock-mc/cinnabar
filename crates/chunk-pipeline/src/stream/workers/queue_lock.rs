@@ -6,30 +6,36 @@ use std::ops::{Deref, DerefMut};
 pub(super) struct QueueGuard<'a> {
     guard: Option<MutexGuard<'a, Queues>>,
     owned: Option<tracing::span::EnteredSpan>,
+    #[cfg(not(target_arch = "wasm32"))]
+    wait: Option<tracing::Span>,
 }
 
 impl<'a> QueueGuard<'a> {
     /// Starts ownership only after the mutex has been acquired.
-    pub(super) fn new(guard: MutexGuard<'a, Queues>) -> Self {
-        let owned = tracing::info_span!(
-            "stream.queue_owned",
-            urgent = guard.urgent.len(),
-            mesh = guard.mesh.len(),
-            decode = guard.decode.len(),
-            light = guard.light.len(),
-        )
-        .entered();
+    pub(super) fn new(
+        guard: MutexGuard<'a, Queues>,
+        owned: tracing::Span,
+        #[cfg(not(target_arch = "wasm32"))] wait: tracing::Span,
+    ) -> Self {
         Self {
             guard: Some(guard),
-            owned: Some(owned),
+            owned: Some(owned.entered()),
+            #[cfg(not(target_arch = "wasm32"))]
+            wait: Some(wait),
         }
     }
 
     /// Ends ownership before the condition variable releases and reacquires the mutex.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(super) fn end_ownership(mut self) -> MutexGuard<'a, Queues> {
-        drop(self.owned.take());
-        self.guard.take().expect("the queue is held")
+    pub(super) fn end_ownership(
+        mut self,
+    ) -> (MutexGuard<'a, Queues>, tracing::Span, tracing::Span) {
+        let owned = self.owned.take().expect("ownership is traced").exit();
+        (
+            self.guard.take().expect("the queue is held"),
+            owned,
+            self.wait.take().expect("the worker wait is prepared"),
+        )
     }
 }
 
@@ -42,7 +48,18 @@ mod tests {
     #[test]
     fn queue_ownership_excludes_acquisition_and_condvar_sleep() {
         let shared = Arc::new(Shared::default());
-        let capture = Capture::default();
+        let metadata_under_lock = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let capture = Capture::default().before_new_span({
+            let shared = Arc::clone(&shared);
+            let metadata_under_lock = Arc::clone(&metadata_under_lock);
+            move |metadata| {
+                if matches!(metadata.name(), "stream.queue_owned" | "stream.worker_wait")
+                    && shared.queues.try_lock().is_err()
+                {
+                    metadata_under_lock.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        });
         let (started, waiting) = crossbeam_channel::bounded(1);
         let worker = std::thread::spawn({
             let shared = Arc::clone(&shared);
@@ -63,6 +80,11 @@ mod tests {
         shared.ready.notify_one();
         worker.join().unwrap();
         assert!(shared.queues.try_lock().is_ok());
+        assert_eq!(
+            metadata_under_lock.load(std::sync::atomic::Ordering::Relaxed),
+            0,
+            "subscriber metadata allocation must happen before queue acquisition",
+        );
 
         let (mut owned, mut acquiring, mut sleeping) = (false, false, false);
         let mut ownerships = 0;
@@ -77,10 +99,6 @@ mod tests {
                     assert_ne!(owned, observation.entered);
                     owned = observation.entered;
                     ownerships += usize::from(owned);
-                    assert_eq!(
-                        observation.fields.get("mesh").map(String::as_str),
-                        Some("0")
-                    );
                 }
                 "stream.worker_wait" => {
                     assert!(!owned && !acquiring);

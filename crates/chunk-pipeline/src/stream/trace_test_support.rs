@@ -17,8 +17,14 @@ struct State {
     observations: Vec<Observation>,
 }
 
+/// Probes subscriber metadata construction before any capture bookkeeping.
+type MetadataProbe = dyn Fn(&Metadata<'_>) + Send + Sync;
+
 #[derive(Clone, Default)]
-pub(super) struct Capture(Arc<Mutex<State>>);
+pub(super) struct Capture {
+    state: Arc<Mutex<State>>,
+    before_new_span: Option<Arc<MetadataProbe>>,
+}
 
 impl Capture {
     /// Runs a deterministic operation with a thread-local entry-only subscriber.
@@ -28,12 +34,21 @@ impl Capture {
 
     /// Reads entered and exited spans in callback order.
     pub fn observations(&self) -> Vec<Observation> {
-        self.0.lock().unwrap().observations.clone()
+        self.state.lock().unwrap().observations.clone()
+    }
+
+    /// Observes metadata callbacks before the capture takes its own state lock.
+    pub fn before_new_span(
+        mut self,
+        probe: impl Fn(&Metadata<'_>) + Send + Sync + 'static,
+    ) -> Self {
+        self.before_new_span = Some(Arc::new(probe));
+        self
     }
 
     /// Captures one boundary using only fields supplied before entering it.
     fn observe(&self, id: &span::Id, entered: bool) {
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let (name, fields) = state.spans[&id.into_u64()].clone();
         state.observations.push(Observation {
             entered,
@@ -60,9 +75,12 @@ impl Subscriber for Capture {
 
     /// Stores fields available when the span is created.
     fn new_span(&self, attrs: &span::Attributes<'_>) -> span::Id {
+        if let Some(probe) = &self.before_new_span {
+            probe(attrs.metadata());
+        }
         let mut fields = Fields(BTreeMap::new());
         attrs.record(&mut fields);
-        let mut state = self.0.lock().unwrap();
+        let mut state = self.state.lock().unwrap();
         let id = state.spans.len() as u64 + 1;
         state.spans.insert(id, (attrs.metadata().name(), fields.0));
         span::Id::from_u64(id)

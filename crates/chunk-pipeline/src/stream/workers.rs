@@ -122,6 +122,10 @@ struct Shared {
 impl Shared {
     /// Recovers the job queue after poison without discarding accepted work.
     fn lock(&self) -> QueueGuard<'_> {
+        #[cfg(feature = "tracy")]
+        let owned = tracing::info_span!("stream.queue_owned");
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let wait = tracing::info_span!("stream.worker_wait");
         #[cfg(all(test, windows))]
         if priority::is_lowered() {
             self.lowered_locks
@@ -134,8 +138,10 @@ impl Shared {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
         };
-        #[cfg(feature = "tracy")]
-        let guard = QueueGuard::new(guard);
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let guard = QueueGuard::new(guard, owned, wait);
+        #[cfg(all(feature = "tracy", target_arch = "wasm32"))]
+        let guard = QueueGuard::new(guard, owned);
         guard
     }
 
@@ -143,17 +149,19 @@ impl Shared {
     #[cfg(not(target_arch = "wasm32"))]
     fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
         #[cfg(feature = "tracy")]
-        let guard = guard.end_ownership();
-        let guard = {
-            #[cfg(feature = "tracy")]
-            let _zone = tracing::info_span!("stream.worker_wait").entered();
-            self.ready
+        {
+            let (guard, owned, wait) = guard.end_ownership();
+            let waiting = wait.entered();
+            let guard = self
+                .ready
                 .wait(guard)
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-        };
-        #[cfg(feature = "tracy")]
-        let guard = QueueGuard::new(guard);
-        guard
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            QueueGuard::new(guard, owned, waiting.exit())
+        }
+        #[cfg(not(feature = "tracy"))]
+        self.ready
+            .wait(guard)
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
