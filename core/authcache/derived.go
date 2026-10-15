@@ -475,10 +475,14 @@ func (s *Account) exchangeService(ctx context.Context) (*service.Token, error) {
 			s.unlock()
 			return current, nil // another refresh won with a fresher token
 		}
+		reused := seed != nil && token.AuthorizationHeader == seed.AuthorizationHeader
 		s.service, s.services = token, source
-		s.serviceGen++
+		// Resuming a persisted credential may rebuild its claims and source without replacing it.
+		if !reused {
+			s.serviceGen++
+		}
 		s.unlock()
-		if seed != nil && token.AuthorizationHeader == seed.AuthorizationHeader {
+		if reused {
 			s.diagnostic("reuse", "service", "valid")
 			return token, nil
 		}
