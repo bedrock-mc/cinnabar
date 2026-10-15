@@ -8,7 +8,9 @@ use protocol::ITEM_ACTOR_NETWORK_OFFSET;
 mod aim_assist;
 mod animated;
 mod appearance_preparation;
+mod colliders;
 mod effect_members;
+pub use colliders::ActorCollisionBounds;
 mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;

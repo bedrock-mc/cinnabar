@@ -480,10 +480,10 @@ impl WorldAuthority {
             .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
     }
 
-    /// Solid actor bounds for local prediction, excluding the local player's mount.
-    pub fn movement_actor_colliders(&self) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
+    /// Shares solid bounds for prediction, excluding the local actor and its current mount.
+    pub fn movement_actor_colliders(&self) -> std::sync::Arc<[crate::ActorCollisionBounds]> {
         self.actors
-            .movement_colliders(self.local_player_runtime_id, self.local_player_unique_id)
+            .movement_collider_snapshot(self.local_player_runtime_id, self.local_player_unique_id)
     }
 
     /// Every tracked actor except the local player, in no particular order.
