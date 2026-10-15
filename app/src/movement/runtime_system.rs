@@ -73,10 +73,7 @@ pub(crate) fn advance_local_physics(
         &client_interaction::movement::world_view::GameplayWorldView(stream),
         item_use
             .as_deref()
-            .is_some_and(|item_use| item_use.is_using())
-            || movement_ticker
-                .release_use_modifier()
-                .is_some_and(|(tick, _)| physics.state().is_some_and(|state| state.tick < tick)),
+            .is_some_and(|item_use| item_use.is_using()),
     );
     let gameplay = settings
         .as_deref()

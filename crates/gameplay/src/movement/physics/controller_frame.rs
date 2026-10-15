@@ -1,5 +1,16 @@
 use super::*;
 
+impl PhysicsSampleContext {
+    /// Expires release slowdown and sprint blocking together before the next fixed tick.
+    pub(super) fn for_next_tick(mut self, completed_tick: u64) -> Self {
+        self.release_use_modifier = self
+            .release_use_modifier
+            .filter(|(through_tick, _)| completed_tick < *through_tick);
+        self.mode_intent.sprint_start_blocked |= self.release_use_modifier.is_some();
+        self
+    }
+}
+
 /// Input edges and controller state retained alongside one completed simulation tick.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {

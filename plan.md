@@ -6526,7 +6526,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
   additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
   Ordinary releases reserve their captured facing on the next input before launching, without
-  extending charge time, and keep use slowdown through that facing tick. Admitted releases retain
+  extending charge time, and keep use slowdown through that facing tick. Its sprint gate expires
+  on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
   releases cancel their pending and replayed launch. Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the

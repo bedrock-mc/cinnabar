@@ -570,9 +570,9 @@ impl LocalPhysicsController {
         input.swift_sneak = context.mode_intent.swift_sneak;
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
+            let context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
-                .filter(|(tick, _)| state.tick < *tick)
                 .map(|(_, modifier)| item_use_factor(modifier))
                 .or(item_use_modifier);
             input.riptide = self

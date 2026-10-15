@@ -4,6 +4,9 @@ use super::*;
 use client_interaction::movement::LocalPhysicsController;
 use protocol_ids::Enchantment;
 
+#[path = "riptide/sprint.rs"]
+mod sprint;
+
 /// Water everywhere keeps item eligibility independent of fixture terrain and rain.
 struct Water;
 
