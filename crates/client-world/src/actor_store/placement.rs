@@ -227,20 +227,24 @@ impl ActorStore {
 
     /// The streamed bed block of every sleeping actor; sleepers without a bed position are skipped.
     pub(crate) fn bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
-        self.actors
-            .values()
-            .filter(|actor| actor.is_sleeping())
-            .filter_map(|actor| Some((actor.runtime_id, actor.bed_position()?)))
+        self.effect_members
+            .sleepers
+            .iter()
+            .map(|(&runtime, &bed)| (runtime, bed))
             .collect()
     }
 
-    /// Replaces every actor's sampled bed rotation with `(runtime_id, degrees)` samples.
+    /// Replaces current sleepers' headings; unavailable beds lose their previous sample.
     pub(crate) fn set_bed_rotations(&mut self, samples: &[(u64, f32)]) {
-        for actor in self.actors.values_mut() {
-            actor.status.sleep_rotation = None;
+        for runtime in self.effect_members.sleepers.keys() {
+            if let Some(actor) = self.actors.get_mut(runtime) {
+                actor.status.sleep_rotation = None;
+            }
         }
         for &(runtime_id, degrees) in samples {
-            if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            if self.effect_members.sleepers.contains_key(&runtime_id)
+                && let Some(actor) = self.actors.get_mut(&runtime_id)
+            {
                 actor.status.sleep_rotation = Some(degrees);
             }
         }

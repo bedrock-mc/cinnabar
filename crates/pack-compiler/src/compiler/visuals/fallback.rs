@@ -1,3 +1,4 @@
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use std::sync::OnceLock;
 
 use super::context::{
@@ -231,37 +232,18 @@ impl<'a> FallbackInventory<'a> {
 
 /// Families with a dedicated exact compile rule, which supersede their inventory envelope.
 fn has_exact_family_route(record: &RegistryRecord) -> bool {
-    pack_compile_input::respawn_anchor::is_record(record)
-        || super::bubble_column::is_record(record)
-        || super::barrel::is_record(record)
-        || super::coral::is_record(record)
-        || super::hollow_containers::is_name(&record.name)
-        || super::sea_pickle::is_record(record)
-        || super::brewing_stand::is_record(record)
-        || super::campfire::is_record(record)
-        || super::grindstone::is_record(record)
-        || super::tripwire_hook::is_record(record)
-        || super::lever::is_record(record)
-        || super::lily_pad::is_record(record)
-        || super::end_rod::is_record(record)
-        || super::lightning_rod::is_record(record)
-        || super::shelf::is_record(record)
-        || super::portal::is_record(record)
-        || super::literal::is_literal_cube(record)
-        || super::literal::is_default_invisible(&record.name)
-        || is_cross_visual(record)
-        || is_torch(record)
-        || is_ladder(record)
-        || is_rail(record)
-        || is_chain(record)
-        // Ice's native layer 3 requires blending, not the inventory's cutout
-        // envelope. Its reviewed cube rule owns alpha
-        // and geometry. Do not change unrelated provisional cube families.
-        || (is_translucent_cube(record)
-            && matches!(record.name.as_ref(), "minecraft:ice" | "minecraft:frosted_ice"))
-        // Snow's inventory envelope incorrectly marks it alpha-blended; its
-        // reviewed height-state rule owns both geometry and opaque materials.
-        || (record.name.as_ref() == "minecraft:snow_layer" && is_named_block(record))
+    block_render_fact(&record.name)
+        .kind
+        .route()
+        .overrides_fallback
+        || matches!(
+            record.model_family,
+            ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
+        )
+        || matches!(
+            block_render_fact(&record.name).kind,
+            R::Ice | R::FrostedIce | R::SnowLayer
+        )
 }
 
 #[cfg(test)]
@@ -335,7 +317,7 @@ pub(in crate::compiler) fn neutral_material(
     }
     records
         .iter()
-        .find(|record| record.name.as_ref() == "minecraft:stone")
+        .find(|record| record.name.as_ref() == assets::facts::pack::PackBlock::Stone.identifier())
         .and_then(|record| descriptor_for(fallback, pack, record, BlockFace::Up))
         .and_then(|(descriptor, _)| material_by_descriptor.get(&descriptor).copied())
         .ok_or_else(|| AssetError::InvalidCompiledAssets {

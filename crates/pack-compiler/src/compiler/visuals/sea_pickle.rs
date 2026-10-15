@@ -4,11 +4,12 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies primary sea pickles before the provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:sea_pickle"
+    block_render_fact(&record.name).kind == R::SeaPickle
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -20,8 +21,14 @@ fn selectors(record: &RegistryRecord) -> Option<(u8, bool)> {
     if state.len() != 2 {
         return None;
     }
-    let count = super::state::exact_tagged_int(state.get("cluster_count")?, 3)? as u8;
-    let dead = super::state::exact_tagged_byte(state.get("dead_bit")?, 1)? != 0;
+    let count = super::state::exact_tagged_int(
+        state.get(assets::facts::BlockProperty::ClusterCount.name())?,
+        3,
+    )? as u8;
+    let dead = super::state::exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::DeadBit.name())?,
+        1,
+    )? != 0;
     Some((count, dead))
 }
 

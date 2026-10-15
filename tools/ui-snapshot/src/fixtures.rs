@@ -5,7 +5,10 @@ mod mods;
 
 use std::sync::Arc;
 
-use launcher::menu::{MenuScreen, MenuView};
+use launcher::menu::{
+    MenuAction, MenuScreen, MenuView, settings_options::SettingId,
+    settings_sections::SettingSection,
+};
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -31,6 +34,8 @@ const GUI_SCALE: u8 = 2;
 const SMALL_SIZE: [u32; 2] = [360, 240];
 /// Fits an expanded card above two collapsed ones.
 const TALL_SIZE: [u32; 2] = [1280, 900];
+/// Keeps the first hotbar rows visible below the keyboard options.
+const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
     State {
@@ -94,10 +99,34 @@ pub const STATES: &[State] = &[
         fixture: settings_video,
     },
     State {
+        name: "settings-video-distance",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_video_option(SettingId::FarTerrain),
+    },
+    State {
+        name: "settings-video-full-detail",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_video_option(SettingId::FullDetailDistance),
+    },
+    State {
         name: "settings-keyboard",
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_keyboard,
+    },
+    State {
+        name: "settings-keyboard-physical-label",
+        size: KEYBOARD_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(false),
+    },
+    State {
+        name: "settings-keyboard-azerty",
+        size: KEYBOARD_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(true),
     },
     State {
         name: "settings-mods",
@@ -210,10 +239,39 @@ pub fn settings(section: &str) -> MenuView {
 
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
-    Fixture::Menu(Box::new(settings("video_forced_index")))
+    Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
+}
+
+/// Reveals the distance controls through the same focus scrolling as the client.
+fn settings_video_option(id: SettingId) -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        id.index() as u16,
+        view.settings_options.value(id),
+    ));
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
+}
+
+/// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.
+fn settings_keyboard_layout(observed: bool) -> Fixture {
+    use launcher::menu::settings_options::{
+        BindingId, KEY_BINDINGS, control_bindings::decode_control,
+    };
+
+    let mut view = settings("keyboard_and_mouse_forced_index");
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == BindingId::Hotbar1.name())
+        .unwrap();
+    let settings = Arc::make_mut(&mut view.settings_options);
+    assert!(settings.remap(row, decode_control(0x14).unwrap()));
+    if observed {
+        settings.set_key_label(0x14, "a");
+    }
+    Fixture::Menu(Box::new(view))
 }

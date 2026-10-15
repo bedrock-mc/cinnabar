@@ -6,8 +6,9 @@ use super::ActorStore;
 
 pub(super) const DRAGON_DEATH_TICKS: u16 = 200;
 const FINAL_EXPLOSION_START: u16 = 180;
-const DYING_EXPLOSION: &str = "minecraft:dragon_dying_explosion";
-const DEATH_EXPLOSION: &str = "minecraft:dragon_death_explosion_emitter";
+const DYING_EXPLOSION: &str = assets::facts::ParticleEffect::DragonDyingExplosion.identifier();
+const DEATH_EXPLOSION: &str =
+    assets::facts::ParticleEffect::DragonDeathExplosionEmitter.identifier();
 const DEATH_LIFT_PER_TICK: f32 = 0.1;
 
 impl ActorStore {

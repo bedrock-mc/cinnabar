@@ -1,11 +1,11 @@
-use render_model::terrain_units::{QUADS_PER_UNIT, TerrainUnit};
+use render_model::terrain_units::{IndexedUnitPage, QUADS_PER_UNIT, TerrainUnit};
 
 use super::TerrainUnitBatches;
 use crate::chunk::gpu_cull::direct::DirectOcclusion;
 use crate::chunk::*;
 use crate::upload_staging::TerrainUploadStaging;
 
-/// Compacts the current occlusion results in the original pass order, retaining unchanged lists.
+/// Updates geometry slots separately from the current pass's ordered visibility references.
 pub(in crate::chunk) fn prepare_units(
     mut batches: ResMut<TerrainUnitBatches>,
     occlusion: Option<Res<DirectOcclusion>>,
@@ -26,12 +26,25 @@ pub(in crate::chunk) fn prepare_units(
             usage: BufferUsages::INDEX,
         }));
     }
+    let limits = device.limits();
+    let capacity = IndexedUnitPage::capacity_for(
+        limits
+            .max_buffer_size
+            .min(limits.max_storage_buffer_binding_size),
+    );
     let mut stats = batches.stats;
     for (&entity, view) in &mut batches.views {
         let facing = view.camera.and_then(meshing::facing_cell);
         for (stream, batch) in view.streams.iter_mut().enumerate() {
             batch.scratch.clear();
             let sections = &view.sources.streams[stream];
+            let lookup = &view.sources.lookup[stream];
+            if view.stale {
+                #[cfg(feature = "tracy")]
+                let _span =
+                    bevy::log::info_span!("terrain.unit_descriptor_deltas", stream).entered();
+                batch.indexed = batch.descriptors.synchronize(sections, lookup, capacity);
+            }
             let early = occlusion
                 .as_ref()
                 .and_then(|state| state.solid_order(entity));
@@ -66,45 +79,48 @@ pub(in crate::chunk) fn prepare_units(
                 )
                 .entered();
                 std::mem::swap(&mut batch.selected, &mut batch.scratch);
-                batch.visible.clear();
-                // The ordinary order is already in `sections`; the early pass supplies its own
-                // sorted order. Build this index only when a compaction is needed.
-                let by_entity: HashMap<_, _> = sections
-                    .iter()
-                    .map(|section| (section.entity, section))
-                    .collect();
-                for entity in &batch.selected {
-                    let Some(section) = by_entity.get(entity) else {
-                        continue;
-                    };
-                    let mask = view.camera.map_or(meshing::FaceMask::ALL, |camera| {
-                        meshing::sub_chunk_facing_faces(chunk_origin(section.key), camera)
-                    });
-                    TerrainUnit::compact(
-                        &section.units,
-                        |unit| {
-                            unit.facing
-                                .is_none_or(|face| mask.contains(meshing::Face::ALL[face as usize]))
-                        },
-                        &mut batch.visible,
+                batch.references.clear();
+                batch.fallback.clear();
+                if batch.indexed {
+                    batch.padded_quads = batch.descriptors.select(
+                        &batch.selected,
+                        view.camera,
+                        &mut batch.references,
                     );
+                } else {
+                    for entity in &batch.selected {
+                        let Some(&index) = lookup.get(entity) else {
+                            continue;
+                        };
+                        let section = &sections[index];
+                        let mask = super::descriptors::facing(section.key, view.camera);
+                        TerrainUnit::compact(
+                            &section.units,
+                            |unit| super::descriptors::faces(unit, mask),
+                            &mut batch.fallback,
+                        );
+                    }
+                    batch.padded_quads = batch
+                        .fallback
+                        .iter()
+                        .map(|unit| u64::from(QUADS_PER_UNIT - unit.quad_count))
+                        .sum();
                 }
-                batch.padded_quads = batch
-                    .visible
-                    .iter()
-                    .map(|unit| u64::from(QUADS_PER_UNIT - unit.quad_count))
-                    .sum();
-                stats.list_bytes_uploaded += super::buffers::upload(
-                    &mut batch.pages,
-                    &batch.visible,
+                let uploaded = super::buffers::upload(
+                    batch,
+                    capacity,
                     &device,
                     &queue,
                     &cache,
                     staging.as_deref(),
                 );
+                stats.descriptor_bytes_uploaded += uploaded.descriptors;
+                stats.reference_bytes_uploaded += uploaded.references;
+                stats.list_bytes_uploaded += uploaded.descriptors + uploaded.references;
+                batch.descriptors.dirty.clear();
             }
             stats.draws += batch.pages.len() as u64;
-            stats.units += batch.visible.len() as u64;
+            stats.units += (batch.references.len() + batch.fallback.len()) as u64;
             stats.padded_quads += batch.padded_quads;
         }
         view.stale = false;
@@ -119,6 +135,8 @@ pub(in crate::chunk) fn prepare_units(
         units = stats.units,
         padded_quads = stats.padded_quads,
         list_bytes_uploaded = stats.list_bytes_uploaded,
+        descriptor_bytes_uploaded = stats.descriptor_bytes_uploaded,
+        reference_bytes_uploaded = stats.reference_bytes_uploaded,
     )
     .entered();
 }

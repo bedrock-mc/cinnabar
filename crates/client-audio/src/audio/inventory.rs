@@ -237,6 +237,9 @@ mod tests {
 
         if std::env::var_os("CINNABAR_TEST_AUDIO_DEVICE").is_some() {
             let mut hardware = AudioDevice::open_default_once();
+            test_time::eventually("default output opening completed", || {
+                !hardware.is_opening()
+            });
             assert!(hardware.available(), "default audio output unavailable");
             ledger = self::ledger();
             ledger.begin_world_drop(0, Some(1)).unwrap();

@@ -14,9 +14,15 @@ mod current;
 mod door;
 mod flow;
 mod selection;
+mod terrain;
 pub use camera_collision::CameraShapeCache;
 pub use contracts::CollisionWorld;
 pub use flow::FlowBlockFacts;
+pub use terrain::{
+    TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry, TerrainSample,
+    TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding, TerrainShapeOverride,
+    TerrainState,
+};
 mod liquid_probe;
 pub(crate) use liquid_probe::liquid_probe_bounds;
 mod primary_lookup;
@@ -607,6 +613,10 @@ pub struct ProvenancedCollider {
     /// Wire runtime id (widened from the registry's `u32` key space) of the
     /// palette entry on the contributing layer.
     pub runtime_id: Option<u64>,
+    /// Whether any layer of `block` is scaffolding, read under the enclosing
+    /// collision query's identity. `None` requires a lazy material query when
+    /// classification is needed; actors and boundaries have no cell fact.
+    pub cell_has_scaffolding: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -663,6 +673,7 @@ pub struct PaletteWorld<'a> {
     registry: &'a CollisionRegistry,
     dimension: i32,
     unloaded_collision_barriers: bool,
+    actor_colliders: Option<std::sync::Arc<[Aabb]>>,
 }
 
 /// One internal collision instance before projection onto the public
@@ -671,6 +682,7 @@ struct CollisionInstance {
     shape: Aabb,
     block: Option<[i32; 3]>,
     runtime_id: Option<u32>,
+    cell_has_scaffolding: Option<bool>,
 }
 
 impl<'a> PaletteWorld<'a> {
@@ -697,7 +709,15 @@ impl<'a> PaletteWorld<'a> {
             registry,
             dimension,
             unloaded_collision_barriers: false,
+            actor_colliders: None,
         }
+    }
+
+    /// Adds immutable actor bounds for movement and retains them in prediction snapshots.
+    #[must_use]
+    pub fn with_actor_colliders(mut self, colliders: impl Into<std::sync::Arc<[Aabb]>>) -> Self {
+        self.actor_colliders = Some(colliders.into());
+        self
     }
 
     fn identity_for_chunks(
@@ -810,6 +830,7 @@ impl CollisionWorld for PaletteWorld<'_> {
                     aabb: instance.shape,
                     block: instance.block,
                     runtime_id: instance.runtime_id.map(u64::from),
+                    cell_has_scaffolding: instance.cell_has_scaffolding,
                 })
                 .collect(),
             identity: instances.identity,

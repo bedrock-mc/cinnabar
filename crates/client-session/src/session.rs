@@ -25,7 +25,8 @@ use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
 
 /// Holds a frame's light burst; terrain admission, not this bound, paces chunk ingress.
 pub const WORLD_EVENT_CAPACITY: usize = 256;
-const CONTROL_EVENT_CAPACITY: usize = 64;
+/// Bounds queued controls; send receipts wait here until the frame drains them.
+pub const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
 const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";
@@ -670,6 +671,17 @@ trait NetworkSession: Send {
 
     fn decode_error_count(&self) -> u64;
 
+    /// Buffers bounded raw input without decoding world events while their consumer is full.
+    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+        std::future::pending()
+    }
+
+    /// Reads inbound until it ends, so a Transfer or Disconnect the core sent before closing is
+    /// retained when a write fails first; the caller bounds the wait.
+    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+        async move { while self.receive_world_ingress(0).await.is_ok() {} }
+    }
+
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
         None
     }
@@ -725,6 +737,15 @@ impl NetworkSession for protocol::PlaySession {
 
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
+    }
+
+    /// Reads into the play session's bounded raw transport buffer.
+    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+        protocol::PlaySession::read_ahead(self)
+    }
+
+    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+        protocol::PlaySession::drain_to_boundary(self)
     }
 
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {

@@ -1,3 +1,4 @@
+use assets::facts::pack::PackTexture as T;
 use assets::material_keys::MaterialKeys;
 use pack_compile_input::image::{decode_static_texture, decode_texture, normalize_texture_tile};
 use pack_compile_input::{
@@ -91,7 +92,7 @@ use visuals::{
         mineral_cube_material_descriptor, mineral_cube_sources_are_exact,
     },
     multiface::multiface_quads,
-    named_blocks::{is_named_block, named_block_material_flags},
+    named_blocks::named_block_material_flags,
     resin_clump::{
         is_resin_clump, is_resin_clump_name, is_resin_clump_record, resin_clump_inventory_is_exact,
         resin_clump_material_descriptor,
@@ -266,10 +267,9 @@ fn compile_pack_inner(
     let admit_bee_housing = bee_housing_inventory_is_exact(records);
 
     let mut descriptor_keys = BTreeMap::<Descriptor, Box<str>>::new();
-    if records
-        .iter()
-        .any(|record| record.name.as_ref() == "minecraft:grass_block")
-        && let Some((descriptor, key)) = visuals::snowy_grass::material_descriptor(&pack)
+    if records.iter().any(|record| {
+        assets::facts::block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Grass
+    }) && let Some((descriptor, key)) = visuals::snowy_grass::material_descriptor(&pack)
     {
         descriptor_keys.insert(descriptor, key);
     }
@@ -311,7 +311,8 @@ fn compile_pack_inner(
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
-            || record.name.as_ref() == "minecraft:enchanting_table"
+            || assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
             || fallback.contains(record)
@@ -651,7 +652,7 @@ fn flowerbed_material_descriptors(
 fn pale_moss_carpet_side_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 2]> {
-    let key: Box<str> = "pale_moss_carpet_side".into();
+    let key: Box<str> = T::PaleMossCarpetSide.key().into();
     let paths = pack.terrain.get_exact_pair(&key)?;
     Some(std::array::from_fn(|index| {
         let path = paths[index];
@@ -813,10 +814,7 @@ fn descriptor_supports_alpha(descriptor: &Descriptor) -> bool {
             | MATERIAL_FLAG_OVERLAY_MASK
             | MATERIAL_FLAG_LIQUID_DEPTH_WRITE)
         != 0
-        || matches!(
-            descriptor.texture_key.as_ref(),
-            "bamboo_fence_gate" | "beacon_core" | "beacon_shell"
-        )
+        || assets::facts::pack::rules().supports_alpha(&descriptor.texture_key)
 }
 
 fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, AssetError> {

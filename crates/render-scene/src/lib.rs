@@ -25,8 +25,11 @@ pub mod particles;
 pub mod primitive_shapes;
 pub mod readiness;
 pub mod runtime_profile;
+#[cfg(any(test, feature = "alloc-stats"))]
+mod runtime_profile_alloc;
 pub mod runtime_profile_slow;
 pub mod runtime_profile_trace;
+pub mod runtime_profile_uploads;
 pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;

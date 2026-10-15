@@ -5,8 +5,8 @@
 use std::path::{Path, PathBuf};
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
-use assets::RegistryRecord;
 use assets::block_shapes::COLLISION_COORDINATE_SCALE;
+use assets::{RegistryRecord, facts::block::RESERVED_BLOCK_NAME};
 use sim::{
     Aabb, CollisionIdSpace, CollisionRegistry, CollisionRegistryIdentity, RegistryError, Vec3,
 };
@@ -15,10 +15,8 @@ use thiserror::Error;
 mod multipart;
 mod selection;
 mod session_palette;
+mod sleeping;
 mod tags;
-
-/// Registry records whose names the carrier deliberately withholds.
-const RESERVED_RECORD_NAME: &str = "cinnabar:reserved";
 
 /// Interaction facts shared by both runtime identity spaces.
 #[derive(Debug, Clone)]
@@ -37,6 +35,8 @@ struct InteractionBlock {
     )>,
     /// Offset to the other block of a two-block structure such as a door or bed.
     second_part: Option<[i32; 3]>,
+    /// Sleep heading compiled from the admitted direction state, when present.
+    bed_rotation: Option<f32>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -207,6 +207,7 @@ impl PhysicsCollisionRegistries {
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
                     record.model_state.get(assets::ModelStateField::Orientation),
                 )),
+                bed_rotation: states.as_ref().and_then(sleeping::rotation),
                 second_part: states.as_ref().and_then(|states| {
                     multipart::second_part_offset(block_facts.get(record.sequential_id), states)
                 }),
@@ -291,7 +292,7 @@ impl PhysicsCollisionRegistries {
                     registry.set_air_runtime_id(id);
                 }
             }
-            if record.name.as_ref() != RESERVED_RECORD_NAME {
+            if record.name.as_ref() != RESERVED_BLOCK_NAME {
                 let key = protocol::block_name_sort_key(&record.name);
                 max_vanilla_sort_key = max_vanilla_sort_key.max(key);
                 if vanilla_runs
@@ -381,6 +382,7 @@ impl PhysicsCollisionRegistries {
                         tags: Arc::clone(&block.tags),
                         connections: None,
                         second_part: None,
+                        bed_rotation: None,
                     },
                 );
                 let boxes = custom_block_boxes(&effective);
@@ -433,6 +435,7 @@ impl PhysicsCollisionRegistries {
                             tags: Arc::clone(&block.tags),
                             connections: None,
                             second_part: None,
+                            bed_rotation: None,
                         },
                     );
                     apply_selection(

@@ -1,6 +1,7 @@
 //! Mod world primitives: one premultiplied, depth-tested, non-writing draw per view, after
 //! the world's own transparent geometry. Block highlights use a separate through-world draw.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use bevy::{
@@ -141,10 +142,10 @@ fn prepare(
         grew,
     );
     if guest_changed && !scene.vertices.is_empty() {
-        queue.write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(&scene.vertices));
+        queue.profiled_write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(&scene.vertices));
     }
     if marker_changed && !scene.marker_vertices.is_empty() {
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &gpu.vertices,
             scene.vertices.len() as u64 * VERTEX_BYTES,
             bytemuck::cast_slice(&scene.marker_vertices),
@@ -165,7 +166,7 @@ fn prepare(
         grew,
     );
     if blocks_changed && !scene.block_vertices.is_empty() {
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &gpu.vertices,
             primitive_count as u64 * VERTEX_BYTES,
             bytemuck::cast_slice(&scene.block_vertices),
@@ -178,7 +179,7 @@ fn prepare(
     gpu.block_count = scene.block_vertices.len() as u32;
     if needed > 0 {
         let frame = [time.elapsed_secs_wrapped(), time.delta_secs(), 0.0, 0.0];
-        queue.write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
+        queue.profiled_write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
     }
 }
 

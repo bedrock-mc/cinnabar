@@ -111,6 +111,8 @@ impl SlowFrameCounts {
 /// One slow frame, kept in the bounded trace even when its text is suppressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SlowFrameEvent {
+    pub frame_id: u64,
+    pub hard_hitch: bool,
     pub reasons: u8,
     pub frame: Duration,
 }
@@ -154,7 +156,7 @@ struct FrameWindow {
     suppressed: u64,
     sequence: u64,
     counts: SlowFrameCounts,
-    /// GPU frames over budget since the last line; each was counted on arrival.
+    /// GPU overruns since the last line, counted on arrival.
     gpu_pending: bool,
 }
 
@@ -176,8 +178,8 @@ impl Default for FrameWindow {
 }
 
 impl SlowFrameRecorder {
-    /// Adds a stage duration; returns the event when a read-back GPU frame is over budget,
-    /// which counts on its own because several can arrive within one main frame.
+    /// Counts GPU execution overruns separately from the current CPU frame.
+    /// Completion latency stays informational because polling can delay callbacks.
     pub fn record(&self, stage: RuntimeStage, elapsed: Duration) -> Option<SlowFrameEvent> {
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         self.totals[stage as usize].fetch_add(nanos, Ordering::Relaxed);
@@ -201,6 +203,8 @@ impl SlowFrameRecorder {
                 frame.counts.record(GPU);
                 frame.gpu_pending = true;
                 return Some(SlowFrameEvent {
+                    frame_id: 0,
+                    hard_hitch: false,
                     reasons: GPU,
                     frame: elapsed,
                 });
@@ -241,25 +245,19 @@ impl SlowFrameRecorder {
         now: Instant,
         focused: bool,
         occluded: bool,
-    ) -> Option<SlowFrameEvent> {
+    ) -> (Option<SlowFrameEvent>, Option<SlowFrameReport>) {
         let totals = self.snapshot();
         let budgets = self.budgets();
         let violations = self.violations.swap(0, Ordering::Relaxed);
-        let mut frame = self
-            .frame
+        self.frame
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (event, line) = frame.advance(now, totals, focused, occluded, &budgets, violations);
-        if let Some(line) = line {
-            eprintln!("{line}");
-        }
-        event
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .advance(now, totals, focused, occluded, &budgets, violations)
     }
 }
 
 impl FrameWindow {
-    /// Counts every slow CPU interval and formats at most one line per second, also naming GPU
-    /// overruns counted since; fast frames touch only fixed-size state.
+    /// Counts every slow interval and snapshots at most one report per second without formatting.
     fn advance(
         &mut self,
         now: Instant,
@@ -268,50 +266,110 @@ impl FrameWindow {
         occluded: bool,
         budgets: &FrameBudgets,
         violations: u8,
-    ) -> (Option<SlowFrameEvent>, Option<String>) {
-        let outcome = self.started.zip(self.main.take()).map_or((None, None), |(started, (main, stages))| {
-            let interval = now.saturating_duration_since(started);
-            self.counts.hitches += u64::from(interval > budgets.hitch);
-            self.counts.hard_hitches += u64::from(interval >= budgets.hard_hitch);
-            let mut reasons = violations;
-            if interval > budgets.slow {
-                reasons |= INTERVAL;
-            }
-            if main > budgets.main_cpu {
-                reasons |= MAIN;
-            }
-            let event = (reasons != 0).then(|| {
-                self.counts.record(reasons);
-                SlowFrameEvent { reasons, frame: interval }
-            });
-            if std::mem::take(&mut self.gpu_pending) {
-                reasons |= GPU;
-            }
-            if reasons == 0 {
-                return (None, None);
-            }
-            if self.last_log.is_some_and(|last| now.saturating_duration_since(last) < LOG_INTERVAL) {
-                self.suppressed += 1;
-                return (event, None);
-            }
-            self.last_log = Some(now);
-            let window = delta(totals, self.baseline);
-            let suppressed = std::mem::take(&mut self.suppressed);
-            (event, Some(format!(
-                "CINNABAR_SLOW_FRAME frame={} refresh_hz={:.2} threshold_ms={:.2} frame_ms={:.3} main_ms={:.3} between_updates_ms={:.3} violations={} focused={} occluded={} suppressed={} slow_frames={} hitches={} hard_hitches={} main_stages={} window_stages={} scope=overlapping",
-                self.sequence, 1.0 / budgets.interval.as_secs_f64(), budgets.slow.as_secs_f64() * 1e3,
-                interval.as_secs_f64() * 1e3, main.as_secs_f64() * 1e3,
-                interval.saturating_sub(main).as_secs_f64() * 1e3, reason_list(reasons),
-                self.focused, self.occluded, suppressed, self.counts.slow, self.counts.hitches,
-                self.counts.hard_hitches, stage_fields(stages), stage_fields(window),
-            )))
-        });
+    ) -> (Option<SlowFrameEvent>, Option<SlowFrameReport>) {
+        let outcome =
+            self.started
+                .zip(self.main.take())
+                .map_or((None, None), |(started, (main, stages))| {
+                    let interval = now.saturating_duration_since(started);
+                    self.counts.hitches += u64::from(interval > budgets.hitch);
+                    self.counts.hard_hitches += u64::from(interval >= budgets.hard_hitch);
+                    let mut reasons = violations;
+                    if interval > budgets.slow {
+                        reasons |= INTERVAL;
+                    }
+                    if main > budgets.main_cpu {
+                        reasons |= MAIN;
+                    }
+                    let event = (reasons != 0).then(|| {
+                        self.counts.record(reasons);
+                        SlowFrameEvent {
+                            frame_id: self.sequence,
+                            hard_hitch: interval >= budgets.hard_hitch,
+                            reasons,
+                            frame: interval,
+                        }
+                    });
+                    if std::mem::take(&mut self.gpu_pending) {
+                        reasons |= GPU;
+                    }
+                    if reasons == 0 {
+                        return (None, None);
+                    }
+                    if self
+                        .last_log
+                        .is_some_and(|last| now.saturating_duration_since(last) < LOG_INTERVAL)
+                    {
+                        self.suppressed += 1;
+                        return (event, None);
+                    }
+                    self.last_log = Some(now);
+                    let window = delta(totals, self.baseline);
+                    let suppressed = std::mem::take(&mut self.suppressed);
+                    (
+                        event,
+                        Some(SlowFrameReport {
+                            sequence: self.sequence,
+                            budgets: *budgets,
+                            interval,
+                            main,
+                            reasons,
+                            focused: self.focused,
+                            occluded: self.occluded,
+                            suppressed,
+                            counts: self.counts,
+                            stages,
+                            window,
+                        }),
+                    )
+                });
         self.sequence += 1;
         self.started = Some(now);
         self.baseline = totals;
         self.focused = focused;
         self.occluded = occluded;
         outcome
+    }
+}
+
+/// Fixed-size report copied while locked and formatted by the diagnostics writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlowFrameReport {
+    sequence: u64,
+    budgets: FrameBudgets,
+    interval: Duration,
+    main: Duration,
+    reasons: u8,
+    focused: bool,
+    occluded: bool,
+    suppressed: u64,
+    counts: SlowFrameCounts,
+    stages: [u64; STAGES],
+    window: [u64; STAGES],
+}
+
+impl std::fmt::Display for SlowFrameReport {
+    /// Formats only owned samples, without accessing the live recorder.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CINNABAR_SLOW_FRAME frame={} refresh_hz={:.2} threshold_ms={:.2} frame_ms={:.3} main_ms={:.3} between_updates_ms={:.3} violations={} focused={} occluded={} suppressed={} slow_frames={} hitches={} hard_hitches={} main_stages={} window_stages={} scope=overlapping",
+            self.sequence,
+            1.0 / self.budgets.interval.as_secs_f64(),
+            self.budgets.slow.as_secs_f64() * 1e3,
+            self.interval.as_secs_f64() * 1e3,
+            self.main.as_secs_f64() * 1e3,
+            self.interval.saturating_sub(self.main).as_secs_f64() * 1e3,
+            reason_list(self.reasons),
+            self.focused,
+            self.occluded,
+            self.suppressed,
+            self.counts.slow,
+            self.counts.hitches,
+            self.counts.hard_hitches,
+            stage_fields(self.stages),
+            stage_fields(self.window)
+        )
     }
 }
 
@@ -359,41 +417,34 @@ fn stage_fields(samples: [u64; STAGES]) -> String {
 mod tests {
     use super::*;
 
+    /// Taking a slow-frame snapshot must not allocate while the recorder is locked.
     #[test]
-    #[ignore = "release benchmark for always-on attribution overhead"]
-    fn fast_frame_attribution_cost() {
-        for always_on in [false, true] {
-            let profiler = if always_on {
-                crate::RuntimeStageProfiler::for_gameplay(false, None)
-            } else {
-                crate::RuntimeStageProfiler::new(false)
-            };
-            let mut samples = Vec::with_capacity(10_000);
-            for _ in 0..10_000 {
-                let started = Instant::now();
-                profiler.begin_frame(true, false);
-                for stage in RuntimeStage::ALL
-                    .into_iter()
-                    .filter(|stage| *stage != RuntimeStage::MainFrame)
-                {
-                    drop(profiler.time(stage));
-                }
-                drop(profiler.time(RuntimeStage::MainFrame));
-                samples.push(started.elapsed());
-            }
-            samples.sort_unstable();
-            eprintln!(
-                "SLOW_FRAME_OVERHEAD always_on={always_on} n=10000 median_us={:.3} p99_us={:.3}",
-                samples[4999].as_secs_f64() * 1e6,
-                samples[9899].as_secs_f64() * 1e6
-            );
-        }
+    fn slow_frame_snapshot_does_not_allocate() {
+        let now = Instant::now();
+        let mut frame = FrameWindow {
+            started: Some(now),
+            main: Some((Duration::from_millis(30), [0; STAGES])),
+            ..FrameWindow::default()
+        };
+        let (_, allocations) = test_alloc::count(|| {
+            frame.advance(
+                now + Duration::from_millis(40),
+                [0; STAGES],
+                true,
+                false,
+                &at_hz(60.0),
+                0,
+            )
+        });
+        assert_eq!(allocations, 0);
     }
 
+    /// Builds deterministic display budgets for the requested refresh rate.
     fn at_hz(hz: f64) -> FrameBudgets {
         FrameBudgets::for_interval(Duration::from_secs_f64(1.0 / hz))
     }
 
+    /// Formats a duration for budget assertions.
     fn ms(duration: Duration) -> String {
         format!("{:.2}", duration.as_secs_f64() * 1e3)
     }
@@ -471,7 +522,7 @@ mod tests {
         let recorder = SlowFrameRecorder::default();
         recorder.set_interval(Duration::from_secs_f64(1.0 / 120.0));
         let now = Instant::now();
-        assert!(recorder.begin_frame(now, true, false).is_none());
+        assert!(recorder.begin_frame(now, true, false).0.is_none());
         assert!(
             recorder
                 .record(RuntimeStage::RenderFrame, Duration::from_millis(3))
@@ -482,18 +533,21 @@ mod tests {
         recorder.record(RuntimeStage::MainFrame, Duration::from_millis(5));
         let event = recorder
             .begin_frame(now + Duration::from_millis(6), true, false)
+            .0
             .unwrap();
         assert_eq!(event.reasons(), "main");
         recorder.record(RuntimeStage::RenderFrame, Duration::from_millis(5));
         recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
         let event = recorder
             .begin_frame(now + Duration::from_millis(12), true, false)
+            .0
             .unwrap();
         assert_eq!(event.reasons(), "render");
         recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
         assert!(
             recorder
                 .begin_frame(now + Duration::from_millis(18), true, false)
+                .0
                 .is_none()
         );
         let counts = recorder.counts();
@@ -507,6 +561,35 @@ mod tests {
             ],
             [3, 1, 1, 1, 0]
         );
+    }
+
+    #[test]
+    fn late_completion_callbacks_do_not_count_as_slow_frames() {
+        let recorder = SlowFrameRecorder::default();
+        let interval = Duration::from_secs_f64(1.0 / 120.0);
+        recorder.set_interval(interval);
+        let now = Instant::now();
+        assert!(recorder.begin_frame(now, true, false).0.is_none());
+        for latency in [interval, Duration::from_millis(100)] {
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrame, Duration::from_millis(2))
+                    .is_none()
+            );
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrameCompletionLatency, latency)
+                    .is_none()
+            );
+        }
+        recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
+        assert!(
+            recorder
+                .begin_frame(now + interval, true, false)
+                .0
+                .is_none()
+        );
+        assert_eq!(recorder.counts(), SlowFrameCounts::default());
     }
 
     /// Several read-back GPU frames can land before one main-frame boundary.
@@ -532,6 +615,7 @@ mod tests {
         assert!(
             recorder
                 .begin_frame(now + Duration::from_millis(6), true, false)
+                .0
                 .is_none(),
             "GPU overruns are not folded into the CPU interval's event"
         );
@@ -554,7 +638,7 @@ mod tests {
             0,
         );
         assert!(advance.0.is_none());
-        assert!(advance.1.unwrap().contains("violations=gpu"));
+        assert!(advance.1.unwrap().to_string().contains("violations=gpu"));
     }
 
     #[test]
@@ -579,7 +663,7 @@ mod tests {
         stages[RuntimeStage::UiPublication as usize] = 23_000_000;
         frame.main = Some((Duration::from_millis(25), stages));
         let (_, line) = advance(&mut frame, 36, stages);
-        let line = line.unwrap();
+        let line = line.unwrap().to_string();
         assert!(line.contains("main_ms=25.000 between_updates_ms=3.000"));
         assert!(line.contains("violations=interval+main"));
         assert!(line.contains("ui_publication:23.000"));
@@ -589,7 +673,7 @@ mod tests {
         assert!(line.is_none());
         frame.main = Some((Duration::from_millis(2), [0; STAGES]));
         let (_, line) = advance(&mut frame, 1100, stages);
-        let line = line.unwrap();
+        let line = line.unwrap().to_string();
         assert!(line.contains("suppressed=1"));
         assert!(line.contains("slow_frames=3"));
         assert!(line.contains("main_ms=2.000 between_updates_ms=1032.000"));
@@ -597,7 +681,7 @@ mod tests {
     }
 
     #[test]
-    fn gameplay_recording_does_not_enable_aggregate_or_trace() {
+    fn gameplay_recording_does_not_enable_aggregate_or_file_exports() {
         let profiler = crate::RuntimeStageProfiler::for_gameplay(false, None);
         profiler.begin_frame(true, false);
         drop(profiler.time(RuntimeStage::UiPublication));

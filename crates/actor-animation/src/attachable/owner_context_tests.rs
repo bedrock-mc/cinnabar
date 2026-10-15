@@ -137,6 +137,7 @@ fn worn_attachable_reads_its_static_owners_armour() {
     assert_eq!(translation(false, &context, &owner), 0.0);
     context.armor[0] = Some(crate::tick::WornArmor {
         item: Arc::from("test:helmet"),
+        fact: assets::facts::ItemFact::default(),
         dye_rgb: None,
     });
     assert_eq!(translation(false, &context, &owner), -16.0);

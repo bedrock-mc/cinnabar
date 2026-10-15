@@ -1,7 +1,7 @@
 //! Bounded spawn-anchor depenetration probing (PROVISIONAL recovery policy).
 //!
 //! Hard movement anchors (and Replay corrections) can be installed without a
-//! collision check. Before the first simulated tick of a freshly anchored
+//! collision check. Before the first tick that allows travel in a freshly anchored
 //! epoch this module probes the anchor against the same collision
 //! [`sim::PaletteWorld`] the frame already builds and, when a bounded
 //! minimal-translation walk exists, moves the anchor out of the overlap. A
@@ -52,7 +52,7 @@ const _: () = assert!(
     "the anchor probe budget must be able to act"
 );
 
-/// What the first simulated tick after a fresh anchor must do.
+/// What the first tick that allows travel after a fresh anchor must do.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum BeforeTick {
     /// Run the tick from the current position.
@@ -181,7 +181,7 @@ impl AnchorProbeState {
         observed: &mut ModeObservation,
         input: sim::MovementInput,
     ) {
-        if input.immobile || !self.pending() {
+        if input.immobile || input.skip_travel || !self.pending() {
             return;
         }
         if input.spectator || intent.ride.is_some() {
@@ -200,7 +200,7 @@ impl AnchorProbeState {
         }
     }
 
-    /// Decides what must happen before the first simulated tick of a frame.
+    /// Decides whether pending recovery must adjust the anchor before travel.
     ///
     /// Collision-data unavailability keeps today's transient-blocked behavior
     /// exactly: the probe stays pending and the ordinary tick reproduces the

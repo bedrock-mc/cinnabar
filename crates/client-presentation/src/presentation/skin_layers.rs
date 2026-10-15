@@ -22,10 +22,15 @@ pub fn is_skin_layer(layer: u8) -> bool {
         .contains(&layer)
 }
 
-/// Texture pages and converted poses retained while the same skin images remain selected.
+/// One full rendered crowd's animation images may remain resident between views.
+const MAX_RESIDENT_SKIN_IMAGES: usize =
+    render_model::MAX_RENDERED_PLAYERS * render_api::MAX_SKIN_ANIMATION_LAYERS;
+
+/// Texture pages and converted poses retained while the same artwork base remains selected.
 #[derive(Default)]
 pub struct SkinLayerCache {
-    base: [u8; 32],
+    base: Option<ActorArtworkPages>,
+    packed: bool,
     rasters: Vec<EquipmentRaster>,
     desired: Vec<EquipmentRaster>,
     desired_index: HashMap<ImageKey, (EquipmentRaster, usize)>,
@@ -74,6 +79,12 @@ fn image_raster(image: &render_api::SkinAnimation) -> Option<EquipmentRaster> {
 impl SkinLayerCache {
     /// Retains the first occurrence of each immutable source image in draw order.
     fn retain_image(&mut self, raster: EquipmentRaster) {
+        if raster.width == 0
+            || raster.height == 0
+            || raster.rgba8.len() != usize::from(raster.width) * usize::from(raster.height) * 4
+        {
+            return;
+        }
         #[cfg(test)]
         tests::record_probe();
         // The desired vector may be cleared by the next frame before its index is reused.
@@ -97,24 +108,95 @@ impl SkinLayerCache {
             .and_then(|(_, index)| self.locations[*index])
     }
 
-    /// Rebuilds pages when base art changes, uncached images appear, or visibility becomes empty.
-    /// Images leaving view retain their cells, avoiding another repack and hash.
+    /// Retains bounded immutable page slots across camera turns and empty views.
+    /// Only new sources hash pixels; a full cache replaces slots that are no longer visible.
     fn update_pages(&mut self, base: &ActorArtworkPages) -> Option<ActorArtworkPages> {
-        let published = self.base == base.identity()
-            && if self.desired.is_empty() {
-                self.rasters.is_empty()
-            } else {
-                self.desired.iter().all(|raster| {
-                    self.image_index
-                        .get(&ImageKey::new(raster))
-                        .is_some_and(|(retained, _)| same_image(retained, raster))
-                })
-            };
-        if published {
-            return None;
+        let base_changed = self
+            .base
+            .as_ref()
+            .is_none_or(|old| !old.shares_storage_with(base));
+        let had_pages = self.pages.is_some();
+        if base_changed {
+            self.clear_pages();
+            self.base = Some(base.clone());
         }
-        self.base = base.identity();
-        std::mem::swap(&mut self.rasters, &mut self.desired);
+        if self.desired.iter().all(|raster| {
+            self.image_index
+                .get(&ImageKey::new(raster))
+                .is_some_and(|(retained, _)| same_image(retained, raster))
+        }) {
+            return (base_changed && had_pages).then(|| base.clone());
+        }
+        if self.packed {
+            self.clear_pages();
+        }
+        let mut reusable: Vec<_> = self
+            .rasters
+            .iter()
+            .enumerate()
+            .filter_map(|(index, raster)| {
+                (!self.desired_index.contains_key(&ImageKey::new(raster))).then_some(index)
+            })
+            .rev()
+            .collect();
+        let mut updates = Vec::new();
+        for raster in &self.desired {
+            if self.image_index.contains_key(&ImageKey::new(raster)) {
+                continue;
+            }
+            let slot = if self.rasters.len() < MAX_RESIDENT_SKIN_IMAGES {
+                self.rasters.push(raster.clone());
+                self.locations.push(None);
+                self.rasters.len() - 1
+            } else if let Some(slot) = reusable.pop() {
+                self.rasters[slot] = raster.clone();
+                slot
+            } else {
+                return Some(self.pack_visible(base));
+            };
+            updates.push((base.pages().len() + slot, raster.clone()));
+        }
+        let bytes = base
+            .pages()
+            .iter()
+            .map(|page| page.pixels().len())
+            .sum::<usize>()
+            + render_model::PLAYER_SKIN_BUDGET_BYTES
+            + self
+                .rasters
+                .iter()
+                .map(|raster| raster.rgba8.len())
+                .sum::<usize>();
+        // Preserve grouped admission and its downscaling when retained slots cannot fit.
+        if bytes > render_model::MAX_ACTOR_GPU_PIXEL_BYTES
+            || base.pages().len() + self.rasters.len() >= render_model::MAX_ACTOR_TEXTURE_PAGES
+        {
+            return Some(self.pack_visible(base));
+        }
+        let previous = self.pages.take().unwrap_or_else(|| base.clone());
+        let (pages, locations) = previous.with_equipment_raster_page_updates(&updates);
+        if locations.iter().any(Option::is_none) {
+            return Some(self.pack_visible(base));
+        }
+        for ((page, _), location) in updates.into_iter().zip(locations) {
+            self.locations[page - base.pages().len()] = location;
+        }
+        self.index_images();
+        self.pages = Some(pages.clone());
+        Some(pages)
+    }
+
+    /// Drops the old base's page slots without discarding this frame's selected images.
+    fn clear_pages(&mut self) {
+        self.rasters.clear();
+        self.image_index.clear();
+        self.locations.clear();
+        self.pages = None;
+        self.packed = false;
+    }
+
+    /// Rebuilds the pointer index after page slots have been appended or reused.
+    fn index_images(&mut self) {
         self.image_index.clear();
         self.image_index.extend(
             self.rasters
@@ -122,14 +204,17 @@ impl SkinLayerCache {
                 .enumerate()
                 .map(|(index, image)| (ImageKey::new(image), (image.clone(), index))),
         );
-        if self.rasters.is_empty() {
-            self.locations.clear();
-            return self.pages.take().map(|_| base.clone());
-        }
+    }
+
+    /// Uses the existing grouped budget policy when exact single-layer residency cannot fit.
+    fn pack_visible(&mut self, base: &ActorArtworkPages) -> ActorArtworkPages {
+        self.rasters.clone_from(&self.desired);
         let (pages, locations) = base.clone().with_equipment_rasters(&self.rasters);
         self.locations = locations;
+        self.index_images();
         self.pages = Some(pages.clone());
-        Some(pages)
+        self.packed = true;
+        pages
     }
 
     /// Appends skin layers using their own mesh/poses and the body's placement and lighting.
@@ -210,110 +295,5 @@ impl SkinLayerCache {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// One retained rectangular sprite sheet for the texture-page cache.
-    fn raster() -> EquipmentRaster {
-        EquipmentRaster {
-            width: 24,
-            height: 512,
-            rgba8: vec![255; 24 * 512 * 4].into(),
-        }
-    }
-
-    #[test]
-    fn unchanged_animation_images_reuse_pages_and_removed_images_restore_base() {
-        let base = ActorArtworkPages::default();
-        let image = raster();
-        let mut cache = SkinLayerCache::default();
-        cache.desired.push(image.clone());
-        let first = cache.update_pages(&base).unwrap();
-        assert_eq!(first.pages()[0].dimensions(), (image.width, image.height));
-        cache.desired.clear();
-        cache.desired.push(image);
-        assert!(cache.update_pages(&base).is_none());
-        assert_eq!(cache.pages.as_ref().unwrap().identity(), first.identity());
-        cache.desired.clear();
-        assert_eq!(
-            cache.update_pages(&base).unwrap().identity(),
-            base.identity()
-        );
-    }
-    /// Animated skins leaving view keep their published cells; only a newly visible image
-    /// repacks, so a shrinking visible set never rehashes every visible skin image.
-    #[test]
-    fn images_leaving_view_keep_their_pages_until_a_new_image_appears() {
-        let base = ActorArtworkPages::default();
-        let (first, second, third) = (raster(), raster(), raster());
-        let mut cache = SkinLayerCache::default();
-        let publish = |cache: &mut SkinLayerCache, visible: &[&EquipmentRaster]| {
-            cache.desired.clear();
-            for image in visible {
-                cache.retain_image((*image).clone());
-            }
-            cache.update_pages(&base)
-        };
-        let both = publish(&mut cache, &[&first, &second]).expect("first sight packs");
-        assert!(publish(&mut cache, &[&first]).is_none(), "leaving view");
-        assert!(cache.image_location(&first).is_some());
-        assert!(
-            publish(&mut cache, &[&second, &first]).is_none(),
-            "returning"
-        );
-        assert_eq!(cache.pages.as_ref().unwrap().identity(), both.identity());
-        publish(&mut cache, &[&first, &third]).expect("a new image repacks");
-        assert!(cache.image_location(&third).is_some());
-        assert!(
-            cache.image_location(&second).is_none(),
-            "the repack drops what left"
-        );
-    }
-
-    thread_local! {
-        static LOOKUP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    }
-
-    /// Counts explicit source-image candidates on this test thread.
-    pub(super) fn record_probe() {
-        LOOKUP_PROBES.with(|count| count.set(count.get() + 1));
-    }
-
-    #[test]
-    fn bounded_lookup_work_for_distinct_skin_animation_images() {
-        let images: Vec<_> = (0..render_model::MAX_RENDERED_PLAYERS)
-            .map(|_| raster())
-            .collect();
-        let mut cache = SkinLayerCache::default();
-        let base = ActorArtworkPages::default();
-        LOOKUP_PROBES.with(|count| count.set(0));
-        for image in &images {
-            cache.retain_image(image.clone());
-        }
-        cache.update_pages(&base).unwrap();
-        assert_eq!(
-            cache.rasters.len(),
-            images.len(),
-            "equal pixels in separate allocations remain separate sources"
-        );
-        for image in &images {
-            assert!(cache.image_location(image).is_some());
-        }
-        let work = LOOKUP_PROBES.with(std::cell::Cell::get);
-        assert!(
-            work <= images.len() * 4,
-            "{work} image candidates for {} layers",
-            images.len()
-        );
-        cache.desired.clear();
-        for image in &images {
-            cache.retain_image(image.clone());
-        }
-        assert!(cache.update_pages(&base).is_none());
-        cache.desired.clear();
-        cache.update_pages(&base).unwrap();
-        for image in &images {
-            assert!(cache.image_location(image).is_none());
-        }
-    }
-}
+#[path = "skin_layers_tests.rs"]
+mod tests;

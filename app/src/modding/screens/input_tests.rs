@@ -458,7 +458,7 @@ fn a_replacements_owner_does_not_inherit_a_previous_packages_presentation_failur
     }
 }
 
-/// Builds and encodes the existing screen probe once in this worktree's test target.
+/// Builds the screen probe once per process, locking its shared target through the artifact read.
 fn transition_probe_component() -> &'static [u8] {
     static COMPONENT: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
     COMPONENT.get_or_init(|| {
@@ -468,6 +468,9 @@ fn transition_probe_component() -> &'static [u8] {
             .nth(3)
             .unwrap()
             .join("screen-transition-probe");
+        std::fs::create_dir_all(&target).unwrap();
+        let lock = std::fs::File::create(target.join("probe.lock")).unwrap();
+        lock.lock().unwrap();
         let output =
             std::process::Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
                 .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))

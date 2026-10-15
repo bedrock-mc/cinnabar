@@ -471,6 +471,7 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
         first_person: true,

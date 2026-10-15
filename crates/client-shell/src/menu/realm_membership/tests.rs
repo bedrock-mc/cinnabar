@@ -43,6 +43,7 @@ fn realm_membership_requires_preview_then_confirmation_before_publishing() {
         Stage::Confirm
     );
     assert!(menu.realms.is_empty());
+    let before_accept = menu.view();
     menu.activate_realm_membership(Action::Accept);
     let ticket = menu.realm_membership.ticket;
     menu.receive_realm_membership(ticket, true, Ok(("fixture-code".into(), realm())));
@@ -50,7 +51,9 @@ fn realm_membership_requires_preview_then_confirmation_before_publishing() {
         menu.realm_membership.state.as_ref().unwrap().stage,
         Stage::Complete
     );
-    assert_eq!(menu.realms, [realm()]);
+    assert_eq!(menu.realms.as_slice(), [realm()]);
+    assert!(before_accept.realms.is_empty());
+    assert!(!before_accept.realms.shares_storage(&menu.view().realms));
     assert!(!menu.is_connecting());
 }
 

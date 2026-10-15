@@ -6,22 +6,25 @@
 //! however late it arrives.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     path::PathBuf,
     time::Instant,
 };
 
 use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,
-    SummaryStore, Versioned, WorldKey,
+    SummaryBudget, SummaryStore, Versioned, WorldKey,
     config::{
         MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS,
         WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY, WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
     },
-    disk::{DiskBounds, DiskCache, DiskEvent},
+    disk::{DiskBounds, DiskCache},
     identity::surface_similarity,
     region::{REGION_SIDE, RegionPos, region_index},
 };
+
+mod completion;
+use completion::PendingEvent;
 
 #[derive(Debug)]
 struct DirtyRegion {
@@ -56,7 +59,7 @@ impl Retired {
 /// A session whose final summaries are still being extracted, from
 /// [`FarTerrainCache::retire_session`]; hand it back to [`FarTerrainCache::persist`]. Its
 /// summaries carry the version stamped at retirement, so anything taken later wins.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[must_use]
 pub struct RetiringSession {
     world: WorldKey,
@@ -68,6 +71,16 @@ pub struct RetiringSession {
 }
 
 impl RetiringSession {
+    /// Keeps the first non-empty retirement probes before persistence is split into batches.
+    pub fn add_probe(&mut self, pos: ColumnPos, summary: &EncodedSummary) {
+        if self.probes.len() < WORLD_PROBE_COLUMNS
+            && let Ok(decoded) = ColumnSummary::decode(&summary.bytes)
+            && !decoded.is_empty()
+        {
+            self.probes.push((pos, decoded));
+        }
+    }
+
     #[must_use]
     pub const fn dimension(&self) -> i32 {
         self.world.dimension
@@ -97,7 +110,8 @@ pub struct FarTerrainCache {
     /// Changes waiting to be written, per namespace and region.
     dirty: BTreeMap<(NamespaceKey, RegionPos), DirtyRegion>,
     /// Changes handed to the IO thread and not yet reported written.
-    writing: HashMap<(NamespaceKey, ColumnPos), Versioned>,
+    writing: BTreeMap<(NamespaceKey, RegionPos), BTreeMap<ColumnPos, Versioned>>,
+    pending_event: Option<PendingEvent>,
     requested: HashSet<RegionPos>,
     /// Regions read again after memory dropped some of their columns, once per focus.
     reread: HashSet<RegionPos>,
@@ -133,7 +147,8 @@ impl FarTerrainCache {
             resolving: false,
             pending_since: None,
             dirty: BTreeMap::new(),
-            writing: HashMap::new(),
+            writing: BTreeMap::new(),
+            pending_event: None,
             requested: HashSet::new(),
             reread: HashSet::new(),
             focus: None,
@@ -182,6 +197,17 @@ impl FarTerrainCache {
     /// Writes everything the visit holds, resolving its namespace on the IO thread with the
     /// probes it has when it never resolved.
     fn end_entry(&mut self) {
+        if let Some(namespace) = self.namespace {
+            for (pos, column) in std::mem::take(&mut self.unresolved) {
+                self.queue_write(
+                    namespace,
+                    pos,
+                    column,
+                    self.pending_since
+                        .expect("unresolved columns have an admission time"),
+                );
+            }
+        }
         self.flush_all();
         self.flush_retired();
         if self.namespace.is_none()
@@ -291,7 +317,7 @@ impl FarTerrainCache {
         }
         self.store.admit_versioned(pos, column);
         if !self.resolving && self.probes.len() == WORLD_PROBE_COLUMNS {
-            self.start_resolving(now);
+            self.start_resolving();
         }
     }
 
@@ -308,47 +334,19 @@ impl FarTerrainCache {
     /// Applies finished disk work, resolves a sparse world after [`WORLD_PROBE_TIMEOUT`] and
     /// writes regions whose changes are due.
     pub fn poll(&mut self, now: Instant) {
-        let events: Vec<DiskEvent> = self
-            .disk
-            .as_ref()
-            .map(|disk| disk.events().collect())
-            .unwrap_or_default();
-        for event in events {
-            match event {
-                DiskEvent::Resolved {
-                    world,
-                    entry,
-                    epoch,
-                } => {
-                    if entry == self.entry {
-                        self.resolved(world, epoch, now);
-                    }
-                }
-                DiskEvent::Loaded {
-                    namespace,
-                    region,
-                    columns,
-                } => self.loaded(namespace, region, columns),
-                DiskEvent::Written { namespace, columns } => {
-                    for (pos, version) in columns {
-                        if self
-                            .writing
-                            .get(&(namespace, pos))
-                            .is_some_and(|writing| writing.version <= version)
-                        {
-                            self.writing.remove(&(namespace, pos));
-                        }
-                    }
-                }
-            }
-        }
+        self.poll_budgeted(now, &mut SummaryBudget::default());
+    }
+
+    /// Applies a bounded share of completed disk columns, retaining partial events in order.
+    pub fn poll_budgeted(&mut self, now: Instant, budget: &mut SummaryBudget) {
+        self.apply_completions(now, budget);
         if self.namespace.is_none()
             && !self.resolving
             && self
                 .pending_since
                 .is_some_and(|since| now.saturating_duration_since(since) >= WORLD_PROBE_TIMEOUT)
         {
-            self.start_resolving(now);
+            self.start_resolving();
         }
         self.flush_retired();
         let evicted = self.store.take_evicted();
@@ -450,14 +448,19 @@ impl FarTerrainCache {
 
     /// True when a version of `pos` at least `version` waits to be written or is being written.
     fn newer_queued(&self, namespace: NamespaceKey, pos: ColumnPos, version: u64) -> bool {
-        let waiting = self
-            .dirty
-            .get(&(namespace, RegionPos::of(pos)))
-            .and_then(|dirty| dirty.columns.get(&pos));
-        waiting
+        self.queued(namespace, pos)
+            .is_some_and(|queued| queued.version >= version)
+    }
+
+    /// The newest pending write for a column, whether waiting or already on the IO thread.
+    fn queued(&self, namespace: NamespaceKey, pos: ColumnPos) -> Option<&Versioned> {
+        let key = (namespace, RegionPos::of(pos));
+        self.dirty
+            .get(&key)
+            .and_then(|dirty| dirty.columns.get(&pos))
             .into_iter()
-            .chain(self.writing.get(&(namespace, pos)))
-            .any(|queued| queued.version >= version)
+            .chain(self.writing.get(&key).and_then(|columns| columns.get(&pos)))
+            .max_by_key(|column| column.version)
     }
 
     /// Compares a live column with the cached one it replaces, for the first
@@ -529,67 +532,34 @@ impl FarTerrainCache {
     }
 
     fn stamp(&mut self) -> u64 {
+        if let Some(disk) = &self.disk {
+            self.next_version = self.next_version.max(disk.observed_version());
+        }
         self.next_version += 1;
         self.next_version
     }
 
-    fn start_resolving(&mut self, now: Instant) {
+    fn start_resolving(&mut self) {
         let Some(world) = self.world else {
             return;
         };
         self.resolving = true;
         match &self.disk {
             Some(disk) => disk.resolve(world, self.entry, self.probes.clone()),
-            None => self.resolved(world, 0, now),
+            None => self.resolved(world, 0),
         }
     }
 
-    fn resolved(&mut self, world: WorldKey, epoch: u32, now: Instant) {
+    fn resolved(&mut self, world: WorldKey, epoch: u32) {
         if self.world != Some(world) || self.namespace.is_some() {
             return;
         }
         let namespace = world.namespace(epoch);
         self.namespace = Some(namespace);
-        for (pos, column) in std::mem::take(&mut self.unresolved) {
-            self.queue_write(namespace, pos, column, now);
+        if self.disk.is_none() {
+            self.unresolved.clear();
         }
         self.request_focus();
-    }
-
-    /// Installs a region read; changes waiting or in flight to that region take part, and the
-    /// highest version of each column wins.
-    fn loaded(
-        &mut self,
-        namespace: NamespaceKey,
-        region: RegionPos,
-        columns: Vec<(ColumnPos, Versioned)>,
-    ) {
-        for (_, column) in &columns {
-            self.next_version = self.next_version.max(column.version);
-        }
-        if self.namespace != Some(namespace) {
-            return;
-        }
-        let waiting: Vec<(ColumnPos, Versioned)> = self
-            .dirty
-            .get(&(namespace, region))
-            .into_iter()
-            .flat_map(|dirty| {
-                dirty
-                    .columns
-                    .iter()
-                    .map(|(pos, column)| (*pos, column.clone()))
-            })
-            .collect();
-        let in_flight: Vec<(ColumnPos, Versioned)> = self
-            .writing
-            .iter()
-            .filter(|((written, pos), _)| *written == namespace && RegionPos::of(*pos) == region)
-            .map(|((_, pos), column)| (*pos, column.clone()))
-            .collect();
-        for (pos, column) in columns.into_iter().chain(waiting).chain(in_flight) {
-            self.store.admit_versioned(pos, column);
-        }
     }
 
     /// Queues `column` for writing unless a newer version of it already waits.
@@ -627,7 +597,9 @@ impl FarTerrainCache {
         for (pos, column) in dirty.columns {
             let in_flight = self
                 .writing
-                .entry((key.0, pos))
+                .entry(key)
+                .or_default()
+                .entry(pos)
                 .or_insert_with(|| column.clone());
             if in_flight.version < column.version {
                 *in_flight = column.clone();

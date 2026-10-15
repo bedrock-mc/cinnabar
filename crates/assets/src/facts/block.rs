@@ -11,6 +11,9 @@ pub enum BlockStateIdentity<'a> {
     Compiled(u32),
     Named(&'a str),
 }
+/// Canonical empty-block identity checked against the pinned air trait.
+pub const AIR_IDENTIFIER: &str = "minecraft:air";
+
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 
@@ -22,6 +25,8 @@ pub struct BlockFact {
     pub traits: BlockTraits,
     pub family: ModelFamily,
     pub survival: SurvivalRule,
+    pub render: super::BlockRenderFact,
+    pub ambient: super::presentation::AmbientBlock,
     pub placement: super::PlacementRule,
     pub support: super::SupportKind,
     /// Sequential identity of the admitted double slab or matching sign.
@@ -38,6 +43,8 @@ impl Default for BlockFact {
             traits: BlockTraits::empty(),
             family: ModelFamily::Unknown,
             survival: SurvivalRule::Unresolved,
+            render: super::BlockRenderFact::default(),
+            ambient: super::presentation::AmbientBlock::Other,
             placement: super::PlacementRule::Unresolved,
             support: super::SupportKind::Unresolved,
             alternate: None,
@@ -93,6 +100,8 @@ impl BlockFacts {
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,
+                        render: super::block_render_fact(&r.name),
+                        ambient: super::presentation_generated::ambient_block(&r.name),
                         ..BlockFact::default()
                     };
                     fact.identity = names.get(r.name.as_ref()).copied();

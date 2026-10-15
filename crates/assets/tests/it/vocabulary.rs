@@ -196,6 +196,15 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     || key.starts_with("minecraft:")
                     || key == "cinnabar:reserved"
                 {
+                    let key_domain = if file == "registry-policy.json" {
+                        match path {
+                            "/pack_rules/egg_aliases" | "/pack_rules/superseded_eggs" => "actor",
+                            "/pack_rules/item_visuals" => "retail_item",
+                            _ => domain,
+                        }
+                    } else {
+                        domain
+                    };
                     let key_domain = if state {
                         if domain == "legacy_block" {
                             "legacy_property"
@@ -203,11 +212,13 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                             "property"
                         }
                     } else {
-                        domain
+                        key_domain
                     };
                     add(refs, file, &child, key_domain, key);
                 }
                 let child_domain = match key.as_str() {
+                    "VanillaItem" if file == "registry-policy.json" => "retail_item",
+                    "VanillaEntity" if file == "registry-policy.json" => "actor",
                     "state_property" | "state_properties" | "state_values" => "property",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "entity_rules" | "entity_compatibility" if file == "registry-policy.json" => {
@@ -215,6 +226,10 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     }
                     "twin" if file == "registry-policy.json" => "legacy_block",
                     "item_rules" if file == "registry-policy.json" => "retail_item",
+                    "item_icons" if file == "registry-policy.json" && path == "/presentation" => {
+                        "retail_item"
+                    }
+
                     "tag" if file == "registry-policy.json" && path.starts_with("/item_rules/") => {
                         "item_tag"
                     }
@@ -222,6 +237,15 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     "default_alias" => "item_texture",
                     "canonical_state" => domain,
                     _ => domain,
+                };
+                let child_domain = if file == "registry-policy.json"
+                    && path == "/pack_rules/egg_aliases"
+                {
+                    "retail_item"
+                } else if file == "registry-policy.json" && path == "/pack_rules/superseded_eggs" {
+                    "actor"
+                } else {
+                    child_domain
                 };
                 let child_domain = if file == "registry-policy.json" && key == "item" {
                     "retail_item"
@@ -275,6 +299,14 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
         Value::Array(values) => {
             for (index, value) in values.iter().enumerate() {
                 let child = format!("{path}/{index}");
+                if file == "registry-policy.json" && path.starts_with("/presentation/dimensions/") {
+                    // Dimension names are wire-schema tokens; their fallback values are biome identities.
+                    if index == 1 {
+                        add(refs, file, &child, "biome", value.as_str().unwrap());
+                    }
+                    continue;
+                }
+
                 if (file == "registry-policy.json"
                     && path.starts_with("/item_rules/")
                     && path.ends_with("/members"))
@@ -363,6 +395,15 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         .enumerate()
     {
         let fields: Vec<_> = line.split('\t').collect();
+        let domain = if file == "facts-expansion-v2193.tsv"
+            && fields
+                .get(3)
+                .is_some_and(|value| value.split(',').any(|status| status == "historical-render"))
+        {
+            "legacy_block"
+        } else {
+            domain
+        };
         add(refs, file, &format!("/{i}/0"), domain, fields[0]);
         if file == "block-placement-v2193.tsv" && fields[3] != "-" {
             add(refs, file, &format!("/{i}/3"), "block", fields[3]);
@@ -651,5 +692,58 @@ fn an_unqualified_actor_member_cannot_disappear_from_validation() {
     assert!(
         refs.iter()
             .any(|reference| reference.identifier == bare && !vocabulary.contains(reference))
+    );
+}
+
+#[test]
+fn facts_migration_presentation_references_use_item_block_and_biome_domains() {
+    let root = root();
+    let mut vocabulary = Vocabulary::load(&root);
+    vocabulary.domains.insert(
+        "biome".into(),
+        include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+            .lines()
+            .map(str::to_owned)
+            .collect(),
+    );
+    let document = json(&root.join("crates/asset-compiler/data/registry-policy.json"));
+    let mut collected = BTreeSet::new();
+    walk(
+        &mut collected,
+        "registry-policy.json",
+        &document["presentation"],
+        "/presentation",
+        "block",
+    );
+    for domain in ["retail_item", "block", "biome"] {
+        assert!(collected.iter().any(|reference| reference.domain == domain));
+    }
+    let errors = failures(&vocabulary, &collected, &[]);
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+#[test]
+fn pack_rules_keep_actor_and_item_vocabulary_domains_distinct() {
+    let vocabulary = Vocabulary::load(&root());
+    let document = serde_json::json!({"pack_rules": {
+        "egg_aliases": {"minecraft:evocation_illager": "minecraft:evoker_spawn_egg"},
+        "superseded_eggs": {"minecraft:villager": "minecraft:villager_v2"},
+        "item_visuals": {"minecraft:banner": "BlockModel"}
+    }});
+    let mut refs = BTreeSet::new();
+    walk(&mut refs, "registry-policy.json", &document, "", "block");
+    assert_eq!(refs.len(), 5);
+    assert!(refs.iter().all(|reference| vocabulary.contains(reference)));
+    assert_eq!(
+        refs.iter()
+            .filter(|reference| reference.domain == "actor")
+            .count(),
+        3
+    );
+    assert_eq!(
+        refs.iter()
+            .filter(|reference| reference.domain == "retail_item")
+            .count(),
+        2
     );
 }

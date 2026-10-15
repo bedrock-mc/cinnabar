@@ -16,8 +16,9 @@ pub(super) fn validate(
     let names: BTreeSet<_> = source.iter().map(|b| b.name.as_str()).collect();
     check(
         (rule.compatibility_members.is_empty() && rule.compatibility_exclude_members.is_empty())
-            || rule.fact.starts_with("family:"),
-        "compatibility selectors require a model family rule",
+            || rule.fact.starts_with("family:")
+            || rule.fact.starts_with("render:"),
+        "compatibility selectors require a model family or render rule",
     )?;
     for member in rule
         .members
@@ -78,7 +79,9 @@ pub(super) fn compile(
     source: &[BlockFact],
     records: &mut [RegistryRecord],
     policy: &super::Policy,
+    legacy: &[RegistryRecord],
 ) -> Result<Vec<u8>> {
+    policy.pack_rules.validate()?;
     let families: Vec<_> = records.iter().map(|r| r.model_family).collect();
     let states: Vec<BTreeMap<String, Scalar>> = source
         .iter()
@@ -93,6 +96,22 @@ pub(super) fn compile(
                 ShapeTraits::from_name(value).is_some(),
                 format!("unknown shape trait {value}"),
             )?;
+        } else if let Some(kind) = rule.fact.strip_prefix("render:") {
+            let _: assets::facts::BlockRenderKind =
+                serde_json::from_value(serde_json::Value::String(kind.into()))?;
+        } else if let Some(tint) = rule.fact.strip_prefix("render_tint:") {
+            let _: assets::facts::BlockRenderTint =
+                serde_json::from_value(serde_json::Value::String(tint.into()))?;
+        } else if let Some(flag) = rule.fact.strip_prefix("render_flag:") {
+            check(
+                matches!(
+                    flag,
+                    "fire_top" | "fire_flammable" | "flat_icon" | "fast_sword"
+                ),
+                "unknown render flag",
+            )?;
+        } else if rule.fact.starts_with("legacy_alias:") || rule.fact == "model_variant" {
+            presentation(rule, &mut assets::facts::BlockRenderFact::default())?;
         } else if !rule.fact.starts_with("family:") && !rule.fact.starts_with("survival:") {
             check(
                 BlockTraits::from_name(&rule.fact).is_some(),
@@ -105,8 +124,20 @@ pub(super) fn compile(
             )?;
         }
     }
+    let legacy_names: BTreeSet<_> = legacy.iter().map(|record| record.name.as_ref()).collect();
+    for rule in &policy.block_rules {
+        for name in &rule.compatibility_members {
+            check(
+                legacy_names.contains(name.as_str()),
+                "unknown historical render member",
+            )?;
+        }
+    }
     let components = components(source)?;
     let backings = rules::backings();
+    let mut render_facts = BTreeMap::<String, assets::facts::BlockRenderFact>::new();
+    let mut kinds_decided = BTreeSet::new();
+    let mut tints_decided = BTreeSet::new();
     let mut expansion =
         BTreeMap::<String, (BlockTraits, ShapeTraits, BTreeSet<String>, BTreeSet<String>)>::new();
     for ((block, record), state) in source.iter().zip(records).zip(&states) {
@@ -133,12 +164,43 @@ pub(super) fn compile(
             applied.insert("block-entity-backings".into());
         }
         for rule in &policy.block_rules {
-            if rule.matches(&block.name, state, record.model_family) {
-                applied.insert(rule.id.clone());
-                if matches!(rule.status, Status::Provisional) {
-                    provisional.insert(rule.id.clone());
+            if !rule.matches(&block.name, state, record.model_family) {
+                continue;
+            }
+            applied.insert(rule.id.clone());
+            presentation(rule, render_facts.entry(block.name.clone()).or_default())?;
+            if matches!(rule.status, Status::Provisional) {
+                provisional.insert(rule.id.clone());
+            }
+            if let Some(kind) = rule.fact.strip_prefix("render:")
+                && kinds_decided.insert(block.name.clone())
+            {
+                render_facts.entry(block.name.clone()).or_default().kind =
+                    serde_json::from_value(serde_json::Value::String(kind.into()))?;
+            } else if let Some(tint) = rule.fact.strip_prefix("render_tint:")
+                && tints_decided.insert(block.name.clone())
+            {
+                render_facts.entry(block.name.clone()).or_default().tint =
+                    serde_json::from_value(serde_json::Value::String(tint.into()))?;
+            } else if let Some(flag) = rule.fact.strip_prefix("render_flag:") {
+                let render = render_facts.entry(block.name.clone()).or_default();
+                match flag {
+                    "fire_flammable" => render.fire_flammable = rule.value,
+                    "fire_top" => render.fire_top = rule.value,
+                    "flat_icon" => render.flat_icon = rule.value,
+                    "fast_sword" => render.fast_sword = rule.value,
+                    _ => return Err("unknown render flag".into()),
                 }
             }
+        }
+        if traits.contains(BlockTraits::PORTAL) && !kinds_decided.contains(&block.name) {
+            render_facts.entry(block.name.clone()).or_default().kind =
+                assets::facts::BlockRenderKind::Portal;
+        }
+        if traits.contains(BlockTraits::BLOCK_ENTITY_DRAWN) && !kinds_decided.contains(&block.name)
+        {
+            render_facts.entry(block.name.clone()).or_default().kind =
+                assets::facts::BlockRenderKind::EntityDrawn;
         }
         let entry = expansion.entry(block.name.clone()).or_default();
         entry.0 |= traits;
@@ -154,7 +216,57 @@ pub(super) fn compile(
             entry.3.insert("unadmitted".into());
         }
     }
-    let mut text = String::from("identifier\ttraits\trules\tprovisional\n");
+    for record in legacy {
+        if expansion.contains_key(record.name.as_ref()) {
+            continue;
+        }
+        let state = serde_json::from_str(&record.canonical_state)?;
+        let mut render = assets::facts::BlockRenderFact::default();
+        for rule in &policy.block_rules {
+            if let Some(kind) = rule.fact.strip_prefix("render:")
+                && (rule.matches(&record.name, &state, record.model_family)
+                    || rule
+                        .compatibility_members
+                        .iter()
+                        .any(|name| name == record.name.as_ref()))
+            {
+                render.kind = serde_json::from_value(serde_json::Value::String(kind.into()))?;
+                break;
+            }
+        }
+        for rule in &policy.block_rules {
+            if rule.matches(&record.name, &state, record.model_family) {
+                presentation(rule, &mut render)?;
+            }
+        }
+        if render.kind == assets::facts::BlockRenderKind::Ordinary
+            && policy.block_rules.iter().any(|rule| {
+                rule.fact == "BLOCK_ENTITY_DRAWN"
+                    && rule.value
+                    && rule.matches(&record.name, &state, record.model_family)
+            })
+        {
+            render.kind = assets::facts::BlockRenderKind::EntityDrawn;
+        }
+        if render.kind == assets::facts::BlockRenderKind::Ordinary
+            && policy.block_rules.iter().any(|rule| {
+                rule.fact == "PORTAL"
+                    && rule.value
+                    && rule.matches(&record.name, &state, record.model_family)
+            })
+        {
+            render.kind = assets::facts::BlockRenderKind::Portal;
+        }
+        if render != assets::facts::BlockRenderFact::default() {
+            render_facts.insert(record.name.to_string(), render);
+            expansion
+                .entry(record.name.to_string())
+                .or_default()
+                .3
+                .insert("historical-render".into());
+        }
+    }
+    let mut text = String::from("identifier\ttraits\trules\tprovisional\trender\n");
     for (name, (traits, shapes, rules, provisional)) in expansion {
         let names = traits
             .iter_names()
@@ -163,13 +275,18 @@ pub(super) fn compile(
             .collect::<Vec<_>>()
             .join(",");
         text.push_str(&format!(
-            "{name}\t{names}\t{}\t{}\n",
+            "{name}\t{names}\t{}\t{}\t{}\n",
             rules.into_iter().collect::<Vec<_>>().join(","),
             if provisional.is_empty() {
                 "-".to_owned()
             } else {
                 provisional.into_iter().collect::<Vec<_>>().join(",")
-            }
+            },
+            serde_json::to_string(
+                render_facts
+                    .get(&name)
+                    .unwrap_or(&assets::facts::BlockRenderFact::default())
+            )?
         ));
     }
     Ok(text.into_bytes())
@@ -236,6 +353,22 @@ pub(super) fn vocabulary(root: &std::path::Path, blocks: &[BlockFact]) -> Result
         .map(|name| format!("{name}\n"))
         .collect::<String>()
         .into_bytes())
+}
+
+/// Assigns registry-bound model metadata without making the runtime repeat name selection.
+fn presentation(rule: &Rule, render: &mut assets::facts::BlockRenderFact) -> Result<()> {
+    if let Some(alias) = rule.fact.strip_prefix("legacy_alias:") {
+        render.legacy_alias = Some(serde_json::from_value(serde_json::Value::String(
+            alias.into(),
+        ))?);
+    } else if rule.fact == "model_variant" {
+        let variant = rule.model_variant.ok_or("missing model variant")?;
+        if let assets::facts::BlockModelVariant::Skull(index) = variant {
+            check(index <= 6, "invalid skull model index")?;
+        }
+        render.variant = Some(variant);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

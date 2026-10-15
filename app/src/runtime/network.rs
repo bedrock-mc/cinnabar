@@ -11,7 +11,7 @@ use client_presentation::{
     },
 };
 use client_runtime::{
-    ingress::{OUTBOUND_SEND_BUDGET_PER_FRAME, drain_network_controls},
+    ingress::{NETWORK_CONTROL_BUDGET_PER_FRAME, drain_network_controls},
     network::NetworkHandle,
     pack_admission::ResourcePackAdmissionState,
     publication::PublicationController,
@@ -80,9 +80,10 @@ pub(crate) fn receive_network_events(
     }
     // Controls establish or retire the session before world ingress. Bootstrap publishes
     // the stream before releasing equipment; each world event then sees the preceding commit.
-    for control in
-        drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME)
-    {
+    for control in drain_network_controls(
+        network.control_events_mut(),
+        NETWORK_CONTROL_BUDGET_PER_FRAME,
+    ) {
         if matches!(control, NetworkControlEvent::Bootstrap { .. }) {
             bootstrap::apply(
                 control,
@@ -173,8 +174,8 @@ pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;
 pub(crate) use actor_publication::{
-    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
-    publish_local_actor_damage,
+    advance_actor_frame, advance_actor_motion, initialize_actor_geometry_budget,
+    prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
 };
 
 #[cfg(test)]

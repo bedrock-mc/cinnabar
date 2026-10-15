@@ -255,6 +255,8 @@ fn review_render_stale_resource_geometry_preserves_active_arena() {
         view_entity: view,
         order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
+            revision: 0,
+            _retained_assets: None,
             asset_identity: ChunkTextureAssets::default().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
                 entity,
@@ -429,6 +431,8 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         view_entity: view,
         order_camera: TransparentFaceMetric::new(Vec3::ZERO).order_camera([instance.key]),
         address: TransparentModelAddressIdentity {
+            revision: 0,
+            _retained_assets: None,
             asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
             allocations: Arc::from([TransparentModelAllocationIdentity {
                 entity,
@@ -720,6 +724,8 @@ fn queued_model_job_revalidates_groups_an_in_flight_result_overwrites() {
     let (mut app, view, identities) = model_groups_app(&[(moved, 2), (stale, 1)]);
     let (camera_a, camera_b) = (Vec3::new(8.0, 8.0, 8.0), Vec3::new(90.0, 8.0, 8.0));
     let address = TransparentModelAddressIdentity {
+        revision: 0,
+        _retained_assets: None,
         asset_identity: app.world().resource::<ChunkTextureAssets>().identity(),
         allocations: identities.clone().into(),
     };
@@ -869,6 +875,8 @@ fn unwitnessed_model_order_resorts_when_its_class_changes() {
         .insert(filler.entity, filler_allocation);
     let asset_identity = app.world().resource::<ChunkTextureAssets>().identity();
     let address = TransparentModelAddressIdentity {
+        revision: 0,
+        _retained_assets: None,
         asset_identity,
         allocations: Arc::from([identity.clone()]),
     };
@@ -878,6 +886,8 @@ fn unwitnessed_model_order_resorts_when_its_class_changes() {
             .resource_mut::<TransparentModelSortRuntime>();
         runtime.draw_orders.publish(
             &TransparentModelAddressIdentity {
+                revision: 0,
+                _retained_assets: None,
                 asset_identity,
                 allocations: Arc::from([filler.clone()]),
             },

@@ -1,5 +1,6 @@
 //! One retained media texture shared by host UI, quad and entity-material adapters.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{
         Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
@@ -75,7 +76,7 @@ impl MediaTexture {
             return false;
         }
         let [width, height] = size;
-        queue.write_texture(
+        queue.profiled_write_texture(
             TexelCopyTextureInfo {
                 texture: &self.texture,
                 mip_level: 0,

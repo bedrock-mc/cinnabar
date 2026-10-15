@@ -9,45 +9,14 @@ use super::context::{
     set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 /// Enchanting-table base height in 1/256 block; the book floats above it as an entity.
 const ENCHANTING_TABLE_HEIGHT: i16 = 12 * 16;
 
 /// Whether the block entity renderer draws this whole block, with no terrain part.
 pub(in crate::compiler) fn is_entity_drawn_name(name: &str) -> bool {
-    if assets::vanilla_skull_type(name).is_some()
-        || matches!(
-            name,
-            assets::END_PORTAL_IDENTIFIER | assets::END_GATEWAY_IDENTIFIER
-        )
-    {
-        return true;
-    }
-    let Some(name) = name.strip_prefix("minecraft:") else {
-        return false;
-    };
-    let name = name.strip_prefix("waxed_").unwrap_or(name);
-    matches!(
-        name,
-        "chest"
-            | "trapped_chest"
-            | "ender_chest"
-            | "bed"
-            | "standing_banner"
-            | "wall_banner"
-            | "skull"
-            | "decorated_pot"
-            | "conduit"
-            | "bell"
-            | "frame"
-            | "glow_frame"
-            | "lectern"
-            | "copper_chest"
-            | "exposed_copper_chest"
-            | "weathered_copper_chest"
-            | "oxidized_copper_chest"
-    ) || name.ends_with("_shulker_box")
-        || name.ends_with("copper_golem_statue")
+    block_render_fact(name).kind == R::EntityDrawn
 }
 
 pub(in crate::compiler) fn compile_rule(
@@ -56,7 +25,7 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<CuboidTemplateKey, u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() == "minecraft:enchanting_table" {
+    if block_render_fact(&record.name).kind == R::EnchantingTable {
         let Some(materials) = inputs.materials(record) else {
             return Ok(CompileRuleResult::NoMatch);
         };
@@ -90,6 +59,11 @@ mod tests {
 
     #[test]
     fn entity_drawn_names_cover_the_block_entity_families_only() {
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap();
         for name in [
             "minecraft:chest",
             "minecraft:trapped_chest",
@@ -98,7 +72,6 @@ mod tests {
             "minecraft:bed",
             "minecraft:standing_banner",
             "minecraft:wall_banner",
-            "minecraft:skull",
             "minecraft:skeleton_skull",
             "minecraft:wither_skeleton_skull",
             "minecraft:zombie_head",
@@ -107,11 +80,15 @@ mod tests {
             "minecraft:dragon_head",
             "minecraft:piglin_head",
             "minecraft:undyed_shulker_box",
-            "minecraft:silver_shulker_box",
+            "minecraft:light_gray_shulker_box",
             "minecraft:bell",
             assets::END_PORTAL_IDENTIFIER,
             assets::END_GATEWAY_IDENTIFIER,
         ] {
+            assert!(
+                records.iter().any(|record| record.name.as_ref() == name),
+                "unregistered fixture {name}"
+            );
             assert!(is_entity_drawn_name(name), "{name}");
         }
         for name in [

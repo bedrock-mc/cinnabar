@@ -288,10 +288,13 @@ pub fn prepare_actor_render_frame(
         icons,
         stream,
         client_world.collisions,
-        camera_position.map(|position| {
-            let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
-            (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
-        }),
+        (
+            camera_position.map(|position| {
+                let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+                (position, (180.0 - yaw.to_degrees()).rem_euclid(360.0))
+            }),
+            cull_view,
+        ),
         step.partial_tick,
         (
             artwork.item_glint.clone(),

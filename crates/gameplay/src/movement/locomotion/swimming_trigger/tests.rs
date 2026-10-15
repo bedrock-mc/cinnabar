@@ -96,6 +96,7 @@ fn observed() -> ModeObservation {
         pitch: 0.0,
         yaw: 0.0,
         liquid_attach_height: protocol::STANDING_PLAYER_EYE_HEIGHT,
+        liquid_contact_height: None,
         jump_edge: false,
         jump_down: false,
     }

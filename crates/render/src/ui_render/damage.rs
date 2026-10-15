@@ -1,6 +1,6 @@
 //! Conservative pixel damage for a retained UI layer with an unchanged draw topology.
 
-use std::{mem::size_of_val, sync::Arc};
+use std::{mem::size_of_val, ops::Range, sync::Arc};
 
 use render_model::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_INDICES, MAX_UI_VERTICES, UI_BLEND_ALPHA,
@@ -15,17 +15,55 @@ pub(super) enum UiDamage {
     Rect(UiScissor),
 }
 
-/// Finds old and new coverage of changed triangles under the default full-target viewport.
-/// Callers must replay every overlapping batch in order, including unchanged depth-writing models.
+impl UiDamage {
+    /// Pixel rectangles are valid only under the publication's unmodified full-target projection.
+    pub(super) fn for_projection(self, full_target: bool) -> Self {
+        if !full_target && matches!(self, Self::Rect(_)) {
+            Self::Full
+        } else {
+            self
+        }
+    }
+
+    /// Combines geometry and animation coverage without losing either restore requirement.
+    pub(super) fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Full, _) | (_, Self::Full) => Self::Full,
+            (Self::Unchanged, damage) | (damage, Self::Unchanged) => damage,
+            (Self::Rect(a), Self::Rect(b)) => Self::Rect(union(a, b)),
+        }
+    }
+}
+
+/// Plans the historical whole-alpha-layer path used by the raster parity fixtures.
+#[cfg(test)]
 pub(super) fn plan(previous: &UiRenderInput, current: &UiRenderInput) -> UiDamage {
+    if previous
+        .batches
+        .iter()
+        .chain(current.batches.iter())
+        .any(|batch| batch.world_projection != 0)
+    {
+        return UiDamage::Full;
+    }
+    plan_segment(previous, current, 0..current.batches.len())
+}
+
+/// Finds changed geometry within one alpha segment; animation coverage is prepared separately.
+/// Callers restore damage and replay every intersecting batch, including unchanged models, in order.
+pub(super) fn plan_segment(
+    previous: &UiRenderInput,
+    current: &UiRenderInput,
+    segment: Range<usize>,
+) -> UiDamage {
     if previous.viewport_size != current.viewport_size
         || previous.safe_area != current.safe_area
         || !Arc::ptr_eq(&previous.textures, &current.textures)
         || previous.indices != current.indices
-        || previous.batches != current.batches
+        || previous.batches.get(segment.clone()) != current.batches.get(segment.clone())
         || previous.vertices.len() != current.vertices.len()
-        || !supported(previous)
-        || !supported(current)
+        || !supported(previous, &segment)
+        || !supported(current, &segment)
     {
         return UiDamage::Full;
     }
@@ -35,7 +73,10 @@ pub(super) fn plan(previous: &UiRenderInput, current: &UiRenderInput) -> UiDamag
         return UiDamage::Unchanged;
     }
     let mut damage = None;
-    for batch in current.batches.iter() {
+    for batch in current.batches[segment]
+        .iter()
+        .filter(|batch| batch.world_projection == 0)
+    {
         let start = batch.first_index as usize;
         let end = start + batch.index_count as usize;
         for triangle in current.indices[start..end].as_chunks::<3>().0 {
@@ -72,10 +113,74 @@ pub(super) fn plan(previous: &UiRenderInput, current: &UiRenderInput) -> UiDamag
     damage.map_or(UiDamage::Unchanged, UiDamage::Rect)
 }
 
+/// Precomputes glint triangles once on admission; clocks and glint texture/settings changes
+/// damage these same pixels even when the accepted publication and geometry stay unchanged.
+pub(super) fn animated_batches(input: &UiRenderInput) -> Vec<UiDamage> {
+    input
+        .batches
+        .iter()
+        .map(|batch| {
+            if batch.world_projection != 0 || batch.blend_mode != UI_BLEND_ALPHA {
+                return UiDamage::Unchanged;
+            }
+            let Some(end) = batch.first_index.checked_add(batch.index_count) else {
+                return UiDamage::Full;
+            };
+            let Some(indices) = input.indices.get(batch.first_index as usize..end as usize) else {
+                return UiDamage::Full;
+            };
+            if !indices.len().is_multiple_of(3) {
+                return UiDamage::Full;
+            }
+            let mut damage = UiDamage::Unchanged;
+            for triangle in indices.as_chunks::<3>().0 {
+                let vertices = triangle.map(|index| input.vertices.get(index as usize));
+                if vertices.iter().any(|vertex| vertex.is_none()) {
+                    return UiDamage::Full;
+                }
+                let vertices = vertices.map(Option::unwrap);
+                if !vertices
+                    .iter()
+                    .any(|vertex| vertex.style_flags & UI_STYLE_GLINT != 0)
+                {
+                    continue;
+                }
+                if vertices
+                    .iter()
+                    .any(|vertex| !supported_vertex(vertex, input.viewport_size))
+                    || batch.scissor.x.checked_add(batch.scissor.width).is_none()
+                    || batch.scissor.y.checked_add(batch.scissor.height).is_none()
+                {
+                    return UiDamage::Full;
+                }
+                let mut bounds = [
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                ];
+                for vertex in vertices {
+                    for axis in 0..2 {
+                        let pixel = f64::from(vertex.position[axis]) / f64::from(vertex.clip_w);
+                        bounds[axis] = bounds[axis].min(pixel);
+                        bounds[axis + 2] = bounds[axis + 2].max(pixel);
+                    }
+                }
+                if let Some(rect) = clipped(bounds, batch.scissor, input.viewport_size) {
+                    damage = damage.union(UiDamage::Rect(rect));
+                }
+            }
+            damage
+        })
+        .collect()
+}
+
 /// Rejects inputs whose shader coverage or ordered depth lifetimes cannot be bounded safely.
-fn supported(input: &UiRenderInput) -> bool {
+fn supported(input: &UiRenderInput, segment: &Range<usize>) -> bool {
     let [width, height] = input.viewport_size;
-    if width == 0
+    if segment.start > segment.end
+        || segment.end > input.batches.len()
+        || width == 0
         || height == 0
         || input.vertices.len() > MAX_UI_VERTICES
         || input.indices.len() > MAX_UI_INDICES
@@ -109,8 +214,9 @@ fn supported(input: &UiRenderInput) -> bool {
             || batch.index_count == 0
             || !batch.index_count.is_multiple_of(3)
             || batch.texture_page as usize >= input.textures.pages().len()
-            || batch.world_projection != 0
-            || batch.blend_mode != UI_BLEND_ALPHA
+            || (segment.contains(&index)
+                && batch.world_projection == 0
+                && batch.blend_mode != UI_BLEND_ALPHA)
             || batch.depth_test > 1
             || batch.depth_write > 1
             || ((batch.depth_test != 0 || batch.depth_write != 0)
@@ -161,7 +267,6 @@ fn supported_vertex(vertex: &UiRenderVertex, viewport: [u32; 2]) -> bool {
         && vertex.model_light.is_finite()
         && vertex.model_light >= 0.0
         && vertex.overlay_color.iter().all(|value| value.is_finite())
-        && vertex.style_flags & UI_STYLE_GLINT == 0
         && (0..2).all(|axis| {
             let position = vertex.position[axis];
             let scaled = position / viewport[axis] as f32;

@@ -57,6 +57,12 @@ impl Default for Server {
 impl Server {
     /// Processes one admitted control immediately while allowing its reply to be delayed or lost.
     fn send(&mut self, ledger: &mut PlayerInventoryLedger, now: u64, lose_reply: bool) {
+        if ledger.pending_batch().unwrap()
+            == Some((protocol::repeated_container_open_warning_packet(), 1))
+        {
+            assert!(ledger.mark_transport_enqueued(now));
+            return;
+        }
         let Some(request) = ledger.pending_control() else {
             // Non-control traffic, including a world drop, may unblock a close.
             ledger.mark_transport_enqueued(now);

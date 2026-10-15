@@ -16,6 +16,8 @@ reads = [
 ]
 
 [features]
+# Counts allocation requests and labelled GPU writes for diagnostic runs.
+alloc-stats = ["render-scene/alloc-stats"]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
 # Compiles the hard-disabled Enhanced renderer.
@@ -52,6 +54,11 @@ sha2 = { workspace = true, features = ["asm"] }
 # Absolute monotonic waits for frame pacing.
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
+
+# Reads marker command-buffer host times for whole-frame GPU timing.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLCommandBuffer", "objc2-core-foundation"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }

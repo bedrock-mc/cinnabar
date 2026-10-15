@@ -13,68 +13,6 @@ const DESTROY_BLOCK_EVENT: i32 = 2001;
 /// Legacy door sound, which picks opening or closing at random.
 const DOOR_EVENT: i32 = 1003;
 
-/// Sound-only level events: `(id, individual event name, sound definition fallback)`.
-const LEVEL_EVENT_SOUNDS: &[(i32, &str, &str)] = &[
-    (1000, "block.click", "random.click"),
-    (1001, "block.click.fail", "random.click"),
-    (1002, "launch", "random.bow"),
-    (1004, "fizz", "random.fizz"),
-    (1005, "", "random.fuse"),
-    (1007, "", "mob.ghast.charge"),
-    (1008, "", "mob.ghast.fireball"),
-    (1009, "", "mob.blaze.shoot"),
-    (1010, "", "mob.zombie.wood"),
-    (1012, "", "mob.zombie.woodbreak"),
-    (1016, "unfect", "mob.zombie.unfect"),
-    (1017, "remedy", "mob.zombie.remedy"),
-    (1018, "", "mob.endermen.portal"),
-    (1020, "", "random.anvil_break"),
-    (1021, "", "random.anvil_use"),
-    (1022, "", "random.anvil_land"),
-    (1030, "", "random.pop"),
-    (1032, "", "mob.endermen.portal"),
-    (1040, "", "block.itemframe.add_item"),
-    (1041, "", "block.itemframe.break"),
-    (1042, "", "block.itemframe.place"),
-    (1043, "", "block.itemframe.remove_item"),
-    (1044, "", "block.itemframe.rotate_item"),
-    (1051, "", "random.orb"),
-    (1052, "random.totem", "random.totem"),
-    (1060, "", "mob.armor_stand.break"),
-    (1061, "", "mob.armor_stand.hit"),
-    (1062, "", "mob.armor_stand.land"),
-    (1063, "", "mob.armor_stand.place"),
-];
-
-/// Note block instruments by the id a `note` event packs above its low data byte.
-const NOTE_INSTRUMENTS: [&str; 26] = [
-    "note.harp",
-    "note.bd",
-    "note.snare",
-    "note.hat",
-    "note.bassattack",
-    "note.flute",
-    "note.bell",
-    "note.guitar",
-    "note.chime",
-    "note.xylophone",
-    "note.iron_xylophone",
-    "note.cow_bell",
-    "note.didgeridoo",
-    "note.bit",
-    "note.banjo",
-    "note.pling",
-    "note.trumpet",
-    "note.trumpet_exposed",
-    "note.trumpet_weathered",
-    "note.trumpet_oxidized",
-    "note.zombie",
-    "note.skeleton",
-    "note.creeper",
-    "note.enderdragon",
-    "note.witherskeleton",
-    "note.piglin",
-];
 const NOTE_EVENT: &str = "note";
 
 #[cfg(test)]
@@ -155,7 +93,12 @@ fn from_level_route(
             .actor_identifier
             .strip_prefix("minecraft:")
             .unwrap_or(&event.actor_identifier);
-        if event.sound_event.as_ref() != "splash" || actor != "fishing_hook" {
+        let native = assets::facts::entity::EntityFacts::pinned()
+            .get(&format!("minecraft:{actor}"))
+            .native_class;
+        if event.sound_event.as_ref() != "splash"
+            || native != assets::facts::entity::NativeEntityClass::FishingHook
+        {
             let volume = super::water::encoded_volume(event.data);
             request.volume = FloatRange {
                 min: volume,
@@ -174,7 +117,7 @@ fn note_request(
     event: &LevelAudioEvent,
     position: Option<[f32; 3]>,
 ) -> Option<SoundRequest> {
-    let instrument = NOTE_INSTRUMENTS.get(usize::try_from(event.data >> 8).ok()?)?;
+    let instrument = assets::facts::note_instrument(usize::try_from(event.data >> 8).ok()?)?;
     let semitones = (event.data & 0xff) - 12;
     let pitch = (semitones as f32 / 12.0).exp2();
     let (volume, base_pitch) = match tables.individual_lookup(NOTE_EVENT) {
@@ -182,7 +125,7 @@ fn note_request(
         RouteLookup::Absent => (FloatRange::ONE, FloatRange::ONE),
         RouteLookup::Silent => return None,
     };
-    let mut request = SoundRequest::new(*instrument)
+    let mut request = SoundRequest::new(instrument)
         .with_ranges(volume, base_pitch)
         .scaled(1.0, pitch);
     request.position = position;
@@ -204,9 +147,7 @@ pub(super) fn level_event_request(
         };
         return Some(SoundRequest::new(name).at(event.position));
     }
-    let &(_, individual, fallback) = LEVEL_EVENT_SOUNDS
-        .iter()
-        .find(|(id, _, _)| *id == event.event_id)?;
+    let (individual, fallback) = assets::facts::level_event_sound(event.event_id)?;
     let lookup = if individual.is_empty() {
         RouteLookup::Absent
     } else {

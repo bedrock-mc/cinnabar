@@ -24,6 +24,27 @@ pub(in crate::chunk) struct TransparentModelDrawOrders {
 }
 
 impl TransparentModelDrawOrders {
+    /// Requires a new sort class after mesh or asset inputs change, preserving order witnesses.
+    pub(super) fn invalidate_classes(&mut self, entities: &HashSet<Entity>, all: bool) {
+        if all {
+            for order in self.entries.values_mut() {
+                order.class = None;
+            }
+            for (_, class) in self.unwitnessed.values_mut() {
+                *class = None;
+            }
+        } else {
+            for entity in entities {
+                if let Some(order) = self.entries.get_mut(entity) {
+                    order.class = None;
+                }
+                if let Some((_, class)) = self.unwitnessed.get_mut(entity) {
+                    *class = None;
+                }
+            }
+        }
+    }
+
     pub(in crate::chunk) fn remap_entities(&mut self, residents: &HashMap<SubChunkKey, Entity>) {
         self.entries = self
             .entries
@@ -255,6 +276,8 @@ mod tests {
     fn upload_publishes_its_exact_order_before_other_chunk_batches_complete() {
         let identity = identity();
         let address = TransparentModelAddressIdentity {
+            revision: 0,
+            _retained_assets: None,
             asset_identity: ChunkTextureAssetIdentity::new(0, 1),
             allocations: Arc::from([identity.clone()]),
         };

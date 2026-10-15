@@ -407,6 +407,7 @@ pub fn run_frame(
         }
         active = true;
         let grants = host.grants();
+        union.terrain |= grants.terrain;
         union.players |= grants.players;
         union.camera |= grants.camera;
         union.item_use |= grants.item_use;
@@ -496,7 +497,8 @@ pub fn run_frame(
 
 /// Whether the host may receive the common gameplay pose and input snapshot.
 fn needs_gameplay(grants: &ModGrants) -> bool {
-    grants.players
+    grants.terrain
+        || grants.players
         || grants.camera
         || grants.item_use
         || grants.movement

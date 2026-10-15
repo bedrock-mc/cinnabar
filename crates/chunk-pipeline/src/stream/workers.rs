@@ -2,8 +2,12 @@
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 mod priority;
+#[cfg(feature = "tracy")]
+mod queue_lock;
 #[cfg(not(target_arch = "wasm32"))]
 use native::{now, restore_lowered_job};
+#[cfg(feature = "tracy")]
+use queue_lock::QueueGuard;
 use simulation_clock::Moment;
 
 use std::collections::VecDeque;
@@ -11,6 +15,9 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+
+#[cfg(not(feature = "tracy"))]
+type QueueGuard<'a> = MutexGuard<'a, Queues>;
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
@@ -20,12 +27,13 @@ const MIN_WORLD_THREADS: usize = 3;
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
 
-/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
+/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light and summaries trail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {
     Mesh,
     Decode,
     Light,
+    Summary,
 }
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
@@ -62,6 +70,7 @@ struct Queues {
     mesh: Queue,
     decode: Queue,
     light: Queue,
+    summary: Queue,
     shutdown: bool,
     #[cfg(target_arch = "wasm32")]
     observed_at: Moment,
@@ -74,6 +83,7 @@ impl Queues {
             Lane::Mesh => &mut self.mesh,
             Lane::Decode => &mut self.decode,
             Lane::Light => &mut self.light,
+            Lane::Summary => &mut self.summary,
         };
         queue.push_back((queued_at, job));
     }
@@ -100,7 +110,9 @@ impl Queues {
         } else {
             &mut self.mesh
         };
-        lane.pop_front().map(|(_, job)| job)
+        lane.pop_front()
+            .or_else(|| background.then(|| self.summary.pop_front()).flatten())
+            .map(|(_, job)| job)
     }
 }
 
@@ -114,16 +126,46 @@ struct Shared {
 
 impl Shared {
     /// Recovers the job queue after poison without discarding accepted work.
-    fn lock(&self) -> MutexGuard<'_, Queues> {
+    fn lock(&self) -> QueueGuard<'_> {
         #[cfg(feature = "tracy")]
-        let _zone = tracing::info_span!("stream.queue_lock").entered();
+        let owned = tracing::info_span!("stream.queue_owned");
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let wait = tracing::info_span!("stream.worker_wait");
         #[cfg(all(test, windows))]
         if priority::is_lowered() {
             self.lowered_locks
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        self.queues
-            .lock()
+        let guard = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.queue_lock").entered();
+            self.queues
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let guard = QueueGuard::new(guard, owned, wait);
+        #[cfg(all(feature = "tracy", target_arch = "wasm32"))]
+        let guard = QueueGuard::new(guard, owned);
+        guard
+    }
+
+    /// Sleeps atomically with queue release, excluding the sleep from lock ownership.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
+        #[cfg(feature = "tracy")]
+        {
+            let (guard, owned, wait) = guard.end_ownership();
+            let waiting = wait.entered();
+            let guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            QueueGuard::new(guard, owned, waiting.exit())
+        }
+        #[cfg(not(feature = "tracy"))]
+        self.ready
+            .wait(guard)
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
@@ -189,12 +231,14 @@ impl WorldPool {
 
     /// Accepts a finite job without running it on the submitting thread.
     pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.queue_submit", ?lane, jobs = 1).entered();
         let queued_at = self.observed_at();
         self.shared
             .lock()
             .push(lane, queued_at, Box::new(move |_| job()));
-        // A foreground waiter cannot take light, so light wakes everyone.
-        if lane == Lane::Light {
+        // Background-only lanes must wake an eligible worker even if a foreground one waits.
+        if matches!(lane, Lane::Light | Lane::Summary) {
             self.shared.ready.notify_all();
         } else {
             self.shared.ready.notify_one();
@@ -240,6 +284,10 @@ impl Drop for DispatchBatch<'_> {
         if self.jobs.is_empty() {
             return;
         }
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.queue_submit", lane = ?self.lane, jobs = self.jobs.len())
+                .entered();
         let mut queues = self.pool.shared.lock();
         for (at, urgent, job) in self.jobs.drain(..) {
             if urgent {

@@ -1,7 +1,9 @@
 use super::super::*;
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_bee_housing_name(name: &str) -> bool {
-    matches!(name, "minecraft:bee_nest" | "minecraft:beehive")
+    block_render_fact(name).kind == R::BeeHousing
 }
 
 pub(in crate::compiler) fn exact_bee_housing_state(record: &RegistryRecord) -> Option<(u32, u32)> {
@@ -78,10 +80,12 @@ pub(in crate::compiler) fn bee_housing_inventory_is_exact(records: &[RegistryRec
         let Some((direction, honey_level)) = exact_bee_housing_state(record) else {
             return false;
         };
-        let family = match record.name.as_ref() {
-            "minecraft:bee_nest" => 0,
-            "minecraft:beehive" => 1,
-            _ => return false,
+        let family = if record.name.as_ref() == B::BeeNest.identifier() {
+            0
+        } else if record.name.as_ref() == B::Beehive.identifier() {
+            1
+        } else {
+            return false;
         };
         let slot = family * 24 + (honey_level * 4 + direction) as usize;
         if seen[slot] {
@@ -95,41 +99,44 @@ pub(in crate::compiler) fn bee_housing_inventory_is_exact(records: &[RegistryRec
 pub(in crate::compiler) fn bee_housing_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 9]> {
-    if pack.blocks.get_exact_faces("bee_nest")?
+    if pack.blocks.get_exact_faces(B::BeeNest.bare())?
         != [
-            "bee_nest_side",
-            "bee_nest_side",
-            "bee_nest_bottom",
-            "bee_nest_top",
-            "bee_nest_side",
-            "bee_nest_front",
+            T::BeeNestSide.key(),
+            T::BeeNestSide.key(),
+            T::BeeNestBottom.key(),
+            T::BeeNestTop.key(),
+            T::BeeNestSide.key(),
+            T::BeeNestFront.key(),
         ]
-        || pack.blocks.get_exact_faces("beehive")?
+        || pack.blocks.get_exact_faces(B::Beehive.bare())?
             != [
-                "beehive_side",
-                "beehive_side",
-                "beehive_top",
-                "beehive_top",
-                "beehive_side",
-                "beehive_front",
+                T::BeehiveSide.key(),
+                T::BeehiveSide.key(),
+                T::BeehiveTop.key(),
+                T::BeehiveTop.key(),
+                T::BeehiveSide.key(),
+                T::BeehiveFront.key(),
             ]
     {
         return None;
     }
 
     let routes = [
-        ("bee_nest_bottom", "textures/blocks/bee_nest_bottom"),
-        ("bee_nest_front", "textures/blocks/bee_nest_front"),
-        ("bee_nest_front", "textures/blocks/bee_nest_front_honey"),
-        ("bee_nest_side", "textures/blocks/bee_nest_side"),
-        ("bee_nest_top", "textures/blocks/bee_nest_top"),
-        ("beehive_front", "textures/blocks/beehive_front"),
-        ("beehive_front", "textures/blocks/beehive_front_honey"),
-        ("beehive_side", "textures/blocks/beehive_side"),
-        ("beehive_top", "textures/blocks/beehive_top"),
+        (T::BeeNestBottom.key(), "textures/blocks/bee_nest_bottom"),
+        (T::BeeNestFront.key(), "textures/blocks/bee_nest_front"),
+        (
+            T::BeeNestFront.key(),
+            "textures/blocks/bee_nest_front_honey",
+        ),
+        (T::BeeNestSide.key(), "textures/blocks/bee_nest_side"),
+        (T::BeeNestTop.key(), "textures/blocks/bee_nest_top"),
+        (T::BeehiveFront.key(), "textures/blocks/beehive_front"),
+        (T::BeehiveFront.key(), "textures/blocks/beehive_front_honey"),
+        (T::BeehiveSide.key(), "textures/blocks/beehive_side"),
+        (T::BeehiveTop.key(), "textures/blocks/beehive_top"),
     ];
-    let nest_front = pack.terrain.get_exact_pair_plain("bee_nest_front")?;
-    let hive_front = pack.terrain.get_exact_pair_plain("beehive_front")?;
+    let nest_front = pack.terrain.get_exact_pair_plain(T::BeeNestFront.key())?;
+    let hive_front = pack.terrain.get_exact_pair_plain(T::BeehiveFront.key())?;
     if nest_front
         != [
             "textures/blocks/bee_nest_front",
@@ -146,7 +153,8 @@ pub(in crate::compiler) fn bee_housing_material_descriptors(
 
     let mut descriptors = Vec::with_capacity(routes.len());
     for (key, expected_path) in routes {
-        let (path, state_variant) = if key.ends_with("_front") {
+        let (path, state_variant) = if key == T::BeeNestFront.key() || key == T::BeehiveFront.key()
+        {
             let paths = pack.terrain.get_exact_pair_plain(key)?;
             let index = paths.iter().position(|&path| path == expected_path)?;
             (paths[index], index as u32)

@@ -123,7 +123,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "state",
-            "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, camera and recording status, and game time.",
+            "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, sign-in status (signed_in, checking or signed_out), camera and recording status, and game time.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {

@@ -60,7 +60,18 @@ impl PlayerInventoryLedger {
         if hotbar >= 9 || source == destination {
             return Err(InventoryGestureError::InvalidRequest);
         }
-        let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
+        let personal_generation = self
+            .gesture_preflight(!matches!(source, Cell::Storage(_)))
+            .or_else(|error| {
+                // A first-frame hotbar swap queues behind its unsent Open, never ahead of it.
+                if error == InventoryGestureError::PersonalInventoryUnavailable
+                    && let Some(super::control::ControlRequest::Open { generation, .. }) =
+                        self.pending_control()
+                {
+                    return Ok(Some(generation));
+                }
+                Err(error)
+            })?;
         self.check_surfaces([source, destination])?;
         let from = self.movable(source)?;
         let to = self.movable(destination)?;

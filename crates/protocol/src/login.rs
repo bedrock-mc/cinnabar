@@ -25,6 +25,9 @@ pub(crate) mod session_join;
 mod startup;
 mod unused_packets;
 use boundary::boundary_wakeup;
+
+/// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
+pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
     PROTOCOL_VERSION, login_memory_tier,
@@ -56,7 +59,6 @@ pub struct PlaySession {
     pending_blob_prefetch: Option<(Packet, usize)>,
     server_disconnect: Option<ServerDisconnectEvent>,
     server_transfer: Option<ServerTransferEvent>,
-    resource_packs: ResourcePackHandoff,
 }
 
 struct PendingBlobCacheDelivery {
@@ -85,6 +87,15 @@ impl WorldIngress {
 }
 
 impl PlaySession {
+    /// Buffers raw core frames while the world consumer is full. Decoding resumes in wire
+    /// order when the caller receives again. Reading stops at the shared byte bound or the
+    /// session's terminal message; cancelling this wait retains every complete frame read.
+    pub async fn read_ahead(&mut self) {
+        self.transport
+            .read_ahead(crate::session_transport::MAX_READ_AHEAD_BYTES)
+            .await;
+    }
+
     /// Sends loading-end and initialization once the client can present the world; later
     /// calls send nothing.
     pub async fn finish_loading(&mut self) -> Result<(), ProtocolError> {
@@ -103,7 +114,6 @@ impl PlaySession {
     fn new(
         transport: SessionTransport,
         cache: Option<ClientBlobCache>,
-        resource_packs: ResourcePackHandoff,
         runtime_id: u64,
         terrain_before_spawn: bool,
     ) -> Self {
@@ -121,7 +131,6 @@ impl PlaySession {
             pending_blob_prefetch: None,
             server_disconnect: None,
             server_transfer: None,
-            resource_packs,
         }
     }
 
@@ -144,12 +153,6 @@ impl PlaySession {
     /// completely and the session survives.
     pub fn transfer_skip_count(&self) -> u64 {
         self.transfer_skips
-    }
-
-    /// Takes the validated ordered resource-pack archives captured during login.
-    /// No archive is parsed or applied, and a second call returns an empty handoff.
-    pub fn take_resource_pack_handoff(&mut self) -> ResourcePackHandoff {
-        std::mem::take(&mut self.resource_packs)
     }
 
     /// Whether the server sent terrain before login completed at PlayerSpawn.

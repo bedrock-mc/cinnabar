@@ -1,4 +1,5 @@
 //! Draws dropped-item and block models plus dynamic line geometry in the opaque 3D phase.
+use crate::queue_writes::ProfiledQueue as _;
 mod mesh_storage;
 mod model_upload;
 use bevy::prelude::IntoScheduleConfigs;
@@ -412,7 +413,7 @@ fn prepare_items(
         meta: [0, 15, 15, 0],
         glint: [0.0; 4],
     });
-    queue.write_buffer(
+    queue.profiled_write_buffer(
         &gpu.instance_buffer,
         0,
         bytemuck::cast_slice::<GpuItemInstance, u8>(&instances),
@@ -423,7 +424,7 @@ fn prepare_items(
     }
     gpu.dynamic_count = scene.dynamic.len() as u32;
     if !scene.dynamic.is_empty() {
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &gpu.dynamic_buffer,
             0,
             bytemuck::cast_slice::<ItemMeshVertex, u8>(&scene.dynamic),
@@ -434,7 +435,7 @@ fn prepare_items(
         }
     }
     gpu.draws = draws;
-    queue.write_buffer(
+    queue.profiled_write_buffer(
         &gpu.environment,
         0,
         bytemuck::cast_slice::<f32, u8>(&[

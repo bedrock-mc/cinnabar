@@ -3,6 +3,7 @@ use super::{
     history::{CameraHistory, ExposureUniform},
     pipeline::BlurPipeline,
 };
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::ecs::system::SystemParam;
 use bevy::{
     camera::MainPassResolutionOverride,
@@ -218,7 +219,7 @@ fn update(
     uniform.strength.z = if state.actors.is_some() { 1.0 } else { 0.0 };
     state.active = uniform.strength.x > 0.0;
     if state.last_uniform != Some(uniform) {
-        queue.write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
+        queue.profiled_write_buffer(&state.uniform, 0, bytemuck::bytes_of(&uniform));
         state.last_uniform = Some(uniform);
     }
     let motion = state

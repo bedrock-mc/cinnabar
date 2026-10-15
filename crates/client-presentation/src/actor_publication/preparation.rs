@@ -129,6 +129,7 @@ pub fn advance_actor_frame(
         session_artwork,
         skin_rigs,
         skin_layers,
+        cape_state,
         poses,
         layer_poses,
         java_hand,
@@ -171,6 +172,7 @@ pub fn advance_actor_frame(
             actor_clock.reset();
         }
         *skin_layers = Default::default();
+        *cape_state = Default::default();
         *published_session = session_id;
     }
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());

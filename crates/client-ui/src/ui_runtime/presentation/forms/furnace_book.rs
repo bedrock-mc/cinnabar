@@ -30,7 +30,12 @@ pub(super) fn category(
         return 2;
     };
     let components = runtime.item_components(&entry.identifier);
-    if protocol::vanilla_tag_contains("minecraft:is_food", &entry.identifier) == Some(true)
+    if player
+        .inventory
+        .ledger()
+        .item_facts()
+        .get(output.network_id)
+        .is_food()
         || components.is_some_and(|item| item.food)
     {
         1

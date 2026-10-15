@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use crate::queue_writes::ProfiledQueue as _;
 use crate::upload_staging::{BufferWrite, TerrainUploadStaging};
 use render_scene::ChunkUploadBudget;
 
@@ -372,14 +373,18 @@ pub(in crate::chunk) struct TerrainUploads<'a> {
 impl TerrainUploads<'_> {
     /// Stages what fits and passes the unstaged rest to `fallback`, after older overlapping
     /// staged copies submit; without staging every write takes `fallback`.
+    #[track_caller]
     pub(in crate::chunk) fn write(
         self,
         writes: &[BufferWrite<'_>],
-        fallback: impl FnOnce(&[BufferWrite<'_>]),
+        fallback: impl FnOnce(&[BufferWrite<'_>], &'static std::panic::Location<'static>),
     ) {
+        let site = std::panic::Location::caller();
         match self.staging {
-            Some(staging) => staging.write_batch_or(self.device, self.queue, writes, fallback),
-            None => fallback(writes),
+            Some(staging) => {
+                staging.write_batch_or(self.device, self.queue, writes, |rest| fallback(rest, site))
+            }
+            None => fallback(writes, site),
         }
     }
 }
@@ -458,9 +463,11 @@ pub(in crate::chunk) fn write_geometry_stream_words(
         .map(|migration| (&*migration.buffer, offset_bytes, bytes));
     let writes = [current, mirror.unwrap_or(current)];
     let writes = &writes[..1 + usize::from(mirror.is_some())];
-    uploads.write(writes, |rest| {
+    uploads.write(writes, |rest, site| {
         for &(buffer, offset, bytes) in rest {
-            uploads.queue.write_buffer(buffer, offset, bytes);
+            uploads
+                .queue
+                .profiled_write_buffer_at(buffer, offset, bytes, site);
         }
     });
 }

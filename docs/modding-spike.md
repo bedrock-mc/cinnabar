@@ -207,8 +207,9 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
-`read-frame` returns an error without the players grant, or `ok(none)` outside
-active gameplay. A snapshot contains the actor session, dimension, local subject
+`read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
+active gameplay; the terrain grant alone omits remote players. Terrain reads
+(`CINNABAR_MOD_TERRAIN=1`) are described in [mod-terrain-api.md](mod-terrain-api.md). A snapshot contains the actor session, dimension, local subject
 eye position, actor yaw/pitch, frame duration in seconds, held semantic attack
 action and up to `mod_api::MAX_GAMEPLAY_PLAYERS` remote player feet positions.
 Positions are world block coordinates; angles and rotation deltas are radians

@@ -270,6 +270,53 @@ fn batch_final_state_controls_change_reporting_and_air_compaction() {
     assert_eq!(trimmed.runtime_id(0, 0, 0, 0), Some(7));
 }
 
+/// Retained counts remain local to each layer and snapshot through single and batch edits.
+#[test]
+fn counted_single_edits_do_not_change_old_layers_or_snapshots() {
+    let mut store = ChunkStore::new();
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    store
+        .update_sub_chunk_blocks(
+            key,
+            &[
+                update(0, 0, 0, 0, 7),
+                update(0, 0, 1, 0, 7),
+                update(1, 0, 0, 0, 8),
+                update(3, 0, 0, 0, 9),
+            ],
+            AIR,
+        )
+        .unwrap();
+    let snapshot = store.sub_chunk(key).unwrap();
+    store.update_block(key, update(0, 0, 2, 0, 7), AIR).unwrap();
+    store.update_block(key, update(1, 0, 1, 0, 8), AIR).unwrap();
+    store
+        .update_block(key, update(3, 0, 0, 0, AIR), AIR)
+        .unwrap();
+    let trimmed = store.sub_chunk(key).unwrap();
+    assert_eq!(trimmed.storages().len(), 2);
+    assert_eq!(trimmed.runtime_id(0, 0, 2, 0), Some(7));
+    assert_eq!(trimmed.runtime_id(1, 0, 1, 0), Some(8));
+    assert_eq!(snapshot.storages().len(), 4);
+    assert_eq!(snapshot.runtime_id(0, 0, 2, 0), Some(AIR));
+    assert_eq!(snapshot.runtime_id(1, 0, 1, 0), Some(AIR));
+    assert_eq!(snapshot.runtime_id(3, 0, 0, 0), Some(9));
+    store
+        .update_sub_chunk_blocks(
+            key,
+            &[
+                update(1, 0, 0, 0, AIR),
+                update(1, 0, 1, 0, 99),
+                update(1, 0, 1, 0, AIR),
+            ],
+            AIR,
+        )
+        .unwrap();
+    let final_section = store.sub_chunk(key).unwrap();
+    assert_eq!(final_section.storages().len(), 1);
+    assert_eq!(final_section.storages()[0], trimmed.storages()[0]);
+}
+
 #[test]
 fn palette_width_growth_uses_bedrock_legal_widths_and_padded_words() {
     let mut store = ChunkStore::new();

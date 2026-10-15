@@ -2,9 +2,111 @@ use crate::{review_tests::paint, test_support::solids};
 use std::collections::HashMap;
 use {
     super::*,
-    launcher::menu::settings_options::SETTINGS_OPTIONS,
+    launcher::menu::settings_options::{SETTINGS_OPTIONS, layout::SettingPanel},
     launcher::menu::{MenuAction, MenuView},
 };
+
+/// Draws related distance controls in order and omits an empty Advanced heading.
+#[test]
+fn video_distance_rows_stay_together_without_an_empty_advanced_section() {
+    let view = MenuView::new(true, "Player".into());
+    for width in [400.0, 800.0] {
+        let mut tracks = HashMap::new();
+        let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+            let mut content = Content {
+                canvas,
+                view: &view,
+                span: [100.0, 100.0 + width],
+                column_width: width,
+                y: 100.0,
+                translate: &|_| None,
+                nested: false,
+            };
+            sections::draw(&mut content, SettingSection::Video).unwrap();
+            tracks.extend(
+                content
+                    .canvas
+                    .slider_tracks
+                    .iter()
+                    .map(|(index, track, _)| (*index, *track)),
+            );
+        });
+        let render = tracks[&(SettingId::RenderDistance.index() as u16)];
+        let full = tracks[&(SettingId::FullDetailDistance.index() as u16)];
+        let far = hits
+            .iter()
+            .find(|(action, _)| {
+                *action == MenuAction::SettingsDropdown(SettingId::FarTerrain.index() as u16)
+                    || *action
+                        == MenuAction::SettingsOption(
+                            SettingId::FarTerrain.index() as u16,
+                            view.settings_options.value(SettingId::FarTerrain),
+                        )
+            })
+            .expect("far terrain selector")
+            .1;
+        assert!(render.max().y() < full.min().y());
+        assert!(full.max().y() < far.min().y());
+        let advanced = nodes.iter().any(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => layout
+                .glyphs()
+                .iter()
+                .map(|glyph| glyph.codepoint)
+                .collect::<String>()
+                .eq_ignore_ascii_case("Advanced"),
+            _ => false,
+        });
+        assert_eq!(
+            advanced,
+            SettingPanel::VideoAdvanced.options().next().is_some()
+        );
+    }
+}
+
+#[test]
+fn keyboard_rows_display_observed_layout_labels() {
+    use launcher::menu::settings_options::KEY_BINDINGS;
+    use semantic_input::{Action, PhysicalControl};
+    let mut view = MenuView::new(true, "Player".into());
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(action, _)| *action == Action::Hotbar1)
+        .unwrap();
+    let settings = std::sync::Arc::make_mut(&mut view.settings_options);
+    assert!(settings.remap(row, PhysicalControl::KeyboardUsage(0x14)));
+    settings.set_key_label(0x14, "a");
+    let (_, _, nodes) = paint(HashMap::new(), |canvas| {
+        let mut content = Content {
+            canvas,
+            view: &view,
+            span: [100.0, 1100.0],
+            column_width: 1000.0,
+            y: 100.0,
+            translate: &|_| None,
+            nested: false,
+        };
+        sections::draw(&mut content, SettingSection::KeyboardAndMouse).unwrap();
+    });
+    let labels: Vec<_> = nodes
+        .iter()
+        .filter_map(|node| match node.visual() {
+            ui::UiVisual::Text { layout, .. } => Some(
+                layout
+                    .glyphs()
+                    .iter()
+                    .map(|glyph| glyph.codepoint)
+                    .collect::<String>(),
+            ),
+            _ => None,
+        })
+        .collect();
+    assert!(labels.iter().any(|label| label == "A"));
+    assert!(!labels.iter().any(|label| label == "Q"));
+    assert_eq!(
+        view.settings_options.key_control(row),
+        Some(PhysicalControl::KeyboardUsage(0x14))
+    );
+}
 
 #[test]
 fn keyboard_overlay_rows_show_readable_bindings_and_reset_controls() {

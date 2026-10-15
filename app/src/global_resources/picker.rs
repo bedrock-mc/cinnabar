@@ -42,12 +42,12 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             launcher_host::desktop::windows::pick_file(filter.title, &windows_filter(filter))
                 .map(|path| path.into_iter().collect())
         };
-        return result.map_err(|code| {
+        result.map_err(|code| {
             format!(
                 "File picker failed (error {code:#x}). {}",
                 filter.unavailable_hint
             )
-        });
+        })
     }
     #[cfg(target_os = "linux")]
     {

@@ -4,6 +4,110 @@ use render_scene::{
     ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
 };
 
+#[cfg(test)]
+mod priority_tests;
+
+/// Retains exact distance/age buckets, updating only changed or removed priorities.
+pub(in crate::chunk) struct RetainedUploadPriorities<I, P> {
+    entries: HashMap<I, RetainedPriority<P>>,
+    buckets: BTreeMap<P, Vec<I>>,
+    sweep: bool,
+    ordinal: usize,
+}
+
+struct RetainedPriority<P> {
+    priority: P,
+    sweep: bool,
+    ordinal: usize,
+}
+
+impl<I, P> Default for RetainedUploadPriorities<I, P> {
+    fn default() -> Self {
+        Self {
+            entries: HashMap::new(),
+            buckets: BTreeMap::new(),
+            sweep: false,
+            ordinal: 0,
+        }
+    }
+}
+
+impl<I: Copy + Eq + std::hash::Hash, P: Copy + Ord> RetainedUploadPriorities<I, P> {
+    /// Starts reconciliation against the caller's complete active set.
+    pub(in crate::chunk) fn begin(&mut self) {
+        self.sweep = !self.sweep;
+        self.ordinal = 0;
+    }
+
+    /// Returns a retained priority so unchanged camera distances need no recalculation.
+    pub(in crate::chunk) fn priority(&self, id: I) -> Option<P> {
+        self.entries.get(&id).map(|entry| entry.priority)
+    }
+
+    /// Marks an active identity, moving it between buckets only when its priority changes.
+    pub(in crate::chunk) fn update(&mut self, id: I, priority: P) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            if entry.priority != priority {
+                Self::remove(&mut self.buckets, entry.priority, id);
+                self.buckets.entry(priority).or_default().push(id);
+                entry.priority = priority;
+            }
+            entry.sweep = self.sweep;
+            entry.ordinal = self.ordinal;
+        } else {
+            self.buckets.entry(priority).or_default().push(id);
+            self.entries.insert(
+                id,
+                RetainedPriority {
+                    priority,
+                    sweep: self.sweep,
+                    ordinal: self.ordinal,
+                },
+            );
+        }
+        self.ordinal += 1;
+    }
+
+    /// Drops absent identities and preserves input order for completely equal priorities.
+    pub(in crate::chunk) fn finish(&mut self) {
+        self.entries.retain(|&id, entry| {
+            if entry.sweep == self.sweep {
+                return true;
+            }
+            Self::remove(&mut self.buckets, entry.priority, id);
+            false
+        });
+        for ids in self.buckets.values_mut().filter(|ids| ids.len() > 1) {
+            ids.sort_by_key(|id| self.entries[id].ordinal);
+        }
+    }
+
+    /// Walks retained buckets in priority order without sorting the backlog again.
+    pub(in crate::chunk) fn ordered(&self) -> impl Iterator<Item = I> + '_ {
+        self.buckets.values().flat_map(|ids| ids.iter().copied())
+    }
+
+    /// Removes one identity and releases empty buckets immediately.
+    fn remove(buckets: &mut BTreeMap<P, Vec<I>>, priority: P, id: I) {
+        if let std::collections::btree_map::Entry::Occupied(mut bucket) = buckets.entry(priority) {
+            bucket.get_mut().retain(|&member| member != id);
+            if bucket.get().is_empty() {
+                bucket.remove();
+            }
+        }
+    }
+}
+
+/// Encodes the same complete floating-point order as `f32::total_cmp`.
+pub(in crate::chunk) fn upload_distance_key(distance: f32) -> u32 {
+    let bits = distance.to_bits();
+    if bits & (1 << 31) == 0 {
+        bits ^ (1 << 31)
+    } else {
+        !bits
+    }
+}
+
 pub(in crate::chunk) fn update_chunk_animation_clock(
     time: Option<Res<Time>>,
     mut clock: ResMut<ChunkAnimationClock>,
@@ -12,14 +116,17 @@ pub(in crate::chunk) fn update_chunk_animation_clock(
     *clock = ChunkAnimationClock::from_elapsed_seconds(elapsed_seconds);
 }
 
+type MainUploadPriorities = RetainedUploadPriorities<(SubChunkKey, bool), (u32, SubChunkKey)>;
+
 #[derive(SystemParam)]
-pub(in crate::chunk) struct RenderQueueRuntime<'w> {
+pub(in crate::chunk) struct RenderQueueRuntime<'w, 's> {
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
     immediate_terrain: Option<
         ResMut<'w, crate::dropped_item_render::terrain_items::ImmediateTerrainMeshPublications>,
     >,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
+    priorities: Local<'s, MainUploadPriorities>,
 }
 
 pub(in crate::chunk) fn apply_chunk_render_queue(
@@ -47,6 +154,7 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         acknowledgements,
         mut immediate_terrain,
         profiler,
+        mut priorities,
     } = runtime;
     let _timer = profiler
         .as_deref()
@@ -73,23 +181,32 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
         .min(PublicationServiceConfig::DEFAULT.maximum_zero_byte_operations_per_frame);
     let mut ready = std::mem::take(&mut queue.ready_scratch);
     ready.clear();
-    ready.extend(
-        queue
-            .pending
-            .iter()
-            .map(|(&key, pending)| (key, pending.priority, false))
-            .chain(
-                queue
-                    .removals
-                    .iter()
-                    .map(|(&key, pending)| (key, pending.priority, true)),
-            ),
-    );
-    ready.sort_by(|(left_key, left, _), (right_key, right, _)| {
-        left.distance_squared()
-            .total_cmp(&right.distance_squared())
-            .then_with(|| left_key.cmp(right_key))
-    });
+    priorities.begin();
+    for (key, priority, removal) in queue
+        .pending
+        .iter()
+        .map(|(&key, pending)| (key, pending.priority, false))
+        .chain(
+            queue
+                .removals
+                .iter()
+                .map(|(&key, pending)| (key, pending.priority, true)),
+        )
+    {
+        priorities.update(
+            (key, removal),
+            (upload_distance_key(priority.distance_squared()), key),
+        );
+    }
+    priorities.finish();
+    ready.extend(priorities.ordered().map(|(key, removal)| {
+        let priority = if removal {
+            queue.removals[&key].priority
+        } else {
+            queue.pending[&key].priority
+        };
+        (key, priority, removal)
+    }));
 
     let mut payload_applications = 0;
     let mut total_bytes = 0;
