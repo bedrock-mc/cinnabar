@@ -142,7 +142,7 @@ func (relay *Relay) serveSocket(w http.ResponseWriter, r *http.Request, channel 
 	}
 	session, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
-		_ = writeJSON(conn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
+		_ = writeJSON(ctx, conn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
@@ -218,7 +218,7 @@ func (relay *Relay) serveTransport(w http.ResponseWriter, r *http.Request, serve
 	}
 	session, detach, err := relay.openControl(client, request.Resume, time.Now())
 	if err != nil {
-		_ = writeJSON(controlConn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
+		_ = writeJSON(ctx, controlConn, controlEvent{Type: bridgecontract.RelayEventError, Error: refusal(err)})
 		return
 	}
 	defer func() { detach(time.Now()) }()
