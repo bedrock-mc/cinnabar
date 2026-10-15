@@ -1,13 +1,39 @@
-//! Publishes a session's entity and equipment ranges under one catalog layout, and admits
-//! staged ranges as frames draw them.
+//! Publishes a session's entity and equipment ranges, staging both when they exceed the
+//! catalog budget and admitting staged rigs as frames draw them.
 
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeSet, HashMap},
+    hash::{DefaultHasher, Hash, Hasher},
+};
 
 use super::*;
 use crate::ActorRigFrameBuilder;
 
+/// Server-pack geometry held outside the catalog while the pack exceeds its budget.
+#[derive(Debug, Default)]
+pub(super) struct StagedPack {
+    /// Every pack-range geometry while staged; empty when the whole pack is resident.
+    pub(super) geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
+    /// Frame generation each resident staged rig was last drawn in.
+    last_drawn: HashMap<EntityRigId, u64>,
+    /// Catalog revision and drawn set of the last admission that left a rig out.
+    denied: Option<(u64, u64)>,
+}
+
+impl StagedPack {
+    pub(super) fn is_empty(&self) -> bool {
+        self.geometries.is_empty()
+    }
+}
+
+/// Either session pack namespace.
+fn is_session_pack_rig(id: EntityRigId) -> bool {
+    is_pack_rig_id(id) || is_pack_equipment_rig_id(id)
+}
+
 impl ActorRigFrameBuilder {
-    /// Combines valid updates while retaining sequential rejection and partial acceptance.
+    /// Replaces both pack namespaces at once; `Err` only for geometry that fails validation,
+    /// leaving the catalog unchanged.
     pub fn replace_session_pack_geometries(
         &mut self,
         entities: Vec<ActorRigGeometry>,
@@ -16,49 +42,107 @@ impl ActorRigFrameBuilder {
         Result<(), ActorRigGeometryError>,
         Result<(), ActorRigGeometryError>,
     ) {
-        if entities.is_empty()
-            && equipment.is_empty()
-            && !self
-                .catalog
-                .geometries
-                .keys()
-                .any(|id| is_pack_rig_id(*id) || is_pack_equipment_rig_id(*id))
-            && self.staged.is_empty()
-        {
+        if entities.is_empty() && equipment.is_empty() && self.session_pack().is_empty() {
             return (Ok(()), Ok(()));
         }
-        let mut combined = self.catalog.geometries.clone();
-        replace_range(&mut combined, is_pack_rig_id, entities.iter().cloned());
-        // The first update must fit with the previous equipment still present.
-        if self.catalog.can_admit(&combined) {
-            replace_range(
-                &mut combined,
-                is_pack_equipment_rig_id,
-                equipment.iter().cloned(),
-            );
-            if let Ok(catalog) =
-                GeometryCatalog::layout_with_limit(combined, self.catalog.maximum_vertices)
-            {
-                self.catalog = catalog;
-                self.staged.clear();
-                return (Ok(()), Ok(()));
-            }
+        let mut pack = self.session_pack();
+        replace_range(&mut pack, is_pack_rig_id, entities.iter().cloned());
+        replace_range(
+            &mut pack,
+            is_pack_equipment_rig_id,
+            equipment.iter().cloned(),
+        );
+        if self.publish_session_pack(pack).is_ok() {
+            return (Ok(()), Ok(()));
         }
         let entities = self.replace_pack_geometries(entities);
         let equipment = self.replace_pack_equipment_geometries(equipment);
         (entities, equipment)
     }
 
-    /// Makes staged geometry these submissions draw resident, at most
-    /// [`STAGED_ADMISSION_VERTICES_PER_FRAME`] vertices per frame (always at least one rig).
-    /// A full catalog evicts staged geometry they do not draw, in place, so retained pages are
-    /// not re-uploaded; a rig that still does not fit stays a missing-geometry reject.
-    pub(super) fn admit_staged(&mut self, submissions: &[ActorRigSubmission]) {
+    /// Replaces one pack namespace, keeping the other.
+    pub(super) fn replace_range_geometries(
+        &mut self,
+        in_range: fn(EntityRigId) -> bool,
+        geometries: Vec<ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        let mut pack = self.session_pack();
+        if geometries.is_empty() && !pack.keys().any(|id| in_range(*id)) {
+            return Ok(());
+        }
+        replace_range(&mut pack, in_range, geometries);
+        self.publish_session_pack(pack)
+    }
+
+    /// Sets the catalog's vertex budget and republishes the session pack under it.
+    pub fn set_vertex_budget(&mut self, maximum_vertices: usize) {
+        if maximum_vertices == self.catalog.maximum_vertices {
+            return;
+        }
+        let previous = self.catalog.maximum_vertices;
+        self.catalog.maximum_vertices = maximum_vertices;
+        let pack = self.session_pack();
+        if !pack.is_empty() && self.publish_session_pack(pack).is_err() {
+            // Validated geometry only fails when the startup catalog alone exceeds the budget.
+            self.catalog.maximum_vertices = previous;
+        }
+    }
+
+    /// Every geometry of both pack namespaces, resident or staged.
+    fn session_pack(&self) -> BTreeMap<EntityRigId, ActorRigGeometry> {
+        if !self.staged.is_empty() {
+            return self.staged.geometries.clone();
+        }
+        let mut pack = self.catalog.geometries.clone();
+        pack.retain(|id, _| is_session_pack_rig(*id));
+        pack
+    }
+
+    /// Makes `pack` the session pack: wholly resident when it fits the budget, otherwise
+    /// staged for per-frame admission. On error the catalog is unchanged.
+    fn publish_session_pack(
+        &mut self,
+        pack: BTreeMap<EntityRigId, ActorRigGeometry>,
+    ) -> Result<(), ActorRigGeometryError> {
+        let maximum = self.catalog.maximum_vertices;
+        let mut base = self.catalog.geometries.clone();
+        base.retain(|id, _| !is_session_pack_rig(*id));
+        let mut all = base.clone();
+        all.extend(pack.iter().map(|(id, geometry)| (*id, geometry.clone())));
+        let staged = match GeometryCatalog::layout_with_limit(all, maximum) {
+            Ok(catalog) => {
+                self.catalog = catalog;
+                BTreeMap::new()
+            }
+            // Layout validates every geometry before it checks capacity.
+            Err(ActorRigGeometryError::CatalogCapacity) => {
+                self.catalog = GeometryCatalog::layout_with_limit(base, maximum)?;
+                pack
+            }
+            Err(error) => return Err(error),
+        };
+        self.staged = StagedPack {
+            geometries: staged,
+            ..StagedPack::default()
+        };
+        self.matrices = PoseMatrixCache::default();
+        Ok(())
+    }
+
+    /// Makes staged rigs that `drawn` (the frame's surviving, visible submissions) needs
+    /// resident: smallest first, up to [`STAGED_ADMISSION_VERTICES_PER_FRAME`] per frame
+    /// (always at least one), evicting the least recently drawn staged rigs the frame does not
+    /// draw. Evicted pages are vacated in place, so retained GPU pages are not re-uploaded. A
+    /// rig that cannot fit is skipped until the catalog or the drawn set changes.
+    pub(super) fn admit_staged<'a>(
+        &mut self,
+        drawn: impl Iterator<Item = &'a ActorRigSubmission>,
+        frame_generation: u64,
+    ) {
         if self.staged.is_empty() {
             return;
         }
-        let drawn: BTreeSet<EntityRigId> = submissions
-            .iter()
+        let drawn: BTreeSet<EntityRigId> = drawn
             .filter(|submission| {
                 matches!(
                     submission.route,
@@ -66,35 +150,85 @@ impl ActorRigFrameBuilder {
                 )
             })
             .map(|submission| submission.input.rig)
-            .filter(|id| self.staged.contains_key(id))
+            .filter(|id| self.staged.geometries.contains_key(id))
             .collect();
-        let mut budget = STAGED_ADMISSION_VERTICES_PER_FRAME;
-        let mut batch = Vec::new();
+        let mut missing = Vec::new();
         for id in &drawn {
             if self.catalog.geometries.contains_key(id) {
-                continue;
+                self.staged.last_drawn.insert(*id, frame_generation);
+            } else {
+                missing.push(&self.staged.geometries[id]);
             }
-            let geometry = &self.staged[id];
-            if !batch.is_empty() && geometry.vertices.len() > budget {
+        }
+        if missing.is_empty() {
+            return;
+        }
+        let mut hasher = DefaultHasher::new();
+        drawn.hash(&mut hasher);
+        let key = (self.catalog.revision, hasher.finish());
+        if self.staged.denied == Some(key) {
+            return;
+        }
+        missing.sort_by_key(|geometry| (geometry.vertices.len(), geometry.id));
+        let mut evictable: Vec<_> = self
+            .catalog
+            .geometries
+            .iter()
+            .filter(|(id, _)| self.staged.geometries.contains_key(id) && !drawn.contains(id))
+            .map(|(id, geometry)| {
+                let last = self.staged.last_drawn.get(id).copied().unwrap_or(0);
+                (last, *id, geometry.vertices.len())
+            })
+            .collect();
+        evictable.sort_unstable();
+        let mut free = self
+            .catalog
+            .maximum_vertices
+            .saturating_sub(self.catalog.live_vertices);
+        let mut evicted = 0;
+        let mut budget = STAGED_ADMISSION_VERTICES_PER_FRAME;
+        let mut admitted = Vec::new();
+        let mut denied = false;
+        for geometry in missing {
+            let count = geometry.vertices.len();
+            if !admitted.is_empty() && count > budget {
                 break;
             }
-            budget = budget.saturating_sub(geometry.vertices.len());
-            batch.push(geometry.clone());
+            let (mut available, mut through) = (free, evicted);
+            while available < count && through < evictable.len() {
+                available += evictable[through].2;
+                through += 1;
+            }
+            if available < count {
+                // Later candidates are no smaller, so none of them fits either.
+                denied = true;
+                break;
+            }
+            free = available - count;
+            evicted = through;
+            budget = budget.saturating_sub(count);
+            admitted.push(geometry.clone());
         }
-        if batch.is_empty() {
-            return;
-        }
-        let revision = self.appended_revision(&batch);
-        if self.catalog.append(batch.clone(), revision).is_ok() {
-            return;
-        }
-        let staged = &self.staged;
-        let undrawn = |id: &EntityRigId| staged.contains_key(id) && !drawn.contains(id);
-        for geometry in batch {
-            let revision = self.appended_revision(std::slice::from_ref(&geometry));
-            let _ = self
+        if !admitted.is_empty() {
+            let evict: BTreeSet<_> = evictable[..evicted].iter().map(|entry| entry.1).collect();
+            let ids: Vec<_> = admitted.iter().map(|geometry| geometry.id).collect();
+            let revision = self.appended_revision(&admitted);
+            if self
                 .catalog
-                .append_evicting(vec![geometry], undrawn, revision);
+                .append_evicting(admitted, |id| evict.contains(id), revision)
+                .is_ok()
+            {
+                self.staged.last_drawn.retain(|id, _| !evict.contains(id));
+                self.staged
+                    .last_drawn
+                    .extend(ids.into_iter().map(|id| (id, frame_generation)));
+            } else {
+                // Shared pages make the vertex estimate approximate; wait for a change.
+                denied = true;
+            }
+        }
+        if denied {
+            self.staged.denied = Some((self.catalog.revision, key.1));
         }
     }
 }

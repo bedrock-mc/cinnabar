@@ -108,6 +108,8 @@ pub(super) struct GeometryCatalog {
     page_fingerprints: Vec<u64>,
     pub(super) revision: u64,
     pub(super) maximum_vertices: usize,
+    /// Vertices in pages some geometry uses; vacated gaps are excluded.
+    pub(super) live_vertices: usize,
 }
 
 impl GeometryCatalog {
@@ -165,6 +167,7 @@ impl GeometryCatalog {
             page_fingerprints: pages.fingerprints,
             revision,
             maximum_vertices,
+            live_vertices: len,
         })
     }
 
@@ -301,6 +304,7 @@ impl GeometryCatalog {
         self.published_spans = Arc::from(spans.as_slice());
         self.spans = spans;
         self.revision = revision;
+        self.live_vertices = live_len;
         Ok(())
     }
 }

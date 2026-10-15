@@ -266,8 +266,7 @@ impl Default for ActorRigRenderFrame {
 #[derive(Debug)]
 pub struct ActorRigFrameBuilder {
     catalog: GeometryCatalog,
-    /// Session pack ranges too large for the catalog at once; frames admit what they draw.
-    staged: BTreeMap<EntityRigId, ActorRigGeometry>,
+    staged: pack::StagedPack,
     frame_generation: u64,
     matrices: PoseMatrixCache,
     scratch: BuildScratch,
@@ -358,7 +357,7 @@ impl ActorRigFrameBuilder {
         by_id.insert(DIAGNOSTIC_RIG_ID, diagnostic_geometry());
         Ok(Self {
             catalog: GeometryCatalog::layout(by_id)?,
-            staged: BTreeMap::new(),
+            staged: pack::StagedPack::default(),
             frame_generation: 0,
             matrices: PoseMatrixCache::default(),
             scratch: BuildScratch::default(),
@@ -422,40 +421,6 @@ impl ActorRigFrameBuilder {
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
         self.replace_range_geometries(is_pack_equipment_rig_id, geometries)
-    }
-
-    fn replace_range_geometries(
-        &mut self,
-        in_range: fn(EntityRigId) -> bool,
-        geometries: Vec<ActorRigGeometry>,
-    ) -> Result<(), ActorRigGeometryError> {
-        if geometries.is_empty()
-            && !self.catalog.geometries.keys().any(|id| in_range(*id))
-            && !self.staged.keys().any(|id| in_range(*id))
-        {
-            return Ok(());
-        }
-        let mut by_id = self.catalog.geometries.clone();
-        pack::replace_range(&mut by_id, in_range, geometries.iter().cloned());
-        let catalog = match GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)
-        {
-            Err(ActorRigGeometryError::CatalogCapacity) => {
-                let mut by_id = self.catalog.geometries.clone();
-                pack::replace_range(&mut by_id, in_range, []);
-                let catalog =
-                    GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)?;
-                pack::replace_range(&mut self.staged, in_range, geometries);
-                catalog
-            }
-            result => {
-                let catalog = result?;
-                pack::replace_range(&mut self.staged, in_range, []);
-                catalog
-            }
-        };
-        self.catalog = catalog;
-        self.matrices = PoseMatrixCache::default();
-        Ok(())
     }
 
     #[must_use]
@@ -568,7 +533,6 @@ impl ActorRigFrameBuilder {
             ordered.push(submission);
             locations.push(location);
         }
-        self.admit_staged(&ordered);
         // Sorting indices with their position as the last tie-break gives exactly the order a
         // stable sort of the submissions themselves would.
         let mut order = std::mem::take(&mut scratch.order);
@@ -582,6 +546,16 @@ impl ActorRigFrameBuilder {
                 .then(a.cmp(&b))
         });
         order.dedup_by_key(|index| key(&ordered[*index as usize]));
+        self.admit_staged(
+            order
+                .iter()
+                .map(|&index| &ordered[index as usize])
+                .filter(|submission| {
+                    eligibility::validate_input(submission).is_ok()
+                        && actor_rig_submission_is_visible(submission, view)
+                }),
+            frame_generation,
+        );
         let mut instances = std::mem::take(&mut scratch.instances);
         let mut previous_bones = std::mem::take(&mut scratch.previous_bones);
         let mut current_bones = std::mem::take(&mut scratch.current_bones);

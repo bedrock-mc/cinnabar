@@ -72,7 +72,10 @@ fn combined_publication_matches_sequential_capacity_and_payloads() {
         assert_eq!(reference, expected, "case {case}");
         assert_eq!(result, reference, "case {case}");
         assert_same_catalog(&combined.catalog, &sequential.catalog);
-        assert_eq!(combined.staged, sequential.staged, "case {case}");
+        assert_eq!(
+            combined.staged.geometries, sequential.staged.geometries,
+            "case {case}"
+        );
     }
 }
 
@@ -109,11 +112,25 @@ fn assert_spans(catalog: &GeometryCatalog) {
 
 /// Pack rig `index` with `count` vertices whose bytes differ from every other index.
 fn pack_geometry(index: u32, count: usize) -> ActorRigGeometry {
+    distinct(crate::pack_rig_id(index), index as f32 + 1.0, count)
+}
+
+/// Pack equipment rig `index`, with bytes distinct from every pack entity rig.
+fn equipment_geometry(index: u32, count: usize) -> ActorRigGeometry {
+    distinct(
+        crate::pack_equipment_rig_id(index),
+        -(index as f32) - 1.0,
+        count,
+    )
+}
+
+/// `count` vertices at `marker`, so geometries with different markers never share a page.
+fn distinct(id: EntityRigId, marker: f32, count: usize) -> ActorRigGeometry {
     ActorRigGeometry::new(
-        crate::pack_rig_id(index),
+        id,
         vec![
             ActorRigVertex {
-                position: [index as f32 + 1.0; 3],
+                position: [marker; 3],
                 ..ActorRigVertex::default()
             };
             count
@@ -257,4 +274,87 @@ fn staged_admission_is_bounded_per_frame() {
     assert_eq!(first.instances.len(), 1);
     let second = builder.build(0.5, None, submissions);
     assert_eq!(second.instances.len(), 2);
+}
+
+/// A larger device budget makes a staged pack wholly resident again.
+#[test]
+fn raising_the_budget_makes_a_staged_pack_resident() {
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    let resident = builder.catalog.vertices.len();
+    builder.catalog.maximum_vertices = resident + 12;
+    let pack = vec![pack_geometry(0, 12), pack_geometry(1, 12)];
+    let equipment = vec![equipment_geometry(0, 6)];
+    assert_eq!(
+        builder.replace_session_pack_geometries(pack, equipment),
+        (Ok(()), Ok(()))
+    );
+    assert!(!builder.staged.is_empty());
+
+    builder.set_vertex_budget(resident + 30);
+    assert!(builder.staged.is_empty());
+    for id in [
+        crate::pack_rig_id(0),
+        crate::pack_rig_id(1),
+        crate::pack_equipment_rig_id(0),
+    ] {
+        assert!(builder.contains_geometry(id));
+    }
+}
+
+/// Eviction spans both pack namespaces and drops the least recently drawn rig first.
+#[test]
+fn eviction_takes_the_least_recently_drawn_rig_of_either_namespace() {
+    let (first, second) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    let held = crate::pack_equipment_rig_id(0);
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 24;
+    let (entities, equipment) = (
+        vec![pack_geometry(0, 12), pack_geometry(1, 12)],
+        vec![equipment_geometry(0, 12)],
+    );
+    assert_eq!(
+        builder.replace_session_pack_geometries(entities, equipment),
+        (Ok(()), Ok(()))
+    );
+    let _ = builder.build(0.5, None, [draws(1, first)]);
+    let _ = builder.build(0.5, None, [draws(2, second)]);
+
+    let frame = builder.build(0.5, None, [draws(3, held)]);
+    assert_eq!(frame.instances.len(), 1);
+    assert!(!builder.contains_geometry(first));
+    assert!(builder.contains_geometry(second));
+    assert!(builder.contains_geometry(held));
+}
+
+/// Only the submission that survives deduplication claims staged capacity.
+#[test]
+fn superseded_submissions_do_not_claim_staged_capacity() {
+    let (stale, current) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+    let pack = vec![pack_geometry(0, 12), pack_geometry(1, 12)];
+    assert_eq!(builder.replace_pack_geometries(pack), Ok(()));
+    let older = draws(1, stale);
+    let mut newer = draws(1, current);
+    newer.input.identity.ingress_sequence = 2;
+
+    let frame = builder.build(0.5, None, [newer, older]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.manifest[0].rig, current);
+    assert!(!builder.contains_geometry(stale));
+}
+
+/// A rig too large to ever fit does not keep smaller drawn rigs out.
+#[test]
+fn an_unfittable_rig_does_not_starve_smaller_ones() {
+    let (large, small) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+    let pack = vec![pack_geometry(0, 20), pack_geometry(1, 6)];
+    assert_eq!(builder.replace_pack_geometries(pack), Ok(()));
+
+    let frame = builder.build(0.5, None, [draws(1, large), draws(2, small)]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(frame.rejects.missing_geometry, 1);
+    assert!(builder.contains_geometry(small));
 }
