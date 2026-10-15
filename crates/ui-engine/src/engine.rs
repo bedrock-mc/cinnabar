@@ -21,6 +21,7 @@ mod banner_renderer;
 mod dependencies;
 mod fill_renderers;
 mod formatting_colors;
+pub mod glass;
 pub mod host_edit;
 pub mod item_renderer;
 #[cfg(test)]

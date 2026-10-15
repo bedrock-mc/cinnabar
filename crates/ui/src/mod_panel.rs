@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 mod surface;
 mod update;
 pub use surface::{
-    MAX_TRANSITION_SECONDS, Surface, SurfaceTransition, SurfaceValue, TransitionEasing,
+    MAX_TRANSITION_SECONDS, Surface, SurfaceTransition, SurfaceValue, TransitionEasing, backdrop,
 };
 pub use update::{
     MAX_PANEL_BUNDLE_BYTES, MAX_PANEL_PATCH_BYTES, MAX_PANEL_SURFACES, PanelBundle, PanelPatch,

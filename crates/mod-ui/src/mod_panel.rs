@@ -31,7 +31,11 @@ use data::control_data;
 use ui_engine::frame::EngineFrame;
 use ui_engine::{
     cached_screen::CachedScreen,
-    engine::{FormEngine, ScreenArt, screen::PaintFrame},
+    engine::{
+        FormEngine, ScreenArt,
+        glass::{GlassRenderer, paint_world_backdrop},
+        screen::{CustomRenderer, PaintFrame},
+    },
 };
 
 const SCREEN: &str = "cinnabar_personal.panel";
@@ -398,6 +402,20 @@ impl ModUi {
         }
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
+        let world = panel
+            .panel
+            .surface
+            .as_ref()
+            .map(|surface| panel.motion.transitions.world_backdrop(surface))
+            .unwrap_or_default();
+        if let Err(error) = paint_world_backdrop(paint_frame, world) {
+            out_of_render(panel, paint_frame, rollback);
+            tracing::warn!(%error, "personal extension panel disabled after rendering failure");
+            return;
+        }
+        let mut glass = GlassRenderer::new(world);
+        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut glass];
+        let paint_frame = &mut paint_frame.with_renderers(&mut renderers);
         let language = paint_frame.language;
         let art = ScreenArt {
             view: Some(&panel.view),

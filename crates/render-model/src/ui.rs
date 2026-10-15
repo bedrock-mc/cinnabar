@@ -61,6 +61,9 @@ impl UiScissor {
 pub const UI_BLEND_ALPHA: u32 = 0;
 /// Wire value for the crosshair invert blend (src*(1-dst) + dst*(1-src)).
 pub const UI_BLEND_INVERT: u32 = 1;
+/// Wire value for backdrop geometry ([`render_api::UiBackdropPaint`]): screen-space batches
+/// that replace the scene under them with its shared blurred copy and draw no UI pixels.
+pub const UI_BLEND_BACKDROP: u32 = 2;
 /// Elliptical gradient: UV is the centered radius coordinate, tint is the inner
 /// straight RGBA stop, and overlay_color is the outer straight RGBA stop.
 pub const UI_STYLE_RADIAL_GRADIENT: u32 = 1;
@@ -97,8 +100,8 @@ pub struct UiRenderBatch {
     pub scissor: UiScissor,
     pub first_index: u32,
     pub index_count: u32,
-    /// One of [`UI_BLEND_ALPHA`] or [`UI_BLEND_INVERT`]; any other value is
-    /// rejected at publication.
+    /// One of [`UI_BLEND_ALPHA`], [`UI_BLEND_INVERT`] or [`UI_BLEND_BACKDROP`]; any other
+    /// value, or a backdrop with depth or world projection, is rejected at publication.
     pub blend_mode: u32,
     /// 0 for Always/no comparison, 1 for reverse-Z world-depth testing.
     pub depth_test: u32,
@@ -476,7 +479,10 @@ fn validate_batches(input: &UiRenderInput) -> Result<(), UiRenderRejectReason> {
         if batch.texture_page as usize >= input.textures.pages().len() {
             return Err(UiRenderRejectReason::TexturePageOutOfBounds { batch: batch_index });
         }
-        if batch.blend_mode > UI_BLEND_INVERT {
+        if batch.blend_mode > UI_BLEND_BACKDROP
+            || (batch.blend_mode == UI_BLEND_BACKDROP
+                && (batch.world_projection != 0 || batch.depth_test != 0 || batch.depth_write != 0))
+        {
             return Err(UiRenderRejectReason::UnsupportedBlendMode { batch: batch_index });
         }
         if batch.depth_test > 1 {

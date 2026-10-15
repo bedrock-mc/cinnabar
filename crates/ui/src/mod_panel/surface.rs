@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+pub mod backdrop;
 mod paint_transform;
 mod static_templates;
 mod transition;
@@ -79,6 +80,7 @@ impl Surface {
             if !valid {
                 return Err("surface binding value exceeds its bounds".into());
             }
+            backdrop::validate_world_binding(name, value)?;
         }
         if self.transitions.len() > MAX_SURFACE_BINDINGS {
             return Err("surface has too many transitions".into());
@@ -312,6 +314,7 @@ fn node(
                 matches!(
                     name,
                     "cinnabar_rounded_rectangle"
+                        | backdrop::GLASS_RENDERER
                         | "cinnabar_vector_icon"
                         | "cinnabar_vector_path"
                         | "gradient_renderer"
@@ -319,6 +322,9 @@ fn node(
             })
     {
         return Err("surface custom renderer is unsupported".into());
+    }
+    if object.get("renderer").and_then(Value::as_str) == Some(backdrop::GLASS_RENDERER) {
+        backdrop::validate_glass(object)?;
     }
     if let Some(mappings) = object.get("button_mappings") {
         let mappings = mappings

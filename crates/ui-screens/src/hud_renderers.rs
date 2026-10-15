@@ -432,7 +432,7 @@ fn crosshair(canvas: &mut Canvas<'_>, sprite: SheetSprite, dest: [f32; 4], blend
             texture_page: sprite.page,
             uv: sprite.uv,
         },
-        ui::UiBlendMode::Alpha => UiVisual::Sprite {
+        ui::UiBlendMode::Alpha | ui::UiBlendMode::Backdrop => UiVisual::Sprite {
             texture_page: sprite.page,
             uv: sprite.uv,
             color: [255; 4],

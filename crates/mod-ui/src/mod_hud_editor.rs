@@ -17,6 +17,7 @@ use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
         FormEngine, ScreenArt,
+        glass::{GlassRenderer, paint_world_backdrop},
         item_renderer::ItemRenderer,
         screen::{CustomRenderer, PaintFrame},
     },
@@ -173,11 +174,25 @@ impl ModUi {
         }
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
         let language = paint_frame.language;
+        let world = editor
+            .draft
+            .surface
+            .as_ref()
+            .map(|surface| editor.transitions.world_backdrop(surface))
+            .unwrap_or_default();
+        if let Err(error) = paint_world_backdrop(paint_frame, world) {
+            paint_frame.nodes.truncate(rollback.0);
+            *paint_frame.next = rollback.1;
+            editor.finish(false);
+            tracing::warn!(%error, "HUD editor disabled after rendering failure");
+            return;
+        }
         let mut items = ItemRenderer {
             icons: &icons,
             id_aux: &[],
         };
-        let mut renderers: [&mut dyn CustomRenderer; 1] = [&mut items];
+        let mut glass = GlassRenderer::new(world);
+        let mut renderers: [&mut dyn CustomRenderer; 2] = [&mut items, &mut glass];
         let art = ScreenArt {
             view: Some(&editor.view),
             ..Default::default()

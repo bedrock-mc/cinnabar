@@ -474,9 +474,25 @@ pub(crate) fn ui_overlay(
             gpu.index_count,
         )
     });
-    let batches: Vec<_> = batches
+    // Backdrops replace the scene under them before any layer composites over it.
+    let (backdrops, batches): (Vec<_>, Vec<_>) = batches
         .filter(|(_, batch, _)| batch.world_projection == 0)
-        .collect();
+        .partition(|(_, batch, _)| super::backdrop::is_backdrop(batch));
+    if !backdrops.is_empty() {
+        super::backdrop::apply_backdrops(
+            context,
+            &super::backdrop::BackdropDraw {
+                world,
+                gpu,
+                vertices,
+                indices,
+                view: view_entity,
+                viewport: viewport.as_ref(),
+            },
+            target,
+            &backdrops,
+        );
+    }
     let model_depth = world
         .get_resource::<super::model_depth::UiModelDepths>()
         .and_then(|depths| depths.compatible(view_entity, layer));

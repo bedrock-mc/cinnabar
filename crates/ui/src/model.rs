@@ -39,13 +39,15 @@ impl UiNodeId {
 /// Fixed-function blend selection for a drawn quad.
 ///
 /// `Invert` is the classic crosshair blend — src*(1-dst) + dst*(1-src) — so a
-/// white sprite reads against any background. Quads with different blends
-/// never share a draw batch.
+/// white sprite reads against any background. `Backdrop` draws no UI pixels: its geometry
+/// shows the 3-D scene processed by each vertex's [`render_api::UiBackdropPaint`], applied
+/// before any UI layer composites. Quads with different blends never share a draw batch.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum UiBlendMode {
     #[default]
     Alpha,
     Invert,
+    Backdrop,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use json_ui::{DataSource, Scalar};
 use serde_json::json;
 use ui::mod_panel::{Surface, SurfaceValue, TransitionEasing};
+use ui_engine::engine::glass::Backdrop;
 
 /// One binding moving between two values of the same length.
 struct Tween {
@@ -31,6 +32,17 @@ impl Tween {
             .zip(&self.to)
             .map(|(from, to)| from + (to - from) * progress)
             .collect()
+    }
+
+    /// The first displayed component at `now`.
+    fn first(&self, now: f64) -> Option<f64> {
+        let t = if self.duration > 0.0 {
+            (now - self.began) / self.duration
+        } else {
+            1.0
+        };
+        let progress = self.easing.progress(t);
+        Some(self.from.first()? + (self.to.first()? - self.from.first()?) * progress)
     }
 
     /// Whether the displayed value has reached its target by `now`.
@@ -171,6 +183,23 @@ impl SurfaceTransitions {
     pub(crate) fn active(&self) -> bool {
         self.tweens.values().any(|tween| !tween.settled(self.now))
     }
+
+    /// The world backdrop `surface`'s reserved bindings request, each at its displayed value.
+    pub(crate) fn world_backdrop(&self, surface: &Surface) -> Backdrop {
+        Backdrop::read(|property| {
+            match self
+                .tweens
+                .get(property.world)
+                .filter(|tween| !tween.vector)
+            {
+                Some(tween) => tween.first(self.now),
+                None => match surface.bindings.get(property.world) {
+                    Some(SurfaceValue::Number(number)) => Some(*number),
+                    _ => None,
+                },
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -275,6 +304,32 @@ mod tests {
             value(Scalar::Json(json!([0.0, 0.0])))
         );
         assert!(!transitions.active());
+    }
+
+    #[test]
+    fn world_backdrop_reads_reserved_bindings_at_their_displayed_values() {
+        use ui::mod_panel::backdrop::{WORLD_BLUR_BINDING, WORLD_BRIGHTNESS_BINDING};
+        let mut surface = surface(SurfaceValue::Number(0.0), linear(1.0, None));
+        surface
+            .bindings
+            .insert(WORLD_BLUR_BINDING.into(), SurfaceValue::Number(3.0));
+        surface
+            .bindings
+            .insert(WORLD_BRIGHTNESS_BINDING.into(), SurfaceValue::Number(0.62));
+        surface.transitions.insert(
+            WORLD_BLUR_BINDING.into(),
+            linear(0.25, Some(SurfaceValue::Number(0.0))),
+        );
+        let mut transitions = SurfaceTransitions::default();
+        assert!(transitions.world_backdrop(&surface).blur == 3.0);
+        transitions.advance(&surface, 1.0);
+        let opening = transitions.world_backdrop(&surface);
+        assert_eq!((opening.blur, opening.brightness), (0.0, 0.62));
+        transitions.advance(&surface, 1.125);
+        assert_eq!(transitions.world_backdrop(&surface).blur, 1.5);
+        transitions.advance(&surface, 1.25);
+        let open = transitions.world_backdrop(&surface);
+        assert_eq!((open.blur, open.saturation), (3.0, 1.0));
     }
 
     #[test]

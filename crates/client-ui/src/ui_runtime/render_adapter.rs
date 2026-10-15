@@ -87,6 +87,7 @@ pub fn adapt_ui_draw_list(
                 match batch.blend {
                     ui::UiBlendMode::Alpha => render_model::UI_BLEND_ALPHA,
                     ui::UiBlendMode::Invert => render_model::UI_BLEND_INVERT,
+                    ui::UiBlendMode::Backdrop => render_model::UI_BLEND_BACKDROP,
                 },
             )
             .with_depth_test(batch.depth_test)
