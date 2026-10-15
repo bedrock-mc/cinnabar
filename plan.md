@@ -962,6 +962,8 @@ arm and fallback main-hand items. Item use and special movement retain their
 authored poses. Java 1.7 takes precedence for body, arm and item poses.
 First-person hand sway deliberately uses Java tick smoothing in both combat
 profiles, independently of the Java animation option.
+Sway retains complete camera yaw turns through tick smoothing and frame interpolation,
+including turns larger than a half turn in one input frame.
 Movement bob uses the physics fraction; hurt and death use the actor fraction.
 Remote movement keeps pitch in the signed half-turn range before strike poses read it.
 Frame interpolation takes the shortest pitch arc across the signed boundary in Java mode.

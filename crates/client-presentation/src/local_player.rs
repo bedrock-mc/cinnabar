@@ -4,7 +4,7 @@ use simulation_clock::PhysicsTick;
 use simulation_clock::identity::SessionGeneration;
 
 use bevy::prelude::{
-    Entity, Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With,
+    Entity, EulerRot, Quat, Res, ResMut, Resource, Single, SystemSet, Transform, Vec3, With,
 };
 use semantic_input::PerspectiveMode;
 use sim::WorldCollisionIdentity;
@@ -202,12 +202,45 @@ impl LocalPlayerFrameCarrier {
 pub struct LocalViewPose {
     eye_translation: Vec3,
     feet_translation: Vec3,
-    rotation: Quat,
-    freelook_rotation: Option<Quat>,
+    rotation: ViewRotation,
+    freelook_rotation: Option<ViewRotation>,
     camera_reanchor_epoch: u64,
     sleeping: Option<sleeping::SleepingPose>,
     sleeping_camera: bool,
     sleeping_changed: bool,
+}
+
+/// Keeps complete yaw turns that a quaternion alone cannot represent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ViewRotation {
+    rotation: Quat,
+    yaw: f32,
+}
+
+impl ViewRotation {
+    /// Reads continuous yaw together with the orientation's bounded pitch and roll.
+    fn angles(self) -> (f32, f32, f32) {
+        let (_, pitch, roll) = self.rotation.to_euler(EulerRot::YXZ);
+        (self.yaw, pitch, roll)
+    }
+
+    /// Stores a valid orientation, using an explicit yaw or its nearest equivalent heading.
+    fn set(&mut self, rotation: Quat, yaw: Option<f32>) {
+        let norm = rotation.length_squared();
+        if !rotation.is_finite() || !norm.is_finite() || norm <= f32::EPSILON {
+            return;
+        }
+        if yaw.is_some_and(|yaw| !yaw.is_finite()) {
+            return;
+        }
+        self.rotation = rotation.normalize();
+        self.yaw = yaw.unwrap_or_else(|| {
+            let (yaw, _, _) = self.rotation.to_euler(EulerRot::YXZ);
+            let delta = (yaw - self.yaw + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
+            self.yaw + delta
+        });
+    }
 }
 
 impl Default for LocalViewPose {
@@ -215,7 +248,10 @@ impl Default for LocalViewPose {
         Self {
             eye_translation: Vec3::new(0.0, 80.0, 0.0),
             feet_translation: Vec3::new(0.0, 80.0 - protocol::PLAYER_NETWORK_OFFSET, 0.0),
-            rotation: Quat::IDENTITY,
+            rotation: ViewRotation {
+                rotation: Quat::IDENTITY,
+                yaw: 0.0,
+            },
             freelook_rotation: None,
             camera_reanchor_epoch: 0,
             sleeping: None,
@@ -252,12 +288,29 @@ impl LocalViewPose {
 
     #[must_use]
     pub const fn rotation(self) -> Quat {
-        self.rotation
+        self.rotation.rotation
     }
 
     /// The input heading, including freelook, before any sleeping presentation override.
     pub fn look_rotation(self) -> Quat {
-        self.freelook_rotation.unwrap_or(self.rotation)
+        self.freelook_rotation.unwrap_or(self.rotation).rotation
+    }
+
+    /// Input angles in radians, retaining full yaw turns for first-person inertia.
+    pub fn look_angles(self) -> (f32, f32, f32) {
+        self.freelook_rotation.unwrap_or(self.rotation).angles()
+    }
+
+    /// Presentation pitch and continuous yaw in Minecraft degrees.
+    pub fn camera_look(self) -> [f32; 2] {
+        let (yaw, pitch, _) = if self.sleeping_camera
+            && let Some(pose) = self.sleeping
+        {
+            pose.rotation.to_euler(EulerRot::YXZ)
+        } else {
+            self.look_angles()
+        };
+        [-pitch.to_degrees(), -yaw.to_degrees()]
     }
 
     /// The shared presentation heading; third-person orbit and gameplay keep their input heading.
@@ -279,14 +332,18 @@ impl LocalViewPose {
     }
 
     pub fn set_look_rotation(&mut self, rotation: Quat) {
-        let norm = rotation.length_squared();
-        if rotation.is_finite() && norm.is_finite() && norm > f32::EPSILON {
-            if let Some(camera) = self.freelook_rotation.as_mut() {
-                *camera = rotation.normalize();
-            } else {
-                self.set_rotation(rotation);
-            }
-        }
+        self.freelook_rotation
+            .as_mut()
+            .unwrap_or(&mut self.rotation)
+            .set(rotation, None);
+    }
+
+    /// Applies input angles without discarding turns larger than half a revolution.
+    pub fn set_look_angles(&mut self, yaw: f32, pitch: f32, roll: f32) {
+        self.freelook_rotation
+            .as_mut()
+            .unwrap_or(&mut self.rotation)
+            .set(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll), Some(yaw));
     }
 
     /// Invalidates camera presentation history without changing gameplay or network state.
@@ -314,10 +371,7 @@ impl LocalViewPose {
     }
 
     pub fn set_rotation(&mut self, rotation: Quat) {
-        let norm = rotation.length_squared();
-        if rotation.is_finite() && norm.is_finite() && norm > f32::EPSILON {
-            self.rotation = rotation.normalize();
-        }
+        self.rotation.set(rotation, None);
     }
 }
 

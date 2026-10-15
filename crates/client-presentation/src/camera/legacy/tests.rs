@@ -462,3 +462,61 @@ fn shared_hand_sway_uses_java_ticks_with_either_animation_option_and_bob_prefere
         }
     }
 }
+
+/// The hand follows complete fast turns at 20, 60 and 240 rendered frames per second.
+#[test]
+fn shared_hand_sway_retains_turn_direction_at_high_and_low_frame_rates() {
+    for java_mode in [false, true] {
+        for frames_per_tick in [1, 3, 12] {
+            let mut app = camera_app();
+            let mut user = ui::UserSettings::default();
+            user.video.java_animations = java_mode;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(1, &user)
+                .unwrap();
+            tick(&mut app, 1);
+            app.world_mut().run_system_cached(sample).unwrap();
+            let mut previous = Vec2::ZERO;
+            let mut current = Vec2::ZERO;
+            let mut from = Vec2::ZERO;
+            for (index, to) in [
+                Vec2::new(80.0, 240.0),
+                Vec2::new(-80.0, 480.0),
+                Vec2::new(0.0, 720.0),
+                Vec2::new(-80.0, 480.0),
+                Vec2::new(80.0, 240.0),
+                Vec2::ZERO,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for frame in 1..=frames_per_tick {
+                    let look = from.lerp(to, frame as f32 / frames_per_tick as f32);
+                    app.world_mut()
+                        .resource_mut::<LocalViewPose>()
+                        .set_look_angles(-look.y.to_radians(), -look.x.to_radians(), 0.0);
+                    if frame == frames_per_tick {
+                        tick(&mut app, index as u64 + 2);
+                        previous = current;
+                        current += (look - current) * 0.5;
+                    }
+                    let alpha = (frame % frames_per_tick) as f32 / frames_per_tick as f32;
+                    app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
+                    app.world_mut().run_system_cached(sample).unwrap();
+                    let motion = app.world().resource::<FirstPersonHandMotion>();
+                    let expected = (look - previous.lerp(current, alpha)) * 0.1;
+                    let expected = Mat4::from_rotation_x(expected.x.to_radians())
+                        * Mat4::from_rotation_y(expected.y.to_radians());
+                    let actual = Mat4::from_rotation_x(motion.sway_pitch_radians)
+                        * Mat4::from_rotation_y(motion.sway_yaw_radians);
+                    assert!(
+                        actual.abs_diff_eq(expected, 3e-6),
+                        "Java {java_mode}, frames per tick {frames_per_tick}, tick {index}, frame {frame}"
+                    );
+                }
+                from = to;
+            }
+        }
+    }
+}
