@@ -33,7 +33,7 @@ impl CollectionItem {
 
 /// An immutable collection whose unchanged publications compare in constant time.
 #[derive(Clone, Debug)]
-pub(super) struct SharedCollection(Arc<[CollectionItem]>);
+pub(crate) struct SharedCollection(Arc<[CollectionItem]>);
 
 impl PartialEq for SharedCollection {
     fn eq(&self, other: &Self) -> bool {
@@ -55,15 +55,15 @@ impl std::ops::Deref for SharedCollection {
 pub struct DataSource {
     /// Native creation values inherited by the screen's created subtree.
     pub(super) creation_values: Arc<BTreeMap<String, Scalar>>,
-    pub(super) globals: BTreeMap<String, Scalar>,
+    pub(crate) globals: BTreeMap<String, Scalar>,
     /// Controller answers selected by the originating control's `#index` bag value.
     pub(super) indexed_globals: BTreeMap<usize, BTreeMap<String, Scalar>>,
-    pub(super) collections: BTreeMap<String, SharedCollection>,
+    pub(crate) collections: BTreeMap<String, SharedCollection>,
     /// Values the controller writes straight into named controls' bags.
     pub(super) controls: BTreeMap<String, BTreeMap<String, Scalar>>,
-    pub(super) collection_defaults: BTreeMap<String, BTreeMap<String, Scalar>>,
+    pub(crate) collection_defaults: BTreeMap<String, BTreeMap<String, Scalar>>,
     /// Controls created through named factories (`chat_item_factory`, …).
-    pub(super) factories: BTreeMap<String, Vec<FactoryItem>>,
+    pub(crate) factories: BTreeMap<String, Arc<[FactoryItem]>>,
     /// Screen-controller semantics: an unbound `#name` reads as `false` rather
     /// than leaving the template's literal in place.
     pub(super) strict: bool,
@@ -173,7 +173,7 @@ impl DataSource {
 
     /// The controls the factory named `name` holds, oldest first.
     pub fn set_factory(&mut self, name: impl Into<String>, items: Vec<FactoryItem>) {
-        self.factories.insert(name.into(), items);
+        self.factories.insert(name.into(), items.into());
     }
 
     /// Answer the global a `grid_dimension_binding` named `name` (with its `#`)

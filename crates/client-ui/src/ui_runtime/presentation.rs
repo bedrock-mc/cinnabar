@@ -154,6 +154,8 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Inventory projections retained across HUD publications.
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
+    /// Semantic HUD content retained before binding construction.
+    hud_cache: forms::hud::SemanticHud,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.
