@@ -182,8 +182,23 @@ fn review_render_live_terrain_particle_keeps_its_tile_during_recycling() {
             [1.0; 4],
         ))
         .unwrap();
-    system.tick(0.001, &EmptyWorld);
+    let shared = system
+        .spawn(&block_break_request(
+            "minecraft:long",
+            [0; 3],
+            TileRequest {
+                key: 1,
+                size: 1,
+                pixels: vec![7; 4].into(),
+            },
+            [1.0; 4],
+        ))
+        .unwrap();
     let first = system.emitters_mut()[0].texture;
+    assert_eq!(system.atlas().placement_references(first), 2);
+    system.stop(shared);
+    assert_eq!(system.atlas().placement_references(first), 1);
+    system.tick(0.001, &EmptyWorld);
     for key in 2..=super::atlas::MAX_SLOTS as u64 + 2 {
         system
             .spawn(&block_break_request(
@@ -202,4 +217,20 @@ fn review_render_live_terrain_particle_keeps_its_tile_during_recycling() {
     let offset = ((first.y * ATLAS_SIDE + first.x) * 4) as usize;
     assert_eq!(&system.atlas().pixels()[offset..offset + 4], &[7; 4]);
     assert!(system.live_particles() > 0);
+    system.clear();
+    assert_eq!(system.atlas().placement_references(first), 0);
+    system
+        .spawn(&block_break_request(
+            "minecraft:short",
+            [0; 3],
+            TileRequest {
+                key: super::atlas::MAX_SLOTS as u64 + 3,
+                size: 1,
+                pixels: vec![9; 4].into(),
+            },
+            [1.0; 4],
+        ))
+        .unwrap();
+    assert_eq!(system.emitters_mut()[0].texture, first);
+    assert_eq!(&system.atlas().pixels()[offset..offset + 4], &[9; 4]);
 }

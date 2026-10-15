@@ -958,6 +958,14 @@ these changes do not close the movement, camera, or actor parity gates.
   and byte-order tests cover asynchronous reuse, partial staging and fallback.
   Attach-only native samples confirm staging-allocation mutex contention, drawable
   waits and scheduler delays.
+- Particle atlas references and per-identifier emitter/particle totals update at mutation
+  boundaries. Tile aliases retain their append order with precomputed names. The fixed
+  frame staging shape derives its capacity from the particle cap and GPU instance size,
+  with room for other frame writes and four frames awaiting completion; unavailable
+  mappings and excess writes retain fallback. This is a partial particle bookkeeping
+  optimization: front eviction and draw-list reuse are unchanged. Focused regression
+  coverage is written but unrun; native burst timings and fallback measurements remain
+  incomplete. No particle parity or performance gate is closed by this change.
 - Incomplete: one 32 blocks/s flight capture sized the terrain pool's growth; its
   staged share after growth, the 128 blocks/s route and joins remain unmeasured.
 - Incomplete: the synthetic fixed-camera fixture is not the populated-lobby/flight

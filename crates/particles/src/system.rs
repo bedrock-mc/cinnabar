@@ -13,6 +13,9 @@ use super::{
 };
 
 mod biome_tinted;
+mod bookkeeping;
+
+use bookkeeping::Bookkeeping;
 
 /// Live particles across all emitters; the oldest are dropped past this.
 pub const MAX_LIVE_PARTICLES: usize = 8192;
@@ -26,22 +29,20 @@ const MAX_FRAME_SECONDS: f32 = 0.25;
 /// existing emitter/particle totals, with strict `>` comparisons before spawn.
 const TERRAIN_EMITTER_LIMIT: usize = 20;
 const TERRAIN_PARTICLE_LIMIT: usize = 500;
-const TILE_VARIABLE_NAMES: [(&str, &str); 5] = [
-    ("emitter_texture_coordinate", "emitter_texture_size"),
-    ("emittertexturecoord", "emittertexturesize"),
-    (
-        "dig_particle_texture_coordinate",
-        "dig_particle_texture_size",
-    ),
-    (
-        "ground_particle_texture_coordinate",
-        "ground_particle_texture_size",
-    ),
-    (
-        "surface_particle_texture_coordinate",
-        "surface_particle_texture_size",
-    ),
-];
+// Expand every alias from one coordinate/size pair, preserving append order.
+macro_rules! tile_variable_names {
+    ($($coordinate:literal, $size:literal);* $(;)?) => {
+        [$([concat!($coordinate, ".u"), concat!($coordinate, ".v"),
+            concat!($size, ".u"), concat!($size, ".v")]),*]
+    };
+}
+const TILE_VARIABLE_NAMES: [[&str; 4]; 5] = tile_variable_names! {
+    "emitter_texture_coordinate", "emitter_texture_size";
+    "emittertexturecoord", "emittertexturesize";
+    "dig_particle_texture_coordinate", "dig_particle_texture_size";
+    "ground_particle_texture_coordinate", "ground_particle_texture_size";
+    "surface_particle_texture_coordinate", "surface_particle_texture_size";
+};
 /// Undrained sound requests kept before the oldest are dropped.
 const MAX_QUEUED_SOUNDS: usize = 256;
 
@@ -54,6 +55,7 @@ pub struct ParticleSystem {
     library: EffectLibrary,
     atlas: ParticleAtlas,
     emitters: Vec<Emitter>,
+    bookkeeping: Bookkeeping,
     sounds: Vec<ParticleSound>,
     next_id: u64,
     seed: u64,
@@ -105,7 +107,7 @@ impl ParticleSystem {
 
     #[must_use]
     pub fn live_particles(&self) -> usize {
-        self.emitters.iter().map(|e| e.particles.len()).sum()
+        self.bookkeeping.live_particles()
     }
 
     #[must_use]
@@ -116,6 +118,7 @@ impl ParticleSystem {
     /// Removes every emitter and particle (dimension change, disconnect).
     pub fn clear(&mut self) {
         self.emitters.clear();
+        self.bookkeeping.clear(&mut self.atlas);
         self.sounds.clear();
         self.actor_emitters.clear();
     }
@@ -125,6 +128,7 @@ impl ParticleSystem {
         self.atlas.base()
     }
 
+    /// Borrows render expression state; callers must preserve emitter lifetimes and particle counts.
     pub(super) fn emitters_mut(&mut self) -> &mut [Emitter] {
         &mut self.emitters
     }
@@ -158,7 +162,8 @@ impl ParticleSystem {
             return None;
         }
         if self.emitters.len() >= MAX_EMITTERS {
-            self.emitters.remove(0);
+            let oldest = self.emitters.remove(0);
+            self.bookkeeping.remove(&oldest, &mut self.atlas);
         }
         let mut request = request.clone();
         let texture = self.resolve_texture(&def.texture, &mut request);
@@ -169,8 +174,9 @@ impl ParticleSystem {
             ^ id.wrapping_mul(0xD6E8_FEB8_6659_FD93)
             ^ u64::from(request.position[0].to_bits())
             ^ (u64::from(request.position[2].to_bits()) << 32);
-        self.emitters
-            .push(Emitter::new(id, def, texture, &request, seed));
+        let emitter = Emitter::new(id, def, texture, &request, seed);
+        self.bookkeeping.insert(&emitter, &mut self.atlas);
+        self.emitters.push(emitter);
         Some(id)
     }
 
@@ -180,28 +186,16 @@ impl ParticleSystem {
         let Some(def) = self.resolve(&request.effect) else {
             return self.spawn(request);
         };
-        let mut emitters = 0;
-        let mut particles = 0;
-        for emitter in &self.emitters {
-            if emitter.def.identifier == def.identifier {
-                emitters += 1;
-                particles += emitter.particles.len();
-            }
-        }
-        if emitters > TERRAIN_EMITTER_LIMIT || particles > TERRAIN_PARTICLE_LIMIT {
+        let counts = self.bookkeeping.effect(&def.identifier);
+        if counts.emitters > TERRAIN_EMITTER_LIMIT || counts.particles > TERRAIN_PARTICLE_LIMIT {
             self.dropped_spawns += 1;
             return None;
         }
         self.spawn(request)
     }
 
+    /// Resolves pixels and appends tile aliases after caller variables.
     fn resolve_texture(&mut self, source: &TextureSource, request: &mut SpawnRequest) -> Placement {
-        self.atlas.set_live_placements(
-            self.emitters
-                .iter()
-                .filter(|emitter| !emitter.done || !emitter.particles.is_empty())
-                .map(|emitter| emitter.texture),
-        );
         let fallback = self.atlas.fallback();
         match source {
             TextureSource::Path(path) => self.atlas.placement(path).unwrap_or(fallback),
@@ -215,14 +209,9 @@ impl ParticleSystem {
                     .unwrap_or(fallback);
                 let [u, v, du, dv] = placement.normalized();
                 // Vanilla effects name the same tile rectangle several ways.
-                for (coordinate, size) in TILE_VARIABLE_NAMES {
-                    for (name, value) in [
-                        (format!("{coordinate}.u"), u),
-                        (format!("{coordinate}.v"), v),
-                        (format!("{size}.u"), du),
-                        (format!("{size}.v"), dv),
-                    ] {
-                        request.variables.push((name, value));
+                for names in TILE_VARIABLE_NAMES {
+                    for (name, value) in names.into_iter().zip([u, v, du, dv]) {
+                        request.variables.push((name.to_owned(), value));
                     }
                 }
                 placement
@@ -258,7 +247,9 @@ impl ParticleSystem {
                 emitter.pos = position;
                 emitter.basis = basis;
             } else {
-                emitter.done = true;
+                self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
+                    emitter.done = true;
+                });
             }
         }
     }
@@ -282,7 +273,11 @@ impl ParticleSystem {
                     emitter.queries = queries;
                 }
                 super::actor::ActorAttachmentUpdate::Pending => {}
-                super::actor::ActorAttachmentUpdate::Removed => emitter.done = true,
+                super::actor::ActorAttachmentUpdate::Removed => {
+                    self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
+                        emitter.done = true;
+                    });
+                }
             }
         }
     }
@@ -298,7 +293,9 @@ impl ParticleSystem {
     /// Stops an emitter from emitting; its live particles finish out.
     pub fn stop(&mut self, id: u64) {
         if let Some(emitter) = self.emitters.iter_mut().find(|e| e.id == id) {
-            emitter.done = true;
+            self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
+                emitter.done = true;
+            });
         }
     }
 
@@ -322,19 +319,29 @@ impl ParticleSystem {
         self.enforce_budget();
     }
 
+    /// Advances lifetimes and accounts for removals before admitting nested effects.
     fn step(&mut self, dt: f32, world: &dyn ParticleWorld) {
         let mut output = Outputs::default();
         let live = self.live_particles();
         let mut budget = MAX_LIVE_PARTICLES.saturating_sub(live);
         let mut boxes = std::mem::take(&mut self.boxes);
         for emitter in &mut self.emitters {
-            let before = emitter.particles.len();
-            emitter.advance(dt, &mut output, budget);
-            budget = budget.saturating_sub(emitter.particles.len().saturating_sub(before));
-            emitter.update_particles(dt, world, &mut boxes, &mut output);
+            self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
+                let before = emitter.particles.len();
+                emitter.advance(dt, &mut output, budget);
+                budget = budget.saturating_sub(emitter.particles.len().saturating_sub(before));
+                emitter.update_particles(dt, world, &mut boxes, &mut output);
+            });
         }
         self.boxes = boxes;
-        self.emitters.retain(|emitter| !emitter.is_finished());
+        self.emitters.retain(|emitter| {
+            if emitter.is_finished() {
+                self.bookkeeping.remove(emitter, &mut self.atlas);
+                false
+            } else {
+                true
+            }
+        });
         self.sounds.append(&mut output.sounds);
         if self.sounds.len() > MAX_QUEUED_SOUNDS {
             let excess = self.sounds.len() - MAX_QUEUED_SOUNDS;
@@ -359,7 +366,9 @@ impl ParticleSystem {
                 return;
             };
             let take = excess.min(victim.particles.len());
-            victim.particles.drain(..take);
+            self.bookkeeping.edit(victim, &mut self.atlas, |victim| {
+                victim.particles.drain(..take);
+            });
             excess -= take;
         }
     }
@@ -531,6 +540,18 @@ mod tests {
         let other = EFFECT.replace("minecraft:burst", "minecraft:other");
         assert!(system.register_effect(other.as_bytes()));
         assert!(system.spawn_terrain(&request("other", 0.0)).is_some());
+        let stopped = system.emitters[0].id;
+        system.stop(stopped);
+        assert!(
+            system.spawn_terrain(&req).is_none(),
+            "retained empty entries still count"
+        );
+        system.tick(0.01, &EmptyWorld);
+        assert!(
+            system.spawn_terrain(&req).is_some(),
+            "removed entries free admission"
+        );
+        assert!(system.spawn_terrain(&req).is_none());
     }
 
     #[test]
