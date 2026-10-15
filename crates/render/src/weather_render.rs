@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use bevy::{
@@ -212,14 +213,14 @@ pub(crate) fn prepare_weather_records(
         upload_occlusion = gpu.occlusion_generation != Some(scene.occlusion_generation),
     )
     .entered();
-    render_queue.write_buffer(
+    render_queue.profiled_write_buffer(
         &gpu.record_buffer,
         0,
         bytemuck::cast_slice::<PrecipitationLayerRecord, u8>(&scene.layers[..count]),
     );
     if gpu.occlusion_generation != Some(scene.occlusion_generation) {
         gpu.occlusion_generation = Some(scene.occlusion_generation);
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             &gpu.occlusion_buffer,
             0,
             bytemuck::cast_slice::<i32, u8>(&scene.occlusion.heights),
@@ -231,7 +232,7 @@ pub(crate) fn prepare_weather_records(
         forward: [x, y, z, has_sheet],
         grid: [origin_x, origin_z, 0, 0],
     };
-    render_queue.write_buffer(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
+    render_queue.profiled_write_buffer(&gpu.params_buffer, 0, bytemuck::bytes_of(&params));
 }
 
 struct WeatherPipelineSpecializer;

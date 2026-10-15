@@ -13,6 +13,26 @@ struct Cells {
     facts: BTreeMap<[i32; 3], BlockPhysicsFacts>,
 }
 
+/// Bubble contact changes velocity even when the teleport tick has no travel request.
+#[test]
+fn skipped_travel_still_applies_bubble_contact_without_gravity_or_movement() {
+    let world = Cells::default().with([0, 2, 0], water(SurfaceResponse::BubbleUp));
+    let mut player = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
+    let target = player.position;
+    let output = tick(
+        &world,
+        &mut player,
+        MovementInput {
+            skip_travel: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(output.position, target);
+    assert_eq!(output.movement, Vec3::ZERO);
+    assert_eq!(output.velocity.y, f64::from(0.1_f32));
+    assert!(output.environment.in_water);
+}
+
 fn facts(flags: BlockPhysicsFlags, response: SurfaceResponse) -> BlockPhysicsFacts {
     BlockPhysicsFacts {
         friction: 0.6,

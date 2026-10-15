@@ -16,7 +16,7 @@ when the camera is outside that volume.
 | Blend | `scene × colour` on the encoded (gamma) colour; overlapping volumes shade once. |
 | Colour | 0.7 grey. Tint = lerp(sky × 0.5 + 0.4, sunrise rgb, sunrise alpha); each channel is offset by 0.03 × (tint − luminance) / max |tint − luminance| (Rec. 709 luminance). A grey tint leaves 0.7. Alpha 1. |
 | Lighting | No light term: the multiplier applies to the already-lit colour. |
-| Radius | Collision-box width (streamed, so already scaled and baby-sized). Players without streamed bounds use 0.6. |
+| Radius | Collision-box width after applying server scale and the minimum collision size. Players without streamed bounds use a base width of 0.6. |
 | Radius overrides | ghast, happy ghast, creaking ×0.8; spider, cave spider ×0.7; armadillo ×0.575; horse, donkey, mule, skeleton and zombie horse ×0.6; ender dragon ×0.3; tadpole ×0.5; iron golem, shulker ×0.5 (×0.25 as babies); baby turtle ×0.33; slime, magma cube, sulfur cube: variant × 0.25; tripod camera, end crystal 0.5; boat, chest boat 1.0; parrot riding anything 0; spectator player 0. |
 | No shadow | armor stand, area effect cloud, cushion, fishing hook, every minecart, XP orb, leash knot, eye of ender, lightning, primed TNT, falling block, firework, painting; every projectile type (arrows, tridents, thrown items, potions, fireballs, skulls, llama spit, shulker bullet, wind charges, evocation fang, ice bomb). |
 | Hidden by state | Dead or zero health, on fire, invisible, breathing point under water or lava, riding a vehicle that is not invisible. |

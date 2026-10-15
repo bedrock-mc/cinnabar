@@ -31,7 +31,10 @@ pub(crate) fn configure_client_frame_schedule(app: &mut App) {
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.add_systems(
         bevy::prelude::Startup,
-        crate::runtime::network::initialize_overlay_texture_limit,
+        (
+            crate::runtime::network::initialize_overlay_texture_limit,
+            crate::runtime::network::initialize_actor_geometry_budget,
+        ),
     );
     app.add_plugins((
         client_presentation::ClientPresentationPlugin,

@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use render_model::terrain_units::{VisibleTerrainUnit, shards};
 
 use crate::chunk::*;
@@ -68,7 +69,7 @@ pub(super) fn upload(
             if let Some(staging) = staging {
                 staging.write_batch(device, queue, &[(&page.buffer, 0, bytes)]);
             } else {
-                queue.write_buffer(&page.buffer, 0, bytes);
+                queue.profiled_write_buffer(&page.buffer, 0, bytes);
             }
             page.uploaded.clear();
             page.uploaded.extend_from_slice(units);

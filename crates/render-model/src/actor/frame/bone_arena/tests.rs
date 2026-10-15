@@ -187,6 +187,21 @@ fn invalid_late_bones_roll_back_the_entire_pose_without_touching_the_prefix() {
     }
 }
 
+/// Finite components whose composed scale overflows cannot publish invalid GPU matrices.
+#[test]
+fn finite_pose_overflow_rolls_back_the_entire_pose() {
+    let invalid = RenderBoneTransform {
+        translation_scale: [0.0, 0.0, 0.0, f32::MAX],
+        axis_scale: [f32::MAX, 1.0, 1.0, 1.0],
+        ..bone(0)
+    };
+    assert!(invalid.is_finite());
+    let prefix = vec![[[5.0; 4]; 3]];
+    let mut arena = prefix.clone();
+    assert!(!append_pose_matrices(&mut arena, &[bone(0), invalid], &[]));
+    assert_eq!(arena, prefix);
+}
+
 #[test]
 fn complete_frames_match_reference_matrices_and_invalid_actors_leave_no_arena_holes() {
     let geometry =

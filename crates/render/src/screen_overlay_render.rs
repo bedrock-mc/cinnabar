@@ -1,4 +1,5 @@
 //! Draws camera effects after first-person geometry and before the JSON-UI HUD.
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
@@ -342,7 +343,7 @@ fn prepare_overlay(
             0.0,
         ];
     }
-    queue.write_buffer(&gpu.uniform, 0, bytemuck::bytes_of(&uniform));
+    queue.profiled_write_buffer(&gpu.uniform, 0, bytemuck::bytes_of(&uniform));
 }
 
 struct OverlayPipelineSpecializer;

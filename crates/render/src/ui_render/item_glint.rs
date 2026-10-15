@@ -1,6 +1,7 @@
 //! Retained item glint texture, separate from UI atlas allocations.
 
 use super::profile::{UiProfile, UploadKind};
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{
         AddressMode, Extent3d, FilterMode, Sampler, SamplerDescriptor, TexelCopyBufferLayout,
@@ -94,7 +95,7 @@ fn upload(
         view_formats: &[],
     });
     let pixels = page.map_or(&[0; 4][..], UiTexturePage::pixels);
-    queue.write_texture(
+    queue.profiled_write_texture(
         texture.as_image_copy(),
         pixels,
         TexelCopyBufferLayout {

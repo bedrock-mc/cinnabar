@@ -3,6 +3,7 @@
 //! so its depth holds only static, fully opaque geometry; a pyramid of it tests every resident
 //! slot, and the bits come back asynchronously for later frames to skip what stays occluded.
 
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
 
 use std::sync::{
@@ -475,7 +476,7 @@ pub(in crate::chunk) fn prepare_direct_occlusion(
             let _span =
                 bevy::log::info_span!("terrain.occlusion_uniform_write", frame = occlusion.frame)
                     .entered();
-            queue.write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
+            queue.profiled_write_buffer(&storage.uniform, 0, bytemuck::bytes_of(&uniform));
         }
         if occlusion
             .bind_group

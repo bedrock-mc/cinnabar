@@ -2,6 +2,7 @@ use crate::chunk::transparent::liquid::{
     transparent_frame_draw_for_range, transparent_frame_draws,
 };
 use crate::chunk::*;
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::TransparentSortMetrics;
 
 pub(in crate::chunk) fn drawable_allocation_identity(
@@ -121,7 +122,7 @@ pub(in crate::chunk) fn upload_indirect_commands_if_changed(
         bytes = bytes.len()
     )
     .entered();
-    render_queue.write_buffer(&arena.indirect_buffer, 0, bytes);
+    render_queue.profiled_write_buffer(&arena.indirect_buffer, 0, bytes);
     #[cfg(feature = "tracy")]
     drop(_span);
     arena.uploaded_indirect_bytes.clear();

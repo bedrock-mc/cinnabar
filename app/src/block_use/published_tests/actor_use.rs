@@ -15,6 +15,7 @@ pub(super) fn spawn(world: &mut World, z: f32) {
     );
 }
 
+/// Commits a selectable actor of the requested kind into the fixture's stream.
 fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
     let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
     let stream = client.stream.as_mut().unwrap();
@@ -41,12 +42,10 @@ fn spawn_kind(world: &mut World, z: f32, kind: protocol::ActorKind) {
             })),
         )
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while stream.committed_sequence() < sequence {
+    test_time::eventually_within(Duration::from_secs(5), "fixture actor spawn", || {
         stream.poll([4.5, 2.620_01, 8.5], 0);
-        assert!(Instant::now() < deadline);
-        std::thread::yield_now();
-    }
+        stream.committed_sequence() >= sequence
+    });
 }
 
 #[test]
