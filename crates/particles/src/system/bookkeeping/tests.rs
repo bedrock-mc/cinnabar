@@ -329,7 +329,7 @@ fn all_tile_aliases_keep_append_order_caller_precedence_and_draw_output() {
     let placement = actual.resolve_texture(&TextureSource::Terrain, &mut actual_request);
     let expected_placement = expected.atlas.tile(1, 1, &[1; 4]).unwrap();
     let values = expected_placement.normalized();
-    for names in names.chunks_exact(4) {
+    for names in names.as_chunks::<4>().0 {
         for (name, value) in names.iter().zip(values) {
             expected_request.variables.push((name.clone(), value));
         }

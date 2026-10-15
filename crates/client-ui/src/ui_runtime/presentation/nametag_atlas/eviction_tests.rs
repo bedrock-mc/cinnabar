@@ -781,8 +781,8 @@ fn partially_live_shelves_recover_next_frame_and_match_a_fresh_scene() {
     );
     // The wide miss samples nothing; the smaller later miss reclaims a stale neighbor.
     assert_eq!(reads.get(), 1);
-    for row in 0..rows {
-        let cell = &atlas.cells[atlas.lines[&anchors[row].lines[0]]];
+    for (row, anchor) in anchors.iter().enumerate().take(rows) {
+        let cell = &atlas.cells[atlas.lines[&anchor.lines[0]]];
         assert_eq!(cell.line.cell, original.0[row * 2].cell);
         assert!(Arc::ptr_eq(&cell.rgba8, &original.0[row * 2].rgba8));
     }

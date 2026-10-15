@@ -403,6 +403,8 @@ fn sidebar_owner_names_and_boss_changes_rebuild_only_their_components() {
                     style: ui::BossStyle {
                         color: ui::BossColor::Red,
                         overlay: ui::BossOverlay::Notched6,
+                        darken_sky: None,
+                        create_world_fog: None,
                     },
                 },
             )

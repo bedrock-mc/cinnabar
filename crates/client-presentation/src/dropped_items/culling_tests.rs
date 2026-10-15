@@ -650,17 +650,47 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
     });
     let mut world = World::new();
     let mut state = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
-    assert!(state.get_mut(&mut world).culling_view(view).is_none());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_none()
+    );
     let first = world.spawn(Camera3d::default()).id();
-    assert!(state.get_mut(&mut world).culling_view(view).is_some());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_some()
+    );
     let other = world.spawn(Camera3d::default()).id();
-    assert!(state.get_mut(&mut world).culling_view(view).is_none());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_none()
+    );
     world.despawn(other);
-    assert!(state.get_mut(&mut world).culling_view(view).is_some());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_some()
+    );
     world
         .entity_mut(first)
         .insert(bevy::render::camera::TemporalJitter::default());
-    assert!(state.get_mut(&mut world).culling_view(view).is_none());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_none()
+    );
     world
         .entity_mut(first)
         .remove::<bevy::render::camera::TemporalJitter>();
@@ -669,7 +699,13 @@ fn publisher_disables_frustum_rejection_for_missing_or_additional_3d_cameras() {
         .get_mut::<bevy::prelude::Camera>()
         .unwrap()
         .sub_camera_view = Some(Default::default());
-    assert!(state.get_mut(&mut world).culling_view(view).is_none());
+    assert!(
+        state
+            .get_mut(&mut world)
+            .unwrap()
+            .culling_view(view)
+            .is_none()
+    );
 }
 
 #[test]

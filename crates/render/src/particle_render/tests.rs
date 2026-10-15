@@ -310,7 +310,8 @@ fn queued_particle_ranges_use_the_extracted_frame_before_gpu_preparation() {
         })
         .collect();
     ranges.sort_by_key(|range| range.start);
-    assert_eq!(ranges, [1..5]);
+    assert_eq!(ranges.len(), 1);
+    assert_eq!(ranges[0], 1..5);
 }
 
 /// Adds translucent terrain between the particles before the shared phase merge.
@@ -318,23 +319,24 @@ fn add_glass(app: &mut App, view: RetainedViewEntity, glass: DrawFunctionId) {
     let pending = &app.world().resource::<ParticlePhase>().0[&view];
     let first = pending.streams[0].template.as_ref().unwrap();
     let (entity, pipeline) = (first.entity, first.pipeline);
-    let mut phases = app
-        .world_mut()
-        .resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
-    crate::transparent_phase::add(
-        phases.get_mut(&view).unwrap(),
-        Transparent3d {
-            sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
-            entity,
-            pipeline,
-            draw_function: glass,
-            distance: -5.0,
-            batch_range: 0..1,
-            extra_index: PhaseItemExtraIndex::None,
-            indexed: false,
-        },
-    );
-    drop(phases);
+    {
+        let mut phases = app
+            .world_mut()
+            .resource_mut::<ViewSortedRenderPhases<Transparent3d>>();
+        crate::transparent_phase::add(
+            phases.get_mut(&view).unwrap(),
+            Transparent3d {
+                sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                entity,
+                pipeline,
+                draw_function: glass,
+                distance: -5.0,
+                batch_range: 0..1,
+                extra_index: PhaseItemExtraIndex::None,
+                indexed: false,
+            },
+        );
+    }
     app.world_mut()
         .run_system_once(crate::transparent_phase::sort)
         .unwrap();
