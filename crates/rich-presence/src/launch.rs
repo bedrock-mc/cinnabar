@@ -70,19 +70,34 @@ mod platform {
             .map(PathBuf::from)
             .or_else(|| std::env::home_dir().map(|home| home.join(".local/share")))
             .ok_or_else(|| io::Error::other("no home directory"))?;
+        register_at(application_id, command, &data, |file, mime| {
+            let status = Command::new("xdg-mime")
+                .args(["default", file, mime])
+                .status()?;
+            if status.success() {
+                Ok(())
+            } else {
+                Err(io::Error::other(format!("xdg-mime exited with {status}")))
+            }
+        })
+    }
+
+    /// Publishes the launch command and reconciles its association even when the file is unchanged.
+    fn register_at(
+        application_id: u64,
+        command: &Path,
+        data: &Path,
+        associate: impl FnOnce(&str, &str) -> io::Result<()>,
+    ) -> io::Result<()> {
         let scheme = super::scheme(application_id);
         let file = format!("{scheme}.desktop");
         let entry = super::desktop_entry(application_id, command);
-        if super::write_if_changed(&data.join("applications").join(&file), &entry)? {
-            let status = Command::new("xdg-mime")
-                .args(["default", &file, &format!("x-scheme-handler/{scheme}")])
-                .status()?;
-            if !status.success() {
-                return Err(io::Error::other(format!("xdg-mime exited with {status}")));
-            }
-        }
-        Ok(())
+        super::write_if_changed(&data.join("applications").join(&file), &entry)?;
+        associate(&file, &format!("x-scheme-handler/{scheme}"))
     }
+
+    #[cfg(test)]
+    mod tests;
 }
 
 #[cfg(target_os = "macos")]
