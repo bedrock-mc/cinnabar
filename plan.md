@@ -659,7 +659,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   existing text visibility, depth and opacity passes.
 - Go tests cover the handshake, lookups, release identities, retry policy and schema conformance.
   Rust tests cover roster-cache lifetimes, session changes and release-check scheduling.
-- Incomplete: an authenticated live run against the deployed API, the production origin, and
+- Incomplete: an authenticated live run against the deployed API and
   owner visual acceptance remain outstanding. No vanilla parity gate closes for this optional feature.
 
 ## Small-surface render safety
