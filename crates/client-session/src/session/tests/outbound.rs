@@ -388,6 +388,9 @@ async fn receipts_wait_for_a_blocked_write_and_never_follow_a_failed_one() {
             }))
         }
 
+        /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+        async fn drain_to_boundary(&mut self) {}
+
         async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
             future::pending().await
         }

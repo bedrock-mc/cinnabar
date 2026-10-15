@@ -65,6 +65,18 @@ pub const MAX_TILE_BUILDS: usize = 4;
 /// Columns gathered for new tile builds per update, bounding the owner thread's share.
 pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
 
+/// Encoded bytes retained for tile builds per update.
+pub const TILE_BUILD_BYTES_PER_UPDATE: usize = 1 << 20;
+
+/// Completed summary columns applied per frame, including stale results.
+pub const SUMMARY_COLUMNS_PER_UPDATE: usize = 256;
+
+/// Encoded summary bytes applied per frame. One oversized column may make progress alone.
+pub const SUMMARY_BYTES_PER_UPDATE: usize = 256 << 10;
+
+/// Disk events started per update, including empty and obsolete events.
+pub const CACHE_EVENTS_PER_UPDATE: usize = 32;
+
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;
 

@@ -143,11 +143,23 @@ fn take_order(background: bool, queued: &[Lane], queued_at: Moment, now: Moment)
 /// Fresh work runs mesh, then decode, then light; foreground workers never take light.
 #[test]
 fn fresh_work_follows_lane_priority() {
-    let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
+    let queued = [
+        Lane::Summary,
+        Lane::Light,
+        Lane::Decode,
+        Lane::Mesh,
+        Lane::Mesh,
+    ];
     let at = Moment::default();
     assert_eq!(
         take_order(true, &queued, at, at),
-        [Lane::Mesh, Lane::Mesh, Lane::Decode, Lane::Light]
+        [
+            Lane::Mesh,
+            Lane::Mesh,
+            Lane::Decode,
+            Lane::Light,
+            Lane::Summary
+        ]
     );
     assert_eq!(
         take_order(false, &queued, at, at),
@@ -158,17 +170,35 @@ fn fresh_work_follows_lane_priority() {
 /// Overdue light and decode jump a mesh flood; overdue light still never runs foreground.
 #[test]
 fn overdue_lower_lanes_jump_a_mesh_flood() {
-    let queued = [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh];
+    let queued = [
+        Lane::Summary,
+        Lane::Light,
+        Lane::Decode,
+        Lane::Mesh,
+        Lane::Mesh,
+    ];
     let at = Moment::default();
     let decode_late = at.checked_add(DECODE_MAX_WAIT).unwrap();
     assert_eq!(
         take_order(true, &queued, at, decode_late),
-        [Lane::Decode, Lane::Mesh, Lane::Mesh, Lane::Light]
+        [
+            Lane::Decode,
+            Lane::Mesh,
+            Lane::Mesh,
+            Lane::Light,
+            Lane::Summary
+        ]
     );
     let light_late = at.checked_add(LIGHT_MAX_WAIT).unwrap();
     assert_eq!(
         take_order(true, &queued, at, light_late),
-        [Lane::Light, Lane::Decode, Lane::Mesh, Lane::Mesh]
+        [
+            Lane::Light,
+            Lane::Decode,
+            Lane::Mesh,
+            Lane::Mesh,
+            Lane::Summary
+        ]
     );
     assert_eq!(
         take_order(false, &queued, at, light_late),
@@ -231,16 +261,93 @@ fn local_driver_runs_one_job_and_reuses_the_native_queue_order() {
     let mut scratch = world::LightSolverScratch::default();
     assert!(!run_one(&shared, now, &mut scratch));
     let (sent, received) = crossbeam_channel::bounded(3);
-    for lane in [Lane::Light, Lane::Decode, Lane::Mesh] {
+    for lane in [Lane::Summary, Lane::Light, Lane::Decode, Lane::Mesh] {
         let sent = sent.clone();
         shared
             .lock()
             .push(lane, now, Box::new(move |_| sent.try_send(lane).unwrap()));
     }
-    for expected in [Lane::Mesh, Lane::Decode, Lane::Light] {
+    for expected in [Lane::Mesh, Lane::Decode, Lane::Light, Lane::Summary] {
         assert!(run_one(&shared, now, &mut scratch));
         assert_eq!(received.try_recv().unwrap(), expected);
         assert!(received.try_recv().is_err());
     }
     assert!(!run_one(&shared, now, &mut scratch));
+}
+
+/// Summary age never promotes it above urgent or near work; foreground leaves it queued.
+#[test]
+fn summaries_never_jump_urgent_or_near_work() {
+    let mut queues = Queues::default();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let oldest = Moment::default();
+    for lane in [Lane::Summary, Lane::Light, Lane::Decode, Lane::Mesh] {
+        let tx = tx.clone();
+        queues.push(lane, oldest, Box::new(move |_| tx.send(lane).unwrap()));
+    }
+    let urgent = tx.clone();
+    queues.urgent.push_back((
+        Lane::Mesh,
+        Box::new(move |_| urgent.send(Lane::Mesh).unwrap()),
+    ));
+    let now = oldest.checked_add(Duration::from_secs(3600)).unwrap();
+    let mut scratch = world::LightSolverScratch::default();
+    while let Some(job) = queues.take(false, now) {
+        job(&mut scratch);
+    }
+    assert_eq!(
+        rx.try_iter().collect::<Vec<_>>(),
+        [Lane::Mesh, Lane::Decode, Lane::Mesh]
+    );
+    assert_eq!(queues.summary.len(), 1);
+    while let Some(job) = queues.take(true, now) {
+        job(&mut scratch);
+    }
+    assert_eq!(
+        rx.try_iter().collect::<Vec<_>>(),
+        [Lane::Light, Lane::Summary]
+    );
+}
+
+/// A summary submission wakes the eligible background waiter even with a foreground waiter.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn summary_submission_wakes_background_waiters() {
+    let pool = WorldPool {
+        shared: Arc::default(),
+        size: PoolSize {
+            foreground: 0,
+            background: 0,
+        },
+    };
+    let (waiting, entered) = crossbeam_channel::unbounded();
+    let (done, completed) = crossbeam_channel::unbounded();
+    std::thread::scope(|scope| {
+        for background in [false, true] {
+            let shared = &pool.shared;
+            let waiting = waiting.clone();
+            scope.spawn(move || {
+                let mut queues = shared.lock();
+                waiting.send(()).unwrap();
+                loop {
+                    if queues.shutdown {
+                        break;
+                    }
+                    if let Some(job) = queues.take(background, Moment::default()) {
+                        drop(queues);
+                        job(&mut world::LightSolverScratch::default());
+                        queues = shared.lock();
+                    } else {
+                        queues = shared.wait(queues);
+                    }
+                }
+            });
+        }
+        entered.recv().unwrap();
+        entered.recv().unwrap();
+        pool.spawn(Lane::Summary, move || done.send(()).unwrap());
+        completed.recv().unwrap();
+        pool.shared.lock().shutdown = true;
+        pool.shared.ready.notify_all();
+    });
 }

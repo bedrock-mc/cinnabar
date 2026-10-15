@@ -139,6 +139,20 @@ pub struct TileMesh {
     pub max_y: i16,
 }
 
+impl TileMesh {
+    /// An invisible tile without allocating or aggregating surface cells.
+    pub(crate) fn empty(key: TileKey) -> Self {
+        Self {
+            key,
+            revision: NEXT_REVISION.fetch_add(1, Ordering::Relaxed),
+            quads: Box::new([]),
+            colours: Box::new([]),
+            min_y: 0,
+            max_y: 0,
+        }
+    }
+}
+
 static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
 
 /// Meshes a grid as greedy top faces and the walls between differing cells, with skirts on

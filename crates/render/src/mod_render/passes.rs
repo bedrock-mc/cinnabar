@@ -1,6 +1,7 @@
 //! Mod post passes: each enabled pass reads the previous scene colour and writes the next,
 //! after post-processing and before the HUD, timed per pass slot.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::Vec4Swizzles;
 use bevy::tasks::{AsyncComputeTaskPool, Task};
@@ -413,7 +414,7 @@ fn prepare(
                         mapped_at_creation: false,
                     })
                 });
-            queue.write_buffer(buffer, 0, bytemuck::bytes_of(&uniform));
+            queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&uniform));
         }
     }
 }

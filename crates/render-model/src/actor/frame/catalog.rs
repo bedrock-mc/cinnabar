@@ -97,6 +97,19 @@ impl ActorRigVertexSegments {
     }
 }
 
+/// Outcome of [`GeometryCatalog::plan_admission`].
+#[derive(Debug, Default)]
+pub(super) struct AdmissionPlan {
+    /// Candidate indices that fit, in order.
+    pub(super) admitted: Vec<usize>,
+    /// Length of the `evictable` prefix to evict.
+    pub(super) evicted: usize,
+    /// Some candidate cannot fit even after every eviction.
+    pub(super) denied: bool,
+    /// Some candidate waits for a later frame's budget.
+    pub(super) deferred: bool,
+}
+
 #[derive(Debug)]
 pub(super) struct GeometryCatalog {
     pub(super) geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
@@ -108,6 +121,8 @@ pub(super) struct GeometryCatalog {
     page_fingerprints: Vec<u64>,
     pub(super) revision: u64,
     pub(super) maximum_vertices: usize,
+    /// Vertices in pages some geometry uses; vacated gaps are excluded.
+    pub(super) live_vertices: usize,
 }
 
 impl GeometryCatalog {
@@ -165,30 +180,89 @@ impl GeometryCatalog {
             page_fingerprints: pages.fingerprints,
             revision,
             maximum_vertices,
+            live_vertices: len,
         })
     }
 
-    pub(super) fn can_admit(&self, geometries: &BTreeMap<EntityRigId, ActorRigGeometry>) -> bool {
+    /// Plans admitting `candidates` in order, evicting a prefix of `evictable` (least valuable
+    /// first) as needed. Charges only storage a rig adds: a page already resident or claimed by
+    /// an earlier candidate costs nothing, and evicting frees a page once no rig uses it. Past
+    /// the first admission, a rig adding more than `budget` remaining vertices is deferred.
+    pub(super) fn plan_admission(
+        &self,
+        candidates: &[ActorRigGeometry],
+        evictable: &[EntityRigId],
+        budget: usize,
+    ) -> AdmissionPlan {
         let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
-        let mut used = BTreeSet::new();
-        let mut len = 0;
-        for mut geometry in geometries.values().cloned() {
-            let page = pages.intern(&mut geometry);
-            if used.insert(page) {
-                if geometry.vertices.len() > self.maximum_vertices.saturating_sub(len) {
-                    return false;
-                }
-                len += geometry.vertices.len();
-            }
+        let mut users = vec![0_usize; pages.pages.len()];
+        let mut rig_pages = BTreeMap::new();
+        for (id, geometry) in &self.geometries {
+            let page = pages.intern(&mut geometry.clone());
+            users[page] += 1;
+            rig_pages.insert(*id, page);
         }
-        true
+        let mut free = self.maximum_vertices.saturating_sub(self.live_vertices);
+        let mut remaining = budget;
+        let mut plan = AdmissionPlan::default();
+        for (index, geometry) in candidates.iter().enumerate() {
+            let page = pages.intern(&mut geometry.clone());
+            if page >= users.len() {
+                users.resize(page + 1, 0);
+            }
+            let cost = if users[page] == 0 {
+                pages.pages[page].len()
+            } else {
+                0
+            };
+            if !plan.admitted.is_empty() && cost > remaining {
+                plan.deferred = true;
+                continue;
+            }
+            users[page] += 1;
+            let (mut available, mut through, mut released) = (free, plan.evicted, Vec::new());
+            while available < cost && through < evictable.len() {
+                if let Some(&evicted) = rig_pages.get(&evictable[through]) {
+                    users[evicted] -= 1;
+                    released.push(evicted);
+                    if users[evicted] == 0 {
+                        available += pages.pages[evicted].len();
+                    }
+                }
+                through += 1;
+            }
+            if available < cost {
+                for evicted in released {
+                    users[evicted] += 1;
+                }
+                users[page] -= 1;
+                plan.denied = true;
+                continue;
+            }
+            free = available - cost;
+            plan.evicted = through;
+            remaining = remaining.saturating_sub(cost);
+            plan.admitted.push(index);
+        }
+        plan
     }
 
     /// Reuses vacant addresses; capacity fragmentation changes only page addresses.
     /// Admission is transactional and uses live vertices, as with the former full repack.
     pub(super) fn append(
         &mut self,
+        added: Vec<ActorRigGeometry>,
+        revision: u64,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.append_evicting(added, |_| false, revision)
+    }
+
+    /// [`Self::append`] after dropping the `evict` geometries, whose pages become vacant and whose
+    /// span indices stay reserved with empty spans.
+    pub(super) fn append_evicting(
+        &mut self,
         mut added: Vec<ActorRigGeometry>,
+        evict: impl Fn(&EntityRigId) -> bool,
         revision: u64,
     ) -> Result<(), ActorRigGeometryError> {
         let _span = tracing::info_span!("actor.catalog_append", added = added.len()).entered();
@@ -199,12 +273,13 @@ impl GeometryCatalog {
             }
         }
         let mut geometries = self.geometries.clone();
+        geometries.retain(|id, _| !evict(id));
         geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
         let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
         let retained_count = pages.pages.len();
         let mut spans = self.spans.clone();
         let mut indices = self.indices.clone();
-        let mut route_pages = vec![0; spans.len()];
+        let mut route_pages = vec![None; spans.len()];
         let mut used = BTreeSet::new();
         let mut live_len = 0;
         for (id, geometry) in &mut geometries {
@@ -221,11 +296,11 @@ impl GeometryCatalog {
                     let index = spans.len();
                     indices.insert(*id, index as u32);
                     spans.push(ActorRigGeometrySpan::default());
-                    route_pages.push(page);
+                    route_pages.push(None);
                     index
                 }
             };
-            route_pages[index] = page;
+            route_pages[index] = Some(page);
         }
         let mut fresh: VecDeque<_> = used.range(retained_count..).copied().collect();
         let mut order = Vec::with_capacity(used.len());
@@ -261,11 +336,11 @@ impl GeometryCatalog {
                 offset += pages.pages[page].len();
             }
         }
-        for (span, &page) in spans.iter_mut().zip(&route_pages) {
-            *span = ActorRigGeometrySpan {
+        for (span, page) in spans.iter_mut().zip(&route_pages) {
+            *span = page.map_or_else(ActorRigGeometrySpan::default, |page| ActorRigGeometrySpan {
                 first_vertex: page_offsets[page] as u32,
                 vertex_count: pages.pages[page].len() as u32,
-            };
+            });
         }
         let offsets = order.iter().map(|&page| page_offsets[page]).collect();
         let segments = order
@@ -289,6 +364,7 @@ impl GeometryCatalog {
         self.published_spans = Arc::from(spans.as_slice());
         self.spans = spans;
         self.revision = revision;
+        self.live_vertices = live_len;
         Ok(())
     }
 }

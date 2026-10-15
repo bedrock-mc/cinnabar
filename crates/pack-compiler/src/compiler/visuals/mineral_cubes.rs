@@ -1,39 +1,19 @@
 use super::super::*;
 
-/// `(network hash, name, terrain key, texture path)`; sequential IDs vary by registry version.
-const MINERAL_CUBE_IDENTITIES: [(u32, &str, &str, &str); 2] = [
-    (
-        0xbda0_2665,
-        "minecraft:cinnabar",
-        "cinnabar",
-        "textures/blocks/cinnabar",
-    ),
-    (
-        0x2d65_8dd8,
-        "minecraft:sulfur",
-        "sulfur",
-        "textures/blocks/sulfur",
-    ),
-];
-
-fn identity(record: &RegistryRecord) -> Option<(u32, &'static str, &'static str, &'static str)> {
-    MINERAL_CUBE_IDENTITIES
-        .iter()
-        .copied()
-        .find(|&(_, name, _, _)| record.name.as_ref() == name)
+/// Finds the pinned texture and wire contract for a mineral during compilation.
+fn identity(record: &RegistryRecord) -> Option<&'static assets::facts::pack::MineralRule> {
+    assets::facts::pack::rules().mineral(&record.name)
 }
 
 pub(in crate::compiler) fn is_mineral_cube_name(name: &str) -> bool {
-    MINERAL_CUBE_IDENTITIES
-        .iter()
-        .any(|&(_, candidate, _, _)| name == candidate)
+    assets::facts::pack::rules().mineral(name).is_some()
 }
 
 pub(in crate::compiler) fn is_mineral_cube_record(record: &RegistryRecord) -> bool {
-    let Some((network_hash, _, _, _)) = identity(record) else {
+    let Some(rule) = identity(record) else {
         return false;
     };
-    record.network_hash == network_hash
+    record.network_hash == rule.network_hash
         && record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Unknown
         && record.contributor_role == ContributorRole::Primary
@@ -59,7 +39,7 @@ pub(in crate::compiler) fn mineral_cube_inventory_is_exact(records: &[RegistryRe
         .iter()
         .filter(|record| is_mineral_cube_name(&record.name))
         .collect::<Vec<_>>();
-    selected.len() == MINERAL_CUBE_IDENTITIES.len()
+    selected.len() == assets::facts::pack::rules().minerals.len()
         && selected.into_iter().all(is_mineral_cube_record)
 }
 
@@ -67,7 +47,9 @@ pub(in crate::compiler) fn mineral_cube_material_descriptor(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
-    let (_, _, expected_key, expected_path) = identity(record)?;
+    let rule = identity(record)?;
+    let expected_key = rule.key.as_str();
+    let expected_path = rule.path.as_str();
     if pack
         .blocks
         .get_exact_scalar_plain(record.name.strip_prefix("minecraft:")?, expected_key)?
@@ -105,7 +87,7 @@ pub(in crate::compiler) fn mineral_cube_sources_are_exact(
         .iter()
         .filter(|record| is_mineral_cube_name(&record.name))
         .collect::<Vec<_>>();
-    selected.len() == MINERAL_CUBE_IDENTITIES.len()
+    selected.len() == assets::facts::pack::rules().minerals.len()
         && selected.into_iter().all(|record| {
             let Some((descriptor, key)) = mineral_cube_material_descriptor(pack, record) else {
                 return false;

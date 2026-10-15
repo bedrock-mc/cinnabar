@@ -155,7 +155,58 @@ fn a_failed_background_open_leaves_the_device_disabled() {
         opening: Some(opening),
         ..AudioDevice::disabled()
     };
-    assert!(!device.available());
-    assert_eq!(device.sample_rate(), MIXER_RATE);
     owner.join().unwrap();
+    assert!(!device.available());
+    assert!(!device.is_opening());
+    assert_eq!(device.sample_rate(), MIXER_RATE);
+}
+
+#[test]
+fn readiness_queries_return_before_the_open_is_released() {
+    let (opened, opening) = mpsc::channel();
+    let (polled, results) = mpsc::channel();
+    let (finish, finished) = mpsc::channel();
+    let caller = std::thread::spawn(move || {
+        let mut device = AudioDevice {
+            opening: Some(opening),
+            ..AudioDevice::disabled()
+        };
+        for _ in 0..8 {
+            assert!(!device.available());
+            assert_eq!(device.sample_rate(), MIXER_RATE);
+            assert!(device.is_opening());
+        }
+        let _ = polled.send(());
+        let _ = finished.recv();
+        assert!(!device.available());
+        assert!(!device.is_opening());
+    });
+    let completed =
+        test_time::wait_until(test_time::DEFAULT_TIMEOUT, || results.try_recv().is_ok());
+    // Release even the blocking implementation, so a regression fails without stranding a thread.
+    let _ = opened.send(None);
+    let _ = finish.send(());
+    let joined = caller.join();
+    assert!(
+        completed,
+        "readiness queries waited for the unopened device"
+    );
+    joined.unwrap();
+    eprintln!("delayed open: 8 readiness cycles completed before release");
+}
+
+#[test]
+fn a_disconnected_opener_is_terminal_and_does_not_reopen() {
+    let (opened, opening) = mpsc::channel();
+    let mut device = AudioDevice {
+        opening: Some(opening),
+        ..AudioDevice::disabled()
+    };
+    assert!(device.is_opening());
+    drop(opened);
+    for _ in 0..2 {
+        assert!(!device.is_opening());
+        assert!(!device.available());
+        assert!(!device.play_source(rodio::source::Zero::<f32>::new(2, MIXER_RATE)));
+    }
 }

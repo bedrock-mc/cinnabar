@@ -196,11 +196,12 @@ pub(in crate::chunk) struct ViewTerrainLists {
     /// The view transform `cubes` was sorted for.
     cube_view: Option<Mat4>,
     units: Option<Arc<super::units::sources::UnitSources>>,
+    units_stale: bool,
 }
 
 impl ViewTerrainLists {
     fn invalidate(&mut self) {
-        self.units = None;
+        self.units_stale = true;
         self.visible_models = None;
         self.drawable_built = false;
         self.indirect_built = false;
@@ -212,14 +213,15 @@ impl ViewTerrainLists {
         &mut self,
         allocations: &Query<&GpuChunkAllocation>,
     ) -> Arc<super::units::sources::UnitSources> {
-        self.units
-            .get_or_insert_with(|| {
-                Arc::new(super::units::sources::UnitSources::build(
-                    &self.drawable,
-                    allocations,
-                ))
-            })
-            .clone()
+        if self.units_stale || self.units.is_none() {
+            self.units = Some(Arc::new(super::units::sources::UnitSources::build(
+                &self.drawable,
+                allocations,
+                self.units.as_deref(),
+            )));
+            self.units_stale = false;
+        }
+        Arc::clone(self.units.as_ref().unwrap())
     }
 
     /// The visible model workload, summarised from the visible set only after the lists staled.

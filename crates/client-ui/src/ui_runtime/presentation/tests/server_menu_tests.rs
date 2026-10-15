@@ -112,15 +112,20 @@ fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
 
 #[test]
 fn server_menu_default_zero_descriptor_draws_chest_cells() {
-    assert_rendered_chest(0, "server-chest-default-descriptor");
+    assert_rendered_chest(0, "server-chest-default-descriptor", false);
 }
 
 #[test]
 fn repeated_chest_open_keeps_the_rendered_chest_screen() {
-    assert_rendered_chest(20, "server-chest-retried-open");
+    assert_rendered_chest(20, "server-chest-retried-open", false);
 }
 
-fn assert_rendered_chest(retries: u64, snapshot_name: &str) {
+#[test]
+fn server_menu_delivery_ack_keeps_the_menu_open() {
+    assert_rendered_chest(1, "server-chest-delivery-ack", true);
+}
+
+fn assert_rendered_chest(retries: u64, snapshot_name: &str, require_delivery_ack: bool) {
     use crate::ui_runtime::presentation::{forms, inventory_pointer::InventoryScreen};
     let Some(mut presentation) =
         crate::test_support::engine_presentation_with(forms::pack_harness::font())
@@ -168,6 +173,25 @@ fn assert_rendered_chest(retries: u64, snapshot_name: &str) {
             .unwrap();
     }
     runtime.drain_pending_inventory(&mut player);
+    // A menu dispatcher closes a window whose delivery was never acknowledged.
+    if require_delivery_ack
+        && runtime.inventory_ledger(&player).pending_batch().unwrap()
+            != Some((protocol::repeated_container_open_warning_packet(), 1))
+    {
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                retries + 3,
+                InventoryEvent::Close(protocol::ContainerCloseEvent {
+                    container: open.container,
+                    window_type: open.window_type,
+                    server_initiated: true,
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+    }
     for now in [0, 500] {
         presentation
             .build(

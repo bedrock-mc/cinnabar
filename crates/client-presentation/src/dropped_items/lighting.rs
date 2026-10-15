@@ -127,8 +127,8 @@ mod tests {
             fn registry(&self, _: assets::NetworkIdMode) -> &sim::CollisionRegistry {
                 panic!("TNT does not use a falling-type terrain probe")
             }
-            fn block_canonical_state(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
-                panic!("TNT does not query a block state")
+            fn bed_rotation_degrees(&self, _: assets::NetworkIdMode, _: u32) -> Option<f32> {
+                panic!("TNT does not query a bed heading")
             }
             fn block_identifier(&self, _: assets::NetworkIdMode, _: u32) -> Option<&str> {
                 panic!("TNT does not query a falling block type")

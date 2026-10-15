@@ -65,6 +65,7 @@ impl MovementOutboxReconciliation {
 
 use super::{
     MovementTicker, PhysicsAuthorityFault, PhysicsSendIdentity, PhysicsTickEvidenceContext,
+    QueuedPhysicsSample, SentPhysicsSample,
 };
 
 /// A release batch fenced behind the input tick that carries its facing.
@@ -73,6 +74,8 @@ pub(super) struct HeldRelease {
     tick: u64,
     packets: Vec<Packet>,
     facing_sent: bool,
+    use_modifier: Option<f64>,
+    riptide: Option<super::physics::RiptideRequest>,
 }
 
 /// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
@@ -297,6 +300,53 @@ pub fn flush_player_auth_inputs_guarded<E>(
 }
 
 impl MovementTicker {
+    /// Retains the immutable state of a movement input written to the socket.
+    fn confirm_sent(&mut self, sample: &QueuedPhysicsSample) {
+        if self.sent_history.len() == OUTBOX_CAPACITY {
+            self.sent_history.pop_front();
+        }
+        self.sent_history.push_back(SentPhysicsSample {
+            session_generation: sample.session_generation,
+            tick: sample.snapshot.tick,
+            position: sample.snapshot.position,
+            world_identity: sample.world_identity.clone(),
+        });
+    }
+
+    /// Commits the oldest matching socket receipt and retires its release launch.
+    pub fn acknowledge_physics_send(&mut self, identity: PhysicsSendIdentity) -> bool {
+        if self
+            .pending_sends
+            .front()
+            .is_none_or(|pending| pending.identity != identity)
+        {
+            return false;
+        }
+        if self.tick_evidence.len() == OUTBOX_CAPACITY {
+            self.pending_sends.pop_front();
+            self.fail_physics_authority(&PhysicsAuthorityFault::OutboxOverflow);
+            return false;
+        }
+        let pending = self
+            .pending_sends
+            .pop_front()
+            .expect("matching pending socket acknowledgement was checked");
+        if self.physics_is_authorized()
+            && identity.session_generation.get() == self.session_generation
+            && identity.reanchor_epoch == self.reanchor_epoch
+        {
+            self.confirm_sent(&pending.sample);
+            self.confirm_held_release_facing(identity.tick.get());
+        }
+        if identity.session_generation.get() == self.session_generation {
+            self.confirm_riptide_input_written(identity.tick.get());
+        }
+        self.sent_physics_packet_count = self.sent_physics_packet_count.saturating_add(1);
+        self.tick_evidence.push_back(pending.evidence);
+        self.refresh_outbox_reconciliation();
+        true
+    }
+
     pub fn accepts_block_interactions(&self) -> bool {
         self.physics_is_authorized()
             && !self.terminal_drain
@@ -353,8 +403,8 @@ impl MovementTicker {
         });
     }
 
-    /// A frame-time interaction once every completed tick is on the wire: it reports the
-    /// newest admitted tick's position and precedes the next tick's input.
+    /// A frame-time interaction once every completed tick has entered the outbound FIFO.
+    /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
         if !self.outbox.is_empty() || self.held_release.is_some() {
             return None;
@@ -415,14 +465,96 @@ impl MovementTicker {
         })
     }
 
-    /// Holds an aim-assisted release until `tick`'s input, which carries the facing it launches
-    /// with, is written; later inputs wait behind it and an authority change first drops it.
+    /// Holds a release until its last preceding input is written, preserving facing and launch
+    /// order. Later inputs wait behind it and an authority change first drops it.
     pub fn hold_release_after_tick(&mut self, tick: u64, packets: Vec<Packet>) {
         self.held_release = Some(HeldRelease {
             tick,
             packets,
             facing_sent: false,
+            use_modifier: None,
+            riptide: None,
         });
+    }
+
+    /// Binds a predicted launch to its held release, so discarding the fence cancels both.
+    pub fn request_riptide(
+        &mut self,
+        physics: &mut super::LocalPhysicsController,
+        level: u8,
+        rotation: [f32; 2],
+    ) {
+        let tick = self
+            .held_release
+            .as_ref()
+            .map_or(self.completed_tick(), |held| held.tick);
+        if let Some(request) = physics.request_riptide_after_tick(level, rotation, tick) {
+            if let Some(held) = self.held_release.as_mut() {
+                held.riptide = Some(request);
+            } else {
+                self.admitted_riptide = Some(request);
+            }
+        }
+    }
+
+    /// Returns the launch boundary that a correction will discard with its unsent facing.
+    pub(super) fn unconfirmed_riptide_release_tick(&self) -> Option<u64> {
+        self.held_release
+            .as_ref()
+            .filter(|held| held.riptide.is_some() && !held.facing_sent)
+            .map(|held| held.tick)
+    }
+
+    /// Preserves a written release's request, or an already-admitted pending launch, on snap.
+    pub(super) fn riptide_request_after_snap(
+        &self,
+        physics: &super::LocalPhysicsController,
+    ) -> Option<super::physics::RiptideRequest> {
+        self.admitted_riptide.or_else(|| {
+            match self
+                .held_release
+                .as_ref()
+                .filter(|held| held.riptide.is_some())
+            {
+                Some(held) if held.facing_sent => held.riptide,
+                Some(_) => None,
+                None => physics.pending_riptide_request().filter(|request| {
+                    self.written_riptide_tick
+                        .is_none_or(|tick| tick <= request.after_tick)
+                }),
+            }
+        })
+    }
+
+    /// Captures movement use state separately from the release's frozen charge decision.
+    pub fn retain_release_use_modifier(&mut self, modifier: Option<f64>) {
+        if let Some(held) = self.held_release.as_mut() {
+            held.use_modifier = modifier;
+        }
+    }
+
+    /// Keeps slowdown through the facing tick, independently of later transport pressure.
+    pub fn release_use_modifier(&self) -> Option<(u64, f64)> {
+        let held = self.held_release.as_ref()?;
+        Some((held.tick, held.use_modifier?))
+    }
+
+    /// Retires only the admitted release preceding this written movement input.
+    pub(super) fn confirm_riptide_input_written(&mut self, tick: u64) {
+        if self
+            .admitted_riptide
+            .is_some_and(|request| tick > request.after_tick)
+        {
+            self.admitted_riptide = None;
+            self.written_riptide_tick = Some(tick);
+        }
+    }
+
+    /// Resolves a late socket receipt before a restored launch can run again.
+    pub(super) fn settle_riptide_input(&self, physics: &mut super::LocalPhysicsController) {
+        if let Some(tick) = self.written_riptide_tick {
+            physics.retire_written_riptide_request(tick);
+        }
     }
 
     /// Whether a held release still waits; later uses must not overtake it.
@@ -438,8 +570,17 @@ impl MovementTicker {
         let Some(held) = self.held_release.as_ref().filter(|held| held.facing_sent) else {
             return;
         };
-        if send(held.packets.clone()) != Err(crate::BatchSendError::Full) {
-            self.held_release = None;
+        match send(held.packets.clone()) {
+            Ok(()) => {
+                // FIFO facing receipts ensure an earlier launch is written before a later
+                // release can be admitted, so at most one admitted launch needs retention.
+                if let Some(request) = held.riptide {
+                    self.admitted_riptide = Some(request);
+                }
+                self.held_release = None;
+            }
+            Err(crate::BatchSendError::Full) => {}
+            Err(crate::BatchSendError::Closed) => self.held_release = None,
         }
     }
 
@@ -449,7 +590,8 @@ impl MovementTicker {
         }
     }
 
-    /// Action aim overrides actor facing on its unsent tick without changing movement or camera input.
+    /// Overrides actor facing on an unsent tick, or reserves the next tick after inputs drain.
+    /// Movement, head facing and camera input keep their sampled values.
     pub fn override_action_rotation(&mut self, tick: u64, pitch: f32, yaw: f32) -> bool {
         if !pitch.is_finite() || !yaw.is_finite() {
             return false;
@@ -459,6 +601,14 @@ impl MovementTicker {
             .iter_mut()
             .find(|sample| sample.snapshot.tick == tick)
         else {
+            if self
+                .between_ticks_sample()
+                .is_some_and(|sample| sample.tick == tick)
+                && self.physics_is_authorized()
+            {
+                self.next_tick_rotation = Some((pitch, yaw));
+                return true;
+            }
             return false;
         };
         sample.snapshot.pitch = pitch;
@@ -547,14 +697,21 @@ impl MovementTicker {
     /// A correction revokes in-flight interactions but keeps the player's pending action flags.
     pub(super) fn correction_authority_changed(&mut self) {
         let flags = self.take_next_tick_flags();
+        let discarded_facing = self
+            .held_release
+            .as_ref()
+            .is_some_and(|held| !held.facing_sent && held.tick == self.next_tick);
+        let rotation = self.next_tick_rotation.take().filter(|_| !discarded_facing);
         self.position_authority_changed();
         self.next_tick_flags = flags;
+        self.next_tick_rotation = rotation;
     }
 
     /// Invalidates every transport-owned sample after a position-authority
     /// change and publishes the new epoch atomically with that invalidation.
     pub(super) fn position_authority_changed(&mut self) {
         self.next_tick_flags = protocol::PlayerInputFlags::NONE;
+        self.next_tick_rotation = None;
         self.reanchor_epoch = self.reanchor_epoch.next();
         self.epoch_publisher.send_if_modified(|published| {
             if *published == self.reanchor_epoch {

@@ -340,8 +340,8 @@ impl MenuRuntime {
         self.feeds.inbox_state = Default::default();
         self.feeds.selected_realm = None;
         self.feeds.details.clear();
-        self.realms.clear();
-        self.friends.clear();
+        self.realms.replace(Vec::new());
+        self.friends.replace(Vec::new());
         self.catalog_started = false;
         self.control_auth = None;
         self.reload_accounts();

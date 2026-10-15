@@ -160,7 +160,7 @@ pub(super) fn equipment(
     let holding_filled_map = selected
         .stack
         .and_then(|stack| items.identifier(stack))
-        .is_some_and(|id| &*id == "minecraft:filled_map");
+        .is_some_and(|id| &*id == assets::facts::FILLED_MAP_IDENTIFIER);
     EquipmentCapture {
         offhand_durability,
         offhand_icon,

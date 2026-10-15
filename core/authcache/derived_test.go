@@ -10,7 +10,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -73,7 +72,7 @@ func TestPersistentSourceFreshInstanceReusesDerivedStateAndMintsPerKey(t *testin
 
 	for range 2 {
 		var diagnostics bytes.Buffer
-		source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics, deps)
+		source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(oauthToken), slog.New(slog.NewTextHandler(&diagnostics, nil)), deps)
 		xbox := source.(xsapi.TokenSource)
 		if _, err := xbox.XSTSToken(context.Background(), cachedRelyingParty); err != nil {
 			t.Fatalf("XSTSToken: %v", err)
@@ -274,7 +273,7 @@ func TestPersistentSourceBindingsAndUnsafeInputsAreConservativeMisses(t *testing
 			token := testOAuthToken("account-a")
 			arrange(t, path, token)
 			var diagnostics bytes.Buffer
-			source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(token), &diagnostics, derivedDeps{})
+			source := persistentSource(context.Background(), path, oauth2.StaticTokenSource(token), slog.New(slog.NewTextHandler(&diagnostics, nil)), derivedDeps{})
 			persistent := source.(*Account)
 			if persistent.environment != nil || persistent.service != nil {
 				t.Fatal("unsafe or mismatched state was reused")
@@ -741,7 +740,7 @@ func TestPersistentSourceInvalidatedXSTSTokenIsNotResurrected(t *testing.T) {
 }
 
 // persistentSource returns the account through its OAuth face so tests reach it via interfaces.
-func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics io.Writer, deps derivedDeps) oauth2.TokenSource {
+func persistentSource(ctx context.Context, path string, oauth oauth2.TokenSource, diagnostics *slog.Logger, deps derivedDeps) oauth2.TokenSource {
 	return newAccount(ctx, path, oauth, diagnostics, deps)
 }
 
@@ -970,13 +969,13 @@ func TestStaleSnapshotNeverPublishesTheRejectedToken(t *testing.T) {
 	}
 }
 
-// Diagnostics written by concurrent credential calls never race on the caller's writer.
+// Diagnostics logged by concurrent credential calls never race on the caller's writer.
 func TestConcurrentCallsSerializeDiagnostics(t *testing.T) {
 	path := filepath.Join(derivedTestDir(t), "derived")
 	oauthToken := testOAuthToken("account-a")
 	writeDerivedState(t, path, oauthToken, time.Now().Add(time.Hour))
 	var diagnostics bytes.Buffer
-	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), &diagnostics, derivedDeps{})
+	account := newAccount(context.Background(), path, oauth2.StaticTokenSource(oauthToken), slog.New(slog.NewTextHandler(&diagnostics, nil)), derivedDeps{})
 	defer account.Close()
 	var wg sync.WaitGroup
 	for range 8 {

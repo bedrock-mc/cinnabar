@@ -6,11 +6,14 @@ rust-version.workspace = true
 publish = false
 
 [features]
+# Counts allocation requests and labelled GPU writes for diagnostic runs.
+alloc-stats = ["dep:test-alloc", "test-alloc/global-stats"]
 publication-test-support = []
 enhanced-diagnostics = ["render-model/enhanced-diagnostics"]
 tracy = ["dep:tracy-client"]
 
 [dependencies]
+test-alloc = { path = "../test-alloc", optional = true }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
 assets = { path = "../assets" }
@@ -24,6 +27,7 @@ mod-render = { path = "../mod-render" }
 particles = { path = "../particles" }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
+serde = "1"
 serde_json = "1"
 sha2.workspace = true
 world = { path = "../world" }
@@ -33,7 +37,7 @@ tracy-client = { version = "=0.19.0", default-features = false, features = ["ena
 sha2 = { workspace = true, features = ["asm"] }
 
 [dev-dependencies]
-test-alloc = { path = "../test-alloc" }
+test-alloc = { path = "../test-alloc", features = ["global-stats"] }
 tempfile = "3"
 test-time = { path = "../test-time" }
 

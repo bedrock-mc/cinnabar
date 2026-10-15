@@ -1,6 +1,7 @@
 //! Atlas-backed model, portal and overlay passes with separate vertex lists.
 //! Models and portal planes draw in the opaque phase; overlays draw afterward.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -186,7 +187,7 @@ impl VertexList {
             self.bind_group = None;
         }
         if let Some(buffer) = &self.buffer {
-            render_queue.write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
+            render_queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
         }
     }
 }
@@ -269,7 +270,7 @@ fn prepare_resources(
         [atmosphere.fog_end(), 0.0, 0.0, 0.0],
     ];
     if !frame.portal.is_empty() && gpu.portal_parameters != Some(portal_parameters) {
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             &gpu.portal_uniform,
             0,
             bytemuck::cast_slice(&portal_parameters),
@@ -401,7 +402,7 @@ fn write_rows(
     if rows == 0 {
         return;
     }
-    render_queue.write_texture(
+    render_queue.profiled_write_texture(
         TexelCopyTextureInfo {
             texture,
             mip_level: 0,

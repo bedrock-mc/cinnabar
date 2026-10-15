@@ -2,13 +2,14 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 // Vanilla draws the plane at 1/64 block. Collision thickness is not art height.
 const PLANE_HEIGHT: i16 = 4;
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:waterlily"
+    block_render_fact(&record.name).kind == R::LilyPad
         && record.canonical_state.as_ref() == "{}"
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)

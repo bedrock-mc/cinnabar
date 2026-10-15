@@ -29,6 +29,8 @@ pub struct TileRequest {
 #[derive(Clone, Debug, Default)]
 pub struct SpawnRequest {
     pub effect: String,
+    /// A compiled native route; server-authored effects retain their named path.
+    pub native_effect: Option<assets::facts::ParticleEffect>,
     pub position: [f32; 3],
     /// Independent uniform offsets around the emitter origin, sampled once at creation.
     pub position_spread: [f32; 3],

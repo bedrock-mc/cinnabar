@@ -1,6 +1,7 @@
 //! Draws [`render_model::NametagScene`] in the transparent 3D phase with a see-through pass
 //! and a depth-tested pass, using Java label depth and blending rules.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -185,7 +186,7 @@ fn prepare_nametags(
     gpu.total = total as u32;
     gpu.batches = record_batches(&scene.records[..total]);
     if total > 0 {
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             &gpu.record_buffer,
             0,
             bytemuck::cast_slice::<NametagRecord, u8>(&scene.records[..total]),
@@ -196,7 +197,7 @@ fn prepare_nametags(
     }
     for rectangle in NametagAtlasRect::updates(&scene.atlas, &gpu.atlas) {
         let [x, y, width, height] = rectangle.cell;
-        render_queue.write_texture(
+        render_queue.profiled_write_texture(
             bevy::render::render_resource::TexelCopyTextureInfo {
                 texture: &gpu.atlas_texture,
                 mip_level: 0,

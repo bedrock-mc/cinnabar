@@ -30,13 +30,22 @@ fn click_intercept_uses_the_rounded_world_segment() {
 #[test]
 fn block_hit_distance_is_a_widened_float_square_root() {
     let (store, registry, _) = fixture(7);
+    let origin = Vec3::new(-1.0, 0.5, -1.0);
     let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
-        .block_interaction_ray_current(Vec3::new(-1.0, 0.5, -1.0), Vec3::new(1.0, 0.0, 1.0), 4.0)
+        .block_interaction_ray_current(origin, Vec3::new(1.0, 0.0, 1.0), 4.0)
         .unwrap()
         .unwrap();
     assert_eq!(hit.hit_local, Vec3::new(0.0, 0.5, 0.0));
-    assert_eq!(hit.distance, f64::from(2.0_f32.sqrt()));
-    assert_ne!(hit.distance, 2.0_f64.sqrt());
+    // The float intercept interpolates every axis, so it lands one ulp short of the corner.
+    let [x, y, z] = [
+        hit.hit_world.x as f32 - origin.x as f32,
+        hit.hit_world.y as f32 - origin.y as f32,
+        hit.hit_world.z as f32 - origin.z as f32,
+    ];
+    assert!((x - 1.0).abs() <= f32::EPSILON && y == 0.0 && (z - 1.0).abs() <= f32::EPSILON);
+    assert_eq!(hit.distance, f64::from((z * z + y * y + x * x).sqrt()));
+    let [x, y, z] = [f64::from(x), f64::from(y), f64::from(z)];
+    assert_ne!(hit.distance, (z * z + y * y + x * x).sqrt());
 }
 
 #[test]

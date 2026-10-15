@@ -14,7 +14,6 @@ fn batch(blend: u32) -> (usize, UiRenderBatch, ()) {
 fn menu_frame_is_one_layer_composited_in_the_output_pass() {
     let menu = vec![batch(UI_BLEND_ALPHA); 3];
     let plan = plan_ui_passes(&menu, true);
-    assert!(plan.retainable);
     assert_eq!(
         plan.segments,
         [UiSegment {
@@ -36,7 +35,6 @@ fn gameplay_frame_composites_before_the_crosshair_and_presents_the_rest() {
         batch(UI_BLEND_ALPHA),
     ];
     let plan = plan_ui_passes(&hud, true);
-    assert!(!plan.retainable);
     assert_eq!(
         plan.segments,
         [
@@ -53,7 +51,6 @@ fn gameplay_frame_composites_before_the_crosshair_and_presents_the_rest() {
         ]
     );
     let trailing = plan_ui_passes(&hud[..2], true);
-    assert!(trailing.retainable);
     assert!(trailing.segments.iter().all(|segment| !segment.present));
 }
 
@@ -88,6 +85,8 @@ fn retained_layer_is_reused_only_for_identical_content() {
     let layer = super::super::composite::UiLayerTexture::detached(texture, view);
     let content = super::super::composite::UiLayerContent {
         revision: 3,
+        segment: 0..1,
+        inverted: None,
         skip: None,
         viewport: None,
         model_depth: false,
@@ -102,4 +101,69 @@ fn retained_layer_is_reused_only_for_identical_content() {
     assert_eq!(layer.holds(&next), None);
     layer.hold(None);
     assert_eq!(layer.holds(&content), None);
+}
+
+/// Empty leading/intermediate layers never absorb an invert or change later painter order.
+#[test]
+fn multiple_inverts_keep_empty_segments_and_one_final_output_layer() {
+    let hud = [
+        batch(UI_BLEND_INVERT),
+        batch(UI_BLEND_INVERT),
+        batch(UI_BLEND_ALPHA),
+        batch(UI_BLEND_INVERT),
+    ];
+    let plan = plan_ui_passes(&hud, true);
+    assert_eq!(
+        plan.layer_count(),
+        1,
+        "empty leading alpha ranges allocate no raster"
+    );
+    assert_eq!(
+        plan.segments,
+        [
+            UiSegment {
+                layered: 0..0,
+                inverted: Some(0),
+                present: false
+            },
+            UiSegment {
+                layered: 1..1,
+                inverted: Some(1),
+                present: false
+            },
+            UiSegment {
+                layered: 2..3,
+                inverted: Some(3),
+                present: false
+            },
+        ]
+    );
+    assert!(
+        plan_ui_passes::<UiRenderBatch, ()>(&[], true)
+            .segments
+            .is_empty()
+    );
+}
+
+/// A depth-writing material cannot be retained when an invert still needs its depth.
+#[test]
+fn scopes_crossing_an_invert_force_replay_but_independent_previews_can_retain() {
+    let mut hud = [
+        batch(UI_BLEND_ALPHA),
+        batch(UI_BLEND_INVERT),
+        batch(UI_BLEND_ALPHA),
+    ];
+    hud[0].1.isolated_depth_scope = Some(7);
+    hud[0].1.depth_write = 1;
+    hud[1].1.isolated_depth_scope = Some(7);
+    hud[1].1.depth_test = 1;
+    hud[2].1.isolated_depth_scope = Some(8);
+    let plan = plan_ui_passes(&hud, true);
+    assert!(!plan.segments[0].independent_depth(&hud));
+    assert!(plan.segments[1].independent_depth(&hud));
+    hud[2].1.isolated_depth_scope = Some(7);
+    assert!(!plan.segments[1].independent_depth(&hud));
+    hud[2].1.isolated_depth_scope = Some(8);
+    hud[1].1.isolated_depth_scope = None;
+    assert!(plan.segments[0].independent_depth(&hud));
 }

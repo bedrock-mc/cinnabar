@@ -1809,26 +1809,23 @@ func TestBudgetedDialerAcquiresRequiredCachedOfferBeforeStartGame(t *testing.T) 
 // core's upstream dial and CDN request.
 func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 	aborted := make(chan struct{})
+	downloading := make(chan struct{})
 	upstreamNetwork, _ := cdnPackListener(t, func(w http.ResponseWriter, r *http.Request, archive []byte) {
 		w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
 		_, _ = w.Write(archive[:len(archive)/2])
 		w.(http.Flusher).Flush()
+		close(downloading)
 		<-r.Context().Done()
 		close(aborted)
 	})
 	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.DiscardHandler))
 	var mu sync.Mutex
 	var stages []ConnectStage
-	downloading := make(chan struct{})
-	var once sync.Once
 	connections.connectProgress = func(progress ConnectProgress) {
 		mu.Lock()
 		defer mu.Unlock()
 		if len(stages) == 0 || stages[len(stages)-1] != progress.Stage {
 			stages = append(stages, progress.Stage)
-		}
-		if progress.Stage == ConnectStagePacks {
-			once.Do(func() { close(downloading) })
 		}
 	}
 	connections.resolveTarget = func(ctx context.Context) (*resolvedUpstreamTarget, error) {
@@ -1844,7 +1841,7 @@ func TestJoinReportsStagesAndClientCancelAbortsTheDownload(t *testing.T) {
 	select {
 	case <-downloading:
 	case <-time.After(10 * time.Second):
-		t.Fatal("the pack stage was never reported")
+		t.Fatal("the CDN response never started")
 	}
 	_ = client.Close()
 	select {

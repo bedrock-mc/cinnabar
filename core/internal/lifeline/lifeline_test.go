@@ -1,8 +1,10 @@
 package lifeline
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"syscall"
@@ -21,6 +23,9 @@ func start(t *testing.T, cfg Config) (context.Context, func(), exitRecorder) {
 		cfg.Signals = make(chan os.Signal)
 	}
 	cfg.Stderr, cfg.Exit = io.Discard, exits.exit
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.DiscardHandler)
+	}
 	ctx, stop := Start(context.Background(), cfg)
 	t.Cleanup(stop)
 	return ctx, stop, exits
@@ -48,6 +53,29 @@ func TestGraceBoundsAWedgedShutdown(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("wedged shutdown never hard-exited")
+	}
+}
+
+// Why shutdown began and why the process hard-exits reach the structured logger.
+func TestShutdownReasonsAreLogged(t *testing.T) {
+	var logs bytes.Buffer
+	signals := make(chan os.Signal, 1)
+	ctx, _, exits := start(t, Config{Signals: signals, Grace: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(&logs, nil))})
+	signals <- syscall.SIGTERM
+	waitDone(t, ctx)
+	select {
+	case <-exits:
+	case <-time.After(2 * time.Second):
+		t.Fatal("wedged shutdown never hard-exited")
+	}
+	output := logs.String()
+	for _, want := range []string{
+		`level=INFO msg="core shutting down" reason="signal terminated"`,
+		`level=ERROR msg="core exiting" reason="shutdown exceeded its grace period"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("log lacks %q:\n%s", want, output)
+		}
 	}
 }
 

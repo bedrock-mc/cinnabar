@@ -3,6 +3,7 @@
 //!
 //! It is opaque and draws in the main opaque pass: world passes queue nothing
 //! while it shows, so the menu's scene uses one pass.
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
@@ -196,7 +197,7 @@ fn prepare_panorama(
         return;
     };
     gpu.visible = true;
-    queue.write_buffer(
+    queue.profiled_write_buffer(
         &gpu.uniform,
         0,
         bytemuck::cast_slice(&view.shader_uniform()),

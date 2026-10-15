@@ -258,7 +258,10 @@ fn vertex_unit(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let unit = terrain_units[instance_index];
+    // Header locates packed visibility references beside stable descriptor slots.
+    let references = terrain_units[0].x;
+    let slot = terrain_units[references + instance_index / 4u][instance_index % 4u];
+    let unit = terrain_units[1u + slot];
     let quad = vertex_index / 4u;
     if (quad >= unit.y) {
         var invisible: VertexOutput;

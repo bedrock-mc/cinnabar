@@ -32,7 +32,7 @@ fn collect(expression: &Expr, names: &mut std::collections::BTreeSet<Box<str>>) 
             collect(yes, names)?;
             collect(no, names)?;
         }
-        Expr::Call(Func::Zero, _) => return None,
+        Expr::Call(None, _) => return None,
         Expr::Call(_, arguments) => {
             for value in arguments {
                 collect(value, names)?;

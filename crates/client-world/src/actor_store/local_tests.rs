@@ -48,6 +48,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw,
         head_yaw: yaw,
@@ -843,6 +844,19 @@ fn local_glide_prediction_sets_the_gliding_flag_and_its_ticks() {
     let actor = store.get(1).unwrap();
     assert!(!actor.is_gliding());
     assert_eq!(actor.status.fall_fly_ticks, 0);
+}
+
+#[test]
+fn local_spin_prediction_owns_the_body_and_attachable_spin_flag() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.spinning = true;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().is_spinning());
+    feed.spinning = false;
+    store.sync_local_player(1, -100, &feed);
+    assert!(!store.get(1).unwrap().is_spinning());
 }
 
 #[test]

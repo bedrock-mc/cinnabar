@@ -4,6 +4,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 const STEPS: [([i16; 3], [i16; 3]); 8] = [
@@ -23,7 +24,7 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<[u32; 6], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() != "minecraft:dragon_egg"
+    if block_render_fact(&record.name).kind != R::DragonEgg
         || record.contributor_role != ContributorRole::Primary
         || record.flags.contains(BlockFlags::AIR)
     {

@@ -1,196 +1,329 @@
+use crate::queue_writes::ProfiledQueue as _;
 use std::num::NonZeroU64;
 
+use crate::chunk::gpu::arena::FreshChunkRanges;
 use crate::chunk::*;
 use crate::upload_staging::BufferWrite;
+use meshing::PackedBiomeRecord;
+use render_scene::ChunkRenderInstance;
 
-/// Arena writes collected while GPU preparation admits uploads.
+/// Stream order used before address sorting; overlapping writes retain this order.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Part {
+    Quads,
+    Origins,
+    Model,
+    ModelLighting,
+    ModelDraw,
+    TransparentModelDraw,
+    Liquid,
+    LiquidLighting,
+    CubeLighting,
+    Biome,
+}
+
+impl Part {
+    /// Returns the destination arena and the unit used by its allocation offsets.
+    fn destination(self) -> (ArenaStream, u64) {
+        match self {
+            Self::Quads => (ArenaStream::Quads, PACKED_QUAD_BYTES),
+            Self::Origins => (ArenaStream::Origins, CHUNK_ORIGIN_BYTES),
+            Self::Biome => (ArenaStream::Biomes, BIOME_WORD_BYTES),
+            Self::Model
+            | Self::ModelLighting
+            | Self::ModelDraw
+            | Self::TransparentModelDraw
+            | Self::Liquid
+            | Self::LiquidLighting
+            | Self::CubeLighting => (ArenaStream::GeometryStreams, GEOMETRY_STREAM_WORD_BYTES),
+        }
+    }
+}
+
+/// Immutable payloads stay borrowed through their shared owners until issue completes.
+enum Payload {
+    Quads(Arc<[PackedQuad]>),
+    Lighting(Arc<[PackedQuadLighting]>),
+    Biome(PackedBiomeRecord),
+    Encoded(Range<usize>),
+}
+
+impl Payload {
+    /// Borrows unchanged records or the final relocated bytes in retained scratch storage.
+    fn bytes<'a>(&'a self, encoded: &'a [u8]) -> &'a [u8] {
+        match self {
+            Self::Quads(records) => quad_bytes(records),
+            Self::Lighting(records) => lighting_bytes(records),
+            Self::Biome(record) => bytemuck::cast_slice(record.words()),
+            Self::Encoded(range) => &encoded[range.clone()],
+        }
+    }
+}
+
+struct Write {
+    part: Part,
+    offset: u64,
+    payload: Payload,
+}
+
+/// Retained terrain encoding and descriptor scratch, cleared after each issue.
 #[derive(Default)]
 pub(in crate::chunk) struct ArenaWrites {
-    pub(in crate::chunk) quads: Vec<(u32, Vec<[u32; 2]>)>,
-    pub(in crate::chunk) model: Vec<(u32, Vec<[u32; 4]>)>,
-    pub(in crate::chunk) model_lighting: Vec<(u32, Vec<[u16; 4]>)>,
-    pub(in crate::chunk) model_draw: Vec<(u32, Vec<[u32; 2]>)>,
-    pub(in crate::chunk) transparent_model_draw: Vec<(u32, Vec<[u32; 2]>)>,
-    pub(in crate::chunk) liquid: Vec<(u32, Vec<[u32; 4]>)>,
-    pub(in crate::chunk) liquid_lighting: Vec<(u32, Vec<[u16; 4]>)>,
-    pub(in crate::chunk) cube_lighting: Vec<(u32, Vec<[u16; 4]>)>,
-    pub(in crate::chunk) biome: Vec<(u32, Vec<u32>)>,
-    pub(in crate::chunk) origins: Vec<(u32, GpuChunkOrigin)>,
+    writes: Vec<Write>,
+    encoded: Vec<u8>,
+    order: Vec<usize>,
+    chunks: usize,
 }
 
 impl ArenaWrites {
-    /// Every admitted upload writes an origin record.
-    pub(in crate::chunk) fn is_empty(&self) -> bool {
-        self.origins.is_empty()
+    /// Collects admitted streams, borrowing unchanged payloads and encoding relocations once.
+    pub(in crate::chunk) fn collect_chunk(
+        &mut self,
+        instance: &ChunkRenderInstance,
+        plan: &FreshChunkRanges,
+        metadata_index: u32,
+        biome_words: &[u32],
+        origin: GpuChunkOrigin,
+    ) {
+        self.push(
+            Part::Quads,
+            plan.quad_start,
+            Payload::Quads(Arc::clone(&instance.cube_quads)),
+        );
+        self.encode(
+            Part::Model,
+            plan.model_start,
+            instance.model_refs.iter().map(|record| {
+                let mut words = record.words();
+                super::absolutize_model_lighting_bases(
+                    std::slice::from_mut(&mut words),
+                    plan.model_lighting_start,
+                );
+                words
+            }),
+        );
+        self.push(
+            Part::ModelLighting,
+            plan.model_lighting_start,
+            Payload::Lighting(Arc::clone(&instance.model_lighting)),
+        );
+        for (part, start, records) in [
+            (
+                Part::ModelDraw,
+                plan.model_draw_start,
+                &instance.model_draw_refs,
+            ),
+            (
+                Part::TransparentModelDraw,
+                plan.transparent_model_draw_start,
+                &instance.transparent_model_draw_refs,
+            ),
+        ] {
+            self.encode(
+                part,
+                start,
+                records.iter().map(|record| {
+                    let mut words = record.words();
+                    super::absolutize_partitioned_model_draw_refs(
+                        std::slice::from_mut(&mut words),
+                        &mut [],
+                        plan.model_start,
+                    )
+                    .expect(
+                        "validated model draw refs and atomic arena plan fit absolute addressing",
+                    );
+                    words
+                }),
+            );
+        }
+        self.encode(
+            Part::Liquid,
+            plan.liquid_start,
+            instance.liquid_quads.iter().map(|record| {
+                let mut words = record.words();
+                stamp_liquid_metadata_index(std::slice::from_mut(&mut words), metadata_index);
+                words
+            }),
+        );
+        self.push(
+            Part::LiquidLighting,
+            plan.liquid_lighting_start,
+            Payload::Lighting(Arc::clone(&instance.liquid_lighting)),
+        );
+        self.push(
+            Part::CubeLighting,
+            plan.cube_lighting_start,
+            Payload::Lighting(Arc::clone(&instance.cube_lighting)),
+        );
+        if !biome_words.is_empty() {
+            debug_assert_eq!(biome_words, instance.biome.words());
+            self.push(
+                Part::Biome,
+                plan.biome_start,
+                Payload::Biome(instance.biome.clone()),
+            );
+        }
+        self.encode(Part::Origins, metadata_index, std::iter::once(origin));
+        self.chunks += 1;
     }
 
-    /// Stages the collected writes into the arena's current buffers. A migration slice
-    /// encodes staged copies before it copies, and the next queue submit runs queued
-    /// fallback writes first, so they must be issued before a slice copies their regions.
+    /// Appends one nonempty payload in its original stream order.
+    fn push(&mut self, part: Part, offset: u32, payload: Payload) {
+        if !payload.bytes(&self.encoded).is_empty() {
+            self.writes.push(Write {
+                part,
+                offset: u64::from(offset) * part.destination().1,
+                payload,
+            });
+        }
+    }
+
+    /// Encodes relocated records directly into reusable storage, without a temporary vector.
+    fn encode<T: bytemuck::Pod>(
+        &mut self,
+        part: Part,
+        offset: u32,
+        records: impl ExactSizeIterator<Item = T>,
+    ) {
+        let start = self.encoded.len();
+        self.encoded
+            .reserve(records.len() * std::mem::size_of::<T>());
+        for record in records {
+            self.encoded.extend_from_slice(bytemuck::bytes_of(&record));
+        }
+        self.push(part, offset, Payload::Encoded(start..self.encoded.len()));
+    }
+
+    /// Reports whether any admitted writes still need to reach staging.
+    pub(in crate::chunk) fn is_empty(&self) -> bool {
+        self.writes.is_empty()
+    }
+
+    /// Issues writes before migration slices copy their ranges, then retains all scratch capacity.
     pub(in crate::chunk) fn issue(&mut self, arena: &ChunkGpuArena, uploads: TerrainUploads<'_>) {
         #[cfg(feature = "tracy")]
-        let _span =
-            bevy::log::info_span!("terrain.arena_upload", chunks = self.origins.len()).entered();
-        let quads = std::mem::take(&mut self.quads);
-        let origins = std::mem::take(&mut self.origins);
-        let model = std::mem::take(&mut self.model);
-        let model_lighting = std::mem::take(&mut self.model_lighting);
-        let model_draw = std::mem::take(&mut self.model_draw);
-        let transparent = std::mem::take(&mut self.transparent_model_draw);
-        let liquid = std::mem::take(&mut self.liquid);
-        let liquid_lighting = std::mem::take(&mut self.liquid_lighting);
-        let cube_lighting = std::mem::take(&mut self.cube_lighting);
-        let biome = std::mem::take(&mut self.biome);
-
-        let mut staged = Vec::new();
-        stage(&mut staged, PACKED_QUAD_BYTES, &quads);
-        write_stream(
-            uploads,
-            arena,
-            ArenaStream::Quads,
-            &arena.quad_buffer,
-            &mut staged,
-        );
-        staged.extend(origins.iter().map(|(index, origin)| {
-            (
-                u64::from(*index) * CHUNK_ORIGIN_BYTES,
-                bytemuck::bytes_of(origin),
+        let _span = bevy::log::info_span!("terrain.arena_upload", chunks = self.chunks).entered();
+        for (stream, buffer) in [
+            (ArenaStream::Quads, &arena.quad_buffer),
+            (ArenaStream::Origins, &arena.origin_buffer),
+            (ArenaStream::GeometryStreams, &arena.geometry_stream_buffer),
+            (ArenaStream::Biomes, &arena.biome_buffer),
+        ] {
+            self.order.clear();
+            self.order.extend(
+                self.writes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, write)| (write.part.destination().0 == stream).then_some(i)),
+            );
+            if self.order.is_empty() {
+                continue;
+            }
+            #[cfg(feature = "tracy")]
+            let _span = bevy::log::info_span!(
+                "terrain.merge_upload_ranges",
+                ranges = self.order.len(),
+                bytes = self
+                    .order
+                    .iter()
+                    .map(|&i| self.writes[i].payload.bytes(&self.encoded).len())
+                    .sum::<usize>(),
             )
-        }));
-        write_stream(
-            uploads,
-            arena,
-            ArenaStream::Origins,
-            &arena.origin_buffer,
-            &mut staged,
-        );
-        let word = GEOMETRY_STREAM_WORD_BYTES;
-        stage(&mut staged, word, &model);
-        stage(&mut staged, word, &model_lighting);
-        stage(&mut staged, word, &model_draw);
-        stage(&mut staged, word, &transparent);
-        stage(&mut staged, word, &liquid);
-        stage(&mut staged, word, &liquid_lighting);
-        stage(&mut staged, word, &cube_lighting);
-        write_stream(
-            uploads,
-            arena,
-            ArenaStream::GeometryStreams,
-            &arena.geometry_stream_buffer,
-            &mut staged,
-        );
-        stage(&mut staged, BIOME_WORD_BYTES, &biome);
-        write_stream(
-            uploads,
-            arena,
-            ArenaStream::Biomes,
-            &arena.biome_buffer,
-            &mut staged,
-        );
+            .entered();
+            self.order
+                .sort_unstable_by_key(|&i| (self.writes[i].offset, i));
+            let overlapping = self.order.windows(2).any(|pair| {
+                let a = &self.writes[pair[0]];
+                a.offset + a.payload.bytes(&self.encoded).len() as u64 > self.writes[pair[1]].offset
+            });
+            if overlapping {
+                self.order
+                    .sort_unstable_by_key(|&i| (self.writes[i].part, i));
+            }
+            let mut writes: Vec<BufferWrite<'_>> = self
+                .order
+                .iter()
+                .map(|&i| {
+                    let write = &self.writes[i];
+                    (&**buffer, write.offset, write.payload.bytes(&self.encoded))
+                })
+                .collect();
+            if let Some(migration) = arena
+                .migration
+                .as_ref()
+                .filter(|migration| migration.stream == stream)
+            {
+                for write in &mut writes {
+                    write.0 = &migration.buffer;
+                }
+                write_merged(uploads, &writes, overlapping);
+                for write in &mut writes {
+                    write.0 = buffer;
+                }
+            }
+            write_merged(uploads, &writes, overlapping);
+        }
+        self.writes.clear();
+        self.encoded.clear();
+        self.order.clear();
+        self.chunks = 0;
     }
 }
 
-/// Mirrors writes into the replacement buffer so uploads remain valid after any copy slice.
-fn write_stream(
-    uploads: TerrainUploads<'_>,
-    arena: &ChunkGpuArena,
-    stream: ArenaStream,
-    buffer: &Buffer,
-    staged: &mut Vec<(u64, &[u8])>,
-) {
-    if let Some(migration) = arena
-        .migration
-        .as_ref()
-        .filter(|migration| migration.stream == stream)
-    {
-        write_merged(uploads, &migration.buffer, &mut staged.clone());
+/// Borrows the native word representation of immutable cube records without repacking.
+fn quad_bytes(records: &[PackedQuad]) -> &[u8] {
+    const {
+        assert!(std::mem::size_of::<PackedQuad>() == std::mem::size_of::<[u32; 2]>());
     }
-    write_merged(uploads, buffer, staged);
+    // SAFETY: PackedQuad is repr(C), with two initialized u32 fields and no padding.
+    // The view keeps the shared borrow's lifetime and never mutates its source.
+    unsafe { std::slice::from_raw_parts(records.as_ptr().cast(), std::mem::size_of_val(records)) }
 }
 
-/// Appends each non-empty record run as its byte offset and bytes, in issue order.
-fn stage<'a, T: bytemuck::Pod>(
-    staged: &mut Vec<(u64, &'a [u8])>,
-    item_bytes: u64,
-    writes: &'a [(u32, Vec<T>)],
-) {
-    staged.extend(
-        writes
-            .iter()
-            .filter(|(_, records)| !records.is_empty())
-            .map(|(offset, records)| {
-                (
-                    u64::from(*offset) * item_bytes,
-                    bytemuck::cast_slice(records),
-                )
-            }),
-    );
+/// Borrows the native sample representation of immutable lighting records without repacking.
+fn lighting_bytes(records: &[PackedQuadLighting]) -> &[u8] {
+    const {
+        assert!(std::mem::size_of::<PackedQuadLighting>() == std::mem::size_of::<[u16; 4]>());
+    }
+    // SAFETY: PackedQuadLighting is repr(transparent) over four initialized u16 samples.
+    // There is no padding, and the view keeps the shared borrow's lifetime.
+    unsafe { std::slice::from_raw_parts(records.as_ptr().cast(), std::mem::size_of_val(records)) }
 }
 
-/// Stages `staged` into `buffer` in offset order, so abutting records share one retained
-/// copy; overlapping ranges keep their issue order, so the buffer ends identical either way.
-/// Whatever the pool cannot hold takes the queue path. Drains `staged`.
-fn write_merged(uploads: TerrainUploads<'_>, buffer: &Buffer, staged: &mut Vec<(u64, &[u8])>) {
-    #[cfg(feature = "tracy")]
-    let _span = bevy::log::info_span!(
-        "terrain.merge_upload_ranges",
-        ranges = staged.len(),
-        bytes = staged.iter().map(|(_, bytes)| bytes.len()).sum::<usize>(),
-    )
-    .entered();
-    let mut sorted = staged.clone();
-    sorted.sort_by_key(|(offset, _)| *offset);
-    let overlapping = sorted
-        .windows(2)
-        .any(|pair| pair[0].0 + pair[0].1.len() as u64 > pair[1].0);
-    let order = if overlapping {
-        &staged[..]
-    } else {
-        &sorted[..]
-    };
-    let writes: Vec<BufferWrite<'_>> = order
-        .iter()
-        .map(|&(offset, bytes)| (&**buffer, offset, bytes))
-        .collect();
-    uploads.write(&writes, |rest| {
-        // The unstaged rest is a suffix of `order`, so it keeps its order and overlap.
-        let rest: Vec<(u64, &[u8])> = rest
-            .iter()
-            .map(|&(_, offset, bytes)| (offset, bytes))
-            .collect();
-        queue_merged(uploads.queue, buffer, &rest, overlapping);
+/// Uses the retained pool first and merges only the unstaged suffix on the queue path.
+fn write_merged(uploads: TerrainUploads<'_>, writes: &[BufferWrite<'_>], overlapping: bool) {
+    uploads.write(writes, |rest, site| {
+        queue_merged(uploads.queue, rest, overlapping, site)
     });
-    staged.clear();
 }
 
-/// The queue path: one write per abutting run, since each `write_buffer` call allocates its
-/// own staging memory, or each record in issue order when ranges overlap.
+/// Writes abutting runs together, preserving original write order whenever ranges overlap.
 fn queue_merged(
-    render_queue: &RenderQueue,
-    buffer: &Buffer,
-    order: &[(u64, &[u8])],
+    queue: &RenderQueue,
+    order: &[BufferWrite<'_>],
     overlapping: bool,
+    site: &'static std::panic::Location<'static>,
 ) {
     if overlapping {
-        for &(offset, bytes) in order {
+        for &(buffer, offset, bytes) in order {
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.write_buffer(buffer, offset, bytes);
+            queue.profiled_write_buffer_at(buffer, offset, bytes, site);
         }
         return;
     }
     for run in abutting_runs(order) {
         let run = &order[run];
-        let offset = run[0].0;
-        if let [(_, bytes)] = run {
+        let (buffer, offset, _) = run[0];
+        if let [(_, _, bytes)] = run {
             #[cfg(feature = "tracy")]
             let _span =
                 bevy::log::info_span!("terrain.arena_write", offset, bytes = bytes.len()).entered();
-            render_queue.write_buffer(buffer, offset, bytes);
+            queue.profiled_write_buffer_at(buffer, offset, bytes, site);
             continue;
         }
-        let size = run.iter().map(|(_, bytes)| bytes.len() as u64).sum();
+        let size = run.iter().map(|write| write.2.len() as u64).sum();
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "terrain.arena_write_merged",
@@ -200,10 +333,10 @@ fn queue_merged(
         )
         .entered();
         if let Some(size) = NonZeroU64::new(size)
-            && let Some(mut view) = render_queue.write_buffer_with(buffer, offset, size)
+            && let Some(mut view) = queue.profiled_write_buffer_with_at(buffer, offset, size, site)
         {
             let mut at = 0;
-            for (_, bytes) in run {
+            for &(_, _, bytes) in run {
                 view.slice(at..at + bytes.len()).copy_from_slice(bytes);
                 at += bytes.len();
             }
@@ -211,21 +344,22 @@ fn queue_merged(
     }
 }
 
-/// Index ranges of `sorted` whose byte ranges each start where the previous one ends.
-fn abutting_runs(sorted: &[(u64, &[u8])]) -> Vec<std::ops::Range<usize>> {
-    let mut runs = Vec::new();
+/// Iterates abutting byte ranges without allocating another descriptor vector.
+fn abutting_runs<'a>(sorted: &'a [BufferWrite<'_>]) -> impl Iterator<Item = Range<usize>> + 'a {
     let mut start = 0;
-    while start < sorted.len() {
-        let mut end = start + 1;
-        let mut next = sorted[start].0 + sorted[start].1.len() as u64;
-        while end < sorted.len() && sorted[end].0 == next {
-            next += sorted[end].1.len() as u64;
-            end += 1;
+    std::iter::from_fn(move || {
+        if start == sorted.len() {
+            return None;
         }
-        runs.push(start..end);
-        start = end;
-    }
-    runs
+        let first = start;
+        let mut next = sorted[start].1 + sorted[start].2.len() as u64;
+        start += 1;
+        while start < sorted.len() && sorted[start].1 == next {
+            next += sorted[start].2.len() as u64;
+            start += 1;
+        }
+        Some(first..start)
+    })
 }
 
 #[cfg(test)]
@@ -236,13 +370,20 @@ mod tests {
     /// Merged runs write exactly the bytes the individual writes would, in any issue order.
     #[test]
     fn abutting_runs_reproduce_individual_writes() {
+        let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 1024,
+            usage: wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let records: Vec<Vec<u8>> = (0..12_u8)
             .map(|seed| vec![seed; 4 + 4 * (seed as usize % 3)])
             .collect();
         let mut offset = 0;
         let mut writes = Vec::new();
         for (index, bytes) in records.iter().enumerate() {
-            writes.push((offset, bytes.as_slice()));
+            writes.push((&buffer, offset, bytes.as_slice()));
             // Leave a gap after every third record so runs split.
             offset += bytes.len() as u64 + if index % 3 == 2 { 8 } else { 0 };
         }
@@ -251,20 +392,20 @@ mod tests {
             buffer[at as usize..at as usize + bytes.len()].copy_from_slice(bytes);
         };
         let mut expected = vec![0; offset as usize];
-        for (at, bytes) in &writes {
-            apply(&mut expected, *at, bytes);
+        for &(_, at, bytes) in &writes {
+            apply(&mut expected, at, bytes);
         }
         let mut sorted = writes.clone();
-        sorted.sort_by_key(|(at, _)| *at);
-        let runs = abutting_runs(&sorted);
+        sorted.sort_by_key(|(_, at, _)| *at);
+        let runs: Vec<_> = abutting_runs(&sorted).collect();
         assert_eq!(runs.len(), 4);
         let mut merged = vec![0; offset as usize];
         for run in runs {
             let joined: Vec<u8> = sorted[run.clone()]
                 .iter()
-                .flat_map(|(_, bytes)| bytes.iter().copied())
+                .flat_map(|(_, _, bytes)| bytes.iter().copied())
                 .collect();
-            apply(&mut merged, sorted[run.start].0, &joined);
+            apply(&mut merged, sorted[run.start].1, &joined);
         }
         assert_eq!(merged, expected);
     }
@@ -279,18 +420,19 @@ mod tests {
 
     /// One frame's quad records: two abutting allocations and one after a gap.
     fn quad_writes(frame: u32) -> ArenaWrites {
-        ArenaWrites {
-            quads: vec![
-                (16, vec![[frame, 2]; 16]),
-                (0, vec![[frame, 1]; 16]),
-                (40, vec![[frame, 3]; 8]),
-            ],
-            ..ArenaWrites::default()
-        }
+        let mut writes = ArenaWrites::default();
+        writes.encode(Part::Quads, 16, std::iter::repeat_n([frame, 2], 16));
+        writes.encode(Part::Quads, 0, std::iter::repeat_n([frame, 1], 16));
+        writes.encode(Part::Quads, 40, std::iter::repeat_n([frame, 3], 8));
+        writes
     }
 
     /// Ends a frame as the graph prefix and device poll do, so completed slots return.
-    fn end_frame(device: &RenderDevice, queue: &RenderQueue, staging: &TerrainUploadStaging) {
+    pub(super) fn end_frame(
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        staging: &TerrainUploadStaging,
+    ) {
         let mut encoder = device.create_command_encoder(&Default::default());
         staging.encode_pending(&mut encoder);
         queue.submit([encoder.finish()]);
@@ -298,7 +440,12 @@ mod tests {
     }
 
     /// Copies the first `bytes` of `buffer` out through a mappable buffer.
-    fn read(device: &RenderDevice, queue: &RenderQueue, buffer: &Buffer, bytes: u64) -> Vec<u8> {
+    pub(super) fn read(
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        buffer: &Buffer,
+        bytes: u64,
+    ) -> Vec<u8> {
         let readback = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
             label: Some("terrain staging readback"),
             size: bytes,
@@ -317,6 +464,52 @@ mod tests {
             .get_mapped_range()
             .expect("readback is mapped")
             .to_vec()
+    }
+
+    /// Checks the original caller and suffix length exposed to a custom fallback.
+    #[track_caller]
+    fn assert_fallback_origin(
+        uploads: TerrainUploads<'_>,
+        writes: &[BufferWrite<'_>],
+        expected_bytes: usize,
+    ) {
+        let expected_site = std::panic::Location::caller();
+        let mut observed = None;
+        uploads.write(writes, |rest, site| {
+            observed = Some((site, rest.iter().map(|write| write.2.len()).sum::<usize>()));
+        });
+        assert_eq!(observed, Some((expected_site, expected_bytes)));
+    }
+
+    /// Direct and partially staged terrain writes preserve their owner through the callback.
+    #[test]
+    fn terrain_fallback_retains_the_original_caller_and_unstaged_suffix() {
+        let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+        let (device, queue) = (RenderDevice::from(device), RenderQueue::new(queue));
+        let staging = TerrainUploadStaging::new(&device);
+        let tail = wgpu::COPY_BUFFER_ALIGNMENT as usize;
+        let bytes = vec![1_u8; staging.capacity_bytes() as usize + tail];
+        let target = create_storage_buffer(
+            &device,
+            "caller-labelled terrain upload",
+            bytes.len() as u64,
+        );
+        let writes = [(&*target, 0, bytes.as_slice())];
+        let uploads = TerrainUploads {
+            device: &device,
+            queue: &queue,
+            staging: None,
+        };
+        assert_fallback_origin(uploads, &writes, bytes.len());
+        assert_fallback_origin(
+            TerrainUploads {
+                staging: Some(&staging),
+                ..uploads
+            },
+            &writes,
+            tail,
+        );
+        assert_eq!(staging.stats().staged_bytes as usize + tail, bytes.len());
     }
 
     /// Warm terrain uploads never miss the pool, and abutting records share one copy.
@@ -367,14 +560,10 @@ mod tests {
         };
         let half = quads / 2;
         let words: Vec<[u32; 2]> = (0..quads).map(|quad| [quad, !quad]).collect();
-        ArenaWrites {
-            quads: vec![
-                (half, words[half as usize..].to_vec()),
-                (0, words[..half as usize].to_vec()),
-            ],
-            ..ArenaWrites::default()
-        }
-        .issue(&arena, uploads);
+        let mut writes = ArenaWrites::default();
+        writes.encode(Part::Quads, half, words[half as usize..].iter().copied());
+        writes.encode(Part::Quads, 0, words[..half as usize].iter().copied());
+        writes.issue(&arena, uploads);
         let stats = staging.stats();
         assert_eq!(stats.staged_bytes, capacity);
         assert_eq!(stats.fallback_bytes, overflow);
@@ -496,3 +685,7 @@ mod tests {
         assert_eq!(staging.stats().fallback_writes, 0);
     }
 }
+
+#[cfg(test)]
+#[path = "arena_writes_tests.rs"]
+mod staging_tests;

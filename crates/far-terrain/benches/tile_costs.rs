@@ -1,11 +1,16 @@
 //! CPU cost of selecting far-terrain tiles and building their meshes.
 
-use std::hint::black_box;
+use std::{
+    hint::black_box,
+    time::{Duration, Instant},
+};
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use far_terrain::{
-    ColumnPos, ColumnSummary, NearMask, SurfaceCell, TileGrid, TileKey, TileView, mesh_tile,
-    select_tiles,
+    COLUMN_SIDE, ColumnPos, ColumnSummary, FarTiles, NearMask, SummaryStore, SurfaceCell, TileGrid,
+    TileKey, TileView, Versioned,
+    config::{LEVEL_COUNT, TILE_REBUILD_INTERVAL},
+    mesh_tile, select_tiles,
 };
 
 /// Rolling hills with lakes, so tops rarely merge and walls are common.
@@ -27,6 +32,119 @@ fn hills(pos: ColumnPos) -> ColumnSummary {
 
 fn columns(key: TileKey) -> Vec<(ColumnPos, ColumnSummary)> {
     key.columns().map(|pos| (pos, hills(pos))).collect()
+}
+
+/// Holds the measured update until its workers finish outside Criterion's timed section.
+struct UpdatingTile {
+    tiles: FarTiles,
+    store: SummaryStore,
+    column: ColumnPos,
+    now: Instant,
+}
+
+impl Drop for UpdatingTile {
+    fn drop(&mut self) {
+        test_time::eventually("benchmark tile finishes", || {
+            self.tiles.update(&mut self.store, self.now);
+            self.tiles.ready(self.column)
+        });
+    }
+}
+
+/// Isolates a fully cached coarsest tile after the rest of its ring has settled empty.
+fn updating_tile() -> UpdatingTile {
+    let width = TileKey {
+        level: LEVEL_COUNT - 1,
+        x: 0,
+        z: 0,
+    }
+    .width_blocks();
+    let view = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 0.0,
+        skip_blocks: 4.0 * width as f32,
+        far_blocks: 5.0 * width as f32,
+    };
+    let keys = select_tiles(view);
+    assert!(keys.iter().all(|key| key.level == LEVEL_COUNT - 1));
+    let key = keys[0];
+    let now = Instant::now();
+    let mut tiles = FarTiles::default();
+    tiles.set_view(view);
+    let mut store = SummaryStore::new(usize::MAX);
+    while !keys
+        .iter()
+        .all(|key| tiles.ready(key.columns().next().unwrap()))
+    {
+        tiles.update(&mut store, now);
+    }
+    let [x, z] = key.origin().map(|block| block / COLUMN_SIDE as i32);
+    let side = key.width_blocks() / COLUMN_SIDE as i32;
+    let encoded = hills(ColumnPos::new(x, z)).encode();
+    for cz in z - 1..=z + side {
+        for cx in x - 1..=x + side {
+            store.admit_versioned(
+                ColumnPos::new(cx, cz),
+                Versioned {
+                    version: 1,
+                    summary: encoded.clone(),
+                },
+            );
+        }
+    }
+    let column = ColumnPos::new(x + side / 2, z + side / 2);
+    tiles.mark_changed(&[column]);
+    UpdatingTile {
+        tiles,
+        store,
+        column,
+        now: now + TILE_REBUILD_INTERVAL,
+    }
+}
+
+/// Measures snapshot copies and the first foreground slice separately from worker meshing.
+fn update_costs(c: &mut Criterion) {
+    let encoded = hills(ColumnPos::new(0, 0)).encode();
+    let side = (TileKey {
+        level: LEVEL_COUNT - 1,
+        x: 0,
+        z: 0,
+    }
+    .width_blocks()
+        / COLUMN_SIDE as i32
+        + 2) as usize;
+    let copies: Vec<_> = (0..side * side).map(|_| encoded.clone()).collect();
+    let shared = copies
+        .iter()
+        .filter(|copy| std::ptr::eq(copy.bytes.as_ref(), encoded.bytes.as_ref()))
+        .count();
+    eprintln!(
+        "snapshot columns: {}; shared payloads: {shared}; copied payload bytes: {}",
+        copies.len(),
+        (copies.len() - shared) * encoded.bytes.len()
+    );
+    let mut group = c.benchmark_group("far_terrain");
+    group
+        .sample_size(10)
+        .warm_up_time(Duration::from_millis(100))
+        .measurement_time(Duration::from_millis(200));
+    group.bench_function("clone_level_4_snapshot", |b| {
+        b.iter(|| {
+            (0..side * side)
+                .map(|_| black_box(&encoded).clone())
+                .collect::<Vec<_>>()
+        });
+    });
+    group.bench_function("update_full_level_4_cache", |b| {
+        b.iter_batched(
+            updating_tile,
+            |mut sample| {
+                black_box(sample.tiles.update(&mut sample.store, sample.now));
+                sample
+            },
+            BatchSize::PerIteration,
+        );
+    });
 }
 
 fn tile_costs(c: &mut Criterion) {
@@ -61,5 +179,5 @@ fn tile_costs(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, tile_costs);
+criterion_group!(benches, tile_costs, update_costs);
 criterion_main!(benches);

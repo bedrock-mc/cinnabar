@@ -214,14 +214,20 @@ fn pick_prediction_keeps_multi_tick_animation_inputs() {
             .unwrap();
         stream.poll([0.0, 64.0, 0.0], 0);
         if predict {
+            let before = [2, 4].map(|id| stream.authority().actor(id).cloned());
             stream.predict_remote_actor_motion(3);
+            assert_eq!(
+                [2, 4].map(|id| stream.authority().actor(id).cloned()),
+                before,
+                "pick prediction leaves authoritative actor state unchanged"
+            );
         }
         stream.advance_actor_interpolation_frame(3);
         let authority = stream.authority();
         let rig = authority.actor_rig(2).expect("the remote player has a rig");
         (
-            authority.actor(2).cloned(),
-            authority.actor(4).cloned(),
+            without_attachment_instant(authority.actor(2)),
+            without_attachment_instant(authority.actor(4)),
             rig.java,
             rig.previous_body_yaw,
             rig.body_yaw,
@@ -236,6 +242,17 @@ fn pick_prediction_keeps_multi_tick_animation_inputs() {
         (interleaved.3, interleaved.4),
         "body yaw"
     );
+}
+
+/// An actor's state without its wall-clock terrain attachment, which separately built worlds
+/// record at different instants before either advances.
+fn without_attachment_instant(actor: Option<&impl std::fmt::Debug>) -> String {
+    let state = format!("{:?}", actor.expect("spawned actor"));
+    let Some(start) = state.find("attached_at: ") else {
+        return state;
+    };
+    let end = start + state[start..].find('}').expect("instant fields close") + 1;
+    format!("{}{}", &state[..start], &state[end..])
 }
 
 /// The first frame of a new actor session keeps its fractional tick for the next frame.

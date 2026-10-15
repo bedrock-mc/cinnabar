@@ -98,6 +98,7 @@ pub fn resolve_item_use(
 impl ItemStateStore {
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
+        self.presentation_generation = Arc::new(());
         // Category generations prevent a previous registry timer from blocking new definitions.
         static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -301,6 +302,44 @@ mod tests {
             canonical_empty_component_data: false,
             item_tags: Arc::from([]),
         }
+    }
+
+    #[test]
+    fn animation_facts_follow_numeric_registry_replacements_and_retail_fallback() {
+        use assets::facts::ItemTraits;
+        let entries = protocol::vanilla_item_registry();
+        let sword = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:iron_sword")
+            .unwrap();
+        let mut spear = entries
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:wooden_spear")
+            .unwrap()
+            .clone();
+        spear.network_id = sword.network_id;
+        let mut store = ItemStateStore::diagnostic();
+        assert!(
+            store
+                .animation_fact(sword.network_id)
+                .traits
+                .contains(ItemTraits::SWORD)
+        );
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([spear]),
+        }));
+        let replacement = store.animation_fact(sword.network_id);
+        assert!(replacement.traits.contains(ItemTraits::SPEAR));
+        assert!(!replacement.traits.contains(ItemTraits::SWORD));
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([]),
+        }));
+        assert!(
+            store
+                .animation_fact(sword.network_id)
+                .traits
+                .contains(ItemTraits::SWORD)
+        );
     }
 
     #[test]

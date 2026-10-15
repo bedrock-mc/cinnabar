@@ -1,5 +1,6 @@
 //! Retained GPU resources, uploads and pipeline variants for the camera-local hand.
 
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{
     ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken, viewmodel_depth_bytes,
 };
@@ -269,7 +270,7 @@ pub(super) fn prepare(params: PrepareViewmodel) {
             samples: token.samples,
         });
     }
-    queue.write_buffer(
+    queue.profiled_write_buffer(
         &gpu.projection,
         0,
         bytemuck::cast_slice(&hand_projection(token.viewport).to_cols_array()),

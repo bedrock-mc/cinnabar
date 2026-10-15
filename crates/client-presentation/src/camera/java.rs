@@ -5,7 +5,7 @@ use bevy::math::DVec3;
 use bevy::prelude::{Mat4, Resource, Vec3};
 use render_model::java_animation::{JAVA_HAND_SWAY, java_cos, java_sin};
 
-use super::bob::{ViewEffect, shortest_degrees};
+use super::bob::ViewEffect;
 use super::hurt::{HURT_TILT_DEGREES, death_roll_degrees};
 
 #[cfg(test)]
@@ -37,7 +37,7 @@ pub struct JavaCameraTick {
     pub riding: bool,
     /// Java stops the walk phase while flying, riding or sneaking on the ground.
     pub walks: bool,
-    /// Look pitch and yaw in Minecraft degrees (down and right positive).
+    /// Look pitch and continuous yaw in Minecraft degrees (down and right positive).
     pub look: [f32; 2],
 }
 
@@ -136,8 +136,8 @@ impl JavaCameraState {
             + f64::from(tick.look[0] - self.arm_pitch[1]) * JAVA_HAND_SWAY.tick_follow)
             as f32;
         self.arm_yaw[1] = (f64::from(self.arm_yaw[1])
-            + f64::from(shortest_degrees(tick.look[1] - self.arm_yaw[1]))
-                * JAVA_HAND_SWAY.tick_follow) as f32;
+            + f64::from(tick.look[1] - self.arm_yaw[1]) * JAVA_HAND_SWAY.tick_follow)
+            as f32;
         if tick.sneaking {
             self.sneak_drop[1] = self.sneak_drop[1].max(SNEAK_OFFSET_MINIMUM);
         }
@@ -166,8 +166,7 @@ impl JavaCameraState {
     #[must_use]
     pub fn sway(&self, alpha: f32, look: [f32; 2]) -> (f32, f32) {
         let pitch = (look[0] - lerp(self.arm_pitch, alpha)) * JAVA_HAND_SWAY.rotation_gain;
-        let arm_yaw = self.arm_yaw[0] + shortest_degrees(self.arm_yaw[1] - self.arm_yaw[0]) * alpha;
-        let yaw = shortest_degrees(look[1] - arm_yaw) * JAVA_HAND_SWAY.rotation_gain;
+        let yaw = (look[1] - lerp(self.arm_yaw, alpha)) * JAVA_HAND_SWAY.rotation_gain;
         (pitch.to_radians(), yaw.to_radians())
     }
 
@@ -337,12 +336,12 @@ mod tests {
         let mut state = JavaCameraState::default();
         state.advance(walking(1, 0.0));
         state.advance(JavaCameraTick {
-            look: [20.0, 350.0],
+            look: [20.0, -10.0],
             ..walking(2, 0.0)
         });
         assert_eq!(state.arm_pitch[1], 10.0);
         assert!((state.arm_yaw[1] + 5.0).abs() < 1e-4);
-        let (pitch, yaw) = state.sway(1.0, [20.0, 350.0]);
+        let (pitch, yaw) = state.sway(1.0, [20.0, -10.0]);
         assert!((pitch.to_degrees() - 1.0).abs() < 1e-4);
         assert!((yaw.to_degrees() + 0.5).abs() < 1e-4);
     }
@@ -380,6 +379,38 @@ mod tests {
                 endpoints,
                 "frames do not advance tick smoothing"
             );
+        }
+    }
+
+    /// Fast turns retain the full camera-to-arm gap through tick smoothing and interpolation.
+    #[test]
+    fn hand_sway_keeps_large_turns_and_reversals() {
+        let mut state = JavaCameraState::default();
+        state.advance(walking(1, 0.0));
+        for (tick, look, previous, current) in [
+            (2, [90.0, 540.0], [0.0, 0.0], [45.0, 270.0]),
+            (3, [-90.0, -540.0], [45.0, 270.0], [-22.5, -135.0]),
+            (4, [-90.0, -540.0], [-22.5, -135.0], [-56.25, -337.5]),
+        ] {
+            state.advance(JavaCameraTick {
+                look,
+                ..walking(tick, 0.0)
+            });
+            for alpha in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                let expected = |axis: usize| {
+                    ((look[axis] - (previous[axis] + (current[axis] - previous[axis]) * alpha))
+                        * 0.1_f32)
+                        .to_radians()
+                };
+                let (pitch, yaw) = state.sway(alpha, look);
+                let actual = Mat4::from_rotation_x(pitch) * Mat4::from_rotation_y(yaw);
+                let expected =
+                    Mat4::from_rotation_x(expected(0)) * Mat4::from_rotation_y(expected(1));
+                assert!(
+                    actual.abs_diff_eq(expected, 2e-6),
+                    "tick {tick}, alpha {alpha}"
+                );
+            }
         }
     }
 

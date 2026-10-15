@@ -866,7 +866,8 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
             date: String::new(),
             size: String::new(),
             thumbnail: None,
-        }];
+        }]
+        .into();
         view
     };
     let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));

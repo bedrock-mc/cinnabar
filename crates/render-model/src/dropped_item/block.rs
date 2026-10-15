@@ -1,3 +1,4 @@
+use super::native::{block_item_position, block_item_rotation};
 use super::{ItemMeshVertex, MAX_ITEM_LAYERS};
 use crate::DroppedItemBlock;
 use glam::Vec3;
@@ -14,12 +15,6 @@ pub fn block_mesh(
     if layer_side == 0 || first_layer as usize + model.materials.len() > MAX_ITEM_LAYERS {
         return None;
     }
-    let rotate = |[x, y, z]: [f32; 3]| match model.rotation & 3 {
-        1 => [-z, y, x],
-        2 => [-x, y, -z],
-        3 => [z, y, -x],
-        _ => [x, y, z],
-    };
     let mut vertices = Vec::with_capacity(model.quads.len() * 6);
     for quad in model.quads.iter() {
         let (texture, color) = model.materials.get(quad.material as usize)?;
@@ -40,7 +35,7 @@ pub fn block_mesh(
         .uv_scale;
         for corner in [a, b, c, a, c, d] {
             vertices.push(ItemMeshVertex {
-                position: rotate(quad.positions[corner].map(|p| f32::from(p) / 256.0 - 0.5)),
+                position: block_item_position(quad.positions[corner], model.rotation),
                 uv: [
                     f32::from(quad.uvs[corner][0]) / f32::from(UV_TILE_UNITS)
                         * texture.width as f32
@@ -49,7 +44,7 @@ pub fn block_mesh(
                         * texture.height as f32
                         / layer_side as f32,
                 ],
-                normal: rotate(normal),
+                normal: block_item_rotation(normal, model.rotation),
                 layer: first_layer + quad.material,
                 color: *color,
                 glint_scale,

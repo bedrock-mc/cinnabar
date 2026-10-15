@@ -16,8 +16,8 @@ use super::{
 mod portal;
 const ABILITY_FLYING_BIT: u32 = 1 << 9;
 const ABILITY_WALK_SPEED_BIT: u32 = 1 << 14;
-const BOW_IDENTIFIER: &str = "minecraft:bow";
-const SPYGLASS_IDENTIFIER: &str = "minecraft:spyglass";
+const BOW_IDENTIFIER: &str = assets::facts::VanillaItem::Bow.identifier();
+const SPYGLASS_IDENTIFIER: &str = assets::facts::VanillaItem::Spyglass.identifier();
 
 /// How long the current item has been held in use with the same stack identity.
 #[derive(Resource, Debug, Default, Clone, PartialEq)]
