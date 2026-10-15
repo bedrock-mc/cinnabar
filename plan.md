@@ -49,8 +49,14 @@ Published form draw nodes share immutable snapshots. A bounded engine cache reta
 base texture paths and renderer names for the exact snapshot and omission values; overlays,
 renderer callbacks, source resolution and atlas residency still update every prepare.
 Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
-rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
-edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
+rendered comparisons and measured dependency-discovery cost remain pending.
+
+Oversized artwork sources retain sorted, immutable metadata with shared encoded bytes. Painted
+frames reuse that metadata and request artwork only after source ownership changes. Provider
+replacement retires stale fallback artwork; image polling, page publication and completed
+gallery work continue independently. Regression coverage is written but unrun; compilation,
+rendered comparisons and measured artwork publication cost remain pending. Edit-text/report
+copies and other form work remain separate; no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 

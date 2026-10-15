@@ -373,17 +373,14 @@ impl UiPresentationRuntime {
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
         // Server textures too big for a server page draw from full-resolution art.
-        let set = super::menu_artwork::ArtworkSet {
-            logo: self.menu_artwork_set.logo.clone(),
-            paths: self.menu_artwork_set.paths.clone(),
-            images: self.menu_artwork_set.images.clone(),
-            oversized: self.oversized_ui_textures(),
-            skins: self.menu_artwork_set.skins.clone(),
-            capes: self.menu_artwork_set.capes.clone(),
-        };
-        if !set.same(&self.menu_artwork_set) {
-            self.menu_artwork_set = set.clone();
-            self.menu_artwork_loader.request(set);
+        let oversized = self.oversized_ui_textures();
+        if !oversized.shares_storage(&self.menu_artwork_set.oversized) {
+            let artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
+            self.menu_artwork_set.oversized = oversized;
+            if artwork_changed {
+                self.menu_artwork_loader
+                    .request(self.menu_artwork_set.clone());
+            }
         }
         if changed {
             self.rebuild_dynamic_textures();
@@ -456,10 +453,10 @@ impl UiPresentationRuntime {
     }
 
     /// Drawn engine textures too big for a server page, for the art pages.
-    pub(super) fn oversized_ui_textures(&self) -> Vec<(String, Arc<[u8]>)> {
+    pub(super) fn oversized_ui_textures(&self) -> ui_engine::atlas::OversizedTextures {
         self.engine
             .as_ref()
-            .map_or_else(Vec::new, |engine| engine.textures.oversized())
+            .map_or_else(Default::default, |engine| engine.textures.oversized())
     }
 
     pub(super) fn server_ui_pages(&self) -> &[render_model::UiTexturePage] {

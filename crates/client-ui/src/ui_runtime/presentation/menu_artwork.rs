@@ -26,6 +26,8 @@ use skin_previews::SkinArtwork;
 mod cape_previews;
 mod packing;
 mod request_cache;
+#[cfg(test)]
+mod source_sync_tests;
 use cape_previews::CapeArtwork;
 pub(crate) use cape_previews::cape_texture_key;
 use packing::pack;
@@ -68,7 +70,7 @@ pub(super) struct ArtworkSet {
     pub(super) paths: Vec<(String, u32)>,
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
-    pub(super) oversized: Vec<(String, Arc<[u8]>)>,
+    pub(super) oversized: ui_engine::atlas::OversizedTextures,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
 }
@@ -91,12 +93,7 @@ impl ArtworkSet {
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
             && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
-            && self.oversized.len() == other.oversized.len()
-            && self
-                .oversized
-                .iter()
-                .zip(&other.oversized)
-                .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+            && self.oversized.same(&other.oversized)
     }
 }
 
@@ -154,6 +151,11 @@ impl Default for ArtworkLoader {
 }
 
 impl ArtworkLoader {
+    /// Makes the next gallery sync capture its inputs again after a presentation reset.
+    pub(super) fn invalidate_gallery(&mut self) {
+        self.gallery = None;
+    }
+
     /// Asks the worker for `set`'s atlas, superseding any pending request.
     pub(super) fn request(&mut self, set: ArtworkSet) {
         self.gallery = None;
