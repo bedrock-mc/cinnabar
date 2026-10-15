@@ -79,6 +79,10 @@ const PACKETS_TABLE: &str = "\
      18410       12031  serverbound  accepted         64  PlayerAuthInput (144)
      18411       12044  clientbound  failed         1712  UpdateSubChunkBlocks (172)";
 
+#[expect(
+    clippy::print_stdout,
+    reason = "the preview reports the chosen action to the developer who launched it"
+)]
 fn main() {
     let folder = sample_folder();
     let summary = CrashSummary {

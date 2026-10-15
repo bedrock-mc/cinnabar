@@ -1890,6 +1890,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
  "ui",
  "wgpu",
  "winit",
@@ -3202,6 +3203,7 @@ name = "crash-report"
 version = "0.1.20"
 dependencies = [
  "libc",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",

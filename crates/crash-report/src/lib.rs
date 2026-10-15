@@ -9,6 +9,7 @@ pub mod folder;
 pub mod native;
 #[cfg(unix)]
 pub mod prepared;
+pub mod redact;
 pub mod report;
 pub mod ring;
 pub mod section;

@@ -21,6 +21,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -227,7 +228,7 @@ func runWithResourcePackCacheFactory(
 	installDiagnostics(opts, logger)
 	defer func() {
 		if err != nil {
-			logger.Error("core failed", "error", err)
+			logger.Error("core failed", "error", redact.Error(err))
 		}
 	}()
 	if err != nil {
@@ -248,7 +249,7 @@ func runWithResourcePackCacheFactory(
 			},
 		})
 	}
-	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", opts.upstream)
+	logger.Info("core starting", "endpoint", opts.socketDir, "upstream", redact.Private(opts.upstream))
 	if opts.catalogFile == "" {
 		defer startVerifierPreload(ctx, logger)()
 	}

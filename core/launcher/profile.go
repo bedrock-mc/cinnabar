@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
-	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 )
 
 // Profile returns the signed-in profile with its rendered persona avatar.
@@ -35,7 +35,7 @@ func (s *Service) Profile(ctx context.Context) (result catalog.Profile, resultEr
 		return catalog.Profile{}, err
 	}
 	if partial := profile.Partial(); partial != nil {
-		s.logger.Warn("profile partly unavailable", "error", control.RedactError(partial))
+		s.logger.Warn("profile partly unavailable", "error", redact.Error(partial))
 	}
 	if s.cfg.ArtworkDir != "" && profile.XUID != "" {
 		finish = catalog.ObserveProfileRequest(ctx, "avatar")
@@ -44,7 +44,7 @@ func (s *Service) Profile(ctx context.Context) (result catalog.Profile, resultEr
 		if err != nil {
 			profile.AvatarError = true
 			partialOutcome = true
-			s.logger.Warn("profile avatar unavailable", "error", control.RedactError(err))
+			s.logger.Warn("profile avatar unavailable", "error", redact.Error(err))
 		} else {
 			profile.Avatar = avatar
 		}
@@ -62,7 +62,7 @@ func (s *Service) Profile(ctx context.Context) (result catalog.Profile, resultEr
 		if err != nil {
 			profile.FeaturedScreenshotError = true
 			partialOutcome = true
-			s.logger.Warn("profile featured screenshot unavailable", "error", control.RedactError(err))
+			s.logger.Warn("profile featured screenshot unavailable", "error", redact.Error(err))
 		} else {
 			profile.FeaturedScreenshot = screenshot
 		}
