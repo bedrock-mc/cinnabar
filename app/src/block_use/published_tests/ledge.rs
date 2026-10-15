@@ -34,15 +34,10 @@ fn ledge_fixture(pitch: f32) -> (World, client_session::CapturedPackets) {
                 }]),
             )
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while stream.committed_sequence() < 4 {
+        test_time::eventually_within(Duration::from_secs(5), "ledge fixture decode", || {
             stream.poll(start, 0);
-            assert!(
-                Instant::now() < deadline,
-                "ledge fixture decode did not finish"
-            );
-            std::thread::yield_now();
-        }
+            stream.committed_sequence() >= 4
+        });
     }
     let origin = frame_origin(&world, Vec3::from_array(start), rotation);
     let authority = world

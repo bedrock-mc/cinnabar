@@ -85,6 +85,7 @@ mod runtime_profile_phases;
 mod scene_sampling;
 mod scene_target;
 
+mod queue_writes;
 mod screen_overlay_render;
 mod shader_safety;
 #[cfg(test)]

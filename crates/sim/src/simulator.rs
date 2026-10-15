@@ -230,7 +230,7 @@ impl Simulator {
         // Sneaking over supported scaffolding descends through it at a fixed speed.
         sampled.descend_through =
             input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
-        if sampled.descend_through {
+        if sampled.descend_through && !input.skip_travel {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
@@ -251,6 +251,27 @@ impl Simulator {
             } else if sampled.movement.in_water || sampled.movement.in_lava {
                 water::jump(&mut next.velocity.y);
             }
+        }
+        if input.skip_travel && input.mode != MovementMode::Riding {
+            if input.jumping
+                && !scaffold_jump
+                && !jump_suppressed
+                && sampled.movement.on_climbable
+                && !matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+            {
+                next.velocity.y = CLIMB_SPEED;
+            }
+            let jump_initiated =
+                jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
+            return travel::tick_without_travel(
+                next,
+                state,
+                input,
+                controls,
+                sampled,
+                jump_initiated,
+                world,
+            );
         }
         // Vanilla selects water travel by the previous tick's in-water flag,
         // independent of the retained swimming pose on a dry low ceiling.
@@ -303,38 +324,8 @@ impl Simulator {
         // A held jump on a climbable feet cell climbs instead: no ground jump,
         // sprint impulse, jump delay or start-jump report.
         let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
-        let jump_initiated = input.jump_pressed
-            && !scaffold_jump
-            && !climb_jump
-            && !jump_suppressed
-            && next.on_ground
-            && next.jump_delay == 0
-            && !sampled.movement.in_water
-            && !sampled.movement.in_lava;
-        if jump_initiated {
-            let honey = if sampled.honey_jump {
-                HONEY_JUMP_FACTOR
-            } else {
-                1.0
-            };
-            let boost = input
-                .effects
-                .jump_boost
-                .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
-            next.velocity.y = f64::from(
-                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey),
-            );
-            next.jump_delay = JUMP_DELAY_TICKS;
-            if input.sprinting {
-                let yaw = f64::from((input.yaw_degrees as f32).to_radians());
-                next.velocity.x = f64::from(
-                    next.velocity.x as f32 - minecraft_sin(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
-                );
-                next.velocity.z = f64::from(
-                    next.velocity.z as f32 + minecraft_cos(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
-                );
-            }
-        }
+        let jump_initiated =
+            jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
 
         if sampled.movement.on_climbable {
             next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
@@ -688,3 +679,47 @@ fn movement_impulse(axis: f64) -> f64 {
 
 #[cfg(test)]
 mod environment_review_tests;
+
+/// Applies ground-jump motion independently of travel, including its cooldown and sprint impulse.
+fn jump_from_ground(
+    next: &mut PlayerState,
+    input: &MovementInput,
+    sampled: &environment::SampledEnvironment,
+    scaffold_jump: bool,
+    jump_suppressed: bool,
+) -> bool {
+    let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
+    let jump_initiated = !matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+        && input.jump_pressed
+        && !scaffold_jump
+        && !climb_jump
+        && !jump_suppressed
+        && next.on_ground
+        && next.jump_delay == 0
+        && !sampled.movement.in_water
+        && !sampled.movement.in_lava;
+    if jump_initiated {
+        let honey = if sampled.honey_jump {
+            HONEY_JUMP_FACTOR
+        } else {
+            1.0
+        };
+        let boost = input
+            .effects
+            .jump_boost
+            .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
+        next.velocity.y =
+            f64::from((next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey));
+        next.jump_delay = JUMP_DELAY_TICKS;
+        if input.sprinting {
+            let yaw = f64::from((input.yaw_degrees as f32).to_radians());
+            next.velocity.x = f64::from(
+                next.velocity.x as f32 - minecraft_sin(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
+            );
+            next.velocity.z = f64::from(
+                next.velocity.z as f32 + minecraft_cos(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
+            );
+        }
+    }
+    jump_initiated
+}

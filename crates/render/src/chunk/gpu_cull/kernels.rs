@@ -1,5 +1,6 @@
 //! Cull and depth-pyramid compute kernels on raw wgpu, so fixture tests drive the production code.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::{borrow::Cow, num::NonZeroU64};
 
 use wgpu::util::DeviceExt;
@@ -109,7 +110,7 @@ impl CullStorage {
     }
 
     pub fn write_uniform(&self, queue: &wgpu::Queue, phase: CullPhase, uniform: &CullViewUniform) {
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &self.uniforms[phase as usize],
             0,
             bytemuck::bytes_of(uniform),

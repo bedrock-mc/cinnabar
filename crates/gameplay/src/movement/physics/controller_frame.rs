@@ -4,8 +4,6 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
-    /// Only the first tick of a render frame may consume pending anchor recovery.
-    pub frame_start: bool,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -91,10 +89,8 @@ impl ControllerFrame {
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
         };
-        if self.frame_start {
-            anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
-            state.position = observed.feet;
-        }
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
             Ok(choice) => choice,

@@ -388,7 +388,7 @@ mod session {
         )
         .await;
         let error =
-            startup_write_failure(transport, write_error(), STARTUP_WRITE_FAILURE_DRAIN).await;
+            startup_write_failure(transport, write_error(), crate::WRITE_FAILURE_DRAIN).await;
         assert!(error.server_disconnect().is_some(), "{error}");
 
         let Pair {
@@ -396,7 +396,7 @@ mod session {
         } = &mut handed_off("write-failure-transfer", &[]).await;
         write_frame(peer, &terminal(5, TRANSFER_JSON)).await;
         let error =
-            startup_write_failure(transport, write_error(), STARTUP_WRITE_FAILURE_DRAIN).await;
+            startup_write_failure(transport, write_error(), crate::WRITE_FAILURE_DRAIN).await;
         assert!(error.server_transfer().is_some(), "{error}");
     }
 
@@ -417,7 +417,7 @@ mod session {
         let mut drain = std::pin::pin!(startup_write_failure(
             transport,
             ProtocolError::from(SessionFailure::ConnectionClosed),
-            STARTUP_WRITE_FAILURE_DRAIN,
+            crate::WRITE_FAILURE_DRAIN,
         ));
         assert!(
             std::future::poll_fn(|cx| std::task::Poll::Ready(drain.as_mut().poll(cx)))

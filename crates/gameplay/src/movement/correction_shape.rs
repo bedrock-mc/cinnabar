@@ -192,7 +192,7 @@ pub fn reconcile_move_player_teleport(
         } else {
             PhysicsCorrectionMode::Snap
         };
-    reconcile_physics_anchor(
+    let outcome = reconcile_physics_anchor(
         ticker,
         physics,
         PhysicsAnchor {
@@ -203,7 +203,11 @@ pub fn reconcile_move_player_teleport(
         },
         mode,
         world,
-    )
+    )?;
+    if matches!(outcome, PhysicsCorrectionOutcome::Snapped { .. }) {
+        physics.skip_next_travel_tick();
+    }
+    Ok(outcome)
 }
 
 /// Authoritative end-of-tick player state carried by a correction.

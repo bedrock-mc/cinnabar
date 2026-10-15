@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -363,17 +364,17 @@ fn prepare_actor_resources(
                     + std::mem::size_of_val(&*rig.current_bones),
             )
             .entered();
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.instance_buffer,
                 0,
                 bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
             );
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.previous_bone_buffer,
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.previous_bones),
             );
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.current_bone_buffer,
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),

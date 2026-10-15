@@ -1,5 +1,6 @@
 //! Emissive in-world quads that sample server media textures.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -241,7 +242,7 @@ fn prepare_media_screens(
         let textured = state.texture.is_some() && state.uploaded;
         let record = screen_record(screen, textured);
         if state.record != Some(record) {
-            queue.write_buffer(&state.record_buffer, 0, bytemuck::cast_slice(&record));
+            queue.profiled_write_buffer(&state.record_buffer, 0, bytemuck::cast_slice(&record));
             state.record = Some(record);
         }
         if let Some((view_binding, view_buffer)) = view.clone()
