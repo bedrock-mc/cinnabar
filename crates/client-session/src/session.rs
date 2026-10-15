@@ -100,8 +100,8 @@ pub enum NetworkControlEvent<P = ()> {
         packs: P,
         /// Whether the server sent terrain before spawn; Dragonfly sends none until initialized.
         terrain_before_spawn: bool,
-        /// StartGame's hashed world identity, stable across joins of one world.
-        level_identity: u64,
+        /// StartGame's hashed world identity, absent when no level ID was supplied.
+        level_identity: Option<u64>,
     },
     SubChunkRequestSent {
         chunk: ChunkKey,

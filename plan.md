@@ -167,9 +167,13 @@ compressed under a byte budget and drops the least recently used first. Cache bo
 
 Summaries persist under the user data root in 32×32-column region files, namespaced by a
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
-Before reusing a namespace, the first non-empty columns received are compared with it (or
-whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
-reuse coordinates for different maps keep them apart. Only live columns show before that.
+Local worlds also use the launcher's world ID instead of their shared endpoint. Without a
+level ID or local world ID, each visit starts fresh. Before reusing a namespace, every initial
+non-empty probe must exist and match in it (or every probe received within 10 s, for sparse
+worlds); missing or different probes start a new epoch. Only live columns show before that.
+Delivered empty columns hide cached terrain immediately, including beyond the full-detail
+radius, while their empty summaries are prepared in the background. Air coverage does not
+extend the near geometry bound used to choose far tile detail.
 Afterwards the first cached columns replaced by live ones are compared too: when enough
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
@@ -741,6 +745,8 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - Multisampled cutouts integrate nearest alpha contours across a one-pixel band. Covered RGB stays
   nearest; newly covered transparent texels use the nearest covered neighbour's colour.
   Single-sample thresholds, opaque/translucent passes, shadows and entity depth passes are unchanged.
+- Ordinary world leaves retain their alpha cutoff and opaque output under MSAA, so fractional
+  distant mip alpha does not leave background samples visible through a dense canopy.
 - Actor cutout taps stay within each triangle's front/back UV texel rectangles; centroid
   interpolation keeps multisample UVs inside covered geometry. Rectangular chart boundaries
   and interior contours have GPU regression coverage. Shared nonrectangular mesh-chart

@@ -399,8 +399,8 @@ impl Worker {
         epoch
     }
 
-    /// The epoch whose cached columns match `probes`, else the newest when it holds nothing
-    /// the probes cover and no world resolved this run took it, else a new one.
+    /// Reuses an epoch only when every live probe has a matching cached column.
+    /// Missing evidence starts a fresh epoch rather than showing another map's terrain.
     fn pick_epoch(&self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
         let mut epochs: Vec<u32> = fs::read_dir(self.root.join(world.server.to_string()))
             .into_iter()
@@ -416,23 +416,13 @@ impl Worker {
         let Some(&newest) = epochs.first() else {
             return 0;
         };
-        // A positive match anywhere wins before an empty newest epoch is reused, so returning
-        // to an older map never writes it into the newer map's namespace.
-        let mut newest_overlaps = true;
-        for (rank, &epoch) in epochs.iter().take(WORLD_PROBE_EPOCHS).enumerate() {
+        for &epoch in epochs.iter().take(WORLD_PROBE_EPOCHS) {
             let (present, similar) = self.compare(world.namespace(epoch), probes);
-            if present > 0 && similar == present {
+            if !probes.is_empty() && present == probes.len() && similar == present {
                 return epoch;
             }
-            if rank == 0 {
-                newest_overlaps = present > 0;
-            }
         }
-        if newest_overlaps || self.claimed.contains(&world.namespace(newest)) {
-            newest + 1
-        } else {
-            newest
-        }
+        newest + 1
     }
 
     /// Moves every column of `from` at version `since` or newer into `to`, so a visit that
