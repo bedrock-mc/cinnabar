@@ -39,6 +39,8 @@ pub(crate) struct FarTerrain {
     published: Option<u64>,
     /// Stream requirements, tile revision and viewport used by the render publication target.
     publication: Option<((u64, u64, u64, u64, usize, Option<i32>), u64, [i32; 2], i32)>,
+    /// Session/dimension identity and residency indexes used by near publication receipts.
+    source_revision: Option<((u64, u64), u64, u64)>,
     retiring: Vec<Retiring>,
 }
 
@@ -73,6 +75,7 @@ impl FarTerrain {
             near_radius: NearRadius::default(),
             published: None,
             publication: None,
+            source_revision: None,
             retiring: Vec::new(),
         }
     }
@@ -102,8 +105,24 @@ impl FarTerrain {
         true
     }
 
+    /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
+    fn publish_source(&mut self, stream: Option<&WorldStream>, scene: &mut FarTerrainScene) {
+        let revision = stream.map(WorldStream::terrain_publication_source);
+        if self.source_revision == revision {
+            return;
+        }
+        if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
+            scene.publications = stream.map(|_| Default::default());
+        }
+        if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
+            publications.retain(stream.terrain_publication_sections());
+        }
+        self.source_revision = revision;
+    }
+
     /// Shares current section requirements without rebuilding an unchanged publication target.
     fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
+        self.publish_source(Some(stream), scene);
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -316,7 +335,10 @@ pub(crate) fn feed_far_terrain(
         far.near_view = None;
         far.published = None;
         far.publication = None;
-        *scene = FarTerrainScene::default();
+        *scene = FarTerrainScene {
+            publications: scene.publications.clone(),
+            ..Default::default()
+        };
         active.0 = target.map(|(destination, level, dimension, generation)| {
             (destination.to_owned(), level, dimension, generation)
         });
@@ -354,9 +376,13 @@ pub(crate) fn feed_far_terrain(
         stream.set_full_detail_radius(full_detail);
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
+        far.publish_source(world.stream.as_ref(), &mut scene);
         far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
-            *scene = FarTerrainScene::default();
+            *scene = FarTerrainScene {
+                publications: scene.publications.clone(),
+                ..Default::default()
+            };
         }
         return;
     };
@@ -413,6 +439,7 @@ pub(crate) fn feed_far_terrain(
     let revision = far.tiles.revision();
     if near_changed || far.published != Some(revision) {
         *scene = FarTerrainScene {
+            publications: scene.publications.clone(),
             tiles: far.tiles.drawn().into(),
             near: Arc::clone(&far.near),
             residency: scene.residency.clone(),

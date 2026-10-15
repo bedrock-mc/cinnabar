@@ -155,6 +155,53 @@ fn permitted_zero_byte_work_waits_for_gpu_apply_and_is_bounded_at_256_outstandin
 }
 
 #[test]
+fn a_late_empty_gpu_completion_cannot_enter_the_next_sources_receipts() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::terrain_publication::TerrainPublications;
+    let key = SubChunkKey::new(0, 7, 0, 9);
+    let old = TerrainPublications::default();
+    let next = TerrainPublications::default();
+    old.retain(std::iter::once(key));
+    next.retain(std::iter::once(key));
+    let config = render_api::PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(1, 0, 0, 1, config.maximum_frame_items);
+    let gpu_removals = ChunkGpuRemovalQueue::default();
+    gpu_removals
+        .push(PendingGpuRemoval {
+            publications: Some(old.clone()),
+            kind: render_api::TerrainRemovalKind::Empty,
+            key,
+            token: Some(ChunkUploadToken {
+                generation: 41,
+                dirty_since: Instant::now(),
+            }),
+            priority: ChunkUploadPriority::new(0.0),
+            permit: allowance
+                .try_admit_zero_byte()
+                .unwrap()
+                .into_handoff()
+                .unwrap()
+                .into_render_entity()
+                .unwrap(),
+        })
+        .unwrap_or_else(|_| panic!("the empty mailbox has room"));
+    let mut app = noop_gpu_publication_app(ChunkUploadAcknowledgements::default(), gpu_removals);
+    app.init_resource::<TerrainCoverage>()
+        .insert_resource(render_scene::FarTerrainScene {
+            publications: Some(next.clone()),
+            ..Default::default()
+        });
+    app.world_mut()
+        .run_system_once(crate::chunk::coverage::begin_terrain_coverage)
+        .unwrap();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    assert_eq!(old.changed_empty(None).unwrap().1[&key], 41);
+    assert!(next.changed_empty(None).unwrap().1.is_empty());
+    assert_eq!(allowance.live_permits(), 0);
+}
+
+#[test]
 fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactly_once() {
     use bevy::ecs::system::RunSystemOnce;
 
@@ -184,6 +231,7 @@ fn gpu_preparation_acknowledges_and_retires_a_permitted_known_air_removal_exactl
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: Some(token),
@@ -238,6 +286,7 @@ fn failed_gpu_removal_ack_reservation_requeues_without_retiring_or_leaking_an_ac
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: Some(token),
@@ -289,6 +338,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: None,
@@ -302,6 +352,7 @@ fn a_newer_gpu_removal_supersedes_and_retires_the_same_key_carrier() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key,
                 token: None,
@@ -341,6 +392,7 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
                     kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,
@@ -362,6 +414,7 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key: SubChunkKey::new(0, 256, 0, 0),
                 token: None,
@@ -380,6 +433,7 @@ fn ordinary_gpu_removals_cannot_consume_the_urgent_reserve() {
     assert!(
         gpu_removals
             .push(PendingGpuRemoval {
+                publications: None,
                 kind: render_api::TerrainRemovalKind::Empty,
                 key: SubChunkKey::new(0, 257, 0, 0),
                 token: None,
@@ -420,6 +474,7 @@ fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
                     kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,
@@ -450,6 +505,7 @@ fn older_urgent_gpu_removals_stay_ahead_of_new_urgent_work() {
         assert!(
             gpu_removals
                 .push(PendingGpuRemoval {
+                    publications: None,
                     kind: render_api::TerrainRemovalKind::Empty,
                     key: SubChunkKey::new(0, index as i32, 0, 0),
                     token: None,

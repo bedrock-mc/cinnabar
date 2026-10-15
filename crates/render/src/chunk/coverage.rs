@@ -11,6 +11,9 @@ mod tests;
 pub(crate) struct TerrainCoverage {
     pub(crate) state: TerrainPublication,
     world: Option<render_scene::FarTerrainResidency>,
+    source: Option<render_scene::terrain_publication::TerrainPublications>,
+    source_revision: Option<u64>,
+    enabled: bool,
     mask: Option<Arc<NearMask>>,
     applied_target: Option<Arc<far_terrain::TerrainTarget>>,
     far_revision: u64,
@@ -20,25 +23,15 @@ pub(crate) struct TerrainCoverage {
 impl TerrainCoverage {
     /// Marks actual GPU publication changes without rebuilding unchanged per-frame snapshots.
     pub(crate) fn invalidate(&mut self) {
-        if self.world.is_some() {
-            self.dirty = true;
-        }
+        self.dirty = true;
     }
 
-    /// Retains only this active world's empty GPU publications, without reading main receipts.
-    pub(crate) fn publish_empty(
-        &mut self,
-        key: SubChunkKey,
-        generation: u64,
-        kind: render_api::TerrainRemovalKind,
-    ) {
-        if self.world.is_some() {
-            match kind {
-                render_api::TerrainRemovalKind::Empty => self.state.publish_empty(key, generation),
-                render_api::TerrainRemovalKind::Withdrawn => self.state.withdraw(key, generation),
-            }
-            self.dirty = true;
+    /// Invalidates empty proofs only after full geometry has actually published on the GPU.
+    pub(crate) fn publish_full(&mut self, key: SubChunkKey, generation: u64) {
+        if let Some(source) = &self.source {
+            source.record(key, generation, false);
         }
+        self.invalidate();
     }
 
     /// The mask uploaded by the same publication that admitted allocation components.
@@ -56,18 +49,29 @@ pub(super) fn begin_terrain_coverage(
     gpu: Option<ResMut<crate::far_terrain::FarTerrainGpu>>,
 ) {
     let enabled = scene.as_ref().filter(|scene| scene.target.is_some());
-    let same_world = match (enabled, coverage.world.as_ref()) {
-        (Some(scene), Some(world)) => world.same_world(&scene.residency),
-        (None, None) => true,
+    let source = scene.as_ref().and_then(|scene| scene.publications.as_ref());
+    let same_world = match (source, coverage.source.as_ref()) {
+        (Some(source), Some(previous)) => source.same_source(previous),
+        (None, None) => match (enabled, coverage.world.as_ref()) {
+            (Some(scene), Some(world)) => world.same_world(&scene.residency),
+            (None, None) => true,
+            _ => false,
+        },
         _ => false,
     };
     if !same_world {
         coverage.state = TerrainPublication::default();
+        coverage.source = source.cloned();
+        coverage.source_revision = None;
+    }
+    if !same_world || coverage.enabled != enabled.is_some() {
+        coverage.state.reset_draws();
         coverage.mask = None;
-        coverage.world = enabled.map(|scene| scene.residency.clone());
         coverage.applied_target = None;
         coverage.dirty = true;
     }
+    coverage.enabled = enabled.is_some();
+    coverage.world = enabled.map(|scene| scene.residency.clone());
     if let Some(mut gpu) = gpu {
         let protecting = coverage.state.far_columns().next().is_some();
         gpu.protect_coverage(
@@ -115,6 +119,17 @@ pub(super) fn publish_terrain_coverage(
         (None, None) => true,
         _ => false,
     };
+    if let Some((revision, empty)) = coverage.source.as_ref().and_then(|source| {
+        source.changed_empty(if same_target {
+            coverage.source_revision
+        } else {
+            None
+        })
+    }) {
+        coverage.state.replace_empty(empty);
+        coverage.source_revision = Some(revision);
+        coverage.dirty = true;
+    }
     let far_revision = gpu.as_ref().map_or(0, |gpu| gpu.publication_revision());
     if !coverage.dirty && same_target && coverage.far_revision == far_revision {
         return;

@@ -11,6 +11,8 @@ use std::{
 #[derive(Resource, bevy::render::extract_resource::ExtractResource, Clone, Default)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct FarTerrainScene {
+    /// Near publication source; retained through feature toggles and replaced with the stream epoch.
+    pub publications: Option<crate::terrain_publication::TerrainPublications>,
     pub tiles: Arc<[Arc<TileMesh>]>,
     /// CPU selection mask; used directly only without a render publication target.
     pub near: Arc<NearMask>,

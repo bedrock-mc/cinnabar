@@ -259,6 +259,7 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             Update,
             crate::far_terrain::feed_far_terrain
                 .after(drive_world_stream)
+                .before(ChunkRenderApplySet)
                 .in_set(ClientFrameSet::WorldPublication),
         )
         .add_systems(

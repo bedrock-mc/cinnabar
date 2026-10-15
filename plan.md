@@ -87,7 +87,12 @@ finest quads whole, coarser ones per fragment. Only finest tiles reach the near 
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
-the selected tiles; a still camera uploads and rebuilds nothing. Encoded summaries share
+the selected tiles and covering fallbacks during bounded replacements; a still camera uploads
+and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
+Near column admission and the far mask publish together before draw queues run. Empty-section
+receipts survive feature toggles within their stream and dimension visit, stay bounded by
+retained sections, and expire on replacement or withdrawal. Resource geometry swaps recheck
+the same admission before their allocation components reach draw queues. Encoded summaries share
 immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
 resumes within column and byte limits. Cache completions and live or retiring summary
 admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit

@@ -178,6 +178,8 @@ impl PublicationPermitSlot {
 }
 
 pub struct PendingGpuRemoval {
+    /// Receipt destination captured before extraction, so late work cannot enter another world.
+    pub publications: Option<crate::terrain_publication::TerrainPublications>,
     pub kind: render_api::TerrainRemovalKind,
     pub key: SubChunkKey,
     pub token: Option<ChunkUploadToken>,

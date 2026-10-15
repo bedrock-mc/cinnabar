@@ -85,16 +85,25 @@ impl PreparedResourceGeometry {
         commands: &mut Commands,
         instances: &Query<(Entity, &ChunkRenderInstance)>,
         active: &mut ChunkGpuArena,
+        mut coverage: Option<&mut TerrainCoverage>,
     ) -> bool {
         let keys: HashMap<_, _> = instances
             .iter()
             .map(|(entity, instance)| (instance.key, entity))
             .collect();
-        if self
+        let mut by_key: HashMap<_, _> = self
             .arena
             .allocations
-            .values()
-            .any(|allocation| !keys.contains_key(&allocation.gpu.key))
+            .drain()
+            .map(|(_, allocation)| (allocation.gpu.key, allocation))
+            .collect();
+        // A swap cannot discard allocations still waiting for physical retirement.
+        if by_key.keys().any(|key| !keys.contains_key(key))
+            || active
+                .pending_removals
+                .iter()
+                .filter_map(|entity| active.allocations.get(entity))
+                .any(|allocation| !by_key.contains_key(&allocation.gpu.key))
             || self.models.committed.as_ref().is_some_and(|committed| {
                 committed
                     .address
@@ -105,15 +114,17 @@ impl PreparedResourceGeometry {
         {
             return false;
         }
-        let mut by_key: HashMap<_, _> = self
-            .arena
-            .allocations
-            .drain()
-            .map(|(_, allocation)| (allocation.gpu.key, allocation))
-            .collect();
         for (entity, instance) in instances {
             if let Some(allocation) = by_key.remove(&instance.key) {
-                commands.entity(entity).insert(allocation.gpu.clone());
+                if active.pending_removals.contains(&entity) {
+                    self.arena.pending_removals.insert(entity);
+                    commands.entity(entity).remove::<GpuChunkAllocation>();
+                } else {
+                    commands.entity(entity).insert(allocation.gpu.clone());
+                    if let Some(coverage) = coverage.as_deref_mut() {
+                        coverage.publish_full(allocation.gpu.key, allocation.gpu.generation);
+                    }
+                }
                 self.arena.allocations.insert(entity, allocation);
             } else {
                 commands.entity(entity).remove::<GpuChunkAllocation>();
@@ -138,6 +149,9 @@ impl PreparedResourceGeometry {
             committed.address.allocations = allocations.into();
         }
         *active = self.arena;
+        if let Some(coverage) = coverage {
+            coverage.invalidate();
+        }
         commands.insert_resource(self.liquids);
         commands.insert_resource(self.models);
         commands.insert_resource(GpuUpdateFairness::default());

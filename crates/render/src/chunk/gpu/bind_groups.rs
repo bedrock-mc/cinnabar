@@ -260,6 +260,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     mut gpu_assets: ResMut<ChunkGpuTextureAssets>,
     mut stats: ResMut<ChunkTextureUploadStats>,
     reload: Res<ChunkTextureReload>,
+    mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
     let identity = assets.identity();
     let completed = gpu_assets.pending.as_ref().and_then(|pending| {
@@ -299,7 +300,12 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         // Geometry built for chunks a session reset retired cannot publish. The main world
         // already meshes against this atlas, so it still installs and the reload completes.
         if let Some(geometry) = geometry
-            && !geometry.publish(&mut commands, &instances, &mut arena)
+            && !geometry.publish(
+                &mut commands,
+                &instances,
+                &mut arena,
+                coverage.as_deref_mut(),
+            )
         {
             bevy::log::warn!("discarding resource geometry with retired chunk keys");
         }

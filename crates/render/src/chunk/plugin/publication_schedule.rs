@@ -14,7 +14,8 @@ pub(crate) enum ChunkPublicationStage {
     ModelSort,
 }
 
-pub(super) fn configure_chunk_publication(schedule: &mut Schedule) {
+/// Publishes geometry and deferred admission changes before every terrain draw queue.
+pub(in crate::chunk) fn configure_chunk_publication(schedule: &mut Schedule) {
     schedule.configure_sets(
         (
             ChunkPublicationStage::CoverageBegin,

@@ -198,6 +198,26 @@ fn restoring_detail_before_maintenance_cannot_treat_withdrawals_as_empty_near_se
 }
 
 #[test]
+fn newer_empty_receipts_wait_behind_old_live_geometry_without_being_discarded() {
+    let mut column = Column::new();
+    column.request_near(2);
+    column.state.reset_draws();
+    for key in column.keys {
+        column.state.publish_empty(key, 2);
+    }
+    column.frame();
+    assert!(!column.state.draws_near(column.keys[0].chunk()));
+    column.live.clear();
+    column.state.publish(&column.target, &column.live, |_| true);
+    assert!(
+        column
+            .state
+            .near_columns()
+            .any(|key| key == column.keys[0].chunk())
+    );
+}
+
+#[test]
 fn empty_sections_and_session_replacement_use_current_publications_only() {
     let mut column = Column::new();
     column.target.near.clear();

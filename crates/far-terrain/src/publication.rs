@@ -37,6 +37,17 @@ pub struct TerrainPublication {
 }
 
 impl TerrainPublication {
+    /// Forgets drawer ownership when a feature toggle changes which passes are active.
+    pub fn reset_draws(&mut self) {
+        self.near.clear();
+        self.suppressed.clear();
+    }
+
+    /// Installs the current source's authoritative empty receipts after its revision changes.
+    pub fn replace_empty(&mut self, empty: HashMap<SubChunkKey, u64>) {
+        self.empty = empty;
+    }
+
     /// A withdrawal cannot later satisfy an incoming empty-section requirement.
     pub fn withdraw(&mut self, key: SubChunkKey, generation: u64) {
         if self
@@ -63,8 +74,10 @@ impl TerrainPublication {
         live: &HashMap<SubChunkKey, u64>,
         mut far_available: impl FnMut(ChunkKey) -> bool,
     ) -> bool {
-        self.empty
-            .retain(|key, _| !live.contains_key(key) && target.retained.contains(key));
+        self.empty.retain(|key, generation| {
+            target.retained.contains(key)
+                && live.get(key).is_none_or(|actual| *actual < *generation)
+        });
         let columns: HashSet<_> = live
             .keys()
             .map(|key| key.chunk())

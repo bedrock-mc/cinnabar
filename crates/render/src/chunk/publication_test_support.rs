@@ -11,6 +11,8 @@ use bevy::render::{
 #[doc(hidden)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicationRenderTerminalSnapshot {
+    pub near_updates: usize,
+    pub near_upload_bytes: u64,
     pub extracted_manifest: Vec<(SubChunkKey, u64)>,
     pub allocation_manifest: Vec<(SubChunkKey, u64)>,
     pub pending_gpu_removals: usize,
@@ -112,6 +114,10 @@ pub fn publication_render_terminal_snapshot(app: &mut App) -> PublicationRenderT
         .is_in_flight();
 
     PublicationRenderTerminalSnapshot {
+        near_updates: render_world.resource::<ChunkGpuUploadStats>().chunk_updates,
+        near_upload_bytes: render_world
+            .resource::<ChunkGpuUploadStats>()
+            .incremental_bytes,
         extracted_manifest,
         allocation_manifest,
         pending_gpu_removals: render_world

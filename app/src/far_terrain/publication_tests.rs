@@ -120,6 +120,221 @@ fn assert_column_coverage(app: &mut App, column: ChunkKey, near_owned: bool) {
     }
 }
 
+/// Builds the real extraction and render schedules with deterministic GPU resources.
+fn publication_app(
+    texture_assets: ChunkTextureAssets,
+    tints: ChunkBiomeTints,
+    budget: ChunkUploadBudget,
+    scene: FarTerrainScene,
+) -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(WindowPlugin {
+            primary_window: None,
+            ..Default::default()
+        })
+        .add_plugins(AssetPlugin::default())
+        .add_plugins(publication_noop_render_plugin())
+        .add_plugins((
+            ImagePlugin::default(),
+            MeshPlugin,
+            CameraPlugin,
+            CorePipelinePlugin,
+        ))
+        .insert_resource(texture_assets)
+        .insert_resource(tints)
+        .insert_resource(scene)
+        .add_plugins(ChunkRenderPlugin::with_budget(budget))
+        .add_plugins(FarTerrainRenderPlugin);
+    app.finish();
+    app.cleanup();
+    app
+}
+
+#[test]
+fn publication_source_tracks_stream_and_dimension_visits_without_following_feature_toggles() {
+    let bootstrap = protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    };
+    let mut stream = WorldStream::new(bootstrap.clone());
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    stream.stage_publication_fixture_known_air(key);
+    let mut far = FarTerrain::new(None);
+    let mut scene = FarTerrainScene::default();
+    far.publish_source(Some(&stream), &mut scene);
+    let original = scene.publications.clone().unwrap();
+    original.record(key, 1, true);
+    for enabled in [true, false, true] {
+        stream.set_far_terrain_enabled(enabled);
+        far.publish_source(Some(&stream), &mut scene);
+        assert!(scene.publications.as_ref().unwrap().same_source(&original));
+        assert_eq!(
+            scene
+                .publications
+                .as_ref()
+                .unwrap()
+                .changed_empty(None)
+                .unwrap()
+                .1[&key],
+            1
+        );
+    }
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::ChangeDimension(protocol::ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    test_time::eventually("the publication dimension visit", || {
+        stream.poll([0.0; 3], 0);
+        stream.current_dimension() == 1
+    });
+    far.publish_source(Some(&stream), &mut scene);
+    let dimension = scene.publications.clone().unwrap();
+    assert!(!dimension.same_source(&original));
+    assert!(dimension.changed_empty(None).unwrap().1.is_empty());
+    let replacement = WorldStream::new(bootstrap);
+    far.publish_source(Some(&replacement), &mut scene);
+    assert!(!scene.publications.as_ref().unwrap().same_source(&dimension));
+    far.publish_source(None, &mut scene);
+    assert!(scene.publications.is_none());
+}
+
+#[test]
+fn enabling_far_terrain_reuses_full_and_empty_gpu_publications_across_toggle_cycles() {
+    let config = PublicationServiceConfig::DEFAULT;
+    let allowance = PublicationAllowance::new(config);
+    allowance.begin_frame(1, 0, 0, 2, config.maximum_frame_items);
+    let column = ChunkKey::new(0, 5, 0);
+    let solid = SubChunkKey::from_chunk(column, 0);
+    let empty = SubChunkKey::from_chunk(column, 1);
+    let air_column = ChunkKey::new(0, 9, 0);
+    let air = SubChunkKey::from_chunk(air_column, 0);
+    let publications = render_scene::terrain_publication::TerrainPublications::default();
+    publications.retain([solid, empty, air].into_iter());
+    let assets = Arc::new(assets::RuntimeAssets::diagnostic());
+    let source = world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 });
+    let mesh = meshing::mesh_sub_chunk(
+        &meshing::BlockClassifier::new(0),
+        &assets,
+        assets::NetworkIdMode::Sequential,
+        &meshing::Neighbourhood::empty(),
+        &source,
+    );
+    assert!(!mesh.is_empty());
+    let mut app = publication_app(
+        ChunkTextureAssets::new(assets),
+        ChunkBiomeTints::default(),
+        ChunkUploadBudget::default(),
+        FarTerrainScene {
+            publications: Some(publications.clone()),
+            ..Default::default()
+        },
+    );
+    let token = ChunkUploadToken {
+        generation: 1,
+        dirty_since: Instant::now(),
+    };
+    {
+        let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+        queue
+            .try_update_tracked(solid, mesh, ChunkUploadPriority::new(0.0), token)
+            .unwrap();
+        for key in [empty, air] {
+            queue
+                .try_remove_tracked_permitted(
+                    key,
+                    ChunkUploadPriority::new(0.0),
+                    token,
+                    render_api::TerrainRemovalKind::Empty,
+                    allowance.try_admit_zero_byte().unwrap(),
+                )
+                .unwrap();
+        }
+    }
+    settle_publication_noop_frame(&mut app);
+    assert_eq!(
+        app.world()
+            .resource::<ChunkUploadAcknowledgements>()
+            .drain()
+            .len(),
+        3
+    );
+    assert_eq!(publications.changed_empty(None).unwrap().1.len(), 2);
+    let before = publication_render_terminal_snapshot(&mut app).allocation_manifest;
+    assert_eq!(before, [(solid, 1)]);
+    let target = Arc::new(far_terrain::TerrainTarget {
+        centre: column,
+        horizon: 32,
+        near: std::collections::HashMap::from([
+            (
+                column,
+                std::collections::HashMap::from([(solid, 1), (empty, 1)]),
+            ),
+            (air_column, std::collections::HashMap::from([(air, 1)])),
+        ]),
+        retained: [solid, empty, air].into_iter().collect(),
+        empty_far: Default::default(),
+    });
+    let tiles: Arc<[Arc<TileMesh>]> = [column, air_column]
+        .map(|column| {
+            Arc::new(TileMesh {
+                key: TileKey::containing(
+                    0,
+                    column.x * COLUMN_SIDE as i32,
+                    column.z * COLUMN_SIDE as i32,
+                ),
+                revision: 1,
+                quads: vec![[1 << 14 | 1 << 21, 64]].into_boxed_slice(),
+                colours: vec![100; TILE_CELLS * TILE_CELLS * 4].into_boxed_slice(),
+                min_y: 0,
+                max_y: 64,
+            })
+        })
+        .into();
+    for _ in 0..2 {
+        {
+            let mut scene = app.world_mut().resource_mut::<FarTerrainScene>();
+            scene.tiles = tiles.clone();
+            scene.target = Some(target.clone());
+        }
+        settle_publication_noop_frame(&mut app);
+        assert_eq!(
+            publication_terrain_draws(&mut app, column),
+            (vec![solid], false)
+        );
+        assert_eq!(
+            publication_terrain_draws(&mut app, air_column),
+            (vec![], false)
+        );
+        let actual = publication_render_terminal_snapshot(&mut app);
+        assert_eq!(actual.allocation_manifest, before);
+        assert_eq!((actual.near_updates, actual.near_upload_bytes), (0, 0));
+        assert!(
+            app.world()
+                .resource::<ChunkUploadAcknowledgements>()
+                .is_empty()
+        );
+        // Runtime disabling replaces the far residency, while preserving the near source.
+        *app.world_mut().resource_mut::<FarTerrainScene>() = FarTerrainScene {
+            publications: Some(publications.clone()),
+            ..Default::default()
+        };
+        settle_publication_noop_frame(&mut app);
+    }
+    assert_eq!(allowance.live_permits(), 0);
+}
+
 #[test]
 fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_removals() {
     let config = PublicationServiceConfig::DEFAULT;
@@ -187,34 +402,19 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
         min_y: 0,
         max_y: 64,
     });
-    let mut app = App::new();
-    app.add_plugins(MinimalPlugins)
-        .add_plugins(WindowPlugin {
-            primary_window: None,
-            ..Default::default()
-        })
-        .add_plugins(AssetPlugin::default())
-        .add_plugins(publication_noop_render_plugin())
-        .add_plugins((
-            ImagePlugin::default(),
-            MeshPlugin,
-            CameraPlugin,
-            CorePipelinePlugin,
-        ))
-        .insert_resource(ChunkTextureAssets::new(assets))
-        .insert_resource(ChunkBiomeTints::from_resolved_with_identity(
+    let mut app = publication_app(
+        ChunkTextureAssets::new(assets),
+        ChunkBiomeTints::from_resolved_with_identity(
             &stream.resolved_biome_tints_snapshot(),
             stream.biome_tint_identity(),
-        ))
-        .insert_resource(FarTerrainScene {
+        ),
+        budget,
+        FarTerrainScene {
             tiles: vec![far_mesh.clone()].into(),
             near: Arc::new(NearMask::around([0, 0], 32, 6, [])),
             ..Default::default()
-        })
-        .add_plugins(ChunkRenderPlugin::with_budget(budget))
-        .add_plugins(FarTerrainRenderPlugin);
-    app.finish();
-    app.cleanup();
+        },
+    );
     publish_changes(&mut app, &mut stream);
     settle_publication_noop_frame(&mut app);
     assert_eq!(acknowledge(&app, &mut stream), 3);

@@ -9,6 +9,23 @@ pub(super) struct NearDrawn {
 }
 
 impl WorldStream {
+    /// Identifies the stream and dimension visit independently of rendering feature toggles.
+    pub fn terrain_publication_source(&self) -> ((u64, u64), u64, u64) {
+        (
+            (
+                self.authority.actor_session_id(),
+                self.form_dimension_epoch(),
+            ),
+            self.resident.column_generation(),
+            self.known_air.column_generation(),
+        )
+    }
+
+    /// Sections whose latest publication receipts may still be used by this stream.
+    pub fn terrain_publication_sections(&self) -> impl Iterator<Item = SubChunkKey> + '_ {
+        self.resident.iter().chain(self.known_air.iter()).copied()
+    }
+
     /// Changes when section requirements or near membership can change the render target.
     pub fn terrain_publication_revision(&self) -> (u64, u64, u64, u64, usize, Option<i32>) {
         (
@@ -52,12 +69,7 @@ impl WorldStream {
             centre: self.far_terrain_centre(),
             horizon,
             near,
-            retained: self
-                .resident
-                .iter()
-                .chain(self.known_air.iter())
-                .copied()
-                .collect(),
+            retained: self.terrain_publication_sections().collect(),
             empty_far: Default::default(),
         }
     }

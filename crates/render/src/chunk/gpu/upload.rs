@@ -132,7 +132,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &gpu_removals,
         &acknowledgements,
         terrain_generations.as_deref_mut(),
-        coverage.as_deref_mut(),
     );
 
     let mut applied_tokens = Vec::new();
@@ -556,7 +555,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         };
         commands.entity(entity).insert(gpu.clone());
         if let Some(coverage) = coverage.as_deref_mut() {
-            coverage.invalidate();
+            coverage.publish_full(instance.key, instance.generation);
         }
         arena.transparent_liquids.record(entity, &gpu);
         arena.allocations.insert(

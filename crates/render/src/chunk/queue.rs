@@ -293,6 +293,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             if let Some(permit) = render_permit {
                 gpu_removals
                     .push(PendingGpuRemoval {
+                        publications: terrain_scene
+                            .as_ref()
+                            .and_then(|scene| scene.publications.clone()),
                         kind: pending.kind,
                         key,
                         token,
@@ -301,6 +304,16 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = token {
+                if let Some(source) = terrain_scene
+                    .as_ref()
+                    .and_then(|scene| scene.publications.as_ref())
+                {
+                    source.record(
+                        key,
+                        token.generation,
+                        pending.kind == render_api::TerrainRemovalKind::Empty,
+                    );
+                }
                 acknowledgements.complete(key, token, Instant::now());
                 if let Some(immediate) = immediate_terrain.as_deref_mut() {
                     immediate.0.push((key, token.generation));
@@ -365,6 +378,9 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             if let Some(permit) = render_permit {
                 gpu_removals
                     .push(PendingGpuRemoval {
+                        publications: terrain_scene
+                            .as_ref()
+                            .and_then(|scene| scene.publications.clone()),
                         kind: render_api::TerrainRemovalKind::Empty,
                         key,
                         token: pending.token,
@@ -373,6 +389,12 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
                     })
                     .unwrap_or_else(|_| unreachable!("removal mailbox capacity was checked"));
             } else if let Some(token) = pending.token {
+                if let Some(source) = terrain_scene
+                    .as_ref()
+                    .and_then(|scene| scene.publications.as_ref())
+                {
+                    source.record(key, token.generation, true);
+                }
                 acknowledgements.complete(key, token, Instant::now());
                 if let Some(immediate) = immediate_terrain.as_deref_mut() {
                     immediate.0.push((key, token.generation));

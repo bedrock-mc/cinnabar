@@ -24,7 +24,7 @@ use render_scene::{
 
 mod publication_schedule;
 pub(crate) use publication_schedule::ChunkPublicationStage;
-use publication_schedule::configure_chunk_publication;
+pub(in crate::chunk) use publication_schedule::configure_chunk_publication;
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkEntities(pub(in crate::chunk) HashMap<SubChunkKey, Entity>);
@@ -219,9 +219,7 @@ impl Plugin for ChunkRenderPlugin {
                     queue_transparent_chunks
                         .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
-                    prepare_chunk_texture_assets
-                        .in_set(RenderSystems::PrepareAssets)
-                        .before(RenderSystems::Queue),
+                    prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
                     prepare_gpu_chunks

@@ -35,6 +35,7 @@ pub mod screen_overlay;
 pub mod screen_overlay_portal;
 pub mod skybox;
 pub mod startup_presentation;
+pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
 pub mod viewmodel;
