@@ -2,8 +2,12 @@
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 mod priority;
+#[cfg(feature = "tracy")]
+mod queue_lock;
 #[cfg(not(target_arch = "wasm32"))]
 use native::{now, restore_lowered_job};
+#[cfg(feature = "tracy")]
+use queue_lock::QueueGuard;
 use simulation_clock::Moment;
 
 use std::collections::VecDeque;
@@ -11,6 +15,9 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+
+#[cfg(not(feature = "tracy"))]
+type QueueGuard<'a> = MutexGuard<'a, Queues>;
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
@@ -114,17 +121,39 @@ struct Shared {
 
 impl Shared {
     /// Recovers the job queue after poison without discarding accepted work.
-    fn lock(&self) -> MutexGuard<'_, Queues> {
-        #[cfg(feature = "tracy")]
-        let _zone = tracing::info_span!("stream.queue_lock").entered();
+    fn lock(&self) -> QueueGuard<'_> {
         #[cfg(all(test, windows))]
         if priority::is_lowered() {
             self.lowered_locks
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        self.queues
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        let guard = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.queue_lock").entered();
+            self.queues
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        #[cfg(feature = "tracy")]
+        let guard = QueueGuard::new(guard);
+        guard
+    }
+
+    /// Sleeps atomically with queue release, excluding the sleep from lock ownership.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
+        #[cfg(feature = "tracy")]
+        let guard = guard.end_ownership();
+        let guard = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.worker_wait").entered();
+            self.ready
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        #[cfg(feature = "tracy")]
+        let guard = QueueGuard::new(guard);
+        guard
     }
 }
 
@@ -189,6 +218,8 @@ impl WorldPool {
 
     /// Accepts a finite job without running it on the submitting thread.
     pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.queue_submit", ?lane, jobs = 1).entered();
         let queued_at = self.observed_at();
         self.shared
             .lock()
@@ -240,6 +271,10 @@ impl Drop for DispatchBatch<'_> {
         if self.jobs.is_empty() {
             return;
         }
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.queue_submit", lane = ?self.lane, jobs = self.jobs.len())
+                .entered();
         let mut queues = self.pool.shared.lock();
         for (at, urgent, job) in self.jobs.drain(..) {
             if urgent {

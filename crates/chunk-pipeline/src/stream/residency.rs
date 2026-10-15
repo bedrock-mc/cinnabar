@@ -58,6 +58,8 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.evict_columns", columns = columns.len()).entered();
         let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
         self.forget_near_drawn(&columns);
@@ -84,7 +86,11 @@ impl WorldStream {
                 }
             }
         }
-        let (removed, retired) = self.authority.detach_chunks(&columns);
+        let (removed, retired) = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.retire_authority").entered();
+            self.authority.detach_chunks(&columns)
+        };
         changed.extend(removed);
         let old_connectivity_len = self.connectivity.len();
         let retired_indexes = removing_all.then(|| {
@@ -145,7 +151,13 @@ impl WorldStream {
             self.mark_dirty_exact(key, now);
         }
         if !retired.is_empty() || retired_indexes.is_some() {
-            rayon::spawn(move || drop((retired, retired_indexes)));
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.retire_drop_dispatch").entered();
+            rayon::spawn(move || {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("stream.retired_drop").entered();
+                drop((retired, retired_indexes));
+            });
         }
         self.far_terrain.retiring.extend(far_retiring);
     }

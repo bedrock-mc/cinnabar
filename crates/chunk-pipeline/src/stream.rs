@@ -95,6 +95,8 @@ mod scheduler;
 mod seasonal_foliage;
 mod sequencing;
 mod service;
+#[cfg(all(test, feature = "tracy"))]
+mod trace_test_support;
 pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;

@@ -143,8 +143,9 @@ impl WorldStream {
             let started = Instant::now();
             #[cfg(feature = "tracy")]
             let _item = {
-                let (columns, sections, updates) = commit_item_size(&step);
-                tracing::info_span!("stream.service_item_max", columns, sections, updates).entered()
+                let (kind, columns, sections, updates) = commit_item_size(&step);
+                tracing::info_span!("stream.service_item_max", kind, columns, sections, updates)
+                    .entered()
             };
             self.commit_steps = self.commit_steps.wrapping_add(1);
             if self.order.last_step_was_heavy() {
@@ -233,27 +234,33 @@ impl WorldStream {
 
 /// Counts commit payload work without formatting packet contents.
 #[cfg(feature = "tracy")]
-fn commit_item_size(step: &CommitStep) -> (usize, usize, usize) {
+fn commit_item_size(step: &CommitStep) -> (&'static str, usize, usize, usize) {
     match step {
         CommitStep::Apply { event, .. } => match event {
             PreparedWorldEvent::InlineLevelChunk { decoded, .. } => {
-                (1, decoded.sub_chunks().count(), 0)
+                ("inline_column", 1, decoded.sub_chunks().count(), 0)
             }
-            PreparedWorldEvent::RequestLevelChunk { .. } => (1, 0, 0),
-            PreparedWorldEvent::SubChunks { entries, .. } => (entries.len(), entries.len(), 0),
+            PreparedWorldEvent::RequestLevelChunk { .. } => ("request_column", 1, 0, 0),
+            PreparedWorldEvent::SubChunks { entries, .. } => {
+                ("subchunks", entries.len(), entries.len(), 0)
+            }
             PreparedWorldEvent::BlockUpdates { result, .. }
             | PreparedWorldEvent::SyncedBlockUpdates { result, .. } => (
+                "prepared_block_updates",
                 0,
                 result.as_ref().map_or(0, |batch| batch.mutations.len()),
                 0,
             ),
-            _ => (0, 0, 0),
+            _ => ("control", 0, 0, 0),
         },
-        CommitStep::BlockUpdates { events, .. } => (0, 0, events.len()),
-        CommitStep::SyncedBlockUpdates { packets, .. } => {
-            (0, 0, packets.iter().map(Vec::len).sum())
-        }
-        CommitStep::BatchStarted => (0, 0, 0),
+        CommitStep::BlockUpdates { events, .. } => ("block_updates", 0, 0, events.len()),
+        CommitStep::SyncedBlockUpdates { packets, .. } => (
+            "synced_block_updates",
+            0,
+            0,
+            packets.iter().map(Vec::len).sum(),
+        ),
+        CommitStep::BatchStarted => ("batch_started", 0, 0, 0),
     }
 }
 

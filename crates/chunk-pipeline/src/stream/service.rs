@@ -65,7 +65,29 @@ impl WorldStream {
             select.recv(&self.mesh_rx);
         }
         select.recv(wake);
-        let _ = select.ready_timeout(timeout);
+        let ready = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.service_wait", mesh).entered();
+            select.ready_timeout(timeout)
+        };
+        #[cfg(feature = "tracy")]
+        {
+            let source = match ready {
+                Ok(0) => "decode",
+                Ok(1) => "light",
+                Ok(2) if mesh => "mesh",
+                Ok(_) => "reclaim",
+                Err(_) => "timeout",
+            };
+            let _zone = tracing::info_span!(
+                "stream.service_woke",
+                source,
+                yield_requested = self.service_yield_requested(),
+            )
+            .entered();
+        }
+        #[cfg(not(feature = "tracy"))]
+        let _ = ready;
     }
 }
 
@@ -85,6 +107,7 @@ impl WorldStreamPoll {
 }
 
 struct ServiceLaunch {
+    handoff_id: u64,
     stream: WorldStream,
     camera_position: [f32; 3],
     max_mesh_jobs: usize,
@@ -121,6 +144,7 @@ pub struct WorldStreamService {
     wake: Sender<()>,
     yield_request: Arc<AtomicBool>,
     servicing: bool,
+    handoff_id: u64,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -144,6 +168,7 @@ impl WorldStreamService {
             wake,
             yield_request,
             servicing: false,
+            handoff_id: 0,
             thread: Some(thread),
         })
     }
@@ -168,11 +193,16 @@ impl WorldStreamService {
         assert!(!self.servicing, "the service already holds a stream");
         // Its next service run reaches any retention request before the frame's next poll.
         stream.between_frames_service = true;
+        self.handoff_id = self.handoff_id.wrapping_add(1);
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.service_launch", handoff_id = self.handoff_id).entered();
         self.yield_request.store(false, Ordering::Release);
         self.launches
             .as_ref()
             .expect("service is live until dropped")
             .send(ServiceLaunch {
+                handoff_id: self.handoff_id,
                 stream,
                 camera_position,
                 max_mesh_jobs,
@@ -191,27 +221,29 @@ impl WorldStreamService {
             return None;
         }
         self.servicing = false;
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.service_reclaim", handoff_id = self.handoff_id,).entered();
         self.yield_request.store(true, Ordering::Release);
         let _ = self.wake.try_send(());
-        #[cfg(feature = "tracy")]
-        let zone = tracing::info_span!(
-            "stream.service_reclaim",
-            service_item_max_ms = tracing::field::Empty,
-            maintenance_items = tracing::field::Empty,
-            commit_steps = tracing::field::Empty,
-        )
-        .entered();
-        match self.results.recv() {
+        let received = {
+            #[cfg(feature = "tracy")]
+            let _zone =
+                tracing::info_span!("stream.service_receive", handoff_id = self.handoff_id,)
+                    .entered();
+            self.results.recv()
+        };
+        match received {
             Ok(ServiceResult::Done(serviced)) => {
                 #[cfg(feature = "tracy")]
-                {
-                    zone.record(
-                        "service_item_max_ms",
-                        serviced.report.service_item_max.as_secs_f64() * 1000.0,
-                    );
-                    zone.record("maintenance_items", serviced.report.maintenance_items);
-                    zone.record("commit_steps", serviced.report.commit_steps);
-                }
+                let _zone = tracing::info_span!(
+                    "stream.service_received",
+                    handoff_id = self.handoff_id,
+                    service_item_max_ms = serviced.report.service_item_max.as_secs_f64() * 1000.0,
+                    maintenance_items = serviced.report.maintenance_items,
+                    commit_steps = serviced.report.commit_steps,
+                )
+                .entered();
                 Some(serviced)
             }
             Ok(ServiceResult::Panicked(payload)) => resume_unwind(payload),
@@ -244,11 +276,16 @@ fn serve(
     yield_request: &Arc<AtomicBool>,
 ) {
     while let Ok(ServiceLaunch {
+        handoff_id,
         mut stream,
         camera_position,
         max_mesh_jobs,
     }) = launches.recv()
     {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.service_run", handoff_id).entered();
+        #[cfg(not(feature = "tracy"))]
+        let _ = handoff_id;
         // A wake left by an earlier reclaim must not cut this run's first idle wait short.
         while wake.try_recv().is_ok() {}
         let started = Instant::now();
@@ -268,8 +305,25 @@ fn serve(
             }
             Err(payload) => ServiceResult::Panicked(payload),
         };
+        #[cfg(feature = "tracy")]
+        let _zone = match &result {
+            ServiceResult::Done(serviced) => tracing::info_span!(
+                "stream.service_return",
+                handoff_id,
+                service_item_max_ms = serviced.report.service_item_max.as_secs_f64() * 1000.0,
+                maintenance_items = serviced.report.maintenance_items,
+                commit_steps = serviced.report.commit_steps,
+            ),
+            ServiceResult::Panicked(_) => {
+                tracing::info_span!("stream.service_panicked", handoff_id)
+            }
+        }
+        .entered();
         if results.send(result).is_err() {
             return;
         }
     }
 }
+
+#[cfg(all(test, feature = "tracy"))]
+mod trace_tests;
