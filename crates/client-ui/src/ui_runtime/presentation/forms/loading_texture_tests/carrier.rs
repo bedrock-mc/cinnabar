@@ -168,7 +168,7 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
-    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     settled(&player, &mut presentation);
     let catalog = Arc::clone(presentation.engine.as_ref().unwrap().catalog());
     let mut dirt = image::RgbaImage::new(32, 16);
@@ -202,12 +202,12 @@ fn texture_only_pack_replacement_updates_loading_background_tile_sizes() {
 }
 
 #[test]
-fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
+fn dimension_frame_draws_brand_and_backdrop_without_source_files() {
     let player = player_state::PlayerState::new(1);
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     presentation.enable_json_ui(carrier()).unwrap();
-    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     let input = settled(&player, &mut presentation);
     let pixels = snapshot::rasterize(&input);
     assert_eq!(
@@ -241,21 +241,6 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
         "loading title stays inside the viewport"
     );
     input.validate().unwrap();
-    let animated = presentation
-        .build(
-            &player,
-            &crate::ui_runtime::UiRuntime::new(1),
-            250,
-            [1280, 720],
-            ui::DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
-    animated.validate().unwrap();
-    assert!(
-        input.vertices != animated.vertices,
-        "native progress advances independently of carrier flipbooks"
-    );
-
     // A server override remains above both raw carrier art and atlas sprites.
     presentation.set_server_ui_pack(&super::super::ServerUiPack {
         textures: vec![
@@ -284,4 +269,31 @@ fn loading_frame_draws_brand_backdrop_and_animation_without_source_files() {
         *overridden.get_pixel(x, y),
         image::Rgba([180, 40, 220, 255])
     );
+}
+
+#[test]
+fn initial_terrain_loading_animates_without_a_json_ui_backdrop() {
+    let player = player_state::PlayerState::new(1);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    presentation.enable_json_ui(carrier()).unwrap();
+    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    let input = settled(&player, &mut presentation);
+    assert!(presentation.loading_draw_nodes().is_empty());
+    let animated = presentation
+        .build(
+            &player,
+            &crate::ui_runtime::UiRuntime::new(1),
+            250,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    animated.validate().unwrap();
+    assert!(
+        input.vertices != animated.vertices,
+        "native progress advances independently of carrier flipbooks"
+    );
+
+    assert!(presentation.loading_draw_nodes().is_empty());
 }

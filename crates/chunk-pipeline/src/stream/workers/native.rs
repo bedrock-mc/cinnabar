@@ -35,7 +35,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
         && !LOWER_PER_JOB
         && let Err(error) = priority::lower()
     {
-        eprintln!("{name}: could not lower worker priority: {error}");
+        tracing::warn!("{name}: could not lower worker priority: {error}");
     }
     let mut scratch = world::LightSolverScratch::default();
     let mut queues = shared.lock();
@@ -69,6 +69,6 @@ pub(super) fn restore_lowered_job() {
         && let Err(error) = priority::restore()
     {
         let name = std::thread::current().name().unwrap_or("world").to_owned();
-        eprintln!("{name}: could not restore worker priority: {error}");
+        tracing::warn!("{name}: could not restore worker priority: {error}");
     }
 }

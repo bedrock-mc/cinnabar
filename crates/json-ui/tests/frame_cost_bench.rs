@@ -1,4 +1,8 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports frame cost lines on stderr and explains missing local fixtures"
+)]
 
 use json_ui::vanilla::Reference;
 #[path = "it/support/frame_stats.rs"]

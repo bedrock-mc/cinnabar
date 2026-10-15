@@ -1,35 +1,38 @@
-//! The first-run setup window. It runs in a child process: winit allows one event loop per
-//! process, and the game opens its own once setup finishes.
+//! The first-run setup window, on the shared bootstrap window stack. It runs in its own process:
+//! winit allows one event loop per process, and the game opens its own once setup finishes.
 
 mod app;
-mod canvas;
-mod gpu;
-mod input;
 mod view;
 
 use std::process::Command;
 
-use winit::event_loop::{ControlFlow, EventLoop};
+use bootstrap_ui::input::Actions;
+use winit::{
+    dpi::LogicalSize,
+    event_loop::{ControlFlow, EventLoop},
+};
 
-use canvas::{Image, Text};
+use super::screen::{Action, Screen};
 use launcher::install_layout::InstallLayout;
 
 pub const SETUP_FLAG: &str = "--first-run-setup";
 const EXIT_QUIT: i32 = 3;
 /// No window could open; the parent falls back to native dialogs.
 const EXIT_UNAVAILABLE: i32 = 4;
-/// Where packaging installs the pinned UI font, under the resource root.
-const FONT_DIR: &str = "fonts";
-/// Cinnabar's own panorama behind the setup window, in pack face order (-Z, +X, +Z, -X, up,
-/// down). Menus use the pack's faces once it is prepared.
-const BUILT_IN_FACES: [&[u8]; 6] = [
-    include_bytes!("../../../../assets/panorama/panorama_0.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_1.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_2.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_3.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_4.jpg"),
-    include_bytes!("../../../../assets/panorama/panorama_5.jpg"),
-];
+/// The setup window's default logical size.
+const SETUP_SIZE: LogicalSize<f64> = LogicalSize::new(1024.0, 640.0);
+
+impl Actions for Screen {
+    type Action = Action;
+
+    fn actions(&self) -> &[Action] {
+        Screen::actions(self)
+    }
+
+    fn cancel(&self) -> Action {
+        Action::Quit
+    }
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum ChildOutcome {
@@ -61,22 +64,22 @@ fn outcome(code: Option<i32>) -> ChildOutcome {
 }
 
 /// The child-process entry point; returns its exit code.
+#[expect(
+    clippy::print_stderr,
+    reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+)]
 pub fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;
     };
-    let font = super::prepare::ui_font_file(&layout.prep_kit())
-        .map(|file| layout.resource_root.join(FONT_DIR).join(file));
-    let Some(text) = font
-        .as_ref()
-        .ok()
-        .and_then(|path| std::fs::read(path).ok())
-        .and_then(|bytes| Text::from_bytes(&bytes))
-    else {
-        eprintln!("first-run window unavailable: no usable UI font ({font:?})");
-        return EXIT_UNAVAILABLE;
+    let text = match bootstrap_ui::text(&layout) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("first-run window unavailable: no usable UI font ({error:#})");
+            return EXIT_UNAVAILABLE;
+        }
     };
-    let Some(faces) = built_in_faces() else {
+    let Some(faces) = bootstrap_ui::built_in_faces() else {
         return EXIT_UNAVAILABLE;
     };
     let Ok(event_loop) = EventLoop::new() else {
@@ -85,30 +88,18 @@ pub fn run_setup_process() -> i32 {
     event_loop.set_control_flow(ControlFlow::Poll);
     let consented = super::env_consent() || super::consent_recorded(&layout);
     let updating = super::updating(&layout);
-    let mut app = app::SetupApp::new(layout, text, faces, decode_logo(), consented, updating);
+    let logo = bootstrap_ui::decode_logo();
+    let mut app = app::SetupApp::new(layout, text, faces, logo, consented, updating);
     let failed = event_loop.run_app(&mut app).is_err();
     app.stop_worker();
     app.exit_code()
         .unwrap_or(if failed { EXIT_UNAVAILABLE } else { EXIT_QUIT })
 }
 
-fn built_in_faces() -> Option<render_model::PanoramaFaces> {
-    render_model::panorama::decode_faces(|face| Some(BUILT_IN_FACES[face]))
-}
-
-fn decode_logo() -> Option<Image> {
-    let image = image::load_from_memory(launcher::branding::TITLE).ok()?;
-    let rgba = image.into_rgba8();
-    Some(Image {
-        width: rgba.width(),
-        height: rgba.height(),
-        rgba: rgba.into_raw(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bootstrap_ui::input::{Input, Source};
 
     #[test]
     fn child_exit_codes_map_to_outcomes() {
@@ -119,9 +110,49 @@ mod tests {
         assert_eq!(outcome(None), ChildOutcome::Failed(-1));
     }
 
+    /// The real setup screens drive the shared input state machine: focus wraps over Consent,
+    /// Cancel quits everywhere, and a held Quit survives download and unpack reports.
     #[test]
-    fn built_in_art_decodes() {
-        assert!(decode_logo().is_some());
-        assert!(built_in_faces().is_some());
+    fn setup_screens_quit_on_cancel_and_keep_a_held_quit_through_progress() {
+        let download = Screen::Downloading {
+            received: 50,
+            total: Some(100),
+            bytes_per_second: None,
+        };
+        let unpack = Screen::Preparing {
+            step: 1,
+            total: 2,
+            label: "Unpacking".into(),
+        };
+        let failed = Screen::Failed {
+            message: "offline".into(),
+        };
+        for screen in [&Screen::Consent, &Screen::Starting, &download, &failed] {
+            assert_eq!(Actions::cancel(screen), Action::Quit);
+        }
+        for source in [Source::Keyboard, Source::Controller] {
+            let mut input = Input::default();
+            input.reset(&Screen::Consent);
+            input.navigate(&Screen::Consent, true);
+            assert_eq!(input.focused, Some(Action::Quit));
+            input.navigate(&Screen::Consent, false);
+            assert_eq!(input.focused, Some(Action::Accept));
+            input.reset(&Screen::Starting);
+            input.press(&Screen::Starting, source, None);
+            assert_eq!(input.release(source, None), Some(Action::Quit));
+        }
+        for source in [Source::Keyboard, Source::Controller, Source::Pointer] {
+            let mut input = Input::default();
+            input.reset(&Screen::Starting);
+            input.press(&Screen::Starting, source, Some(Action::Quit));
+            input.update_screen(&Screen::Starting, &download);
+            input.update_screen(&download, &unpack);
+            assert_eq!(
+                input.release(source, Some(Action::Quit)),
+                Some(Action::Quit)
+            );
+            input.update_screen(&unpack, &failed);
+            assert_eq!(input.focused, Some(Action::Retry));
+        }
     }
 }

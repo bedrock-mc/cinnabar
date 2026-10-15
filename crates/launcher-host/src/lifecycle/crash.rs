@@ -1,325 +1,343 @@
-//! Local panic and native crash reports; nothing is uploaded.
+//! Crash capture for the client; nothing is uploaded.
+//!
+//! The client starts an out-of-process monitor (`<client> --crash-monitor`) first. Faults and
+//! panics only ask it for a minidump; it writes a panic's folder at once and a fault's once this
+//! process is gone, and tells the player when the client died. Until it is connected, or
+//! without one, the process writes the folder itself. Either way the folder carries the
+//! [`attachments`] the client keeps in its crash staging directory while it runs.
 
-#[cfg(windows)]
-mod native;
-#[cfg(any(windows, test))]
-mod native_address;
-#[cfg(unix)]
-pub(crate) mod unix;
+pub mod attachments;
+pub(crate) mod core_exit;
+mod fallback;
+mod handler;
+pub mod heartbeat;
+pub mod monitor;
+pub mod protocol;
+pub mod state;
 
 use std::{
     backtrace::Backtrace,
-    fs,
-    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use serde::Serialize;
+use crash_report::{
+    folder::{self, LogSources},
+    report::{Identity, Kind, Report, Thread},
+    staging::{self, Staging},
+};
+use launcher::{graphics_backend::Adapter, install_layout::InstallLayout};
 
 use crate::renderer_startup::Attempt;
-use launcher::install_layout::InstallLayout;
 
-const LOG_TAIL_BYTES: u64 = 16 * 1024;
-const MAX_REPORTS: usize = 8;
+/// Runs the executable as the crash monitor: `<client> --crash-monitor <socket> <parent pid>
+/// <crash dir>`, with a [`protocol::Launch`] line on its stdin.
+pub const MONITOR_FLAG: &str = "--crash-monitor";
+/// `1` makes dumps hold all process memory, for developers; Windows only.
+pub const FULL_DUMP_ENV: &str = "CINNABAR_FULL_DUMP";
+/// How long a failing `main` waits for the monitor to show its error.
+const FAILURE_WAIT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Serialize)]
-struct Report<'a> {
-    source: &'a str,
-    message: String,
-    backtrace: String,
-    log_tail: String,
-    release: &'a str,
-    os: &'a str,
-    arch: &'a str,
-    renderer: Option<Attempt>,
+/// The caller's logging, which crash capture flushes so the crash's log section is complete.
+#[derive(Clone, Copy)]
+pub struct LogHooks {
+    /// Records the panic message and its backtrace in the client log.
+    pub log_panic: fn(&str),
+    /// Writes queued log lines.
+    pub flush: fn(),
+    /// Async-signal-safe: moves raw stderr still in its capture pipe into the client log.
+    pub drain_on_signal: fn(),
 }
 
-/// Records a report and flushes the caller's logs before the previous panic hook runs.
-pub fn install_panic_hook(layout: &InstallLayout, flush_logs: fn()) {
-    let crash_dir = layout.crash_dir();
-    let core_log = layout.log_dir().join("core.log");
-    let data_root = layout.user_data_root.clone();
-    #[cfg(windows)]
-    native::install(layout, flush_logs);
+/// Where this process writes crash folders and which logs and identity they record.
+struct Context {
+    crash_dir: PathBuf,
+    client_log: PathBuf,
+    core_log: PathBuf,
+    data_root: PathBuf,
+    identity: Identity,
+    full_dump: bool,
+    /// The staging directory reports read the packet and log rings from; `None` when it could
+    /// not be created.
+    staging: Option<Staging>,
+}
+
+impl Context {
+    fn log_sources(&self) -> LogSources<'_> {
+        LogSources {
+            session_id: Some(&self.identity.session_id),
+            client: &self.client_log,
+            core: &self.core_log,
+            started_at_ms: self.identity.started_at_ms,
+        }
+    }
+}
+
+static CONTEXT: OnceLock<Context> = OnceLock::new();
+/// Set while a panic or fault is being reported, and for good once one was written in-process.
+/// A panic the monitor took clears it again, so a later fault still gets its own report.
+static REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// Captures every panic and native fault of this process.
+///
+/// Starts the monitor from `monitor` when given, attaches the native crash handler and wraps the
+/// panic hook. Each panic captures one backtrace, hands `hooks.log_panic` the message and that
+/// backtrace and flushes; a panic or fault then asks the monitor for a dump, or writes its folder
+/// in-process without one. `identity` names the process in every report. Later calls change
+/// nothing.
+pub fn install(
+    layout: &InstallLayout,
+    identity: Identity,
+    hooks: LogHooks,
+    monitor: Option<&monitor::MonitorCommand>,
+) {
+    let mut installed = false;
+    let context = CONTEXT.get_or_init(|| {
+        installed = true;
+        context(layout, identity)
+    });
+    if !installed {
+        return;
+    }
+    handler::install(context, hooks);
     #[cfg(unix)]
-    unix::install(layout);
+    {
+        fallback::prepare(context);
+        announce_exit_on_return();
+    }
+    if let Some(command) = monitor {
+        monitor::start(command, &context.crash_dir, &hello(context), restart());
+    }
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        write_report(&crash_dir, &core_log, &data_root, &info.to_string());
-        // Queued log lines precede the panic message.
-        flush_logs();
+        let message = info.to_string();
+        let backtrace = Backtrace::force_capture().to_string();
+        (hooks.log_panic)(&format!("{message}\n{backtrace}\n"));
         previous(info);
-        flush_logs();
+        // Queued lines must reach `client.log` before its section is copied.
+        (hooks.flush)();
+        if !REPORTED.swap(true, Ordering::AcqRel) {
+            let thread = Thread::current();
+            let now_ms = now_ms();
+            if report_panic(context, &message, &thread, &backtrace, now_ms) {
+                REPORTED.store(false, Ordering::Release);
+            } else {
+                let _ = fallback::write_panic(context, message, thread, backtrace, now_ms);
+            }
+        }
+        (hooks.flush)();
     }));
 }
 
-/// Drops the oldest reports beyond the bound so a crash loop cannot fill the disk.
-pub fn prune_reports(layout: &InstallLayout) {
-    prune(&layout.crash_dir(), MAX_REPORTS);
-}
-
-fn prune(crash_dir: &Path, keep: usize) {
-    let mut files = reports(crash_dir);
-    while files.len() > keep {
-        let _ = fs::remove_file(files.remove(0));
-    }
-}
-
-fn write_report(crash_dir: &Path, core_log: &Path, data_root: &Path, message: &str) {
-    let report = Report {
-        source: "client",
+/// Hands a panic to the monitor, dumps the panicking thread and connects again for whatever
+/// comes next; false when the panic must be written in-process.
+fn report_panic(
+    context: &Context,
+    message: &str,
+    thread: &Thread,
+    backtrace: &str,
+    now_ms: u64,
+) -> bool {
+    let Some(client) = monitor::route() else {
+        return false;
+    };
+    let panic = protocol::Panic {
         message: message.to_owned(),
-        backtrace: Backtrace::force_capture().to_string(),
-        log_tail: tail(core_log, LOG_TAIL_BYTES),
-        release: env!("CARGO_PKG_VERSION"),
-        os: std::env::consts::OS,
-        arch: std::env::consts::ARCH,
-        renderer: renderer_context(data_root),
+        thread: thread.clone(),
+        backtrace: backtrace.to_owned(),
+        uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
     };
-    let Ok(bytes) = serde_json::to_vec(&report) else {
-        return;
-    };
-    let millis = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis());
-    write_at(crash_dir, millis, &bytes);
-}
-
-/// Attributes a crash only to a renderer used by this process, never another client's saved choice.
-fn renderer_context(data_root: &Path) -> Option<Attempt> {
-    crate::renderer_startup::context::current(data_root)
-}
-
-/// Writes one report at its timestamp without losing a simultaneous report.
-fn write_at(crash_dir: &Path, millis: u128, bytes: &[u8]) {
-    if fs::create_dir_all(crash_dir).is_err() {
-        return;
+    let sent = serde_json::to_vec(&panic)
+        .is_ok_and(|panic| monitor::send_on(&client, protocol::PANIC, &panic));
+    if !sent {
+        return false;
     }
-    for suffix in 0_u64.. {
-        let path = crash_dir.join(format!("crash-{millis}-{suffix:020}.json"));
-        match fs::File::options().write(true).create_new(true).open(path) {
-            Ok(mut file) => {
-                let _ = file.write_all(bytes);
-                return;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(_) => return,
+    let dumped = handler::dump_this_thread();
+    drop(client);
+    if dumped && !monitor::reconnect() {
+        tracing::warn!("crash monitor connection lost after a panic dump");
+    }
+    true
+}
+
+/// Refreshes prepared log handles after the session files are first opened.
+pub fn logs_ready() {
+    state_changed();
+}
+
+/// Tells the monitor this process is about to exit with `code` on purpose, so it reports
+/// nothing.
+pub fn announce_exit(code: i32) {
+    monitor::send(protocol::EXIT, &code.to_le_bytes());
+}
+
+/// Hands the error `main` failed with at `stage` to the monitor, which shows it once this
+/// process exits; false when no monitor is connected, so the caller must show it itself.
+pub fn report_failure(stage: protocol::Stage, error: &str) -> bool {
+    monitor::wait_for_connection(FAILURE_WAIT) && monitor::send(stage.message(), error.as_bytes())
+}
+
+/// Any other `exit()` or return from `main` is deliberate too; only signals and aborts bypass
+/// this.
+#[cfg(unix)]
+fn announce_exit_on_return() {
+    extern "C" fn announce() {
+        announce_exit(protocol::AT_EXIT);
+    }
+    // SAFETY: `announce` has the C ABI and only sends on an established socket.
+    unsafe {
+        libc::atexit(announce);
+    }
+}
+
+/// Drops legacy report files, the oldest crash folders beyond the bound, and the staging
+/// directories of clients that are gone.
+pub fn prune_reports(layout: &InstallLayout) {
+    folder::prune(&layout.crash_dir(), folder::MAX_REPORTS);
+    staging::prune(&layout.crash_dir());
+}
+
+/// This process's crash staging directory once [`install`] created it, for the packet and log
+/// rings to attach to.
+pub fn staging_dir() -> Option<&'static Path> {
+    CONTEXT.get()?.staging.as_ref().map(Staging::dir)
+}
+
+fn context(layout: &InstallLayout, identity: Identity) -> Context {
+    let crash_dir = layout.crash_dir();
+    let staging = Staging::create(&crash_dir, &identity.session_id)
+        .inspect_err(|error| tracing::warn!(%error, "crash staging directory unavailable"))
+        .ok();
+    Context {
+        client_log: layout.log_dir().join("client.log"),
+        core_log: layout.log_dir().join("core.log"),
+        data_root: layout.user_data_root.clone(),
+        identity,
+        full_dump: std::env::var_os(FULL_DUMP_ENV).is_some_and(|value| value == "1"),
+        staging,
+        crash_dir,
+    }
+}
+
+/// Introduces this client to its monitor.
+fn hello(context: &Context) -> protocol::Hello {
+    protocol::Hello {
+        identity: context.identity.clone(),
+        client_log: context.client_log.clone(),
+        core_log: context.core_log.clone(),
+        full_dump: context.full_dump,
+        staging: context
+            .staging
+            .as_ref()
+            .map(|staging| staging.dir().to_owned()),
+    }
+}
+
+/// How the monitor starts this client again: with the arguments it was started with, without
+/// this launch's updater handoff, and, from an AppImage, without the variables its runtime set.
+fn restart() -> protocol::Restart {
+    let mut env_remove = vec![update_installer::startup::STARTUP_ENV.to_owned()];
+    if cfg!(target_os = "linux") && std::env::var_os(update_installer::startup::APPIMAGE).is_some()
+    {
+        env_remove.extend(
+            update_installer::startup::APPIMAGE_RUNTIME_ENV
+                .iter()
+                .map(|name| (*name).to_owned()),
+        );
+    }
+    protocol::Restart {
+        args: std::env::args_os().skip(1).collect(),
+        env_remove,
+    }
+}
+
+/// The program the monitor runs to start the client again: the AppImage the client was started
+/// from, since its runtime deletes the extracted executable on exit, else the monitor's own
+/// executable, which is the client's.
+pub fn restart_program() -> std::io::Result<PathBuf> {
+    match std::env::var_os(update_installer::startup::APPIMAGE) {
+        Some(image) if cfg!(target_os = "linux") => Ok(image.into()),
+        _ => std::env::current_exe(),
+    }
+}
+
+/// Pushes the current state to the monitor, or prepares the in-process report without one.
+fn state_changed() {
+    let Some(context) = CONTEXT.get() else {
+        return;
+    };
+    if monitor::connection().is_some() {
+        if let Ok(state) = serde_json::to_vec(&snapshot(context)) {
+            monitor::send(protocol::STATE, &state);
         }
+    } else {
+        #[cfg(unix)]
+        fallback::prepare(context);
     }
 }
 
-fn tail(path: &Path, limit: u64) -> String {
-    let Ok(mut file) = fs::File::open(path) else {
-        return String::new();
-    };
-    let length = file.metadata().map_or(0, |meta| meta.len());
-    let _ = file.seek(SeekFrom::Start(length.saturating_sub(limit)));
-    let mut bytes = Vec::new();
-    let _ = file.take(limit).read_to_end(&mut bytes);
-    String::from_utf8_lossy(&bytes).into_owned()
+/// This process's renderer attempt and game state, as reports record them.
+fn snapshot(context: &Context) -> protocol::State {
+    state_of(state::renderer(&context.data_root), state::game())
 }
 
-fn reports(crash_dir: &Path) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = fs::read_dir(crash_dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-        .collect();
-    files.sort();
-    files
+/// [`snapshot`] without waiting on another thread.
+#[cfg(windows)]
+fn try_snapshot(context: &Context) -> Option<protocol::State> {
+    state::try_snapshot(&context.data_root).map(|(attempt, game)| state_of(attempt, game))
+}
+
+fn state_of(attempt: Option<Attempt>, game: state::GameState) -> protocol::State {
+    let adapter = attempt
+        .as_ref()
+        .and_then(|attempt| attempt.adapter.as_ref());
+    protocol::State {
+        gpu: adapter.map(|adapter| adapter.name.clone()),
+        driver: adapter.and_then(driver),
+        renderer: attempt.and_then(|attempt| serde_json::to_value(attempt).ok()),
+        game_state: game.entries(),
+    }
+}
+
+/// Starts a report for this process with `state`.
+fn report(
+    context: &Context,
+    kind: Kind,
+    message: String,
+    state: &protocol::State,
+    now_ms: u64,
+) -> Report {
+    let mut report = Report::new(kind, message, &context.identity, now_ms);
+    state.apply_to(&mut report);
+    report
+}
+
+/// Joins the adapter's non-empty driver fields.
+fn driver(adapter: &Adapter) -> Option<String> {
+    let parts: Vec<&str> = [
+        &adapter.driver,
+        &adapter.driver_info,
+        &adapter.driver_version,
+    ]
+    .into_iter()
+    .map(String::as_str)
+    .filter(|part| !part.is_empty())
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+/// Unix milliseconds now; crash handlers are the edge that reads the clock.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
+        })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::renderer_startup::StartupGuard;
-
-    fn scratch(label: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("cinnabar-crash-{}-{label}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn names(dir: &Path) -> Vec<String> {
-        reports(dir)
-            .iter()
-            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
-            .collect()
-    }
-
-    #[test]
-    fn review_same_timestamp_crashes_are_both_retained() {
-        let dir = scratch("simultaneous");
-        std::thread::scope(|scope| {
-            scope.spawn(|| write_at(&dir, 1234, b"first"));
-            scope.spawn(|| write_at(&dir, 1234, b"second"));
-        });
-        let mut contents = reports(&dir)
-            .into_iter()
-            .map(|p| fs::read(p).unwrap())
-            .collect::<Vec<_>>();
-        contents.sort();
-        fs::remove_dir_all(dir).unwrap();
-        assert_eq!(contents, [b"first".to_vec(), b"second".to_vec()]);
-    }
-
-    #[test]
-    fn report_records_the_panic_and_the_log_tail() {
-        let dir = scratch("report");
-        let log = dir.join("core.log");
-        fs::write(&log, "old\nrecent line").unwrap();
-        write_report(&dir.join("crashes"), &log, &dir, "boom");
-        let file = reports(&dir.join("crashes")).remove(0);
-        let value: serde_json::Value = serde_json::from_slice(&fs::read(file).unwrap()).unwrap();
-        for key in [
-            "source",
-            "message",
-            "backtrace",
-            "log_tail",
-            "release",
-            "os",
-            "arch",
-            "renderer",
-        ] {
-            assert!(value.get(key).is_some(), "missing {key}");
-        }
-        assert_eq!(value["source"], "client");
-        assert_eq!(value["message"], "boom");
-        assert!(value["log_tail"].as_str().unwrap().contains("recent line"));
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn tail_is_bounded_to_the_final_bytes() {
-        let dir = scratch("tail");
-        let log = dir.join("l");
-        fs::write(&log, "0123456789").unwrap();
-        assert_eq!(tail(&log, 4), "6789");
-        assert_eq!(tail(&dir.join("missing"), 4), "");
-        fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn panic_report_retains_the_pending_renderer_stage_and_gpu() {
-        use crate::renderer_startup::Stage;
-        use launcher::graphics_backend::{Adapter, Backend};
-        let dir = tempfile::tempdir().unwrap();
-        let mut guard = StartupGuard::open(dir.path()).unwrap();
-        let attempt = Attempt {
-            backend: Backend::Dx12,
-            adapter: Some(Adapter {
-                name: "test GPU".into(),
-                vendor: 1,
-                device: 2,
-                driver: "driver".into(),
-                driver_info: "version".into(),
-                driver_version: String::new(),
-                integrated: false,
-            }),
-            stage: Stage::FirstPresentation,
-            explicit: false,
-        };
-        guard.begin(attempt.clone()).unwrap();
-        let crash_dir = dir.path().join("crashes");
-        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
-        let value: serde_json::Value =
-            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
-        assert_eq!(value["renderer"], serde_json::to_value(attempt).unwrap());
-    }
-
-    #[test]
-    fn renderer_context_fixture() {
-        let Some(root) = std::env::var_os("CINNABAR_RENDERER_CONTEXT_FIXTURE") else {
-            return;
-        };
-        let root = PathBuf::from(root);
-        assert!(renderer_context(&root).is_none());
-        let mut guard = StartupGuard::open(&root).unwrap();
-        guard
-            .begin(Attempt {
-                backend: launcher::graphics_backend::Backend::Gl,
-                adapter: None,
-                stage: crate::renderer_startup::Stage::FirstPresentation,
-                explicit: false,
-            })
-            .unwrap();
-        guard.presented().unwrap();
-    }
-
-    #[test]
-    fn completed_renderer_context_survives_another_clients_saved_choice() {
-        use crate::renderer_startup::Stage;
-        use launcher::graphics_backend::{Adapter, Backend};
-        let dir = tempfile::tempdir().unwrap();
-        let mut first = StartupGuard::open(dir.path()).unwrap();
-        let mut attempt = Attempt {
-            backend: Backend::Dx12,
-            adapter: Some(Adapter {
-                name: "first process GPU".into(),
-                vendor: 1,
-                device: 2,
-                driver: "driver".into(),
-                driver_info: "version".into(),
-                driver_version: "1".into(),
-                integrated: false,
-            }),
-            stage: Stage::FirstPresentation,
-            explicit: false,
-        };
-        first.begin(attempt.clone()).unwrap();
-        first.presented().unwrap();
-        attempt.stage = Stage::Ready;
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "lifecycle::crash::tests::renderer_context_fixture",
-            ])
-            .env("CINNABAR_RENDERER_CONTEXT_FIXTURE", dir.path())
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        assert_eq!(
-            StartupGuard::saved(dir.path())
-                .unwrap()
-                .working
-                .unwrap()
-                .backend,
-            Backend::Gl
-        );
-        assert_eq!(renderer_context(dir.path()), Some(attempt.clone()));
-        let crash_dir = dir.path().join("crashes");
-        write_report(&crash_dir, &dir.path().join("core.log"), dir.path(), "boom");
-        let value: serde_json::Value =
-            serde_json::from_slice(&fs::read(reports(&crash_dir).remove(0)).unwrap()).unwrap();
-        assert_eq!(
-            value["renderer"],
-            serde_json::to_value(attempt.clone()).unwrap()
-        );
-        let mut retry = StartupGuard::open(dir.path()).unwrap();
-        attempt.stage = Stage::CreatingDevice;
-        retry.begin(attempt).unwrap();
-        retry.failed().unwrap();
-        assert!(renderer_context(dir.path()).is_none());
-    }
-
-    #[test]
-    fn prune_keeps_only_the_newest_json_reports() {
-        let dir = scratch("prune");
-        for name in ["crash-2.json", "crash-1.json", "crash-3.json", "note.txt"] {
-            fs::write(dir.join(name), "{}").unwrap();
-        }
-        prune(&dir, 2);
-        assert_eq!(names(&dir), ["crash-2.json", "crash-3.json"]);
-        assert!(dir.join("note.txt").is_file());
-        fs::remove_dir_all(dir).unwrap();
-    }
-}
+mod tests;

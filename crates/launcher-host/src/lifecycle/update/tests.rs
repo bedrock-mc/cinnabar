@@ -1,7 +1,7 @@
 use super::*;
 use update_manifest::TrustedKeys;
 
-const TEST_SEED: [u8; update_manifest::KEY_BYTES] = [7; update_manifest::KEY_BYTES];
+pub(super) const TEST_SEED: [u8; update_manifest::KEY_BYTES] = [7; update_manifest::KEY_BYTES];
 
 #[test]
 fn running_clients_check_each_interval_from_completion_without_skipped_ticks_deferring_it() {
@@ -375,7 +375,7 @@ fn a_new_owner_restores_downloaded_offers_while_the_completion_stamp_is_fresh() 
             .unwrap();
     let (stage, reader) = update_installer::stage::retain(&directory, &writer, &selected).unwrap();
     passive.offer(
-        Ready::new(stage, reader, selected, Channel::Beta, false, true),
+        Ready::new(stage, reader, selected, false, true),
         passive.generation,
     );
     assert_eq!(passive.ready.as_ref().unwrap().notice.version, "2.0.0");
@@ -436,10 +436,7 @@ fn an_explicit_switch_downloads_an_older_release_instead_of_retaining_a_newer_st
         update_installer::stage::verify(&directory, &keys, check, OffsetDateTime::UNIX_EPOCH)
             .unwrap();
     let (stage, reader) = update_installer::stage::retain(&directory, &writer, &selected).unwrap();
-    state.offer(
-        Ready::new(stage, reader, selected, Channel::Beta, true, false),
-        generation,
-    );
+    state.offer(Ready::new(stage, reader, selected, true, false), generation);
     assert!(!state.finish_check(generation, true, false));
     let offer = state.ready.as_ref().unwrap();
     assert_eq!(offer.notice.version, "0.0.1");
@@ -535,7 +532,7 @@ fn reselecting_a_channel_restores_its_cached_release_before_the_daily_deadline()
         Some(true)
     );
     let selected =
-        worker::cached_selection(&cache, &keys, check, OffsetDateTime::UNIX_EPOCH).unwrap();
+        releases::cached_channel(&cache, &keys, check, OffsetDateTime::UNIX_EPOCH).unwrap();
     let writer = update_installer::lease::Lease::acquire(root.path()).unwrap();
     assert!(
         worker::reuse_stage(&writer, &selected, [beta.as_path()])
@@ -550,14 +547,7 @@ fn reselecting_a_channel_restores_its_cached_release_before_the_daily_deadline()
             .unwrap();
     let (directory, reader) =
         update_installer::stage::retain(&directory, &writer, &selected).unwrap();
-    state.ready = Some(Ready::new(
-        directory,
-        reader,
-        selected,
-        Channel::Beta,
-        false,
-        true,
-    ));
+    state.ready = Some(Ready::new(directory, reader, selected, false, true));
     let restored = state.ready.unwrap();
     assert_eq!(restored.notice.version, "2.0.0");
     assert_eq!(restored.channel, Channel::Beta);
@@ -600,7 +590,7 @@ fn renewed_envelopes_replace_expiring_stages_and_offers_without_a_download() {
     );
     let selected = update_installer::stage::verify(&reused, &keys, check, now).unwrap();
     let (stage, reader) = update_installer::stage::retain(&reused, &writer, &selected).unwrap();
-    let offer = Ready::new(stage, reader, selected, Channel::Beta, false, true);
+    let offer = Ready::new(stage, reader, selected, false, true);
     assert_eq!(offer.expires, manifest.expires);
     assert_eq!(
         std::fs::read(offer.stage.join(update_installer::stage::ARTIFACT_FILE)).unwrap(),
@@ -739,14 +729,14 @@ fn a_skipped_daily_check_restores_the_older_channel_switch_offer() {
         switch_now: false,
     };
     assert!(!worker::cached_switch_offer(
-        &path,
+        root.path(),
         &TrustedKeys::new(),
         check,
         OffsetDateTime::now_utc()
     ));
     let keys = cached_release(&path, "1.0.0", 40);
     assert!(worker::cached_switch_offer(
-        &path,
+        root.path(),
         &keys,
         check,
         OffsetDateTime::now_utc()
@@ -757,7 +747,7 @@ fn a_skipped_daily_check_restores_the_older_channel_switch_offer() {
     // A newer release is a download, not a switch.
     let keys = cached_release(&path, "3.0.0", 60);
     assert!(!worker::cached_switch_offer(
-        &path,
+        root.path(),
         &keys,
         check,
         OffsetDateTime::now_utc()

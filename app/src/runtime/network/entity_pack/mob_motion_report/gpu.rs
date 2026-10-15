@@ -22,6 +22,10 @@ struct Captured {
     pixels: Vec<u8>,
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the mob motion report names the GPU adapter it measured on stderr"
+)]
 pub(super) fn app() -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)

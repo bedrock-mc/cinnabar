@@ -62,3 +62,37 @@ fn steady_uploads_portal_parameters_skip_unused_and_equal_frames() {
         buffer
     );
 }
+
+#[test]
+fn changed_spans_cover_every_differing_byte_and_skip_identical_lists() {
+    let vertex = |x: f32| BlockEntityVertex {
+        position: [x, 0.0, 0.0],
+        ..BlockEntityVertex::default()
+    };
+    // Spans cross several comparison blocks so block and byte refinement both run.
+    let count = COMPARE_BLOCK_BYTES / VERTEX_BYTES as usize * 3 + 5;
+    let previous: Vec<_> = (0..count).map(|index| vertex(index as f32)).collect();
+    assert_eq!(changed_span(&previous, &previous.clone()), None);
+    assert_eq!(changed_span(&[], &[]), None);
+
+    let mut moved = previous.clone();
+    moved[7].position[1] = 1.0;
+    moved[count - 9].uv[0] = 0.5;
+    assert_eq!(changed_span(&previous, &moved), Some(7..count - 8));
+
+    let mut signed = previous.clone();
+    signed[0] = vertex(-0.0);
+    assert_eq!(changed_span(&previous, &signed), Some(0..1));
+    let mut last = previous.clone();
+    last[count - 1].position[2] = f32::from_bits(0x7fc0_0001);
+    assert_eq!(changed_span(&previous, &last), Some(count - 1..count));
+
+    assert_eq!(
+        changed_span(&previous, &previous[..count - 2]),
+        Some(count - 2..count - 2)
+    );
+    let mut grown = previous.clone();
+    grown.push(vertex(-1.0));
+    assert_eq!(changed_span(&previous, &grown), Some(count..count + 1));
+    assert_eq!(changed_span(&[], &previous), Some(0..count));
+}

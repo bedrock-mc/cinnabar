@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use world::{ChunkCollisionRevision, ChunkKey};
 
-use super::{MAX_COLLISION_QUERY_EXTENT, PaletteWorld, WorldCollisionIdentity, WorldQueryError};
+use super::{
+    MAX_COLLISION_QUERY_EXTENT, PaletteWorld, WorldCollisionIdentity, WorldQueryError,
+    section::SectionCache,
+};
 use crate::{Aabb, Vec3};
 
 mod camera;
@@ -100,6 +103,7 @@ impl PaletteWorld<'_> {
         let mut inspected_count = 0_usize;
         let mut revisions = BTreeMap::new();
         let mut best: Option<Candidate> = None;
+        let mut section = SectionCache::default();
 
         loop {
             self.inspect_halo(
@@ -113,6 +117,7 @@ impl PaletteWorld<'_> {
                 inspection_limit,
                 &mut revisions,
                 &mut best,
+                &mut section,
             )?;
 
             let next = state.next_crossing();
@@ -135,6 +140,7 @@ impl PaletteWorld<'_> {
                     inspection_limit,
                     &mut revisions,
                     &mut best,
+                    &mut section,
                 )?;
             }
         }
@@ -168,6 +174,7 @@ impl PaletteWorld<'_> {
         inspection_limit: usize,
         revisions: &mut BTreeMap<ChunkKey, ChunkCollisionRevision>,
         best: &mut Option<Candidate>,
+        section: &mut SectionCache,
     ) -> Result<(), WorldQueryError> {
         let halo = self.registry.selection_ray_halo();
         for x in halo[0].0..=halo[0].1 {
@@ -189,6 +196,7 @@ impl PaletteWorld<'_> {
                             expected,
                             revisions,
                             best,
+                            section,
                         )?;
                     }
                 }
@@ -207,6 +215,7 @@ impl PaletteWorld<'_> {
         expected: Option<&WorldCollisionIdentity>,
         revisions: &mut BTreeMap<ChunkKey, ChunkCollisionRevision>,
         best: &mut Option<Candidate>,
+        section: &mut SectionCache,
     ) -> Result<(), WorldQueryError> {
         let chunk = ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4);
         self.inspect_pick_revision(chunk, expected, revisions)?;
@@ -216,7 +225,7 @@ impl PaletteWorld<'_> {
             f64::from(block[1]),
             f64::from(block[2]),
         );
-        for runtime_id in self.runtime_ids_at(block)? {
+        for runtime_id in self.layers_at(block, section)?.iter() {
             let physics = self
                 .registry
                 .physics(runtime_id)
@@ -296,6 +305,10 @@ impl PaletteWorld<'_> {
         expected: Option<&WorldCollisionIdentity>,
         revisions: &mut BTreeMap<ChunkKey, ChunkCollisionRevision>,
     ) -> Result<(), WorldQueryError> {
+        // The store is immutable for the whole ray, so a recorded column already passed.
+        if revisions.contains_key(&chunk) {
+            return Ok(());
+        }
         let current = self
             .store
             .collision_revision(chunk)

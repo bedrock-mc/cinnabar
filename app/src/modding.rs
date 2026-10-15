@@ -139,7 +139,7 @@ pub(crate) fn configure_from_environment(app: &mut App) {
     if let Some(set) = std::env::var_os(multi::SET_ENV) {
         match multi::read_set(Path::new(&set)) {
             Ok(mods) => configure_entries(app, mods),
-            Err(error) => eprintln!("Local mod set disabled: {error}"),
+            Err(error) => warn!("Local mod set disabled: {error}"),
         }
     } else if let Some(package) = package.as_deref() {
         configure_package(app, Path::new(package));
@@ -168,7 +168,7 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     configure_systems(app, true);
                 }
             }
-            Err(error) => eprintln!("Local extension watcher unavailable: {error}"),
+            Err(error) => warn!("Local extension watcher unavailable: {error}"),
         }
     }
 }
@@ -183,7 +183,7 @@ fn configure(app: &mut App, path: Option<&Path>) {
 fn configure_package(app: &mut App, dir: &Path) {
     match ModHost::load_package(dir, environment_grants()) {
         Ok(host) => install(app, vec![host]),
-        Err(error) => eprintln!("Cinnabar mod package {} disabled: {error:#}", dir.display()),
+        Err(error) => warn!("Cinnabar mod package {} disabled: {error:#}", dir.display()),
     }
 }
 
@@ -219,14 +219,14 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
                     .map_err(|error| format!("{error:#}"))
             });
         if let Err(error) = result {
-            eprintln!("Optional personal-panel catalog unavailable: {error}");
+            warn!("Optional personal-panel catalog unavailable: {error}");
         }
     }
     let override_font =
         std::env::var_os(font::FONT_ENV).and_then(|path| match font::load(Path::new(&path)) {
             Ok(font) => Some(std::sync::Arc::new(font)),
             Err(error) => {
-                eprintln!("Optional personal-panel font unavailable: {error}");
+                warn!("Optional personal-panel font unavailable: {error}");
                 None
             }
         });
@@ -253,12 +253,12 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
                     true
                 }
                 Err(error) => {
-                    eprintln!("Embedded menu branding rejected; component disabled: {error}");
+                    warn!("Embedded menu branding rejected; component disabled: {error}");
                     false
                 }
             },
             Err(error) => {
-                eprintln!("Embedded personal-panel font rejected; component disabled: {error}");
+                warn!("Embedded personal-panel font rejected; component disabled: {error}");
                 false
             }
         }
@@ -276,7 +276,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
                         );
                     }
                 }
-                Err(error) => eprintln!("Optional personal-panel preparation unavailable: {error}"),
+                Err(error) => warn!("Optional personal-panel preparation unavailable: {error}"),
             }
         }
     }
@@ -302,7 +302,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
             Ok(loader) => {
                 app.insert_resource(loader);
             }
-            Err(error) => eprintln!("Environment component worker unavailable: {error}"),
+            Err(error) => warn!("Environment component worker unavailable: {error}"),
         }
     }
     let mut hosts = hosts.into_iter();
@@ -499,7 +499,7 @@ fn drive_mod(
                     }
                 }
                 Ok(false) => {}
-                Err(error) => eprintln!("Cinnabar extension reload rejected: {error:#}"),
+                Err(error) => warn!("Cinnabar extension reload rejected: {error:#}"),
             }
         }
     }
@@ -592,7 +592,7 @@ fn drive_mod(
             {
                 watcher.quarantine(&registered.entry.component, error.clone());
             }
-            eprintln!("Cinnabar extension callback failed: {error}");
+            warn!("Cinnabar extension callback failed: {error}");
         },
     );
     for index in 0..extension.hosts.host_count() {
@@ -638,7 +638,7 @@ fn drive_mod(
         .mod_ui_mut()
         .set_mod_label(extension.hosts.merged_label())
     {
-        eprintln!("Cinnabar extension HUD rejected: {error}");
+        warn!("Cinnabar extension HUD rejected: {error}");
     }
     let combined_hud = extension.hosts.merged_hud();
     let hud = combined_hud.as_ref();
@@ -659,7 +659,7 @@ fn drive_mod(
             .and_then(|style| style.hurt_color);
     }
     if let Err(error) = presentation.set_mod_hud(hud) {
-        eprintln!("Cinnabar extension HUD cards rejected: {error}");
+        warn!("Cinnabar extension HUD cards rejected: {error}");
     }
     presentation
         .mod_ui_mut()
@@ -669,18 +669,18 @@ fn drive_mod(
     let crosshair_owner = extension.hosts.crosshair_owner();
     let crosshair = crosshair_owner.and_then(|owner| extension.hosts.host(owner).crosshair());
     if let Err(error) = presentation.mod_ui_mut().set_mod_crosshair(crosshair) {
-        eprintln!("Cinnabar extension crosshair rejected: {error}");
+        warn!("Cinnabar extension crosshair rejected: {error}");
     }
     let owner = extension.hosts.panel_owner();
     presentation.set_mod_menu_branding(extension.menu_branding());
     if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
-        eprintln!("Cinnabar extension panel font rejected: {error}");
+        warn!("Cinnabar extension panel font rejected: {error}");
     }
     if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
         extension.panel_ui_owner(owner),
         extension.hosts.host(owner).panel(),
     ) {
-        eprintln!("Cinnabar extension panel rejected: {error}");
+        warn!("Cinnabar extension panel rejected: {error}");
         extension.hosts.host_mut(owner).set_panel_open(false);
     }
     presentation
@@ -712,7 +712,7 @@ fn send_commands(
             .send_form_packet(session, protocol::command_request_packet(&command))
             .is_err()
         {
-            eprintln!("Cinnabar extension command dropped: the session is not accepting packets");
+            warn!("Cinnabar extension command dropped: the session is not accepting packets");
             return;
         }
     }

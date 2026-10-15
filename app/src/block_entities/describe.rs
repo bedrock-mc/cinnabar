@@ -219,15 +219,14 @@ fn sign_mount(backing: BlockEntityBacking<'_>, state: &BlockState) -> Option<Sig
 
 /// Keeps visible text and its retained appearance.
 fn sign_face(face: &NbtCompound) -> Option<SignTextSpec> {
-    let spec = SignTextSpec {
-        text: face.string("Text")?.to_owned(),
-        color_argb: face
-            .integer("SignTextColor")
+    let spec = SignTextSpec::new(
+        face.string("Text")?.to_owned(),
+        face.integer("SignTextColor")
             .and_then(|value| i32::try_from(value).ok())
             .unwrap_or(DEFAULT_SIGN_COLOR),
-        glowing: face.boolean("IgnoreLighting").unwrap_or(false),
-        hide_glow_outline: face.boolean("HideGlowOutline").unwrap_or(false),
-    };
+        face.boolean("IgnoreLighting").unwrap_or(false),
+        face.boolean("HideGlowOutline").unwrap_or(false),
+    );
     spec.is_visible().then_some(spec)
 }
 
@@ -678,7 +677,15 @@ mod tests {
                 rotation_degrees: 90.0
             }
         );
-        assert_eq!(front.unwrap().text, "hi");
+        assert_eq!(
+            front,
+            Some(SignTextSpec::new(
+                "hi".into(),
+                DEFAULT_SIGN_COLOR,
+                false,
+                false
+            ))
+        );
         assert!(back.is_none());
     }
 

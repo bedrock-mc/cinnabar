@@ -333,6 +333,10 @@ struct Logs {
 }
 
 impl Logs {
+    #[expect(
+        clippy::print_stderr,
+        reason = "guest logs reach the supervisor as `log <id> <level> ...` stderr lines"
+    )]
     fn push(&mut self, level: LogLevel, text: &str) {
         if self.kept == MAX_LOGS {
             self.dropped += 1;
@@ -355,6 +359,10 @@ impl Logs {
 }
 
 impl Drop for Logs {
+    #[expect(
+        clippy::print_stderr,
+        reason = "guest log drops reach the supervisor as a stderr line"
+    )]
     fn drop(&mut self) {
         if self.dropped > 0 || self.truncated > 0 {
             eprintln!(

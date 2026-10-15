@@ -116,6 +116,25 @@ pub fn command(
             let Packs { action } = parse(arguments, "global packs")?;
             (Command::GlobalPacks { action }, CALL_TIMEOUT)
         }
+        "log_filter_set" => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Filter {
+                spec: String,
+            }
+            let Filter { spec } = parse(arguments, "log filter")?;
+            (Command::LogFilterSet { spec }, CALL_TIMEOUT)
+        }
+        "log_filter_get" => (Command::LogFilterGet, CALL_TIMEOUT),
+        "crash" => {
+            #[derive(serde::Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct Crash {
+                kind: developer_control::protocol::CrashKind,
+            }
+            let Crash { kind } = parse(arguments, "crash")?;
+            (Command::Crash { kind }, CALL_TIMEOUT)
+        }
         "state" => (Command::State, CALL_TIMEOUT),
         "sign_in_fixture" => {
             #[derive(serde::Deserialize)]

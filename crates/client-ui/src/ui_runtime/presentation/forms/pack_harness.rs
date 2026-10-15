@@ -91,6 +91,10 @@ pub fn pack_files(root: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 /// The packs `CINNABAR_FORM_PACK_DIR` lists (`:`-separated, lowest first).
+#[expect(
+    clippy::print_stderr,
+    reason = "explains on stderr why a server pack fixture test skips"
+)]
 pub fn env_pack() -> Option<ServerUiPack> {
     let dirs = std::env::var(PACK_ENV).ok()?;
     for dir in dirs.split(':').filter(|dir| !dir.is_empty()) {
@@ -275,6 +279,10 @@ pub fn menu_nodes(presentation: &UiPresentationRuntime) -> &[UiNode] {
 }
 
 /// Every text node with its bounds and its clip parent's bounds, for diagnosis.
+#[expect(
+    clippy::print_stderr,
+    reason = "prints text-node bounds on stderr for local fixture diagnosis"
+)]
 pub fn dump(nodes: &[UiNode]) {
     for node in nodes {
         if let UiVisual::Text { layout, color, .. } = node.visual() {

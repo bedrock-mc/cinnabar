@@ -13,6 +13,7 @@ import (
 	"github.com/df-mc/go-xsapi/v2/mpsd"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -186,14 +187,14 @@ func (h *FriendHost) accept(ctx context.Context) {
 		conn, err := h.listener.Accept()
 		if err != nil {
 			if ctx.Err() == nil && !errors.Is(err, net.ErrClosed) {
-				h.log.Warn("friends: accept", "error", err)
+				h.log.Warn("friends: accept", "error", redact.Error(err))
 			}
 			return
 		}
 		downstream := conn.(*minecraft.Conn)
 		prepared, err := takePreparedAfterAccept(h.prepared, downstream)
 		if err != nil {
-			h.log.Warn("friends: hand off", "error", err)
+			h.log.Warn("friends: hand off", "error", redact.Error(err))
 			continue
 		}
 		if prepared == nil {
@@ -206,10 +207,16 @@ func (h *FriendHost) accept(ctx context.Context) {
 			defer func() { h.session.setMembers(int(h.players.Add(-1)) + 1) }()
 			// A friend's session ending never stops the host.
 			if err := servePreparedConnection(ctx, downstream, prepared); err != nil && ctx.Err() == nil {
-				h.log.Debug("friends: session ended", "xuid", downstream.IdentityData().XUID, "error", err)
+				logFriendSessionEnded(h.log, downstream.IdentityData().XUID, err)
 			}
 		}()
 	}
+}
+
+// logFriendSessionEnded records why a friend's session ended, the friend's XUID as a hash and
+// the error redacted.
+func logFriendSessionEnded(log *slog.Logger, xuid string, err error) {
+	log.Debug("friends: session ended", "xuid", redact.Private(xuid), "error", redact.Error(err))
 }
 
 // Invite sends an Xbox Live invite to the world.

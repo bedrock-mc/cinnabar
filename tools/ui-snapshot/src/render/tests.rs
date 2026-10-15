@@ -100,12 +100,10 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
             input.rect.y > viewport[1] / 2.0,
             "input must stay near the bottom"
         );
-        assert!(
-            input.rect.w <= width,
-            "input must follow the configured chat width"
-        );
+        assert_eq!(input.rect.x, 4.0, "input text keeps its left inset");
+        assert_eq!(input.rect.w, viewport[0] - 8.0);
         let draws = json_ui::emit(&laid, &env);
-        // The nine-slice quads of the translucent backdrop together span the chat width.
+        // The backdrop spans the viewport with a two-pixel inset on each side.
         let (left, right) = draws
             .iter()
             .filter(|node| {
@@ -117,11 +115,8 @@ fn snapshot_chat_uses_the_shipped_input_and_autocomplete_backdrops() {
                 let (x, w) = (node.dest.x, node.dest.w);
                 (left.min(x), right.max(x + w))
             });
-        assert_eq!(
-            right - left,
-            width,
-            "the input must paint its shipped translucent backdrop"
-        );
+        assert_eq!(left, 2.0);
+        assert_eq!(right, viewport[0] - 2.0);
     }
     let suggestion = json_ui::resolve(
         &catalog,

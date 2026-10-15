@@ -14,7 +14,7 @@ uploaded; sharing is always an explicit user action.
 
 | Question | Decision |
 |---|---|
-| Crash dialog | Native OS dialog. Windows `TaskDialogIndirect` (summary, expandable details, Open folder, Copy report, Restart, Close); macOS and Linux through `launcher_host::native_dialog`. The report folder carries the detail. |
+| Crash dialog | A crash window drawn with the pre-game OreUI stack (`bootstrap-ui`: theme, open font, panorama, logo): summary card, scrollable details, Restart, Copy report, Open folder, Close and Join our Discord. When no window can open, a native dialog (`launcher_host::native_dialog`) offers the same actions. |
 | Crash monitor | Out of process. The client re-executes itself as `cinnabar --crash-monitor`, following the `--first-run-setup` precedent, so packaging gains no binary. |
 | Minidump contents | Thread stacks, thread list and module list. `CINNABAR_FULL_DUMP=1` adds full memory for developers. |
 | Symbols | Release builds keep line tables in split debug files; shipped binaries stay stripped; symbol archives are GitHub release assets. |
@@ -210,9 +210,10 @@ all threads and keeps the process running. One report per stall.
 ## Phase 6: Redaction
 
 1. `Secret<T>` in Rust and a `LogValuer` secret type in Go cover credentials at write time.
-2. One share-time rule file in `crash-report` with test vectors; a generated copy embedded
-   in `core/control`, checked in CI. Go `RedactError`, the Go resource-pack handler, `devtool
-   diag` and Copy report use it. Placeholders unify to `[redacted]`.
+2. One share-time rule file in `crash-report` with test vectors; a byte-for-byte copy embedded
+   in `core/internal/redact`, checked by a `crash-report` test. Go `redact.Error` (replacing
+   `RedactError`), the Go resource-pack handler, `devtool diag` and Copy report use it.
+   Placeholders unify to `[redacted]`.
 3. Unredacted Go sites (`proxy.go:195-202`, `targets.go:69`, `proxy.go:251`, `main.go:159`,
    `friend_host.go:209`, raw upstream errors) move to typed or scrubbed fields.
 

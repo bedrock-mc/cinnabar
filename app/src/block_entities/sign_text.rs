@@ -20,17 +20,46 @@ const ASCENT_TEXELS: u32 = 14;
 const LINE_HEIGHT_TEXELS: u32 = 18;
 const BLACK_OUTLINE_RGB: [u8; 3] = [0xF0, 0xEB, 0xCC];
 
-/// One face's text as stored in the block entity.
+/// One face's text as stored in the block entity, with its canvas cache key computed once
+/// because every drawn sign looks its canvas up each frame.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct SignTextSpec {
-    pub(super) text: String,
+    text: String,
     /// `SignTextColor` as ARGB; alpha is ignored.
-    pub(super) color_argb: i32,
-    pub(super) glowing: bool,
-    pub(super) hide_glow_outline: bool,
+    color_argb: i32,
+    glowing: bool,
+    hide_glow_outline: bool,
+    /// Hash of every field above; equal specs share one canvas.
+    key: u64,
 }
 
 impl SignTextSpec {
+    /// A face showing `text` in `SignTextColor` `color_argb`, glowing or not.
+    pub(super) fn new(
+        text: String,
+        color_argb: i32,
+        glowing: bool,
+        hide_glow_outline: bool,
+    ) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        color_argb.hash(&mut hasher);
+        glowing.hash(&mut hasher);
+        hide_glow_outline.hash(&mut hasher);
+        Self {
+            text,
+            color_argb,
+            glowing,
+            hide_glow_outline,
+            key: hasher.finish(),
+        }
+    }
+
+    /// Whether the text ignores world light.
+    pub(super) const fn glowing(&self) -> bool {
+        self.glowing
+    }
+
     /// Whether the face draws anything.
     pub(super) fn is_visible(&self) -> bool {
         self.text
@@ -38,13 +67,9 @@ impl SignTextSpec {
             .any(|character| !character.is_whitespace())
     }
 
-    pub(super) fn cache_key(&self) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.text.hash(&mut hasher);
-        self.color_argb.hash(&mut hasher);
-        self.glowing.hash(&mut hasher);
-        self.hide_glow_outline.hash(&mut hasher);
-        hasher.finish()
+    /// Identifies this face's canvas; equal specs share one key.
+    pub(super) const fn cache_key(&self) -> u64 {
+        self.key
     }
 
     fn base_rgb(&self) -> [u8; 3] {
@@ -212,18 +237,12 @@ mod tests {
     use super::*;
 
     fn spec(text: &str) -> SignTextSpec {
-        SignTextSpec {
-            text: text.into(),
-            color_argb: -0x1000000,
-            glowing: false,
-            hide_glow_outline: false,
-        }
+        SignTextSpec::new(text.into(), -0x1000000, false, false)
     }
 
     #[test]
     fn color_decoding_ignores_alpha_and_black_outlines_are_light() {
-        let mut face = spec("x");
-        face.color_argb = 0x00FF8040u32 as i32;
+        let face = SignTextSpec::new("x".into(), 0x00FF8040u32 as i32, false, false);
         assert_eq!(face.base_rgb(), [0xFF, 0x80, 0x40]);
         assert_eq!(spec("x").outline_rgb(), BLACK_OUTLINE_RGB);
         assert_eq!(face.outline_rgb(), [102, 51, 25]);
@@ -233,8 +252,7 @@ mod tests {
     fn keys_track_every_visible_input() {
         let base = spec("hello");
         assert_eq!(base.cache_key(), spec("hello").cache_key());
-        let mut glowing = spec("hello");
-        glowing.glowing = true;
+        let glowing = SignTextSpec::new("hello".into(), -0x1000000, true, false);
         assert_ne!(base.cache_key(), glowing.cache_key());
         assert_ne!(base.cache_key(), spec("world").cache_key());
         assert!(!spec("  \n \n").is_visible());

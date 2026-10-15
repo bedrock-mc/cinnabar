@@ -784,7 +784,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             death_rules: protocol::DeathRules::default(),
             packs: (),
             terrain_before_spawn: true,
-            level_identity: 0,
+            level_identity: None,
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),

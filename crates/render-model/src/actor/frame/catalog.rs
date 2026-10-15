@@ -8,6 +8,9 @@ use std::{
     },
 };
 
+use foldhash::fast::FixedState;
+use hashbrown::HashMap;
+
 use super::{
     ActorRigGeometry, ActorRigGeometryError, ActorRigGeometrySpan, ActorRigVertex, EntityRigId,
 };
@@ -113,8 +116,8 @@ pub(super) struct AdmissionPlan {
 #[derive(Debug)]
 pub(super) struct GeometryCatalog {
     pub(super) geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
-    /// Stable span index for each registered geometry.
-    pub(super) indices: BTreeMap<EntityRigId, u32>,
+    /// Stable span index for each registered geometry; looked up for every drawn submission.
+    pub(super) indices: HashMap<EntityRigId, u32, FixedState>,
     spans: Vec<ActorRigGeometrySpan>,
     pub(super) published_spans: Arc<[ActorRigGeometrySpan]>,
     pub(super) vertices: ActorRigVertexSegments,
@@ -145,7 +148,8 @@ impl GeometryCatalog {
                 geometry.revalidate()?;
             }
         }
-        let mut indices = BTreeMap::new();
+        let mut indices =
+            HashMap::with_capacity_and_hasher(geometries.len(), FixedState::default());
         let mut pages = VertexPages::default();
         let mut offsets = Vec::with_capacity(geometries.len());
         let mut spans = Vec::with_capacity(geometries.len());

@@ -75,6 +75,57 @@ fn empty_request_mode_resend_replaces_the_summary() {
     assert!(resent.is_empty(), "the empty resend replaced the surface");
 }
 
+/// Delivered air owns its visible emptiness before a summary worker or mesh upload runs.
+#[test]
+fn missing_terrain_empty_delivered_column_hides_cached_terrain_immediately() {
+    for mode in [
+        LevelChunkMode::Inline { count: 0 },
+        LevelChunkMode::LimitedRequests { highest: 0 },
+    ] {
+        let mut stream = stream(true);
+        stream.set_full_detail_radius(Some(1));
+        let column = ChunkKey::new(0, 10, 0);
+        stream
+            .submit(1, inline_block_entity_event(column.x, 7, Vec::new()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(!stream.near_drawn_columns().1.any(|key| key == column));
+        stream
+            .submit(2, request_level_chunk_event(0, column.x, column.z, mode, 1))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+
+        let mask = far_terrain::NearMask::around_with_empty(
+            [0, 0],
+            16,
+            1,
+            stream
+                .near_geometry_columns()
+                .map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
+            stream
+                .near_empty_columns()
+                .map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
+        );
+        assert!(mask.contains(far_terrain::ColumnPos::new(column.x, column.z)));
+        assert_eq!(
+            mask.outer_blocks(),
+            far_terrain::NearMask::around([0, 0], 16, 1, []).outer_blocks()
+        );
+
+        stream
+            .submit(3, inline_block_entity_event(column.x, 7, Vec::new()))
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(!stream.near_drawn_columns().1.any(|key| key == column));
+
+        stream.submit(4, inline_air_event(column.x)).unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        assert!(stream.near_drawn_columns().1.any(|key| key == column));
+        stream.evict_column(column);
+        assert!(!stream.near_drawn_columns().1.any(|key| key == column));
+    }
+}
+
 /// Retiring the stream summarises every complete column into the handed-over inbox.
 #[test]
 fn retiring_the_stream_summarises_resident_columns() {

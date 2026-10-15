@@ -100,7 +100,7 @@ fn hud_local_emote_moves_vertices_and_equipment_without_replacing_geometry_or_na
 }
 
 /// Spawns an offline player whose rig comes from the supplied session catalog.
-fn player_stream(
+pub(super) fn player_stream(
     vanilla: Arc<assets::RuntimeEntityAssets>,
     pack: Arc<assets::RuntimeEntityAssets>,
 ) -> chunk_pipeline::WorldStream {

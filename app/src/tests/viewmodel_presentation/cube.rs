@@ -227,6 +227,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     app.insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(world)
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(movement)
         .insert_resource(visibility)
         .init_resource::<HandAdapter>()
@@ -407,7 +408,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             )
             .unwrap();
         assert_cube_scene(&app, true);
-        assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+        assert!(
+            app.world()
+                .resource::<crate::runtime::shutdown::FatalError>()
+                .0
+                .is_none()
+        );
     }
     assert!(
         input

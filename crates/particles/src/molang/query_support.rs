@@ -2,13 +2,18 @@
 use super::*;
 
 impl Program {
-    /// Lists external numeric queries and rejects calls outside the implemented expression grammar.
-    pub(crate) fn actor_queries(&self) -> Option<Box<[Box<str>]>> {
+    /// Parses `source` and lists its external numeric queries; `None` when it does not parse
+    /// or calls outside the implemented expression grammar.
+    pub(crate) fn parse_with_actor_queries(
+        source: &str,
+        interner: &mut Interner,
+    ) -> Option<(Self, Box<[Box<str>]>)> {
+        let statements = parse_statements(source, interner)?;
         let mut names = std::collections::BTreeSet::new();
-        for statement in &self.stmts {
+        for statement in &statements {
             collect(statement, &mut names)?;
         }
-        Some(names.into_iter().collect())
+        Some((Self::compile(&statements), names.into_iter().collect()))
     }
 }
 

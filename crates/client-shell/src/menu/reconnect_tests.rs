@@ -203,3 +203,38 @@ fn featured_presence_survives_join_adoption_and_clears_on_transfer() {
     menu.remember_retry_target("Local world", None, true);
     assert!(menu.presence_address().is_none());
 }
+
+#[test]
+fn remote_failure_projects_an_oreui_reason_and_keeps_navigation_actions() {
+    use launcher::menu::{
+        disconnect::{DisconnectBody, describe, from_server},
+        flow::MenuFlow,
+    };
+    for gamepad in [false, true] {
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.request_connect("example.invalid".into());
+        menu.take_join_intent().unwrap();
+        menu.show_world();
+        let reason = "§cYou are banned.\n§fPlease contact the moderation team.";
+        assert!(menu.absorb_session_failure(&from_server(reason)));
+        let view = menu.view();
+        assert_eq!(view.flow(), MenuFlow::Disconnect);
+        assert_eq!(view.json_ui_menu_reference(), None);
+        assert_eq!(
+            describe(view.disconnect_message.as_deref().unwrap()).body,
+            DisconnectBody::Server(reason.into())
+        );
+        assert_eq!(
+            menu.focus_actions(),
+            [MenuAction::Reconnect, MenuAction::DismissDialog]
+        );
+        if gamepad {
+            menu.input_mode = super::input::MenuInputMode::Gamepad;
+        }
+        menu.activate_focused();
+        assert_eq!(menu.take_join_intent().unwrap().address, "example.invalid");
+        menu.show_join_failure(from_server(reason));
+        menu.go_back();
+        assert!(menu.view().disconnect_message.is_none());
+    }
+}

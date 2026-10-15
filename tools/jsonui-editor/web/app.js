@@ -1,6 +1,7 @@
 // JSON-UI editor front end: file handling, CodeMirror, preview painting and
 // panels. Everything engine-side lives in the wasm `Editor`.
 import init, { Editor } from "./pkg/jsonui_editor.js";
+import { loadFolder, supplyFiles, supplyExportFiles } from "./pack-files.js";
 import { EditorView, basicSetup } from "https://esm.sh/codemirror@6.0.1";
 import { EditorState } from "https://esm.sh/@codemirror/state@^6";
 import { placeholder } from "https://esm.sh/@codemirror/view@^6";
@@ -9,8 +10,6 @@ import { forceLinting, linter, lintGutter } from "https://esm.sh/@codemirror/lin
 import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@^6";
 
 const $ = (id) => document.getElementById(id);
-const EAGER = /(^|\/)(ui\/.*\.json|texts\/en_US\.lang|textures\/.*\.json)$/i;
-const IMAGE = /(^|\/)textures\/.*\.(png|tga|jpe?g)$/i;
 const RENDER_DELAY = 120;
 
 const MOCK_PRESETS = {
@@ -34,7 +33,7 @@ const QUICK_FLAGS = ["desktop_screen", "pocket_screen", "touch", "pocket_edition
 
 const state = {
   editor: null,
-  layers: [],          // [{name, files: Map(fullPath -> File)}]
+  layers: [],          // [{name, files: Map(pending pack-relative path -> File)}]
   open: null,          // {layer, path}
   frame: null,
   selected: -1,
@@ -72,7 +71,7 @@ function loadPrefs() {
 
 // ---------- CodeMirror ----------
 
-const PLACEHOLDER = "Open a ui/*.json file from the list, or type or paste a JSON-UI file here to start a scratch file.";
+const PLACEHOLDER = "Open a JSON-UI file from the list, or type or paste one here to start a scratch file.";
 
 function makeState(text) {
   return EditorState.create({
@@ -181,18 +180,9 @@ function insertLayer(index, entry) {
 
 // ---------- loading packs ----------
 
+/** Load a folder and insert its pending handles at the workspace's layer index. */
 async function addLayer(name, entries) {
-  const index = state.editor.add_layer(name);
-  const files = new Map();
-  for (const [path, file] of entries) {
-    if (EAGER.test(path)) {
-      state.editor.stage_file(path, new Uint8Array(await file.arrayBuffer()));
-    } else if (IMAGE.test(path)) {
-      state.editor.stage_pending(path);
-      files.set(path, file);
-    }
-  }
-  state.editor.commit_files(index);
+  const { index, files } = await loadFolder(state.editor, name, entries);
   insertLayer(index, { name, files });
 }
 
@@ -214,6 +204,7 @@ async function loadEntries(groups) {
       if (group.zip) await addZip(group.name, group.zip);
       else await addLayer(group.name, group.entries);
     }
+    await supplyWanted(JSON.parse(state.editor.wanted_ui_files()));
   } catch (error) {
     setStatus(String(error.message ?? error));
   }
@@ -272,9 +263,6 @@ async function walkEntry(entry, prefix, out) {
       const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
       if (!batch.length) break;
       for (const child of batch) {
-        // Only ui/, texts/ and textures/ matter; skip the rest of big packs.
-        const path = `${prefix}${entry.name}/${child.name}`;
-        if (child.isDirectory && /(^|\/)(models|entity|sounds|particles|animations|animation_controllers|render_controllers|attachables|biomes|fogs)$/.test(path)) continue;
         await walkEntry(child, `${prefix}${entry.name}/`, out);
       }
     }
@@ -322,22 +310,9 @@ async function loadExample(options = {}) {
   }
 }
 
-// Supply texture images the last render asked for, then render again.
+/** Supply indexed UI documents or texture images requested by the editor. */
 async function supplyWanted(wanted) {
-  let supplied = 0;
-  for (const [layer, path] of wanted) {
-    const files = state.layers[layer]?.files;
-    if (!files) continue;
-    let file = files.get(path);
-    if (!file) {
-      for (const [full, candidate] of files) {
-        if (full.endsWith(`/${path}`)) { file = candidate; break; }
-      }
-    }
-    state.editor.supply(layer, path, file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array());
-    supplied++;
-  }
-  return supplied;
+  return supplyFiles(state.editor, state.layers, wanted);
 }
 
 // ---------- rendering ----------
@@ -373,6 +348,10 @@ async function render() {
     showEmpty("Nothing loaded: open a resource pack folder or zip, load the example, or paste a JSON-UI file into the editor.");
     return;
   }
+  if (await supplyWanted(JSON.parse(state.editor.wanted_ui_files()))) {
+    refreshScreens();
+  }
+  renderFiles();
   autoPickScreen();
   const view = currentView();
   if (!view.reference) {
@@ -531,7 +510,7 @@ function renderFiles() {
     for (const file of layer.files) {
       if (filter && !file.path.toLowerCase().includes(filter)) continue;
       const li = document.createElement("li");
-      li.textContent = file.path.replace(/^ui\//, "");
+      li.textContent = file.path;
       const tag = document.createElement("span");
       tag.className = "layer-tag";
       tag.textContent = ` · ${layer.name}`;
@@ -748,6 +727,7 @@ function showTab(name) {
 // ---------- export ----------
 
 let exportTimer = 0;
+let exportRevision = 0;
 function refreshExportSoon() {
   clearTimeout(exportTimer);
   exportTimer = setTimeout(refreshExport, 400);
@@ -807,7 +787,9 @@ function exportRequest() {
   };
 }
 
-function refreshExport() {
+/** Show a complete export plan after loading the selected owned folder's bytes. */
+async function refreshExport() {
+  const revision = ++exportRevision;
   if ($("export-mode").value === "full") {
     const select = $("export-layer");
     const current = select.value;
@@ -819,13 +801,18 @@ function refreshExport() {
   const warnings = $("export-warnings");
   warnings.replaceChildren();
   let result;
+  $("export-download").disabled = true;
   try {
-    result = JSON.parse(state.editor.export_plan(JSON.stringify(exportRequest())));
+    const request = exportRequest();
+    await supplyExportFiles(state.editor, state.layers, request);
+    result = JSON.parse(state.editor.export_plan(JSON.stringify(request)));
   } catch (error) {
+    if (revision !== exportRevision) return;
     $("export-preview").textContent = String(error);
     $("export-download").disabled = true;
     return;
   }
+  if (revision !== exportRevision) return;
   const { plan, manifest } = result;
   const lines = [];
   const notes = [...plan.notes, ...(plan.skipped.length ? [`${plan.skipped.length} files left out (not yours to ship)`] : [])];
@@ -872,11 +859,12 @@ function setupExport() {
     }
     refreshExport();
   };
-  $("export-form").onsubmit = (event) => {
+  $("export-form").onsubmit = async (event) => {
     event.preventDefault();
     const request = exportRequest();
     let bytes;
     try {
+      await supplyExportFiles(state.editor, state.layers, request);
       bytes = state.editor.export_pack(JSON.stringify(request), packIcon ?? undefined);
     } catch (error) {
       $("export-status").textContent = String(error);

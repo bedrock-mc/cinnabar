@@ -161,6 +161,18 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
+    /// Whether launch and Settings layer debug levels for the net, session, core and packs
+    /// log categories over the defaults. `CINNABAR_LOG` and `RUST_LOG` take precedence.
+    pub fn verbose_logging(&self) -> bool {
+        self.value(SettingId::VerboseLogging) != 0
+    }
+
+    /// Whether each new network session records a full packet capture to the log directory.
+    /// `CINNABAR_PACKET_CAPTURE` takes precedence.
+    pub fn record_network_session(&self) -> bool {
+        self.value(SettingId::RecordNetworkSession) != 0
+    }
+
     /// Whether new menu screens use the additional accessibility scale step.
     pub fn extra_large_ui(&self) -> bool {
         self.value(SettingId::GuiAccessibilityScaling) != 0

@@ -36,8 +36,8 @@
           "type": "panel",
           "anchor_from": "bottom_left",
           "anchor_to": "bottom_left",
-          "offset": [ 0, -2 ],
-          "size": [ "$cinnabar_chat_width", 14 ],
+          "offset": [ 2, -2 ],
+          "size": [ "100% - 4px", 12 ],
           "max_size": [ "100%", "100%" ],
           "layer": 2,
           "clips_children": true,
@@ -46,7 +46,8 @@
               "background": {
                 "type": "image",
                 "texture": "textures/ui/Black",
-                "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
+                // Fixed input background: alpha 128/255.
+                "alpha": 0.5019607843137255,
                 "size": [ "100%", "100%" ]
               }
             },
@@ -54,7 +55,10 @@
               "text_edit_box": {
                 "type": "edit_box",
                 "text_control": "text",
-                "size": [ "100% - 8px", 10 ],
+                "size": [ "100% - 4px", 10 ],
+                "anchor_from": "top_left",
+                "anchor_to": "top_left",
+                "offset": [ 2, 2 ],
                 "always_listening": true,
                 "default_focus_precedence": 1,
                 "layer": 1,
@@ -77,24 +81,45 @@
         }
       },
       {
-        "suggestions@chat.commands_panel": {
-          "size": [ "$cinnabar_chat_width", "100% - 50px" ],
-          "max_size": [ "100%", "100%" ],
-          "offset": [ 0, -18 ],
-          "layer": 10
+        "suggestions": {
+          "type": "stack_panel",
+          "orientation": "horizontal",
+          "use_child_anchors": true,
+          "anchor_from": "bottom_left",
+          "anchor_to": "bottom_left",
+          "size": [ "100% - 3px", "100%cm" ],
+          "offset": [ 3, -15 ],
+          "layer": 10,
+          "controls": [
+            {
+              "completion_prefix": {
+                "type": "panel",
+                "alpha": 0,
+                "size": [ "fill", 0 ],
+                "max_size": [ "100%c", 0 ],
+                "controls": [{
+                  "text": {
+                    "type": "label",
+                    "text": "#cinnabar_chat_completion_prefix",
+                    "localize": false,
+                    "size": [ "default", 0 ],
+                    "bindings": [ { "binding_name": "#cinnabar_chat_completion_prefix" } ]
+                  }
+                }]
+              }
+            },
+            {
+              "rows": {
+                "type": "stack_panel",
+                "orientation": "vertical",
+                "size": [ "100%cm", "100%c" ],
+                "max_size": [ "100%", "100%" ],
+                "collection_name": "auto_complete",
+                "factory": { "control_name": "chat.auto_complete_panel_contents_with_item" }
+              }
+            }
+          ]
         }
-      }
-    ]
-  },
-  "auto_complete_panel/panel/auto_complete_grid": {
-    "size": [ "100%", "default" ],
-    "grid_rescaling_type": "horizontal",
-    "bindings": [
-      {
-        "binding_name": "#collection_total_items",
-        "binding_name_override": "#maximum_grid_items",
-        "binding_type": "collection",
-        "binding_collection_name": "auto_complete"
       }
     ]
   },
@@ -106,6 +131,9 @@
     }]
   },
   "auto_complete_panel_contents_with_item": {
+    "size": [ "100%cm + 1px", 12 ],
+    "inherit_max_sibling_width": true,
+    "clips_children": true,
     "modifications": [
       {
         "array_name": "controls",
@@ -114,13 +142,23 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
-            "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
+            // Fixed suggestion background: alpha 208/255.
+            "alpha": 0.8156862745098039,
             "size": [ "100%", "100%" ],
             "layer": -1
           } }
         ]
       }
     ]
+  },
+  "auto_complete_panel_contents_with_item/auto_complete_item_renderer": {
+    "ignored": true
+  },
+  "auto_complete_panel_contents_with_item/text": {
+    "size": [ "default", 9 ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "offset": [ 1, 2 ]
   },
   "messages_text": {
     "bindings": [],

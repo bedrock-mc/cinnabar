@@ -1,0 +1,2 @@
+# Unit tests may print; production code logs through `tracing`.
+allow-print-in-tests = true

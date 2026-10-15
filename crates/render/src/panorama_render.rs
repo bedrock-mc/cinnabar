@@ -1,46 +1,38 @@
 //! Draws the menu panorama as one full-screen triangle that ray-casts into the
 //! six-face cube array, so the view is an exact perspective cube.
 //!
-//! It is opaque and draws in the main opaque pass: world passes queue nothing
-//! while it shows, so the menu's scene uses one pass.
+//! The opaque backdrop draws after world geometry and before screen UI, so startup
+//! can keep gathering GPU visibility evidence without exposing unfinished terrain.
 use crate::queue_writes::ProfiledQueue as _;
-use bevy::prelude::IntoScheduleConfigs;
-use bevy::render::render_phase::AddRenderCommand;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
-    core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
-    ecs::{
-        query::ROQueryItem,
-        system::{SystemParamItem, lifetimeless::SRes},
-    },
+    camera::{MainPassResolutionOverride, Viewport},
+    core_pipeline::{Core3d, Core3dSystems, core_3d::CORE_3D_DEPTH_FORMAT},
     prelude::{
-        App, AssetId, BevyError, Commands, Entity, FromWorld, Handle, Mesh, Msaa, Plugin, Query,
-        Res, ResMut, Resource, Result, Shader, World, default,
+        App, BevyError, Commands, Entity, FromWorld, Handle, IntoScheduleConfigs, Msaa, Plugin,
+        Query, Res, ResMut, Resource, Result, Shader, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
+        camera::ExtractedCamera,
         extract_resource::ExtractResourcePlugin,
-        render_phase::{
-            BinnedRenderPhaseType, DrawFunctions, InputUniformIndex, PhaseItem, RenderCommand,
-            RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewBinnedRenderPhases,
-        },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
-            ColorWrites, CompareFunction, DepthStencilState, Extent3d, FilterMode, FragmentState,
-            PipelineCache, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
-            TextureViewDimension, Variants, VertexState,
+            BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, Canonical,
+            ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
+            FilterMode, FragmentState, LoadOp, PipelineCache, RenderPassDescriptor, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, StoreOp, Texture, TextureDataOrder, TextureDescriptor,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor, TextureViewDimension, Variants, VertexState,
         },
-        renderer::{RenderDevice, RenderQueue},
-        sync_world::MainEntity,
-        view::ExtractedView,
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
+        view::{ViewDepthStencilTexture, ViewTarget},
     },
 };
 use render_scene::PanoramaScene;
+use std::collections::BTreeMap;
 
 const PANORAMA_SHADER_HANDLE: Handle<Shader> = uuid_handle!("7b1e9c42-5d3a-4f60-9e8b-2a4c6d1f0e93");
 const UNIFORM_BYTES: usize = std::mem::size_of::<PanoramaUniform>();
@@ -70,6 +62,7 @@ impl Plugin for PanoramaRenderPlugin {
 #[derive(Resource)]
 struct Installed;
 
+/// Installs GPU resources and the backdrop pass once the camera schedule is available.
 fn install(app: &mut App) {
     app.init_resource::<PanoramaScene>();
     crate::pipeline_warmup::register::<PanoramaPipeline>(app);
@@ -77,6 +70,7 @@ fn install(app: &mut App) {
         return;
     };
     if render_app.world().contains_resource::<Installed>() {
+        install_pass(app.sub_app_mut(RenderApp).world_mut());
         return;
     }
     app.add_plugins(ExtractResourcePlugin::<PanoramaScene>::default());
@@ -86,11 +80,9 @@ fn install(app: &mut App) {
         "../../render-model/src/panorama.wgsl",
         crate::shader_safety::from_wgsl
     );
-    crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<PanoramaPipeline>()
-        .add_render_command::<Opaque3d, DrawPanoramaCommands>()
         .add_systems(RenderStartup, init_gpu)
         .add_systems(
             Render,
@@ -100,6 +92,36 @@ fn install(app: &mut App) {
                 queue_panorama.in_set(RenderSystems::Queue),
             ),
         );
+    install_pass(app.sub_app_mut(RenderApp).world_mut());
+}
+
+#[derive(Resource)]
+struct PassInstalled;
+
+/// Covers terrain after its submission, retaining the same scene samples for post-processing.
+fn install_pass(world: &mut World) {
+    if world.contains_resource::<PassInstalled>() {
+        return;
+    }
+    if world
+        .try_schedule_scope(Core3d, |_, schedule| {
+            schedule.add_systems(
+                crate::gpu_timing::profiled(
+                    draw_panorama,
+                    Some(render_scene::RuntimeStage::GpuPanorama),
+                    "PanoramaPass",
+                )
+                .after(bevy::core_pipeline::core_3d::main_transparent_pass_3d)
+                .after(crate::scene_target::ScenePass::Transparent)
+                .after(crate::ui_render::UiWorldLabel)
+                .before(crate::scene_target::ScenePass::Finish)
+                .in_set(Core3dSystems::MainPass),
+            );
+        })
+        .is_ok()
+    {
+        world.insert_resource(PassInstalled);
+    }
 }
 
 #[derive(Resource)]
@@ -111,6 +133,7 @@ struct PanoramaGpu {
     faces_revision: Option<u64>,
     visible: bool,
     bind_group: Option<BindGroup>,
+    pipelines: BTreeMap<Entity, CachedRenderPipelineId>,
 }
 
 fn texture_array(
@@ -169,6 +192,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>, queue: Res<Render
         faces_revision: None,
         visible: false,
         bind_group: None,
+        pipelines: BTreeMap::new(),
     });
 }
 
@@ -192,7 +216,11 @@ fn prepare_panorama(
         gpu.faces_revision = Some(scene.faces_revision);
         gpu.bind_group = None;
     }
-    let (Some(view), true) = (scene.view, scene.has_faces()) else {
+    let Some(view) = scene.view.filter(|_| scene.has_faces()).or_else(|| {
+        // Missing faces still need an opaque cover while startup renders underneath.
+        (!scene.game_visible())
+            .then(|| render_model::panorama::launcher_view(0.0, 1.0, [0.0, 0.0, 0.0, 1.0]))
+    }) else {
         gpu.visible = false;
         return;
     };
@@ -356,103 +384,100 @@ fn prepare_bind_group(
     ));
 }
 
+/// Prepares each active view's backdrop pipeline, forgetting views that left the scene.
 fn queue_panorama(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<PanoramaPipeline>,
     scene: Res<PanoramaScene>,
-    mut phases: ResMut<ViewBinnedRenderPhases<Opaque3d>>,
-    draw_functions: Res<DrawFunctions<Opaque3d>>,
-    views: Query<(
-        Entity,
-        &MainEntity,
-        &ExtractedView,
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-    )>,
+    mut gpu: ResMut<PanoramaGpu>,
+    views: Query<(Entity, &ExtractedCamera, &Msaa)>,
 ) {
-    if scene.view.is_none() || !scene.has_faces() {
+    gpu.pipelines.retain(|entity, _| views.contains(*entity));
+    if scene.game_visible() {
+        gpu.pipelines.clear();
         return;
     }
-    let draw_function = draw_functions.read().id::<DrawPanoramaCommands>();
-    for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
-        let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
-            continue;
+    for (entity, camera, msaa) in &views {
+        let key = PanoramaPipelineKey {
+            msaa: *msaa,
+            hdr: camera.hdr,
         };
-        let Ok(pipeline_id) = pipeline.variants.specialize(
-            &pipeline_cache,
-            PanoramaPipelineKey {
-                msaa: *msaa,
-                hdr: extracted_camera.hdr,
-            },
-        ) else {
-            continue;
-        };
-
-        phase.add(
-            Opaque3dBatchSetKey {
-                draw_function,
-                pipeline: pipeline_id,
-                material_bind_group_index: None,
-                lightmap_slab: None,
-                slabs: default(),
-            },
-            Opaque3dBinKey {
-                asset_id: AssetId::<Mesh>::default().untyped(),
-            },
-            (view_entity, *main_entity),
-            InputUniformIndex::default(),
-            BinnedRenderPhaseType::NonMesh,
-        );
-    }
-}
-
-type DrawPanoramaCommands = crate::gpu_timing::GpuDrawSpan<
-    { render_scene::RuntimeStage::GpuPanorama as usize },
-    (SetItemPipeline, SetPanoramaBindGroup, DrawPanorama),
->;
-
-struct SetPanoramaBindGroup;
-
-impl<P: PhaseItem> RenderCommand<P> for SetPanoramaBindGroup {
-    type Param = SRes<PanoramaGpu>;
-    type ViewQuery = ();
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        let Some(bind_group) = &gpu.into_inner().bind_group else {
-            return RenderCommandResult::Skip;
-        };
-        pass.set_bind_group(0, bind_group, &[]);
-        RenderCommandResult::Success
-    }
-}
-
-struct DrawPanorama;
-
-impl<P: PhaseItem> RenderCommand<P> for DrawPanorama {
-    type Param = SRes<PanoramaGpu>;
-    type ViewQuery = ();
-    type ItemQuery = ();
-
-    fn render<'w>(
-        _item: &P,
-        _view: ROQueryItem<'w, '_, Self::ViewQuery>,
-        _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
-        gpu: SystemParamItem<'w, '_, Self::Param>,
-        pass: &mut TrackedRenderPass<'w>,
-    ) -> RenderCommandResult {
-        if !gpu.into_inner().visible {
-            return RenderCommandResult::Skip;
+        match pipeline.variants.specialize(&pipeline_cache, key) {
+            Ok(id) => {
+                gpu.pipelines.insert(entity, id);
+            }
+            Err(_) => {
+                gpu.pipelines.remove(&entity);
+            }
         }
-        pass.draw(0..3, 0..1);
-        RenderCommandResult::Success
     }
+}
+
+type PanoramaQuery = (
+    &'static ExtractedCamera,
+    &'static ViewTarget,
+    Option<&'static crate::scene_target::SceneTarget>,
+    &'static ViewDepthStencilTexture,
+    Option<&'static MainPassResolutionOverride>,
+);
+
+/// Draws over completed world geometry while leaving the later screen UI untouched.
+fn draw_panorama(world: &World, query: ViewQuery<PanoramaQuery>, mut context: RenderContext) {
+    let entity = query.entity();
+    let (camera, target, scene, depth, resolution) = query.into_inner();
+    let Some(gpu) = world
+        .get_resource::<PanoramaGpu>()
+        .filter(|gpu| gpu.visible)
+    else {
+        return;
+    };
+    let Some(bind_group) = gpu.bind_group.as_ref() else {
+        return;
+    };
+    let cache = world.resource::<PipelineCache>();
+    let Some(pipeline) = gpu
+        .pipelines
+        .get(&entity)
+        .and_then(|id| cache.get_render_pipeline(*id))
+    else {
+        return;
+    };
+    let color = scene.map_or_else(
+        || target.get_color_attachment(),
+        |scene| {
+            scene.resume();
+            scene.color_attachment(target, false)
+        },
+    );
+    let viewport = Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution).map(
+        |viewport| {
+            crate::render_bounds::viewport(&viewport, crate::render_bounds::extent(color.view))
+        },
+    );
+    // Covered terrain must not supply depth to the panorama's post-processing.
+    let mut depth = depth.get_attachment(StoreOp::Store);
+    if let Some(ops) = &mut depth.depth_ops {
+        ops.load = LoadOp::Clear(0.0);
+    }
+    let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+        label: Some("panorama over world geometry"),
+        color_attachments: &[Some(color)],
+        depth_stencil_attachment: Some(depth),
+        timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+            world,
+            render_scene::RuntimeStage::GpuPanorama,
+        ),
+        occlusion_query_set: None,
+        multiview_mask: None,
+    });
+    match viewport {
+        Some(Some(viewport)) => pass.set_camera_viewport(&viewport),
+        Some(None) => return,
+        None => {}
+    }
+    pass.set_render_pipeline(pipeline);
+    pass.set_bind_group(0, bind_group, &[]);
+    pass.draw(0..3, 0..1);
 }
 
 #[cfg(test)]
@@ -469,56 +494,28 @@ mod tests {
 mod review_tests {
     use super::*;
     use crate::queue_review_support as fixture;
-    use bevy::{
-        ecs::system::RunSystemOnce, render::batching::gpu_preprocessing::GpuPreprocessingMode,
-    };
+    use bevy::ecs::system::RunSystemOnce;
 
-    fn opaque_items(app: &App, view: bevy::render::view::RetainedViewEntity) -> usize {
-        app.world().resource::<ViewBinnedRenderPhases<Opaque3d>>()[&view]
-            .non_mesh_items
-            .len()
-    }
-
-    /// The menu scene is one opaque draw: no transparent pass and no sky under it.
+    /// Hiding a panorama drops its prepared views in the same frame.
     #[test]
-    fn review_render_panorama_queue_uses_current_visibility() {
-        let (mut app, view) = fixture::app();
+    fn panorama_preparation_uses_current_visibility() {
+        let (mut app, _) = fixture::app();
         app.init_resource::<PanoramaScene>()
-            .init_resource::<PanoramaPipeline>()
-            .init_resource::<DrawFunctions<Opaque3d>>()
-            .init_resource::<ViewBinnedRenderPhases<Opaque3d>>()
-            .add_render_command::<Opaque3d, DrawPanoramaCommands>();
-        app.world_mut()
-            .resource_mut::<ViewBinnedRenderPhases<Opaque3d>>()
-            .prepare_for_new_frame(view, GpuPreprocessingMode::None);
-        app.world_mut()
-            .resource_mut::<PanoramaScene>()
-            .set_faces(Some(std::sync::Arc::new(
-                render_model::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
-            )));
+            .init_resource::<PanoramaPipeline>();
         app.world_mut().run_system_once(init_gpu).unwrap();
-        app.world_mut()
-            .resource_mut::<PanoramaScene>()
-            .show(Some(render_model::PanoramaView {
-                yaw_radians: 0.0,
-                pitch_radians: 0.0,
-                vertical_fov_radians: 1.0,
-                aspect: 1.0,
-                tint: [0.0; 4],
-            }));
+        let mut scene = app.world_mut().resource_mut::<PanoramaScene>();
+        scene.set_faces(Some(std::sync::Arc::new(
+            render_model::PanoramaFaces::new(1, std::array::from_fn(|_| vec![255; 4])).unwrap(),
+        )));
+        scene.show(Some(render_model::panorama::launcher_view(
+            0.0, 1.0, [0.0; 4],
+        )));
         app.world_mut().run_system_once(queue_panorama).unwrap();
-        assert_eq!(opaque_items(&app, view), 1);
-        assert!(fixture::items(&app, view).is_empty());
+        assert_eq!(app.world().resource::<PanoramaGpu>().pipelines.len(), 1);
         assert!(!app.world().resource::<PanoramaScene>().game_visible());
-        let mut phases = app
-            .world_mut()
-            .resource_mut::<ViewBinnedRenderPhases<Opaque3d>>();
-        phases.clear();
-        phases.prepare_for_new_frame(view, GpuPreprocessingMode::None);
-        app.world_mut().resource_mut::<PanoramaGpu>().visible = true;
         app.world_mut().resource_mut::<PanoramaScene>().show(None);
         app.world_mut().run_system_once(queue_panorama).unwrap();
-        assert_eq!(opaque_items(&app, view), 0);
+        assert!(app.world().resource::<PanoramaGpu>().pipelines.is_empty());
     }
 
     #[test]

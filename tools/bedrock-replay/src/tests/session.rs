@@ -223,6 +223,7 @@ async fn native_login_joins_the_replay_session() {
             None,
             None,
             &Default::default(),
+            None,
             |_, _| (),
         )
         .await

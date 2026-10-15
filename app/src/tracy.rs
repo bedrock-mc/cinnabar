@@ -1,4 +1,4 @@
-use bevy::{log::BoxedLayer, prelude::*};
+use bevy::prelude::*;
 use tracing_tracy::{Config, DefaultConfig, TracyLayer};
 
 #[derive(Default)]
@@ -19,8 +19,8 @@ impl Config for ZoneConfig {
 }
 
 /// Uses Bevy's CPU spans without its unsupported Metal GPU calibration path.
-pub(crate) fn layer(_app: &mut App) -> Option<BoxedLayer> {
-    Some(Box::new(TracyLayer::new(ZoneConfig::default())))
+pub(crate) fn layer() -> diagnostics::logging::CallerLayer {
+    Box::new(TracyLayer::new(ZoneConfig::default()))
 }
 
 /// Appended to the log filter: keeps wgpu's encoding and submission scopes, which

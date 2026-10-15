@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "the helper's stderr is the log stream its supervisor captures and tests read"
+)]
+
 use std::io;
 use std::path::Path;
 use std::process;
