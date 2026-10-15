@@ -298,6 +298,14 @@ using fixtures from the `test-support` feature. Animation unit tests use a plain
 double. Compilation and execution of this move remain unverified, and no actor
 animation parity gate closes.
 
+Finalized catalog layouts retain bounded immutable rig templates and motion-dependency plans.
+Actor-specific conditions still select geometry before lookup; variables, roots, controllers,
+poses, skin drivers and history remain private copies. Exact catalog ownership and topology
+keys prevent reuse across replacements. The shared cache admits at most 32 entries and 4 MiB
+of accounted payload; oversized or unmatched plans use complete uncached construction.
+Regressions are written but unrun. Per-actor copies, mutex contention and crowded-join gains
+remain unmeasured; no performance or parity gate closes.
+
 ## Render geometry and scene ownership
 
 - `render-model` owns CPU block-model and selection geometry, dropped-item meshes,

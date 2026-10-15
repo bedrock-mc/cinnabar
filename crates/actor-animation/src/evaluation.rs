@@ -46,6 +46,8 @@ pub(super) struct VariableLayout {
     presentation_symbols: Vec<PresentationReads>,
     expression_inputs: Vec<PresentationReads>,
     pub(super) engine: EngineSlots,
+    /// Immutable analysis cached only for this finalized layout and its exact catalog.
+    pub(super) plans: rig_plans::RigPlans,
 }
 
 /// Immutable camera and attack inputs used to admit scratch presentation evaluation.
@@ -137,9 +139,11 @@ impl VariableLayout {
             .ok()
     }
 
-    pub(super) fn new(assets: &RuntimeEntityAssets) -> Self {
+    /// Finalizes a catalog layout and binds its cache to that exact owning allocation.
+    pub(super) fn new(assets: &Arc<RuntimeEntityAssets>) -> Self {
         let mut layout = Self::from_symbols(assets.molang_symbols());
         layout.bind_input_reads(assets);
+        layout.plans = rig_plans::RigPlans::new(assets);
         layout
     }
 
@@ -157,6 +161,7 @@ impl VariableLayout {
                 .ok()
         };
         Self {
+            plans: Default::default(),
             variable_base,
             variable_count,
             temp_base,

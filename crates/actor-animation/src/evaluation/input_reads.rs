@@ -3,6 +3,7 @@ use super::*;
 impl VariableLayout {
     /// Binds immutable clip reads and controller weights once per runtime asset catalog.
     pub(super) fn bind_input_reads(&mut self, assets: &RuntimeEntityAssets) {
+        self.plans = rig_plans::RigPlans::default();
         self.bind_presentation_inputs(assets);
         self.clip_reads = assets
             .animation_clips()
