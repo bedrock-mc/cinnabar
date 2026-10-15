@@ -29,7 +29,7 @@ fn blend(pixels: &mut [u8], size: [u32; 2], faces: &PanoramaFaces, view: Panoram
     let [yaw, pitch, tan_half, aspect, ..] = view.shader_uniform();
     let (sp, cp) = pitch.sin_cos();
     let (sy, cy) = yaw.sin_cos();
-    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+    for (index, pixel) in pixels.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let alpha = f32::from(pixel[3]) / 255.0;
         if alpha == 1.0 {
             continue;
