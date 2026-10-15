@@ -30,14 +30,25 @@ pub const CAPTURE_QUEUE_RECORDS: usize = 8192;
 pub const CAPTURE_BUFFER_BYTES: usize = 64 << 10;
 /// Extension of capture v2 files.
 pub const CAPTURE_EXTENSION: &str = "cnbrcap";
+/// Captures the log directory keeps, the one being started included.
+pub const LOG_DIR_CAPTURES_KEPT: usize = 10;
+/// Bytes the log directory's captures may take, the one being started counted at its size cap.
+pub const LOG_DIR_CAPTURE_BYTES: u64 = 2 << 30;
 /// How long session teardown waits for the writer to finish the file.
 pub(crate) const CAPTURE_FINISH_TIMEOUT: Duration = Duration::from_secs(2);
+/// The name every capture in the log directory starts with.
+const LOG_DIR_CAPTURE_PREFIX: &str = "packets-";
 
 /// Where one session's capture goes, and the wall-clock time its header records.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PacketCaptureRequest {
     pub path: PathBuf,
     pub started_unix_ms: u64,
+    /// The capture is one of the log directory's `packets-<started_unix_ms>.cnbrcap` files, so
+    /// the oldest of those are deleted before it starts to keep within
+    /// [`LOG_DIR_CAPTURES_KEPT`] and [`LOG_DIR_CAPTURE_BYTES`]. A path the user named is never
+    /// pruned.
+    pub in_log_dir: bool,
 }
 
 impl PacketCaptureRequest {
@@ -51,14 +62,18 @@ impl PacketCaptureRequest {
         started_unix_ms: u64,
     ) -> Option<Self> {
         let value = value.filter(|value| !value.is_empty() && *value != "0")?;
-        let path = if value == "1" {
-            log_dir.join(format!("packets-{started_unix_ms}.{CAPTURE_EXTENSION}"))
+        let in_log_dir = value == "1";
+        let path = if in_log_dir {
+            log_dir.join(format!(
+                "{LOG_DIR_CAPTURE_PREFIX}{started_unix_ms}.{CAPTURE_EXTENSION}"
+            ))
         } else {
             PathBuf::from(value)
         };
         Some(Self {
             path,
             started_unix_ms,
+            in_log_dir,
         })
     }
 }
@@ -109,12 +124,19 @@ pub(crate) fn channel(
 
 impl CaptureFeed {
     /// Creates the capture file and starts its writer thread. An existing file is never
-    /// replaced: the start time is added to the name instead. Returns the feed, the finisher
-    /// that ends the capture and the path written.
+    /// replaced: the start time is added to the name instead. A capture in the log directory
+    /// first deletes that directory's oldest captures past its retention. Returns the feed, the
+    /// finisher that ends the capture and the path written.
     pub(crate) fn start(
         request: &PacketCaptureRequest,
         started: Instant,
     ) -> io::Result<(Self, CaptureFinisher, PathBuf)> {
+        if request.in_log_dir
+            && let Some(dir) = request.path.parent()
+            && let Err(error) = prune_log_dir_captures(dir)
+        {
+            tracing::warn!(dir = %dir.display(), %error, "could not delete old packet captures");
+        }
         let (path, file) = create_capture_file(&request.path, request.started_unix_ms)?;
         let writer = CaptureWriter::new(
             BufWriter::with_capacity(CAPTURE_BUFFER_BYTES, file),
@@ -250,6 +272,72 @@ fn create_capture_file(path: &Path, started_unix_ms: u64) -> io::Result<(PathBuf
             create_new(&path).map(|file| (path, file))
         }
         Err(error) => Err(error),
+    }
+}
+
+/// Deletes the oldest `packets-<unix ms>[-<unix ms>].cnbrcap` files in `dir` so that a new
+/// capture leaves at most [`LOG_DIR_CAPTURES_KEPT`] and, with the new one at its size cap,
+/// [`LOG_DIR_CAPTURE_BYTES`].
+fn prune_log_dir_captures(dir: &Path) -> io::Result<()> {
+    prune_captures(
+        dir,
+        LOG_DIR_CAPTURES_KEPT - 1,
+        LOG_DIR_CAPTURE_BYTES - protocol::capture::MAX_CAPTURE_BYTES,
+    )
+}
+
+/// Keeps the newest of the log directory's captures in `dir` while both `count_budget` and
+/// `byte_budget` hold, then deletes the first that would break either and every older one, as
+/// session logs are pruned. Tries every deletion and reports the first failure.
+pub(crate) fn prune_captures(dir: &Path, count_budget: usize, byte_budget: u64) -> io::Result<()> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    let mut captures = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        if let Some(key) = log_dir_capture_key(&entry.file_name().to_string_lossy()) {
+            captures.push((key, entry.path()));
+        }
+    }
+    captures.sort_unstable();
+    let (mut kept, mut bytes, mut full) = (0usize, 0u64, false);
+    let mut failure = None;
+    for (_, path) in captures.into_iter().rev() {
+        let size = fs::metadata(&path).map_or(0, |metadata| metadata.len());
+        full = full || kept >= count_budget || bytes + size > byte_budget;
+        if !full {
+            kept += 1;
+            bytes += size;
+            continue;
+        }
+        match fs::remove_file(&path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                failure.get_or_insert(error);
+            }
+            _ => {}
+        }
+    }
+    failure.map_or(Ok(()), Err)
+}
+
+/// Orders the log directory's capture names by start time, then by the collision suffix
+/// [`create_capture_file`] adds; `None` for any other name.
+fn log_dir_capture_key(name: &str) -> Option<(u64, u64)> {
+    let stamps = name
+        .strip_prefix(LOG_DIR_CAPTURE_PREFIX)?
+        .strip_suffix(CAPTURE_EXTENSION)?
+        .strip_suffix('.')?;
+    let number = |digits: &str| {
+        (!digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()))
+            .then(|| digits.parse().ok())
+            .flatten()
+    };
+    match stamps.split_once('-') {
+        Some((started, suffix)) => Some((number(started)?, number(suffix)?)),
+        None => Some((number(stamps)?, 0)),
     }
 }
 

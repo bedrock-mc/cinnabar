@@ -30,7 +30,8 @@ use protocol::packet_tap::{
 };
 
 pub use capture::{
-    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, PacketCaptureRequest,
+    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, LOG_DIR_CAPTURE_BYTES,
+    LOG_DIR_CAPTURES_KEPT, PacketCaptureRequest,
 };
 pub(crate) use capture::{CAPTURE_FINISH_TIMEOUT, CaptureFeed, CaptureFinisher};
 use samples::FailureSamples;

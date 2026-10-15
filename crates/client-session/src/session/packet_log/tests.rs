@@ -390,6 +390,38 @@ fn attached_samples_follow_the_latest_session_on_disk() {
     );
 }
 
+/// Rejects past the per-packet bound are only counted: they write nothing, however many arrive,
+/// and the index's drop count catches up at the next kept sample.
+#[test]
+fn rejects_past_the_sample_bounds_write_no_files() {
+    let log = fresh_log();
+    let staging = tempfile::tempdir().unwrap();
+    let dir = staging.path().join(staging::DECODE_SAMPLES_DIR);
+    log.attach(staging.path()).unwrap();
+    for sequence in 0..MAX_SAMPLES_PER_PACKET as u64 {
+        log.reject(5, sequence, 9, PacketOutcome::Skipped, &[1]);
+    }
+    let index = dir.join(samples::INDEX_FILE);
+    std::fs::remove_file(&index).unwrap();
+    let files = std::fs::read_dir(&dir).unwrap().count();
+
+    for sequence in 0..1_000 {
+        log.reject(5, 100 + sequence, 9, PacketOutcome::Skipped, &[1]);
+    }
+    assert!(!index.exists(), "an only-counted reject rewrote the index");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), files);
+
+    log.reject(5, 2_000, 20, PacketOutcome::Skipped, &[2]);
+    let index = std::fs::read_to_string(index).unwrap();
+    let kept = MAX_SAMPLES_PER_PACKET + 1;
+    assert!(
+        index.starts_with(&format!(
+            "rejected packet samples from session 5: {kept} kept ({kept} bytes), 0 withheld as credential-bearing, 1000 over the bounds"
+        )),
+        "{index}"
+    );
+}
+
 #[test]
 fn capture_setting_is_off_by_default_and_resolves_both_path_forms() {
     let logs = Path::new("logs");
@@ -404,6 +436,7 @@ fn capture_setting_is_off_by_default_and_resolves_both_path_forms() {
         Some(PacketCaptureRequest {
             path: logs.join(format!("packets-1760000000123.{CAPTURE_EXTENSION}")),
             started_unix_ms: 1_760_000_000_123,
+            in_log_dir: true,
         })
     );
     assert_eq!(
@@ -411,7 +444,92 @@ fn capture_setting_is_off_by_default_and_resolves_both_path_forms() {
         Some(PacketCaptureRequest {
             path: "custom/run.bin".into(),
             started_unix_ms: 7,
+            in_log_dir: false,
         })
+    );
+}
+
+/// Starts and finishes one session's capture, as a session that receives nothing would.
+fn capture_session(request: &PacketCaptureRequest) {
+    let (feed, finisher, _) = CaptureFeed::start(request, Instant::now()).unwrap();
+    drop(feed);
+    assert!(finisher.finish(FINISH_WITHIN));
+}
+
+fn file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// With capture on across many sessions the log directory keeps only the newest captures;
+/// its other files, and the directory of a capture path the user named, are left alone.
+#[test]
+fn log_dir_captures_keep_only_the_newest_across_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    let logs = root.path().join("logs");
+    let custom = root.path().join("custom");
+    std::fs::create_dir_all(&logs).unwrap();
+    std::fs::create_dir_all(&custom).unwrap();
+    let others = [
+        "client.log",
+        "packets-notes.txt",
+        "packets-12.bin",
+        "packets-x.cnbrcap",
+        "packets-+3.cnbrcap",
+    ];
+    for name in others {
+        std::fs::write(logs.join(name), b"kept").unwrap();
+    }
+    let stale = 2 * LOG_DIR_CAPTURES_KEPT as u64;
+    for started in 1..=stale {
+        std::fs::write(custom.join(format!("packets-{started}.{CAPTURE_EXTENSION}")), b"").unwrap();
+    }
+    let named_path = custom.join(format!("packets-{}.{CAPTURE_EXTENSION}", stale + 1));
+    let named =
+        PacketCaptureRequest::from_setting(Some(named_path.as_os_str()), &logs, 1).unwrap();
+    assert!(!named.in_log_dir);
+    capture_session(&named);
+    assert_eq!(file_names(&custom).len(), stale as usize + 1);
+
+    let sessions = 3 * LOG_DIR_CAPTURES_KEPT as u64;
+    for started in 100..100 + sessions {
+        let request =
+            PacketCaptureRequest::from_setting(Some(OsStr::new("1")), &logs, started).unwrap();
+        capture_session(&request);
+    }
+    let mut expected: Vec<_> = (100 + sessions - LOG_DIR_CAPTURES_KEPT as u64..100 + sessions)
+        .map(|started| format!("packets-{started}.{CAPTURE_EXTENSION}"))
+        .chain(others.map(str::to_owned))
+        .collect();
+    expected.sort();
+    assert_eq!(file_names(&logs), expected);
+}
+
+/// Captures go oldest first, a start-time collision's suffixed name after the plain one, once
+/// either the count or the byte budget would break.
+#[test]
+fn capture_pruning_keeps_the_newest_within_both_budgets() {
+    let dir = tempfile::tempdir().unwrap();
+    let names = ["packets-1", "packets-2", "packets-3", "packets-3-9"];
+    for name in names {
+        std::fs::write(dir.path().join(format!("{name}.{CAPTURE_EXTENSION}")), [0; 10]).unwrap();
+    }
+    super::capture::prune_captures(dir.path(), 10, 25).unwrap();
+    assert_eq!(
+        file_names(dir.path()),
+        [
+            format!("packets-3-9.{CAPTURE_EXTENSION}"),
+            format!("packets-3.{CAPTURE_EXTENSION}")
+        ]
+    );
+    super::capture::prune_captures(dir.path(), 1, u64::MAX).unwrap();
+    assert_eq!(
+        file_names(dir.path()),
+        [format!("packets-3-9.{CAPTURE_EXTENSION}")]
     );
 }
 
@@ -571,6 +689,7 @@ fn a_session_capture_keeps_packets_but_never_credential_bearing_bodies() {
             .join("logs")
             .join(format!("session.{CAPTURE_EXTENSION}")),
         started_unix_ms: 1_760_000_000_000,
+        in_log_dir: false,
     };
     let started = Instant::now();
     let (feed, finisher, path) = CaptureFeed::start(&request, started).unwrap();

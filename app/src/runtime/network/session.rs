@@ -121,17 +121,40 @@ pub(crate) fn packet_capture_request(
     client_session::packet_log::PacketCaptureRequest::from_setting(value, log_dir, started_unix_ms)
 }
 
+/// Whether new sessions record a capture, and whether
+/// [`client_session::markers::PACKET_CAPTURE`] decided it rather than the setting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CaptureChoice {
+    pub(crate) on: bool,
+    pub(crate) by_variable: bool,
+}
+
+impl std::fmt::Display for CaptureChoice {
+    /// `on` or `off`, followed by the variable's name in parentheses when it decided.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(if self.on { "on" } else { "off" })?;
+        if self.by_variable {
+            write!(formatter, " ({})", client_session::markers::PACKET_CAPTURE)?;
+        }
+        Ok(())
+    }
+}
+
 /// Whether new sessions record a capture, by the same precedence as
-/// [`packet_capture_request`], naming the environment variable when it decides.
-pub(crate) fn packet_capture_label(
+/// [`packet_capture_request`].
+pub(crate) fn packet_capture_choice(
     environment: Option<&OsStr>,
     record_setting: bool,
-) -> &'static str {
+) -> CaptureChoice {
     match environment.filter(|value| !value.is_empty()) {
-        Some(value) if value == "0" => "off (CINNABAR_PACKET_CAPTURE)",
-        Some(_) => "on (CINNABAR_PACKET_CAPTURE)",
-        None if record_setting => "on",
-        None => "off",
+        Some(value) => CaptureChoice {
+            on: value != "0",
+            by_variable: true,
+        },
+        None => CaptureChoice {
+            on: record_setting,
+            by_variable: false,
+        },
     }
 }
 
@@ -176,6 +199,7 @@ mod tests {
                 client_session::packet_log::CAPTURE_EXTENSION
             )),
             started_unix_ms: 7,
+            in_log_dir: true,
         });
         assert_eq!(packet_capture_request(None, true, logs, 7), in_logs);
         assert_eq!(
@@ -192,15 +216,15 @@ mod tests {
                 .map(|request| request.path),
             Some(PathBuf::from("run.cnbrcap"))
         );
-        assert_eq!(packet_capture_label(None, false), "off");
-        assert_eq!(packet_capture_label(None, true), "on");
-        assert_eq!(
-            packet_capture_label(Some(OsStr::new("0")), true),
-            "off (CINNABAR_PACKET_CAPTURE)"
-        );
-        assert_eq!(
-            packet_capture_label(Some(OsStr::new("1")), false),
-            "on (CINNABAR_PACKET_CAPTURE)"
-        );
+        let label =
+            |environment: Option<&str>, setting| {
+                packet_capture_choice(environment.map(OsStr::new), setting).to_string()
+            };
+        let variable = client_session::markers::PACKET_CAPTURE;
+        assert_eq!(label(None, false), "off");
+        assert_eq!(label(None, true), "on");
+        assert_eq!(label(Some(""), true), "on");
+        assert_eq!(label(Some("0"), true), format!("off ({variable})"));
+        assert_eq!(label(Some("1"), false), format!("on ({variable})"));
     }
 }

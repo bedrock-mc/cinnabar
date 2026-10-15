@@ -328,7 +328,9 @@ kill. Staging directories of clients that are gone are deleted at the next start
 Set `CINNABAR_PACKET_CAPTURE=1` (or turn on Settings → General → Advanced → Record network
 session) to record each session in full to `logs/packets-<session start unix ms>.cnbrcap`, or
 set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
-never replaced; the start time is added to the name instead. The capture uses the v2 format that
+never replaced; the start time is added to the name instead. Before each capture into `logs/`, the
+oldest `packets-*.cnbrcap` there are deleted so the folder keeps at most 10 captures and 2 GiB,
+counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the v2 format that
 `tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
 when the client read each batch, which trails socket arrival while ingress is backlogged. It
 stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
