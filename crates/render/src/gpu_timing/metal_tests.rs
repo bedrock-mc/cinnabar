@@ -5,10 +5,6 @@ use render_scene::RuntimeStage;
 const FRAME_WORK_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
-#[expect(
-    clippy::print_stderr,
-    reason = "explains on stderr why the regression skips when the Metal timestamp fixture is absent"
-)]
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
     metal_device_with_features(wgpu::Features::TIMESTAMP_QUERY)
 }

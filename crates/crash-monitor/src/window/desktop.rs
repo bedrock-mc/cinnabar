@@ -7,48 +7,97 @@ pub(super) fn open_folder(folder: &Path) {
     launcher_host::desktop::open_url(&folder.display().to_string());
 }
 
+/// Owns clipboard access and an invisible window for both the crash UI and native fallback.
+#[cfg(windows)]
+struct Clipboard(windows_sys::Win32::Foundation::HWND);
+
+#[cfg(windows)]
+impl Clipboard {
+    /// Opens the clipboard for a window owned by this thread, closing the window on failure.
+    fn open() -> Result<Self, String> {
+        use windows_sys::Win32::{
+            System::DataExchange::OpenClipboard,
+            UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, HWND_MESSAGE},
+        };
+
+        // SAFETY: STATIC is a system window class, its UTF-16 name is terminated, and the
+        // message-only window stays on this thread until its clipboard access is closed.
+        unsafe {
+            let owner = CreateWindowExW(
+                0,
+                windows_sys::w!("STATIC"),
+                std::ptr::null(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            );
+            if owner.is_null() {
+                return Err("the clipboard owner window could not be created".into());
+            }
+            if OpenClipboard(owner) == 0 {
+                DestroyWindow(owner);
+                return Err("the clipboard is in use".into());
+            }
+            Ok(Self(owner))
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for Clipboard {
+    /// Releases clipboard access before destroying its owner window on the creating thread.
+    fn drop(&mut self) {
+        // SAFETY: this guard owns both the open clipboard and the window that opened it.
+        unsafe {
+            windows_sys::Win32::System::DataExchange::CloseClipboard();
+            windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(self.0);
+        }
+    }
+}
+
 /// Replaces the clipboard's contents with `text`.
 #[cfg(windows)]
 pub(super) fn copy_text(text: &str) -> Result<(), String> {
     use windows_sys::Win32::{
         Foundation::GlobalFree,
         System::{
-            DataExchange::{CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData},
+            DataExchange::{EmptyClipboard, SetClipboardData},
             Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
             Ole::CF_UNICODETEXT,
         },
     };
 
+    let _clipboard = Clipboard::open()?;
     let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     // SAFETY: the clipboard is opened for this thread and closed on every path; the global block
     // is sized for `wide`, written only while locked, and freed unless the clipboard took it.
     unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
-            return Err("the clipboard is in use".into());
+        let block = GlobalAlloc(GMEM_MOVEABLE, wide.len() * size_of::<u16>());
+        if block.is_null() {
+            return Err("out of memory".into());
         }
-        let result = (|| {
-            if EmptyClipboard() == 0 {
-                return Err("the clipboard could not be cleared".to_owned());
-            }
-            let block = GlobalAlloc(GMEM_MOVEABLE, wide.len() * size_of::<u16>());
-            if block.is_null() {
-                return Err("out of memory".into());
-            }
-            let target = GlobalLock(block).cast::<u16>();
-            if target.is_null() {
-                GlobalFree(block);
-                return Err("the clipboard block could not be locked".into());
-            }
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), target, wide.len());
-            GlobalUnlock(block);
-            if SetClipboardData(u32::from(CF_UNICODETEXT), block).is_null() {
-                GlobalFree(block);
-                return Err("the clipboard refused the text".into());
-            }
-            Ok(())
-        })();
-        CloseClipboard();
-        result
+        let target = GlobalLock(block).cast::<u16>();
+        if target.is_null() {
+            GlobalFree(block);
+            return Err("the clipboard block could not be locked".into());
+        }
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), target, wide.len());
+        GlobalUnlock(block);
+        if EmptyClipboard() == 0 {
+            GlobalFree(block);
+            return Err("the clipboard could not be cleared".to_owned());
+        }
+        if SetClipboardData(u32::from(CF_UNICODETEXT), block).is_null() {
+            GlobalFree(block);
+            return Err("the clipboard refused the text".into());
+        }
+        Ok(())
     }
 }
 
@@ -126,6 +175,39 @@ fn pipe_to(program: &str, args: &[&str], text: &str) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("exited with {status}"))
+    }
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn copy_without_a_visible_window_preserves_unicode_text() {
+        use windows_sys::Win32::System::{
+            DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
+            Memory::{GlobalLock, GlobalUnlock},
+            Ole::CF_UNICODETEXT,
+        };
+
+        let text = "Crash report: \u{03bb} \u{1f41b}\nsecond line";
+        copy_text(text).unwrap();
+        // SAFETY: this test reads the system-owned block only while the clipboard is open
+        // and the block is locked, then closes both before asserting its copied contents.
+        let copied = unsafe {
+            assert_ne!(OpenClipboard(std::ptr::null_mut()), 0);
+            let block = GetClipboardData(u32::from(CF_UNICODETEXT));
+            assert!(!block.is_null());
+            let pointer = GlobalLock(block).cast::<u16>();
+            assert!(!pointer.is_null());
+            let length = text.encode_utf16().count();
+            let wide = std::slice::from_raw_parts(pointer, length + 1).to_vec();
+            GlobalUnlock(block);
+            CloseClipboard();
+            wide
+        };
+        let expected: Vec<_> = text.encode_utf16().chain(Some(0)).collect();
+        assert_eq!(copied, expected);
     }
 }
 

@@ -35,8 +35,9 @@ The client starts the monitor first and connects over a private socket authentic
 token passed on the monitor's stdin. A fault or panic only requests a dump; the monitor
 writes the folder after the client is gone so the logs include the final lines, then opens
 the crash window. Exits without a dump (fail-fast aborts, kills) are reported from the exit
-status. A panic the client survives is saved without a window. The monitor retains one log snapshot
-for the current panic cascade and bounds pending reports. A main-thread stall outside
+status. A panic the client survives is saved without a window. The monitor bounds pending
+reports and, after the client ends, selects the first report still retained from its final
+panic cascade. It reads that report's saved logs from the same folder. A main-thread stall outside
 loading phases produces a `hang` report while the game keeps running. Before the monitor
 connects, and on Android, in-process writers produce the same folder layout.
 

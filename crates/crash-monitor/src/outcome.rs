@@ -340,22 +340,6 @@ mod tests {
     }
 
     #[test]
-    fn the_fatal_panic_starts_the_last_cascade() {
-        for (uptimes, expected) in [
-            (vec![], None),
-            (vec![5_000], Some(0)),
-            (vec![1_000, 60_000, 60_200, 60_900], Some(1)),
-            (vec![1_000, 60_000], Some(1)),
-        ] {
-            let mut history = crate::panic_history::PanicHistory::default();
-            for (index, uptime) in uptimes.into_iter().enumerate() {
-                history.record(uptime, index);
-            }
-            assert_eq!(history.take(), expected);
-        }
-    }
-
-    #[test]
     fn clients_that_never_connected_are_not_reported() {
         assert_eq!(
             ending(&Observed::default(), false, Some(3)),

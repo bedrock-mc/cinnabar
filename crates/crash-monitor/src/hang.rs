@@ -217,7 +217,7 @@ pub(crate) fn dump_live(
         process_id: pid,
         thread_id: u32::try_from(thread).unwrap_or(0),
     };
-    let mut file = std::fs::File::create(path).map_err(|error| error.to_string())?;
+    let mut file = crate::dump::create(path).map_err(|error| error.to_string())?;
     MinidumpWriter::dump_crash_context(
         &crash,
         full_memory.then_some(MinidumpType::WithFullMemory),
@@ -239,7 +239,7 @@ pub(crate) fn dump_live(
 
     let pid = i32::try_from(pid).map_err(|error| error.to_string())?;
     let thread = i32::try_from(thread).unwrap_or(pid);
-    let mut file = std::fs::File::create(path).map_err(|error| error.to_string())?;
+    let mut file = crate::dump::create(path).map_err(|error| error.to_string())?;
     MinidumpWriterConfig::new(pid, thread)
         .write(&mut file)
         .map(drop)
@@ -339,6 +339,18 @@ pub(crate) fn debugger_attached(_pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn failed_hang_dumps_are_private_from_creation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("hang.dmp");
+        assert!(dump_live(i32::MAX as u32, 0, false, &path).is_err());
+        let mode = std::fs::metadata(path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0);
+    }
 
     const STALL_MS: u64 = 10_000;
     const STEP_MS: u64 = 1_000;

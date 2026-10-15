@@ -160,7 +160,7 @@ fn core_session_tail(path: &Path, client: &str) -> std::io::Result<String> {
         .captures(client)
         .and_then(|capture| capture[1].parse::<u128>().ok());
     let marker = regex::bytes::Regex::new(&format!(
-        r"{} timestamp_ms=(\d+)\r?\n",
+        r"{} timestamp_ms=(\d+)(?: [^\r\n]*)?\r?\n",
         section::CORE_SESSION_START
     ))
     .unwrap();

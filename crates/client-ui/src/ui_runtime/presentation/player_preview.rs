@@ -135,6 +135,12 @@ impl UiPresentationRuntime {
     ) {
         let pack = self.gui_models.pack_equipment.source.clone();
         let base = self.equipment_catalog.clone();
+        self.gui_models.wearing_elytra = armor[1].is_some_and(|(identifier, _)| {
+            pack.as_deref()
+                .and_then(|catalog| catalog.binding(identifier))
+                .or_else(|| base.as_deref()?.binding(identifier))
+                .is_some_and(|binding| binding.category == assets::EquipmentCategory::Elytra)
+        });
         let from_pack: [bool; 4] = std::array::from_fn(|slot| {
             armor[slot].is_some_and(|(identifier, _)| {
                 pack.as_deref()
