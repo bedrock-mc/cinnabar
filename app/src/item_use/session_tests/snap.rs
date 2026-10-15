@@ -172,3 +172,143 @@ fn assert_release_after_snap(
         "a snap must not duplicate the launch"
     );
 }
+
+/// Admits a release and predicts its launch before correcting the unsent movement input.
+fn admitted_riptide_after_prediction(mode: PhysicsCorrectionMode, written: bool) {
+    let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::with_epoch_publisher(network.physics_epoch_publisher());
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let facing = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &RiptideWorld,
+        )
+        .samples
+        .remove(0);
+    ticker.enqueue_completed_physics(facing.clone()).unwrap();
+    let selection = use_frame(facing.tick).selection.unwrap();
+    let release = protocol::release_item_packet(protocol::HeldItemRequest {
+        selected_slot: selection.slot,
+        selected_item: selection.item,
+        player_position: facing.position,
+    })
+    .unwrap();
+    ticker.hold_release_after_tick(facing.tick, vec![release]);
+    ticker.request_riptide(&mut physics, 3, [-30.0, 90.0]);
+    super::assisted::flush(&mut ticker, &network);
+    captured.drain();
+    ticker.send_held_release(|packets| network.send_inventory_packets(packets));
+    assert!(!ticker.has_held_release());
+    assert_eq!(captured.drain().len(), 1);
+    let launch = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &RiptideWorld,
+        )
+        .samples
+        .remove(0);
+    assert!(launch.processed.spin_started);
+    ticker.enqueue_completed_physics(launch).unwrap();
+    if written {
+        super::assisted::flush(&mut ticker, &network);
+        assert_eq!(captured.drain().len(), 1);
+    }
+    for _ in 0..2 {
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            facing.position,
+            if mode == PhysicsCorrectionMode::Snap {
+                facing.tick
+            } else {
+                0
+            },
+            false,
+            mode,
+            &RiptideWorld,
+        )
+        .unwrap();
+    }
+    physics.advance(
+        std::time::Duration::ZERO,
+        sim::MovementInput::default(),
+        &RiptideWorld,
+    );
+    let next = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &RiptideWorld,
+        )
+        .samples
+        .remove(0);
+    assert_eq!(
+        next.processed.spin_started, !written,
+        "an admitted but unwritten launch must survive correction"
+    );
+    if !written {
+        assert!(
+            next.movement[0] < -2.5,
+            "the recovered launch keeps its captured facing"
+        );
+    }
+    ticker.enqueue_completed_physics(next).unwrap();
+    super::assisted::flush(&mut ticker, &network);
+    let packets = captured.drain();
+    assert_eq!(packets.len(), 1);
+    assert_eq!(
+        protocol::player_auth_input_trace_sample(&packets[0])
+            .unwrap()
+            .flag_names
+            .contains(&"StartSpinAttack"),
+        !written
+    );
+    ticker.send_held_release(|_| panic!("admitted release must not return"));
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        facing.position,
+        facing.tick,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &RiptideWorld,
+    )
+    .unwrap();
+    physics.advance(
+        std::time::Duration::ZERO,
+        sim::MovementInput::default(),
+        &RiptideWorld,
+    );
+    let next = physics
+        .advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &RiptideWorld,
+        )
+        .samples
+        .remove(0);
+    assert!(
+        !next.processed.spin_started,
+        "a written launch must never restart"
+    );
+}
+
+#[test]
+fn admitted_riptide_survives_snap_after_prediction_until_written() {
+    for written in [false, true] {
+        admitted_riptide_after_prediction(PhysicsCorrectionMode::Snap, written);
+    }
+}
+
+#[test]
+fn admitted_riptide_survives_replay_fallback_after_prediction_until_written() {
+    for written in [false, true] {
+        admitted_riptide_after_prediction(PhysicsCorrectionMode::ReplayIfRetained, written);
+    }
+}

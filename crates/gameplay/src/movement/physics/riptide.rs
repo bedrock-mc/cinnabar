@@ -39,6 +39,16 @@ impl LocalPhysicsController {
         self.riptide_pending = request;
     }
 
+    /// Drops a restored launch when its original input has since reached the socket.
+    pub(in crate::movement) fn retire_written_riptide_request(&mut self, tick: u64) {
+        if self
+            .riptide_pending
+            .is_some_and(|request| tick > request.after_tick)
+        {
+            self.riptide_pending = None;
+        }
+    }
+
     /// Removes an unsent release's pending and retained launch before correction replay.
     pub(in crate::movement) fn discard_riptide_release_after(
         &mut self,

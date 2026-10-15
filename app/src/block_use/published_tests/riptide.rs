@@ -150,6 +150,23 @@ fn ordinary_release(charge_ticks: u64) {
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
     ));
+    let slowdown = world
+        .resource::<client_interaction::item_use::ItemUseRuntime>()
+        .movement_modifier()
+        .unwrap();
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                keys: vec![0x1a],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
     produce_air_use(&mut world);
     assert!(
         captured.drain().is_empty(),
@@ -160,7 +177,43 @@ fn ordinary_release(charge_ticks: u64) {
     world
         .resource_mut::<LocalViewPose>()
         .set_rotation(Quat::IDENTITY);
-    let facing = tick(&mut world);
+    let mut expected = world.resource::<LocalPhysicsController>().clone();
+    let expected = expected
+        .advance(
+            simulation_clock::TICK_DURATION,
+            gameplay::movement::physics_movement_input(
+                [0.0, 1.0],
+                180.0,
+                true,
+                false,
+                false,
+                false,
+                Some(slowdown),
+            ),
+            &Water,
+        )
+        .samples
+        .remove(0);
+    world.insert_resource(client_presentation::camera::AutoFly::new(false));
+    #[cfg(feature = "acceptance")]
+    world.insert_resource(AcceptanceRun::new(None, None, false, false));
+    #[cfg(not(feature = "acceptance"))]
+    world.init_resource::<AcceptanceRun>();
+    world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    world
+        .run_system_cached(crate::movement::advance_local_physics)
+        .unwrap();
+    let facing = world
+        .resource::<LocalPhysicsController>()
+        .sample_at(expected.tick)
+        .unwrap();
+    assert_eq!(
+        facing.move_vector, expected.move_vector,
+        "the release-facing tick must retain item-use slowdown"
+    );
     assert!(
         !facing.processed.spin_started,
         "the facing input must precede the launch"

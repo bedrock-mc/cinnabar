@@ -19,7 +19,10 @@ fn trident(tick: u64, held: bool) -> UseFrame {
 }
 
 /// Hands inputs to the real session queue and acknowledges their socket receipts in order.
-fn flush(ticker: &mut MovementTicker, network: &NetworkHandle<PackApplication>) -> usize {
+pub(super) fn flush(
+    ticker: &mut MovementTicker,
+    network: &NetworkHandle<PackApplication>,
+) -> usize {
     let mut written = Vec::new();
     gameplay::movement::flush_player_auth_inputs_guarded(
         ticker,
@@ -115,14 +118,36 @@ fn assisted_riptide_release_keeps_its_charge_and_first_launch_input() {
                 < 1e-3
         );
         ticker.send_held_release(|_| Err(gameplay::BatchSendError::Full));
+        let input = gameplay::movement::physics_movement_input(
+            [0.0, 1.0],
+            0.0,
+            true,
+            false,
+            false,
+            false,
+            None,
+        );
+        let mut ordinary = physics.clone();
+        let ordinary = ordinary
+            .advance(simulation_clock::TICK_DURATION, input, &RiptideWorld)
+            .samples
+            .remove(0);
         let launch = physics
-            .advance(
+            .advance_with_context(
                 simulation_clock::TICK_DURATION,
-                sim::MovementInput::default(),
+                input,
+                gameplay::movement::PhysicsSampleContext {
+                    release_use_modifier: ticker.release_use_modifier(),
+                    ..Default::default()
+                },
                 &RiptideWorld,
             )
             .samples
             .remove(0);
+        assert_eq!(
+            launch.move_vector, ordinary.move_vector,
+            "queue pressure after facing must not prolong slowdown"
+        );
         assert_eq!(launch.processed.spin_started, charged);
         assert_eq!(launch.movement[0] < -1.0, charged);
         ticker.enqueue_completed_physics(launch).unwrap();

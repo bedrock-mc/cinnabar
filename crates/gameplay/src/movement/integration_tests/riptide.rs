@@ -210,3 +210,96 @@ fn riptide_that_exceeds_the_budget_with_existing_motion_is_retired() {
         assert_eq!(frame.samples[0].position, baseline.samples[0].position);
     }
 }
+
+#[test]
+fn riptide_socket_receipt_after_snap_resolves_the_restored_launch() {
+    for written in [false, true] {
+        let origin = [0.0, 65.620_01, 0.0];
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position(origin, 100, false);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, origin);
+        ticker.set_source(MovementSource::Physics);
+        ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+        let launch = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &VersionedFloor(1),
+            )
+            .samples
+            .remove(0);
+        assert!(launch.processed.spin_started);
+        ticker.enqueue_completed_physics(launch).unwrap();
+        let mut identity = None;
+        flush_player_auth_inputs(&mut ticker, 1, Some(evidence_context()), |id, _| {
+            identity = Some(id);
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            origin,
+            100,
+            false,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+        assert!(
+            !ticker.can_advance_physics_frame(),
+            "the old socket receipt must settle first"
+        );
+        if written {
+            assert!(ticker.acknowledge_physics_send(identity.unwrap()));
+        } else {
+            assert!(ticker.resolve_cancelled_physics_send(identity.unwrap(), true));
+        }
+        assert!(ticker.can_advance_physics_frame());
+        ticker.settle_riptide_input(&mut physics);
+        physics.advance(Duration::ZERO, MovementInput::default(), &VersionedFloor(1));
+        let next = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &VersionedFloor(1),
+            )
+            .samples
+            .remove(0);
+        assert_eq!(next.processed.spin_started, !written);
+    }
+}
+
+#[test]
+fn riptide_release_slowdown_ends_inside_a_two_tick_frame() {
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position([0.0, 65.620_01, 0.0], 100, false);
+    let input = physics_movement_input([0.0, 1.0], 0.0, true, false, false, false, None);
+    let mut using = physics.clone();
+    let using = using
+        .advance(
+            simulation_clock::TICK_DURATION,
+            physics_movement_input([0.0, 1.0], 0.0, true, false, false, false, Some(0.2)),
+            &VersionedFloor(1),
+        )
+        .samples
+        .remove(0);
+    let mut idle = physics.clone();
+    let idle = idle
+        .advance(simulation_clock::TICK_DURATION, input, &VersionedFloor(1))
+        .samples
+        .remove(0);
+    let frame = physics.advance_with_context(
+        simulation_clock::TICK_DURATION * 2,
+        input,
+        PhysicsSampleContext {
+            release_use_modifier: Some((101, 0.2)),
+            ..Default::default()
+        },
+        &VersionedFloor(1),
+    );
+    assert_eq!(frame.samples.len(), 2);
+    assert_eq!(frame.samples[0].move_vector, using.move_vector);
+    assert_eq!(frame.samples[1].move_vector, idle.move_vector);
+}

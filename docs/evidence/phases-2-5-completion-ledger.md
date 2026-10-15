@@ -82,7 +82,10 @@ Riptide releases now carry a level-dependent launch and spin lifetime through fi
 correction replay, input start/stop flags and local actor presentation. Charge and admission
 regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
 snap/replay lifetime and cancellation with a discarded release. Ordinary releases do not gain
-charge while waiting for their facing input. Unsupported impulses are retired at the
+charge while waiting for their facing input and retain use slowdown through that tick. Admitted
+launches survive a snap or replay fallback until their movement input is written, including late
+socket receipts. Suppressed travel uses the compact spin body for block contacts. Unsupported
+impulses are retired at the
 collision-query budget, a known safety divergence for oversized levels. Exact positional rain eligibility, actor-hit
 termination, server spin metadata, audio and integrated acceptance remain incomplete; this
 change closes no movement parity or performance gate.

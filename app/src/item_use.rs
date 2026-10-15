@@ -308,6 +308,7 @@ fn admit_with_action_aim(
         ..frame.clone()
     });
     let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0);
+    let use_modifier = runtime.movement_modifier();
     let mut deferred = None;
     admit_on_tick(
         runtime,
@@ -333,6 +334,7 @@ fn admit_with_action_aim(
             );
         }
         movement.hold_release_after_tick(frame.tick, packets);
+        movement.retain_release_use_modifier(use_modifier);
     }
 }
 

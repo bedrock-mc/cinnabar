@@ -54,7 +54,7 @@ pub(super) fn tick_without_travel(
     let mut identity = sampled.identity.clone();
     super::inside::after_move(
         world,
-        next.collision_box(input.mode.hitbox_height(input.sneaking)),
+        next.collision_box(next.hitbox_height(input)),
         &mut next.velocity,
         &input,
         &mut sampled,

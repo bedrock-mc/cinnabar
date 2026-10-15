@@ -6526,8 +6526,10 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
   additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
   Ordinary releases reserve their captured facing on the next input before launching, without
-  extending charge time. Written release fences retain their launch through snaps and replay
-  fallback; discarded releases cancel their pending and replayed launch. Impulses beyond the
+  extending charge time, and keep use slowdown through that facing tick. Admitted releases retain
+  their launch through snaps and replay fallback until its movement input is written; discarded
+  releases cancel their pending and replayed launch. Travel-suppressed spin ticks use the compact
+  body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
   bound is a known divergence for unsupported enchantment levels.
   Riptide parity remains incomplete: positional rain temperature, precise rain occlusion,

@@ -118,6 +118,8 @@ fn item_use_factor(modifier: f64) -> f64 {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PhysicsSampleContext {
+    /// A captured held-use modifier applied only through its release-facing tick.
+    pub release_use_modifier: Option<(u64, f64)>,
     pub pitch: f32,
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
@@ -225,7 +227,7 @@ pub struct LocalPhysicsFrame {
 #[derive(Debug, Clone, Copy)]
 pub(in crate::movement) struct RiptideRequest {
     launch: sim::RiptideLaunch,
-    after_tick: u64,
+    pub(in crate::movement) after_tick: u64,
 }
 
 /// Locally predicted fixed-tick player state and render interpolation.
@@ -566,7 +568,13 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
+            input.item_use_movement_modifier = context
+                .release_use_modifier
+                .filter(|(tick, _)| state.tick < *tick)
+                .map(|(_, modifier)| item_use_factor(modifier))
+                .or(item_use_modifier);
             input.riptide = self
                 .riptide_pending
                 .filter(|request| state.tick >= request.after_tick)

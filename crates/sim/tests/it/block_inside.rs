@@ -33,6 +33,53 @@ fn skipped_travel_still_applies_bubble_contact_without_gravity_or_movement() {
     assert!(output.environment.in_water);
 }
 
+/// Suppressed travel retains velocity only from cells touched by the current spin body.
+#[test]
+fn skipped_travel_uses_the_compact_spin_body_for_block_contacts() {
+    for response in [
+        SurfaceResponse::Honey,
+        SurfaceResponse::BubbleUp,
+        SurfaceResponse::BubbleDown,
+    ] {
+        for launching in [false, true] {
+            for spinning in [false, true] {
+                for cell_y in [2, 3] {
+                    let block = if response == SurfaceResponse::Honey {
+                        facts(BlockPhysicsFlags::default(), response)
+                    } else {
+                        water(response)
+                    };
+                    let world = Cells::default().with([0, cell_y, 0], block);
+                    let mut player = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
+                    player.velocity = Vec3::new(0.25, -0.5, 0.125);
+                    player.spin_attack_ticks = spinning.then_some(2);
+                    let input = MovementInput {
+                        skip_travel: true,
+                        riptide: launching.then(|| sim::RiptideLaunch::new(3, [0.0; 2]).unwrap()),
+                        ..Default::default()
+                    };
+                    let mut free = player.clone();
+                    let baseline = tick(&Cells::default(), &mut free, input);
+                    let result = tick(&world, &mut player, input);
+                    assert_eq!(result.movement, Vec3::ZERO);
+                    assert_eq!(result.position, baseline.position);
+                    if cell_y == 3 && (spinning || launching) {
+                        assert_eq!(
+                            result.velocity, baseline.velocity,
+                            "contact above compact body: {response:?}, launching={launching}, spinning={spinning}"
+                        );
+                    } else {
+                        assert_ne!(
+                            result.velocity, baseline.velocity,
+                            "genuine body contact must remain active"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn facts(flags: BlockPhysicsFlags, response: SurfaceResponse) -> BlockPhysicsFacts {
     BlockPhysicsFacts {
         friction: 0.6,
