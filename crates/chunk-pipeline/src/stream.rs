@@ -55,6 +55,8 @@ mod block_entities;
 mod block_events;
 mod cave_visibility;
 mod cohort;
+mod column_bookkeeping;
+use column_bookkeeping::{ColumnOwned, ColumnQueue, ColumnRecords};
 mod column_scan;
 mod column_set;
 mod commit_budget;
