@@ -96,6 +96,7 @@ impl ActorStore {
             entity_assets: None,
             custom_actor_facts: HashMap::new(),
             actors: HashMap::new(),
+            hitbox_budget: Default::default(),
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
@@ -605,7 +606,7 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
-                let rejected = actor.apply_metadata(&update.metadata)
+                let rejected = actor.apply_metadata(&update.metadata, &mut self.hitbox_budget)
                     | actor.apply_properties(&update.properties);
                 self.effect_members.update(actor);
                 if incompatible {
