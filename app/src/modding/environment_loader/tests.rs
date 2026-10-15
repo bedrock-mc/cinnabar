@@ -207,11 +207,19 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     .unwrap();
     let digest = previous.host.source_digest();
     let mut world = world(previous);
+    // Requests carry the accepted host's resolved writer destination, as the loader sends them.
+    let settings_path = world
+        .resource::<ModRuntime>()
+        .hosts
+        .host(0)
+        .settings_path()
+        .unwrap()
+        .to_owned();
     std::fs::write(&path, component("Second", None)).unwrap();
     let mut attempted = BTreeMap::new();
     current.previous = digest;
     // The worker received these preferences before a newer value was committed.
-    current.settings = Some((companion.clone(), "{\"value\":0}".into()));
+    current.settings = Some((settings_path.clone(), "{\"value\":0}".into()));
     let update = prepare(current, &mut attempted).unwrap();
     let rejected = apply(&mut world, update).unwrap();
     assert_eq!(rejected.panel().unwrap().title, "Second");
@@ -220,7 +228,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
     assert_eq!(old.settings_snapshot(), Some("{\"value\":1}"));
     let mut retry = request(&path, digest);
     retry.source.grants.settings = true;
-    retry.settings = Some((companion.clone(), old.settings_snapshot().unwrap().into()));
+    retry.settings = Some((settings_path, old.settings_snapshot().unwrap().into()));
     let update = prepare(retry, &mut attempted).expect("valid source retries after stale settings");
     drop(apply(&mut world, update).unwrap());
     drop(rejected);
