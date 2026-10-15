@@ -350,7 +350,7 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         super::super::phase::QueueActorParams<'_, '_>,
         Local<u64>,
     )>::new(world);
-    let (params, mut generation) = state.get_mut(world);
+    let (params, mut generation) = state.get_mut(world).unwrap();
     *generation = u64::MAX;
     super::super::phase::queue_actors(params, generation);
     assert!(world.resource::<ActorGpu>().draw_batch(view).is_none());
