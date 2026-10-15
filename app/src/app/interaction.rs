@@ -2,7 +2,7 @@
 use super::*;
 
 /// Admits attacks before their frame's movement, then drains inputs before item uses.
-pub(super) fn configure(app: &mut App) {
+pub(crate) fn configure(app: &mut App) {
     app.add_systems(
         Update,
         (
@@ -12,8 +12,8 @@ pub(super) fn configure(app: &mut App) {
             #[cfg(not(feature = "acceptance"))]
             crate::runtime::telemetry::discard_completed_movement_evidence,
             crate::melee::prepare_melee,
-            produce_survival_mining,
             produce_melee,
+            produce_survival_mining,
             crate::item_use::prepare_item_release,
             #[cfg(feature = "tracy")]
             crate::tracy::plot_physics_to_send,

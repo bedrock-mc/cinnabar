@@ -249,12 +249,9 @@ fn produce_use(
     let Some(sample) = sample else {
         return;
     };
-    // New item use waits for earlier presses; accepted uses must still observe release.
+    // Pending presses suppress new starts while accepted uses keep advancing.
     let press_pending =
         context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending());
-    if press_pending && !runtime.is_releasing(held) {
-        return;
-    }
     let frame = UseFrame {
         riptide: riptide_at(sample.position),
         riptide_facing: release_facing,

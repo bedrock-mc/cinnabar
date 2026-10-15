@@ -5,7 +5,7 @@ use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
 /// Publishes original custom boxes on the fixture's actor class at the coordinate origin.
-fn actor_boxes(world: &mut World, id: u64, boxes: &[([f32; 3], [f32; 3])]) {
+pub(super) fn actor_boxes(world: &mut World, id: u64, boxes: &[([f32; 3], [f32; 3])]) {
     let mut root = world::NbtCompound::default();
     root.insert(
         "Hitboxes",

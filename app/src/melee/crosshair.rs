@@ -1,4 +1,5 @@
 use actor_animation::ActorLifetimeId;
+use bevy::prelude::Quat;
 use client_presentation::{
     aim_assist::{AimAssistTarget, TargetKind},
     local_player::InteractionOriginSnapshot,
@@ -25,6 +26,7 @@ struct FrameActor {
 #[derive(Default)]
 struct Frame {
     origin: InteractionOriginSnapshot,
+    action_rotation: Option<Quat>,
     position_authority: PositionAuthorityGeneration,
     actors: Vec<FrameActor>,
     index: HashMap<u64, usize>,
@@ -57,6 +59,8 @@ impl FrameInputs {
         std::mem::swap(&mut self.previous, &mut self.current);
         let frame = &mut self.current;
         frame.origin.clone_from(&context.origin);
+        frame.action_rotation =
+            client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
         frame.position_authority = position_authority;
         frame.assisted = context.aim.target;
         frame.actors.clear();
@@ -94,13 +98,20 @@ impl FrameInputs {
     }
 }
 
+/// One frame's resolved press and its action-facing decision travel together.
+#[derive(Clone, Copy)]
+pub(super) struct ResolvedTarget {
+    pub(super) crosshair: Crosshair,
+    pub(super) action_rotation: Option<Quat>,
+}
+
 /// Picks once against published camera and actor geometry, using current admission policy.
 pub(super) fn resolve_crosshair(
     player: &client_state::PlayerRuntime,
     context: &MeleeContext,
     frames: &FrameInputs,
     position_authority: PositionAuthorityGeneration,
-) -> Option<Crosshair> {
+) -> Option<ResolvedTarget> {
     context.origin.outbound_ray()?;
     let frame = frames.published(position_authority);
     let ray = frame.origin.outbound_ray()?;
@@ -193,11 +204,14 @@ pub(super) fn resolve_crosshair(
         },
         None => normal(),
     };
-    Some(classify(
-        actor,
-        observed.map(|block| block.hit_distance()),
-        attack_reach,
-    ))
+    Some(ResolvedTarget {
+        crosshair: classify(
+            actor,
+            observed.map(|block| block.hit_distance()),
+            attack_reach,
+        ),
+        action_rotation: frame.action_rotation,
+    })
 }
 
 #[cfg(test)]

@@ -33,7 +33,7 @@ use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send
 
 /// This frame's resolved press awaiting admission before its movement input.
 #[derive(Resource, Default)]
-pub(crate) struct MeleeTarget(Option<Crosshair>);
+pub(crate) struct MeleeTarget(Option<crosshair::ResolvedTarget>);
 
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
@@ -106,7 +106,7 @@ pub(crate) fn prepare_melee(
         runtime.cancel();
         return;
     }
-    let Some(crosshair) = resolve_crosshair(
+    let Some(mut picked) = resolve_crosshair(
         &player_runtime,
         &context,
         &frames,
@@ -116,11 +116,11 @@ pub(crate) fn prepare_melee(
         runtime.defer(now_millis);
         return;
     };
-    let crosshair = runtime.observe_attack_target(
-        crosshair,
+    picked.crosshair = runtime.observe_attack_target(
+        picked.crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),
     );
-    target.0 = Some(crosshair);
+    target.0 = Some(picked);
 }
 
 /// Admits the picked press before this frame's inputs, using their preceding pose.
@@ -133,13 +133,14 @@ pub(crate) fn produce_melee(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
-    let (Some(crosshair), Some(input), Some(stream)) = (
+    let (Some(picked), Some(input), Some(stream)) = (
         target.0,
         context.input.snapshot(),
         context.client_world.stream.as_ref(),
     ) else {
         return;
     };
+    let crosshair = picked.crosshair;
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     let input_mode = protocol_input_mode(input.input_mode);
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -221,10 +222,9 @@ pub(crate) fn produce_melee(
             result
         },
     );
-    if rotate_action {
-        client_interaction::camera::aim_assist::rotate_for_action(
-            &context.aim,
-            &context.camera,
+    if rotate_action && let Some(rotation) = picked.action_rotation {
+        client_interaction::camera::aim_assist::apply_action_rotation(
+            rotation,
             &mut view,
             &mut movement,
             sample.tick,

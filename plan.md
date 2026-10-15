@@ -3613,6 +3613,9 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 
 2026-10-15 actor attacks run the ordinary pick once against the published frame's
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
+The selected frame also owns the action-facing rotation. Block presses resolve before
+catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced
 or dead actors cannot receive an attack from old frame geometry. Position-authority
