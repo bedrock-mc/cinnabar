@@ -475,3 +475,185 @@ fn load_bed(app: &mut App, bed: [i32; 3]) {
         stream.committed_sequence() >= 3
     });
 }
+
+/// Checks the rendered hand angles after sampling the real camera presentation owner.
+fn assert_sway(app: &mut App, pitch: f32, yaw: f32) {
+    app.world_mut().run_system_cached(sample).unwrap();
+    let hand = app.world().resource::<FirstPersonHandMotion>();
+    assert!(
+        (hand.sway_pitch_radians.to_degrees() - pitch).abs() < 1e-4
+            && (hand.sway_yaw_radians.to_degrees() - yaw).abs() < 1e-4,
+        "sway ({}, {}) degrees, expected ({pitch}, {yaw})",
+        hand.sway_pitch_radians.to_degrees(),
+        hand.sway_yaw_radians.to_degrees(),
+    );
+}
+
+#[test]
+fn sleep_entry_after_freelook_reanchors_the_first_person_hand() {
+    for java in [false, true] {
+        for turn in [360.0_f32, -720.0, 405.0] {
+            let mut app = camera_app();
+            let mut user = ui::UserSettings::default();
+            user.video.java_animations = java;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(1, &user)
+                .unwrap();
+            let collisions = bed_collisions(&mut app, BED, 0);
+            app.insert_resource(collisions);
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .freelook = true;
+            {
+                let mut view = app.world_mut().resource_mut::<LocalViewPose>();
+                view.set_freelook(true);
+                view.turn_look_rotation(
+                    Quat::from_rotation_y(-turn.to_radians()),
+                    -turn.to_radians(),
+                );
+            }
+            for index in 1..=32 {
+                tick(&mut app, index);
+                app.world_mut()
+                    .run_system_cached(resolve_presentation)
+                    .unwrap();
+                app.world_mut().run_system_cached(sample).unwrap();
+            }
+            assert_sway(&mut app, 0.0, 0.0);
+            // Sleep arrives while freelook still selects the third-person input heading.
+            sleep_state(&mut app, 4, true, Some(BED));
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 0.0, 0.0);
+            let physics = app.world().resource::<TestPhysics>().state.clone();
+            let actor = app.world().resource::<LocalViewPose>().rotation();
+            // The bed UI releases freelook on the following frame, without a physics tick.
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .freelook = false;
+            app.world_mut()
+                .resource_mut::<LocalViewPose>()
+                .set_freelook(false);
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            for alpha in [0.0, 0.5, 1.0] {
+                app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
+                assert_sway(&mut app, 0.0, 0.0);
+            }
+            let anchor = app
+                .world()
+                .resource::<LocalViewPose>()
+                .camera_reanchor_epoch();
+            for _ in 0..3 {
+                app.world_mut()
+                    .run_system_cached(resolve_presentation)
+                    .unwrap();
+                assert_sway(&mut app, 0.0, 0.0);
+                assert_eq!(
+                    app.world()
+                        .resource::<LocalViewPose>()
+                        .camera_reanchor_epoch(),
+                    anchor
+                );
+            }
+            assert_eq!(app.world().resource::<LocalViewPose>().rotation(), actor);
+            assert_eq!(app.world().resource::<TestPhysics>().state, physics);
+            // Input still owns the actor heading while the sleeping camera stays on the bed.
+            app.world_mut()
+                .resource_mut::<LocalViewPose>()
+                .turn_look_rotation(
+                    Quat::from_rotation_y(-30.0_f32.to_radians()),
+                    -30.0_f32.to_radians(),
+                );
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 0.0, 0.0);
+            assert_eq!(
+                app.world()
+                    .resource::<LocalViewPose>()
+                    .camera_reanchor_epoch(),
+                anchor
+            );
+            sleep_state(&mut app, 5, false, Some(BED));
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 0.0, 0.0);
+            let view = app.world().resource::<LocalViewPose>();
+            assert!(view.camera_rotation().abs_diff_eq(view.rotation(), 1e-5));
+            assert_eq!(app.world().resource::<TestPhysics>().state, physics);
+            // A real turn immediately after waking must retain its ordinary hand lag.
+            app.world_mut()
+                .resource_mut::<LocalViewPose>()
+                .turn_look_rotation(
+                    Quat::from_rotation_y(-60.0_f32.to_radians()),
+                    -30.0_f32.to_radians(),
+                );
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 0.0, 3.0);
+        }
+    }
+}
+
+#[test]
+fn awake_presentation_preserves_normal_turn_sway_across_perspectives() {
+    for java in [false, true] {
+        let mut app = camera_app();
+        let mut user = ui::UserSettings::default();
+        user.video.java_animations = java;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &user)
+            .unwrap();
+        app.insert_resource(TestCollisions::default());
+        tick(&mut app, 1);
+        app.world_mut()
+            .run_system_cached(resolve_presentation)
+            .unwrap();
+        assert_sway(&mut app, 0.0, 0.0);
+        let anchor = app
+            .world()
+            .resource::<LocalViewPose>()
+            .camera_reanchor_epoch();
+        app.world_mut()
+            .resource_mut::<LocalViewPose>()
+            .turn_look_rotation(
+                Quat::from_euler(
+                    EulerRot::YXZ,
+                    -30.0_f32.to_radians(),
+                    -20.0_f32.to_radians(),
+                    0.0,
+                ),
+                -30.0_f32.to_radians(),
+            );
+        for _ in 0..3 {
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 2.0, 3.0);
+            assert_eq!(
+                app.world()
+                    .resource::<LocalViewPose>()
+                    .camera_reanchor_epoch(),
+                anchor
+            );
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .cycle_perspective();
+        }
+        tick(&mut app, 2);
+        for (alpha, gain) in [(0.0, 1.0), (0.5, 0.75), (1.0, 0.5)] {
+            app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
+            app.world_mut()
+                .run_system_cached(resolve_presentation)
+                .unwrap();
+            assert_sway(&mut app, 2.0 * gain, 3.0 * gain);
+        }
+    }
+}

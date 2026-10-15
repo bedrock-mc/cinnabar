@@ -976,6 +976,8 @@ Sway retains complete camera yaw turns through tick smoothing and frame interpol
 including turns larger than a half turn in one input frame.
 Leaving freelook restores the actor heading with the nearest equivalent yaw winding,
 so full camera revolutions do not add artificial hand motion on release.
+Activating or leaving the sleeping camera reanchors its presentation history, including
+when sleep begins before held freelook is released; stable sleeping frames keep their history.
 Movement bob uses the physics fraction; hurt and death use the actor fraction.
 Remote movement keeps pitch in the signed half-turn range before strike poses read it.
 Frame interpolation takes the shortest pitch arc across the signed boundary in Java mode.
@@ -1805,7 +1807,8 @@ frame-budget or identical-version pixel gates.
   with its eye at the sleeping offset, while its physics stays where it stood. One shared pose
   samples loaded bed headings before Camera, including frames without actor ticks, and feeds
   camera publication, actor camera queries, body placement and particle attachments. Sleep
-  transitions reanchor camera history once; stable sleeping frames retain motion-blur history.
+  pose transitions and changes of the sleeping camera override reanchor camera history;
+  stable sleeping frames retain motion-blur history.
   Actor transitions also reanchor displacement and cape position history without restarting
   animation; stable frames preserve that history.
   Java animations retain the sleeping eye height, and named audio keeps an eligible first-person

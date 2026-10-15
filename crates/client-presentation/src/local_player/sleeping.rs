@@ -62,11 +62,12 @@ impl LocalViewPose {
         first_person: bool,
     ) {
         self.sleeping_changed = self.sleeping != sleeping;
-        if self.sleeping_changed {
+        let sleeping_camera = sleeping.is_some() && first_person;
+        if self.sleeping_changed || self.sleeping_camera != sleeping_camera {
             self.reanchor_camera();
         }
         self.sleeping = sleeping;
-        self.sleeping_camera = first_person;
+        self.sleeping_camera = sleeping_camera;
     }
 
     /// Gives the retained actor and its attachments the same body position as the shared view.
