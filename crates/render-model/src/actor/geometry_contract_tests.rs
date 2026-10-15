@@ -124,12 +124,12 @@ fn compiled_and_skin_cubes_share_resolved_defaults_overrides_and_inheritance() {
 fn eligibility_uses_the_same_explicit_zero_inflate_as_mesh_generation() {
     let catalog = catalog();
     let index = find_geometry_index(&catalog, "geometry.plane_defaults").unwrap() as usize;
-    assert!(assets::actor::neutral_actor_geometry_uvs_are_supported(
+    assert!(assets::neutral_actor_geometry_uvs_are_supported(
         catalog.geometries(),
         index
     ));
     assert_eq!(
-        assets::actor::neutral_actor_geometry_sampled_texels(catalog.geometries(), index, 2, 2),
+        assets::neutral_actor_geometry_sampled_texels(catalog.geometries(), index, 2, 2),
         Some(vec![true; 4])
     );
     let mesh = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
