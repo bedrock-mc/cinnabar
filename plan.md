@@ -532,8 +532,11 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
+  image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
+- Persona and platform-specific imported-skin behavior remain incomplete.
 
 ## Client-side chunk generation
 

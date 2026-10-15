@@ -56,7 +56,7 @@ impl Outcome {
                         uuid,
                         skin,
                         entry.model.arm_size(),
-                        &entry.id,
+                        &crate::player_skin::selected_skin_id(entry),
                         &entry.name,
                     )
                 })
@@ -309,6 +309,7 @@ impl MenuRuntime {
                 {
                     if let Some(active) = result.view.active_skin() {
                         self.player_skin.set_selection(&active, selected.model);
+                        self.player_skin.skin_id = crate::player_skin::selected_skin_id(selected);
                         self.player_skin.engine_version = selected.engine_version.clone();
                     }
                     self.skin_update_pending = true;
