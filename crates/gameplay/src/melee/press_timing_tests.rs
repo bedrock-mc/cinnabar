@@ -1,5 +1,51 @@
 use super::*;
 
+#[test]
+fn block_press_waits_for_older_movement_before_its_current_frame_tick() {
+    for recent_ticks in [1, 0] {
+        let mut movement = crate::test_support::survival_mining::ticker_with_ticks(4);
+        let mut runtime = MeleeRuntime::default();
+        runtime.synchronize(movement.interaction_authority_identity());
+        runtime.observe_input(true, true);
+        if recent_ticks == 0 {
+            runtime.rejected_tick = Some(104);
+        }
+        assert!(
+            runtime
+                .press_sample(Crosshair::Block, &movement, recent_ticks, 1_000)
+                .is_none(),
+            "the block swing must wait behind older input"
+        );
+        crate::movement::flush_player_auth_inputs(
+            &mut movement,
+            1,
+            Some(crate::test_support::survival_mining::evidence()),
+            |_, _| Ok::<_, ()>(()),
+        )
+        .unwrap();
+        assert!(
+            runtime
+                .press_sample(Crosshair::Block, &movement, recent_ticks, 1_001)
+                .is_none()
+        );
+        crate::movement::flush_player_auth_inputs(
+            &mut movement,
+            2,
+            Some(crate::test_support::survival_mining::evidence()),
+            |_, _| Ok::<_, ()>(()),
+        )
+        .unwrap();
+        let sample = runtime
+            .press_sample(Crosshair::Block, &movement, recent_ticks, 1_002)
+            .unwrap();
+        assert_eq!(sample.tick, 104);
+        assert_eq!(
+            sample.position,
+            movement.newest_unsent_sample().unwrap().position
+        );
+    }
+}
+
 /// Supplies one verified empty hand at a fixed tick and position.
 fn press(tick: u64) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();

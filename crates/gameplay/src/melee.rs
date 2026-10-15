@@ -180,8 +180,8 @@ impl MeleeRuntime {
         }
     }
 
-    /// Block presses retain their current-frame or rejected tick. Actor attacks and misses
-    /// precede the frame's first input and report the state before that tick simulated.
+    /// Presses wait behind older inputs. Block presses retain their current-frame or rejected
+    /// tick; actor attacks and misses report the state before that tick simulated.
     pub fn press_sample(
         &mut self,
         crosshair: Crosshair,
@@ -202,6 +202,7 @@ impl MeleeRuntime {
                         None
                     }
                 })
+                .filter(|sample| movement.interaction_before_tick(sample.tick).is_some())
                 .map(Into::into)
         } else {
             movement

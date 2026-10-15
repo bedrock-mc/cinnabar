@@ -248,7 +248,44 @@ fn attack_progress_instant_break_publishes_both_swings_and_the_next_input() {
 
 #[test]
 fn attack_progress_assisted_target_point_and_facing_share_the_published_frame() {
+    assisted_attack_with_published_aim(false);
+}
+
+#[test]
+fn attack_progress_piercing_direction_shares_the_published_facing() {
+    assisted_attack_with_published_aim(true);
+}
+
+/// Checks actor and item-directed attacks against the same changing assisted frame.
+fn assisted_attack_with_published_aim(piercing: bool) {
     let (mut world, mut captured) = attack_hit_position_tests::unpublished_attack_fixture(7.5);
+    if piercing {
+        item_use_tests::hold_air_item(&mut world, "fixture:piercing", 1, [].into());
+        world
+            .resource_mut::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .set_item_attack_timings(std::sync::Arc::new(
+                [(
+                    Box::<str>::from("fixture:piercing"),
+                    protocol::ItemAttackTiming {
+                        piercing_weapon: true,
+                        ..Default::default()
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ));
+        assert!(
+            crate::melee::selected_attack_timing(
+                world.resource::<client_state::PlayerRuntime>(),
+                world.resource::<crate::runtime::world::ClientWorld>()
+            )
+            .unwrap()
+            .piercing_weapon
+        );
+    }
     attack_frame_tests::actor_boxes(&mut world, 100, &[([5.0, 2.0, 7.0], [6.0, 3.0, 8.0])]);
     let context = client_presentation::camera::ViewContext {
         base: Transform::IDENTITY,
@@ -341,6 +378,7 @@ fn attack_progress_assisted_target_point_and_facing_share_the_published_frame() 
     world
         .resource_mut::<InteractionOriginSnapshot>()
         .assist_direction(frame.interaction_direction().unwrap());
+    let direction = frame.interaction_direction().unwrap();
     world.insert_resource(frame);
     world
         .run_system_cached(crate::melee::prepare_melee)
@@ -367,17 +405,38 @@ fn attack_progress_assisted_target_point_and_facing_share_the_published_frame() 
     )
     .unwrap();
     assert!(expected.dot(current).abs() < 0.99);
+    let current_direction = world
+        .resource::<AimAssistFrame>()
+        .interaction_direction()
+        .unwrap();
+    world
+        .resource_mut::<InteractionOriginSnapshot>()
+        .assist_direction(current_direction);
     ticks(&mut world, 102, 103);
     attack_hit_position_tests::attack(&mut world);
     let packets = captured.drain();
     let tx = packets.iter().find_map(observe_transaction).unwrap();
-    assert_eq!(
-        (
-            tx.actor_use().unwrap().runtime_id,
-            tx.actor_use().unwrap().hit_position
-        ),
-        (99, point.to_array())
-    );
+    if piercing {
+        let item = tx.item_use().unwrap();
+        assert_eq!(
+            item.action,
+            protocol::test_support::transactions::ItemUseAction::UseAsAttack
+        );
+        let emitted_direction =
+            Vec3::from_array(item.click_position) - Vec3::from_array(item.from_position);
+        assert!(
+            (emitted_direction - direction).length() < 0.00001,
+            "piercing packets must use the published direction"
+        );
+    } else {
+        assert_eq!(
+            (
+                tx.actor_use().unwrap().runtime_id,
+                tx.actor_use().unwrap().hit_position
+            ),
+            (99, point.to_array())
+        );
+    }
     assert!(
         world
             .resource::<LocalViewPose>()

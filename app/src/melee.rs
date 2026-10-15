@@ -180,11 +180,9 @@ pub(crate) fn produce_melee(
         now_millis,
         item_attack: item_timing
             .filter(|timing| timing.piercing_weapon)
-            .and_then(|timing| {
-                Some(gameplay::melee::ItemAttackPress {
-                    direction: context.origin.outbound_ray()?.direction().to_array(),
-                    cooldown: timing.attack_cooldown.clone(),
-                })
+            .map(|timing| gameplay::melee::ItemAttackPress {
+                direction: picked.direction,
+                cooldown: timing.attack_cooldown.clone(),
             }),
     };
     let mut rotate_action = false;
