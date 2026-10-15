@@ -72,9 +72,6 @@ pub struct PhysicsCollisionRegistries {
     session_hashes: Arc<Vec<u32>>,
 }
 
-/// Per block identity, each serialized state's `(sequential, hashed)` runtime ids.
-type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
-
 #[derive(Debug, Error)]
 pub enum PhysicsCollisionRegistryError {
     #[error(transparent)]
