@@ -165,12 +165,13 @@ mod enabled {
 
         /// Drains counts without discarding site identities or allocating on subsequent frames.
         fn finish_frame(&mut self) {
-            for (_key, site) in self.0.iter_mut() {
+            for site in self.0.values_mut() {
                 site.last = std::mem::take(&mut site.current);
-                #[cfg(feature = "tracy")]
-                if let Some(client) = tracy_client::Client::running() {
+            }
+            #[cfg(feature = "tracy")]
+            if let Some(client) = tracy_client::Client::running() {
+                for ((file, line, column, kind), site) in &mut self.0 {
                     let plots = site.plots.get_or_insert_with(|| {
-                        let (file, line, column, kind) = _key;
                         site.last.metrics().map(|(metric, _)| {
                             tracy_client::PlotName::new_leak(format!(
                                 "upload/{file}:{line}:{column}/{kind:?}/{metric}"
