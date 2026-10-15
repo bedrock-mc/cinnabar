@@ -123,6 +123,8 @@ mod tests {
     use render_api::{CLASSIC_SKIN_SIDE, StandardSkin};
     use std::sync::Arc;
 
+    const ROSTER_XUID: &str = "11";
+
     /// Lists a player with an identifiable skin and a retained custom-model source.
     fn add(byte: u8) -> ActorEvent {
         ActorEvent::PlayerList(PlayerListUpdateEvent {
@@ -131,7 +133,7 @@ mod tests {
                 unique_id: 1,
                 username: "player".into(),
                 verified: true,
-                xuid: "".into(),
+                xuid: ROSTER_XUID.into(),
                 skin: PlayerSkin::Standard(StandardSkin {
                     width: CLASSIC_SKIN_SIDE as u32,
                     height: CLASSIC_SKIN_SIDE as u32,
@@ -326,6 +328,9 @@ mod tests {
         );
         assert_eq!(store.players[&[1; 16]].unique_id, 1);
         assert_eq!(store.players[&[4; 16]].unique_id, XUID + 1);
+        for uuid in [[1; 16], [4; 16]] {
+            assert_eq!(&*store.players[&uuid].xuid, ROSTER_XUID);
+        }
     }
 
     #[test]

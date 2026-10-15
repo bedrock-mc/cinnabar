@@ -650,7 +650,7 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`). It dials
   before minting and reuses unexpired key-bound credentials with fresh challenge proofs. Negotiated
   limits, retry minima, reconnect jitter and bounded frame-rejection retries control its traffic.
-- Player lookups prioritize new joiners, coalesce refreshes, expire visible positives and discard
+- Player lookups prioritize new joiners, drain coalesced refresh rounds, expire visible positives and discard
   older-session replies. Release notices include manifest builds and schedule jittered checks with
   bounded retries for older signed manifests. Packaging rejects placeholder origins and announces
   only changed signed manifests.

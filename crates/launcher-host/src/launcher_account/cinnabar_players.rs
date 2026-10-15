@@ -84,11 +84,14 @@ impl Lookups {
         if self.not_before.is_some_and(|at| now < at) {
             return None;
         }
-        if self.roster.iter().any(|xuid| {
-            self.resolved
-                .get(xuid)
-                .is_some_and(|(at, _)| now.saturating_duration_since(*at) >= self.ttl)
-        }) {
+        if self.refresh.is_empty()
+            && self.roster.iter().any(|xuid| {
+                self.resolved
+                    .get(xuid)
+                    .is_some_and(|(at, _)| now.saturating_duration_since(*at) >= self.ttl)
+            })
+        {
+            // Freeze the round until every negotiated prefix has answered, even past its TTL.
             self.refresh.extend(
                 self.roster
                     .iter()
@@ -347,6 +350,48 @@ mod tests {
         assert_eq!(
             lookups.next_batch(start + RESOLVED_TTL).unwrap(),
             ["11", "22"]
+        );
+    }
+
+    /// Negotiated one-XUID replies must reach the tail even when a round exceeds the cache TTL.
+    #[test]
+    fn refresh_round_drains_before_refreshed_players_are_reenqueued() {
+        let start = Instant::now();
+        let xuids: Vec<String> = (1..=80).map(|id| id.to_string()).collect();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(Roster {
+            session: 1,
+            xuids: xuids.clone(),
+        });
+        lookups.resolve(start, 1, &xuids, &xuids);
+        let mut now = start + RESOLVED_TTL;
+        for expected in &xuids {
+            let offered = lookups.next_batch(now).unwrap();
+            assert_eq!(offered.first(), Some(expected));
+            // Only the negotiated prefix was sent by the core and answered by the server.
+            lookups.resolve(now, 1, &offered[..1], &offered[..1]);
+            now += LOOKUP_SPACING;
+        }
+        assert!(lookups.refresh.is_empty());
+        assert_eq!(lookups.next_batch(now).unwrap().first(), xuids.first());
+    }
+
+    /// Roster churn and a delayed retry keep the current round while new players remain first.
+    #[test]
+    fn refresh_round_survives_retry_and_prioritizes_new_joiners() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11", "22", "33"]));
+        lookups.resolve(start, 1, &["11".into(), "22".into(), "33".into()], &[]);
+        let now = start + RESOLVED_TTL;
+        let first = lookups.next_batch(now).unwrap();
+        lookups.resolve(now, 1, &first[..1], &[]);
+        lookups.set_roster(roster(1, &["11", "22", "44"]));
+        lookups.fail(now, RESOLVED_TTL);
+        assert!(lookups.next_batch(now + LOOKUP_SPACING).is_none());
+        assert_eq!(
+            lookups.next_batch(now + RESOLVED_TTL).unwrap(),
+            ["44", "22"]
         );
     }
 

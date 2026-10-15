@@ -19,8 +19,9 @@ a disconnect, as described in its Privacy documentation. You can still look up b
 
 **Lookups:** the server advertises its batch limit, XUID budget, answer lifetime, keepalive interval
 and reconnect cap. Older servers use the pinned v1 defaults. New joiners are queued promptly;
-refreshes coalesce older answers. Positive badges expire even if a refresh fails. Changing server
-sessions clears the cache and rejects older replies; departed XUIDs are pruned.
+refreshes coalesce older answers and drain each round before requeuing refreshed players, so small
+negotiated batches still reach the roster's tail. Positive badges expire even if a refresh fails.
+Changing server sessions clears the cache and rejects older replies; departed XUIDs are pruned.
 
 **Retries and updates:** HTTP 429 and close code 4429 impose a minimum retry delay, with additional
 jitter. Server disconnects spread reconnects across 30 seconds. Repeated invalid-frame rejections

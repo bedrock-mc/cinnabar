@@ -2,7 +2,9 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod account;
+#[cfg(not(target_arch = "wasm32"))]
 mod cinnabar_api;
+#[cfg(not(target_arch = "wasm32"))]
 pub use cinnabar_api::{
     CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
 };
