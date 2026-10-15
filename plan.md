@@ -1,3 +1,14 @@
+## Incremental persona artwork pages
+
+Persona animation images retain bounded single-layer page slots across empty views.
+New images share their source pixels and update only their own slots; a full cache
+reuses offscreen slots. Session and base-art changes invalidate residency. Grouped
+admission remains available when the exact page layout exceeds the existing budgets.
+Regression coverage compares pixel bytes and attributable hashing and uploads with the
+grouped path. Incomplete: these changes have not been compiled or tested; matched
+rendered captures and hardware performance measurements remain pending. No parity or
+performance gate closes here.
+
 ## World-service handback
 
 Retention and full-detail transitions share the poll deadline and resume between columns.
