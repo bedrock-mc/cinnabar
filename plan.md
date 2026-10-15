@@ -178,7 +178,9 @@ Afterwards the first cached columns replaced by live ones are compared too: when
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
 summaries never replace a later visit's. Every session, including a transfer to the same
-address, and every dimension change starts a fresh visit. An IO thread writes each region in
+address, and every committed dimension change starts a fresh visit, including a round trip
+between rendered frames. Dimension changes disconnect pending summary delivery before the
+destination can publish terrain. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
@@ -3619,6 +3621,22 @@ first intersection in server order within each actor. Aim assist considers each
 box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
+
+2026-10-15 actor attacks run the ordinary pick once against the published frame's
+camera ray, ordered actor boxes and lifetime identities, using current admission policy.
+The selected frame also owns the action-facing rotation. Block presses resolve before
+catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+while pending interaction presses suppress new use starts.
+Published inputs contain no cached hit or acceptance result. Assisted picks use that
+frame's selected point and box for their input-specific reach check. Removed, replaced
+or dead actors cannot receive an attack from old frame geometry. Position-authority
+changes use the current frame instead. The one pick result
+also owns mining/use vetoes; the explicit item-use timing override remains available. Attacks
+use the network pose before this frame's first movement input, including catch-up frames,
+and enter the queue before their swing and those inputs. Older queued inputs and held
+releases must drain first. Lowered visual eyes do not change the network anchor. Exact
+camera sampling, held-item user-data bytes, network batch boundaries and latency-reply
+timing remain incomplete pending a matched packet capture.
 
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the

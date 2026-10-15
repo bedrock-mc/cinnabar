@@ -268,6 +268,11 @@ impl WorldAuthority {
         self.actors.get(runtime_id)
     }
 
+    /// Returns the session, dimension and spawn identity that owns the current actor.
+    pub fn actor_lifetime(&self, runtime_id: u64) -> Option<actor_animation::ActorLifetimeId> {
+        self.actors.lifetime(runtime_id)
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);

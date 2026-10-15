@@ -242,7 +242,12 @@ fn weighted_score_golden_values_cover_modes_and_priority_clamps() {
 /// Creates an admitted cube with an independently selected center and identity.
 fn candidate(id: u64, center: Vec3, priority: i32) -> AimAssistCandidate {
     AimAssistCandidate {
-        kind: TargetKind::Actor(id),
+        kind: TargetKind::Actor(actor_animation::ActorLifetimeId {
+            session_id: 1,
+            dimension: 0,
+            runtime_id: id,
+            spawn_revision: 1,
+        }),
         minimum: center - Vec3::splat(0.2),
         maximum: center + Vec3::splat(0.2),
         point: center,
@@ -258,6 +263,44 @@ fn nearest_box_point_controls_view_and_distance_admission() {
     assert!(!frustum.contains_box(Vec3::new(-0.5, -0.5, 5.0), Vec3::new(0.5, 0.5, 7.0)));
     assert!(!frustum.contains_box(Vec3::new(0.0, 1.0, 2.0), Vec3::new(0.1, 1.1, 2.1)));
     assert!(!frustum.contains_box(Vec3::new(0.0, 0.0, -2.0), Vec3::new(0.1, 0.1, -1.0)));
+}
+
+#[test]
+fn assisted_pick_reach_retains_the_selected_box_and_includes_its_boundary() {
+    let frustum = AimAssistFrustum::new(Vec3::ZERO, Vec3::Z, [60.0; 2], 12.0).unwrap();
+    let candidate = AimAssistCandidate {
+        minimum: Vec3::new(-0.5, -0.5, 5.0),
+        maximum: Vec3::new(0.5, 0.5, 6.0),
+        ..candidate(1, Vec3::Z * 5.5, 0)
+    };
+    let target = frustum
+        .select(CameraAimAssistTargetMode::Distance, [candidate])
+        .unwrap();
+    assert_eq!(target.point, candidate.point);
+    assert!(target.within_pick_range(Vec3::ZERO, 5.0));
+    assert!(!target.within_pick_range(Vec3::ZERO, 5.0_f32.next_down()));
+    assert!(target.within_pick_range(target.point, 0.0));
+    for reach in [-1.0, f32::NAN, f32::INFINITY] {
+        assert!(!target.within_pick_range(Vec3::ZERO, reach));
+    }
+    assert!(!target.within_pick_range(Vec3::splat(f32::NAN), 5.0));
+    let invalid = AimAssistTarget {
+        minimum: target.maximum + Vec3::ONE,
+        ..target
+    };
+    assert!(!invalid.within_pick_range(Vec3::ZERO, 5.0));
+}
+
+#[test]
+fn assisted_pick_reach_uses_only_the_winning_candidate_box() {
+    let frustum = AimAssistFrustum::new(Vec3::ZERO, Vec3::Z, [60.0; 2], 12.0).unwrap();
+    let near = candidate(1, Vec3::Z * 2.0, 0);
+    let far = candidate(1, Vec3::Z * 5.5, 100);
+    let target = frustum
+        .select(CameraAimAssistTargetMode::Distance, [near, far])
+        .unwrap();
+    assert_eq!(target.point, far.point);
+    assert!(!target.within_pick_range(Vec3::ZERO, 3.0));
 }
 
 #[test]
@@ -280,7 +323,7 @@ fn priority_changes_winner_and_equal_scores_preserve_candidate_order() {
         far.kind
     );
     let tie = AimAssistCandidate {
-        kind: TargetKind::Actor(3),
+        kind: candidate(3, Vec3::Z, 0).kind,
         ..near
     };
     assert_eq!(
@@ -462,7 +505,10 @@ fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
         );
     }
     assert_eq!(test_alloc::thread_allocations() - before, 0);
-    assert_eq!(frame.target.unwrap().kind, TargetKind::Actor(2));
+    assert_eq!(
+        frame.target.unwrap().kind,
+        TargetKind::Actor(world.actor_lifetime(2).unwrap())
+    );
     let mut clear = settings(CameraAimAssistTargetMode::Distance);
     clear.action = CameraAimAssistAction::Clear;
     state.apply(2, &CameraEvent::AimAssist(clear));
@@ -585,7 +631,10 @@ fn registry_and_priority_packets_preserve_search_cycle_and_even_tick_uses_latest
             |_| &[],
         );
         let target = frame.target.unwrap();
-        assert_eq!(target.kind, TargetKind::Actor(2));
+        assert_eq!(
+            target.kind,
+            TargetKind::Actor(world.actor_lifetime(2).unwrap())
+        );
         assert_eq!(
             target.score,
             target_score(

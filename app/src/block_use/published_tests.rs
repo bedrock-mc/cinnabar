@@ -29,6 +29,24 @@ mod riptide_tests;
 #[path = "published_tests/attack_swing.rs"]
 mod attack_swing_tests;
 
+#[path = "published_tests/attack_hit_position.rs"]
+mod attack_hit_position_tests;
+
+#[path = "published_tests/attack_fields.rs"]
+mod attack_fields_tests;
+
+#[path = "published_tests/attack_admission.rs"]
+mod attack_admission_tests;
+
+#[path = "published_tests/attack_validation.rs"]
+mod attack_validation_tests;
+
+#[path = "published_tests/attack_frame.rs"]
+mod attack_frame_tests;
+
+#[path = "published_tests/attack_progress.rs"]
+mod attack_progress_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
