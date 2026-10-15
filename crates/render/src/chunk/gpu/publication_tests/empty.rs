@@ -13,7 +13,7 @@ fn a_late_empty_gpu_completion_cannot_enter_the_next_sources_receipts() {
     next.retain(std::iter::once(key));
     let config = render_api::PublicationServiceConfig::DEFAULT;
     let allowance = render_api::PublicationAllowance::new(config);
-    allowance.begin_frame(1, 0, 0, 1, config.maximum_frame_items);
+    allowance.begin_frame(1, 1, 0, 1, config.maximum_frame_items);
     let gpu_removals = ChunkGpuRemovalQueue::default();
     gpu_removals
         .push(PendingGpuRemoval {

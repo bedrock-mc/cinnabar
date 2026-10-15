@@ -162,7 +162,7 @@ fn publication_source_tracks_stream_and_dimension_visits_without_following_featu
         air_network_id: 0,
         block_network_ids_are_hashes: false,
     };
-    let mut stream = WorldStream::new(bootstrap.clone());
+    let mut stream = WorldStream::new(bootstrap);
     let key = SubChunkKey::new(0, 0, 0, 0);
     stream.stage_publication_fixture_known_air(key);
     let mut far = FarTerrain::new(None);
@@ -214,7 +214,7 @@ fn publication_source_tracks_stream_and_dimension_visits_without_following_featu
 fn enabling_far_terrain_reuses_full_and_empty_gpu_publications_across_toggle_cycles() {
     let config = PublicationServiceConfig::DEFAULT;
     let allowance = PublicationAllowance::new(config);
-    allowance.begin_frame(1, 0, 0, 2, config.maximum_frame_items);
+    allowance.begin_frame(1, 2, 0, 2, config.maximum_frame_items);
     let column = ChunkKey::new(0, 5, 0);
     let solid = SubChunkKey::from_chunk(column, 0);
     let empty = SubChunkKey::from_chunk(column, 1);
@@ -570,7 +570,7 @@ fn a_new_stream_republishes_targets_even_when_section_counters_match() {
         block_network_ids_are_hashes: false,
     };
     let key = SubChunkKey::new(0, 0, 0, 0);
-    let mut first = WorldStream::new(bootstrap.clone());
+    let mut first = WorldStream::new(bootstrap);
     let mut second = WorldStream::new(bootstrap);
     for stream in [&mut first, &mut second] {
         stream.stage_publication_fixture_known_air(key);

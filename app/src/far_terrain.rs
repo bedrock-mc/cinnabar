@@ -23,6 +23,9 @@ use crate::{runtime::world::ClientWorld, session::SessionController};
 #[path = "far_terrain/publication_tests.rs"]
 mod publication_tests;
 
+/// Revisions and view inputs that determine one shared terrain publication target.
+type PublicationKey = ((u64, u64, u64, u64, usize, Option<i32>), u64, [i32; 2], i32);
+
 /// The far-terrain cache, the selected tiles and the view they were chosen for.
 #[derive(Resource)]
 pub(crate) struct FarTerrain {
@@ -38,7 +41,7 @@ pub(crate) struct FarTerrain {
     near_radius: NearRadius,
     published: Option<u64>,
     /// Stream requirements, tile revision and viewport used by the render publication target.
-    publication: Option<((u64, u64, u64, u64, usize, Option<i32>), u64, [i32; 2], i32)>,
+    publication: Option<PublicationKey>,
     /// Session/dimension identity and residency indexes used by near publication receipts.
     source_revision: Option<((u64, u64), u64, u64)>,
     retiring: Vec<Retiring>,
