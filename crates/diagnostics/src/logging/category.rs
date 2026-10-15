@@ -96,6 +96,7 @@ impl Category {
             ],
             Self::Ui => &[
                 "ui",
+                "bootstrap_ui",
                 "client_ui",
                 "client_shell",
                 "json_ui",

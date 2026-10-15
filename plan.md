@@ -9011,9 +9011,22 @@ the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture
 `bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
 handshake and pack-offer bodies never reach samples or captures.
 
-Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced
-"Record network session" option is not built; recorded times are when the client read
-each batch, not socket arrival; no frame or join capture has measured the recorder's cost.
+Crash reports carry them: the header ring and the log flight recorder (last 2,000 lines,
+`debug` for net, session, core and packs under its own per-layer filter) are lock-free
+rings in mapped files under `crashes/.live-<session id>/`, samples are written there as they
+change, and the monitor and the in-process fallback attach `packets.txt`,
+`decode-samples/` and `flight.log` to every folder; the crash window lists the last packets
+from `packets.txt`. Verified locally on Windows: ring layouts round-trip through their
+readers, header recording into the mapped ring allocates nothing, and the crash-monitor
+fixtures (panic, access violation, stack overflow, fail-fast abort, external kill, early
+in-process panic) each carry the fixture's packets, sample and recorder line. Criterion,
+shared build host under load: a recorder-only `debug` event costs about 1.7 µs through the
+installed subscriber (both filters, formatting, mapped write); a disabled event about 2 ns.
+
+Incomplete: folders from fatal Unix signals written in-process lack the three attachments;
+Linux and macOS fixtures run only in CI; the recorder cost is not measured on an idle host
+or in a frame or join capture; the Settings → Advanced "Record network session" option is
+not built; recorded times are when the client read each batch, not socket arrival.
 
 ## Shared redaction
 

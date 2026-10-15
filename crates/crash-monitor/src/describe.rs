@@ -345,4 +345,36 @@ mod tests {
         assert_eq!(tail.len(), LOG_TAIL_LINES);
         assert_eq!(tail.last().map(String::as_str), Some("line 249"));
     }
+
+    /// The window lists the newest rows of the folder's packet table; a folder without one
+    /// lists none.
+    #[test]
+    fn last_packets_come_from_the_folder_packet_table() {
+        let folder = tempfile::tempdir().unwrap();
+        let report = report(Kind::Native, "fault");
+        assert!(
+            summary(&report, &Logs::default(), folder.path().to_owned())
+                .last_packets
+                .is_empty()
+        );
+        let rows: String = (1..=attachments::WINDOW_PACKETS + 5)
+            .map(|sequence| {
+                format!(
+                    "{sequence:>10}  {:>10}  clientbound  accepted        12  LevelChunk (58)\n",
+                    sequence * 1000
+                )
+            })
+            .collect();
+        std::fs::write(
+            folder.path().join(folder::PACKETS_FILE),
+            format!("packet headers: 45 recorded, last 45 kept\n{rows}"),
+        )
+        .unwrap();
+        let packets = summary(&report, &Logs::default(), folder.path().to_owned()).last_packets;
+        assert_eq!(packets.len(), attachments::WINDOW_PACKETS);
+        assert_eq!(
+            packets.last().map(String::as_str),
+            Some("+45.000s  in   LevelChunk  12 B")
+        );
+    }
 }

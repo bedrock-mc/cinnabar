@@ -112,8 +112,10 @@ pub(crate) fn image<const N: usize>(
         return Err(invalid("the ring file has the wrong size"));
     }
     let words: Box<[AtomicU64]> = bytes
-        .chunks_exact(8)
-        .map(|word| AtomicU64::new(u64::from_le_bytes(word.try_into().unwrap_or_default())))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|word| AtomicU64::new(u64::from_le_bytes(*word)))
         .collect();
     if words[MAGIC_WORD].load(Ordering::Relaxed) != magic {
         return Err(invalid("the file is not this kind of ring"));
