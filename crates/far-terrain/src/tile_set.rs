@@ -5,8 +5,12 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    ColumnPos, ColumnSummary, EncodedSummary, SummaryStore, TileGrid, TileKey, TileMesh, TileView,
-    config::{LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_COLUMNS_PER_UPDATE, TILE_REBUILD_INTERVAL},
+    ColumnPos, ColumnSummary, EncodedSummary, SummaryBudget, SummaryStore, TileGrid, TileKey,
+    TileMesh, TileView,
+    config::{
+        LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_BYTES_PER_UPDATE, TILE_BUILD_COLUMNS_PER_UPDATE,
+        TILE_REBUILD_INTERVAL,
+    },
     mesh_tile, select_tiles,
     summary::COLUMN_SIDE,
 };
@@ -27,6 +31,42 @@ struct Built {
     mesh: TileMesh,
 }
 
+/// A tile snapshot gathered across updates, including the columns around its skirts.
+struct Gathering {
+    key: TileKey,
+    token: u64,
+    next: usize,
+    columns: Vec<(ColumnPos, EncodedSummary)>,
+}
+
+impl Gathering {
+    /// Visits each halo position once and shares any stored encoding within the budget.
+    fn advance(&mut self, store: &SummaryStore, budget: &mut SummaryBudget) -> bool {
+        let [x, z] = self
+            .key
+            .origin()
+            .map(|block| block.div_euclid(COLUMN_SIDE as i32) - 1);
+        let side = self.key.width_blocks() as usize / COLUMN_SIDE + 2;
+        while self.next < side * side {
+            if !budget.has_columns() {
+                return false;
+            }
+            let pos = ColumnPos::new(x + (self.next % side) as i32, z + (self.next / side) as i32);
+            let encoded = store.encoded(pos);
+            if !budget.take(encoded.map_or(0, |summary| summary.bytes.len())) {
+                // The lookup still counts when retaining its payload must wait.
+                budget.take(0);
+                return false;
+            }
+            if let Some(encoded) = encoded {
+                self.columns.push((pos, encoded.clone()));
+            }
+            self.next += 1;
+        }
+        true
+    }
+}
+
 /// Selected far-terrain tiles and their meshes. A tile replaced by a finer or coarser one stays
 /// drawn until everything covering its area has a mesh, so changing level never opens a hole.
 pub struct FarTiles {
@@ -40,6 +80,7 @@ pub struct FarTiles {
     revision: u64,
     /// Reused each update so an idle frame allocates nothing.
     due: Vec<TileKey>,
+    gathering: Option<Gathering>,
 }
 
 impl Default for FarTiles {
@@ -55,6 +96,7 @@ impl Default for FarTiles {
             rx,
             revision: 0,
             due: Vec::new(),
+            gathering: None,
         }
     }
 }
@@ -75,6 +117,13 @@ impl FarTiles {
             if let Some(mesh) = tile.mesh.filter(|mesh| !mesh.quads.is_empty()) {
                 self.retire(mesh);
             }
+        }
+        if self
+            .gathering
+            .as_ref()
+            .is_some_and(|gather| !self.selected.contains_key(&gather.key))
+        {
+            self.gathering = None;
         }
         self.retire_covered();
         self.revision += 1;
@@ -114,6 +163,11 @@ impl FarTiles {
         if self.revision != before {
             self.retire_covered();
         }
+        let mut budget =
+            SummaryBudget::new(TILE_BUILD_COLUMNS_PER_UPDATE, TILE_BUILD_BYTES_PER_UPDATE);
+        if !self.gather(store, &mut budget) {
+            return self.revision != before;
+        }
         let mut due = std::mem::take(&mut self.due);
         due.extend(
             self.selected
@@ -129,15 +183,11 @@ impl FarTiles {
                 .map(|(key, _)| *key)
                 .take(MAX_TILE_BUILDS.saturating_sub(self.in_flight)),
         );
-        let mut budget = TILE_BUILD_COLUMNS_PER_UPDATE;
         for key in due.drain(..) {
-            // The first build always starts, so a tile wider than the budget still builds.
-            let columns = key.columns().count();
-            if columns > budget && budget < TILE_BUILD_COLUMNS_PER_UPDATE {
+            self.start_gather(key, now);
+            if !self.gather(store, &mut budget) {
                 break;
             }
-            budget = budget.saturating_sub(columns);
-            self.start_build(key, store, now);
         }
         self.due = due;
         // Builds of empty tiles finish here, and may be the last a retired tile waited for.
@@ -183,33 +233,54 @@ impl FarTiles {
 
     /// Forgets every tile, as when the namespace changes.
     pub fn clear(&mut self) {
+        self.gathering = None;
         self.selected.clear();
         self.retired.clear();
         self.view = None;
         self.revision += 1;
     }
 
-    fn start_build(&mut self, key: TileKey, store: &mut SummaryStore, now: Instant) {
-        // The ring of columns around the tile sets how far its edge skirts reach down.
-        let [x, z] = key
-            .origin()
-            .map(|block| block.div_euclid(COLUMN_SIDE as i32));
-        let side = key.width_blocks() / COLUMN_SIDE as i32;
-        let columns: Vec<(ColumnPos, EncodedSummary)> = (z - 1..=z + side)
-            .flat_map(|cz| (x - 1..=x + side).map(move |cx| ColumnPos::new(cx, cz)))
-            .filter_map(|pos| Some((pos, store.encoded(pos)?.clone())))
-            .collect();
+    /// Reserves a build token before gathering so changes keep it dirty until a later build.
+    fn start_gather(&mut self, key: TileKey, now: Instant) {
+        self.next_token += 1;
+        let token = self.next_token;
         let tile = self.selected.get_mut(&key).expect("due tiles are selected");
         tile.dirty = false;
         tile.last_build = Some(now);
-        if columns.is_empty() {
-            tile.mesh = Some(Arc::new(mesh_tile(&TileGrid::build(key, &[]))));
-            self.revision += 1;
-            return;
-        }
-        self.next_token += 1;
-        let token = self.next_token;
         tile.building = Some(token);
+        self.gathering = Some(Gathering {
+            key,
+            token,
+            next: 0,
+            columns: Vec::new(),
+        });
+    }
+
+    /// Resumes the current snapshot and submits it only once all halo lookups have finished.
+    fn gather(&mut self, store: &SummaryStore, budget: &mut SummaryBudget) -> bool {
+        let Some(gather) = &mut self.gathering else {
+            return true;
+        };
+        if !gather.advance(store, budget) {
+            return false;
+        }
+        let Gathering {
+            key,
+            token,
+            columns,
+            ..
+        } = self.gathering.take().expect("gathering exists");
+        if columns.is_empty() {
+            let tile = self
+                .selected
+                .get_mut(&key)
+                .expect("gathered tiles are selected");
+            tile.building = None;
+            tile.mesh = Some(Arc::new(TileMesh::empty(key)));
+            self.revision += 1;
+            self.retire_covered();
+            return true;
+        }
         self.in_flight += 1;
         let tx = self.tx.clone();
         rayon::spawn(move || {
@@ -222,6 +293,7 @@ impl FarTiles {
             let mesh = mesh_tile(&TileGrid::build(key, &decoded));
             let _ = tx.send(Built { key, token, mesh });
         });
+        true
     }
 
     /// Keeps a replaced mesh drawn until its area is covered, never alongside another retired
@@ -260,3 +332,6 @@ fn overlaps(a: TileKey, b: TileKey) -> bool {
     let ([bx, bz], bw) = (b.origin(), b.width_blocks());
     ax < bx + bw && bx < ax + aw && az < bz + bw && bz < az + aw
 }
+
+#[cfg(test)]
+mod tests;

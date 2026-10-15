@@ -1,4 +1,8 @@
 use super::*;
+use std::{
+    future::{Future, poll_fn},
+    task::{Context, Poll, ready},
+};
 
 impl PlaySession {
     /// Keeps packet ownership across a cancelled background read, then uses normal resolver
@@ -14,12 +18,17 @@ impl PlaySession {
             .expect("enabled cache")
             .can_prefetch(packet, *packet_bytes)
         {
-            self.blob_cache
+            let prefetch = self
+                .blob_cache
                 .as_ref()
                 .expect("enabled cache")
                 .cache()
-                .prefetch_packet(packet)
-                .await;
+                .prefetch_packet(packet);
+            prefetch_while_reading(prefetch, |cx| {
+                self.transport
+                    .poll_read_ahead_one(crate::session_transport::MAX_READ_AHEAD_BYTES, cx)
+            })
+            .await;
         }
         let (packet, packet_bytes) = self
             .pending_blob_prefetch
@@ -48,6 +57,32 @@ impl PlaySession {
     }
 }
 
+/// Polls the same disk future before each bounded raw-reader step. The step returns true
+/// after one item when reading may continue, or false to stop intake at a bound or terminal.
+/// After stopping, only the original future is polled; no request or deadline is restarted.
+async fn prefetch_while_reading(
+    prefetch: impl Future<Output = ()>,
+    mut read_one: impl FnMut(&mut Context<'_>) -> Poll<bool>,
+) {
+    let mut prefetch = std::pin::pin!(prefetch);
+    let mut reading = true;
+    poll_fn(|cx| {
+        loop {
+            if prefetch.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(());
+            }
+            if !reading {
+                return Poll::Pending;
+            }
+            reading = ready!(read_one(cx));
+        }
+    })
+    .await;
+}
+
+#[cfg(test)]
+mod overlap_tests;
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -58,7 +93,7 @@ mod tests {
         pin::Pin,
         sync::{
             Arc,
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
         },
         task::{Context, Poll},
     };
@@ -67,6 +102,7 @@ mod tests {
     #[derive(Debug)]
     struct ControlledRead {
         ready: AtomicBool,
+        starts: AtomicUsize,
         cache: WeakClientBlobCache,
     }
 
@@ -77,6 +113,7 @@ mod tests {
         fn touch(&self, _: &[u64]) {}
         /// Leaves the future pending until the test explicitly completes the read.
         fn prefetch(&self, hashes: Vec<u64>) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            self.starts.fetch_add(1, Ordering::Relaxed);
             Box::pin(std::future::poll_fn(move |_| {
                 if !self.ready.load(Ordering::Acquire) {
                     return Poll::Pending;
@@ -101,19 +138,15 @@ mod tests {
         let cache = ClientBlobCache::default();
         let disk = Arc::new(ControlledRead {
             ready: AtomicBool::new(false),
+            starts: AtomicUsize::new(0),
             cache: cache.downgrade(),
         });
         let hash = crate::client_blob_hash(b"body");
         let packet = Packet::new(super::super::tests::cached_level_chunk(vec![hash]));
         let encoded = crate::session_transport::tests::packet_bytes(&packet);
         let transport = SessionTransport::new(reader, frames, &[encoded]);
-        let mut session = PlaySession::new(
-            transport,
-            Some(cache.with_store(disk.clone())),
-            ResourcePackHandoff::default(),
-            1,
-            false,
-        );
+        let mut session =
+            PlaySession::new(transport, Some(cache.with_store(disk.clone())), 1, false);
         let waker = noop_waker();
         let mut context = Context::from_waker(&waker);
         {
@@ -122,8 +155,15 @@ mod tests {
         }
         assert!(session.pending_blob_prefetch.is_some());
         assert!(session.pending_blob_cache_delivery.is_none());
+        assert_eq!(disk.starts.load(Ordering::Relaxed), 1);
+        assert_eq!(session.blob_cache_stats().hashes_classified, 0);
         disk.ready.store(true, Ordering::Release);
         session.finish_blob_prefetch().await.unwrap();
+        assert_eq!(
+            disk.starts.load(Ordering::Relaxed),
+            2,
+            "only cancellation starts another attempt"
+        );
         assert!(session.pending_blob_prefetch.is_none());
         let delivery = session.pending_blob_cache_delivery.as_ref().unwrap();
         assert_eq!(delivery.status_packets.len(), 1);
@@ -149,16 +189,12 @@ mod tests {
         let cache = ClientBlobCache::default();
         let disk = Arc::new(ControlledRead {
             ready: AtomicBool::new(false),
+            starts: AtomicUsize::new(0),
             cache: cache.downgrade(),
         });
         let transport = SessionTransport::new(reader, frames, &[]);
-        let mut session = PlaySession::new(
-            transport,
-            Some(cache.with_store(disk)),
-            ResourcePackHandoff::default(),
-            1,
-            false,
-        );
+        let mut session =
+            PlaySession::new(transport, Some(cache.with_store(disk.clone())), 1, false);
         let mut earlier = super::super::tests::cached_level_chunk(vec![1]);
         earlier.chunk_position.x = wire::ZigZag32(1);
         session
@@ -183,6 +219,11 @@ mod tests {
             ));
         }
         assert!(session.pending_blob_prefetch.is_none());
+        assert_eq!(
+            disk.starts.load(Ordering::Relaxed),
+            0,
+            "pressure bypasses disk waiting"
+        );
         assert!(session.blob_cache_stats().pending_bytes <= crate::MAX_CLIENT_BLOB_PENDING_BYTES);
         assert_eq!(session.blob_cache_stats().pending_transactions, 1);
         let delivery = session.pending_blob_cache_delivery.as_ref().unwrap();

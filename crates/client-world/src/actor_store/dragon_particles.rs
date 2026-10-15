@@ -6,9 +6,11 @@ use super::ActorStore;
 
 pub(super) const DRAGON_DEATH_TICKS: u16 = 200;
 const FINAL_EXPLOSION_START: u16 = 180;
-const DYING_EXPLOSION: &str = "minecraft:dragon_dying_explosion";
-const DEATH_EXPLOSION: &str = "minecraft:dragon_death_explosion_emitter";
-const DEATH_LIFT_PER_TICK: f32 = 0.1;
+const DYING_EXPLOSION: &str = assets::facts::ParticleEffect::DragonDyingExplosion.identifier();
+const DEATH_EXPLOSION: &str =
+    assets::facts::ParticleEffect::DragonDeathExplosionEmitter.identifier();
+/// Upward displacement applied by each active death-effect tick.
+pub(super) const DEATH_LIFT_PER_TICK: f32 = 0.1;
 
 impl ActorStore {
     pub(super) fn advance_dragon_particles(&mut self) {
@@ -45,6 +47,7 @@ impl ActorStore {
             }
             actor.status.native_velocity = [0.0; 3];
             actor.position[1] += DEATH_LIFT_PER_TICK;
+            self.effect_members.collidable.update(actor);
             let Some(dimension) = dimension else {
                 continue;
             };

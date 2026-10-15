@@ -1,6 +1,7 @@
 //! Transparent address sets are uploaded into the candidate arena before publication.
 
 use crate::chunk::*;
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets};
 
 pub(super) struct ResourceView {
@@ -151,7 +152,7 @@ pub(super) fn prepare(
             arena.transparent_slot_refs,
             batch.ref_range().start,
         );
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &arena.transparent_ref_buffer,
             offset,
             bytemuck::cast_slice(batch.refs()),
@@ -159,7 +160,7 @@ pub(super) fn prepare(
         liquids.state.acknowledge_upload();
     }
     let snapshot = liquids.state.committed()?;
-    queue.write_buffer(
+    queue.profiled_write_buffer(
         &arena.transparent_indirect_buffer,
         0,
         bytemuck::bytes_of(&transparent_indirect_args(
@@ -170,6 +171,8 @@ pub(super) fn prepare(
     liquids.last_indirect_identity = Some((snapshot.buffer_slot(), snapshot.refs().len()));
     model_manifest.sort_by_key(|entry| (entry.key, entry.draw_range.start));
     let model_address = TransparentModelAddressIdentity {
+        revision: 0,
+        _retained_assets: Some(Arc::clone(assets.assets())),
         asset_identity: assets.identity(),
         allocations: model_manifest.into(),
     };

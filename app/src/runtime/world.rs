@@ -112,6 +112,7 @@ pub(crate) struct TransferNotice {
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
+    pub(crate) movement_colliders: crate::movement::MovementColliderCache,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
@@ -144,6 +145,7 @@ impl ClientWorld {
     pub(crate) fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
+            movement_colliders: Default::default(),
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
@@ -318,6 +320,7 @@ type WorldPollInputs<'w, 's> = (
     ResMut<'w, client_state::PlayerRuntime>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     Local<'s, gameplay::movement::CorrectionContextLog>,
+    Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -343,6 +346,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut player_runtime,
         server_camera_view,
         mut correction_log,
+        mut item_use,
     ): WorldPollInputs<'_, '_>,
 ) {
     let _timer = profiler
@@ -363,6 +367,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     } = state;
     let ClientWorld {
         stream,
+        movement_colliders,
         pending_surface_spawn,
         dimension_transfer,
         respawn,
@@ -495,6 +500,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &control,
             stream.local_player_runtime_id(),
             &mut movement,
+            &mut local_physics,
+            item_use.as_deref_mut(),
         ) {
             continue;
         }
@@ -515,10 +522,10 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 time.elapsed(),
             );
         }
-        let world = sim::PaletteWorld::for_movement(
-            stream.collision_store(),
+        let world = crate::movement::collision_world(
+            stream,
             collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
+            movement_colliders,
         );
         let disposition = gameplay::committed_control::CommittedGameplayState {
             movement: &mut movement,

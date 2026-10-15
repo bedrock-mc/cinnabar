@@ -13,11 +13,10 @@ impl TextLayoutCache {
             text: "",
             ..request
         })?;
-        let key = CacheKey::SingleLine(layout_key(request), width_64);
-        let now = self.advance_clock()?;
-        if let Some(entry) = self.entries.get_mut(&key) {
-            entry.last_used = now;
-            return Ok(Arc::clone(&entry.layout));
+        let key = self.cache_key(request, Some(width_64));
+        self.advance_clock()?;
+        if let Some(layout) = self.lookup(&key, request.text) {
+            return Ok(layout);
         }
         let mut normalized = String::new();
         for word in request.text.split_whitespace() {
@@ -62,7 +61,7 @@ impl TextLayoutCache {
             }
             best
         };
-        let now = self.advance_clock()?;
-        self.retain(key, result, now)
+        self.advance_clock()?;
+        self.retain(key, request.text, result)
     }
 }

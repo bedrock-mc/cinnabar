@@ -83,7 +83,8 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             "Skywars, EggWars",
             art(dir, "cubecraft", [256, 256], [30, 110, 200]),
         ),
-    ];
+    ]
+    .into();
     view.realms = vec![
         realm("Steve's Realm", "open", false, 21, false),
         realm("Build Club", "closed", false, 3, false),
@@ -95,7 +96,8 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             10,
             false,
         ),
-    ];
+    ]
+    .into();
     view.friends = vec![
         MenuFriendCard {
             gamertag: "Alex".to_owned(),
@@ -111,15 +113,18 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             xuid: "2535400000000002".to_owned(),
             max_members: 8,
         },
-    ];
+    ]
+    .into();
     view.local_worlds = vec![LocalWorldCard {
         name: "My World".to_owned(),
         game_mode: "Survival".to_owned(),
         world_type: launcher::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
+        server: launcher::local_worlds::backend_label(bridge::Backend::Dragonfly).to_owned(),
         date: "9/30/2026".to_owned(),
         size: "12 MB".to_owned(),
         thumbnail: None,
-    }];
+    }]
+    .into();
     view.servers = vec![
         SavedServer {
             name: "Home server".to_owned(),
@@ -133,7 +138,8 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
             favorite: true,
             last_joined_unix: 0,
         },
-    ];
+    ]
+    .into();
     let pong = |players, max_players, ping_ms| PingInfo {
         motd: String::new(),
         online: true,

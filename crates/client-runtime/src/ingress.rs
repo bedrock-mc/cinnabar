@@ -5,6 +5,9 @@ use std::time::{Duration, Instant};
 /// One frame's world ingress time; terrain is bounded by admission, not by this.
 pub const WORLD_INGRESS_DRAIN_BUDGET: Duration = Duration::from_millis(2);
 pub const OUTBOUND_SEND_BUDGET_PER_FRAME: usize = 16;
+/// Drains a full control queue per frame so send receipts cannot accumulate and block
+/// the writer while terrain requests and movement share the outbound channel.
+pub const NETWORK_CONTROL_BUDGET_PER_FRAME: usize = client_session::CONTROL_EVENT_CAPACITY;
 
 /// Takes at most one frame's control allowance without waiting for another event.
 pub fn drain_network_controls<T>(

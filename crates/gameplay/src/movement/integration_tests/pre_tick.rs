@@ -174,7 +174,7 @@ fn a_withheld_respawn_tick_is_the_build_action_state() {
     ticker
         .enqueue_completed_physics(completed_sample(1_001, [1.0, 64.0, 2.0]))
         .unwrap();
-    ticker.begin_respawn_search();
+    ticker.begin_respawn_search(&mut LocalPhysicsController::default());
     ticker
         .withhold_respawn_input(completed_sample(1_002, [5.0, 70.0, 5.0]))
         .unwrap();

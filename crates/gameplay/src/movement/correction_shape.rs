@@ -192,7 +192,7 @@ pub fn reconcile_move_player_teleport(
         } else {
             PhysicsCorrectionMode::Snap
         };
-    reconcile_physics_anchor(
+    let outcome = reconcile_physics_anchor(
         ticker,
         physics,
         PhysicsAnchor {
@@ -203,7 +203,11 @@ pub fn reconcile_move_player_teleport(
         },
         mode,
         world,
-    )
+    )?;
+    if matches!(outcome, PhysicsCorrectionOutcome::Snapped { .. }) {
+        physics.skip_next_travel_tick();
+    }
+    Ok(outcome)
 }
 
 /// Authoritative end-of-tick player state carried by a correction.
@@ -264,6 +268,14 @@ pub fn reconcile_physics_anchor(
         };
         let mut candidate_physics = physics.clone();
         let mut candidate_ticker = ticker.clone();
+        let riptide_after_snap = candidate_ticker.riptide_request_after_snap(&candidate_physics);
+        if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
+            && let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick()
+        {
+            candidate_physics
+                .discard_riptide_release_after(tick, world)
+                .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+        }
         let confirmation = candidate_ticker.sent_confirmation(aligned_tick);
         let plan = candidate_physics
             .apply_correction(
@@ -287,6 +299,9 @@ pub fn reconcile_physics_anchor(
                     PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
                 }
             })?;
+        if matches!(mode, PhysicsCorrectionMode::Snap) {
+            candidate_physics.restore_riptide_request(riptide_after_snap);
+        }
         candidate_ticker.apply_correction_plan(&plan)?;
         Ok((candidate_ticker, candidate_physics, plan.outcome))
     };
@@ -346,6 +361,11 @@ pub fn reconcile_timeline_rewind(
     }
     let mut candidate_physics = physics.clone();
     let mut candidate_ticker = ticker.clone();
+    if let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick() {
+        candidate_physics
+            .discard_riptide_release_after(tick, world)
+            .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+    }
     let plan = candidate_physics
         .replay_retained_from(tick, world)
         .map_err(|error| match error {

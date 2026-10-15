@@ -18,6 +18,11 @@ mod multitexture;
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
 #[cfg(test)]
+#[path = "artwork/raster_page_tests.rs"]
+mod raster_page_tests;
+#[path = "artwork/raster_pages.rs"]
+mod raster_pages;
+#[cfg(test)]
 #[path = "artwork/retained_equipment_tests.rs"]
 mod retained_equipment_tests;
 
@@ -410,7 +415,7 @@ impl ActorArtworkPages {
                 hasher.update((pixels.len() as u64).to_le_bytes());
                 hasher.update([u8::from(color_mask)]);
                 hasher.update([0u8]); // Equipment/overrides are never three-sampler pages.
-                hasher.update(&pixels);
+                raster_pages::hash_pixels(&mut hasher, &pixels);
                 let page = ActorTexturePage {
                     width,
                     height,

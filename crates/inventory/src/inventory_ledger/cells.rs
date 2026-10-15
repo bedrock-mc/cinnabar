@@ -97,6 +97,14 @@ impl Default for Cells {
 }
 
 impl Cells {
+    /// Compares the retained surfaces used by inventory display projections.
+    pub(super) fn shares_presentation(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.player, &other.player)
+            && Arc::ptr_eq(&self.storage, &other.storage)
+            && Arc::ptr_eq(&self.craft, &other.craft)
+            && self.created_output == other.created_output
+    }
+
     pub(super) fn get(&self, cell: Cell) -> Option<&Held> {
         match cell {
             Cell::Inventory(slot) => self.player.get(usize::from(slot))?.as_ref(),

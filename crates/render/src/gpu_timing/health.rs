@@ -88,14 +88,16 @@ impl HealthInterval {
 }
 
 pub(super) struct QueryHealth {
+    source: &'static str,
     started: Instant,
     interval: HealthInterval,
 }
 
 impl QueryHealth {
     /// The optional diagnostics resource reads only its named flag once at startup.
-    pub(super) fn requested() -> Option<Self> {
+    pub(super) fn requested(source: &'static str) -> Option<Self> {
         (env_compat::var("CINNABAR_GPU_QUERY_HEALTH").as_deref() == Ok("1")).then(|| Self {
+            source,
             started: Instant::now(),
             interval: HealthInterval::default(),
         })
@@ -113,6 +115,16 @@ impl QueryHealth {
         self.interval.readbacks += 1;
     }
 
+    /// Counts a completed latency callback separately from timestamp query pairs.
+    #[cfg(target_os = "macos")]
+    pub(super) fn completion_latency(&mut self) {
+        self.readback();
+        let stage =
+            &mut self.interval.stages[RuntimeStage::GpuFrameCompletionLatency.gpu_index().unwrap()];
+        stage.attempts += 1;
+        stage.valid += 1;
+    }
+
     /// Counts failed maps separately from unavailable or invalid timestamp pairs.
     pub(super) fn map_failure(&mut self) {
         self.interval.map_failures += 1;
@@ -127,7 +139,9 @@ impl QueryHealth {
         self.interval.frames += 1;
         self.interval.ring_skips += u64::from(skipped);
         if let Some((elapsed, interval)) = self.take_due(Instant::now()) {
-            eprintln!("CINNABAR_GPU_QUERY_HEALTH {}", interval.json(elapsed));
+            let mut json = interval.json(elapsed);
+            json["source"] = self.source.into();
+            eprintln!("CINNABAR_GPU_QUERY_HEALTH {json}");
         }
     }
 
@@ -170,6 +184,7 @@ mod tests {
     fn due_intervals_reset_counters_and_examples_without_wall_clock_waits() {
         let started = Instant::now();
         let mut health = QueryHealth {
+            source: "pass_queries",
             started,
             interval: HealthInterval::default(),
         };

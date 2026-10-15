@@ -5,6 +5,45 @@ use client_ui::ui_runtime::UiRuntime;
 use gameplay::item_use::{AirUse, classify};
 use protocol_ids::Enchantment;
 
+/// Resolves enchantment and durability only for a trident admitted by item facts.
+pub fn selected_riptide_use(
+    player: &client_state::PlayerRuntime,
+    stream: &WorldStream,
+    wet: bool,
+) -> Option<gameplay::item_use::RiptideUse> {
+    let stack = player.selected_stack()?;
+    if !player
+        .inventory
+        .item_facts()
+        .get(stack.network_id)
+        .traits
+        .contains(assets::facts::ItemTraits::TRIDENT)
+    {
+        return None;
+    }
+    let canonical = stream.authority().canonical_item_stack(stack)?;
+    let damage = player
+        .selected_hotbar_slot()
+        .and_then(|slot| player.inventory.ledger().presented_slot_overlay(slot))
+        .and_then(|overlay| overlay.durability_correction)
+        .and_then(|damage| u32::try_from(damage).ok())
+        .or(canonical.damage)
+        .unwrap_or(0);
+    Some(gameplay::item_use::RiptideUse {
+        level: protocol::item_enchantment_level(
+            &stack.extra_data,
+            i16::from(Enchantment::Riptide.wire_value()),
+        )
+        .unwrap_or(0),
+        wet,
+        mounted: player.facts.mount_unique_id().is_some(),
+        usable: canonical
+            .durability
+            .maximum()
+            .is_some_and(|maximum| damage < maximum),
+    })
+}
+
 /// The selected stack's authoritative air use, if supported.
 pub fn selected_air_use(
     player_runtime: &client_state::PlayerRuntime,

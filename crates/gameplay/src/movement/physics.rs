@@ -15,6 +15,7 @@ mod controller_frame;
 mod correction;
 mod dimension_wait;
 mod prediction_corrections;
+mod riptide;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
@@ -22,6 +23,9 @@ mod fixed_ticks;
 mod motion_ticks;
 mod timeline;
 mod visual_correction;
+
+#[cfg(test)]
+mod liquid_probe_tests;
 
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
@@ -117,6 +121,8 @@ fn item_use_factor(modifier: f64) -> f64 {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PhysicsSampleContext {
+    /// A captured held-use modifier applied only through its release-facing tick.
+    pub release_use_modifier: Option<(u64, f64)>,
     pub pitch: f32,
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
@@ -220,6 +226,13 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
+/// An admitted launch and the completed facing tick that must precede it.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::movement) struct RiptideRequest {
+    launch: sim::RiptideLaunch,
+    pub(in crate::movement) after_tick: u64,
+}
+
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
 /// This resource never owns a network sender or changes [`super::MovementTicker`]
@@ -235,6 +248,8 @@ pub struct LocalPhysicsController {
     visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
+    /// A snapped server teleport suppresses travel on the next completed tick.
+    skip_travel_pending: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
     input_edges: super::input_state::PendingInputEdges,
@@ -258,6 +273,8 @@ pub struct LocalPhysicsController {
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
+    /// One admitted release waiting for a successful movement tick.
+    riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -281,6 +298,7 @@ impl Default for LocalPhysicsController {
             visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
+            skip_travel_pending: false,
             previous_jump_held: false,
             jump_edge_pending: false,
             input_edges: Default::default(),
@@ -299,6 +317,7 @@ impl Default for LocalPhysicsController {
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
+            riptide_pending: None,
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
             modes: ModeTracker::default(),
             last_environment: sim::MovementEnvironment::default(),
@@ -338,6 +357,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -356,6 +376,7 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
+        self.riptide_pending = None;
         self.modes.reset();
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
@@ -399,6 +420,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -418,6 +440,7 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.deferred_corrections = Default::default();
         self.modes.reset();
+        self.riptide_pending = None;
         self.last_environment = sim::MovementEnvironment::default();
         self.dimension_waiting = false;
         // Every hard anchor starts a fresh bounded probe epoch: the new
@@ -548,7 +571,19 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
+            let context = context.for_next_tick(state.tick);
+            input.item_use_movement_modifier = context
+                .release_use_modifier
+                .map(|(_, modifier)| item_use_factor(modifier))
+                .or(item_use_modifier);
+            input.riptide = self
+                .riptide_pending
+                .filter(|request| state.tick >= request.after_tick)
+                .map(|request| request.launch);
+            input.skip_travel = self.skip_travel_pending;
+            let mut tick_input = self.input_edges.sample(context.input);
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -564,7 +599,10 @@ impl LocalPhysicsController {
             input.effects = effects.snapshot();
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
-            input.liquid_contact_height = Some(self.modes.contact_height());
+            input.liquid_contact_height = Some(
+                self.modes
+                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+            );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
             let mut flight_request = None;
@@ -586,19 +624,18 @@ impl LocalPhysicsController {
                 pitch: context.pitch,
                 yaw: input.yaw_degrees as f32,
                 liquid_attach_height: self.eye_offset.height(1.0),
+                liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
             };
-            if tick_index == 0 {
-                self.anchor_state.prepare_tick(
-                    world,
-                    self.modes,
-                    context.mode_intent,
-                    &mut observed,
-                    input,
-                );
-                state.position = observed.feet;
-            }
+            self.anchor_state.prepare_tick(
+                world,
+                self.modes,
+                context.mode_intent,
+                &mut observed,
+                input,
+            );
+            state.position = observed.feet;
             match self.modes.select(context.mode_intent, observed, world) {
                 Ok(choice) => {
                     input.mode = choice.mode;
@@ -662,30 +699,51 @@ impl LocalPhysicsController {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
                 ))),
-                None => self
-                    .history
-                    .predict_with_controls(state, input, &self.simulator, world),
+                None => {
+                    let predicted =
+                        self.history
+                            .predict_with_controls(state, input, &self.simulator, world);
+                    if matches!(
+                        predicted,
+                        Err(sim::PredictionError::Simulation(SimulationError::World(
+                            sim::WorldQueryError::QueryExtentExceeded
+                        )))
+                    ) && let Some(launch) = input.riptide.take()
+                    {
+                        // Failed ticks commit nothing. Retire the release and retry ordinary
+                        // movement when its impulse plus existing motion cannot fit the query.
+                        self.riptide_pending = None;
+                        super::diagnostics::note_skipped_authority(
+                            "riptide",
+                            f64::from(launch.level()),
+                        );
+                        self.history
+                            .predict_with_controls(state, input, &self.simulator, world)
+                    } else {
+                        predicted
+                    }
+                }
             };
             match predicted {
                 Ok(output) => {
+                    self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
-                    self.eye_offset.tick(input.mode, input.sneaking);
-                    self.controller_history.push_back(ControllerFrame {
+                    let mut controller = ControllerFrame {
                         tick: state.tick,
-                        frame_start: tick_index == 0,
                         anchor_state: self.anchor_state,
                         entry_velocity,
-                        eye_height: self.eye_offset.height(1.0),
+                        eye_offset: self.eye_offset,
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
                         jump_down: observed.jump_down,
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
+                        server_sprinting: tick_input.server_sprinting,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
@@ -698,7 +756,9 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
-                    });
+                    };
+                    controller.finish_eye(&mut self.eye_offset, state);
+                    self.controller_history.push_back(controller);
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     self.visual_correction.tick();
@@ -715,6 +775,10 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.spinning = state.spin_attack_ticks.is_some();
+                    processed.spin_started = input.riptide.is_some()
+                        && input.mode != sim::MovementMode::Riding
+                        && !input.spectator;
                     processed.ride = context.mode_intent.ride;
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
@@ -724,7 +788,6 @@ impl LocalPhysicsController {
                         processed.jump_arc_active = false;
                     }
                     self.processed_jump_arc_active = processed.jump_arc_active;
-                    let mut tick_input = self.input_edges.sample(context.input);
                     tick_input.jump.held |= self.jump_pulse_pending;
                     tick_input.jump.pressed |= self.jump_pulse_pending;
                     tick_input.jump.released |= self.jump_pulse_held && !tick_input.jump.held;
@@ -792,6 +855,9 @@ impl LocalPhysicsController {
                             .expect("completed controller retained"),
                     );
                     self.jump_edge_pending = false;
+                    if input.riptide.is_some() {
+                        self.riptide_pending = None;
+                    }
                     self.input_edges = Default::default();
                     self.jump_pulse_held = self.jump_pulse_pending;
                     self.jump_pulse_pending = false;

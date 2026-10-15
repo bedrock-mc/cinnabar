@@ -18,7 +18,7 @@ impl MenuRuntime {
             // account core, so sign-in must not restart it during local play.
             let idle = launcher_core::account_core_idle(
                 self.is_launcher(),
-                self.is_connecting(),
+                self.joining_past_sign_in(),
                 in_session,
                 self.local_world_joined,
             );
@@ -29,6 +29,10 @@ impl MenuRuntime {
                 client_cache_enabled,
                 local_worlds.as_deref_mut(),
             );
+            // A held join waits for this core only while it may still start for that join.
+            self.account_core = (idle && self.is_launcher()).then(|| slot.account_core());
+        } else {
+            self.account_core = None;
         }
         if std::mem::take(&mut self.accounts.skip_control) {
             self.forget_launcher_trust();

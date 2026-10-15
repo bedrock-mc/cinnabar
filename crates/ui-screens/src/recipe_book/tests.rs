@@ -1,4 +1,4 @@
-//! The recipe grid builds every cell whenever server ui files may place them.
+//! Changed recipe templates keep their complete grid; proven base templates virtualize.
 
 use std::sync::Arc;
 
@@ -33,9 +33,9 @@ impl json_ui::ControlLibrary for RecipeCell {
     }
 }
 
-/// Server ui files may draw recipe cells anywhere, so with any applied the grid builds them all.
+/// Modified templates may draw cells anywhere and must retain the complete grid.
 #[test]
-fn server_ui_builds_every_recipe_cell() {
+fn unverified_templates_build_every_recipe_cell() {
     const CELLS: usize = 200;
     let root = Arc::new(ResolvedControl {
         name: "grid".into(),
@@ -54,15 +54,15 @@ fn server_ui_builds_every_recipe_cell() {
     let mut data = DataSource::new();
     data.set_collection(COLLECTION, vec![json_ui::CollectionItem::default(); CELLS]);
     let data = Arc::new(data);
-    let built = |server_ui| {
+    let built = |virtualize| {
         let bound =
-            json_ui::bind_incremental(&root, &data, &RecipeCell, &mut screen_binding(server_ui));
+            json_ui::bind_incremental(&root, &data, &RecipeCell, &mut screen_binding(virtualize));
         bound
             .children
             .iter()
             .filter(|cell| cell.children.iter().any(|child| child.name == "label"))
             .count()
     };
-    assert!(built(false) < CELLS);
-    assert!(built(true) >= CELLS);
+    assert!(built(true) < CELLS);
+    assert!(built(false) >= CELLS);
 }

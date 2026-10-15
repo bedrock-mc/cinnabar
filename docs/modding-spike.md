@@ -207,8 +207,9 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
-`read-frame` returns an error without the players grant, or `ok(none)` outside
-active gameplay. A snapshot contains the actor session, dimension, local subject
+`read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
+active gameplay; the terrain grant alone omits remote players. Terrain reads
+(`CINNABAR_MOD_TERRAIN=1`) are described in [mod-terrain-api.md](mod-terrain-api.md). A snapshot contains the actor session, dimension, local subject
 eye position, actor yaw/pitch, frame duration in seconds, held semantic attack
 action and up to `mod_api::MAX_GAMEPLAY_PLAYERS` remote player feet positions.
 Positions are world block coordinates; angles and rotation deltas are radians
@@ -586,8 +587,14 @@ resets guest state and preserves current companion preferences. Hot replacement 
 the same path. Permission changes reload only the affected mod; revoked authority is
 released before admission completes. A guest trap quarantines only that guest.
 
-Each expanded card has a Permissions section generated from `ModGrants`. Optional
-grants default off. A binary component may declare its requested grants as JSON in the
+Cards show how many requested permissions are allowed and warn about allowed
+capabilities that can change gameplay. Customize opens a compact requested-first
+grid; Show all permissions reveals the remaining capabilities. Hover or focus a
+permission to read its description. Allow requested grants exactly the declared
+requests, while Revoke all clears the card's grants. Both save once through the
+same path as individual toggles. Undeclared components offer Customize only.
+Permission names and gameplay warnings come from `ModGrants`. Optional grants
+default off. A binary component may declare its requested grants as JSON in the
 optional top-level custom section `cinnabar:grants`; declarations never grant authority.
 For example, `{"camera":true,"controls":true,"commands":["ability"]}` marks those
 requests. Command permissions enable only the declared command names; undeclared

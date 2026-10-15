@@ -69,6 +69,8 @@ pub(crate) mod pipeline;
 pub(crate) mod profile;
 #[path = "ui_render/resources.rs"]
 pub(crate) mod resources;
+#[path = "ui_render/segments.rs"]
+mod segments;
 #[path = "ui_render/shader.rs"]
 pub(crate) mod shader;
 #[path = "ui_render/uploads.rs"]
@@ -155,7 +157,8 @@ fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sched
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
         composite::prepare_ui_layers
             .in_set(RenderSystems::PrepareResources)
-            .after(bevy::render::view::prepare_view_targets),
+            .after(bevy::render::view::prepare_view_targets)
+            .after(resources::prepare_ui_resources),
         prepare_ui_bind_group.in_set(RenderSystems::PrepareBindGroups),
         queue_ui_overlay
             .in_set(RenderSystems::PrepareBindGroups)
@@ -189,6 +192,8 @@ pub(crate) struct UiGpu {
     accepted_revision: Option<u64>,
     /// The accepted revision draws glint, which animates without a new revision.
     animated: bool,
+    /// Conservative glint coverage prepared once per accepted publication batch.
+    animation_damage: Arc<[damage::UiDamage]>,
     // Admission watermark survives every draw rejection, even after payload drop.
     last_admitted_revision: Option<u64>,
     last_admitted_publication: Weak<UiRenderInput>,

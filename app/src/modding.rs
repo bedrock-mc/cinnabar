@@ -36,6 +36,7 @@ mod environment_loader;
 mod hud_editor;
 mod library;
 mod registration;
+mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
 #[derive(Resource, Default)]
@@ -406,6 +407,7 @@ struct ModObservation<'w, 's> {
     >,
     frame_rate: Local<'s, presentation_facts::FrameRate>,
     module_observer: Local<'s, module_observations::ModuleObserver>,
+    terrain: Local<'s, terrain::TerrainSampling>,
     actor_style: Option<ResMut<'w, client_presentation::actor_publication::ActorPresentationStyle>>,
 }
 
@@ -438,6 +440,7 @@ fn drive_mod(
         cameras,
         mut frame_rate,
         mut module_observer,
+        mut terrain,
         mut actor_style,
     } = observation;
     let focused = windows.single().is_ok_and(|(window, _)| window.focused);
@@ -561,6 +564,7 @@ fn drive_mod(
                 .map(|(label, score)| mod_host::SidebarRow { label, score })
                 .collect(),
         });
+    terrain.refresh(&mut extension.hosts, &gameplay, world_observation.as_ref());
     let mut callback_failed = false;
     let merged = multi::run_frame(
         &mut extension.hosts,

@@ -620,3 +620,50 @@ fn a_diverged_visit_keeps_what_it_already_wrote() {
     );
     assert_eq!(reload(&mut later, visited, now), Some(flat(33)));
 }
+
+/// A full region arrives over several polls without exceeding the column admission limit.
+#[test]
+fn full_region_completions_are_spread_across_polls() {
+    use far_terrain::{REGION_SIDE, config::SUMMARY_COLUMNS_PER_UPDATE};
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut writer = cache(root.path());
+    join(&mut writer, 64, now);
+    let encoded = flat(80).encode();
+    for z in 0..REGION_SIDE {
+        for x in 0..REGION_SIDE {
+            writer.admit(
+                0,
+                ColumnPos::new(10 * REGION_SIDE + x, z),
+                encoded.clone(),
+                now,
+            );
+        }
+    }
+    leave(&mut writer);
+    drop(writer);
+    let mut reader = cache(root.path());
+    join(&mut reader, 64, now);
+    let before = reader.store().len();
+    reader.set_focus(
+        ColumnPos::new(10 * REGION_SIDE + REGION_SIDE / 2, REGION_SIDE / 2),
+        1,
+    );
+    reader.sync();
+    reader.poll(now);
+    assert_eq!(reader.store().len() - before, SUMMARY_COLUMNS_PER_UPDATE);
+    let mut previous = reader.store().len();
+    for _ in 0..REGION_SIDE * REGION_SIDE {
+        reader.poll(now);
+        let current = reader.store().len();
+        assert!(current - previous <= SUMMARY_COLUMNS_PER_UPDATE);
+        previous = current;
+        if current == before + (REGION_SIDE * REGION_SIDE) as usize {
+            break;
+        }
+    }
+    assert_eq!(
+        reader.store().len(),
+        before + (REGION_SIDE * REGION_SIDE) as usize
+    );
+}

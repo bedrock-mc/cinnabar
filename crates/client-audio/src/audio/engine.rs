@@ -26,6 +26,7 @@ const LOOP_FADE_SECONDS: f32 = 1.5;
 /// A one-shot still decoding after this long is dropped rather than played late.
 const MAX_DECODE_WAIT_SECONDS: f64 = 1.0;
 
+mod device;
 mod music;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -149,6 +150,7 @@ fn priority(category: AudioCategory) -> u8 {
 pub struct AudioEngine {
     bank: Option<SoundBank>,
     voices: Vec<Voice>,
+    staged: Vec<VoiceSource>,
     queue: Vec<SoundRequest>,
     loops: HashMap<&'static str, LoopSpec>,
     rng: u64,
@@ -174,6 +176,7 @@ impl AudioEngine {
         Self {
             bank,
             voices: Vec::new(),
+            staged: Vec::new(),
             queue: Vec::new(),
             loops: HashMap::new(),
             rng: seed | 1,
@@ -347,6 +350,7 @@ impl AudioEngine {
         dt: f32,
         settings: &AudioSettings,
     ) -> Vec<VoiceSource> {
+        self.staged.retain(|source| !source.cancelled());
         self.voices.retain(|voice| !voice.shared.finished());
         self.clock += f64::from(dt.max(0.0));
         let mut started = Vec::new();

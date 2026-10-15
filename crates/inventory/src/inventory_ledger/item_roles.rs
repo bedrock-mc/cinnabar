@@ -65,3 +65,31 @@ pub(super) fn horse_slot(fact: &ItemFact) -> Option<u8> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn facts_migration_cartography_exception_requires_missing_retail_map_identities() {
+        let facts = assets::facts::ItemFacts::builtin().unwrap();
+        for identifier in ["minecraft:filled_map", "minecraft:map"] {
+            assert!(
+                facts.by_identifier(identifier).is_none(),
+                "retire the cartography exception for {identifier}"
+            );
+            assert_eq!(cartography_slot(identifier), 12);
+        }
+        for record in &facts.payload().records {
+            assert_eq!(
+                cartography_slot(&record.identifier),
+                13,
+                "{}",
+                record.identifier
+            );
+        }
+        assert_eq!(cartography_slot("filled_map"), 12);
+        assert_eq!(cartography_slot("map"), 12);
+        assert_eq!(cartography_slot("fixture:filled_map"), 13);
+    }
+}

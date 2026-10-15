@@ -19,21 +19,24 @@ pub struct ActorBlockSyncFence {
 
 #[derive(Debug, Default)]
 pub(super) struct ActorBlockSyncs {
-    pending: BTreeMap<SubChunkKey, Vec<PendingSync>>,
+    pending: ColumnRecords<SubChunkKey, Vec<PendingSync>>,
     count: usize,
     next_order: u64,
 }
 
 impl ActorBlockSyncs {
+    /// Retires only actor transitions belonging to the removed columns.
     pub(super) fn remove_columns(&mut self, columns: &BTreeSet<ChunkKey>) {
-        self.pending.retain(|key, entries| {
-            if columns.contains(&key.chunk()) {
+        for &column in columns {
+            for entries in self.pending.remove_column(column).into_values() {
                 self.count -= entries.len();
-                false
-            } else {
-                true
             }
-        });
+        }
+    }
+    /// Reads and resets the number of section records examined during retirement.
+    #[cfg(test)]
+    fn take_cleanup_visits(&mut self) -> usize {
+        self.pending.take_cleanup_visits()
     }
 }
 
@@ -104,10 +107,13 @@ impl WorldStream {
             tracing::debug!(actor_unique_id = event.sync.actor_unique_id, message = event.sync.message,
                 position = ?event.update.position, flags = event.flags, ?key, generation,
                 "actor/terrain transition waits for mesh upload");
+            if !self.actor_block_syncs.pending.contains_key(&key) {
+                self.actor_block_syncs.pending.insert(key, Vec::new());
+            }
             self.actor_block_syncs
                 .pending
-                .entry(key)
-                .or_default()
+                .get_mut(&key)
+                .unwrap()
                 .push(PendingSync {
                     generation,
                     order: self.actor_block_syncs.next_order,
@@ -146,5 +152,72 @@ impl WorldStream {
         tracing::debug!(actor_unique_id = event.sync.actor_unique_id, message = event.sync.message,
             position = ?event.update.position, flags = event.flags, ?key, generation, applied,
             "mesh upload released actor/terrain transition");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Populated actor fences retire by column without touching surviving section records.
+    #[test]
+    fn column_retirement_visits_only_its_actor_syncs() {
+        let columns = 4096;
+        let mut syncs = ActorBlockSyncs::default();
+        let event = SyncedBlockUpdateEvent {
+            update: BlockUpdateEvent {
+                dimension: 0,
+                position: [0; 3],
+                layer: 0,
+                network_id: 0,
+            },
+            flags: 3,
+            sync: client_world::ingestion::ActorBlockSyncMessage {
+                actor_unique_id: 1,
+                message: 1,
+            },
+        };
+        for x in 0..columns {
+            for y in 0..2 {
+                syncs.pending.insert(
+                    SubChunkKey::new(0, x, y, 0),
+                    vec![
+                        PendingSync {
+                            generation: 1,
+                            order: 0,
+                            event,
+                        },
+                        PendingSync {
+                            generation: 2,
+                            order: 1,
+                            event,
+                        },
+                    ],
+                );
+                syncs.count += 2;
+            }
+        }
+        let survivor = SubChunkKey::new(1, 0, 0, 0);
+        syncs.pending.insert(
+            survivor,
+            vec![PendingSync {
+                generation: 1,
+                order: 0,
+                event,
+            }],
+        );
+        syncs.count += 1;
+        let (mut total, mut max) = (0, 0);
+        for x in 0..columns {
+            syncs.remove_columns(&BTreeSet::from([ChunkKey::new(0, x, 0)]));
+            let visits = syncs.take_cleanup_visits();
+            total += visits;
+            max = max.max(visits);
+        }
+        assert_eq!(syncs.count, 1);
+        assert_eq!(syncs.pending.get(&survivor).unwrap().len(), 1);
+        eprintln!("actor retirement: columns={columns} total_visits={total} max_visits={max}");
+        assert_eq!(max, 2, "retirement visits only its own actor records");
+        assert_eq!(total, columns as usize * 2);
     }
 }

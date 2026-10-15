@@ -11,10 +11,22 @@ use super::ids::DIAGNOSTIC_RIG_ID;
 
 pub const MAX_RENDER_BONES_PER_ACTOR: usize = assets::MAX_ENTITY_GEOMETRY_BONES;
 pub const MAX_ACTOR_RIG_VERTICES: usize = assets::MAX_SKIN_GEOMETRY_VERTICES;
-/// Aggregate geometry storage, independent of the vertex limit for one model.
+/// Aggregate geometry storage every device binds; device tiers grow the catalog past it.
 pub const MAX_ACTOR_CATALOG_VERTEX_BYTES: usize = 128 * 1024 * 1024;
 pub const MAX_ACTOR_CATALOG_VERTICES: usize =
     MAX_ACTOR_CATALOG_VERTEX_BYTES / std::mem::size_of::<ActorRigVertex>();
+
+/// Geometry storage the actor catalog may grow to on a device of vanilla memory tier
+/// `memory_tier` (0 at 2 GiB or less, 5 above 12 GiB), so server packs stay resident.
+#[must_use]
+pub const fn actor_catalog_budget_bytes(memory_tier: u32) -> usize {
+    let scale = match memory_tier {
+        0 | 1 => 1,
+        2 | 3 => 2,
+        _ => 4,
+    };
+    MAX_ACTOR_CATALOG_VERTEX_BYTES * scale
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]

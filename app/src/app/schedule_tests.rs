@@ -6,7 +6,9 @@ use super::*;
 #[test]
 fn network_config_call_sites_share_the_process_blob_cache() {
     let owner = ClientBlobCacheOwner::default();
+    let registry_base = crate::runtime::network::session_registries::tests::registry_base();
     let first = NetworkConfig {
+        registry_base: registry_base.clone(),
         session_generation: SessionGeneration::new(7),
         socket_dir: std::path::PathBuf::from("first-core.sock"),
         display_name: "cache-owner".to_owned(),
@@ -24,6 +26,7 @@ fn network_config_call_sites_share_the_process_blob_cache() {
         .insert(b"verified-across-session")
         .expect("seed verified blob before replacement");
     let replacement = NetworkConfig {
+        registry_base,
         session_generation: SessionGeneration::new(8),
         socket_dir: std::path::PathBuf::from("replacement-core.sock"),
         display_name: "cache-owner".to_owned(),

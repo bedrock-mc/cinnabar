@@ -182,8 +182,8 @@ fn positive_homogeneous_coordinates_are_divided_before_bounding() {
 }
 
 #[test]
-fn invalid_coordinates_and_animated_or_projected_content_never_retain() {
-    for change in 0..11 {
+fn invalid_coordinates_and_projected_content_never_retain() {
+    for change in 0..10 {
         let mut input = quad();
         let vertex = &mut Arc::make_mut(&mut input.vertices)[0];
         match change {
@@ -194,10 +194,9 @@ fn invalid_coordinates_and_animated_or_projected_content_never_retain() {
             4 => vertex.position[0] = f32::INFINITY,
             5 => vertex.clip_z = f32::NAN,
             6 => vertex.uv[0] = f32::NAN,
-            7 => vertex.style_flags = UI_STYLE_GLINT,
-            8 => vertex.overlay_color[0] = f32::NAN,
-            9 => vertex.clip_w = f32::from_bits(1),
-            10 => Arc::make_mut(&mut input.batches)[0].world_projection = 1,
+            7 => vertex.overlay_color[0] = f32::NAN,
+            8 => vertex.clip_w = f32::from_bits(1),
+            9 => Arc::make_mut(&mut input.batches)[0].world_projection = 1,
             _ => unreachable!(),
         }
         assert_eq!(plan(&input, &input), UiDamage::Full, "change {change}");
@@ -270,4 +269,55 @@ fn subnormal_homogeneous_projection_falls_back_before_gpu_flush_to_zero() {
         Arc::make_mut(&mut current.vertices)[0].color[0] = 128;
         assert_eq!(plan(&previous, &current), UiDamage::Full);
     }
+}
+
+/// Identical geometry still restores glint coverage whenever its clock or binding changes.
+#[test]
+fn glint_damage_is_clipped_and_unioned_without_invalidating_static_batches() {
+    let mut input = quad();
+    for vertex in Arc::make_mut(&mut input.vertices) {
+        vertex.style_flags |= UI_STYLE_GLINT;
+    }
+    let animation = animated_batches(&input);
+    assert_eq!(animation, [UiDamage::Rect(UiScissor::new(9, 19, 22, 22))]);
+    assert_eq!(
+        plan(&input, &input),
+        UiDamage::Unchanged,
+        "geometry and animation have separate lifetimes"
+    );
+    assert_eq!(animation[0].for_projection(false), UiDamage::Full);
+    Arc::make_mut(&mut input.batches)[0].scissor = UiScissor::new(20, 25, 5, 5);
+    assert_eq!(
+        animated_batches(&input),
+        [UiDamage::Rect(UiScissor::new(20, 25, 5, 5))]
+    );
+    Arc::make_mut(&mut input.vertices)[0].clip_w = -1.0;
+    assert_eq!(animated_batches(&input), [UiDamage::Full]);
+}
+
+/// Geometry motion on the other side of an invert does not damage this alpha segment.
+#[test]
+fn changed_vertices_in_another_segment_preserve_independent_static_pixels() {
+    let mut previous = quad();
+    let mut vertices = previous.vertices.to_vec();
+    vertices.extend(previous.vertices.iter().map(|vertex| UiRenderVertex {
+        position: vertex.position.map(|x| x + 40.0),
+        ..*vertex
+    }));
+    previous.vertices = vertices.into();
+    previous.indices = Arc::from([0, 1, 2, 0, 2, 3, 0, 1, 2, 4, 5, 6, 4, 6, 7]);
+    previous.batches = [
+        UiRenderBatch::new(0, UiScissor::new(0, 0, 100, 80), 0, 6, UI_BLEND_ALPHA),
+        UiRenderBatch::new(0, UiScissor::new(0, 0, 100, 80), 6, 3, UI_BLEND_INVERT),
+        UiRenderBatch::new(0, UiScissor::new(0, 0, 100, 80), 9, 6, UI_BLEND_ALPHA),
+    ]
+    .into();
+    let mut current = previous.clone();
+    current.revision += 1;
+    Arc::make_mut(&mut current.vertices)[4].color[0] = 50;
+    assert_eq!(plan_segment(&previous, &current, 0..1), UiDamage::Unchanged);
+    assert!(matches!(
+        plan_segment(&previous, &current, 2..3),
+        UiDamage::Rect(_)
+    ));
 }

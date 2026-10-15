@@ -377,7 +377,11 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
         .result
         .unwrap()
         .unwrap();
-    assert_eq!(registration.mods[0].component, link);
+    // Registration resolves the directory but keeps the leaf, so the link is still rejected.
+    assert_eq!(
+        registration.mods[0].component,
+        root.canonicalize().unwrap().join("linked.wasm")
+    );
     assert!(source::source_snapshot(registration.mods[0].clone()).is_err());
 }
 

@@ -12,12 +12,14 @@ use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 
 /// A server may batch a whole pack transfer, or a large item registry, into one batch,
 /// so the local leg accepts batches far larger than a typical client's 16 MiB default.
 /// The core already bounds pack transfers before they reach this hop.
 pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
+/// Bounds frames read while packs prepare or the world consumer is full; past it the core waits.
+pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
@@ -54,6 +56,8 @@ pub(crate) struct SessionTransport {
     frames: FrameQueue,
     startup: VecDeque<Bytes>, // startup batch bodies, read before any core frame
     received: VecDeque<RawPacket>, // packets split from a batch but not yet read
+    ahead: VecDeque<Option<Result<Bytes, BridgeError>>>, // reader items `read_ahead` took
+    ahead_bytes: usize,       // frame bytes held in `ahead`
     ended: bool,              // a terminal message was delivered
     sending: VecDeque<InFlightSend>,
     tap: Option<Arc<dyn PacketTap>>,
@@ -94,6 +98,8 @@ impl SessionTransport {
             frames,
             startup: startup_batches(startup).into(),
             received: VecDeque::new(),
+            ahead: VecDeque::new(),
+            ahead_bytes: 0,
             ended: false,
             sending: VecDeque::new(),
             tap: None,
@@ -136,7 +142,16 @@ impl SessionTransport {
             if self.ended {
                 return Err(SessionFailure::ConnectionClosed.into());
             }
-            let frame = match self.reader.next().await {
+            let next = match self.ahead.pop_front() {
+                Some(next) => {
+                    if let Some(Ok(frame)) = &next {
+                        self.ahead_bytes -= frame.len();
+                    }
+                    next
+                }
+                None => self.reader.next().await,
+            };
+            let frame = match next {
                 Some(Ok(frame)) => frame,
                 Some(Err(error)) => return Err(SessionFailure::Transport(error).into()),
                 None => return Err(SessionFailure::ConnectionClosed.into()),
@@ -163,6 +178,33 @@ impl SessionTransport {
             self.ended = true;
             return Ok(Inbound::Terminal(terminal));
         }
+    }
+
+    /// Reads core frames ahead of [`Self::recv`], unparsed, until `max_bytes` are held or the core
+    /// ends the session, so short preparation or world-admission pauses do not block the core.
+    /// Cancelling the wait loses nothing.
+    pub(crate) async fn read_ahead(&mut self, max_bytes: usize) {
+        while poll_fn(|cx| self.poll_read_ahead_one(max_bytes, cx)).await {}
+    }
+
+    /// Stages at most one unparsed reader item, retaining partial frames across cancellation.
+    /// Returns false at the shared byte bound or a terminal, error or EOF marker. As with
+    /// `read_ahead`, accepting a whole frame may cross the bound by that frame's size.
+    pub(crate) fn poll_read_ahead_one(
+        &mut self,
+        max_bytes: usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<bool> {
+        if self.ahead_bytes >= max_bytes || self.ahead.back().is_some_and(ends_session) {
+            return Poll::Ready(false);
+        }
+        let next = ready!(Pin::new(&mut self.reader).poll_next(cx));
+        if let Some(Ok(frame)) = &next {
+            self.ahead_bytes += frame.len();
+        }
+        let more = self.ahead_bytes < max_bytes && !ends_session(&next);
+        self.ahead.push_back(next);
+        Poll::Ready(more)
     }
 
     /// Puts `packets` back ahead of every unread packet, in their order. The tap has already
@@ -256,6 +298,11 @@ impl SessionTransport {
         }
         Poll::Ready(Ok(()))
     }
+}
+
+/// Whether a reader item ends the session: a terminal message, a failure or the close.
+fn ends_session(next: &Option<Result<Bytes, BridgeError>>) -> bool {
+    !matches!(next, Some(Ok(frame)) if crate::session_wire::batch_frame_body(frame).is_some())
 }
 
 /// One Batch frame holding `packets`, each length-prefixed as a Bedrock batch carries it. A

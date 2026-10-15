@@ -188,3 +188,33 @@ fn retained_source_byte_budget_evicts_before_the_entry_limit() {
     assert_eq!(first, rebuilt);
     assert_ne!(first.words().as_ptr(), rebuilt.words().as_ptr());
 }
+
+/// Extruded missing biomes retain palette counts even when their encoded words match raw input.
+#[test]
+fn biome_cache_charges_edit_metadata_in_identically_encoded_sources() {
+    let mut bytes = vec![3];
+    for _ in 0..world::BLOCKS_PER_SUB_CHUNK / u32::BITS as usize {
+        bytes.extend(0xffff0000_u32.to_le_bytes());
+    }
+    bytes.extend([4, 14, 18, 0xff]);
+    let column = DecodedBiomeColumn::decode(0, 2, &bytes, &RawBiomeIds { default_biome: 0 });
+    let raw = column.storage(0).unwrap();
+    let extruded = column.storage(1).unwrap();
+    assert_eq!(raw, extruded);
+    let extra = extruded.retained_heap_bytes_bound() - raw.retained_heap_bytes_bound();
+    assert!(extra > 0);
+    let mut stream = stream();
+    let cache = stream.biome_record_cache(0);
+    let first = cache.record(&std::array::from_fn(|_| Some(Arc::clone(&raw))));
+    let raw_bytes = cache.entries.lock().unwrap().bytes;
+    let second = cache.record(&std::array::from_fn(|_| Some(Arc::clone(&extruded))));
+    assert_eq!(first, second);
+    let entries = cache.entries.lock().unwrap();
+    assert_eq!(entries.records.len(), 2);
+    let extruded_bytes = entries.bytes - raw_bytes;
+    assert_eq!(
+        extruded_bytes - raw_bytes,
+        (BIOME_NEIGHBOUR_SLOT_COUNT * extra) as u64
+    );
+    assert!(entries.bytes <= CACHE_BYTES);
+}

@@ -43,47 +43,65 @@ pub(crate) fn free_bds_port(players: u32, port: u16) -> Result<u16, WorldError> 
                 "host port {port} does not fit the NetherNet UDP allocation window for {players} players"
             )));
         }
-        return reserve(players, port)?
-            .ok_or_else(|| failed(format!("host port {port} is unavailable")));
+        return reserve(players, port);
     }
+    automatic_bds_port(players, || TcpListener::bind((LOCAL_SERVER_HOST, 0)))
+}
+
+/// Tries bounded ephemeral candidates while checking the complete UDP window.
+fn automatic_bds_port(
+    players: u32,
+    mut bind: impl FnMut() -> std::io::Result<TcpListener>,
+) -> Result<u16, WorldError> {
+    let mut rejected = Vec::new();
+    let mut last_error = None;
     for _ in 0..AUTOMATIC_ATTEMPTS {
-        if let Some(port) = reserve(players, 0)? {
-            return Ok(port);
+        let tcp = bind().map_err(|error| failed(format!("reserve signaling port: {error}")))?;
+        match reserve_window(players, &tcp) {
+            Ok(port) => return Ok(port),
+            Err(error) => last_error = Some(error),
         }
+        // Keep rejected candidates occupied so the OS cannot choose the same one again.
+        rejected.push(tcp);
     }
     Err(failed(format!(
-        "no available loopback NetherNet port range for {players} players"
+        "no available loopback NetherNet port range for {players} players: {}",
+        last_error.expect("at least one automatic candidate was attempted")
     )))
 }
 
-/// Binds the window starting at `requested`; `None` asks an automatic caller to try again.
-fn reserve(players: u32, requested: u16) -> Result<Option<u16>, WorldError> {
+/// Binds the exact signaling port and its UDP window, releasing both before returning.
+fn reserve(players: u32, requested: u16) -> Result<u16, WorldError> {
     let tcp = TcpListener::bind((LOCAL_SERVER_HOST, requested))
         .map_err(|error| failed(format!("reserve signaling port: {error}")))?;
+    reserve_window(players, &tcp)
+}
+
+/// Checks the UDP window while the signaling port remains reserved by the caller.
+fn reserve_window(players: u32, tcp: &TcpListener) -> Result<u16, WorldError> {
     let port = tcp
         .local_addr()
         .map_err(|error| failed(error.to_string()))?
         .port();
     if u32::from(port) > MAX_PORT - players + 1 {
-        return Ok(None);
+        return Err(failed(format!(
+            "signaling port {port} does not fit a UDP window for {players} players"
+        )));
     }
     let mut udp = Vec::new();
     for offset in 0..players {
         let candidate = u32::from(port) + offset;
-        let Ok(candidate) = u16::try_from(candidate) else {
-            return Ok(None);
-        };
+        let candidate = u16::try_from(candidate).expect("the UDP window fits the port range");
         match UdpSocket::bind((LOCAL_SERVER_HOST, candidate)) {
             Ok(socket) => udp.push(socket),
-            Err(error) if requested != 0 => {
+            Err(error) => {
                 return Err(failed(format!(
                     "reserve UDP transport port {candidate}: {error}"
                 )));
             }
-            Err(_) => return Ok(None),
         }
     }
-    Ok(Some(port))
+    Ok(port)
 }
 
 /// Rejects a LAN discovery port that is invalid, overlaps the BDS UDP window or is taken.

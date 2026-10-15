@@ -14,48 +14,45 @@ import (
 
 var nextJoinID atomic.Uint64
 
+var joinPacketStages = map[uint32]string{
+	packet.IDRequestNetworkSettings:     "upstream transport connected",
+	packet.IDNetworkSettings:            "upstream network settings",
+	packet.IDLogin:                      "upstream login sent",
+	packet.IDServerToClientHandshake:    "upstream server-to-client handshake",
+	packet.IDClientToServerHandshake:    "upstream encryption enabled",
+	packet.IDResourcePacksInfo:          "upstream resource packs info",
+	packet.IDResourcePackStack:          "upstream resource packs stack",
+	packet.IDResourcePackClientResponse: "upstream resource packs done",
+	packet.IDStartGame:                  "upstream StartGame received",
+}
+
 // withJoinStages preserves packet observers and logs each login milestone once per dial attempt.
 func withJoinStages(dialer minecraft.Dialer, logger *slog.Logger) minecraft.Dialer {
 	started, id := time.Now(), nextJoinID.Add(1)
 	var mu sync.Mutex
 	seen := make(map[string]bool)
-	next := dialer.PacketFunc
-	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
-		stage := ""
-		switch header.PacketID {
-		case packet.IDRequestNetworkSettings:
-			stage = "upstream transport connected"
-		case packet.IDNetworkSettings:
-			stage = "upstream network settings"
-		case packet.IDLogin:
-			stage = "upstream login sent"
-		case packet.IDServerToClientHandshake:
-			stage = "upstream server-to-client handshake"
-		case packet.IDClientToServerHandshake:
-			stage = "upstream encryption enabled"
-		case packet.IDResourcePacksInfo:
-			stage = "upstream resource packs info"
-		case packet.IDResourcePackStack:
-			stage = "upstream resource packs stack"
-		case packet.IDResourcePackClientResponse:
-			response, length := binary.Uvarint(payload)
-			if length > 0 && response == packet.PackResponseCompleted {
-				stage = "upstream resource packs done"
-			}
-		case packet.IDStartGame:
-			stage = "upstream StartGame received"
-		}
-		if stage != "" {
-			mu.Lock()
-			if !seen[stage] {
-				seen[stage] = true
-				logger.Info(stage, "join_id", id, "elapsed_ms", time.Since(started).Milliseconds())
-			}
-			mu.Unlock()
-		}
-		if next != nil {
-			next(header, payload, source, destination)
-		}
+	ids := make([]uint32, 0, len(joinPacketStages))
+	for id := range joinPacketStages {
+		ids = append(ids, id)
 	}
-	return dialer
+	return withPacketObserver(dialer, minecraft.PacketObserver{
+		PacketIDs: ids,
+		Func: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			stage := joinPacketStages[header.PacketID]
+			if header.PacketID == packet.IDResourcePackClientResponse {
+				response, length := binary.Uvarint(payload)
+				if length <= 0 || response != packet.PackResponseCompleted {
+					stage = ""
+				}
+			}
+			if stage != "" {
+				mu.Lock()
+				if !seen[stage] {
+					seen[stage] = true
+					logger.Info(stage, "join_id", id, "elapsed_ms", time.Since(started).Milliseconds())
+				}
+				mu.Unlock()
+			}
+		},
+	})
 }

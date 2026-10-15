@@ -129,6 +129,15 @@ class SourceReuseTests(unittest.TestCase):
         self.assertEqual(first["prefix"], second["prefix"])
         self.assertNotEqual(second["prefix"], changed["prefix"])
 
+    def test_extra_cargo_outputs_are_cached_with_the_lane_profile(self):
+        """A job building another profile or a cross target caches those outputs too."""
+        env = {"RUNNER_OS": "Linux", "RUNNER_ARCH": "X64",
+               "CACHE_CARGO_OUTPUTS": "release wasm32-unknown-unknown/release"}
+        with patch.object(cache, "command", side_effect=["rustc 1", "revision"]):
+            paths = cache.plan(self.root, "rust", "ci", env)["paths"].splitlines()
+        for output in ["debug", "release", "wasm32-unknown-unknown/release"]:
+            self.assertIn(str(self.root / "target" / output), paths)
+
 
 class CrossTargetTests(unittest.TestCase):
     """Keep cross-compiled artifacts and their caches separate on the same runner."""
@@ -289,6 +298,47 @@ class ArchiveTests(unittest.TestCase):
 
             self.assertEqual((bundle / "cinnabar-0123").read_bytes(), b"dwarf")
             self.assertFalse(os.path.lexists(target / "cinnabar.dSYM"))
+
+    def test_linked_executables_are_left_out_on_every_platform(self):
+        """Test and bin executables would push the Rust archive over its budget; libraries stay."""
+        kept = [
+            "deps/libdemo-0123.rlib", "deps/libdemo-0123.rmeta", "deps/demo-0123.d",
+            "deps/libmacro-0123.so", "deps/libmacro-0123.dylib", "deps/macro-0123.dll",
+            "deps/macro-0123.dll.lib", "libdemo.rlib", "demo.d",
+            "build/sys-0123/build-script-build", "build/sys-0123/out/libnative.a",
+            ".fingerprint/demo-0123/test-lib-demo",
+        ]
+        left_out = [
+            "deps/demo-4567", "deps/demo-4567.exe", "deps/demo-4567.pdb",
+            "deps/demo-4567.demo.abc-cgu.0.rcgu.o", "deps/demo-4567.dSYM/Contents/Info.plist",
+            "demo", "demo.exe", "demo.pdb", "demo.dSYM/Contents/Info.plist",
+            "examples/sample-0123", "incremental/demo-0123/s-1/query-cache.bin",
+        ]
+        go_cache = ["00/0011-a", "00/0011-d"]
+        for store in ("artifact", "cache"):
+            with self.subTest(store=store), tempfile.TemporaryDirectory() as temp:
+                source, archive = Path(temp) / "runner", Path(temp) / "cache.tar.gz"
+                profile, go = source / "target/debug", source / "go-build"
+                for name in kept + left_out:
+                    (profile / name).parent.mkdir(parents=True, exist_ok=True)
+                    (profile / name).write_bytes(b"x" * 10)
+                for name in go_cache:
+                    (go / name).parent.mkdir(parents=True, exist_ok=True)
+                    (go / name).write_bytes(b"go")
+                paths = [str(profile), str(go)]
+                if store == "artifact":
+                    sizes = cache.pack(paths, archive)
+                    shutil.rmtree(source)
+                    with open(archive, "rb") as stream:
+                        cache.unpack(paths, stream)
+                else:
+                    sizes = cache.drop_linked_outputs(paths)
+
+                restored = {path.relative_to(profile).as_posix()
+                            for path in profile.rglob("*") if path.is_file()}
+                self.assertEqual(restored, set(kept))
+                self.assertTrue(all((go / name).exists() for name in go_cache))
+                self.assertEqual(sum(sizes.left_out.values()), 10 * len(left_out))
 
 
     def test_entries_outside_their_root_are_rejected(self):

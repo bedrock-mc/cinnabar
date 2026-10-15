@@ -34,6 +34,8 @@ const GUI_SCALE: u8 = 2;
 const SMALL_SIZE: [u32; 2] = [360, 240];
 /// Fits an expanded card above two collapsed ones.
 const TALL_SIZE: [u32; 2] = [1280, 900];
+/// Keeps the first hotbar rows visible below the keyboard options.
+const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
     State {
@@ -53,6 +55,12 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || chat_background(100),
+    },
+    State {
+        name: "chat-command-background-transparent",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_command_background,
     },
     State {
         name: "import-confirmation",
@@ -133,6 +141,18 @@ pub const STATES: &[State] = &[
         fixture: settings_general_diagnostics_on,
     },
     State {
+        name: "settings-keyboard-physical-label",
+        size: KEYBOARD_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(false),
+    },
+    State {
+        name: "settings-keyboard-azerty",
+        size: KEYBOARD_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_keyboard_layout(true),
+    },
+    State {
         name: "settings-mods",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -143,6 +163,42 @@ pub const STATES: &[State] = &[
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
         fixture: mods::undeclared,
+    },
+    State {
+        name: "settings-mods-permissions-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::collapsed,
+    },
+    State {
+        name: "settings-mods-permissions-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::consent,
+    },
+    State {
+        name: "settings-mods-permissions-requested",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::requested_only,
+    },
+    State {
+        name: "settings-mods-permissions-all",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-undeclared-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::undeclared_permissions,
     },
 ];
 
@@ -190,6 +246,20 @@ fn chat_background(percent: i32) -> Fixture {
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
+        options: Arc::new(options),
+    }
+}
+
+/// Shows the command input and suggestions with chat backgrounds set to zero percent.
+fn chat_command_background() -> Fixture {
+    use launcher::menu::settings_options::SettingsOptions;
+
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ChatBackgroundOpacity.index(), 0);
+    Fixture::Chat {
+        draft: "/",
+        suggestions: ["/give", "/help", "/say"].map(Arc::from).into(),
+        messages: Default::default(),
         options: Arc::new(options),
     }
 }
@@ -248,5 +318,24 @@ fn settings_general_diagnostics_on() -> Fixture {
         SettingId::RecordNetworkSession.index() as u16,
         0,
     ));
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.
+fn settings_keyboard_layout(observed: bool) -> Fixture {
+    use launcher::menu::settings_options::{
+        BindingId, KEY_BINDINGS, control_bindings::decode_control,
+    };
+
+    let mut view = settings("keyboard_and_mouse_forced_index");
+    let row = KEY_BINDINGS
+        .iter()
+        .position(|(_, name)| *name == BindingId::Hotbar1.name())
+        .unwrap();
+    let settings = Arc::make_mut(&mut view.settings_options);
+    assert!(settings.remap(row, decode_control(0x14).unwrap()));
+    if observed {
+        settings.set_key_label(0x14, "a");
+    }
     Fixture::Menu(Box::new(view))
 }

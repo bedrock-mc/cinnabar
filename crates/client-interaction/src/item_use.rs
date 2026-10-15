@@ -181,3 +181,6 @@ impl ItemUseRuntime {
 
 #[cfg(test)]
 mod crossbow_presentation_tests;
+
+#[cfg(test)]
+mod riptide_selection_tests;
