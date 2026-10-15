@@ -6,7 +6,7 @@ use json_ui::{DataSource, Scalar, ViewState};
 use serde_json::json;
 use ui::mod_panel::{Control, Panel, Theme};
 
-use super::widgets::Palette;
+use super::{transitions::SurfaceTransitions, widgets::Palette};
 
 const FEEDBACK_SECONDS: f64 = 0.10;
 const SCROLL_SECONDS: f64 = 0.14;
@@ -58,14 +58,19 @@ pub(super) struct PanelMotion {
     toggles: HashMap<usize, Tween>,
     hover: HashMap<usize, Tween>,
     scrolls: HashMap<String, Tween>,
+    /// Authored surface bindings easing toward their latest values.
+    pub(super) transitions: SurfaceTransitions,
 }
 
 impl PanelMotion {
-    /// Reports whether clearing motion would leave an intermediate toggle or hover highlight.
+    /// Reports whether clearing motion would leave an intermediate toggle, hover highlight or
+    /// transitioned binding.
     pub(super) fn needs_feedback_reset(&self) -> bool {
-        self.toggles
-            .values()
-            .any(|tween| tween.sample(self.now) != tween.to)
+        self.transitions.active()
+            || self
+                .toggles
+                .values()
+                .any(|tween| tween.sample(self.now) != tween.to)
             || self
                 .hover
                 .values()
@@ -145,8 +150,10 @@ impl PanelMotion {
         changed
     }
 
-    /// Publishes generic native values without changing the retained document or schema.
+    /// Publishes generic native values and transitioned bindings without changing the retained
+    /// document or schema.
     pub(super) fn write(&self, panel: &Panel, data: &mut DataSource) {
+        self.transitions.write(data);
         let palette = Palette::for_panel(panel);
         let mix = |from: [f64; 4], to: [f64; 4], progress: f64| {
             std::array::from_fn::<_, 4, _>(|index| {
@@ -192,6 +199,7 @@ impl PanelMotion {
             .chain(self.hover.values())
             .chain(self.scrolls.values())
             .any(|tween| tween.active(self.now))
+            || self.transitions.active()
     }
 }
 

@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 mod static_templates;
+mod transition;
 use static_templates::{acyclic, authored, bound_expansion, local_reference, resolved_value};
+pub use transition::{MAX_TRANSITION_SECONDS, SurfaceTransition, TransitionEasing};
 
 /// Host-owned track action consumed without invoking an extension control.
 pub const SCROLL_TRACK_ACTION: &str = "mod.scroll_track";
@@ -20,6 +22,9 @@ pub struct Surface {
     pub document: String,
     #[serde(default)]
     pub bindings: BTreeMap<String, SurfaceValue>,
+    /// Numeric bindings that ease toward each new value, keyed by binding name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub transitions: BTreeMap<String, SurfaceTransition>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,6 +36,18 @@ pub enum SurfaceValue {
     Vector(Vec<f64>),
 }
 
+impl SurfaceValue {
+    /// The components a transition eases: one for a number, each element of a 2–4-number
+    /// array, and none for other values.
+    pub fn numbers(&self) -> Option<&[f64]> {
+        match self {
+            SurfaceValue::Number(number) => Some(std::slice::from_ref(number)),
+            SurfaceValue::Vector(numbers) if (2..=4).contains(&numbers.len()) => Some(numbers),
+            _ => None,
+        }
+    }
+}
+
 impl Surface {
     /// Rejects oversized trees and dynamic factories before the host retains them.
     pub fn validate(&self) -> Result<(), String> {
@@ -38,7 +55,8 @@ impl Surface {
         self.validate_bindings()
     }
 
-    /// Validates only changing scalar values, retaining the already checked document.
+    /// Validates only changing scalar values and their declared transitions, retaining the
+    /// already checked document. A transition may name a binding a later update supplies.
     pub fn validate_bindings(&self) -> Result<(), String> {
         if self.bindings.len() > MAX_SURFACE_BINDINGS {
             return Err("surface has too many bindings".into());
@@ -47,20 +65,28 @@ impl Surface {
             if !binding_name(name) {
                 return Err("surface binding name is invalid".into());
             }
-            let finite = |number: &f64| number.is_finite() && number.abs() <= 1_000_000.0;
             let valid = match value {
                 SurfaceValue::Bool(_) => true,
-                SurfaceValue::Number(number) => finite(number),
+                SurfaceValue::Number(number) => bounded(number),
                 SurfaceValue::Text(text) => {
                     text.len() <= 256 && !text.chars().any(char::is_control)
                 }
                 SurfaceValue::Vector(numbers) => {
-                    (2..=4).contains(&numbers.len()) && numbers.iter().all(finite)
+                    (2..=4).contains(&numbers.len()) && numbers.iter().all(bounded)
                 }
             };
             if !valid {
                 return Err("surface binding value exceeds its bounds".into());
             }
+        }
+        if self.transitions.len() > MAX_SURFACE_BINDINGS {
+            return Err("surface has too many transitions".into());
+        }
+        for (name, transition) in &self.transitions {
+            if !binding_name(name) {
+                return Err("surface transition name is invalid".into());
+            }
+            transition.validate()?;
         }
         Ok(())
     }
@@ -174,6 +200,11 @@ impl Surface {
         node(&root, 0, &mut count, &mut actions)?;
         Ok(root)
     }
+}
+
+/// A finite binding number within the surface value bound.
+fn bounded(number: &f64) -> bool {
+    number.is_finite() && number.abs() <= 1_000_000.0
 }
 
 /// Matches the names accepted by a local scalar data source.

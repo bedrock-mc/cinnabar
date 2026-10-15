@@ -11,6 +11,7 @@ pub(crate) mod prepared;
 mod scrolling;
 pub(crate) mod surface;
 mod template;
+pub(crate) mod transitions;
 mod vector;
 mod widgets;
 
@@ -200,10 +201,10 @@ impl ModUi {
         self.mod_panel.as_ref().is_some_and(|panel| panel.open)
     }
 
-    /// Native feedback needs frames only while the opt-in panel motion is active.
+    /// Native feedback and surface transitions need frames only while they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
         self.mod_panel.as_ref().is_some_and(|panel| {
-            panel.open && panel.panel.motion && (panel.motion_data_dirty || panel.motion.active())
+            panel.open && (panel.motion.active() || panel.motion_data_dirty && panel.animated())
         })
     }
 
@@ -319,6 +320,7 @@ impl ModUi {
                 }
             }
         }
+        let mut changed = false;
         if panel.panel.motion {
             if let Some(frame) = &panel.frame {
                 for (key, metrics) in &frame.report.scrolls {
@@ -341,16 +343,18 @@ impl ModUi {
                         .or_else(|| action.strip_prefix("mod.edit:"))
                 })
                 .and_then(|index| index.parse().ok());
-            let changed =
-                panel
-                    .motion
-                    .advance(&panel.panel, &mut panel.view, hovered, paint_frame.now);
-            if changed || panel.motion_data_dirty {
-                panel
-                    .motion
-                    .write(&panel.panel, Arc::make_mut(&mut panel.data));
-                panel.motion_data_dirty = false;
-            }
+            changed = panel
+                .motion
+                .advance(&panel.panel, &mut panel.view, hovered, paint_frame.now);
+        }
+        if let Some(surface) = &panel.panel.surface {
+            changed |= panel.motion.transitions.advance(surface, paint_frame.now);
+        }
+        if panel.animated() && (changed || panel.motion_data_dirty) {
+            panel
+                .motion
+                .write(&panel.panel, Arc::make_mut(&mut panel.data));
+            panel.motion_data_dirty = false;
         }
         let data = Arc::clone(&panel.data);
         let rollback = (paint_frame.nodes.len(), *paint_frame.next);
@@ -435,6 +439,16 @@ impl ModPanel {
         }
         self.data = Arc::new(data);
         self.motion_data_dirty = true;
+    }
+
+    /// Whether native feedback or declared surface transitions rewrite published bindings.
+    fn animated(&self) -> bool {
+        self.panel.motion
+            || self
+                .panel
+                .surface
+                .as_ref()
+                .is_some_and(|surface| !surface.transitions.is_empty())
     }
 
     fn last_page(&self) -> usize {

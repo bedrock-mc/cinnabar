@@ -9,5 +9,6 @@ mod mod_panel;
 mod mod_panel_edit;
 mod mod_panel_scrolling;
 mod mod_panel_surface;
+mod mod_panel_transitions;
 mod mod_screens;
 mod mod_widgets;

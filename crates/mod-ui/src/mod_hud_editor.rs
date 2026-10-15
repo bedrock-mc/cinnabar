@@ -3,7 +3,9 @@
 mod input;
 mod template;
 
-use crate::{ModUi, RowIcons, mod_widgets::template as cards};
+use crate::{
+    ModUi, RowIcons, mod_panel::transitions::SurfaceTransitions, mod_widgets::template as cards,
+};
 use json_ui::{Catalog, Context, DataSource, Scalar, ViewState};
 use std::sync::Arc;
 use ui::{
@@ -41,6 +43,7 @@ pub(super) struct HudEditor {
     data: Arc<DataSource>,
     frame: Option<EngineFrame>,
     view: ViewState,
+    transitions: SurfaceTransitions,
 }
 
 impl ModUi {
@@ -68,6 +71,7 @@ impl ModUi {
             data: Arc::new(DataSource::new()),
             frame: None,
             view: ViewState::default(),
+            transitions: SurfaceTransitions::default(),
         });
         Ok(())
     }
@@ -147,6 +151,10 @@ impl ModUi {
             }
         }
         let mut data = editor.data();
+        if let Some(surface) = &editor.draft.surface {
+            editor.transitions.advance(surface, paint_frame.now);
+            editor.transitions.write(&mut data);
+        }
         let mut icons = Vec::<IconRef>::new();
         for (index, icon) in resolved.as_slice().iter().enumerate() {
             let scalar = if let Some(icon) = icon {

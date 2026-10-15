@@ -431,6 +431,20 @@ crates only. `client-ui` keeps authority, item-icon and container projection, sc
 publication, and adapts runtime state into paint frames and typed inputs. This move has not been
 compiled or executed and closes no parity gate.
 
+## Mod surface motion
+
+Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points
+and an optional opening value (`docs/modding-spike.md`). This is a Cinnabar extension
+for mod surfaces; server-pack JSON-UI is unchanged.
+
+Incomplete toward expressive mod menus:
+- Transforms that leave layout unchanged (scale with an origin, rotation) and element blur.
+- A shared blurred-world material for glass panels and blurring the world behind an open
+  menu, measured against the frame budget.
+- Exit transitions; closing the panel or replacing its surface still removes it at once.
+- Surface transitions and `motion: true` feedback ignore the Screen animations setting.
+
 ## Extension crate ownership
 
 `client-extensions` owns local component loading and load-order merging, environment

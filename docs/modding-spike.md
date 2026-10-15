@@ -336,10 +336,34 @@ and dynamic expansion are rejected. The whole panel is capped at 128 KiB; its
 document at 96 KiB, 1,024 nodes and depth 32.
 Bindings update without rebuilding unchanged catalog geometry.
 
+An optional `transitions` map eases numeric bindings instead of replacing them at
+once, like CSS transitions. Each key names a binding; its value has `duration`
+(seconds, 0–5), optional `easing` and optional `from`:
+
+```json
+"transitions": {
+  "#drawer_offset": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6] },
+  "#drawer_alpha": { "duration": 0.18, "easing": "out_cubic", "from": 0 }
+}
+```
+
+`easing` is a JSON-UI curve name (default `linear`) or CSS cubic-bezier points
+`[x1, y1, x2, y2]` with both x values in 0–1 and y values within ±4. When a
+binding changes, the host eases from the value currently on screen, so a reversed
+hover or toggle continues smoothly rather than restarting. Arrays ease each
+component. `from`, a number or 2–4-number array, is shown when the binding
+first appears, so the surface eases in each time the panel opens or its surface
+route changes; without it the first value appears at once. Text, Boolean values
+and a change of array length apply at once. A transition may name a binding that
+a later update supplies. Bind eased values to any numeric property, such as
+`#offset`, `#alpha`, `#color` or `#size_binding_x_absolute`.
+`ModUi::mod_panel_motion_active` reports transitions still in progress.
+
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has
 an initial ordinary `panel` and a `surfaces` object mapping route identifiers to
-`{ "screen": "namespace.name", "document": "..." }`. The loading worker checks
+`{ "screen": "namespace.name", "document": "..." }`, optionally with
+`transitions`. The loading worker checks
 every document and action against the shared control schema before
 publication. Bundles accept up to 128 surfaces and 8 MiB of source data.
 `ModHost::set_panel_bundle` prepares the same contract for host-owned integrations.
@@ -371,7 +395,8 @@ All fields are optional. `controls` updates only existing identifiers: toggles
 take a Boolean `value`, sliders a finite in-range `value`, keybinds `key` and/or
 `capturing`, and choices a valid `index`. Any control can update its `label`.
 Omitted controls retain their values. `surface` selects a prepared route;
-`bindings`, when supplied, fully replaces custom scalars while the host continues
+`bindings`, when supplied, fully replaces custom scalars and starts any declared
+transitions toward the new values, while the host continues
 to generate `#row_N` facts from the controls. Invalid batches change nothing, and
 valid batches commit only after a successful callback. Same-route updates retain
 the catalog, scroll offset and captured drag. The legacy `set-content` contract
@@ -927,8 +952,8 @@ open. A held or interrupted drag remains a draft. Escape closes the personal
 panel in this mode; completed placements have already been delivered, and the
 unfinished gesture is discarded. Omitting `autosave` preserves Save/Cancel.
 
-The optional editor `surface` has the same bounded document and bindings as a
-personal panel surface. Its client-authored chrome replaces the built-in shade,
+The optional editor `surface` has the same bounded document, bindings and
+transitions as a personal panel surface. Its client-authored chrome replaces the built-in shade,
 grid, toolbar, and help while native previews and drag bounds remain. Editor
 actions accept `hud.save`, `hud.cancel`, `hud.close`, `hud.reset`, `hud.grid`, and
 bounded `hud.card:N`. `hud.close` dismisses the whole panel, preserving completed
