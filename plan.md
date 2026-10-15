@@ -1185,6 +1185,8 @@ these changes do not close the movement, camera, or actor parity gates.
   Camera, movement, jump, sneak, dismount and directional locks filter input;
   raw movement vectors remain available and unlocking restores held controls.
   Mount permission routing and exact attachment actor-loss behavior remain incomplete.
+  Dimension, respawn, game-mode and initialization interactions, plus the full
+  current-version aim-assist and presentation-effects audit, remain unverified.
 - Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
