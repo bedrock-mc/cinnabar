@@ -95,14 +95,22 @@ fn missing_terrain_empty_delivered_column_hides_cached_terrain_immediately() {
             .unwrap();
         complete_pending_decode_jobs(&mut stream);
 
-        let (_, covered) = stream.near_drawn_columns();
-        let mask = far_terrain::NearMask::around(
+        let mask = far_terrain::NearMask::around_with_empty(
             [0, 0],
             16,
             1,
-            covered.map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
+            stream
+                .near_geometry_columns()
+                .map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
+            stream
+                .near_empty_columns()
+                .map(|column| far_terrain::ColumnPos::new(column.x, column.z)),
         );
         assert!(mask.contains(far_terrain::ColumnPos::new(column.x, column.z)));
+        assert_eq!(
+            mask.outer_blocks(),
+            far_terrain::NearMask::around([0, 0], 16, 1, []).outer_blocks()
+        );
 
         stream
             .submit(3, inline_block_entity_event(column.x, 7, Vec::new()))

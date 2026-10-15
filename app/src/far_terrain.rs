@@ -397,8 +397,8 @@ pub(crate) fn feed_far_terrain(
         tier,
     ) as i32;
     // Near terrain owns everything within the full-detail radius, or all it is sent without
-    // one, even before its meshes load; past that far terrain hides under the columns near
-    // terrain draws, such as those handing over to it.
+    // one, even before its meshes load; past that, delivered air or published near geometry
+    // hides far terrain, including columns still handing over to it.
     let near_radius = far
         .near_radius
         .update(draining, full_detail.unwrap_or(loaded));
@@ -407,15 +407,19 @@ pub(crate) fn feed_far_terrain(
     let near_changed = far.near_view != Some(near_view);
     if near_changed {
         let drawn = stream
-            .near_drawn_columns()
-            .1
+            .near_geometry_columns()
             .filter(|column| column.dimension == centre.dimension)
             .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::around(
+        let empty = stream
+            .near_empty_columns()
+            .filter(|column| column.dimension == centre.dimension)
+            .map(|column| ColumnPos::new(column.x, column.z));
+        far.near = Arc::new(NearMask::around_with_empty(
             near_view.0,
             loaded + reach,
             near_radius,
             drawn,
+            empty,
         ));
         far.near_view = Some(near_view);
     }
@@ -543,13 +547,12 @@ mod tests {
         assert!(cache.namespace().is_some());
     }
 
-    /// A new world rebuilds coverage even when its position, radius and revision coincide.
-    #[test]
-    fn world_switch_drops_the_previous_visibility_mask() {
+    /// Builds an empty session with far terrain on and the minimum full-detail radius.
+    fn far_terrain_app(render_distance: u8) -> App {
         let mut settings = RuntimeSettings::default();
         let mut user = settings.user_settings_update().1.clone();
         user.video.far_terrain = render_api::far_terrain::FarTerrainMode::On;
-        user.video.render_distance_chunks = 64;
+        user.video.render_distance_chunks = render_distance;
         user.video.full_detail_distance_chunks = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS;
         settings.replace_user_settings(user);
         let mut world = ClientWorld::default();
@@ -570,6 +573,13 @@ mod tests {
             .insert_resource(FarTerrain::new(None))
             .init_resource::<FarTerrainScene>()
             .add_systems(bevy::prelude::Update, feed_far_terrain);
+        app
+    }
+
+    /// A new world rebuilds coverage even when its position, radius and revision coincide.
+    #[test]
+    fn world_switch_drops_the_previous_visibility_mask() {
+        let mut app = far_terrain_app(64);
         app.update();
         let previous = ColumnPos::new(30, 0);
         {
@@ -589,6 +599,69 @@ mod tests {
                 .resource::<FarTerrainScene>()
                 .near
                 .contains(previous)
+        );
+    }
+
+    /// Distant delivered air hides old terrain without refining unrelated far tiles.
+    #[test]
+    fn distant_air_does_not_refine_the_far_ring() {
+        let horizon = 160;
+        let near_radius = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32;
+        let mut app = far_terrain_app(horizon as u8);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(1, protocol::WorldEvent::ChunkRadiusUpdated(horizon))
+            .unwrap();
+        app.update();
+        let before = TileView::around(
+            [0, 0],
+            &app.world().resource::<FarTerrainScene>().near,
+            near_radius,
+            horizon,
+        );
+        let empty = ColumnPos::new(128, 0);
+        let mut payload = vec![1, 0];
+        let sections = protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count;
+        payload.extend(std::iter::repeat_n(0xff, sections - 1));
+        payload.push(0);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(
+                2,
+                protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                    dimension: 0,
+                    x: empty.x,
+                    z: empty.z,
+                    mode: protocol::LevelChunkMode::Inline { count: 0 },
+                    payload,
+                }),
+            )
+            .unwrap();
+        test_time::eventually("distant air column committed", || {
+            let mut world = app.world_mut().resource_mut::<ClientWorld>();
+            let stream = world.stream.as_mut().unwrap();
+            stream.poll([0.0; 3], 0);
+            stream
+                .near_drawn_columns()
+                .1
+                .any(|column| column.x == empty.x && column.z == empty.z)
+        });
+        app.update();
+        let scene = app.world().resource::<FarTerrainScene>();
+        assert!(scene.near.contains(empty));
+        let after = TileView::around([0, 0], &scene.near, near_radius, horizon);
+        assert_eq!(
+            far_terrain::select_tiles(after).len(),
+            far_terrain::select_tiles(before).len(),
+            "air coverage must not increase the tile count"
         );
     }
 

@@ -172,7 +172,8 @@ level ID or local world ID, each visit starts fresh. Before reusing a namespace,
 non-empty probe must exist and match in it (or every probe received within 10 s, for sparse
 worlds); missing or different probes start a new epoch. Only live columns show before that.
 Delivered empty columns hide cached terrain immediately, including beyond the full-detail
-radius, while their empty summaries are prepared in the background.
+radius, while their empty summaries are prepared in the background. Air coverage does not
+extend the near geometry bound used to choose far tile detail.
 Afterwards the first cached columns replaced by live ones are compared too: when enough
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
