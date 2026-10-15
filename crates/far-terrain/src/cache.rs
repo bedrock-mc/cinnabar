@@ -188,6 +188,13 @@ impl FarTerrainCache {
         });
     }
 
+    /// Starts a visit without a stable world identity. Its empty probe set reserves a new
+    /// epoch before live summaries arrive, so matching lobby columns cannot enable reuse.
+    pub fn begin_uncertain_visit(&mut self, destination: &str, dimension: i32) {
+        self.begin_visit(destination, 0, dimension);
+        self.start_resolving();
+    }
+
     /// Leaves the current world, as on disconnect, after writing what is waiting.
     pub fn leave_world(&mut self) {
         self.end_entry();

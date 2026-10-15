@@ -108,6 +108,59 @@ fn a_different_map_under_the_same_identity_starts_a_fresh_namespace() {
     );
 }
 
+/// A reused server identity cannot establish a map match from columns it never cached.
+#[test]
+fn missing_terrain_non_overlapping_probes_do_not_show_another_world() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let ghost = ColumnPos::new(100, 100);
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    first.admit(0, ghost, flat(80).encode(), now);
+    let previous = first.namespace();
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    second.enter_world(SERVER, 42, 0);
+    for x in 200..200 + WORLD_PROBE_COLUMNS as i32 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_eq!(reload(&mut second, ghost, now), None);
+    assert_ne!(second.namespace(), previous);
+}
+
+/// Shared spawn terrain cannot authorize reuse when the server supplies no world identity.
+#[test]
+fn uncertain_world_does_not_reuse_matching_spawn_columns() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let ghost = ColumnPos::new(100, 100);
+    let mut first = cache(root.path());
+    first.begin_uncertain_visit(SERVER, 0);
+    for x in 0..WORLD_PROBE_COLUMNS as i32 {
+        first.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    first.sync();
+    first.poll(now);
+    first.admit(0, ghost, flat(80).encode(), now);
+    let previous = first.namespace();
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    second.begin_uncertain_visit(SERVER, 0);
+    for x in 0..WORLD_PROBE_COLUMNS as i32 {
+        second.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_eq!(reload(&mut second, ghost, now), None);
+    assert_ne!(second.namespace(), previous);
+}
+
 #[test]
 fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
     let root = tempfile::tempdir().unwrap();
@@ -293,7 +346,11 @@ fn leaving_before_resolution_writes_the_columns() {
     assert_eq!(first.namespace(), None);
     leave(&mut first);
 
-    join(&mut first, 64, now);
+    first.enter_world(SERVER, 42, 0);
+    first.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    first.poll(now + WORLD_PROBE_TIMEOUT);
+    first.sync();
+    first.poll(now + WORLD_PROBE_TIMEOUT);
     assert_eq!(reload(&mut first, pos, now), Some(flat(90)));
 }
 
@@ -403,7 +460,11 @@ fn late_summaries_of_an_unresolved_world_are_written() {
     cache.poll(now);
     leave(&mut cache);
 
-    join(&mut cache, 64, now);
+    cache.enter_world(SERVER, 42, 0);
+    cache.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    cache.poll(now + WORLD_PROBE_TIMEOUT);
+    cache.sync();
+    cache.poll(now + WORLD_PROBE_TIMEOUT);
     assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }
 

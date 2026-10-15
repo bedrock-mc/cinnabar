@@ -229,7 +229,7 @@ impl NearRadius {
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, u64, i32, u64)>);
+pub(crate) struct ActiveWorld(Option<(String, Option<u64>, i32, u64)>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -311,11 +311,19 @@ pub(crate) fn feed_far_terrain(
     if current != target {
         match target {
             Some((destination, level, dimension, _)) => {
-                far.cache.begin_visit(destination, level, dimension);
+                if let Some(level) = level {
+                    far.cache.begin_visit(destination, level, dimension);
+                } else if destination.starts_with("local:") {
+                    // The launcher supplies a stable local-world ID independently of StartGame.
+                    far.cache.begin_visit(destination, 0, dimension);
+                } else {
+                    far.cache.begin_uncertain_visit(destination, dimension);
+                }
             }
             None => far.cache.leave_world(),
         }
         far.tiles.clear();
+        far.near_view = None;
         active.0 = target.map(|(destination, level, dimension, generation)| {
             (destination.to_owned(), level, dimension, generation)
         });
@@ -533,6 +541,55 @@ mod tests {
         cache.sync();
         cache.poll(now);
         assert!(cache.namespace().is_some());
+    }
+
+    /// A new world rebuilds coverage even when its position, radius and revision coincide.
+    #[test]
+    fn world_switch_drops_the_previous_visibility_mask() {
+        let mut settings = RuntimeSettings::default();
+        let mut user = settings.user_settings_update().1.clone();
+        user.video.far_terrain = render_api::far_terrain::FarTerrainMode::On;
+        user.video.render_distance_chunks = 64;
+        user.video.full_detail_distance_chunks = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS;
+        settings.replace_user_settings(user);
+        let mut world = ClientWorld::default();
+        world.level_identity = Some(42);
+        world.stream = Some(WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        }));
+        let mut app = App::new();
+        app.insert_resource(settings)
+            .insert_resource(world)
+            .insert_resource(SessionController::default().with_address(Some("example.net:19132")))
+            .insert_resource(FarTerrain::new(None))
+            .init_resource::<FarTerrainScene>()
+            .add_systems(bevy::prelude::Update, feed_far_terrain);
+        app.update();
+        let previous = ColumnPos::new(30, 0);
+        {
+            let mut far = app.world_mut().resource_mut::<FarTerrain>();
+            far.near = Arc::new(NearMask::around(
+                [0, 0],
+                64,
+                render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32,
+                [previous],
+            ));
+            assert!(far.near.contains(previous));
+        }
+        app.world_mut().resource_mut::<ClientWorld>().level_identity = Some(43);
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<FarTerrainScene>()
+                .near
+                .contains(previous)
+        );
     }
 
     /// Summaries a retiring session collected reach disk when the app exits that frame.

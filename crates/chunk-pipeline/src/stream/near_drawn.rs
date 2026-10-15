@@ -1,5 +1,4 @@
-//! Columns near terrain has on screen. Far terrain hides under exactly these, so every
-//! column is drawn by one of the two and never by both or neither.
+//! Columns whose published geometry or delivered emptiness hides cached far terrain.
 
 use super::*;
 
@@ -10,7 +9,7 @@ pub(super) struct NearDrawn {
 }
 
 impl WorldStream {
-    /// Columns near terrain draws, and a revision that changes whenever the set does.
+    /// Columns covered by near geometry or authoritative air, and their membership revision.
     pub fn near_drawn_columns(&self) -> (u64, impl Iterator<Item = ChunkKey> + '_) {
         (
             self.near_drawn.revision,
@@ -18,16 +17,26 @@ impl WorldStream {
         )
     }
 
-    /// Adds `column` once it is loaded, holds sections, and every one of them has a published
-    /// mesh with no newer one pending. A column without sections stays with far terrain, whose
-    /// summary of it is empty. A drawn column keeps its meshes on screen while they are redone.
+    /// Covers delivered air immediately, including outside the full-detail radius. Other
+    /// columns wait for every mesh to publish and retain coverage while those meshes change.
     pub(super) fn note_near_drawn(&mut self, column: ChunkKey) {
         // Only far terrain reads the set; with it off nothing is tracked.
-        if !self.far_terrain_enabled()
-            || self.near_drawn.columns.contains(&column)
-            || !self.loaded_columns.contains(&column)
-            || !self.wants_mesh(column)
-        {
+        if !self.far_terrain_enabled() || !self.loaded_columns.contains(&column) {
+            return;
+        }
+        if self.wants_mesh(column) && self.near_drawn.columns.contains(&column) {
+            return;
+        }
+        let empty = self.authority.terrain().chunk(column).is_none_or(|chunk| {
+            chunk
+                .sub_chunks()
+                .all(|(_, section)| self.classifier.is_sub_chunk_air(&section))
+        });
+        if !empty && !self.wants_mesh(column) {
+            self.forget_near_drawn([&column]);
+            return;
+        }
+        if self.near_drawn.columns.contains(&column) {
             return;
         }
         let mut keys = self
@@ -35,12 +44,13 @@ impl WorldStream {
             .column(column)
             .chain(self.known_air.column(column))
             .peekable();
-        let uploaded = keys.peek().is_some()
-            && keys.all(|key| {
-                self.applied_mesh_generations.contains_key(key)
-                    && !self.withdrawn_meshes.contains(key)
-                    && self.revisions.dirty(*key).is_none()
-            });
+        let uploaded = empty
+            || (keys.peek().is_some()
+                && keys.all(|key| {
+                    self.applied_mesh_generations.contains_key(key)
+                        && !self.withdrawn_meshes.contains(key)
+                        && self.revisions.dirty(*key).is_none()
+                }));
         if uploaded {
             self.near_drawn.columns.insert(column);
             self.near_drawn.revision += 1;
