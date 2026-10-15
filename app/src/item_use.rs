@@ -250,10 +250,9 @@ fn produce_use(
         return;
     };
     // New item use waits for earlier presses; accepted uses must still observe release.
-    if !runtime.is_releasing(held)
-        && (context.block_use.press_pending()
-            || (!delay_fix_enabled && context.melee.press_pending()))
-    {
+    let press_pending =
+        context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending());
+    if press_pending && !runtime.is_releasing(held) {
         return;
     }
     let frame = UseFrame {
@@ -278,6 +277,7 @@ fn produce_use(
         inventory_revision,
         charge_projectile: loading_projectile(&player_runtime, stream, &context.ui, creative),
         press_consumed: before_flush
+            || press_pending
             || (!delay_fix_enabled && context.melee.blocks_use_at(now_millis))
             || context.block_use.press_interacted(),
     };
