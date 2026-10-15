@@ -155,6 +155,12 @@ pub const STATES: &[State] = &[
         fixture: || chat_background(100),
     },
     State {
+        name: "chat-command-background-transparent",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_command_background,
+    },
+    State {
         name: "import-confirmation",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -320,6 +326,20 @@ fn chat_background(percent: i32) -> Fixture {
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
+        options: Arc::new(options),
+    }
+}
+
+/// Shows the command input and suggestions with chat backgrounds set to zero percent.
+fn chat_command_background() -> Fixture {
+    use launcher::menu::settings_options::SettingsOptions;
+
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ChatBackgroundOpacity.index(), 0);
+    Fixture::Chat {
+        draft: "/",
+        suggestions: ["/give", "/help", "/say"].map(Arc::from).into(),
+        messages: Default::default(),
         options: Arc::new(options),
     }
 }

@@ -46,7 +46,8 @@
               "background": {
                 "type": "image",
                 "texture": "textures/ui/Black",
-                "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
+                // Fixed input background: alpha 128/255.
+                "alpha": 0.5019607843137255,
                 "size": [ "100%", "100%" ]
               }
             },
@@ -114,7 +115,8 @@
           { "background": {
             "type": "image",
             "texture": "textures/ui/Black",
-            "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
+            // Fixed suggestion background: alpha 208/255.
+            "alpha": 0.8156862745098039,
             "size": [ "100%", "100%" ],
             "layer": -1
           } }
