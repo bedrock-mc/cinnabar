@@ -9,7 +9,7 @@ use super::PlaySession;
 use crate::packet_tap::{PacketDirection, PacketOutcome};
 use crate::session_transport::tests::{RecordingTap, TapEvent};
 use crate::session_transport::{SessionTransport, batch_frame};
-use crate::{Packet, ResourcePackHandoff, WorldEvent};
+use crate::{Packet, WorldEvent};
 
 /// Play reports the malformed packet that ended the session, with its body, and nothing for
 /// the packets it accepted.
@@ -21,7 +21,7 @@ async fn a_malformed_world_packet_is_reported_failed_with_its_body() {
     let (mut peer, _) = listener.accept().await.unwrap();
     let tap = Arc::new(RecordingTap::default());
     let transport = SessionTransport::new(reader, frames, &[]).with_tap(Some(tap.clone()));
-    let mut session = PlaySession::new(transport, None, ResourcePackHandoff::default(), 1, false);
+    let mut session = PlaySession::new(transport, None, 1, false);
 
     let mut frame = batch_frame(&[Packet::new(SetTime {
         time: wire::ZigZag32(5),
