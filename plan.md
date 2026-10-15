@@ -9011,6 +9011,25 @@ the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture
 `bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
 handshake and pack-offer bodies never reach samples or captures.
 
-Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced
-"Record network session" option is not built; recorded times are when the client read
-each batch, not socket arrival; no frame or join capture has measured the recorder's cost.
+Incomplete: crash reports do not dump the ring or samples yet; recorded times are when the
+client read each batch, not socket arrival; no frame or join capture has measured the
+recorder's cost.
+
+## Diagnostics settings and F3 log row
+
+Settings → General → Advanced has two toggles, both off by default and kept in
+`settings.json`. Verbose logging layers `net=debug,session=debug,core=debug,packs=debug`
+over the defaults right after launch finds the install layout, and changes the filter
+immediately when toggled; a non-empty `CINNABAR_LOG` or `RUST_LOG` wins and the setting
+then changes nothing. Record network session asks each new session for a capture in the
+log directory; its caption says the recording holds chat and player names and is never
+uploaded. A non-empty `CINNABAR_PACKET_CAPTURE`, including `0`, decides instead. F3 shows
+one row with the categories not at `info` (or `custom` for `RUST_LOG` or raw directives)
+and the capture choice. The row is formatted again only when
+`diagnostics::logging::filter_generation()` or the capture choice changes.
+
+Verified: unit tests for setting persistence, environment precedence for both settings,
+the F3 row's content and its formatting only on change, and the OreUI rows; ui-snapshot
+captures of the section. Incomplete: no live client run has toggled either setting or shown
+the F3 row on a real frame; the F3 row reports the choice for new sessions, not whether the
+running session is recording; the toggle stays enabled when the environment overrides it.

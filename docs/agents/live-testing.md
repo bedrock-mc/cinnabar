@@ -141,7 +141,9 @@ category with a level (`net=debug`), a bare category for every level, or any `RU
 directive (`wgpu_core=warn`). Invalid directives are skipped with a warning in the log. The
 client MCP `log_filter_set` and `log_filter_get` tools change and report the same spec at
 runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per line to
-`logs/client.jsonl`.
+`logs/client.jsonl`. Settings → General → Advanced → Verbose logging applies
+`net=debug,session=debug,core=debug,packs=debug` at launch and when toggled, unless
+`CINNABAR_LOG` or `RUST_LOG` is set. F3 shows the active filter.
 
 Every client also starts a `--crash-monitor` process that exits with it and logs to
 `logs/crash-monitor.log`. A crash, abort or kill opens the crash window once the client is gone;
@@ -312,8 +314,9 @@ the time the client read it and whether ingress accepted, skipped or failed the 
 to four raw bodies of each rejected packet ID, 1 MiB in total, from the latest session that
 rejected one. Nothing is written until a crash report asks for them.
 
-Set `CINNABAR_PACKET_CAPTURE=1` to record each session in full to
-`logs/packets-<session start unix ms>.cnbrcap`, or set it to a file path. An existing file is
+Set `CINNABAR_PACKET_CAPTURE=1` (or turn on Settings → General → Advanced → Record network
+session) to record each session in full to `logs/packets-<session start unix ms>.cnbrcap`, or
+set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
 never replaced; the start time is added to the name instead. The capture uses the v2 format that
 `tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
 when the client read each batch, which trails socket arrival while ingress is backlogged. It
