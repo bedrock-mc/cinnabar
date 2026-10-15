@@ -8998,7 +8998,7 @@ version = "0.1.20"
 dependencies = [
  "assets",
  "image",
- "inventory",
+ "inventory 0.1.20",
  "json-ui",
  "jsonui-editor",
  "launcher",
