@@ -9,6 +9,18 @@ pub(super) struct SlowFrameDiagnostic {
     pub uploads: UploadFrame,
 }
 
+impl std::fmt::Display for SlowFrameDiagnostic {
+    /// Formats captured intervals without reading the live timing or upload tables.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.timing.fmt(f)?;
+        let mut fields = String::new();
+        #[cfg(any(test, feature = "alloc-stats"))]
+        self.allocations.append_fields(&mut fields);
+        self.uploads.append_fields(&mut fields);
+        f.write_str(&fields)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::*;
@@ -51,17 +63,5 @@ mod tests {
             line.contains("stage_allocations=ui_preparation:2:96 "),
             "{line}"
         );
-    }
-}
-
-impl std::fmt::Display for SlowFrameDiagnostic {
-    /// Formats captured intervals without reading the live timing or upload tables.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.timing.fmt(f)?;
-        let mut fields = String::new();
-        #[cfg(any(test, feature = "alloc-stats"))]
-        self.allocations.append_fields(&mut fields);
-        self.uploads.append_fields(&mut fields);
-        f.write_str(&fields)
     }
 }
