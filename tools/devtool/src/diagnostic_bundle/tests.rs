@@ -557,3 +557,45 @@ fn headers_without_a_session_id_select_crashes_by_time() {
         [after, same_second, before]
     );
 }
+
+/// A continued session includes its rotated segments and excludes previous launches.
+#[test]
+fn bundle_reassembles_rotated_segments_of_the_current_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let logs = temp.path().join("logs");
+    fs::create_dir(&logs).unwrap();
+    let previous = "CLIENT_SESSION_START session=old timestamp_ms=1\nprevious launch\n";
+    let header = "CLIENT_SESSION_START session=current timestamp_ms=2\n";
+    for (name, text) in [
+        ("client-19700101-000000.log", previous.to_owned()),
+        (
+            "client-19700101-000000-2.log",
+            format!("{header}first segment token=fixture-secret\n"),
+        ),
+        (
+            "client-19700101-000000-10.log",
+            format!("{header}second segment\n"),
+        ),
+        (
+            "client.log",
+            format!("{header}last segment fixture-secret\n"),
+        ),
+        ("client-notes.log", "unrelated file\n".to_owned()),
+    ] {
+        fs::write(logs.join(name), text).unwrap();
+    }
+    run(&["--data-root".into(), temp.path().display().to_string()]).unwrap();
+    let members = archive_members(temp.path());
+    let client = &members["client.log"];
+    let first = client
+        .find("first segment")
+        .expect("missing rotated segment");
+    let second = client
+        .find("second segment")
+        .expect("missing rotated segment");
+    let last = client.find("last segment").unwrap();
+    assert!(first < second && second < last);
+    assert!(!client.contains("previous launch"));
+    assert!(!client.contains("unrelated file"));
+    assert!(!client.contains("fixture-secret"));
+}

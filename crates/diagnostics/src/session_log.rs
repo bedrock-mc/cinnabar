@@ -100,22 +100,28 @@ impl Family {
         valid.then(|| (stamp.to_owned(), suffix))
     }
 
-    /// A free archive path stamped with `at`.
-    fn archive_path(&self, at: SystemTime) -> PathBuf {
+    /// An archive path after every retained collision at `at`, so pruned suffixes stay unused.
+    fn archive_path(&self, at: SystemTime) -> io::Result<PathBuf> {
         let stamp = utc_stamp(at);
-        let mut suffix = 0u32;
-        loop {
-            let name = if suffix == 0 {
-                format!("{}-{stamp}.{}", self.stem, self.ext)
-            } else {
-                format!("{}-{stamp}-{suffix}.{}", self.stem, self.ext)
-            };
-            let path = self.dir.join(name);
-            if !path.exists() {
-                return path;
-            }
-            suffix += 1;
-        }
+        let newest = self
+            .archives()?
+            .iter()
+            .filter_map(|path| {
+                let (existing, suffix) = self.archive_key(path.file_name()?.to_str()?)?;
+                (existing == stamp).then_some(suffix)
+            })
+            .max();
+        let suffix = newest.map_or(Ok(0), |suffix| {
+            suffix.checked_add(1).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::AlreadyExists, "log archive suffix exhausted")
+            })
+        })?;
+        let name = if suffix == 0 {
+            format!("{}-{stamp}.{}", self.stem, self.ext)
+        } else {
+            format!("{}-{stamp}-{suffix}.{}", self.stem, self.ext)
+        };
+        Ok(self.dir.join(name))
     }
 
     /// Moves `path` into the archive set when it exists.
@@ -123,7 +129,7 @@ impl Family {
         if !path.exists() {
             return Ok(());
         }
-        fs::rename(path, self.archive_path(at))
+        fs::rename(path, self.archive_path(at)?)
     }
 
     /// Keeps the newest archives while both the count and byte budgets hold, then deletes the

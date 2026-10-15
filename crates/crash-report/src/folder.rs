@@ -95,6 +95,8 @@ pub fn read(folder: &Path) -> io::Result<Report> {
 }
 
 /// Crash folders in `crash_dir`, oldest first; other entries are ignored.
+/// Within a UTC second, directory modification times order completed writes rather than ids
+/// or reusable collision suffixes. The path breaks ties when filesystem times are equal.
 pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = fs::read_dir(crash_dir)
         .into_iter()
@@ -104,7 +106,15 @@ pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| created_at_ms(path).is_some())
         .collect();
-    folders.sort();
+    folders.sort_by_cached_key(|path| {
+        (
+            created_at_ms(path),
+            fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .ok(),
+            path.clone(),
+        )
+    });
     folders
 }
 
@@ -274,6 +284,41 @@ mod tests {
         let folders = list(dir.path());
         assert_eq!(folders.len(), MAX_REPORTS);
         assert_eq!(created_at_ms(&folders[0]), Some(NOW_MS + 4_000));
+    }
+
+    /// Same-second crash loops retain the latest writes even when folder names are reused.
+    #[test]
+    fn same_second_crashes_are_pruned_in_write_order() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..24_u64 {
+            let folder = write(
+                dir.path(),
+                &report(&format!("crash {index}")),
+                &Logs::default(),
+                NOW_MS,
+            )
+            .unwrap();
+            let modified = std::time::UNIX_EPOCH + std::time::Duration::from_millis(NOW_MS + index);
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // FILE_FLAG_BACKUP_SEMANTICS opens a directory; FILE_WRITE_ATTRIBUTES sets its times.
+                options.custom_flags(0x02000000).access_mode(0x100);
+            }
+            options
+                .open(folder)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        }
+        let messages: Vec<_> = list(dir.path())
+            .iter()
+            .map(|folder| read(folder).unwrap().message)
+            .collect();
+        let expected: Vec<_> = (16..24).map(|index| format!("crash {index}")).collect();
+        assert_eq!(messages, expected);
     }
 
     #[test]

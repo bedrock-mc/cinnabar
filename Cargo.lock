@@ -3203,6 +3203,7 @@ version = "0.1.20"
 dependencies = [
  "crash-report",
  "csv",
+ "diagnostics",
  "ctrlc",
  "quick-xml",
  "regex",
