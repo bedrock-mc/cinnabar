@@ -167,9 +167,13 @@ compressed under a byte budget and drops the least recently used first. Cache bo
 
 Summaries persist under the user data root in 32×32-column region files, namespaced by a
 hashed server identity, the dimension and a hash of StartGame's seed, level ID and level name.
-Before reusing a namespace, the first non-empty columns received are compared with it (or
-whatever arrived within 10 s, for sparse worlds); a mismatch starts a new epoch, so servers that
-reuse coordinates for different maps keep them apart. Only live columns show before that.
+Local worlds also use the launcher's world ID instead of their shared endpoint. Without a
+level ID or local world ID, each visit starts fresh. Before reusing a namespace, every initial
+non-empty probe must exist and match in it (or every probe received within 10 s, for sparse
+worlds); missing or different probes start a new epoch. Only live columns show before that.
+Delivered empty columns hide cached terrain immediately, including beyond the full-detail
+radius, while their empty summaries are prepared in the background. Air coverage does not
+extend the near geometry bound used to choose far tile detail.
 Afterwards the first cached columns replaced by live ones are compared too: when enough
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
@@ -398,7 +402,9 @@ This move has not been compiled or executed and closes no parity gate.
 
 ## OreUI crate
 
-`oreui` owns the OreUI screens, their presentation state, artwork loading and shipped fonts.
+`oreui` owns client-owned out-of-game screens, including disconnect reasons, join progress and
+launcher popups, with their presentation state, artwork loading and shipped fonts. In-game
+screens retain their existing renderer and server-pack behavior.
 It depends on `ui-engine` and lower crates, never on `client-ui` or a sibling screen crate.
 `client-ui` adapters project menu, loading and bed state into its typed inputs. Shared pieces
 moved down: menu schemas and view projections to `launcher`, `LoadingStage` to `ui`, and
@@ -1887,6 +1893,7 @@ keeps its own binding.
 ## Remote session reconnect
 
 - Reconnect is a requested menu extension on remote disconnect and connection-failure screens.
+  Its OreUI panel preserves formatted, wrapped reasons and pins Reconnect and OK.
   It retries the selected destination through the normal join route and retains the originating
   page. OK and Escape dismiss the failure. Account changes and local-world exits clear retry.
 - Behavioral regressions cover repeated attempts, teardown, transfers and account ownership.

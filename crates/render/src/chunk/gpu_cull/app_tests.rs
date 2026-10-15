@@ -21,7 +21,7 @@ use super::*;
 use render_scene::ChunkUploadPriority;
 
 /// A render plugin on the first adapter of `backends`; `None` when none is present.
-pub(super) fn render_plugin(
+pub(in crate::chunk) fn render_plugin(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
 ) -> Option<RenderPlugin> {
@@ -102,6 +102,16 @@ pub(in crate::chunk) fn chunk_app(
     msaa: Msaa,
     transform: Transform,
 ) -> (App, Entity) {
+    chunk_app_with(render, msaa, transform, |_| {})
+}
+
+/// Configures additional production passes before the fixture finishes installing its plugins.
+pub(in crate::chunk) fn chunk_app_with(
+    render: RenderPlugin,
+    msaa: Msaa,
+    transform: Transform,
+    configure: impl FnOnce(&mut App),
+) -> (App, Entity) {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
@@ -137,6 +147,7 @@ pub(in crate::chunk) fn chunk_app(
             transform,
         ))
         .id();
+    configure(&mut app);
     app.finish();
     app.cleanup();
     (app, camera)
