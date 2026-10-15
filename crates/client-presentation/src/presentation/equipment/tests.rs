@@ -585,6 +585,21 @@ fn session_items(
     }
 }
 
+/// Declares a custom item's `minecraft:wearable` slot, which is what lets a non-vanilla stack be
+/// worn as armour; vanilla armour takes its slot from the item facts instead.
+pub(super) fn declare_wearable(
+    runtime: &mut super::runtime::EquipmentRuntime,
+    identifier: &str,
+    slot: &str,
+) {
+    let components = protocol::ItemComponents {
+        wearable_slot: Some(slot.into()),
+        ..Default::default()
+    };
+    let items = session_items(vec![(identifier, components)], vec![]);
+    runtime.set_session_items(Some(&items), None, Vec::new());
+}
+
 fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     vec![
         (
