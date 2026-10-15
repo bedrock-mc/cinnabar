@@ -178,6 +178,36 @@ fn escaped_payloads_remove_learned_secrets_and_unlabelled_identities_everywhere(
 }
 
 #[test]
+fn bundles_tagged_core_sessions_and_their_rotated_join_timeline() {
+    let directory = tempfile::tempdir().unwrap();
+    let logs = directory.path().join("logs");
+    fs::create_dir(&logs).unwrap();
+    fs::write(
+        logs.join("client.log"),
+        "CLIENT_SESSION_START session=0123456789abcdef timestamp_ms=2\n",
+    )
+    .unwrap();
+    fs::write(
+        logs.join("core.log.1"),
+        "CORE_SESSION_START timestamp_ms=1 session=previous\nstale\nCORE_SESSION_START timestamp_ms=3 session=0123456789abcdef\nupstream first elapsed_ms=4\n",
+    )
+    .unwrap();
+    fs::write(
+        logs.join("core.log"),
+        "CORE_SESSION_START timestamp_ms=5 session=0123456789abcdef\r\nupstream second elapsed_ms=6\n",
+    )
+    .unwrap();
+    run(&["--data-root".into(), directory.path().display().to_string()]).unwrap();
+    let members = archive_members(directory.path());
+    for member in ["core.log", "join-timeline.txt"] {
+        let text = &members[member];
+        assert!(text.contains("upstream first"), "missing {member}: {text}");
+        assert!(text.contains("upstream second"), "missing {member}: {text}");
+        assert!(!text.contains("stale"));
+    }
+}
+
+#[test]
 fn rotated_core_logs_keep_all_current_session_events() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("core.log");
