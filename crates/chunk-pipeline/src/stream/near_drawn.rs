@@ -40,7 +40,7 @@ impl WorldStream {
             self.resident.membership_revision(),
             self.known_air.membership_revision(),
             self.loaded_columns.len(),
-            self.full_detail.radius,
+            self.full_detail_radius(),
         )
     }
 
