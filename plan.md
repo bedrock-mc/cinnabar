@@ -3090,7 +3090,9 @@ completion, and live visual acceptance. This does not close the chat parity gate
 
 The built-in Java-look chat input spans the viewport with two GUI pixels of side
 padding. Completion rows share the longest text width and sit at the replaced
-token, shifting left near the right edge. History retains its configured width.
+token, shifting left near the right edge. HUD and open-chat history use a fixed
+320 GUI-unit width, scaled by the selected GUI scale, with text wrapped inside
+full-width backgrounds.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
