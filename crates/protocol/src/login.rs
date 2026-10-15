@@ -306,6 +306,7 @@ impl PlaySession {
             }
             if raw.id == PacketId::LevelChunk {
                 let raw = raw.into_retention_bounded();
+                self.transport.compact_current(&raw);
                 let packet = match self.decode_world_candidate(raw)? {
                     Some(packet) => packet,
                     None => continue,
@@ -527,6 +528,9 @@ impl PlaySession {
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
             let raw = detach_cached_chunk(raw);
+            if matches!(packet_name, PacketId::LevelChunk | PacketId::SubChunk) {
+                self.transport.compact_current(&raw);
+            }
 
             if matches!(packet_name, PacketId::Transfer | PacketId::Disconnect) {
                 if self.absorb_boundary_packet(raw, packet_name).await? {

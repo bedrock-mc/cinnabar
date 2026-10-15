@@ -220,6 +220,15 @@ impl SessionTransport {
         self.current = None;
     }
 
+    /// Keeps a detached packet's observer view on the same bounded allocation.
+    pub(crate) fn compact_current(&mut self, packet: &RawPacket) {
+        if let Some(current) = &mut self.current
+            && packet.record == Some(current.record)
+        {
+            current.body = packet.body().clone();
+        }
+    }
+
     /// Reports `outcome` for the packet the session is processing: the one [`Self::recv`]
     /// returned last. Only the first report after each delivery counts.
     pub(crate) fn reject_current(&mut self, outcome: PacketOutcome) {
