@@ -114,12 +114,20 @@ pub(super) fn dump_this_thread() -> bool {
     dumped
 }
 
-/// Lets the monitor process `pid` read this process's memory during a crash, which Linux's
-/// Yama policy otherwise denies to a child.
+/// Lets the monitor process `pid` read this process's memory, during a crash and while it is
+/// hung, which Linux's Yama policy otherwise denies to a child. A crash's dump resets the
+/// permission when it ends, so callers repeat this after each dump.
 pub(super) fn allow_dumps_by(pid: u32) {
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    if let Some(handler) = HANDLER.get() {
-        handler.set_ptracer(Some(pid));
+    {
+        if let Some(handler) = HANDLER.get() {
+            handler.set_ptracer(Some(pid));
+        }
+        // SAFETY: `PR_SET_PTRACER` takes a pid and no pointers; failure only means a hang
+        // report goes without its dump.
+        unsafe {
+            libc::prctl(libc::PR_SET_PTRACER, libc::c_ulong::from(pid), 0, 0, 0);
+        }
     }
     let _ = pid;
 }

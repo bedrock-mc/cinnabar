@@ -133,6 +133,10 @@ fn fault_and_location(report: &Report) -> (String, String) {
             report.message.clone(),
             "While the game was running".to_owned(),
         ),
+        Kind::Hang => (
+            report.message.clone(),
+            format!("Thread {thread}, which stopped responding"),
+        ),
         _ => (report.message.clone(), "Unknown: no crash dump".to_owned()),
     }
 }

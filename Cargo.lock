@@ -5073,6 +5073,7 @@ dependencies = [
  "getrandom 0.3.4",
  "launcher",
  "libc",
+ "memmap2",
  "minidumper",
  "protocol",
  "reqwest",

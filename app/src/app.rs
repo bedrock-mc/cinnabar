@@ -961,6 +961,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     executor::configure_frame_schedule_executors(&mut app);
     app.add_plugins(render::startup_presentation::StartupPresentationPlugin)
         .add_systems(First, crate::lifecycle::acknowledge_startup);
+    crate::lifecycle::heartbeat::configure(&mut app);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
     let exit = app.run();

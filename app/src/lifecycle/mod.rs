@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use launcher_host::lifecycle::{crash, update};
 
 mod client_logs;
+pub(crate) mod heartbeat;
 
 use launcher::install_layout::InstallLayout;
 use launcher_host::lifecycle::crash::protocol::Stage;
