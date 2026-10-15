@@ -10,12 +10,20 @@ fn view(metadata: bool) -> Fixture {
         id,
         file: file.into(),
         bytes: 182_272,
-        permissions: vec![Permission {
-            name: "time override".into(),
-            description: "Lets the mod fix the local time of day.".into(),
-            enabled: true,
-            requested: Some(true),
-        }],
+        permissions: vec![
+            Permission {
+                name: "time override".into(),
+                description: "Lets the mod fix the local time of day.".into(),
+                enabled: true,
+                requested: Some(true),
+            },
+            Permission {
+                name: "terrain".into(),
+                description: "Allows reading blocks around the player.".into(),
+                enabled: false,
+                requested: Some(false),
+            },
+        ],
         metadata: if metadata {
             declared
         } else {

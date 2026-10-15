@@ -231,6 +231,45 @@ pub(in crate::modding) fn move_entry(
     .map(|_| ())
 }
 
+/// Finds or creates the component's entry without enabling an inactive mod.
+fn permission_entry<'a>(registration: &'a mut Registration, component: &Path) -> &'a mut Entry {
+    let position = registration
+        .mods
+        .iter()
+        .position(|entry| same_path(&entry.component, component));
+    let position = position.unwrap_or_else(|| {
+        registration.mods.push(Entry {
+            component: resolved_component(component),
+            ..Default::default()
+        });
+        registration.mods.len() - 1
+    });
+    &mut registration.mods[position]
+}
+
+/// Saves all explicitly requested capabilities together, retaining unrelated grants and mods.
+pub(in crate::modding) fn requested_permissions(
+    directory: &Path,
+    component: &Path,
+    enabled: bool,
+    request_id: String,
+) -> Result<(), String> {
+    let requested = mod_host::declarations(component)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?
+        .ok_or("This component does not declare requested permissions.")?;
+    edit(directory, request_id, |registration| {
+        let entry = permission_entry(registration, component);
+        for capability in ModGrants::CAPABILITIES {
+            if (capability.enabled)(&requested) {
+                (capability.set)(&mut entry.grants, enabled, Some(&requested));
+            }
+        }
+        Ok(())
+    })
+    .map(|_| ())
+}
+
 /// Updates one capability generated from the grant declaration, preserving every other mod.
 pub(in crate::modding) fn permission(
     directory: &Path,
@@ -240,18 +279,7 @@ pub(in crate::modding) fn permission(
     request_id: String,
 ) -> Result<(), String> {
     edit(directory, request_id, |registration| {
-        let position = registration
-            .mods
-            .iter()
-            .position(|entry| same_path(&entry.component, component));
-        let position = position.unwrap_or_else(|| {
-            registration.mods.push(Entry {
-                component: resolved_component(component),
-                ..Default::default()
-            });
-            registration.mods.len() - 1
-        });
-        let entry = &mut registration.mods[position];
+        let entry = permission_entry(registration, component);
         let descriptor = ModGrants::CAPABILITIES
             .get(capability)
             .ok_or("Unknown capability.")?;

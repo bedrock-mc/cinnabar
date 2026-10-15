@@ -238,3 +238,108 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
         }
     )));
 }
+
+/// Keeps host capability indices stable when unrelated declarations are hidden.
+#[test]
+fn only_requested_permissions_are_visible_and_actionable() {
+    let mut item = installed(7, "camera-mod");
+    let camera = item.permissions[0].clone();
+    item.permissions = vec![
+        Permission {
+            name: "terrain".into(),
+            requested: Some(false),
+            ..camera.clone()
+        },
+        camera.clone(),
+        Permission {
+            name: "unknown".into(),
+            requested: None,
+            ..camera
+        },
+    ];
+    let (hits, labels) = render(Snapshot {
+        library: Library {
+            installed: vec![item],
+            ..Default::default()
+        },
+        details_expanded: Some(7),
+        ..Default::default()
+    });
+    assert!(hits.contains(&command(Action::Permission(7, 1, true))));
+    assert!(!hits.contains(&command(Action::Permission(7, 0, true))));
+    assert!(!hits.contains(&command(Action::Permission(7, 2, true))));
+    assert!(labels.iter().any(|label| label.contains("camera")));
+    assert!(
+        !labels
+            .iter()
+            .any(|label| label.contains("terrain") || label.contains("unknown"))
+    );
+}
+
+#[test]
+fn toggle_all_targets_requested_permissions_and_respects_busy_state() {
+    for (enabled, second_enabled, busy) in [
+        (false, false, false),
+        (true, true, false),
+        (true, false, false),
+        (false, false, true),
+    ] {
+        let mut item = installed(7, "camera-mod");
+        item.permissions[0].enabled = enabled;
+        item.permissions.push(Permission {
+            name: "hud".into(),
+            description: "Allows HUD output.".into(),
+            enabled: second_enabled,
+            requested: Some(true),
+        });
+        item.permissions.push(Permission {
+            name: "terrain".into(),
+            description: "Unrelated".into(),
+            enabled: false,
+            requested: Some(false),
+        });
+        let (hits, labels) = render(Snapshot {
+            library: Library {
+                installed: vec![item],
+                busy,
+                ..Default::default()
+            },
+            details_expanded: Some(7),
+            ..Default::default()
+        });
+        assert!(labels.iter().any(|label| label == "Toggle All"));
+        assert_eq!(
+            hits.contains(&command(Action::RequestedPermissions(
+                7,
+                !enabled || !second_enabled
+            ))),
+            !busy
+        );
+    }
+}
+
+#[test]
+fn no_requested_permissions_has_no_switches_or_bulk_action() {
+    for requested in [None, Some(false)] {
+        let mut item = installed(7, "camera-mod");
+        item.permissions[0].requested = requested;
+        let (hits, labels) = render(Snapshot {
+            library: Library {
+                installed: vec![item],
+                ..Default::default()
+            },
+            details_expanded: Some(7),
+            ..Default::default()
+        });
+        assert!(
+            labels
+                .iter()
+                .any(|label| label == "No requested permissions.")
+        );
+        assert!(!labels.iter().any(|label| label == "Toggle All"));
+        assert!(!hits.iter().any(|action| matches!(
+            action,
+            MenuAction::Mods(Action::Permission(..) | Action::RequestedPermissions(..))
+        )));
+    }
+}

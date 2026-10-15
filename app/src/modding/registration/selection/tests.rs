@@ -160,3 +160,56 @@ fn permission_revocation_survives_malformed_or_missing_component_metadata() {
         }
     }
 }
+
+#[test]
+fn bulk_permissions_change_only_declared_grants_for_the_selected_mod() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let component = root.join("mod.wasm");
+    let requested = ModGrants {
+        camera: true,
+        hud: true,
+        commands: vec!["ability".into()],
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&requested)
+        .unwrap()
+        .replace('"', "\\\"");
+    let bytes = wat::parse_str(format!(
+        r#"(component (@custom "{}" "{json}"))"#,
+        mod_host::REQUESTED_GRANTS_SECTION,
+    ))
+    .unwrap();
+    std::fs::write(&component, bytes).unwrap();
+    let other = root.join("other.wasm");
+    select(root, &other, true, "other".into()).unwrap();
+    let other_entry = read(root).mods[0].clone();
+    let terrain = ModGrants::CAPABILITIES
+        .iter()
+        .position(|capability| capability.name == "terrain")
+        .unwrap();
+    permission(root, &component, terrain, true, "unrelated".into()).unwrap();
+    for enabled in [true, false, true] {
+        requested_permissions(root, &component, enabled, "bulk".into()).unwrap();
+        let registration = read(root);
+        assert_eq!(registration.mods[0], other_entry);
+        let entry = &registration.mods[1];
+        assert!(!entry.enabled);
+        let mut expected = if enabled {
+            requested.clone()
+        } else {
+            ModGrants::default()
+        };
+        expected.terrain = true;
+        assert_eq!(entry.grants, expected);
+        assert_eq!(registration.request_id, "bulk");
+    }
+    let before = std::fs::read(root.join(REGISTRATION_FILE)).unwrap();
+    for bytes in [b"text fixture".as_slice(), b"\0asm"] {
+        std::fs::write(&component, bytes).unwrap();
+        for enabled in [true, false] {
+            assert!(requested_permissions(root, &component, enabled, "invalid".into()).is_err());
+            assert_eq!(std::fs::read(root.join(REGISTRATION_FILE)).unwrap(), before);
+        }
+    }
+}

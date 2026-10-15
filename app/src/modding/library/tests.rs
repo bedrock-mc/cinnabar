@@ -818,6 +818,7 @@ fn a_missing_sources_card_cannot_retarget_a_replacement_file() {
         Action::Reload(id),
         Action::Remove(id),
         Action::Permission(id, 0, true),
+        Action::RequestedPermissions(id, true),
     ] {
         assert!(
             perform(

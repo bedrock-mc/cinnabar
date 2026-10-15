@@ -253,8 +253,27 @@ fn mod_card(
             available.then_some(command(Action::Remove(item.id))),
         ));
         actions(content, &buttons)?;
+        let requested = || {
+            item.permissions
+                .iter()
+                .enumerate()
+                .filter(|(_, permission)| permission.requested == Some(true))
+        };
+        if requested().next().is_none() {
+            caption(content, "No requested permissions.")?;
+            return Ok(());
+        }
         caption(content, "Permissions")?;
-        for (index, permission) in item.permissions.iter().enumerate() {
+        let enable_all = requested().any(|(_, permission)| !permission.enabled);
+        actions(
+            content,
+            &[(
+                "Toggle All",
+                Variant::Secondary,
+                available.then_some(command(Action::RequestedPermissions(item.id, enable_all))),
+            )],
+        )?;
+        for (index, permission) in requested() {
             let [left, right] = content.inset();
             let y = content.y;
             let action = command(Action::Permission(item.id, index, !permission.enabled));
@@ -266,13 +285,8 @@ fn mod_card(
                 action,
                 available,
             )?;
-            let request = match permission.requested {
-                Some(true) => " · requested",
-                Some(false) => " · not requested",
-                None => "",
-            };
             content.canvas.text_line_vertically_centred(
-                &format!("{}{request}", permission.name),
+                &permission.name,
                 [
                     left + content.canvas.r(8.0),
                     y,

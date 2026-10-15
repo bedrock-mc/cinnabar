@@ -166,6 +166,10 @@ fn perform(
             selection::permission(registration, &path(id)?, capability, enabled, request())
                 .map(|()| String::new())
         }
+        Action::RequestedPermissions(id, enabled) => {
+            selection::requested_permissions(registration, &path(id)?, enabled, request())
+                .map(|()| String::new())
+        }
         Action::Remove(id) => {
             let path = path(id)?;
             let request_id = request();

@@ -22,6 +22,7 @@ pub enum Action {
     MoveUp(u64),
     MoveDown(u64),
     Permission(u64, usize, bool),
+    RequestedPermissions(u64, bool),
 }
 
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
