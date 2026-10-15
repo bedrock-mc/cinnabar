@@ -1,8 +1,10 @@
 use crate::queue_writes::ProfiledQueue as _;
 use std::num::NonZeroU64;
 
+use crate::chunk::gpu::arena::ChunkRangePlan;
 use crate::chunk::*;
 use crate::upload_staging::BufferWrite;
+use meshing::PackedBiomeRecord;
 use render_scene::ChunkRenderInstance;
 
 /// Stream order used before address sorting; overlapping writes retain this order.

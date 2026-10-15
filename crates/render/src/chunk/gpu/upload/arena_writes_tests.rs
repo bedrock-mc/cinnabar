@@ -1,4 +1,5 @@
 use super::*;
+use crate::chunk::gpu::arena::plan_chunk_range_update;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
 
 /// Exercises every terrain stream with nonzero relocation bases and distinct records.
