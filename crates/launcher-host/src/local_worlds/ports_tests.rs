@@ -110,21 +110,23 @@ fn a_fixed_port_reserves_its_exact_window_or_fails() {
 fn blocked_udp_window(players: u32) -> (u16, UdpSocket) {
     let mut rejected = Vec::new();
     for _ in 0..AUTOMATIC_ATTEMPTS {
-        let taken = UdpSocket::bind((LOCAL_SERVER_HOST, 0)).expect("reserve fixture UDP");
-        let last = taken.local_addr().expect("address").port();
-        let Some(port) = last.checked_sub(u16::try_from(players - 1).expect("window fits")) else {
-            rejected.push(taken);
+        let first = UdpSocket::bind((LOCAL_SERVER_HOST, 0)).expect("reserve fixture UDP");
+        let port = first.local_addr().expect("address").port();
+        let Some(last) = port.checked_add(u16::try_from(players - 1).expect("window fits")) else {
+            rejected.push(first);
             continue;
         };
         if let Ok(_tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {
-            let earlier: std::io::Result<Vec<_>> = (port..last)
-                .map(|candidate| UdpSocket::bind((LOCAL_SERVER_HOST, candidate)))
+            let later: std::io::Result<Vec<_>> = (port..last)
+                .map(|candidate| UdpSocket::bind((LOCAL_SERVER_HOST, candidate + 1)))
                 .collect();
-            if earlier.is_ok() {
-                return (port, taken);
+            if let Ok(mut later) = later {
+                return (port, later.pop().unwrap_or(first));
             }
         }
-        rejected.push(taken);
+        // A forward window cannot overlap an earlier rejected base when the OS
+        // assigns consecutive candidates.
+        rejected.push(first);
     }
     panic!("fixture could not reserve a window with only its last UDP port blocked");
 }
