@@ -85,7 +85,9 @@ snap/replay lifetime and cancellation with a discarded release. Ordinary release
 charge while waiting for their facing input and retain use slowdown through that tick. Release
 sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
 launches survive a snap or replay fallback until their movement input is written, including late
-socket receipts. Respawn search and ready anchors discard old releases, temporary use modifiers
+socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and
+liquid attachment heights from retained eye state. Respawn search and ready anchors discard old
+releases, temporary use modifiers
 and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
 respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported
 impulses are retired at the

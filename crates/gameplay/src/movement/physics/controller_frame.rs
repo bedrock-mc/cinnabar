@@ -19,7 +19,7 @@ pub(super) struct ControllerFrame {
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
-    pub eye_height: f32,
+    pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
     pub jump_down: bool,
@@ -42,6 +42,16 @@ pub(super) struct ControllerFrame {
 }
 
 impl ControllerFrame {
+    /// Advances the pose eye once after a successful tick and retains its interpolation state.
+    pub(super) fn finish_eye(&mut self, eye: &mut eye::LocalEyeOffset, state: &PlayerState) {
+        eye.tick(
+            self.input.mode,
+            self.input.sneaking,
+            state.spin_attack_ticks.is_some(),
+        );
+        self.eye_offset = *eye;
+    }
+
     /// Re-evaluates pose, jump edges and ride placement from the corrected pre-tick state.
     pub(super) fn prepare(
         &mut self,

@@ -6529,7 +6529,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   extending charge time, and keep use slowdown through that facing tick. Its sprint gate expires
   on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
-  releases cancel their pending and replayed launch. Respawn search and ready anchors discard
+  releases cancel their pending and replayed launch. Cancellation replay rebuilds interpolated
+  camera eyes, retained aim and liquid attachment heights from the retained pose state.
+  Respawn search and ready anchors discard
   retained releases, active item-use charges, temporary use modifiers and pending launches from
   the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
   Travel-suppressed spin ticks use the compact

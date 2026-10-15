@@ -219,6 +219,7 @@ impl LocalPhysicsController {
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
         let mut anchor_state = anchor_controller.anchor_state;
+        let mut eye = anchor_controller.eye_offset;
         let deferred_corrections = self.deferred_corrections.clone();
         let (replay, replayed_ticks) = self
             .history
@@ -231,6 +232,14 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
+                    if let Some(previous) = previous {
+                        controller_frames
+                            .iter_mut()
+                            .find(|frame| frame.tick == previous.tick_result.tick)
+                            .expect("controller and prediction histories retain the same ticks")
+                            .finish_eye(&mut eye, state);
+                    }
+                    input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
                     let frame = controller_frames
                         .iter_mut()
@@ -255,6 +264,18 @@ impl LocalPhysicsController {
 
         if replayed_ticks.len() != replay.replayed_ticks {
             return Err(PhysicsCorrectionError::ReplayFailed);
+        }
+        if let Some(last) = replayed_ticks.last() {
+            controller_frames
+                .iter_mut()
+                .find(|frame| frame.tick == last.tick_result.tick)
+                .expect("controller and prediction histories retain the same ticks")
+                .finish_eye(
+                    &mut eye,
+                    self.state
+                        .as_ref()
+                        .expect("successful replay retains state"),
+                );
         }
         // Replay supplies actual jump initiations; grounded correction anchors close the old arc.
         let mut jump_fold = {
@@ -361,6 +382,8 @@ impl LocalPhysicsController {
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
         self.modes = modes;
+        eye.preserve_interpolation_hold(self.eye_offset);
+        self.eye_offset = eye;
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);

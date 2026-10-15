@@ -729,16 +729,11 @@ impl LocalPhysicsController {
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
-                    self.eye_offset.tick(
-                        input.mode,
-                        input.sneaking,
-                        state.spin_attack_ticks.is_some(),
-                    );
-                    self.controller_history.push_back(ControllerFrame {
+                    let mut controller = ControllerFrame {
                         tick: state.tick,
                         anchor_state: self.anchor_state,
                         entry_velocity,
-                        eye_height: self.eye_offset.height(1.0),
+                        eye_offset: self.eye_offset,
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
                         jump_down: observed.jump_down,
@@ -758,7 +753,9 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
-                    });
+                    };
+                    controller.finish_eye(&mut self.eye_offset, state);
+                    self.controller_history.push_back(controller);
                     effects.commit_successful_tick();
                     self.previous_position = before;
                     self.visual_correction.tick();

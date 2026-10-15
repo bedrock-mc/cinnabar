@@ -11,16 +11,29 @@ const HORIZONTAL_POSE_EYE_HEIGHT: f32 = 0.4;
 // The same native tick uses a 0.5 blend for every axis; not render-frame damping.
 const OFFSET_TICK_BLEND: f32 = 0.5;
 
+#[cfg(test)]
+#[path = "eye/replay_tests.rs"]
+mod replay_tests;
+
 #[derive(Debug, Default, Clone, Copy)]
 pub(super) struct LocalEyeOffset {
     previous: f32,
     current: f32,
+    interpolation_held: bool,
 }
 
 impl LocalEyeOffset {
     /// Holds the completed eye offset when collision data pauses movement ticks.
     pub(super) fn finish_interpolation(&mut self) {
         self.previous = self.current;
+        self.interpolation_held = true;
+    }
+
+    /// Keeps a collision pause applied to the current camera after rebuilding its pose.
+    pub(super) fn preserve_interpolation_hold(&mut self, prior: Self) {
+        if prior.interpolation_held {
+            self.finish_interpolation();
+        }
     }
 
     /// Eases the eye toward the selected pose, with a spin using the horizontal target.
@@ -35,6 +48,7 @@ impl LocalEyeOffset {
         };
         self.previous = self.current;
         self.current += (target - self.current) * OFFSET_TICK_BLEND;
+        self.interpolation_held = false;
     }
 
     /// Native camera getter subtracts the interpolated offset.
