@@ -106,7 +106,7 @@ mod platform {
             } else {
                 0
             };
-            eprintln!(
+            bevy::log::warn!(
                 "audio MMCSS registration failed ({mmcss_error}); thread priority fallback error: {fallback_error}"
             );
         }

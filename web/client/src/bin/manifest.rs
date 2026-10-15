@@ -1,4 +1,8 @@
 //! Generates an asset delivery index from the canonical carrier table.
+#![expect(
+    clippy::print_stdout,
+    reason = "the manifest tool writes the delivery index JSON to stdout"
+)]
 use assets::carriers::startup::delivery::DeliveryManifest;
 
 /// Writes only carrier identities and sizes; compiled game assets stay local.

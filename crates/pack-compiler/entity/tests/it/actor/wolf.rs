@@ -2,6 +2,10 @@ use super::*;
 use std::collections::BTreeSet;
 
 /// The downloaded fixture supplies art; missing local inputs leave a named diagnostic.
+#[expect(
+    clippy::print_stderr,
+    reason = "names the missing fixture when the test skips"
+)]
 fn pinned_root() -> Option<std::path::PathBuf> {
     let Some(root) = std::env::var_os("CINNABAR_VANILLA_ACTOR_ROOT") else {
         eprintln!("missing fixture: CINNABAR_VANILLA_ACTOR_ROOT (pinned vanilla wolf pack)");

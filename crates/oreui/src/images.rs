@@ -402,7 +402,7 @@ pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
                 Vec::new()
             } else {
                 shipped::read(compiled_dir).unwrap_or_else(|reason| {
-                    eprintln!("{reason}");
+                    tracing::warn!("{reason}");
                     Vec::new()
                 })
             };
@@ -413,7 +413,7 @@ pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
             };
             let (mut art, source) = match bundle_dir().map(|dir| (read_bundle(&dir, wanted), dir)) {
                 Some((Ok((art, source)), dir)) => {
-                    eprintln!(
+                    tracing::info!(
                         "OreUI installed assets: {} ({} images)",
                         dir.display(),
                         art.len()
@@ -421,14 +421,14 @@ pub fn load_optional_oreui_images(compiled_dir: &Path) -> Option<OreUiImages> {
                     (art, Some(source))
                 }
                 Some((Err(reason), dir)) => {
-                    eprintln!("OreUI bundle at {} unusable ({reason})", dir.display());
+                    tracing::warn!("OreUI bundle at {} unusable ({reason})", dir.display());
                     (Vec::new(), None)
                 }
                 None => (Vec::new(), None),
             };
             art.extend(shipped);
             let mut images = pack(art, source).unwrap_or_else(|reason| {
-                eprintln!("OreUI artwork unusable ({reason})");
+                tracing::warn!("OreUI artwork unusable ({reason})");
                 OreUiImages {
                     pages: Vec::new(),
                     sprites: Default::default(),

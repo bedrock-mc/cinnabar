@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use bevy::prelude::{Res, Time};
+use diagnostics::rate::LogBudget;
 
 use super::{
     CameraSettingsAuthority, ScreenEffectFacts,
@@ -22,12 +23,22 @@ struct ContactTag {
     transfer_active: bool,
 }
 
-#[derive(Default)]
 pub struct PortalDiagnostics {
     last_tag: Option<ContactTag>,
-    last_log: Option<Duration>,
+    budget: LogBudget<Duration>,
     contact_observed: bool,
     maximum_progress: f32,
+}
+
+impl Default for PortalDiagnostics {
+    fn default() -> Self {
+        Self {
+            last_tag: None,
+            budget: LogBudget::new(Duration::from_secs(1)),
+            contact_observed: false,
+            maximum_progress: 0.0,
+        }
+    }
 }
 
 impl PortalDiagnostics {
@@ -36,15 +47,10 @@ impl PortalDiagnostics {
         self.maximum_progress = self.maximum_progress.max(progress);
         let changed = self.last_tag != Some(tag);
         let active = self.contact_observed || self.maximum_progress > 0.0 || tag.transfer_active;
-        if (!active && !changed)
-            || self
-                .last_log
-                .is_some_and(|last| now.saturating_sub(last) < Duration::from_secs(1))
-        {
+        if (!active && !changed) || self.budget.admit(now).is_none() {
             return false;
         }
         self.last_tag = Some(tag);
-        self.last_log = Some(now);
         true
     }
 }

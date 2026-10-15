@@ -41,6 +41,9 @@ struct InteractionBlock {
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
 
+/// Sequential and hashed IDs grouped by block identity and canonical state.
+type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
+
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
 /// The two maps are intentionally distinct: a 32-bit network hash may have
@@ -68,9 +71,6 @@ pub struct PhysicsCollisionRegistries {
     /// Hashes this session added to `hashed`, dropped when the next session begins.
     session_hashes: Arc<Vec<u32>>,
 }
-
-/// Per block identity, each serialized state's `(sequential, hashed)` runtime ids.
-type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
 
 #[derive(Debug, Error)]
 pub enum PhysicsCollisionRegistryError {

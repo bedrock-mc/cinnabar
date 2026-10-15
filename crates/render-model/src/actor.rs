@@ -1,6 +1,7 @@
 //! Actor geometry on the CPU: skins, the standard biped, rig contracts and entity-catalog meshes.
 mod asset_geometry;
 mod biped;
+pub mod flame;
 mod geometry;
 mod ids;
 mod locator;

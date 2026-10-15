@@ -26,9 +26,9 @@ use catalog::GeometryCatalog;
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
 pub const ACTOR_BONE_MATRIX_BYTES: usize = 48;
-/// Existing body/equipment allowance plus every animated skin layer per selected player.
+/// Body/equipment allowance, world flames and every animated skin layer per selected player.
 pub const MAX_ACTOR_RENDER_INSTANCES: usize =
-    MAX_RENDERED_PLAYERS * (4 + render_api::MAX_SKIN_ANIMATION_LAYERS);
+    MAX_RENDERED_PLAYERS * (5 + render_api::MAX_SKIN_ANIMATION_LAYERS);
 /// Shared previous/current pose storage, independent of one model's bone limit.
 pub const MAX_ACTOR_BONE_ARENA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_ACTOR_POSE_BONES: usize = MAX_ACTOR_BONE_ARENA_BYTES / (2 * ACTOR_BONE_MATRIX_BYTES);

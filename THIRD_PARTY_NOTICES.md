@@ -392,3 +392,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Crash symbolication tooling
+
+- Source: https://github.com/rust-minidump/rust-minidump, https://github.com/mstange/samply and
+  https://github.com/luser/rust-test-assembler
+- Dependencies: `minidump`, `minidump-processor` and `minidump-unwind` (MIT) and `wholesym`
+  (MIT OR Apache-2.0) in `tools/devtool`, with the test-only `minidump-synth` and
+  `test-assembler` (MIT); pinned in `Cargo.lock`, used unmodified.
+- Transitive licenses: MIT, Apache-2.0, BSD-3-Clause, NCSA (`msvc-demangler`, MIT/NCSA), ISC
+  (`untrusted`, `rustls-webpki`; `ring` is Apache-2.0 AND ISC), CDLA-Permissive-2.0
+  (`webpki-roots`), Unicode-3.0 (`yoke`) and MPL-2.0 (`option-ext`). `wholesym` always links an
+  HTTP client for symbol servers; `devtool symbolicate` configures none and never uses it.
+- Distribution: none. `devtool symbolicate` is a developer tool and is not packaged.

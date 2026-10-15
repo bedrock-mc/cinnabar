@@ -78,6 +78,10 @@ pub(super) struct SetupApp {
 }
 
 impl SetupApp {
+    #[expect(
+        clippy::print_stderr,
+        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+    )]
     pub(super) fn new(
         layout: InstallLayout,
         text: Text,
@@ -248,6 +252,10 @@ fn setup_window_attributes(title: Option<&str>) -> WindowAttributes {
 }
 
 impl ApplicationHandler for SetupApp {
+    #[expect(
+        clippy::print_stderr,
+        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+    )]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -276,6 +284,10 @@ impl ApplicationHandler for SetupApp {
         }
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+    )]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested if self.screen == Screen::Done => {

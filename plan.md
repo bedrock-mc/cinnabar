@@ -8020,6 +8020,20 @@ defect. The installed native app is a near-version witness, not an exact-version
 capture; broad rendering, persona and live HUD pack-refresh parity remain open.
 World fire is tracked separately below.
 
+### Burning world actors (fix; parity incomplete)
+
+World mobs and third-person players now draw animated flame billboards when their
+authoritative on-fire metadata is set. The layer follows interpolated feet and scaled
+collision dimensions, faces the current camera, and disappears on extinguishing or
+invisibility. Optional original flame art, geometry and draw-clock rules are shared
+with the HUD doll. No client-side daylight or damage inference is introduced.
+
+World billboard placement and playback reuse the HUD contract provisionally;
+matched-version native world captures remain incomplete and no parity gate closes.
+Headless Linux/Vulkan frames at 1280×720, scale 1 show front and side flames and
+their removal after an authoritative extinguishing update. Four world-flame and
+nine existing HUD flame regressions pass.
+
 ### Pack masks, End sky and title text (acceptance incomplete)
 
 Active packs now prepare pumpkin and spyglass masks, End-sky pixels and layered

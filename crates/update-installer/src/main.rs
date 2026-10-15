@@ -7,6 +7,10 @@ use std::{
 use update_installer::startup::{self, Monitor, Progress};
 
 /// Accepts only local inputs and reports a failed apply in the installer's log.
+#[expect(
+    clippy::print_stderr,
+    reason = "the launcher captures this process's stderr into apply.log"
+)]
 fn main() {
     if let Err(error) = run() {
         eprintln!("Update was not installed: {error:#}");

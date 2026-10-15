@@ -90,14 +90,14 @@ pub(crate) fn configure(app: &mut App) {
     let server = match ControlServer::start(&path) {
         Ok(server) => server,
         Err(error) => {
-            eprintln!(
+            warn!(
                 "developer control disabled: cannot publish {}: {error}",
                 path.display()
             );
             return;
         }
     };
-    eprintln!("developer control listening; endpoint {}", path.display());
+    info!("developer control listening; endpoint {}", path.display());
     app.insert_resource(Control { server });
     input::configure(app);
     camera::configure(app);
