@@ -41,6 +41,9 @@ struct InteractionBlock {
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
 
+/// Canonical states mapped to sequential and hashed ids, grouped by block identity.
+type StateIdIndex = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
+
 /// Runtime-ID collision registries for both Bedrock palette identity modes.
 ///
 /// The two maps are intentionally distinct: a 32-bit network hash may have
@@ -62,7 +65,7 @@ pub struct PhysicsCollisionRegistries {
     interleave_supported: bool,
     canonical_states: Arc<BTreeMap<u32, Arc<str>>>,
     hashed_canonical_states: Arc<BTreeMap<u32, Arc<str>>>,
-    state_ids: Arc<BTreeMap<u32, BTreeMap<String, (u32, u32)>>>,
+    state_ids: Arc<StateIdIndex>,
     named_block_identities: Arc<BTreeMap<Arc<str>, u32>>,
     max_vanilla_sort_key: u64,
     /// Hashes this session added to `hashed`, dropped when the next session begins.
@@ -163,7 +166,7 @@ impl PhysicsCollisionRegistries {
         let mut hashed_interaction_blocks = BTreeMap::new();
         let mut canonical_states = BTreeMap::new();
         let mut hashed_canonical_states = BTreeMap::new();
-        let mut state_ids: BTreeMap<u32, BTreeMap<String, (u32, u32)>> = BTreeMap::new();
+        let mut state_ids = StateIdIndex::new();
         let mut named_block_identities = BTreeMap::new();
         let mut max_vanilla_sort_key = 0;
         let mut vanilla_runs: Vec<(u64, Arc<str>, u32)> = Vec::new();
