@@ -7202,10 +7202,13 @@ gates.
 - [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
-  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
+  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer indexed documents
   merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
+  UI document paths are relative to the pack root and selected by the stack's merged indexes,
+  including custom folders and extensions. The web editor uses the same selection for imports,
+  previews, diagnostics, and exports, and shows complete paths in its file list.
   Form display fields now retain structured text for language and live-state resolution,
   including metadata, component precedence, nested text, and scalar display fallbacks.
   Custom forms include multiselect checkboxes, ordered index-array responses, and slider

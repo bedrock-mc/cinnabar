@@ -96,11 +96,16 @@ impl Editor {
         self.session.workspace.supply(layer, path, bytes);
     }
 
+    /// Indexed UI documents the browser still needs to supply, as `[layer, path]` pairs.
+    pub fn wanted_ui_files(&self) -> String {
+        json!(self.session.workspace.wanted_ui_files()).to_string()
+    }
+
     pub fn edit(&mut self, layer: usize, path: &str, text: &str) {
         self.session.workspace.edit(layer, path, text);
     }
 
-    /// `[{layer, name, files: [{path, edited}]}]` for every layer's ui json.
+    /// `[{layer, name, files: [{path, edited}]}]` for every layer's indexed UI documents.
     pub fn files(&self) -> String {
         let layers: Vec<Value> = self
             .session

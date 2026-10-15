@@ -9,8 +9,7 @@ import { forceLinting, linter, lintGutter } from "https://esm.sh/@codemirror/lin
 import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@^6";
 
 const $ = (id) => document.getElementById(id);
-const EAGER = /(^|\/)(ui\/.*\.json|texts\/en_US\.lang|textures\/.*\.json)$/i;
-const IMAGE = /(^|\/)textures\/.*\.(png|tga|jpe?g)$/i;
+const EAGER = /(^|\/)(manifest\.json|ui\/_ui_defs\.json|ui\/_global_variables\.json|texts\/en_US\.lang|textures\/.*\.json)$/i;
 const RENDER_DELAY = 120;
 
 const MOCK_PRESETS = {
@@ -72,7 +71,7 @@ function loadPrefs() {
 
 // ---------- CodeMirror ----------
 
-const PLACEHOLDER = "Open a ui/*.json file from the list, or type or paste a JSON-UI file here to start a scratch file.";
+const PLACEHOLDER = "Open a JSON-UI file from the list, or type or paste one here to start a scratch file.";
 
 function makeState(text) {
   return EditorState.create({
@@ -187,7 +186,7 @@ async function addLayer(name, entries) {
   for (const [path, file] of entries) {
     if (EAGER.test(path)) {
       state.editor.stage_file(path, new Uint8Array(await file.arrayBuffer()));
-    } else if (IMAGE.test(path)) {
+    } else {
       state.editor.stage_pending(path);
       files.set(path, file);
     }
@@ -214,6 +213,7 @@ async function loadEntries(groups) {
       if (group.zip) await addZip(group.name, group.zip);
       else await addLayer(group.name, group.entries);
     }
+    await supplyWanted(JSON.parse(state.editor.wanted_ui_files()));
   } catch (error) {
     setStatus(String(error.message ?? error));
   }
@@ -272,9 +272,6 @@ async function walkEntry(entry, prefix, out) {
       const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
       if (!batch.length) break;
       for (const child of batch) {
-        // Only ui/, texts/ and textures/ matter; skip the rest of big packs.
-        const path = `${prefix}${entry.name}/${child.name}`;
-        if (child.isDirectory && /(^|\/)(models|entity|sounds|particles|animations|animation_controllers|render_controllers|attachables|biomes|fogs)$/.test(path)) continue;
         await walkEntry(child, `${prefix}${entry.name}/`, out);
       }
     }
@@ -322,7 +319,7 @@ async function loadExample(options = {}) {
   }
 }
 
-// Supply texture images the last render asked for, then render again.
+// Supply indexed UI documents or texture images requested by the editor.
 async function supplyWanted(wanted) {
   let supplied = 0;
   for (const [layer, path] of wanted) {
@@ -373,6 +370,10 @@ async function render() {
     showEmpty("Nothing loaded: open a resource pack folder or zip, load the example, or paste a JSON-UI file into the editor.");
     return;
   }
+  if (await supplyWanted(JSON.parse(state.editor.wanted_ui_files()))) {
+    refreshScreens();
+  }
+  renderFiles();
   autoPickScreen();
   const view = currentView();
   if (!view.reference) {
@@ -531,7 +532,7 @@ function renderFiles() {
     for (const file of layer.files) {
       if (filter && !file.path.toLowerCase().includes(filter)) continue;
       const li = document.createElement("li");
-      li.textContent = file.path.replace(/^ui\//, "");
+      li.textContent = file.path;
       const tag = document.createElement("span");
       tag.className = "layer-tag";
       tag.textContent = ` · ${layer.name}`;
