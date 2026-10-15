@@ -6525,12 +6525,13 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
   additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
-  Ordinary releases reserve their captured facing on the next input before launching, without
-  extending charge time, and keep use slowdown through that facing tick. Its sprint gate expires
+  Ordinary and assisted releases retain eligibility at the release edge while waiting for facing
+  input, without extending charge time, and keep use slowdown through that facing tick. Its sprint gate expires
   on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
   releases cancel their pending and replayed launch. Cancellation replay rebuilds interpolated
   camera eyes, retained aim and liquid attachment heights from the retained pose state.
+  Locomotion, travel and replay share the preceding spin's compact liquid probe, including glide entry.
   Respawn search and ready anchors discard
   retained releases, active item-use charges, temporary use modifiers and pending launches from
   the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.

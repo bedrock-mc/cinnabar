@@ -82,11 +82,8 @@ impl ControllerFrame {
         if input.sprinting != self.input.sprinting {
             self.sprint_override = Some(input.sprinting);
         }
-        input.liquid_contact_height = Some(if state.spin_attack_ticks.is_some() {
-            sim::PLAYER_WIDTH
-        } else {
-            modes.contact_height()
-        });
+        input.liquid_contact_height =
+            Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
@@ -111,6 +108,7 @@ impl ControllerFrame {
             liquid_attach_height: input
                 .liquid_attach_height
                 .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
+            liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
         };

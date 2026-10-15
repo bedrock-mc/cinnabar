@@ -109,7 +109,7 @@ pub struct ItemUseRuntime {
     crossbows: crossbow::CrossbowPredictions,
     /// Launch retained only after the release transaction was admitted.
     riptide_launch: Option<u8>,
-    /// Eligibility captured when a release first encountered queue pressure.
+    /// Eligibility captured at release, before facing input or queue pressure can delay it.
     release_launch: Option<u8>,
 }
 
@@ -169,6 +169,25 @@ impl ItemUseRuntime {
     /// Whether a use started locally and has not ended.
     pub const fn is_using(&self) -> bool {
         self.active.is_some()
+    }
+
+    /// Whether an accepted use has observed button-up or still owes its deferred release.
+    pub fn is_releasing(&self, held: bool) -> bool {
+        self.active.is_some() && (!held || self.release_pending)
+    }
+
+    /// Freezes Riptide eligibility while its facing tick is unavailable, without sending it.
+    pub fn defer_riptide_release(&mut self, frame: &UseFrame) {
+        if self.active.as_ref().is_some_and(|active| active.riptide)
+            && self.is_releasing(frame.held)
+            && !self.release_pending
+        {
+            self.release_launch = self
+                .active
+                .as_ref()
+                .and_then(|active| active.riptide_launch(frame));
+            self.release_pending = true;
+        }
     }
 
     /// Movement-input factor while a use runs; `None` when idle.
@@ -288,6 +307,7 @@ impl ItemUseRuntime {
             {
                 // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
+                self.release_launch = None;
                 return;
             }
             Some(current) => current.clone(),
@@ -316,17 +336,7 @@ impl ItemUseRuntime {
         let launch = if release_pending {
             self.release_launch
         } else {
-            frame
-                .riptide
-                .filter(|riptide| {
-                    active.riptide
-                        && riptide.level > 0
-                        && riptide.wet
-                        && !riptide.mounted
-                        && frame.selection.is_some()
-                        && frame.tick.saturating_sub(active.started_tick) >= RIPTIDE_CHARGE_TICKS
-                })
-                .map(|riptide| riptide.level)
+            active.riptide_launch(frame)
         };
         self.active = None;
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
@@ -493,6 +503,27 @@ impl ItemUseRuntime {
 
     fn on_cooldown(&self, category: client_world::UseCooldownCategory) -> bool {
         self.cooldowns.iter().any(|(active, _)| *active == category)
+    }
+}
+
+impl ActiveUse {
+    /// Resolves launch eligibility from this charge and the facts observed at release.
+    fn riptide_launch(&self, frame: &UseFrame) -> Option<u8> {
+        frame
+            .riptide
+            .filter(|riptide| {
+                self.riptide
+                    && riptide.level > 0
+                    && riptide.wet
+                    && !riptide.mounted
+                    && riptide.usable
+                    && frame.selection.as_ref().is_some_and(|selection| {
+                        selection.slot == self.selection.slot
+                            && selection.item.network_id() == self.selection.item.network_id()
+                    })
+                    && frame.tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
+            })
+            .map(|riptide| riptide.level)
     }
 }
 

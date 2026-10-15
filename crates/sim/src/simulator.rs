@@ -109,8 +109,20 @@ impl Simulator {
         sneaking: bool,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
+        self.movement_environment_with_liquid_contact(position, mode, sneaking, None, world)
+    }
+
+    /// Samples pose triggers with the same preceding liquid body height used by travel.
+    pub fn movement_environment_with_liquid_contact(
+        &self,
+        position: Vec3,
+        mode: MovementMode,
+        sneaking: bool,
+        liquid_contact_height: Option<f64>,
+        world: &(impl CollisionWorld + ?Sized),
+    ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
-        let mut sampled = sample(world, position, height, None)?;
+        let mut sampled = sample(world, position, height, liquid_contact_height)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,

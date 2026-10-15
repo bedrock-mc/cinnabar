@@ -24,6 +24,9 @@ mod motion_ticks;
 mod timeline;
 mod visual_correction;
 
+#[cfg(test)]
+mod liquid_probe_tests;
+
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
 
@@ -596,11 +599,10 @@ impl LocalPhysicsController {
             input.effects = effects.snapshot();
             input.sprinting = sprint_request;
             input.movement_speed = requested_movement_speed;
-            input.liquid_contact_height = Some(if state.spin_attack_ticks.is_some() {
-                sim::PLAYER_WIDTH
-            } else {
-                self.modes.contact_height()
-            });
+            input.liquid_contact_height = Some(
+                self.modes
+                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+            );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
             let mut flight_request = None;
@@ -622,6 +624,7 @@ impl LocalPhysicsController {
                 pitch: context.pitch,
                 yaw: input.yaw_degrees as f32,
                 liquid_attach_height: self.eye_offset.height(1.0),
+                liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
             };

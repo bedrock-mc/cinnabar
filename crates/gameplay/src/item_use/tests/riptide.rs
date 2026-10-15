@@ -95,3 +95,43 @@ fn ordinary_tridents_mounts_reselection_and_broken_stacks_do_not_launch() {
     assert!(runtime.step(&switched).packets.is_empty());
     assert_eq!(runtime.take_riptide_launch(), None);
 }
+
+#[test]
+fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection() {
+    for ticks in [RIPTIDE_CHARGE_TICKS - 1, RIPTIDE_CHARGE_TICKS] {
+        for invalid in ["none", "dry", "mounted", "broken", "hidden", "reselected"] {
+            let mut runtime = ItemUseRuntime::default();
+            runtime.observe_press(true);
+            runtime.step(&trident(100, true, 3, true));
+            let mut edge = trident(100 + ticks, false, 3, true);
+            match invalid {
+                "dry" => edge.riptide.as_mut().unwrap().wet = false,
+                "mounted" => edge.riptide.as_mut().unwrap().mounted = true,
+                "broken" => edge.riptide.as_mut().unwrap().usable = false,
+                "hidden" => edge.selection = None,
+                "reselected" => edge.selection.as_mut().unwrap().slot += 1,
+                _ => {}
+            }
+            runtime.defer_riptide_release(&edge);
+            runtime.defer_riptide_release(&trident(150, false, 3, true));
+            assert!(runtime.is_using());
+            assert_eq!(runtime.take_riptide_launch(), None);
+            // Recovery of the environment and selection must not upgrade the observed edge.
+            let outcome = runtime.step(&trident(160, false, 3, true));
+            assert_eq!(kinds(&outcome), ["release"]);
+            assert_eq!(
+                runtime.take_riptide_launch(),
+                (invalid == "none" && ticks == RIPTIDE_CHARGE_TICKS).then_some(3)
+            );
+            assert!(!runtime.is_using());
+        }
+    }
+    let mut runtime = ItemUseRuntime::default();
+    runtime.observe_press(true);
+    runtime.step(&trident(100, true, 3, true));
+    runtime.defer_riptide_release(&trident(110, false, 3, true));
+    let mut changed = trident(150, false, 3, true);
+    changed.selection.as_mut().unwrap().slot += 1;
+    assert!(runtime.step(&changed).packets.is_empty());
+    assert_eq!(runtime.take_riptide_launch(), None);
+}

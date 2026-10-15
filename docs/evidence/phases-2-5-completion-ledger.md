@@ -81,12 +81,13 @@ incomplete. This change closes no parity or performance gate.
 Riptide releases now carry a level-dependent launch and spin lifetime through fixed ticks,
 correction replay, input start/stop flags and local actor presentation. Charge and admission
 regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
-snap/replay lifetime and cancellation with a discarded release. Ordinary releases do not gain
-charge while waiting for their facing input and retain use slowdown through that tick. Release
+snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
+release-edge eligibility while waiting for facing input and retain use slowdown through that tick. Release
 sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
 launches survive a snap or replay fallback until their movement input is written, including late
 socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and
-liquid attachment heights from retained eye state. Respawn search and ready anchors discard old
+liquid attachment heights from retained eye state. Locomotion selection, travel and replay share
+the preceding spin's compact liquid probe so water sensing also gates glide entry. Respawn search and ready anchors discard old
 releases, temporary use modifiers
 and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
 respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported

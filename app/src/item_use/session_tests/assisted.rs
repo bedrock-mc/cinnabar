@@ -3,6 +3,9 @@
 use super::*;
 use client_interaction::movement::{LocalPhysicsController, MovementTicker};
 
+#[path = "assisted/release_edge.rs"]
+mod release_edge;
+
 /// Uses the same verified stack while varying only the logical tick and physical hold.
 fn trident(tick: u64, held: bool) -> UseFrame {
     UseFrame {

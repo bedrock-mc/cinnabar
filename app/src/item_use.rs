@@ -153,10 +153,8 @@ fn produce_use(
     let held = admitted && use_phase.held;
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !held;
-    if before_flush != assisted_release
-        || (before_flush && movement.newest_unsent_sample().is_none())
-    {
+    let assisted_release = aim_rotation.is_some() && runtime.is_releasing(held);
+    if before_flush != assisted_release {
         return;
     }
     if !admitted {
@@ -185,7 +183,10 @@ fn produce_use(
         return;
     }
     let sample = if before_flush {
-        movement.newest_unsent_sample().map(Into::into)
+        movement
+            .newest_unsent_sample()
+            .map(Into::into)
+            .or_else(|| movement.between_ticks_sample())
     } else {
         runtime.frame_sample(&movement, held, true)
     };
@@ -301,16 +302,21 @@ fn admit_with_action_aim(
     aim_rotation: Option<bevy::prelude::Quat>,
     network: &NetworkHandle<PackApplication>,
 ) {
-    // Keep the use active until a completed using tick can carry the release facing.
-    let assisted_release = aim_rotation.is_some() && runtime.is_using() && !frame.held;
-    if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
-        return;
-    }
+    let assisted_release = aim_rotation.is_some() && runtime.is_releasing(frame.held);
     // Facing uses a completed input; elapsed use time includes that tick.
     let duration_frame = assisted_release.then(|| UseFrame {
         tick: movement.completed_tick().saturating_add(1),
         ..frame.clone()
     });
+    // Freeze the edge before waiting, retaining slowdown until facing can be written.
+    if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
+        runtime.defer_riptide_release(
+            duration_frame
+                .as_ref()
+                .expect("assisted release has a duration"),
+        );
+        return;
+    }
     let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0);
     let use_modifier = runtime.movement_modifier();
     let mut deferred = None;

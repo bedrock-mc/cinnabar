@@ -15,7 +15,16 @@ impl LocalPhysicsController {
         }
         Ok(self
             .simulator
-            .movement_environment(state.position, self.modes.mode(), false, world)?
+            .movement_environment_with_liquid_contact(
+                state.position,
+                self.modes.mode(),
+                false,
+                Some(
+                    self.modes
+                        .liquid_contact_height(state.spin_attack_ticks.is_some()),
+                ),
+                world,
+            )?
             .value
             .in_water)
     }
