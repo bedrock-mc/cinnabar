@@ -85,15 +85,6 @@ pub fn update_look(
     view: ResMut<LocalViewPose>,
     server: Option<ResMut<ServerCameraView>>,
 ) {
-    if player.is_some_and(|player| {
-        player
-            .facts
-            .input_locks()
-            .blocks(protocol::ClientInputLock::Camera)
-    }) {
-        smoother.into_inner().reset();
-        return;
-    }
     client_presentation::camera::update_look(
         (
             spyglass.0.as_ref().map_or(0.0, |controls| {
@@ -111,6 +102,9 @@ pub fn update_look(
         ),
         window.map_or(0, |window| window.physical_width()),
         client_presentation::observations::InputObservation(input.snapshot()),
+        player
+            .as_ref()
+            .map_or(Default::default(), |player| player.facts.input_locks()),
         auto_fly,
         settings,
         time,

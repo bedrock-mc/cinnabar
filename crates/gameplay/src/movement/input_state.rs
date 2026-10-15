@@ -25,13 +25,13 @@ pub(super) struct PendingInputEdges {
 }
 
 impl PendingInputEdges {
-    /// Discards blocked edges so a later tick or unlock cannot replay them.
+    /// Discards blocked presses without suppressing retained release edges.
     pub(super) fn apply_input_locks(&mut self, locks: protocol::ClientInputLocks) {
         if locks.blocks(protocol::ClientInputLock::Jump) {
-            self.jump = Default::default();
+            self.jump.pressed = false;
         }
         if locks.blocks(protocol::ClientInputLock::Sneak) {
-            self.sneak = Default::default();
+            self.sneak.pressed = false;
         }
     }
 

@@ -30,32 +30,32 @@ impl LocalPhysicsController {
     }
 
     /// Revokes unconsumed requests immediately, including while prediction is paused.
-    pub fn apply_input_locks(&mut self, locks: ClientInputLocks) {
+    pub fn revoke_input_requests(&mut self, locks: ClientInputLocks) {
         self.input_edges.apply_input_locks(locks);
         if locks.blocks(ClientInputLock::Jump) {
             self.jump_edge_pending = false;
             self.previous_jump_held = false;
             self.jump_pulse_pending = false;
-            self.jump_pulse_held = false;
         }
     }
 
-    /// Revokes blocked requests before observing edges, including frames without a tick.
+    /// Admits current presses and holds only when allowed, preserving cleanup releases.
     pub(super) fn filter_input_requests(
         &mut self,
         input: &mut MovementInput,
         context: &mut PhysicsSampleContext,
     ) {
         let locks = context.input_locks;
-        self.apply_input_locks(locks);
         if locks.blocks(ClientInputLock::Jump) {
             input.jumping = false;
             input.jump_pressed = false;
-            context.input.jump = Default::default();
+            context.input.jump.pressed = false;
+            context.input.jump.held = false;
         }
         if locks.blocks(ClientInputLock::Sneak) {
             input.sneaking = false;
-            context.input.sneak = Default::default();
+            context.input.sneak.pressed = false;
+            context.input.sneak.held = false;
             context.input.sneak_down = false;
         }
     }

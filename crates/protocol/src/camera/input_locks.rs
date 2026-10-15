@@ -1,9 +1,21 @@
 //! Server input permissions, independent of camera selection and actor immobility.
 
-/// One input category named by the server input-lock packet.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
-pub enum ClientInputLock {
+/// Declares lock categories and their exhaustive iteration order together.
+macro_rules! input_lock_categories {
+    ($($name:ident = $value:expr),+ $(,)?) => {
+        /// One input category named by the server input-lock packet.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[repr(u32)]
+        pub enum ClientInputLock { $($name = $value),+ }
+
+        impl ClientInputLock {
+            /// Every declared category, including categories without a local request producer.
+            pub const ALL: &'static [Self] = &[$(Self::$name),+];
+        }
+    };
+}
+
+input_lock_categories! {
     Camera = 1 << 1,
     Movement = 1 << 2,
     LateralMovement = 1 << 4,

@@ -166,6 +166,7 @@ pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     window_width: u32,
     input: crate::observations::InputObservation<'_>,
+    input_locks: protocol::ClientInputLocks,
     auto_fly: Res<AutoFly>,
     mut settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
@@ -174,7 +175,11 @@ pub fn update_look(
     mut server: Option<ResMut<ServerCameraView>>,
 ) {
     let death_view = settings.death_view();
-    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused() && !death_view;
+    let camera_locked = input_locks.blocks(protocol::ClientInputLock::Camera);
+    let held = input.phase(Action::Freelook).held
+        && (!camera_locked || settings.freelook)
+        && !auto_fly.presentation_paused()
+        && !death_view;
     if settings.freelook != held {
         smoother.reset();
     }
@@ -184,7 +189,7 @@ pub fn update_look(
         smoother.reset();
         return;
     }
-    if auto_fly.presentation_paused() {
+    if camera_locked || auto_fly.presentation_paused() {
         return;
     }
     let mode = input

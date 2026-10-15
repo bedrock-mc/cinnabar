@@ -26,6 +26,8 @@ impl Harness {
 
     /// Advances one render frame and returns only a newly completed sample.
     fn step(&mut self, frame: super::super::PhysicsFrameInput) -> Option<PhysicsMovementSample> {
+        self.physics.revoke_input_requests(frame.facts.input_locks);
+        self.locals.revoke_input_requests(frame.facts.input_locks);
         let previous = self.ticker.completed_tick();
         assert!(self.locals.advance(
             frame,
@@ -93,6 +95,52 @@ fn server_input_locks_cancel_sub_tick_jump_requests() {
 }
 
 #[test]
+fn server_input_locks_allow_jump_releases() {
+    let mut harness = Harness::new();
+    let mut press = frame(None, 10);
+    press.jump.pressed = true;
+    assert!(harness.step(press).is_none());
+    let mut release = frame(Some(ClientInputLock::Jump), 40);
+    release.jump.released = true;
+    let sample = harness.step(release).unwrap();
+    assert!(!sample.processed.jump_initiated);
+    assert!(!sample.input.jump.pressed);
+    assert!(sample.input.jump.released);
+}
+
+#[test]
+fn server_input_locks_allow_sneak_releases() {
+    let mut harness = Harness::new();
+    let mut press = frame(None, 10);
+    press.sneak.pressed = true;
+    assert!(harness.step(press).is_none());
+    let mut release = frame(Some(ClientInputLock::Sneak), 40);
+    release.sneak.released = true;
+    let sample = harness.step(release).unwrap();
+    assert!(!sample.sneaking);
+    assert!(!sample.input.sneak.pressed);
+    assert!(sample.input.sneak.released);
+}
+
+#[test]
+fn server_input_locks_allow_mod_jump_releases() {
+    for lock in [
+        ClientInputLock::Jump,
+        ClientInputLock::Movement,
+        ClientInputLock::Camera,
+    ] {
+        let mut harness = Harness::new();
+        harness.physics.set_jump_pulse_scope(Some((7, 0)));
+        harness.physics.request_jump_pulse();
+        assert!(harness.step(frame(None, 50)).unwrap().input.jump.held);
+        let released = harness.step(frame(Some(lock), 50)).unwrap().input.jump;
+        assert!(released.released);
+        assert!(!released.held);
+        assert!(!released.pressed);
+    }
+}
+
+#[test]
 fn server_input_locks_cancel_mod_jump_pulses_before_and_during_locked_ticks() {
     for lock in [ClientInputLock::Jump, ClientInputLock::Movement] {
         for millis in [10, 50] {
@@ -139,6 +187,30 @@ fn server_input_locks_do_not_defer_locked_sneak_toggle_presses() {
     let mut unlocked = frame(None, 50);
     unlocked.toggle_sneak = true;
     assert!(!harness.step(unlocked).unwrap().sneaking);
+}
+
+#[test]
+fn server_input_locks_do_not_defer_locked_sprint_toggle_presses() {
+    for lock in [
+        ClientInputLock::Movement,
+        ClientInputLock::LateralMovement,
+        ClientInputLock::MoveForward,
+    ] {
+        let mut harness = Harness::new();
+        let mut locked = frame(Some(lock), 50);
+        locked.movement = [0.0, 1.0];
+        locked.toggle_sprint = true;
+        locked.sprint = ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        };
+        assert!(!harness.step(locked).unwrap().input.sprint_down);
+        let mut unlocked = frame(None, 50);
+        unlocked.movement = [0.0, 1.0];
+        unlocked.toggle_sprint = true;
+        assert!(!harness.step(unlocked).unwrap().input.sprint_down);
+    }
 }
 
 /// Samples real default bindings for one device, including its movement-vector carrier.
@@ -412,6 +484,9 @@ fn server_input_locks_cancel_a_dismount_waiting_for_transport_capacity() {
     assert!(attempted);
     frame.sneak = Default::default();
     frame.facts.input_locks = ClientInputLocks::from_bits(ClientInputLock::Dismount as u32);
+    harness
+        .locals
+        .revoke_input_requests(frame.facts.input_locks);
     harness.locals.observe_dismount(&frame, 7);
     harness
         .locals

@@ -58,6 +58,19 @@ pub struct ControlModes {
 }
 
 impl ControlModes {
+    /// Releases local toggle intent in blocked categories without changing server facts.
+    pub(super) fn revoke_input_requests(&mut self, locks: protocol::ClientInputLocks) {
+        if locks.blocks(protocol::ClientInputLock::Sneak) {
+            self.sneak_toggled = false;
+            self.sneaking = false;
+        }
+        if locks.blocks(protocol::ClientInputLock::MoveForward) {
+            self.stop_sprinting |= self.sprinting;
+            self.sprinting = false;
+            self.sprint_toggled = false;
+        }
+    }
+
     pub fn reset(&mut self) {
         *self = Self::default();
     }

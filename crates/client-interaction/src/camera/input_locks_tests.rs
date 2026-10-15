@@ -4,6 +4,100 @@ use semantic_input::{
     ControllerFrame, DeviceFrame, KeyboardMouseFrame, SemanticInputRouter, TouchContact,
 };
 
+/// Starts a detached camera, then releases its owner while rotation input is locked.
+fn assert_locked_freelook_cleanup(focus_loss: bool) {
+    let settings = semantic_input::ControlSettings::default();
+    let usage = settings
+        .bindings()
+        .iter()
+        .find_map(|binding| {
+            if binding.action == semantic_input::Action::Freelook
+                && let semantic_input::PhysicalControl::KeyboardUsage(usage) = binding.chord.control
+            {
+                Some(usage)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let mut router = SemanticInputRouter::default();
+    let mut camera = CameraSettingsAuthority::default();
+    camera.cycle_perspective();
+    camera.cycle_perspective();
+    let initial = Quat::from_rotation_y(0.4);
+    let mut app = App::new();
+    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+        7,
+    )))
+    .insert_resource(LocalViewPose::new(Vec3::Y, initial))
+    .insert_resource(AutoFly::new(false))
+    .insert_resource(camera)
+    .init_resource::<Time>()
+    .init_resource::<look::LookSmoother>()
+    .add_systems(Update, update_look);
+    app.world_mut().spawn((Window::default(), PrimaryWindow));
+    router
+        .route(DeviceFrame {
+            keyboard_mouse: Some(KeyboardMouseFrame {
+                keys: vec![usage],
+                mouse_motion: [80.0, 20.0],
+                activity_sequence: 1,
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let mut input = SemanticInputSnapshot::default();
+    input.replace(router.finalize().unwrap());
+    app.insert_resource(input);
+    app.update();
+    assert!(
+        app.world()
+            .resource::<LocalViewPose>()
+            .camera_rotation()
+            .angle_between(initial)
+            > 0.1
+    );
+    app.world_mut()
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .apply_input_locks(
+            7,
+            ClientInputLocks::from_bits(ClientInputLock::Camera as u32),
+        );
+    router
+        .route(DeviceFrame {
+            window_focus_lost: focus_loss,
+            ..Default::default()
+        })
+        .unwrap();
+    app.world_mut()
+        .resource_mut::<SemanticInputSnapshot>()
+        .replace(router.finalize().unwrap());
+    app.update();
+    assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
+    assert_eq!(
+        app.world().resource::<LocalViewPose>().camera_rotation(),
+        initial
+    );
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonFront
+    );
+}
+
+#[test]
+fn server_input_locks_allow_freelook_release_cleanup() {
+    assert_locked_freelook_cleanup(false);
+}
+
+#[test]
+fn server_input_locks_allow_freelook_focus_loss_cleanup() {
+    assert_locked_freelook_cleanup(true);
+}
+
 /// Exercises a physical look source while locked and after its permission is restored.
 fn assert_look_locks(mut router: SemanticInputRouter, mut device: impl FnMut(u64) -> DeviceFrame) {
     let mut app = App::new();
@@ -135,40 +229,6 @@ fn server_input_locks_stop_rebound_keyboard_look() {
         }),
         ..Default::default()
     });
-}
-
-#[test]
-fn server_input_locks_discard_a_retained_cinematic_look_tail() {
-    let mut app = App::new();
-    let mut time = Time::<()>::default();
-    time.advance_by(std::time::Duration::from_millis(20));
-    let mut settings = CameraSettingsAuthority::default();
-    let mut preferences = ui::UserSettings::default();
-    preferences.video.cinematic_camera = true;
-    settings.replace(1, &preferences).unwrap();
-    let initial = Quat::IDENTITY;
-    let mut smoother = look::LookSmoother::default();
-    smoother.filter(Vec2::new(100.0, 20.0), 0.02);
-    assert_ne!(smoother.filter(Vec2::ZERO, 0.02), Vec2::ZERO);
-    app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
-        7,
-    )))
-    .insert_resource(LocalViewPose::new(Vec3::Y, initial))
-    .insert_resource(AutoFly::new(false))
-    .insert_resource(settings)
-    .insert_resource(time)
-    .insert_resource(smoother)
-    .init_resource::<SemanticInputSnapshot>()
-    .add_systems(Update, update_look);
-    app.world_mut().spawn((Window::default(), PrimaryWindow));
-    for bits in [protocol::ClientInputLock::Camera as u32, 0] {
-        app.world_mut()
-            .resource_mut::<client_state::PlayerRuntime>()
-            .facts
-            .apply_input_locks(7, ClientInputLocks::from_bits(bits));
-        app.update();
-        assert_eq!(app.world().resource::<LocalViewPose>().rotation(), initial);
-    }
 }
 
 #[test]

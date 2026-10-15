@@ -134,7 +134,7 @@ pub struct PhysicsSampleContext {
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
     pub input: super::TickInput,
-    /// Current server permissions also revoke requests retained before this frame.
+    /// Current permissions gate new input; committed controls revoke retained requests.
     pub input_locks: protocol::ClientInputLocks,
 }
 

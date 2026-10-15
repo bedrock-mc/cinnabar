@@ -1,20 +1,31 @@
-use client_interaction::movement::LocalPhysicsController;
+use client_interaction::movement::{LocalPhysicsController, LocomotionState};
+use client_presentation::camera::look::LookSmoother;
 use client_world::LocalPlayerFacts;
 use protocol::ClientInputLocks;
 
-/// Applies committed permissions even when prediction cannot advance this frame.
+/// Commits permissions and revokes every blocked request before any frame consumer runs.
 pub(super) fn apply_committed_input_locks(
     session: u64,
     locks: ClientInputLocks,
     facts: &mut LocalPlayerFacts,
     physics: &mut LocalPhysicsController,
+    locomotion: &mut LocomotionState,
+    look: &mut LookSmoother,
 ) {
     if facts.session_id() != session {
         return;
     }
     facts.apply_input_locks(session, locks);
-    physics.apply_input_locks(locks);
+    physics.revoke_input_requests(locks);
+    locomotion.revoke_input_requests(locks);
+    if locks.blocks(protocol::ClientInputLock::Camera) {
+        look.reset();
+    }
 }
+
+#[cfg(test)]
+#[path = "input_locks/matrix.rs"]
+mod matrix;
 
 #[cfg(test)]
 mod tests {
@@ -24,7 +35,71 @@ mod tests {
     use semantic_input::ActionPhase;
     use std::time::Duration;
 
-    struct Floor;
+    /// Supplies a live frame for retaining movement requests independently of transport.
+    pub(super) fn movement_frame() -> gameplay::movement::PhysicsFrameInput {
+        gameplay::movement::PhysicsFrameInput {
+            delta: Duration::from_millis(10),
+            now: Duration::from_secs(1),
+            active: true,
+            input_authority_released: false,
+            movement: [0.0; 2],
+            raw_movement: [0.0; 2],
+            analogue_movement: [0.0; 2],
+            movement_buttons: Default::default(),
+            yaw: 180.0,
+            pitch: 0.0,
+            camera_orientation: [0.0, 0.0, -1.0],
+            input_mode: protocol::PlayerInputMode::Mouse,
+            jump: Default::default(),
+            sprint: Default::default(),
+            sneak: Default::default(),
+            toggle_sprint: false,
+            always_sprint: false,
+            toggle_sneak: false,
+            facts: Default::default(),
+            item_use_modifier: None,
+            hold: None,
+        }
+    }
+
+    #[test]
+    fn server_input_locks_revoke_dismount_before_a_paused_lock_unlock_pair() {
+        let mut locals = LocomotionState::default();
+        let mut physics = LocalPhysicsController::default();
+        let mut look = LookSmoother::default();
+        let mut facts = LocalPlayerFacts::new(7);
+        let mut frame = movement_frame();
+        frame.facts.ride = Some(gameplay::movement::RideKind::Other);
+        frame.facts.mount_runtime_id = Some(9);
+        frame.sneak.pressed = true;
+        locals.observe_dismount(&frame, 7);
+        let mut attempts = 0;
+        locals.flush_dismount([0.0; 3], |_| {
+            attempts += 1;
+            Err(protocol::BatchSendError::Full)
+        });
+        assert_eq!(attempts, 1);
+        for locks in [
+            ClientInputLocks::from_bits(ClientInputLock::Dismount as u32),
+            ClientInputLocks::default(),
+        ] {
+            apply_committed_input_locks(7, locks, &mut facts, &mut physics, &mut locals, &mut look);
+        }
+        frame.sneak = Default::default();
+        locals.observe_dismount(&frame, 7);
+        locals.flush_dismount([0.0; 3], |_| {
+            panic!("lock/unlock replayed a retained dismount")
+        });
+        frame.sneak.pressed = true;
+        locals.observe_dismount(&frame, 7);
+        locals.flush_dismount([0.0; 3], |_| {
+            attempts += 1;
+            Ok(())
+        });
+        assert_eq!(attempts, 2);
+    }
+
+    pub(super) struct Floor;
 
     impl sim::CollisionWorld for Floor {
         /// Supplies loaded ground so retained requests can produce a real takeoff.
@@ -79,13 +154,24 @@ mod tests {
             physics.request_jump_pulse();
         }
         let mut facts = LocalPlayerFacts::new(7);
+        let mut locals = LocomotionState::default();
+        let mut look = LookSmoother::default();
         apply_committed_input_locks(
             session,
             ClientInputLocks::from_bits(lock.map_or(0, |lock| lock as u32)),
             &mut facts,
             &mut physics,
+            &mut locals,
+            &mut look,
         );
-        apply_committed_input_locks(7, ClientInputLocks::default(), &mut facts, &mut physics);
+        apply_committed_input_locks(
+            7,
+            ClientInputLocks::default(),
+            &mut facts,
+            &mut physics,
+            &mut locals,
+            &mut look,
+        );
         let result = physics.advance(
             Duration::from_millis(40),
             sim::MovementInput::default(),
