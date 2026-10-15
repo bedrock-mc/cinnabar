@@ -339,7 +339,6 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
     );
     gpu.manifest = manifest;
     assert!(gpu.draw_batch(view).is_some());
-    drop(gpu);
     world.run_system_once(prepare_actor_resources).unwrap();
     assert!(
         world.resource::<ActorGpu>().draw_batch(view).is_none(),
