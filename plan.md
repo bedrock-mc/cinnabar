@@ -1,3 +1,12 @@
+## Sleeper-only bed sampling
+
+Actor ingress retains sleeping actors and their streamed bed positions. Presentation samples
+only those beds, clears unavailable headings, and reads direction facts compiled with each
+runtime-ID registry. Wake-up, bed changes, replacement and reset discard stale samples.
+Incomplete: regression tests are written but unrun; rendered comparisons and performance
+measurements remain pending. Collider snapshot caching remains separate. No parity or
+performance acceptance gate closes here.
+
 ## Incremental persona artwork pages
 
 Persona animation images retain bounded single-layer page slots across empty views.

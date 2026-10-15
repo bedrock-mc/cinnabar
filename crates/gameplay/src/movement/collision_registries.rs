@@ -15,6 +15,7 @@ use thiserror::Error;
 mod multipart;
 mod selection;
 mod session_palette;
+mod sleeping;
 mod tags;
 
 /// Interaction facts shared by both runtime identity spaces.
@@ -34,6 +35,8 @@ struct InteractionBlock {
     )>,
     /// Offset to the other block of a two-block structure such as a door or bed.
     second_part: Option<[i32; 3]>,
+    /// Sleep heading compiled from the admitted direction state, when present.
+    bed_rotation: Option<f32>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -204,6 +207,7 @@ impl PhysicsCollisionRegistries {
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
                     record.model_state.get(assets::ModelStateField::Orientation),
                 )),
+                bed_rotation: states.as_ref().and_then(sleeping::rotation),
                 second_part: states.as_ref().and_then(|states| {
                     multipart::second_part_offset(block_facts.get(record.sequential_id), states)
                 }),
@@ -378,6 +382,7 @@ impl PhysicsCollisionRegistries {
                         tags: Arc::clone(&block.tags),
                         connections: None,
                         second_part: None,
+                        bed_rotation: None,
                     },
                 );
                 let boxes = custom_block_boxes(&effective);
@@ -430,6 +435,7 @@ impl PhysicsCollisionRegistries {
                             tags: Arc::clone(&block.tags),
                             connections: None,
                             second_part: None,
+                            bed_rotation: None,
                         },
                     );
                     apply_selection(

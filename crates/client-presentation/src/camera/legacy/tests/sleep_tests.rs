@@ -24,7 +24,7 @@ fn bed_collisions(app: &mut App, bed: [i32; 3], direction: usize) -> TestCollisi
     registry.register(1, []).unwrap();
     TestCollisions {
         registry,
-        bed_state: Some(format!(r#"{{"direction":{direction}}}"#)),
+        bed_rotation: Some([90.0, 0.0, 270.0, 180.0][direction]),
     }
 }
 
@@ -58,7 +58,7 @@ fn present(
 #[derive(Resource, Default)]
 struct TestCollisions {
     registry: sim::CollisionRegistry,
-    bed_state: Option<String>,
+    bed_rotation: Option<f32>,
 }
 
 impl CollisionLookup for TestCollisions {
@@ -67,11 +67,9 @@ impl CollisionLookup for TestCollisions {
         &self.registry
     }
 
-    /// Returns the authored direction of the fixture's loaded bed palette.
-    fn block_canonical_state(&self, _: assets::NetworkIdMode, runtime: u32) -> Option<&str> {
-        (runtime == 1)
-            .then_some(self.bed_state.as_deref())
-            .flatten()
+    /// Returns the compiled heading of the fixture's loaded bed palette.
+    fn bed_rotation_degrees(&self, _: assets::NetworkIdMode, runtime: u32) -> Option<f32> {
+        (runtime == 1).then_some(self.bed_rotation).flatten()
     }
 
     /// The fixture has no block identifier queries.
