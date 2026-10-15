@@ -37,7 +37,7 @@ pub struct JavaCameraTick {
     pub riding: bool,
     /// Java stops the walk phase while flying, riding or sneaking on the ground.
     pub walks: bool,
-    /// Look pitch and yaw in Minecraft degrees (down and right positive).
+    /// Look pitch and continuous yaw in Minecraft degrees (down and right positive).
     pub look: [f32; 2],
 }
 

@@ -204,7 +204,7 @@ pub fn update_look(
         return;
     }
 
-    let (yaw, pitch, roll) = view.look_angles();
+    let (yaw, pitch, roll) = view.look_rotation().to_euler(EulerRot::YXZ);
     let feel = settings.feel();
     let degrees = match mode {
         semantic_input::InputMode::KeyboardMouse => {
@@ -233,7 +233,7 @@ pub fn update_look(
     if let Some(rotation) = server_rotation {
         view.set_look_rotation(rotation);
     } else {
-        view.set_look_angles(yaw, pitch, roll);
+        view.turn_look_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll), -turn.x);
     }
 }
 

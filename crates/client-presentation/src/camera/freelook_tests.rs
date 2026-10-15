@@ -173,14 +173,27 @@ fn view_heading_keeps_wrap_crossings_and_freelook_turns() {
         assert!((view.camera_look()[1] - yaw).abs() < 1e-4);
     }
     view.set_freelook(true);
-    view.set_look_angles(-1080.0_f32.to_radians(), 0.0, 0.0);
+    view.turn_look_rotation(
+        Quat::from_rotation_y(-1080.0_f32.to_radians()),
+        -600.0_f32.to_radians(),
+    );
     assert!((view.camera_look()[1] - 1080.0).abs() < 1e-4);
     view.set_freelook(false);
     assert!((view.camera_look()[1] - 480.0).abs() < 1e-4);
     let before = view;
     view.set_look_rotation(Quat::from_xyzw(0.0, 0.0, 0.0, 0.0));
-    view.set_look_angles(f32::NAN, 0.0, 0.0);
+    view.turn_look_rotation(Quat::IDENTITY, f32::NAN);
     assert_eq!(view, before);
+}
+
+/// Complete turn history does not round the orientation used for small camera input.
+#[test]
+fn hand_yaw_history_does_not_reduce_camera_orientation_precision() {
+    let mut view = LocalViewPose::default();
+    view.turn_look_rotation(Quat::IDENTITY, 10_000.0 * std::f32::consts::TAU);
+    let rotation = Quat::from_rotation_y(0.0001);
+    view.turn_look_rotation(rotation, 0.0001);
+    assert!((view.look_rotation() * Vec3::NEG_Z).abs_diff_eq(rotation * Vec3::NEG_Z, 1e-7));
 }
 
 #[test]
@@ -297,8 +310,7 @@ fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
             .init_resource::<look::LookSmoother>()
             .add_systems(Update, drive);
         app.update();
-        let (yaw, _, _) = app.world().resource::<LocalViewPose>().look_angles();
-        yaw.to_degrees()
+        -app.world().resource::<LocalViewPose>().camera_look()[1]
     };
     let expected = |width, game| look::mouse_turn_degrees(Vec2::new(30.0, 0.0), width, game).x;
     assert!((turned(1920, None, 30.0) - expected(1920, 0.628)).abs() < 1e-4);

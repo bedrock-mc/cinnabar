@@ -495,7 +495,15 @@ fn shared_hand_sway_retains_turn_direction_at_high_and_low_frame_rates() {
                     let look = from.lerp(to, frame as f32 / frames_per_tick as f32);
                     app.world_mut()
                         .resource_mut::<LocalViewPose>()
-                        .set_look_angles(-look.y.to_radians(), -look.x.to_radians(), 0.0);
+                        .turn_look_rotation(
+                            Quat::from_euler(
+                                EulerRot::YXZ,
+                                -look.y.to_radians(),
+                                -look.x.to_radians(),
+                                0.0,
+                            ),
+                            -(to.y - from.y).to_radians() / frames_per_tick as f32,
+                        );
                     if frame == frames_per_tick {
                         tick(&mut app, index as u64 + 2);
                         previous = current;

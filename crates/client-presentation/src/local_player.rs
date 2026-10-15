@@ -296,11 +296,6 @@ impl LocalViewPose {
         self.freelook_rotation.unwrap_or(self.rotation).rotation
     }
 
-    /// Input angles in radians, retaining full yaw turns for first-person inertia.
-    pub fn look_angles(self) -> (f32, f32, f32) {
-        self.freelook_rotation.unwrap_or(self.rotation).angles()
-    }
-
     /// Presentation pitch and continuous yaw in Minecraft degrees.
     pub fn camera_look(self) -> [f32; 2] {
         let (yaw, pitch, _) = if self.sleeping_camera
@@ -308,7 +303,7 @@ impl LocalViewPose {
         {
             pose.rotation.to_euler(EulerRot::YXZ)
         } else {
-            self.look_angles()
+            self.freelook_rotation.unwrap_or(self.rotation).angles()
         };
         [-pitch.to_degrees(), -yaw.to_degrees()]
     }
@@ -338,12 +333,13 @@ impl LocalViewPose {
             .set(rotation, None);
     }
 
-    /// Applies input angles without discarding turns larger than half a revolution.
-    pub fn set_look_angles(&mut self, yaw: f32, pitch: f32, roll: f32) {
-        self.freelook_rotation
+    /// Stores the input orientation and its full yaw delta in radians for hand inertia.
+    pub fn turn_look_rotation(&mut self, rotation: Quat, yaw_delta: f32) {
+        let heading = self
+            .freelook_rotation
             .as_mut()
-            .unwrap_or(&mut self.rotation)
-            .set(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll), Some(yaw));
+            .unwrap_or(&mut self.rotation);
+        heading.set(rotation, Some(heading.yaw + yaw_delta));
     }
 
     /// Invalidates camera presentation history without changing gameplay or network state.
