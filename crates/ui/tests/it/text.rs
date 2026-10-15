@@ -245,6 +245,32 @@ fn visual_overhang_drives_wrapping_and_reported_bounds() {
 }
 
 #[test]
+fn caret_stops_follow_source_bytes_and_pens_instead_of_ink_widths() {
+    let font = font_with_glyph(
+        [0x32; 32],
+        GlyphMetrics {
+            codepoint: '界',
+            page: 0,
+            uv: [0, 0, 4, 1],
+            bearing: [-1, 0],
+            advance_64: 2 * 64,
+        },
+    );
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    for scale in [1.0, 1.5, 2.0] {
+        let text = "界§c界\u{200b}";
+        let drawn = layout(&mut cache, &font, text, scale, 4096);
+        let unit = (64.0 * scale) as i32;
+        assert_eq!(drawn.first_line_caret_x_64(0), unit);
+        assert_eq!(drawn.first_line_caret_x_64("界".len()), 3 * unit);
+        assert_eq!(drawn.first_line_caret_x_64("界§c".len()), 3 * unit);
+        assert_eq!(drawn.first_line_caret_x_64(text.len()), 5 * unit);
+        assert_eq!(drawn.glyphs()[1].bounds_64[0], 2 * unit);
+        assert_eq!(drawn.size_64()[0], 6 * unit as u32);
+    }
+}
+
+#[test]
 fn explicit_newlines_and_layout_bounds_fail_closed() {
     let font = font([0x22; 32]);
     let mut cache = TextLayoutCache::new(8, 2 * 1024 * 1024);

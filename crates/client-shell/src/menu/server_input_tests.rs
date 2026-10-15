@@ -438,6 +438,68 @@ impl Drop for Harness {
 }
 
 #[test]
+fn real_carrier_server_fields_select_the_displayed_character_after_a_space() {
+    let Some(mut h) = Harness::new(1.0) else {
+        return;
+    };
+    {
+        let mut menu = h.app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+        menu.activate(MenuAction::PlayAddServer);
+        menu.activate(MenuAction::AddName);
+    }
+    h.app.update();
+    h.paste(" 02");
+    h.press(KeyCode::Home, None);
+    h.press(KeyCode::ArrowRight, None);
+    h.press(KeyCode::ShiftLeft, None);
+    h.press(KeyCode::ArrowRight, None);
+    h.key(KeyCode::ShiftLeft, None, ButtonState::Released);
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "server-input-whitespace-selection",
+    );
+    let view = h.app.world().resource::<MenuRuntime>().view();
+    assert_eq!(view.caret.selection, Some([1, 2]));
+    let presentation = h.app.world().resource::<UiPresentationResource>();
+    let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
+    let (node, layout) = nodes
+        .iter()
+        .find_map(|node| match node.visual() {
+            UiVisual::Text { layout, .. }
+                if layout
+                    .glyphs()
+                    .iter()
+                    .map(|g| g.codepoint)
+                    .collect::<String>()
+                    == " 02" =>
+            {
+                Some((node, layout))
+            }
+            _ => None,
+        })
+        .expect("the field preserves its leading space");
+    let selection = nodes
+        .iter()
+        .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
+        .unwrap();
+    let selected = node_point(selection, nodes);
+    let origin = node_point(node, nodes);
+    let zero = &layout.glyphs()[1];
+    let center = origin.x() - 0.5 + (zero.bounds_64[0] + zero.bounds_64[2]) as f32 / 128.0;
+    assert!(
+        center >= selected.x() - 0.5 && center < selected.x() - 0.5 + selection.bounds().width()
+    );
+    assert_eq!(
+        h.app
+            .world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .menu_caret_at(selected, MenuField::Name, " 02"),
+        Some(1)
+    );
+}
+
+#[test]
 fn real_carrier_server_fields_hide_selection_when_dialog_closes() {
     let Some(mut h) = Harness::new(1.0) else {
         return;

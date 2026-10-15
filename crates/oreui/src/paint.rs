@@ -7,6 +7,7 @@ use std::sync::Arc;
 #[cfg(test)]
 mod cache_tests;
 mod clip;
+mod editable;
 mod motion;
 mod reveal;
 #[cfg(test)]

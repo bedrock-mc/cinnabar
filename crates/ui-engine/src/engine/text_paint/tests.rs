@@ -416,6 +416,7 @@ fn named_edit_metadata_places_caret_at_the_painted_character_boundary() {
                         "caret and painted text use the same fractional origin"
                     );
                     let spot = TextSpot {
+                        layout: None,
                         field: (),
                         bounds: node.bounds(),
                         left: edit.left,
@@ -506,6 +507,7 @@ fn named_styled_font_effects_use_display_units_at_every_raster_resolution() {
                     })
                     .unwrap();
                 let spot = TextSpot {
+                    layout: None,
                     field: (),
                     bounds: node.bounds(),
                     left: edit.left,
