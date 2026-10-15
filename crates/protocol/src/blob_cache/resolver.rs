@@ -620,7 +620,10 @@ impl BlobCacheResolver {
         self.retained_column_slots -= transaction.columns.len();
         for hash in &transaction.unique_hashes {
             let remove_hash = if let Some(transactions) = self.pending_by_hash.get_mut(hash) {
+                // A removal that leaves a tombstone reduces the set's reported capacity.
+                let previous_capacity = transactions.capacity();
                 transactions.remove(&sequence);
+                self.pending_hash_set_capacity -= previous_capacity - transactions.capacity();
                 transactions.is_empty()
             } else {
                 false

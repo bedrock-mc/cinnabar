@@ -189,3 +189,61 @@ impl BlobCacheResolver {
             .is_some_and(|bytes| bytes <= MAX_CLIENT_BLOB_PENDING_BYTES)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blob_cache::tests::cached_level_chunk;
+
+    /// Abandoning waiters one at a time leaves every running total equal to a full walk,
+    /// including hash-index capacity that a removal can reclaim as a tombstone.
+    #[test]
+    fn abandoning_individual_waiters_keeps_running_totals_exact() {
+        let shared = client_blob_hash(b"shared waiter blob");
+        let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+        for x in 0..96 {
+            let own = client_blob_hash(format!("own blob {x}").as_bytes());
+            resolver
+                .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![shared, own])))
+                .expect("admit a waiter on the shared blob");
+        }
+        let mut sequences = resolver.pending.keys().copied().collect::<Vec<_>>();
+        sequences.sort_unstable();
+        // Interleaved removal leaves deleted slots between live entries of the shared set.
+        let (evens, odds): (Vec<_>, Vec<_>) = sequences
+            .into_iter()
+            .partition(|sequence| sequence % 2 == 0);
+        for sequence in evens.into_iter().chain(odds) {
+            resolver
+                .abandon_pending_transaction(sequence)
+                .expect("abandon one waiter");
+            assert_eq!(
+                resolver.pending_hash_set_capacity,
+                resolver
+                    .pending_by_hash
+                    .values()
+                    .map(HashSet::capacity)
+                    .sum::<usize>(),
+                "hash-index capacity after abandoning {sequence}"
+            );
+            assert_eq!(
+                resolver.pending_accounted_bytes,
+                resolver
+                    .pending
+                    .values()
+                    .map(|transaction| transaction.accounted_bytes)
+                    .sum::<usize>()
+            );
+            assert_eq!(
+                resolver.retained_column_slots,
+                resolver
+                    .pending
+                    .values()
+                    .map(|transaction| transaction.columns.len())
+                    .chain(resolver.ready.values().map(|ready| ready.columns.len()))
+                    .sum::<usize>()
+            );
+        }
+        assert!(resolver.pending.is_empty());
+    }
+}
