@@ -55,8 +55,12 @@ fn on_crash(context: &Context, hooks: LogHooks, crash: &CrashContext) -> CrashEv
     }
     let _ = hooks;
     if dumped {
-        // The monitor reports it; on Windows that ends the process without the system's crash
-        // dialog, elsewhere the previous handlers and the default action still run.
+        // The monitor reports it. On Windows the process ends here with the exception code:
+        // returning to the system from a fault inside a window-message callback leaves the
+        // process alive for many seconds before it fails with STATUS_FATAL_USER_CALLBACK_EXCEPTION.
+        // Elsewhere the previous handlers and the default action still run.
+        #[cfg(windows)]
+        terminate(crash.exception_code);
         return CrashEventResult::Handled(cfg!(windows));
     }
     #[cfg(windows)]
@@ -64,6 +68,16 @@ fn on_crash(context: &Context, hooks: LogHooks, crash: &CrashContext) -> CrashEv
     #[cfg(unix)]
     super::fallback::write_native(crash);
     CrashEventResult::Handled(false)
+}
+
+/// Ends this process at once with `code`, after its crash has been dumped and reported.
+#[cfg(windows)]
+fn terminate(code: i32) {
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, TerminateProcess};
+    // SAFETY: Terminating the current process with a pseudo-handle has no preconditions.
+    unsafe {
+        TerminateProcess(GetCurrentProcess(), code as u32);
+    }
 }
 
 /// Asks the monitor to dump this process for `crash`, announcing the request first; false
