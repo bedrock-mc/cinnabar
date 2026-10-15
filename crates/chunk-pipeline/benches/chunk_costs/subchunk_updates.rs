@@ -77,6 +77,7 @@ pub(super) fn benches(c: &mut Criterion) {
         group.finish();
     }
     single_cell_benches(c);
+    lazy_compaction_benches(c);
 }
 
 /// Seeds retained counts through production batch mutation before measuring one prepared edit.
@@ -180,6 +181,67 @@ fn single_cell_benches(c: &mut Criterion) {
         );
         group.bench_function(BenchmarkId::new("single_prepare", name), |b| {
             b.iter(|| black_box(prepare()));
+        });
+    }
+    group.finish();
+}
+
+/// Seeds three removable raw values so replacing the first remaps surviving palette indices.
+fn lazy_compaction_fixture() -> ChunkStore {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut store = ChunkStore::new();
+    let updates = (0..3)
+        .map(|y| BlockUpdate::new(0, y, 0, 0, SOLID_SWAPPED + u32::from(y)))
+        .collect::<Vec<_>>();
+    store.update_sub_chunk_blocks(key, &updates, AIR).unwrap();
+    store
+}
+
+/// Includes production snapshot copies and commits, optionally observing canonical words once.
+fn repeated_last_use_edits(store: &mut ChunkStore, observe_words: bool) {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    for edit in 0..UPDATES_PER_PACKET {
+        let previous = store.sub_chunk(key).unwrap();
+        let update = BlockUpdate::new(0, 0, 0, 0, SOLID_SWAPPED + 3 + edit as u32);
+        let prepared =
+            ChunkStore::prepare_sub_chunk_blocks(key, Some(&previous), &[update], AIR).unwrap();
+        store.commit_prepared_block_updates(vec![prepared]).unwrap();
+    }
+    let current = store.sub_chunk(key).unwrap();
+    black_box(current.runtime_id(0, 0, 0, 0));
+    if observe_words {
+        black_box(current.storages()[0].words());
+    }
+}
+
+/// Separates repeated last-use mutation cost from the final canonical materialization cost.
+fn lazy_compaction_benches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("pipeline/synced_update_burst");
+    group.sample_size(10);
+    group.throughput(Throughput::Elements(UPDATES_PER_PACKET as u64));
+    for observe_words in [false, true] {
+        let mut witness = lazy_compaction_fixture();
+        #[cfg(not(feature = "runtime-profile"))]
+        let (_, allocations) =
+            test_alloc::measure(|| repeated_last_use_edits(&mut witness, observe_words));
+        #[cfg(feature = "runtime-profile")]
+        repeated_last_use_edits(&mut witness, observe_words);
+        let current = witness.sub_chunk(SubChunkKey::new(0, 0, 0, 0)).unwrap();
+        assert_eq!(
+            current.runtime_id(0, 0, 0, 0),
+            Some(SOLID_SWAPPED + 2 + UPDATES_PER_PACKET as u32)
+        );
+        #[cfg(not(feature = "runtime-profile"))]
+        eprintln!(
+            "repeated_last_use updates={UPDATES_PER_PACKET} observe_words={observe_words} allocation_requests_including_realloc={} requested_bytes={}",
+            allocations.calls, allocations.bytes
+        );
+        group.bench_function(BenchmarkId::new("repeated_last_use", observe_words), |b| {
+            b.iter_batched_ref(
+                lazy_compaction_fixture,
+                |store| repeated_last_use_edits(store, observe_words),
+                BatchSize::PerIteration,
+            );
         });
     }
     group.finish();

@@ -24,7 +24,7 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
     for (i, record) in records.iter().enumerate() {
         spawn(&mut store, i as u64 + 1, &record.identifier);
     }
-    let boxes: Vec<_> = store.movement_colliders(0, 0).collect();
+    let boxes = store.movement_collider_snapshot(0, 0);
     assert_eq!(boxes.len(), records.len());
     for (bounds, record) in boxes.iter().zip(&records) {
         let [width, height] = record.fact.collision.unwrap_or([
@@ -35,9 +35,15 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
         assert!((bounds.1[1] - bounds.0[1] - height).abs() < 1e-6);
     }
     store.rider_to_ridden.insert(100, 2);
-    assert_eq!(store.movement_colliders(1, 100).count(), records.len() - 2);
+    assert_eq!(
+        store.movement_collider_snapshot(1, 100).len(),
+        records.len() - 2
+    );
     store.rider_to_ridden.clear();
-    assert_eq!(store.movement_colliders(1, 100).count(), records.len() - 1);
+    assert_eq!(
+        store.movement_collider_snapshot(1, 100).len(),
+        records.len() - 1
+    );
 }
 
 #[test]
@@ -69,7 +75,11 @@ fn collidable_actors_without_definition_sizes_use_the_server_box() {
             .into(),
         ),
     );
-    let (min, max) = store.movement_colliders(0, 0).next().unwrap();
+    let (min, max) = store
+        .movement_collider_snapshot(0, 0)
+        .first()
+        .copied()
+        .unwrap();
     assert_eq!(max[0] - min[0], size);
     assert_eq!(max[1] - min[1], size);
 }
@@ -83,7 +93,7 @@ fn synced_collision_flags_refresh_membership_and_removal_clears_it() {
         .find(|r| r.fact.collidable)
         .unwrap();
     spawn(&mut store, 1, &record.identifier);
-    assert_eq!(store.movement_colliders(0, 0).count(), 1);
+    assert_eq!(store.movement_collider_snapshot(0, 0).len(), 1);
     for (sequence, flags, expected) in [
         (2, 0, 0),
         (3, 1_u64 << (ActorFlag::Collidable.wire_value() - 64), 1),
@@ -103,7 +113,7 @@ fn synced_collision_flags_refresh_membership_and_removal_clears_it() {
                 tick: sequence,
             }),
         );
-        assert_eq!(store.movement_colliders(0, 0).count(), expected);
+        assert_eq!(store.movement_collider_snapshot(0, 0).len(), expected);
     }
     store.apply(
         1,
@@ -113,7 +123,7 @@ fn synced_collision_flags_refresh_membership_and_removal_clears_it() {
             unique_id: 1,
         }),
     );
-    assert_eq!(store.movement_colliders(0, 0).count(), 0);
+    assert_eq!(store.movement_collider_snapshot(0, 0).len(), 0);
 }
 
 #[test]
@@ -125,7 +135,11 @@ fn moving_actors_use_current_collision_feet_and_synced_scale() {
         .find(|r| r.fact.collidable)
         .unwrap();
     spawn(&mut store, 1, &record.identifier);
-    let before = store.movement_colliders(0, 0).next().unwrap();
+    let before = store
+        .movement_collider_snapshot(0, 0)
+        .first()
+        .copied()
+        .unwrap();
     store.apply(
         1,
         2,
@@ -151,10 +165,18 @@ fn moving_actors_use_current_collision_feet_and_synced_scale() {
     movement.interpolation.ticks = u64::from(half_ticks) * 2;
     store.apply(1, 3, ActorEvent::Move(movement));
     store.advance_interpolation_ticks(half_ticks);
-    let midway = store.movement_colliders(0, 0).next().unwrap();
+    let midway = store
+        .movement_collider_snapshot(0, 0)
+        .first()
+        .copied()
+        .unwrap();
     assert!(((midway.0[0] + midway.1[0]) * 0.5 - 1.0).abs() < 1e-6);
     store.advance_interpolation_ticks(half_ticks);
-    let after = store.movement_colliders(0, 0).next().unwrap();
+    let after = store
+        .movement_collider_snapshot(0, 0)
+        .first()
+        .copied()
+        .unwrap();
     assert!(
         ((after.0[0] + after.1[0]) * 0.5 - (before.0[0] + before.1[0]) * 0.5 - 2.0).abs() < 1e-6
     );

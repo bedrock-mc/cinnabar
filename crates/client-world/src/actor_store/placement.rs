@@ -77,6 +77,7 @@ impl ActorStore {
         actor.received_pose.position = position;
         actor.interpolation_ticks_remaining = 0;
         actor.status.movement_interpolation = Default::default();
+        self.effect_members.collidable.update(actor);
         if reanchor {
             self.animation.reanchor_position(runtime_id, position);
         }
@@ -186,6 +187,7 @@ impl ActorStore {
             let mut state = rider.motion_state();
             state.seat(&placement);
             rider.apply_motion_state(state);
+            self.effect_members.collidable.update(rider);
         }
     }
 
