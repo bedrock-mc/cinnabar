@@ -271,7 +271,7 @@ fn nearest_observed_actors<'a>(
     actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
     origin: [f32; 3],
 ) -> impl ExactSizeIterator<Item = &'a client_world::ActorSnapshot> {
-    let mut nearby = BinaryHeap::with_capacity(mod_api::MAX_OBSERVED_ACTORS);
+    let mut nearby = BinaryHeap::new();
     for actor in actors {
         let distance = actor
             .position
@@ -284,6 +284,9 @@ fn nearest_observed_actors<'a>(
         }
         let candidate = NearbyActor { distance, actor };
         if nearby.len() < mod_api::MAX_OBSERVED_ACTORS {
+            if nearby.is_empty() {
+                nearby.reserve_exact(mod_api::MAX_OBSERVED_ACTORS);
+            }
             nearby.push(candidate);
         } else if nearby.peek().is_some_and(|furthest| candidate < *furthest) {
             *nearby.peek_mut().expect("nonempty bounded heap") = candidate;
@@ -704,6 +707,22 @@ mod tests {
             [f32::MAX; 3],
         ] {
             assert_selection_matches(&actors, origin);
+        }
+    }
+
+    #[test]
+    fn nearest_observations_do_not_allocate_without_eligible_actors() {
+        let (empty, allocations) =
+            test_alloc::measure(|| nearest_observed_actors(std::iter::empty(), [0.; 3]));
+        assert_eq!(empty.len(), 0);
+        assert_eq!(allocations.calls, 0);
+        let mut actor = actor_template();
+        for position in [[129., 0., 0.], [f32::NAN, 0., 0.], [f32::MAX; 3]] {
+            actor.position = position;
+            let (empty, allocations) =
+                test_alloc::measure(|| nearest_observed_actors(std::iter::once(&actor), [0.; 3]));
+            assert_eq!(empty.len(), 0);
+            assert_eq!(allocations.calls, 0);
         }
     }
 
