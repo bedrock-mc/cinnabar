@@ -178,3 +178,35 @@ fn unsupported_riptide_is_retired_without_stalling_later_ticks() {
         assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
     }
 }
+
+#[test]
+fn riptide_that_exceeds_the_budget_with_existing_motion_is_retired() {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    physics.queue_server_motion([0.0, 0.0, 120.0], 0);
+    let mut ordinary = physics.clone();
+    physics.request_riptide(20, [0.0; 2]);
+    for tick in 101..=103 {
+        let frame = physics.advance(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            &VersionedFloor(1),
+        );
+        let baseline = ordinary.advance(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            &VersionedFloor(1),
+        );
+        assert!(
+            frame.blocked.is_none(),
+            "the launch must not keep retrying: {:?}",
+            frame.blocked
+        );
+        assert_eq!(frame.samples.len(), 1);
+        assert_eq!(frame.samples[0].tick, tick);
+        assert!(!frame.samples[0].processed.spin_started);
+        assert_eq!(physics.state(), ordinary.state());
+        assert_eq!(frame.samples[0].position, baseline.samples[0].position);
+    }
+}

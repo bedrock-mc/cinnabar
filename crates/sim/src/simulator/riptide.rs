@@ -19,6 +19,11 @@ impl RiptideLaunch {
         launch.is_supported().then_some(launch)
     }
 
+    /// Returns the released enchantment level for skipped-request diagnostics.
+    pub fn level(self) -> u8 {
+        self.level
+    }
+
     /// Rejects unsupported releases even when deserialization bypassed the constructor.
     pub(super) fn is_supported(self) -> bool {
         self.level > 0

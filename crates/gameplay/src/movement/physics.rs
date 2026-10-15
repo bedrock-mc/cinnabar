@@ -673,9 +673,30 @@ impl LocalPhysicsController {
                 Some(error) => Err(sim::PredictionError::Simulation(SimulationError::World(
                     error,
                 ))),
-                None => self
-                    .history
-                    .predict_with_controls(state, input, &self.simulator, world),
+                None => {
+                    let predicted =
+                        self.history
+                            .predict_with_controls(state, input, &self.simulator, world);
+                    if matches!(
+                        predicted,
+                        Err(sim::PredictionError::Simulation(SimulationError::World(
+                            sim::WorldQueryError::QueryExtentExceeded
+                        )))
+                    ) && let Some(launch) = input.riptide.take()
+                    {
+                        // Failed ticks commit nothing. Retire the release and retry ordinary
+                        // movement when its impulse plus existing motion cannot fit the query.
+                        self.riptide_pending = None;
+                        super::diagnostics::note_skipped_authority(
+                            "riptide",
+                            f64::from(launch.level()),
+                        );
+                        self.history
+                            .predict_with_controls(state, input, &self.simulator, world)
+                    } else {
+                        predicted
+                    }
+                }
             };
             match predicted {
                 Ok(output) => {
