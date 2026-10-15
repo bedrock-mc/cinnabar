@@ -41,7 +41,10 @@ use assets::{RuntimeAssets, RuntimeEntityAssets};
 use bevy::{
     ecs::system::SystemParam,
     log::info,
-    prelude::{Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform, Vec3, With},
+    prelude::{
+        DetectChangesMut, Local, MessageWriter, Query, Res, ResMut, Resource, Time, Transform,
+        Vec3, With,
+    },
     time::{Real, Virtual},
 };
 use chunk_pipeline::{
@@ -65,7 +68,7 @@ use {
     crate::{
         environment::{self, WeatherState, WorldClock, apply_environment_control},
         runtime::{
-            shutdown::record_fatal_error,
+            shutdown::{FatalError, record_fatal_error},
             visibility::{CaveVisibilityCache, DiagnosticQuads},
         },
     },
@@ -127,10 +130,8 @@ pub(crate) struct ClientWorld {
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
-    pub(crate) fatal_error: Option<String>,
     pub(crate) transfer_notice: Option<TransferNotice>,
     pub(crate) network_decode_errors: u64,
-    pub(crate) reported_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
     /// StartGame's hashed world identity, absent when no level ID was supplied.
@@ -157,10 +158,8 @@ impl ClientWorld {
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
-            fatal_error: None,
             transfer_notice: None,
             network_decode_errors: 0,
-            reported_decode_errors: 0,
             client_blob_cache_enabled: false,
             client_blob_cache: BlobCacheStats::default(),
             level_identity: None,
@@ -190,6 +189,7 @@ impl ClientWorld {
 #[derive(SystemParam)]
 pub(crate) struct AppWorldState<'w> {
     pub(crate) client_world: ResMut<'w, ClientWorld>,
+    pub(crate) fatal_error: ResMut<'w, FatalError>,
     pub(crate) clock: ResMut<'w, WorldClock>,
     pub(crate) weather: ResMut<'w, WeatherState>,
     pub(crate) movement: ResMut<'w, MovementTicker>,
@@ -357,6 +357,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         .map(|profiler| profiler.time(RuntimeStage::WorldPoll));
     let AppWorldState {
         mut client_world,
+        mut fatal_error,
         mut clock,
         mut weather,
         mut movement,
@@ -374,7 +375,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
         pending_surface_spawn,
         dimension_transfer,
         respawn,
-        fatal_error,
         ..
     } = &mut *client_world;
     let Some(stream) = stream.as_mut() else {
@@ -412,7 +412,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         local_physics.deactivate();
         local_frame.reset(LocalPlayerFrameReset::Session);
         interaction.invalidate();
-        record_fatal_error(fatal_error, world_stream_fatal_message(error));
+        record_fatal_error(&mut fatal_error.0, world_stream_fatal_message(error));
         return;
     }
 
@@ -649,6 +649,7 @@ pub(crate) fn drive_world_stream(
         .map(|profiler| profiler.time(RuntimeStage::WorldStream));
     let AppWorldState {
         mut client_world,
+        mut fatal_error,
         mut local_physics,
         mut movement,
         mut ui_runtime,
@@ -686,7 +687,10 @@ pub(crate) fn drive_world_stream(
         camera_publication.as_deref(),
         clock.session_generation(),
     );
-    synchronize_biome_tints(stream, &mut biome_tints);
+    // Marked changed only on a new table, so unchanged frames do not re-extract it.
+    if synchronize_biome_tints(stream, biome_tints.bypass_change_detection()) {
+        biome_tints.set_changed();
+    }
     #[cfg(feature = "acceptance")]
     let mutation_cohort = frame_poll.cohort;
     for acknowledgement in acknowledgements.drain() {
@@ -757,7 +761,7 @@ pub(crate) fn drive_world_stream(
             if !mesh_change_has_publication_permit(&change) {
                 let restored = stream.retry_mesh_change_front(change).is_ok();
                 record_fatal_error(
-                    &mut client_world.fatal_error,
+                    &mut fatal_error.0,
                     if restored {
                         MISSING_PUBLICATION_PERMIT_ERROR.to_owned()
                     } else {
@@ -786,7 +790,12 @@ pub(crate) fn drive_world_stream(
                     urgent,
                     permit,
                 } => {
-                    let diagnostic_geometry = mesh.diagnostic_geometry().clone();
+                    // The mesh moves into the render queue, so keep a copy of its diagnostic
+                    // geometry only when publishing it would change the tracker.
+                    let diagnostic_geometry = (!diagnostic_quads
+                        .0
+                        .is_current(key, mesh.diagnostic_geometry()))
+                    .then(|| mesh.diagnostic_geometry().clone());
                     let publication_permit =
                         permit.expect("publication permit was validated before render handoff");
                     match render_queue.try_update_tracked_with_biome_identity_permitted(
@@ -807,7 +816,9 @@ pub(crate) fn drive_world_stream(
                     ) {
                         Ok(()) => {
                             block_use.prediction_frames.staged(frame.0, key, generation);
-                            diagnostic_quads.0.upsert(key, diagnostic_geometry);
+                            if let Some(diagnostic_geometry) = &diagnostic_geometry {
+                                diagnostic_quads.0.upsert(key, diagnostic_geometry);
+                            }
                             None
                         }
                         Err((mesh, biome, permit)) => Some(WorldMeshChange::Upsert {
@@ -868,7 +879,7 @@ pub(crate) fn drive_world_stream(
                 continue;
             };
             if stream.retry_mesh_change_front(retry).is_err() {
-                client_world.fatal_error = Some(
+                fatal_error.0 = Some(
                     "failed to restore a render update to the bounded world retry FIFO".to_owned(),
                 );
             }
@@ -876,7 +887,7 @@ pub(crate) fn drive_world_stream(
         }
     }
     if let Some(stream) = client_world.stream.as_ref() {
-        let stats = stream.stats();
+        let (pending_mesh_jobs, in_flight_mesh_jobs) = stream.mesh_job_counts();
         let previous = publication.diagnostics().last_work;
         let allowance = publication.allowance();
         publication.finish_frame(PublicationFrameWork {
@@ -884,8 +895,8 @@ pub(crate) fn drive_world_stream(
             mesh_changes_published: published_items,
             mesh_payloads_published: published_payload_items,
             mesh_bytes_published: published_bytes,
-            pending_mesh_jobs: stats.pending_mesh_jobs,
-            in_flight_mesh_jobs: stats.in_flight_mesh_jobs,
+            pending_mesh_jobs,
+            in_flight_mesh_jobs,
             upload_queue_items: render_queue.retained_len(),
             upload_queue_bytes: render_queue.pending_bytes(),
             allowance_live_permits: allowance.live_permits(),
@@ -895,7 +906,7 @@ pub(crate) fn drive_world_stream(
         });
     }
     if let Some(error) = send_error {
-        record_fatal_error(&mut client_world.fatal_error, error);
+        record_fatal_error(&mut fatal_error.0, error);
     }
     if let Some(position) = resolved_surface_spawn {
         view.reanchor_camera();

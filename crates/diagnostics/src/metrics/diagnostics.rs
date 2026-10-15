@@ -116,11 +116,22 @@ impl DiagnosticQuadTracker {
         }
     }
 
-    pub fn upsert(&mut self, key: SubChunkKey, summary: DiagnosticGeometrySummary) {
+    /// Whether [`Self::upsert`] with `summary` would leave the tracker unchanged: `key` already
+    /// holds an equal summary, or `summary` is empty and `key` holds nothing.
+    #[must_use]
+    pub fn is_current(&self, key: SubChunkKey, summary: &DiagnosticGeometrySummary) -> bool {
+        match self.by_sub_chunk.get(&key) {
+            Some(resident) => resident.summary == *summary,
+            None => summary.total_quad_count() == 0,
+        }
+    }
+
+    /// Records `key`'s summary, cloning it only when it replaces a different stored value.
+    pub fn upsert(&mut self, key: SubChunkKey, summary: &DiagnosticGeometrySummary) {
         if self
             .by_sub_chunk
             .get(&key)
-            .is_some_and(|resident| resident.summary == summary)
+            .is_some_and(|resident| resident.summary == *summary)
         {
             return;
         }
@@ -131,7 +142,7 @@ impl DiagnosticQuadTracker {
         if let Some(previous) = self.by_sub_chunk.remove(&key) {
             self.subtract_contribution(&previous);
         }
-        let contribution = self.add_summary(summary);
+        let contribution = self.add_summary(summary.clone());
         self.by_sub_chunk.insert(key, contribution);
         self.revision = self.revision.wrapping_add(1);
     }

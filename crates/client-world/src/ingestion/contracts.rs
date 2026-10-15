@@ -30,6 +30,13 @@ pub enum PreparedWorldEvent {
         entries: Vec<PreparedSubChunk>,
         duration: Duration,
     },
+    /// One entry of a partially applied [`Self::SubChunks`] batch, produced only by the ordered
+    /// commit state; applies exactly as that batch with `entries` holding only `entry`.
+    SubChunk {
+        dimension: i32,
+        entry: PreparedSubChunk,
+        duration: Duration,
+    },
     BlockUpdates {
         result: Result<PreparedBlockMutations, MutationError>,
         duration: Duration,

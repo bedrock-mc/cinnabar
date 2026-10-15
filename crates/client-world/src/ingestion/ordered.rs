@@ -154,7 +154,9 @@ impl OrderedCommitState {
     pub fn next_sequence(&self) -> u64 {
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
-            expected = self.finished_through(expected).saturating_add(1);
+            expected = self
+                .finished_through_before(expected, sequence)
+                .saturating_add(1);
             if sequence != expected || matches!(entry.slot, Slot::Waiting | Slot::Ready(_)) {
                 return expected.min(sequence);
             }
@@ -169,6 +171,17 @@ impl OrderedCommitState {
         match self.finished.range(..=from).next_back() {
             Some((_, &end)) if end >= from => end,
             _ => from.saturating_sub(1),
+        }
+    }
+
+    /// [`Self::finished_through`] where `entry` is the next admitted, unfinished sequence at
+    /// or after `from`. Finished runs never contain an unfinished sequence, so when `from` is
+    /// that entry the run lookup is skipped: contiguous admitted work costs no tree search.
+    fn finished_through_before(&self, from: u64, entry: u64) -> u64 {
+        if from == entry {
+            from.saturating_sub(1)
+        } else {
+            self.finished_through(from)
         }
     }
 
@@ -200,7 +213,7 @@ impl OrderedCommitState {
     fn frontier_where(&self, passes: impl Fn(&Footprint) -> bool) -> u64 {
         let mut committed = self.frontier.saturating_sub(1);
         for (&sequence, entry) in self.entries.range(self.frontier..) {
-            committed = self.finished_through(committed.saturating_add(1));
+            committed = self.finished_through_before(committed.saturating_add(1), sequence);
             if sequence != committed.saturating_add(1)
                 || !(self.reads_committed(sequence, entry) || passes(&entry.footprint))
             {
@@ -498,9 +511,9 @@ impl OrderedCommitState {
             .entries
             .next()
             .map_or(PreparedWorldEvent::CommitOnly, |entry| {
-                PreparedWorldEvent::SubChunks {
+                PreparedWorldEvent::SubChunk {
                     dimension: pending.dimension,
-                    entries: vec![entry],
+                    entry,
                     duration: pending.duration,
                 }
             });
@@ -543,7 +556,11 @@ impl OrderedCommitState {
         self.earlier.clear();
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
-            if sequence != self.finished_through(expected).saturating_add(1) {
+            if sequence
+                != self
+                    .finished_through_before(expected, sequence)
+                    .saturating_add(1)
+            {
                 self.earlier.add_unknown();
             }
             if self.earlier.is_barrier() {
@@ -575,7 +592,11 @@ impl OrderedCommitState {
         let mut first_skipped = None;
         let mut expected = self.frontier;
         for (&sequence, entry) in self.entries.range(self.frontier..) {
-            if sequence != self.finished_through(expected).saturating_add(1) {
+            if sequence
+                != self
+                    .finished_through_before(expected, sequence)
+                    .saturating_add(1)
+            {
                 self.earlier.add_unknown();
             }
             if self.earlier.is_barrier() {

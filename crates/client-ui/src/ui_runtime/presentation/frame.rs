@@ -24,9 +24,10 @@ impl UiPresentationRuntime {
         let (Some(hud_textures), Some(geometry)) = (self.hud_textures.as_ref(), geometry) else {
             return Ok(());
         };
-        let mut frame = self.hud_frame.clone();
-        frame.now_millis = now_millis;
-        HudLayout::new(
+        // The retained frame carries this frame's clock while the layout appends, rather than a
+        // copy of every item fact.
+        let captured = std::mem::replace(&mut self.hud_frame.now_millis, now_millis);
+        let appended = HudLayout::new(
             nodes,
             next_id,
             hud_textures,
@@ -34,8 +35,10 @@ impl UiPresentationRuntime {
             &self.font,
             self.solid_texture_page,
             geometry,
-        )?
-        .append(player_runtime, runtime, &frame, container)
+        )
+        .and_then(|mut layout| layout.append(player_runtime, runtime, &self.hud_frame, container));
+        self.hud_frame.now_millis = captured;
+        appended
     }
 
     /// Builds the frame from its retained UI authority.
@@ -344,22 +347,17 @@ impl UiPresentationRuntime {
                 dpi_scale,
                 safe_area,
             };
-            // `§k` text re-rolls its glyphs every frame, so it never reuses a drawn frame.
-            let obfuscated = obfuscated(&nodes);
-            let redrawn = if obfuscated {
-                None
-            } else {
-                redraw_changed(
-                    self.last_frame.as_mut(),
-                    self.last_input.as_ref(),
-                    &self.textures,
-                    &nodes,
-                    frame,
-                    (viewport, render_viewport),
-                    effects,
-                )
-                .inspect_err(|_| self.last_frame = None)?
-            };
+            // `§k` text re-rolls its glyphs every frame; the retained draw re-emits only it.
+            let redrawn = redraw_changed(
+                self.last_frame.as_mut(),
+                self.last_input.as_ref(),
+                &self.textures,
+                &nodes,
+                frame,
+                (viewport, render_viewport),
+                effects,
+            )
+            .inspect_err(|_| self.last_frame = None)?;
             if redrawn.is_none() {
                 // A declined redraw leaves the retained frame stale.
                 self.last_frame = None;
@@ -395,7 +393,7 @@ impl UiPresentationRuntime {
                 render_viewport,
             )
             .map_err(UiPresentationError::Adapter)?;
-            self.last_frame = (!obfuscated).then(|| BuiltFrame {
+            self.last_frame = Some(BuiltFrame {
                 nodes: nodes.clone(),
                 frame,
                 draw,
@@ -504,14 +502,4 @@ fn redraw_changed(
         #[cfg(test)]
         emitted: update.emitted,
     }))
-}
-
-/// Whether any text carries `§k`, whose glyphs change every frame.
-fn obfuscated(nodes: &[UiNode]) -> bool {
-    nodes.iter().any(|node| match node.visual() {
-        UiVisual::Text { layout, .. } | UiVisual::RotatedText { layout, .. } => {
-            layout.glyphs().iter().any(|glyph| glyph.style.obfuscated)
-        }
-        _ => false,
-    })
 }

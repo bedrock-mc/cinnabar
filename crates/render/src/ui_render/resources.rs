@@ -264,12 +264,10 @@ pub(crate) fn prepare_ui_resources(
         gpu.index_capacity = capacity;
         gpu.index_arena_id = gpu.index_arena_id.saturating_add(1);
     }
-    let mut upload = gpu.uploads.plan(input, fresh_vertices, fresh_indices);
-    upload.vertices = uploads::changed_range(
-        &gpu.textures.fonts.previous_vertices,
-        &gpu.textures.fonts.vertices,
-        fresh_vertices,
-    );
+    let UiGpu {
+        uploads, textures, ..
+    } = &mut *gpu;
+    let upload = uploads.plan(input, &textures.fonts, fresh_vertices, fresh_indices);
     if let Some(buffer) = gpu.vertex_buffer.as_ref()
         && !upload.vertices.is_empty()
     {

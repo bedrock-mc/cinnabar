@@ -359,6 +359,17 @@ pub(crate) fn synchronize_semantic_input_authority(
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };
+    // An unchanged identity is a no-op; skip cloning the bindings for it every frame.
+    if runtime.authority
+        == Some(SemanticInputAuthorityIdentity {
+            context,
+            controls_generation,
+            session_generation,
+            dimension,
+        })
+    {
+        return;
+    }
     match runtime.synchronize_authority(SemanticInputAuthorityFrame {
         context,
         controls_generation,

@@ -290,9 +290,10 @@ impl WorldAuthority {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
-    /// Dropped-item stacks with interpolated pose, spin, and pickup flight at `partial_tick`.
-    pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
-        self.actors.dropped_items(partial_tick)
+    /// Replaces `views` with dropped-item stacks at their interpolated pose, spin, and pickup
+    /// flight at `partial_tick`.
+    pub fn dropped_items_into(&self, partial_tick: f32, views: &mut Vec<crate::DroppedItemView>) {
+        self.actors.dropped_items_into(partial_tick, views);
     }
     /// Live lightning-bolt actors, for the bolt renderer and sky flash.
     pub fn lightning_bolts(&self) -> Vec<crate::LightningBoltView> {
@@ -302,9 +303,15 @@ impl WorldAuthority {
     pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
         self.actors.block_entities(partial_tick)
     }
-    /// Retains pending block actors for visibility decisions in the terrain's render frame.
-    pub fn block_entity_candidates(&self, partial_tick: f32) -> Vec<crate::BlockEntityCandidate> {
-        self.actors.block_entity_candidates(partial_tick)
+    /// Replaces `candidates` with pending block actors, retained for visibility decisions in
+    /// the terrain's render frame.
+    pub fn block_entity_candidates_into(
+        &self,
+        partial_tick: f32,
+        candidates: &mut Vec<crate::BlockEntityCandidate>,
+    ) {
+        self.actors
+            .block_entity_candidates_into(partial_tick, candidates);
     }
     /// End crystal beams with interpolated endpoints and actor animation age.
     pub fn crystal_beams(&self, partial_tick: f32) -> Vec<crate::CrystalBeamView> {
@@ -314,9 +321,9 @@ impl WorldAuthority {
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
     }
-    /// Fishing lines and leads with interpolated endpoints.
-    pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
-        self.actors.ropes(partial_tick)
+    /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
+    pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
+        self.actors.ropes_into(partial_tick, ropes);
     }
     /// Borrows one actor rig for presentation.
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {

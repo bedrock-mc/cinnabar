@@ -93,15 +93,16 @@ pub(super) fn label_positioned(
     }
 }
 
+/// How one label paints; the options are borrowed from the draw node for the paint.
 #[derive(Clone)]
-pub struct TextPaint {
+pub struct TextPaint<'a> {
     pub color: [u8; 4],
     pub edit: Option<super::host_edit::Feedback>,
     pub shadow: TextShadow,
     pub align: TextAlign,
     pub scale: f32,
     pub localize: bool,
-    pub options: TextOptions,
+    pub options: &'a TextOptions,
 }
 
 /// A label's text after vanilla localization. Every newline starts a line, so `\n\n` leaves a
@@ -320,7 +321,7 @@ impl Canvas<'_> {
         text: &str,
         dest: [f32; 4],
         clip: [f32; 4],
-        style: TextPaint,
+        style: TextPaint<'_>,
     ) -> Result<(), PaintError> {
         let text = if style.localize {
             localized(text, self.translate)
@@ -334,12 +335,12 @@ impl Canvas<'_> {
             .font
             .font_named(style.options.font_type.as_deref().unwrap_or("default"));
         let metrics = label_metrics(self.metrics, self.font, selected, style.scale);
-        let request = metrics.painted_request(&text, dest, &style.options, style.align, self.px);
+        let request = metrics.painted_request(&text, dest, style.options, style.align, self.px);
         let Ok(layout) = self.layouts.layout(request) else {
             return Ok(());
         };
         let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
-        let [left, top] = label_origin(dest, self.font, &style.options, self.px);
+        let [left, top] = label_origin(dest, self.font, style.options, self.px);
         let parent = self.group(clip)?;
         let id = self.id();
         self.nodes.push(

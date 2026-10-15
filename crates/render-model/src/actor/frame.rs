@@ -438,7 +438,9 @@ impl ActorRigFrameBuilder {
         if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
             return false;
         }
-        let Ok((id, geometry)) = eligibility::geometry(&self.catalog.geometries, submission) else {
+        let Ok((id, geometry)) =
+            eligibility::geometry(&self.catalog.geometries, &self.matrices, submission)
+        else {
             return false;
         };
         let Some(&index) = self.catalog.indices.get(&id) else {
@@ -601,7 +603,7 @@ impl ActorRigFrameBuilder {
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
             let (geometry_id, geometry) =
-                match eligibility::geometry(&self.catalog.geometries, submission) {
+                match eligibility::geometry(&self.catalog.geometries, &self.matrices, submission) {
                     Ok(geometry) => geometry,
                     Err(error) => {
                         error.count(&mut rejects);
