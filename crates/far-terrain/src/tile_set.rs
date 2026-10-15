@@ -293,6 +293,7 @@ impl FarTiles {
             let mesh = mesh_tile(&TileGrid::build(key, &decoded));
             let _ = tx.send(Built { key, token, mesh });
         });
+        true
     }
 
     /// Keeps a replaced mesh drawn until its area is covered, never alongside another retired
