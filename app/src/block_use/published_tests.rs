@@ -29,6 +29,9 @@ mod riptide_tests;
 #[path = "published_tests/attack_swing.rs"]
 mod attack_swing_tests;
 
+#[path = "published_tests/attack_hit_position.rs"]
+mod attack_hit_position_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 

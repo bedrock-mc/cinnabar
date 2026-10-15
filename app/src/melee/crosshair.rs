@@ -12,6 +12,59 @@ use {
     gameplay::mining::{creative_reach, survival_reach},
 };
 
+/// A completed pick retains its intercept independently from later actor motion and look input.
+#[derive(Clone, Copy)]
+pub(super) struct FrameTarget {
+    authority: (SessionGeneration, PositionAuthorityGeneration),
+    actor_session_id: u64,
+    target: Crosshair,
+    spawn_revision: Option<u64>,
+}
+
+impl FrameTarget {
+    /// Binds the exact hit point to its movement authority and actor lifetime.
+    pub(super) fn new(
+        target: Crosshair,
+        authority: (SessionGeneration, PositionAuthorityGeneration),
+        world: &client_world::WorldAuthority,
+    ) -> Self {
+        Self {
+            authority,
+            actor_session_id: world.actor_session_id(),
+            target,
+            spawn_revision: match target {
+                Crosshair::Actor(hit) => world
+                    .actor(hit.runtime_id)
+                    .map(|actor| actor.spawn_revision),
+                _ => None,
+            },
+        }
+    }
+
+    /// Rejects replaced authority; an actor removed or replaced since the pick becomes a miss.
+    pub(super) fn crosshair(
+        self,
+        authority: (SessionGeneration, PositionAuthorityGeneration),
+        world: &client_world::WorldAuthority,
+    ) -> Option<Crosshair> {
+        if self.authority != authority || self.actor_session_id != world.actor_session_id() {
+            return None;
+        }
+        Some(match self.target {
+            Crosshair::Actor(hit)
+                if self.spawn_revision.is_none()
+                    || world
+                        .actor(hit.runtime_id)
+                        .map(|actor| actor.spawn_revision)
+                        != self.spawn_revision =>
+            {
+                Crosshair::Miss
+            }
+            target => target,
+        })
+    }
+}
+
 /// Assisted actor identity is preserved while ordinary reach and world obstruction remain authoritative.
 pub(super) fn resolve_crosshair(
     player_runtime: &client_state::PlayerRuntime,
@@ -80,7 +133,16 @@ pub(super) fn resolve_crosshair(
         origin,
         ray.direction().to_array(),
         actor_reach,
-    );
+    )
+    .map(|mut hit| {
+        if let Some(target) = context.aim.target
+            && target.kind == client_presentation::aim_assist::TargetKind::Actor(hit.runtime_id)
+        {
+            hit.point = target.point.to_array();
+            hit.distance = f64::from(gameplay::melee::pick_distance(origin, hit.point));
+        }
+        hit
+    });
     Some(classify(actor, block_distance, attack_reach))
 }
 

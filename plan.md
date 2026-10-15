@@ -3536,6 +3536,11 @@ box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
 
+2026-10-15 actor attacks retain the previously published frame's actor and world-space
+hit point through later movement and look input, including selected aim-assist coordinates.
+Position resets retire the pick; removed or replaced actors turn it into a miss. Exact camera sampling, network batch
+boundaries and latency-reply timing remain incomplete pending a matched packet capture.
+
 2026-10-10 actor use: a use press on an actor always sends the Interact
 transaction, then falls through to item use (a throw, for example) unless the
 target offers an interaction. Players offer one only while the server's interact
