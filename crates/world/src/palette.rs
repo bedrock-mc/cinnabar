@@ -101,6 +101,53 @@ impl PalettedStorage {
         }
     }
 
+    /// Maximum heap payload of decoded or edited storage, including a lazy canonical cache.
+    /// Excludes this struct and allocator overhead; shared cached words are charged in full.
+    pub const MAX_RETAINED_HEAP_BYTES: usize = word_count(SUPPORTED_BITS[SUPPORTED_BITS.len() - 1])
+        * std::mem::size_of::<u32>()
+        + BLOCKS_PER_SUB_CHUNK
+            * (std::mem::size_of::<u32>() + std::mem::size_of::<edits::PaletteSlot>())
+        + canonical_heap_bytes(word_count(SUPPORTED_BITS[SUPPORTED_BITS.len() - 1]));
+
+    /// Heap payload currently retained, including physical words, dead slots and cached words.
+    /// Does not materialize canonical words. Shared cache payload/control words are counted in
+    /// full per snapshot; this struct and allocator bookkeeping are excluded.
+    #[must_use]
+    pub fn retained_heap_bytes(&self) -> usize {
+        self.working_heap_bytes()
+            + self.edits.as_ref().map_or(0, |edits| {
+                edits
+                    .canonical_words
+                    .get()
+                    .map_or(0, |words| canonical_heap_bytes(words.len()))
+            })
+    }
+
+    /// Bounds heap retention even if another reader materializes words before a snapshot clone.
+    /// Reserves the possible canonical cache without creating it, so admission remains stable
+    /// across concurrent observation. Shared cache allocations are conservatively charged in full.
+    #[must_use]
+    pub fn retained_heap_bytes_bound(&self) -> usize {
+        self.working_heap_bytes()
+            + self.edits.as_ref().map_or(0, |edits| {
+                if edits.direct {
+                    0
+                } else {
+                    canonical_heap_bytes(word_count(self.bits_per_index()))
+                }
+            })
+    }
+
+    /// Counts the exclusively owned allocations copied by Clone without reading canonical words.
+    fn working_heap_bytes(&self) -> usize {
+        std::mem::size_of_val(self.words.as_ref())
+            + std::mem::size_of_val(self.palette.values.as_ref())
+            + self
+                .edits
+                .as_ref()
+                .map_or(0, |edits| std::mem::size_of_val(edits.slots.as_ref()))
+    }
+
     /// Number of bits occupied by each packed palette index.
     #[must_use]
     pub fn bits_per_index(&self) -> u8 {
@@ -466,7 +513,13 @@ impl PalettedStorage {
     }
 }
 
-pub(crate) fn word_count(bits_per_index: u8) -> usize {
+/// Charges a cached word Arc's payload, two counters and trailing alignment padding.
+const fn canonical_heap_bytes(words: usize) -> usize {
+    (words * std::mem::size_of::<u32>() + 2 * std::mem::size_of::<usize>())
+        .next_multiple_of(std::mem::align_of::<usize>())
+}
+
+pub(crate) const fn word_count(bits_per_index: u8) -> usize {
     if bits_per_index == 0 {
         return 0;
     }

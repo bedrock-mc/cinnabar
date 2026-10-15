@@ -1,6 +1,7 @@
 use super::*;
 
 mod lazy_compaction;
+mod memory;
 
 /// Column decoding agrees with per-block lookup at every width, including truncated words.
 #[test]

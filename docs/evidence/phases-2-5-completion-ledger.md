@@ -4,6 +4,8 @@ Single-cell palette edits retain bounded physical slots and live counts while pr
 canonical palette order. Last-use removal and width shrink defer word packing until an exact
 word view is requested; snapshot-local caches and exact mutation results avoid eager equality
 materialization. Untouched decoded representations, no-ops and snapshot isolation are preserved.
+Memory admission accounts for physical storage, historical slots and possible canonical caches;
+existing process-wide capacity limits are unchanged.
 Regression tests and benchmark fixtures have not been compiled or run. Output verification,
 consumer-cadence, retained-memory and measured performance evidence remain incomplete.
 This change advances no phase completion, parity or hardware performance gate.

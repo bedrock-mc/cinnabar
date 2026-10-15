@@ -25,6 +25,8 @@ thread-safe snapshot-local caches preserve the exact public palette, width, word
 Physical width growth, noncanonical first edits and larger batches retain canonical rebuilds.
 Mutation results prove store changes without immediately materializing words through equality.
 Untouched decoded representations and no-ops remain unchanged; snapshots stay independent.
+Memory accounting charges physical words, historical slots and canonical caches without packing.
+Slice admission reserves possible cache growth within the existing process-wide byte limits.
 Regression tests and preparation benchmarks are written but unrun. Incomplete: executed
 verification, consumer-cadence measurements and retained-memory/performance measurements.
 No output-parity or hardware performance gate closes here.
