@@ -1,4 +1,4 @@
-use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ParticleEvent};
+use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataUpdateEvent, ParticleEvent};
 use protocol_ids::ActorDataKey;
 
 use super::*;
@@ -316,4 +316,38 @@ fn fixed_tick_batching_preserves_cloud_requests_and_shared_queue_stays_bounded()
     assert!(per_frame.take_particle_effects().is_empty());
     per_frame.reset_dimension(1, u64::MAX, 1);
     assert!(per_frame.take_particle_effects().is_empty());
+}
+
+#[test]
+fn facts_migration_custom_clouds_inherit_the_compiled_particle_route() {
+    let mut expected = cloud_store();
+    expected.advance_interpolation_ticks(EMISSION_TICKS + 1);
+    let expected = effects(&mut expected);
+    assert_eq!(expected.len(), 1);
+    for late in [false, true] {
+        let mut store = ActorStore::new(1, 0);
+        let registry = || protocol::ActorIdentifierRegistry {
+            entries: [protocol::ActorIdentifier {
+                identifier: "fixture:breath".into(),
+                base_identifier: "minecraft:area_effect_cloud".into(),
+            }]
+            .into(),
+            skipped: 0,
+        };
+        if !late {
+            store.apply_actor_interactions(registry());
+        }
+        let ActorEvent::Spawn(mut spawn) = cloud() else {
+            unreachable!()
+        };
+        spawn.kind = ActorKind::Entity {
+            identifier: "fixture:breath".into(),
+        };
+        store.apply(1, 1, ActorEvent::Spawn(spawn));
+        if late {
+            store.apply_actor_interactions(registry());
+        }
+        store.advance_interpolation_ticks(EMISSION_TICKS + 1);
+        assert_eq!(effects(&mut store), expected);
+    }
 }

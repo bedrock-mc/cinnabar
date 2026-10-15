@@ -236,10 +236,11 @@ impl UiRuntime {
         else {
             return false;
         };
-        let editable = match entry.identifier.as_ref() {
-            "minecraft:writable_book" => true,
-            "minecraft:written_book" => false,
-            _ => return false,
+        let Some(editable) = assets::facts::ItemFacts::builtin()
+            .ok()
+            .and_then(|facts| facts.book_editable(&entry.identifier))
+        else {
+            return false;
         };
         let book = protocol::item_book(&stack.extra_data);
         let state = BookState::new(

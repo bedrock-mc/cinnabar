@@ -1,5 +1,5 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
-//! Metal times owned passes and the stock opaque pass; whole-frame and shared draw categories stay absent.
+//! Metal reports labelled submission completion latency; whole-frame GPU time and shared draws stay absent.
 //! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span: each
 //! marker is its own pass, and two per frame cost far less than two per timed node.
 
@@ -7,6 +7,8 @@ use bevy::prelude::IntoSystemSet;
 mod categories;
 pub(crate) use categories::draw_categories;
 mod health;
+#[cfg(target_os = "macos")]
+mod metal_frame;
 mod systems;
 pub(crate) use systems::profiled;
 #[cfg(all(test, target_os = "macos"))]
@@ -117,6 +119,8 @@ impl Plugin for GpuTimingPlugin {
             return;
         };
         crate::device_poll::install(render_app);
+        #[cfg(target_os = "macos")]
+        metal_frame::install(render_app);
         if overdraw::requested() {
             overdraw::install(render_app);
         }
@@ -394,7 +398,7 @@ impl GpuTimestamps {
                 open_frame: AtomicU32::new(NO_SPAN),
                 recorded: AtomicU64::new(NOT_RECORDED),
             },
-            health: health::QueryHealth::requested(),
+            health: health::QueryHealth::requested("pass_queries"),
         })
     }
 
@@ -646,7 +650,7 @@ fn init_gpu_timestamps(
             timestamps.draw_spans &= categories.is_none();
             commands.insert_resource(timestamps);
         }
-        None => info!("GPU timestamps unsupported by this adapter; gpu_* stages stay empty"),
+        None => info!("GPU pass timestamps unsupported by this adapter"),
     }
 }
 

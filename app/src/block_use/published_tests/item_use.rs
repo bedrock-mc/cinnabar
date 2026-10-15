@@ -117,9 +117,7 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
         let (mut world, mut captured) = attack_and_throw_fixture(enabled);
         world.run_system_cached(produce_block_use).unwrap();
         assert!(!world.resource::<BlockUseRuntime>().press_pending());
-        world
-            .run_system_cached(crate::item_use::produce_item_use)
-            .unwrap();
+        produce_air_use(&mut world);
         let throws = captured
             .drain()
             .into_iter()
@@ -130,4 +128,74 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
             .count();
         assert_eq!(throws, usize::from(enabled));
     }
+}
+
+#[test]
+fn a_written_release_does_not_hold_later_inputs_for_another_frame() {
+    let (mut world, mut captured) = fixture();
+    hold_snowball(&mut world);
+    let selection = client_interaction::block_use::verified_use_selection(
+        world.resource::<client_state::PlayerRuntime>(),
+        world.resource::<UiRuntimeResource>(),
+    )
+    .unwrap();
+    let sample = world
+        .resource::<MovementTicker>()
+        .newest_unsent_sample()
+        .unwrap();
+    let release = protocol::release_item_packet(protocol::HeldItemRequest {
+        selected_slot: selection.slot,
+        selected_item: selection.item,
+        player_position: sample.position,
+    })
+    .unwrap();
+    world
+        .resource_mut::<MovementTicker>()
+        .hold_release_after_tick(sample.tick, vec![release]);
+    let mut written = None;
+    world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
+        let network = world.resource::<NetworkHandle<PackApplication>>();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut movement,
+            gameplay::movement::OUTBOX_CAPACITY,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| {
+                written = Some(identity);
+                network.send_physics_packet(identity, packet, guard)
+            },
+        )
+        .unwrap();
+    });
+    assert!(
+        world
+            .resource_mut::<MovementTicker>()
+            .acknowledge_physics_send(written.unwrap())
+    );
+    captured.drain();
+    let mut next = gameplay::test_support::survival_mining::completed(sample.tick + 1);
+    next.position = sample.position;
+    world
+        .resource_mut::<MovementTicker>()
+        .enqueue_completed_physics(next)
+        .unwrap();
+    world
+        .run_system_cached(crate::item_use::prepare_item_release)
+        .unwrap();
+    produce_air_use(&mut world);
+    let packets = captured.drain();
+    let release = packets
+        .iter()
+        .position(|packet| {
+            protocol::test_support::transactions::observe_transaction(packet)
+                .is_some_and(|transaction| transaction.release().is_some())
+        })
+        .unwrap();
+    let input = packets
+        .iter()
+        .position(|packet| {
+            protocol::player_auth_input_trace_sample(packet)
+                .is_some_and(|input| input.tick == sample.tick + 1)
+        })
+        .expect("the next input must leave in the frame that admits the release");
+    assert!(release < input);
 }

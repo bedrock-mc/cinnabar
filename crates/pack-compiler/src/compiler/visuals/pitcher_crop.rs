@@ -23,8 +23,11 @@ fn state(record: &RegistryRecord) -> Option<(u8, bool)> {
         return None;
     }
     Some((
-        exact_tagged_int(state.get("growth")?, 7)? as u8,
-        exact_tagged_byte(state.get("upper_block_bit")?, 1)? != 0,
+        exact_tagged_int(state.get(assets::facts::BlockProperty::Growth.name())?, 7)? as u8,
+        exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::UpperBlockBit.name())?,
+            1,
+        )? != 0,
     ))
 }
 

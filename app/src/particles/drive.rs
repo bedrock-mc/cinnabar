@@ -75,8 +75,8 @@ const MAX_QUEUED_INBOX: usize = 512;
 const MAX_RAIN_SPLASHES_PER_FRAME: usize = 64;
 const IDENTITY_BASIS: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-const BLOCK_BREAK_EFFECT: &str = "minecraft:block_destruct";
-const RAIN_SPLASH_EFFECT: &str = "minecraft:rain_splash_particle";
+const BLOCK_BREAK_EFFECT: &str = assets::facts::ParticleEffect::BlockDestruct.identifier();
+const RAIN_SPLASH_EFFECT: &str = assets::facts::ParticleEffect::RainSplashParticle.identifier();
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 /// Item pieces per icon-crack event.
@@ -287,19 +287,49 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
     // Piece counts follow the vanilla effects but need independent measurement.
     match notice.kind {
         ActorStatusKind::TamingSucceeded | ActorStatusKind::LoveHearts => {
-            burst(system, "minecraft:heart_particle", head, 7, seed);
+            burst(
+                system,
+                assets::facts::ParticleEffect::HeartParticle.identifier(),
+                head,
+                7,
+                seed,
+            );
         }
         ActorStatusKind::TamingFailed => {
-            burst(system, "minecraft:basic_smoke_particle", head, 7, seed);
+            burst(
+                system,
+                assets::facts::ParticleEffect::BasicSmokeParticle.identifier(),
+                head,
+                7,
+                seed,
+            );
         }
         ActorStatusKind::VillagerAngry => {
-            burst(system, "minecraft:villager_angry", head, 3, seed);
+            burst(
+                system,
+                assets::facts::ParticleEffect::VillagerAngry.identifier(),
+                head,
+                3,
+                seed,
+            );
         }
         ActorStatusKind::VillagerHappy => {
-            burst(system, "minecraft:villager_happy", head, 5, seed);
+            burst(
+                system,
+                assets::facts::ParticleEffect::VillagerHappy.identifier(),
+                head,
+                5,
+                seed,
+            );
         }
         ActorStatusKind::WitchHatMagic => {
-            burst(system, "minecraft:witchspell_emitter", head, 1, seed);
+            burst(
+                system,
+                assets::facts::ParticleEffect::WitchspellEmitter.identifier(),
+                head,
+                1,
+                seed,
+            );
         }
         ActorStatusKind::TotemActivate => {
             if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
