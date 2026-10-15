@@ -3,11 +3,11 @@
 use super::*;
 use crate::prepared_actor_artwork::{PreparedActorArtwork, session_resources};
 
-/// Encodes an original slab carrier with independently variable height, color and alpha mode.
+/// Encodes an original cuboid carrier with independently variable height, color and alpha mode.
 fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
     let quads = assets::BlockFace::ALL.map(|face| {
         let (corners, uvs) = assets::gui_item::cube_face(face);
-        assets::ModelQuad {
+        let mut quad = assets::ModelQuad {
             positions: corners.map(|point| {
                 [
                     (point[0] * 256.0) as i16,
@@ -18,7 +18,18 @@ fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
             uvs: uvs.map(|uv| uv.map(|value| (value * 4096.0) as u16)),
             material: 1,
             flags: face.model_quad_face_id(),
-        }
+        };
+        // Model cubes start each face at its smallest corner; thumbnail faces may rotate it.
+        let start = quad
+            .positions
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, point)| *point)
+            .unwrap()
+            .0;
+        quad.positions.rotate_left(start);
+        quad.uvs.rotate_left(start);
+        quad
     });
     let visual = assets::BlockVisual {
         native_material: assets::native_material::NativeMaterialFacts::Unresolved,
@@ -179,6 +190,9 @@ fn held_terrain_reload_preserves_authored_carried_sheet_routes() {
     for flags in [0, assets::MATERIAL_FLAG_GRASS_TINT] {
         let carried = [30, 180, 70, 255];
         let startup = terrain(256, [90, 110, 50, 255], flags);
+        assert!(
+            assets::gui_item::full_cube_model_quads(&startup, assets::BlockVisualId(7)).is_some()
+        );
         let (mut runtime, pages, body, item) =
             fixture_with_icons(Arc::clone(&startup), Some(([1; 32], carried)));
         let before = runtime
