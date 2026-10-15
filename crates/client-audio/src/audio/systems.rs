@@ -51,16 +51,16 @@ fn network_block_lookup<'a>(
     move |wire_id| lookup(stream.resolve_block_network_id(wire_id))
 }
 
-pub fn identifier_at(
+/// The primary block identifier at `block`, borrowed from the registries so per-frame and
+/// per-tick probes allocate nothing.
+pub(super) fn identifier_ref<'a>(
     world: &PaletteWorld<'_>,
-    collisions: &dyn PhysicsCollisionRegistries,
+    collisions: &'a dyn PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
     block: [i32; 3],
-) -> Option<String> {
+) -> Option<&'a str> {
     let runtime_id = world.primary_runtime_id(block).ok()?;
-    collisions
-        .block_identifier(mode, runtime_id)
-        .map(str::to_owned)
+    collisions.block_identifier(mode, runtime_id)
 }
 
 /// Checks ordinary water from numeric movement facts; bubble-column cues keep their own route.
@@ -368,7 +368,7 @@ pub fn drive_local_motion(
         }
         *last_tick = Some(tick);
         let position = sample.position;
-        let below = identifier_at(
+        let below = identifier_ref(
             &palette,
             collisions,
             mode,
@@ -383,7 +383,7 @@ pub fn drive_local_motion(
             let request = {
                 let Some(bank) = engine.bank() else { return };
                 let tables = bank.tables();
-                let material = below.as_deref().and_then(|name| tables.material_of(name));
+                let material = below.and_then(|name| tables.material_of(name));
                 let (route, volume) = match cue {
                     LocalCue::Step => (
                         material.and_then(|material| tables.interactive(PLAYER, "step", material)),

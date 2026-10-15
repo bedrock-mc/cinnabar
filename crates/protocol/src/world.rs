@@ -300,7 +300,9 @@ macro_rules! world_packets {
             matches!(id, $(PacketId::$variant)|+)
         }
 
-        fn dispatch(
+        /// Normalizes a decoded payload and its header as [`into_world_event`] does, for
+        /// callers that hold the payload unboxed.
+        pub(crate) fn dispatch(
             data: packets::Packet,
             $header: GameHeader,
             $dimension: i32,

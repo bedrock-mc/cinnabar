@@ -321,6 +321,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
     let (network, _queue_guard) = NetworkHandle::<PackApplication>::with_command_capacity(2);
     let mut app = App::new();
     app.insert_resource(world)
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(network)
         .insert_resource(clock)
         .init_resource::<bevy::prelude::Time<bevy::time::Real>>()

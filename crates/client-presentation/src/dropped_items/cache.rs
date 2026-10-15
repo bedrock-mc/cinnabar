@@ -1,5 +1,7 @@
 //! Bounded CPU models and atlas slots for current item consumers.
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
+
+use bevy::platform::collections::HashMap;
 
 use render_model::{
     DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS, dropped_item::DroppedItemBounds,

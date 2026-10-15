@@ -3,14 +3,12 @@
 use std::{
     collections::HashMap,
     hash::{BuildHasherDefault, Hash, Hasher},
-    sync::Arc,
 };
-
-use world::SubChunk;
 
 use super::{
     Aabb, BlockPhysics, LenientSkipCounts, PaletteWorld, SubChunkKey, Vec3, WorldQueryError,
     raycast::{TraversalState, checked_offset, strictly_precedes},
+    section::SectionCache,
     validate_collision_query,
 };
 
@@ -187,32 +185,6 @@ impl PaletteWorld<'_> {
             }
         }
         Ok(())
-    }
-}
-
-/// The sub-chunk a scan read last, so its cells look the section up once instead of once each.
-#[derive(Default)]
-pub(super) struct SectionCache {
-    key: Option<SubChunkKey>,
-    /// `None` when the section is unloaded; `Some(None)` when loaded with no palette storage.
-    section: Option<Option<Arc<SubChunk>>>,
-}
-
-impl SectionCache {
-    /// The loaded section at `key` (`Some(None)` for an all-air one), or `None` when unloaded.
-    fn get(
-        &mut self,
-        world: &PaletteWorld<'_>,
-        key: SubChunkKey,
-    ) -> Option<&Option<Arc<SubChunk>>> {
-        if self.key != Some(key) {
-            self.key = Some(key);
-            self.section = world
-                .store
-                .is_sub_chunk_loaded(key)
-                .then(|| world.store.sub_chunk(key));
-        }
-        self.section.as_ref()
     }
 }
 

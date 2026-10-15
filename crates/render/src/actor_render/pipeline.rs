@@ -14,6 +14,9 @@ pub(crate) struct ActorPipeline {
     >,
     motion_variants: Variants<RenderPipeline, super::motion::MotionSpecializer>,
     motion_ids: std::collections::HashMap<ActorPipelineContract, CachedRenderPipelineId>,
+    /// View configurations whose every draw and motion contract is already specialized, so
+    /// later frames skip the per-material map probes.
+    prewarmed: Vec<(Msaa, bool, bool)>,
 }
 
 impl FromWorld for ActorPipeline {
@@ -25,6 +28,7 @@ impl FromWorld for ActorPipeline {
         Self {
             motion_variants: Variants::new(super::motion::MotionSpecializer, motion_descriptor),
             motion_ids: Default::default(),
+            prewarmed: Vec::new(),
             variants: Variants::new(ActorPipelineSpecializer, descriptor),
             bind_group_layout,
             draw_variants: Default::default(),
@@ -41,24 +45,29 @@ impl ActorPipeline {
         hdr: bool,
         enhanced: bool,
     ) -> Option<bevy::render::render_resource::CachedRenderPipelineId> {
-        for material in prewarm_materials() {
-            let key = ActorPipelineKey {
-                msaa,
-                hdr,
-                enhanced,
-                material,
-            };
-            let contract = key.contract();
-            if let Entry::Vacant(entry) = self.draw_variants.entry(contract) {
-                let id = self.variants.specialize(cache, key).ok()?;
-                entry.insert(id);
+        let view = (msaa, hdr, enhanced);
+        if !self.prewarmed.contains(&view) {
+            for material in prewarm_materials() {
+                let key = ActorPipelineKey {
+                    msaa,
+                    hdr,
+                    enhanced,
+                    material,
+                };
+                let contract = key.contract();
+                if let Entry::Vacant(entry) = self.draw_variants.entry(contract) {
+                    let id = self.variants.specialize(cache, key).ok()?;
+                    entry.insert(id);
+                }
+                if super::motion::eligible(material)
+                    && let Entry::Vacant(entry) = self.motion_ids.entry(contract)
+                {
+                    let id = self.motion_variants.specialize(cache, key).ok()?;
+                    entry.insert(id);
+                }
             }
-            if super::motion::eligible(material)
-                && let Entry::Vacant(entry) = self.motion_ids.entry(contract)
-            {
-                let id = self.motion_variants.specialize(cache, key).ok()?;
-                entry.insert(id);
-            }
+            // A failed specialization returned above, so it retries next frame as before.
+            self.prewarmed.push(view);
         }
         self.draw_variant(
             msaa,

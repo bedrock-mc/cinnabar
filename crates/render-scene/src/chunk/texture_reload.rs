@@ -7,8 +7,36 @@ use std::sync::{Arc, Mutex};
 struct State {
     requested: Option<ChunkTextureAssets>,
     geometry: Option<Arc<[ChunkRenderInstance]>>,
+    attempt: Arc<()>,
     holding_geometry: bool,
-    result: Option<Result<ChunkTextureAssetIdentity, String>>,
+    result: Option<Result<(), String>>,
+}
+
+impl State {
+    /// Accepts work only from the exact immutable request still held by the mailbox.
+    fn is_current(&self, request: &ChunkTexturePreparation) -> bool {
+        self.requested.is_some() && Arc::ptr_eq(&self.attempt, &request.attempt)
+    }
+}
+
+/// One preparation attempt, capturing its atlas and resident geometry together.
+#[derive(Clone)]
+pub struct ChunkTexturePreparation {
+    assets: ChunkTextureAssets,
+    geometry: Option<Arc<[ChunkRenderInstance]>>,
+    attempt: Arc<()>,
+}
+
+impl ChunkTexturePreparation {
+    /// Returns the immutable atlas inputs captured for this attempt.
+    pub fn assets(&self) -> &ChunkTextureAssets {
+        &self.assets
+    }
+
+    /// Returns the resident meshes that must be staged with this attempt's atlas.
+    pub fn geometry(&self) -> Option<&Arc<[ChunkRenderInstance]>> {
+        self.geometry.as_ref()
+    }
 }
 
 /// Shared main/render-world mailbox; GPU replacements remain staged until CPU publication.
@@ -27,6 +55,7 @@ impl ChunkTextureReload {
         {
             state.requested = Some(assets);
             state.geometry = None;
+            state.attempt = Arc::new(());
             state.holding_geometry = false;
             state.result = None;
         }
@@ -49,6 +78,7 @@ impl ChunkTextureReload {
         }
         state.requested = Some(assets);
         state.geometry = Some(geometry);
+        state.attempt = Arc::new(());
         state.holding_geometry = true;
         state.result = None;
     }
@@ -87,12 +117,14 @@ impl ChunkTextureReload {
     }
 
     /// Releases the CPU replacement set after the render world publishes it.
-    pub fn published(&self) {
+    pub fn published(&self, request: &ChunkTexturePreparation) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        state.requested = None;
-        state.geometry = None;
-        state.holding_geometry = false;
-        state.result = None;
+        if state.is_current(request) {
+            state.requested = None;
+            state.geometry = None;
+            state.holding_geometry = false;
+            state.result = None;
+        }
     }
 
     /// Reports whether this candidate is fully built, without blocking either world.
@@ -105,10 +137,7 @@ impl ChunkTextureReload {
         {
             return None;
         }
-        state
-            .result
-            .as_ref()
-            .map(|result| result.as_ref().map(|_| ()).map_err(Clone::clone))
+        state.result.clone()
     }
 
     /// Retires abandoned requests while preserving an atlas awaiting publication extraction.
@@ -126,7 +155,7 @@ impl ChunkTextureReload {
         }
     }
 
-    /// Clones the candidate for the render preparation worker.
+    /// Clones the selected candidate for main-world progress checks.
     pub fn requested(&self) -> Option<ChunkTextureAssets> {
         self.0
             .lock()
@@ -135,20 +164,36 @@ impl ChunkTextureReload {
             .clone()
     }
 
-    /// Completes only the currently requested generation; superseded results retire on drop.
-    pub fn finish(&self, identity: ChunkTextureAssetIdentity, succeeded: bool) {
+    /// Captures one attempt's assets and geometry under the same lock for the render worker.
+    pub fn preparation(&self) -> Option<ChunkTexturePreparation> {
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        Some(ChunkTexturePreparation {
+            assets: state.requested.clone()?,
+            geometry: state.geometry.clone(),
+            attempt: Arc::clone(&state.attempt),
+        })
+    }
+
+    /// Reports whether this attempt still owns the mailbox, including after an atlas is reused.
+    pub fn is_current(&self, request: &ChunkTexturePreparation) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .is_current(request)
+    }
+
+    /// Completes only this exact attempt; cancelled or superseded work cannot complete a retry.
+    pub fn finish(&self, request: &ChunkTexturePreparation, succeeded: bool) -> bool {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        if state
-            .requested
-            .as_ref()
-            .is_some_and(|assets| assets.identity() == identity)
-        {
-            state.result = Some(if succeeded {
-                Ok(identity)
-            } else {
-                Err("Resource pack atlas exceeds GPU limits or could not be prepared".into())
-            });
+        if !state.is_current(request) {
+            return false;
         }
+        state.result = Some(if succeeded {
+            Ok(())
+        } else {
+            Err("Resource pack atlas exceeds GPU limits or could not be prepared".into())
+        });
+        true
     }
 }
 

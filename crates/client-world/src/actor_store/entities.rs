@@ -86,28 +86,48 @@ pub fn tnt_presentation(fuse: f32) -> (f32, bool) {
 }
 
 impl ActorStore {
-    pub(crate) fn block_entity_candidates(&self, partial_tick: f32) -> Vec<BlockEntityCandidate> {
-        self.block_entity_candidates_at(partial_tick, std::time::Instant::now())
+    /// Replaces `candidates` with every block actor's view and terrain-interlock visibility.
+    pub(crate) fn block_entity_candidates_into(
+        &self,
+        partial_tick: f32,
+        candidates: &mut Vec<BlockEntityCandidate>,
+    ) {
+        self.block_entity_candidates_at_into(partial_tick, std::time::Instant::now(), candidates);
     }
 
+    fn block_entity_candidates_at_into(
+        &self,
+        partial_tick: f32,
+        now: std::time::Instant,
+        candidates: &mut Vec<BlockEntityCandidate>,
+    ) {
+        let alpha = partial_tick.clamp(0.0, 1.0);
+        candidates.clear();
+        candidates.extend(
+            self.effect_members
+                .blocks
+                .iter()
+                .filter_map(|runtime| self.actors.get(runtime))
+                .filter_map(|actor| {
+                    Some(BlockEntityCandidate {
+                        unique_id: actor.unique_id,
+                        view: self.block_entity_view(actor, alpha)?,
+                        visible: actor.status.terrain_interlock.visible_at(now),
+                    })
+                }),
+        );
+    }
+
+    /// [`Self::block_entity_candidates_into`] at `now`, as a new list.
+    #[cfg(test)]
     pub(super) fn block_entity_candidates_at(
         &self,
         partial_tick: f32,
         now: std::time::Instant,
     ) -> Vec<BlockEntityCandidate> {
-        let alpha = partial_tick.clamp(0.0, 1.0);
-        self.effect_members
-            .blocks
-            .iter()
-            .filter_map(|runtime| self.actors.get(runtime))
-            .filter_map(|actor| {
-                Some(BlockEntityCandidate {
-                    unique_id: actor.unique_id,
-                    view: self.block_entity_view(actor, alpha)?,
-                    visible: actor.status.terrain_interlock.visible_at(now),
-                })
-            })
-            .collect::<Vec<_>>()
+        let mut candidates = Vec::new();
+        self.block_entity_candidates_at_into(partial_tick, now, &mut candidates);
+        candidates
     }
 
     /// Falling blocks and primed TNT with interpolated centres.
@@ -181,10 +201,11 @@ impl ActorStore {
         }
     }
 
-    /// Fishing lines (owner rod tip to bobber) and leads (leashed mob to holder).
-    pub(crate) fn ropes(&self, partial_tick: f32) -> Vec<RopeView> {
+    /// Replaces `ropes` with fishing lines (owner rod tip to bobber) and leads (leashed mob to
+    /// holder).
+    pub(crate) fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<RopeView>) {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut ropes = Vec::new();
+        ropes.clear();
         for runtime in &self.effect_members.ropes {
             let actor = &self.actors[runtime];
             if let Some(holder) = metadata_i64(actor, ActorDataKey::LeashHolder.wire_value())
@@ -223,6 +244,13 @@ impl ActorStore {
                 to: interpolated(actor, alpha),
             });
         }
+    }
+
+    /// [`Self::ropes_into`] as a new list.
+    #[cfg(test)]
+    pub(crate) fn ropes(&self, partial_tick: f32) -> Vec<RopeView> {
+        let mut ropes = Vec::new();
+        self.ropes_into(partial_tick, &mut ropes);
         ropes
     }
 

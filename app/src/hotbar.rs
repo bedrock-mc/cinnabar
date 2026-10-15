@@ -6,7 +6,8 @@
 //! with a `PlayerHotbar` packet.
 
 use crate::runtime::{
-    network::resource_packs::PackApplication, shutdown::record_fatal_error, world::ClientWorld,
+    network::resource_packs::PackApplication,
+    shutdown::{FatalError, record_fatal_error},
 };
 use bevy::prelude::{Res, ResMut};
 use client_runtime::network::NetworkHandle;
@@ -21,7 +22,7 @@ use protocol::Packet;
 pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
-    mut client_world: ResMut<ClientWorld>,
+    mut fatal_error: ResMut<FatalError>,
 ) {
     if network.closed_command_has_pending_control() {
         return;
@@ -29,7 +30,7 @@ pub(crate) fn flush_hotbar_selection(
 
     flush_pending_hotbar_selection(
         &mut player_runtime,
-        &mut client_world.fatal_error,
+        &mut fatal_error.0,
         |packet| match network.send_hotbar_packet(packet) {
             Err(PacketSendError::Closed(packet))
                 if network.closed_command_has_pending_control() =>
@@ -199,7 +200,7 @@ mod tests {
                 ..Default::default()
             })
             .insert_resource(NetworkHandle::<PackApplication>::disconnected())
-            .insert_resource(ClientWorld::default());
+            .insert_resource(FatalError::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)
@@ -289,7 +290,7 @@ mod tests {
                 ..Default::default()
             })
             .insert_resource(NetworkHandle::<PackApplication>::disconnected())
-            .insert_resource(ClientWorld::default());
+            .insert_resource(FatalError::default());
         app.init_resource::<client_state::ScreenFocus>();
         app.world_mut()
             .run_system_once(client_shell::menu::screen_focus::publish_screen_focus)

@@ -1,5 +1,6 @@
 use super::*;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
 /// Non-owning feed identity; the base raster already carries its ingest content hash.
 pub(super) fn skin_fingerprint(skin: &PlayerSkin) -> [u8; 32] {
@@ -43,6 +44,74 @@ fn fingerprint_bytes(digest: &mut Sha256, bytes: &[u8]) {
     digest.update(bytes);
 }
 
+/// The last fingerprinted skin's identity and fingerprint, so an unchanged feed is not rehashed.
+/// The base raster is keyed by its ingest content hash. The cape and model inputs are keyed by
+/// allocation address: the weak references reserve those addresses, so an equal address proves
+/// the same immutable bytes, without keeping the skin alive.
+#[derive(Debug, Default)]
+pub(super) struct SkinFingerprintMemo {
+    last: Option<FingerprintedSkin>,
+}
+
+#[derive(Debug)]
+struct FingerprintedSkin {
+    base: (u32, u32, usize, u64),
+    cape: Option<(u32, u32, std::sync::Weak<[u8]>)>,
+    geometry: Option<std::sync::Weak<render_api::SkinGeometrySource>>,
+    fingerprint: [u8; 32],
+}
+
+impl SkinFingerprintMemo {
+    /// [`skin_fingerprint`] of `skin`, reusing the previous result when `skin` has the same
+    /// base raster hash and the same cape and model allocations.
+    pub(super) fn fingerprint(&mut self, skin: &PlayerSkin) -> [u8; 32] {
+        let PlayerSkin::Standard(standard) = skin else {
+            return skin_fingerprint(skin);
+        };
+        let base = (
+            standard.width,
+            standard.height,
+            standard.rgba8.len(),
+            standard.rgba8.content_hash(),
+        );
+        if let Some(last) = &self.last
+            && last.base == base
+            && match (&standard.cape, &last.cape) {
+                (None, None) => true,
+                (Some(cape), Some((width, height, bytes))) => {
+                    cape.width == *width
+                        && cape.height == *height
+                        && std::ptr::addr_eq(Arc::as_ptr(&cape.rgba8), bytes.as_ptr())
+                }
+                _ => false,
+            }
+            && match (&standard.geometry, &last.geometry) {
+                (None, None) => true,
+                (Some(geometry), Some(last)) => std::ptr::eq(Arc::as_ptr(geometry), last.as_ptr()),
+                _ => false,
+            }
+        {
+            return last.fingerprint;
+        }
+        let fingerprint = skin_fingerprint(skin);
+        self.last = Some(FingerprintedSkin {
+            base,
+            cape: standard
+                .cape
+                .as_ref()
+                .map(|cape| (cape.width, cape.height, Arc::downgrade(&cape.rgba8))),
+            geometry: standard.geometry.as_ref().map(Arc::downgrade),
+            fingerprint,
+        });
+        fingerprint
+    }
+
+    /// Forgets the remembered skin, releasing its reserved allocations.
+    pub(super) fn clear(&mut self) {
+        self.last = None;
+    }
+}
+
 impl ActorStore {
     /// Chooses an unused local identity without replacing a retained server profile.
     pub(super) fn available_profile_uuid(&self, preferred: [u8; 16]) -> [u8; 16] {
@@ -56,7 +125,14 @@ impl ActorStore {
     }
 
     /// Inserts or replaces a profile while preserving roster and retained-skin limits.
-    pub(super) fn upsert_profile(&mut self, uuid: [u8; 16], mut profile: PlayerProfile) -> bool {
+    /// `spawned` is a roster update's [`Self::spawned_player_unique_ids`], taken while the actor
+    /// set is unchanged; `None` searches the actors for this UUID instead.
+    pub(super) fn upsert_profile(
+        &mut self,
+        uuid: [u8; 16],
+        mut profile: PlayerProfile,
+        spawned: Option<&FastHashMap<[u8; 16], i64>>,
+    ) -> bool {
         if self.players.len() >= self.max_players && !self.players.contains_key(&uuid) {
             return false;
         }
@@ -97,7 +173,11 @@ impl ActorStore {
         self.retained_player_skin_bytes = retained_player_skin_bytes;
 
         profile.skin = skin;
-        if let Some(unique_id) = self.spawned_player_unique_id(&uuid) {
+        let spawned_unique_id = match spawned {
+            Some(ids) => ids.get(&uuid).copied(),
+            None => self.spawned_player_unique_id(&uuid),
+        };
+        if let Some(unique_id) = spawned_unique_id {
             profile.unique_id = unique_id;
         }
         self.unlisted_players.remove(&uuid);

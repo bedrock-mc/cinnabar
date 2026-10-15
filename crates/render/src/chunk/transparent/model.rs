@@ -530,18 +530,19 @@ pub(in crate::chunk) fn prepare_transparent_model_sorts(
         let Ok(allocation) = allocations.get(entity) else {
             continue;
         };
-        let Ok(instance) = instances.get(entity) else {
-            continue;
-        };
-        if !transparent_model_allocation_matches(instance, allocation) {
-            continue;
-        }
+        // Most visible sub-chunks have no transparent models; skip their instance lookup.
         let (Some(model_range), Some(draw_range)) = (
             allocation.model_range.clone(),
             allocation.transparent_model_draw_range.clone(),
         ) else {
             continue;
         };
+        let Ok(instance) = instances.get(entity) else {
+            continue;
+        };
+        if !transparent_model_allocation_matches(instance, allocation) {
+            continue;
+        }
         if !model_range.start.is_multiple_of(4)
             || !draw_range.start.is_multiple_of(2)
             || !draw_range.end.is_multiple_of(2)

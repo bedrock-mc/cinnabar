@@ -11,7 +11,7 @@ use sim::PaletteWorld;
 use super::{
     echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, SoundRequest},
-    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_at},
+    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_ref},
 };
 
 const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
@@ -124,7 +124,10 @@ pub fn drive_block_cues(
     let previous = mining.target.as_ref().map(|(cell, _)| *cell);
     if target != previous {
         mining.hit_timer = 0.0;
-        mining.target = target.map(|cell| (cell, identifier_at(&palette, collisions, mode, cell)));
+        mining.target = target.map(|cell| {
+            let identifier = identifier_ref(&palette, collisions, mode, cell).map(str::to_owned);
+            (cell, identifier)
+        });
     }
     if let Some(cell) = mining.target.as_ref().map(|(cell, _)| *cell) {
         mining.hit_timer -= time.delta_secs();

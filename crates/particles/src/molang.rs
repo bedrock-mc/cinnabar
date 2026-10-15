@@ -3,6 +3,7 @@
 //! particle's state is a dense `Vec<f32>`; a NaN slot is "unassigned" and reads as 0.
 
 use std::{collections::BTreeMap, sync::Arc};
+mod bytecode;
 mod interner;
 mod query_support;
 pub use interner::Interner;
@@ -130,59 +131,40 @@ enum Expr {
     Return(Box<Expr>),
 }
 
-/// A parsed expression or `;`-separated script.
+/// A parsed expression or `;`-separated script, compiled to flat code.
 #[derive(Clone, Debug)]
 pub struct Program {
-    stmts: Vec<Expr>,
+    code: bytecode::Code,
     constant: Option<f32>,
 }
 
 const MAX_TEMPS: usize = 8;
 const MAX_DEPTH: u32 = 48;
-// Bounds flat AST chains too, including recursive evaluation and destruction.
+// Bounds flat AST chains too, including recursive compilation and destruction.
 const MAX_TOKENS: usize = 256;
 
 impl Program {
     #[must_use]
     pub fn constant(value: f32) -> Self {
-        Self {
-            stmts: vec![Expr::Num(value)],
-            constant: Some(value),
-        }
+        Self::compile(&[Expr::Num(value)])
     }
 
     /// Parses `source`; unparseable text yields `None` (vanilla evaluates it as 0).
     #[must_use]
     pub fn parse(source: &str, interner: &mut Interner) -> Option<Self> {
-        let tokens = lex(source)?;
-        if tokens.len() > MAX_TOKENS {
-            return None;
-        }
-        let mut parser = Parser {
-            tokens,
-            at: 0,
-            interner,
-            temps: Vec::new(),
-            depth: 0,
-        };
-        let mut stmts = Vec::new();
-        while parser.at < parser.tokens.len() {
-            if parser.eat(&Token::Semicolon) {
-                continue;
-            }
-            stmts.push(parser.statement()?);
-            if parser.at < parser.tokens.len() && !parser.eat(&Token::Semicolon) {
-                return None;
-            }
-        }
-        if stmts.is_empty() {
-            return None;
-        }
-        let constant = match stmts.as_slice() {
+        parse_statements(source, interner).map(|statements| Self::compile(&statements))
+    }
+
+    /// Lowers parsed statements; a lone number short-circuits evaluation.
+    fn compile(statements: &[Expr]) -> Self {
+        let constant = match statements {
             [Expr::Num(value)] => Some(*value),
             _ => None,
         };
-        Some(Self { stmts, constant })
+        Self {
+            code: bytecode::compile(statements),
+            constant,
+        }
     }
 
     /// Runs the program; the result is the `return` value or the last statement's value.
@@ -190,241 +172,37 @@ impl Program {
         if let Some(value) = self.constant {
             return value;
         }
-        let mut env = Env {
-            vars,
-            rng,
-            queries,
-            temps: [f32::NAN; MAX_TEMPS],
-            returned: None,
-        };
-        let mut last = 0.0;
-        for stmt in &self.stmts {
-            last = env.exec(stmt);
-            if let Some(value) = env.returned {
-                return value;
-            }
-        }
-        last
+        self.code.eval(vars, rng, queries)
     }
 }
 
-struct Env<'a> {
-    vars: &'a mut Vec<f32>,
-    rng: &'a mut Rng,
-    queries: &'a Queries,
-    temps: [f32; MAX_TEMPS],
-    returned: Option<f32>,
-}
-
-fn clean(value: f32) -> f32 {
-    if value.is_finite() { value } else { 0.0 }
-}
-
-impl Env<'_> {
-    fn read_var(&self, slot: u16) -> f32 {
-        self.vars
-            .get(slot as usize)
-            .copied()
-            .filter(|value| !value.is_nan())
-            .unwrap_or(0.0)
+/// Parses `source` into its non-empty statement list; `None` when it does not parse.
+fn parse_statements(source: &str, interner: &mut Interner) -> Option<Vec<Expr>> {
+    let tokens = lex(source)?;
+    if tokens.len() > MAX_TOKENS {
+        return None;
     }
-
-    fn write_var(&mut self, slot: u16, value: f32) {
-        let slot = slot as usize;
-        if slot >= self.vars.len() {
-            self.vars.resize(slot + 1, f32::NAN);
+    let mut parser = Parser {
+        tokens,
+        at: 0,
+        interner,
+        temps: Vec::new(),
+        depth: 0,
+    };
+    let mut stmts = Vec::new();
+    while parser.at < parser.tokens.len() {
+        if parser.eat(&Token::Semicolon) {
+            continue;
         }
-        self.vars[slot] = value;
-    }
-
-    fn exec(&mut self, expr: &Expr) -> f32 {
-        match expr {
-            Expr::Num(value) => *value,
-            Expr::Var(slot) => self.read_var(*slot),
-            Expr::Temp(slot) => {
-                let value = self.temps[*slot as usize];
-                if value.is_nan() { 0.0 } else { value }
-            }
-            Expr::Query(query) => match query {
-                Query::IsInWater => self.queries.is_in_water,
-                Query::IsInWaterOrRain => self.queries.is_in_water_or_rain,
-                Query::IsBaby => self.queries.is_baby,
-                Query::GroundSpeed => self.queries.ground_speed,
-                Query::FrameAlpha => self.queries.frame_alpha,
-                Query::SpellColor(component) => self.queries.spell_color[*component],
-                Query::Named(name) => self
-                    .queries
-                    .actor
-                    .as_ref()
-                    .and_then(|values| values.get(name.as_ref()))
-                    .copied()
-                    .unwrap_or(0.0),
-            },
-            Expr::Neg(inner) => -self.exec(inner),
-            Expr::Not(inner) => f32::from(self.exec(inner) == 0.0),
-            Expr::Bin(op, left, right) => {
-                if *op == Op::And {
-                    return f32::from(self.exec(left) != 0.0 && self.exec(right) != 0.0);
-                }
-                if *op == Op::Or {
-                    return f32::from(self.exec(left) != 0.0 || self.exec(right) != 0.0);
-                }
-                let (a, b) = (self.exec(left), self.exec(right));
-                clean(match op {
-                    Op::Add => a + b,
-                    Op::Sub => a - b,
-                    Op::Mul => a * b,
-                    Op::Div => {
-                        if b == 0.0 {
-                            0.0
-                        } else {
-                            a / b
-                        }
-                    }
-                    Op::Lt => f32::from(a < b),
-                    Op::Le => f32::from(a <= b),
-                    Op::Gt => f32::from(a > b),
-                    Op::Ge => f32::from(a >= b),
-                    Op::Eq => f32::from(a == b),
-                    Op::Ne => f32::from(a != b),
-                    Op::And | Op::Or => 0.0,
-                })
-            }
-            Expr::Cond(condition, yes, no) => {
-                if self.exec(condition) != 0.0 {
-                    self.exec(yes)
-                } else {
-                    self.exec(no)
-                }
-            }
-            Expr::Coalesce(left, right) => {
-                let unset = match left.as_ref() {
-                    Expr::Var(slot) => self
-                        .vars
-                        .get(*slot as usize)
-                        .is_none_or(|value| value.is_nan()),
-                    Expr::Temp(slot) => self.temps[*slot as usize].is_nan(),
-                    _ => false,
-                };
-                if unset {
-                    self.exec(right)
-                } else {
-                    self.exec(left)
-                }
-            }
-            Expr::Call(func, args) => {
-                let mut values = [0.0f32; 4];
-                for (slot, arg) in values.iter_mut().zip(args) {
-                    *slot = self.exec(arg);
-                }
-                clean(self.call(*func, values))
-            }
-            Expr::AssignVar(slot, value) => {
-                let value = self.exec(value);
-                self.write_var(*slot, value);
-                0.0
-            }
-            Expr::AssignTemp(slot, value) => {
-                let value = self.exec(value);
-                self.temps[*slot as usize] = value;
-                0.0
-            }
-            Expr::Return(value) => {
-                let value = self.exec(value);
-                self.returned = Some(value);
-                value
-            }
+        stmts.push(parser.statement()?);
+        if parser.at < parser.tokens.len() && !parser.eat(&Token::Semicolon) {
+            return None;
         }
     }
-
-    /// Uses the shared vocabulary while retaining existing particle arithmetic and bounds.
-    fn call(&mut self, func: Option<assets::entity::MolangFunction>, values: [f32; 4]) -> f32 {
-        use assets::entity::MolangFunction as F;
-        let Some(func) = func else {
-            return 0.0;
-        };
-        let [a, b, c, _] = values;
-        match func {
-            F::Abs => a.abs(),
-            F::Acos => a.clamp(-1.0, 1.0).acos().to_degrees(),
-            F::Asin => a.clamp(-1.0, 1.0).asin().to_degrees(),
-            F::Atan => a.atan().to_degrees(),
-            F::Atan2 => a.atan2(b).to_degrees(),
-            F::Ceil => a.ceil(),
-            F::Clamp => a.max(b).min(c.max(b)),
-            F::Cos => a.to_radians().cos(),
-            F::Exp => a.exp(),
-            F::Floor => a.floor(),
-            F::InverseLerp => {
-                if a == b {
-                    0.0
-                } else {
-                    (c - a) / (b - a)
-                }
-            }
-            F::Lerp => a + (b - a) * c,
-            F::LerpRotate => {
-                let mut delta = (b - a).rem_euclid(360.0);
-                if delta > 180.0 {
-                    delta -= 360.0;
-                }
-                a + delta * c
-            }
-            F::Ln => {
-                if a > 0.0 {
-                    a.ln()
-                } else {
-                    0.0
-                }
-            }
-            F::Max => a.max(b),
-            F::Min => a.min(b),
-            F::Mod => {
-                if b == 0.0 {
-                    0.0
-                } else {
-                    a % b
-                }
-            }
-            F::Pow => a.powf(b),
-            F::Random => self.rng.range(a, b),
-            F::RandomInteger => {
-                let (low, high) = (a.min(b).ceil(), a.max(b).floor());
-                (low + (self.rng.unit() * (high - low + 1.0)).floor()).min(high)
-            }
-            F::DieRoll => {
-                let mut total = 0.0;
-                for _ in 0..(a.clamp(0.0, 64.0) as u32) {
-                    total += self.rng.range(b, c);
-                }
-                total
-            }
-            F::Round => a.round(),
-            F::Sign => {
-                if a > 0.0 {
-                    1.0
-                } else if a < 0.0 {
-                    -1.0
-                } else {
-                    0.0
-                }
-            }
-            F::Sin => a.to_radians().sin(),
-            F::Sqrt => {
-                if a >= 0.0 {
-                    a.sqrt()
-                } else {
-                    0.0
-                }
-            }
-            F::Trunc => a.trunc(),
-            F::HermiteBlend => {
-                let t = a.clamp(0.0, 1.0);
-                3.0 * t * t - 2.0 * t * t * t
-            }
-            _ => assets::entity::molang_call(func, &values, &mut || self.rng.unit()),
-        }
+    if stmts.is_empty() {
+        return None;
     }
+    Some(stmts)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -892,6 +670,38 @@ mod tests {
         let a = run("math.random(2, 4)");
         assert_eq!(a, run("math.random(2, 4)"));
         assert!((2.0..4.0).contains(&a));
+    }
+
+    #[test]
+    fn skipped_operands_draw_no_randoms() {
+        let next = run("math.random(0, 1)");
+        for source in [
+            "0 && math.random(0, 1); math.random(0, 1)",
+            "1 || math.random(0, 1); math.random(0, 1)",
+            "1 ? 2 : math.random(0, 1); math.random(0, 1)",
+            "0 ? math.random(0, 1) : 2; math.random(0, 1)",
+            "v.set = 1; v.set ?? math.random(0, 1); math.random(0, 1)",
+            "2 ?? math.random(0, 1); math.random(0, 1)",
+            "math.max(1, 2, 3, 4, math.random(0, 1)); math.random(0, 1)",
+        ] {
+            assert_eq!(run(source), next, "{source}");
+        }
+    }
+
+    #[test]
+    fn return_stops_later_statements() {
+        let mut interner = Interner::with_builtins();
+        let program = Program::parse("v.a = 1; return 2; v.a = 3", &mut interner).unwrap();
+        let mut vars = vec![f32::NAN; interner.len()];
+        let value = program.eval(&mut vars, &mut Rng::new(1), &Queries::default());
+        assert_eq!(value, 2.0);
+        assert_eq!(vars[interner.get("a").unwrap() as usize], 1.0);
+    }
+
+    #[test]
+    fn deeply_pending_operands_evaluate() {
+        let source = format!("{}1{}", "1==1<1+1*(".repeat(10), ")".repeat(10));
+        assert_eq!(run(&source), 1.0);
     }
 
     #[test]

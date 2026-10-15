@@ -97,8 +97,8 @@ impl ActorStore {
             custom_actor_facts: HashMap::new(),
             actors: HashMap::new(),
             effect_members: Default::default(),
-            unique_to_runtime: HashMap::new(),
-            rider_to_ridden: HashMap::new(),
+            unique_to_runtime: FastHashMap::new(),
+            rider_to_ridden: FastHashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -115,6 +115,7 @@ impl ActorStore {
             local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
+            local_skin_fingerprints: Default::default(),
             synthetic_local_skin_pending: false,
             synthetic_local_revision: 0,
             local_first_person: false,
@@ -135,7 +136,7 @@ impl ActorStore {
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
-            seat_bindings: HashMap::new(),
+            seat_bindings: FastHashMap::new(),
             seat_bases: HashMap::new(),
             property_registry: Default::default(),
             local_knockback: None,
@@ -298,6 +299,7 @@ impl ActorStore {
                 self.remove_profile(&stale);
             }
             self.synthetic_local_skin = None;
+            self.local_skin_fingerprints.clear();
             self.synthetic_local_skin_pending = false;
             return (uuid, username);
         }
@@ -306,7 +308,7 @@ impl ActorStore {
         } else {
             feed.uuid
         };
-        let skin_fingerprint = super::profiles::skin_fingerprint(&feed.skin);
+        let skin_fingerprint = self.local_skin_fingerprints.fingerprint(&feed.skin);
         let stale = match self
             .players
             .get(&uuid)
@@ -329,6 +331,7 @@ impl ActorStore {
                     verified: false,
                     skin: feed.skin.clone(),
                 },
+                None,
             );
             self.synthetic_local_skin_pending = self
                 .players
@@ -367,6 +370,7 @@ impl ActorStore {
         self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
         self.synthetic_local_skin = None;
+        self.local_skin_fingerprints.clear();
         self.synthetic_local_skin_pending = false;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
@@ -418,6 +422,7 @@ impl ActorStore {
             self.remove_profile(&uuid);
         }
         self.synthetic_local_skin = None;
+        self.local_skin_fingerprints.clear();
         self.synthetic_local_skin_pending = false;
         self.prune_unlisted_players();
         self.animation.clear();
@@ -629,6 +634,14 @@ impl ActorStore {
             ActorEvent::Skin { uuid, skin } => self.apply_skin_update(uuid, skin),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
+                // Several additions share one actor pass; upserts never change the actors.
+                let spawned = update
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(entry, PlayerListEntry::Add { .. }))
+                    .nth(1)
+                    .is_some()
+                    .then(|| self.spawned_player_unique_ids());
                 for entry in update.entries.iter() {
                     match entry {
                         PlayerListEntry::Add {
@@ -646,6 +659,7 @@ impl ActorStore {
                                     verified: *verified,
                                     skin: skin.clone(),
                                 },
+                                spawned.as_ref(),
                             );
                             capacity_rejected |= !admitted;
                             if admitted && self.synthetic_local_uuid == Some(*uuid) {
@@ -748,7 +762,7 @@ impl ActorStore {
     }
 
     fn apply_link_to(
-        rider_to_ridden: &mut HashMap<i64, i64>,
+        rider_to_ridden: &mut FastHashMap<i64, i64>,
         max_actor_links: usize,
         event: ActorLinkEvent,
     ) -> ActorApplyResult {
