@@ -181,16 +181,19 @@ fn logging_child() {
         return;
     };
     let dir = PathBuf::from(dir);
+    assert_eq!(filter_generation(), 0);
     install(Options {
         base_filter: "info,wgpu_core=warn".to_owned(),
         omit_frame_marks: true,
         layers: Vec::new(),
     })
     .unwrap();
+    assert_eq!(filter_generation(), 1);
     assert_eq!(
         install(Options::default()),
         Err(InstallError::AlreadyInstalled)
     );
+    assert_eq!(filter_generation(), 1);
     tracing::warn!(target: "cinnabar::lifecycle", "warning before the log opens");
     initialize_log(&SessionFiles {
         dir: &dir,
@@ -206,6 +209,7 @@ fn logging_child() {
     assert_eq!(category_filter(Category::Core), LevelFilter::INFO);
     tracing::debug!(target: "launcher_host::update", "hidden debug");
     set_filter("core=debug").unwrap();
+    assert_eq!(filter_generation(), 2);
     assert_eq!(category_filter(Category::Core), LevelFilter::DEBUG);
     assert_eq!(category_filter(Category::Net), LevelFilter::INFO);
     tracing::debug!(target: "launcher_host::update", "visible debug");
@@ -214,6 +218,7 @@ fn logging_child() {
         Err(FilterError::Invalid(InvalidDirective { directive, .. })) if directive == "net=loud"
     ));
     assert_eq!(filter().unwrap().spec, "core=debug");
+    assert_eq!(filter_generation(), 2, "a rejected spec is no change");
     tracing::info!(tracy.frame_mark = true, "frame mark");
     std::thread::Builder::new()
         .name("log-fixture".to_owned())

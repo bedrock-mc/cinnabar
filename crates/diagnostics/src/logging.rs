@@ -22,6 +22,7 @@ use crate::{
     console::{self, Priority, Queued, Stream},
     markers,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use tracing::{Metadata, Subscriber};
 use tracing_subscriber::{
@@ -117,6 +118,8 @@ impl Logging {
 }
 
 static LOGGING: OnceLock<Logging> = OnceLock::new();
+/// Counts filter changes; see [`filter_generation`].
+static FILTER_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// Builds the filter: `base`, then `rust_log`, then `spec`, later directives overriding earlier
 /// ones for the same target. Every directive in `rust_log` and `spec` must already be valid.
@@ -230,6 +233,7 @@ pub fn install(options: Options) -> Result<(), InstallError> {
             directives,
         }),
     });
+    FILTER_GENERATION.fetch_add(1, Ordering::Release);
     if logger.is_err() {
         tracing::warn!("another `log` logger is installed; its records bypass the log file");
     }
@@ -258,6 +262,7 @@ pub fn set_filter(spec: &str) -> Result<(), FilterError> {
         text: spec.trim().to_owned(),
         directives,
     };
+    FILTER_GENERATION.fetch_add(1, Ordering::Release);
     Ok(())
 }
 
@@ -270,6 +275,13 @@ pub fn filter() -> Option<FilterStatus> {
         spec: spec.text.clone(),
         effective,
     })
+}
+
+/// Counts changes to the active filter: 0 before [`install`], then one more for the install
+/// and for each [`set_filter`] that succeeds. Reading it is one atomic load, so a per-frame
+/// caller can re-read [`filter`] and [`category_filter`] only when it changes.
+pub fn filter_generation() -> u64 {
+    FILTER_GENERATION.load(Ordering::Acquire)
 }
 
 /// The most verbose level the active filter enables for any of `category`'s targets outside
