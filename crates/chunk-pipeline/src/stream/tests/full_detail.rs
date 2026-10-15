@@ -3,6 +3,7 @@
 use super::*;
 
 mod handoffs;
+mod transitions;
 
 fn stream() -> WorldStream {
     let mut stream = WorldStream::new(WorldBootstrap {

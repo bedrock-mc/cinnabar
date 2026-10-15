@@ -829,6 +829,7 @@ impl WorldStream {
         if !self
             .revisions
             .is_current(completion.key, completion.revision)
+            || !self.wants_mesh(completion.key.chunk())
             || !source_is_current
             || !biome_sources_are_current
             || completion.tint_identity != self.biome_tint_identity()

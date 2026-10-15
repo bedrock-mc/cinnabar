@@ -3,7 +3,7 @@
 use super::*;
 
 /// Publishes near geometry, then delivers the summary for its outgoing handoff.
-fn delivered_handoff() -> WorldStream {
+pub(super) fn delivered_handoff() -> WorldStream {
     let mut stream = stream();
     for (sequence, x) in [(1, 0), (2, 5)] {
         stream

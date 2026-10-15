@@ -25,7 +25,7 @@ pub(super) struct FullDetail {
     /// Interrupted restoration keeps cached membership only for columns already resident.
     columns_generation: Option<u64>,
     /// Near-drawn columns past the band, still meshed until far terrain covers them.
-    handoffs: HashMap<ChunkKey, Handoff>,
+    handoffs: BTreeMap<ChunkKey, Handoff>,
     scan: Option<DetailScan>,
     /// The first limit must also visit columns that were drawn without one.
     scan_residents: bool,
@@ -221,22 +221,38 @@ impl WorldStream {
                     let active = initial_member || self.column_has_published_mesh(column);
                     if !active {
                         self.full_detail.remove_column(column);
+                        self.withdraw_full_detail_column(column);
                     }
                     if active && disk.contains(column) {
-                        if self.full_detail.scan_residents {
-                            self.full_detail.insert_column(column);
+                        if self.full_detail.scan_residents
+                            || self.full_detail.handoffs.contains_key(&column)
+                        {
                             if !initial_member || self.full_detail.handoffs.contains_key(&column) {
-                                self.refresh_full_detail_column(column);
-                                self.full_detail.handoffs.remove(&column);
+                                self.promote_full_detail_column(column);
+                            } else {
+                                self.full_detail.insert_column(column);
                             }
                         } else {
                             let (_, last) = disk.row(column.x).expect("a kept column has a row");
+                            let row_end = ChunkKey::new(column.dimension, column.x, last);
+                            let next_handoff = self
+                                .full_detail
+                                .handoffs
+                                .range((
+                                    std::ops::Bound::Excluded(column),
+                                    std::ops::Bound::Included(row_end),
+                                ))
+                                .next();
                             self.full_detail.demotion_cursor =
-                                Some(ChunkKey::new(column.dimension, column.x, last));
+                                Some(next_handoff.map_or(row_end, |(next, _)| {
+                                    ChunkKey::new(next.dimension, next.x, next.z - 1)
+                                }));
                         }
                     } else if active {
                         self.full_detail.remove_column(column);
-                        self.demote_full_detail_column(column);
+                        if !self.full_detail.handoffs.contains_key(&column) {
+                            self.demote_full_detail_column(column);
+                        }
                     }
                 } else {
                     if !initial_member || self.full_detail.handoffs.contains_key(&column) {
@@ -247,20 +263,7 @@ impl WorldStream {
                 }
             } else if let Some(column) = scan.entering.as_mut().and_then(Iterator::next) {
                 if !self.full_detail.columns.contains(&column) {
-                    let unlit: Vec<_> = neighbourhood(column)
-                        .filter(|neighbour| !self.wants_light(*neighbour))
-                        .collect();
-                    self.full_detail.insert_column(column);
-                    self.full_detail.handoffs.remove(&column);
-                    self.refresh_full_detail_column(column);
-                    for neighbour in unlit {
-                        if !self.wants_mesh(neighbour) {
-                            let keys: Vec<_> = self.resident.column(neighbour).copied().collect();
-                            for key in keys {
-                                self.mark_light_dirty_exact_with_priority(key, false);
-                            }
-                        }
-                    }
+                    self.promote_full_detail_column(column);
                 }
             } else {
                 if self.full_detail.radius.is_none() {
@@ -278,7 +281,7 @@ impl WorldStream {
         self.full_detail.scan = Some(scan);
     }
 
-    /// Merges existing detail with residency during an initial limit; restoration needs only residency.
+    /// Visits indexed detail and handoffs; initial limits also visit resident columns.
     fn next_detail_column(&self) -> Option<ChunkKey> {
         let cursor = self.full_detail.demotion_cursor;
         let resident = if self.full_detail.scan_residents || self.full_detail.radius.is_none() {
@@ -295,8 +298,33 @@ impl WorldStream {
             .next()
             .copied()
             .into_iter()
+            .chain(
+                self.full_detail
+                    .handoffs
+                    .range(column_scan::after(cursor))
+                    .next()
+                    .map(|(column, _)| *column),
+            )
             .chain(resident)
             .min()
+    }
+
+    /// Restores ordinary detail and relights neighbours newly needed by its mesh halo.
+    fn promote_full_detail_column(&mut self, column: ChunkKey) {
+        let unlit: Vec<_> = neighbourhood(column)
+            .filter(|neighbour| !self.wants_light(*neighbour))
+            .collect();
+        self.full_detail.insert_column(column);
+        self.full_detail.handoffs.remove(&column);
+        self.refresh_full_detail_column(column);
+        for neighbour in unlit {
+            if !self.wants_mesh(neighbour) {
+                let keys: Vec<_> = self.resident.column(neighbour).copied().collect();
+                for key in keys {
+                    self.mark_light_dirty_exact_with_priority(key, false);
+                }
+            }
+        }
     }
 
     /// Relights and remeshes every section a column already holds.
@@ -437,10 +465,13 @@ impl WorldStream {
         }
     }
 
-    /// Drops evicted columns from any hand-over.
-    pub(super) fn forget_full_detail_handoffs(&mut self, columns: &BTreeSet<ChunkKey>) {
+    /// Drops handoffs and checkpoint membership that a replacement resident cannot inherit.
+    pub(super) fn forget_full_detail_columns(&mut self, columns: &BTreeSet<ChunkKey>) {
         for column in columns {
             self.full_detail.handoffs.remove(column);
+            if self.full_detail.columns_generation.is_some() {
+                self.full_detail.remove_column(*column);
+            }
         }
     }
 }

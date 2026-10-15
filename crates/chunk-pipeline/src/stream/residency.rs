@@ -63,7 +63,7 @@ impl WorldStream {
         let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
         self.forget_near_drawn(&columns);
-        self.forget_full_detail_handoffs(&columns);
+        self.forget_full_detail_columns(&columns);
         self.note_far_unloaded(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);

@@ -5,6 +5,8 @@ Moving views skip unchanged row interiors. Server teleports use the same retenti
 later commits wait for preceding retention, and reclaim requests stop before the next item.
 Near/far terrain still hands coverage over only after its summaries and uploads are ready.
 Outgoing handoffs recheck the latest radius and player centre before withdrawing coverage.
+Discarded detail invalidates pending meshes; retained handoffs regain lighting and its halo.
+Eviction clears interrupted membership so replacement columns refresh through the entering cursor.
 Poll reports count maintenance work and its maximum item time; trace spans record commit
 sizes and reclaim waits.
 
