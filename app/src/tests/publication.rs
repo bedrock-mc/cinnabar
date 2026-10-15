@@ -10,7 +10,7 @@ use bevy::{
 
 use crate::block_use::produce_block_use;
 use crate::item_use::produce_item_use;
-use crate::melee::produce_melee;
+use crate::melee::{prepare_melee, produce_melee};
 use crate::movement::advance_local_physics;
 use crate::runtime::movement_evidence::emit_movement_evidence;
 use crate::runtime::shutdown::finish_acceptance_run;
@@ -222,7 +222,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
         "advance_actor_motion",
     );
     for picker in [
-        system_node(graph, produce_melee, "produce_melee"),
+        system_node(graph, prepare_melee, "prepare_melee"),
         system_node(
             graph,
             crate::camera::aim_assist::publish_assisted_interaction,
@@ -259,7 +259,7 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_melee, "produce_melee"),
+            system_node(graph, prepare_melee, "prepare_melee"),
             system_node(graph, produce_survival_mining, "produce_survival_mining"),
         ),
         "an attacked actor must veto mining the block behind it",
@@ -279,10 +279,10 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
     assert!(
         schedule_precedes(
             graph,
-            system_node(graph, produce_item_use, "produce_item_use"),
             system_node(graph, send_player_auth_inputs, "send_player_auth_inputs"),
+            system_node(graph, produce_item_use, "produce_item_use"),
         ),
-        "air use must attach before the candidate packet is sent",
+        "completed movement must drain before frame-time air use",
     );
     assert_system_in_stage(
         graph,

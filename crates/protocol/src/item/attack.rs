@@ -98,6 +98,14 @@ pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn facts_migration_spear_component_tag_remains_in_the_pinned_vocabulary() {
+        assert_eq!(
+            crate::vanilla_tag_contains("minecraft:is_spear", "fixture:missing"),
+            Some(false)
+        );
+    }
+
     /// Builds original network-component trees without redistributing a game definition.
     fn component(name: &str, fields: Vec<(&str, Nbt)>) -> (String, Nbt) {
         (

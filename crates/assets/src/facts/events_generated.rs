@@ -8,6 +8,8 @@ impl ParticleEffect {
 pub const ALL: &'static [Self] = &[$(Self::$variant),+];
 /// The pack identifier used by native particle triggers.
 pub const fn name(self) -> &'static str { match self { $(Self::$variant => $name,)+ } }
+/// The fully qualified pack identity used by network particle requests.
+pub const fn identifier(self) -> &'static str { match self { $(Self::$variant => concat!("minecraft:", $name),)+ } }
 /// Admits a native effect name once while loading an artwork library.
 pub fn from_name(name: &str) -> Option<Self> { match name.strip_prefix("minecraft:").unwrap_or(name) { $($name => Some(Self::$variant),)+ _ => None } }
 }

@@ -83,7 +83,7 @@ pub(super) fn query(
         ),
         Q::OwnerIdentifier => text(evaluator.context.attachable.map(
             |_| match evaluator.actor.kind() {
-                ActorKind::Player { .. } => "minecraft:player",
+                ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),

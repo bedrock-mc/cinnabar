@@ -7,7 +7,6 @@ use bevy::render::render_resource::ShaderType;
 use render_scene::CloudVisibility;
 use std::collections::HashMap;
 
-use assets::AtmosphereRole;
 #[cfg(test)]
 use bevy::prelude::{GlobalTransform, IntoSystem, Mat4, UVec4};
 use bevy::{
@@ -33,11 +32,11 @@ use bevy::{
         },
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
-            BindingType, BlendState, Buffer, BufferBindingType, BufferId, BufferInitDescriptor,
-            BufferSize, BufferUsages, Canonical, ColorTargetState, ColorWrites, CompareFunction,
-            DepthStencilState, Face, FragmentState, FrontFace, PipelineCache, PrimitiveState,
-            RenderPipeline, RenderPipelineDescriptor, ShaderStages, Specializer, SpecializerKey,
-            Variants, VertexState,
+            BindingType, BlendState, Buffer, BufferBindingType, BufferDescriptor, BufferId,
+            BufferInitDescriptor, BufferSize, BufferUsages, Canonical, ColorTargetState,
+            ColorWrites, CompareFunction, DepthStencilState, Face, FragmentState, FrontFace,
+            PipelineCache, PrimitiveState, RenderPipeline, RenderPipelineDescriptor, ShaderStages,
+            Specializer, SpecializerKey, Variants, VertexState,
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
@@ -47,8 +46,11 @@ use bevy::{
 
 use meshing::{
     CLOUD_CELL_BLOCKS, CLOUD_TOP_Y, CLOUD_UNDERSIDE_Y, CLOUD_WORLD_PERIOD,
-    cloud_viewport::{CloudViewport, ViewportCloudQuad, mesh_cloud_viewport},
+    cloud_viewport::{CloudViewport, ViewportCloudQuad},
 };
+
+mod mesh_cache;
+use mesh_cache::CloudMeshCache;
 use {
     crate::atmosphere_render::AtmosphereGpu,
     render_scene::{
@@ -99,17 +101,28 @@ pub(crate) struct CloudGpu {
     pub(crate) views: HashMap<Entity, CloudViewGpu>,
     colour_buffer: Buffer,
     colour: [f32; 8],
+    diagnostics: bool,
+    work: CloudWork,
     #[cfg(test)]
     colour_uploads: u64,
     #[cfg(test)]
     pub(crate) upload_count: u32,
 }
 
+#[derive(Default)]
+struct CloudWork {
+    rebuilds: u64,
+    waited: u64,
+    buffer_creations: u64,
+    uploaded_bytes: u64,
+}
+
 pub(crate) struct CloudViewGpu {
     pub(crate) record_buffer: Option<Buffer>,
     pub(crate) record_count: u32,
     pub(crate) geometry_diagnostic: Option<CloudGeometryDiagnostic>,
-    prepared_identity: [u8; 32],
+    prepared_identity: Option<[u8; 32]>,
+    mesh_cache: CloudMeshCache,
     viewport: CloudViewport,
     bind_group: Option<BindGroup>,
     view_buffer_id: Option<BufferId>,
@@ -126,6 +139,9 @@ fn init_cloud_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         }),
         colour: [0.0; 8],
+        diagnostics: env_compat::var_os("CINNABAR_CLOUD_DIAGNOSTICS")
+            .is_some_and(|value| value == "1"),
+        work: CloudWork::default(),
         #[cfg(test)]
         colour_uploads: 0,
         #[cfg(test)]
@@ -137,10 +153,12 @@ pub(crate) fn prepare_cloud_records(
     requested: Res<AtmosphereTextureAssets>,
     atmosphere: Res<AtmosphereFrame>,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    visibility: Res<CloudVisibility>,
     views: Query<(Entity, &ExtractedView), With<Camera3d>>,
     mut gpu: ResMut<CloudGpu>,
 ) {
-    if !atmosphere.sky_kind().has_clouds() {
+    if !visibility.0 || !atmosphere.sky_kind().has_clouds() {
         gpu.views.clear();
         return;
     }
@@ -149,13 +167,19 @@ pub(crate) fn prepare_cloud_records(
         return;
     };
     let identity = requested.identity();
-    let cloud_texture = runtime
-        .texture(AtmosphereRole::Clouds)
-        .expect("validated MCBEATM2 always contains the cloud texture");
     gpu.views.retain(|entity, _| views.contains(*entity));
     let config = CloudRenderConfig::legacy_fancy();
+    let CloudGpu {
+        views: prepared_views,
+        diagnostics,
+        work,
+        ..
+    } = &mut *gpu;
+    #[cfg(test)]
+    let mut uploads = 0;
     for (entity, view) in &views {
         let camera = view.world_from_view.translation();
+        let above = camera.y >= CLOUD_UNDERSIDE_Y.ceil();
         let Some(viewport) = CloudViewport::try_new(
             [
                 f64::from(camera.x) + f64::from(atmosphere.cloud_scroll_blocks()),
@@ -163,62 +187,87 @@ pub(crate) fn prepare_cloud_records(
             ],
             config.mesh_size(),
             config.grid_size(),
-            camera.y >= CLOUD_UNDERSIDE_Y.ceil(),
+            above,
             false,
         ) else {
             // A well-formed non-finite/out-of-range camera never feeds shader
             // storage indexing. Do not retain that view's old geometry.
-            gpu.views.remove(&entity);
+            prepared_views.remove(&entity);
             continue;
         };
-        if gpu.views.get(&entity).is_some_and(|prepared| {
-            prepared.prepared_identity == identity && !prepared.viewport.needs_rebuild(viewport)
-        }) {
-            continue;
-        }
-        let records = mesh_cloud_viewport(cloud_texture, viewport)
-            .expect("validated MCBEATM2 cloud texture satisfies the finite window contract");
-        let record_count =
-            u32::try_from(records.len()).expect("bounded cloud record count fits u32");
-        let geometry_diagnostic = CloudGeometryDiagnostic::from_viewport_layout(
-            config,
-            identity,
-            cloud_texture,
-            &records,
-            CLOUD_WORLD_PERIOD as u32 * 1_000,
-            (CLOUD_UNDERSIDE_Y * 1_000.0) as i32,
-            (CLOUD_TOP_Y * 1_000.0) as i32,
-        )
-        .expect("validated finite cloud geometry satisfies the diagnostic contract");
-        let record_buffer = (!records.is_empty()).then(|| {
-            render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("immutable native viewport cloud quad records"),
-                contents: bytemuck::cast_slice::<ViewportCloudQuad, u8>(&records),
-                usage: BufferUsages::STORAGE,
-            })
-        });
-        bevy::log::info!(
-            "CLOUD_GEOMETRY_EVIDENCE {}",
-            geometry_diagnostic.marker_fields()
-        );
-        gpu.views.insert(
-            entity,
-            CloudViewGpu {
-                record_buffer,
-                record_count,
-                geometry_diagnostic: Some(geometry_diagnostic),
-                prepared_identity: identity,
+        let prepared = prepared_views
+            .entry(entity)
+            .or_insert_with(|| CloudViewGpu {
+                record_buffer: None,
+                record_count: 0,
+                geometry_diagnostic: None,
+                prepared_identity: None,
+                mesh_cache: CloudMeshCache::default(),
                 viewport,
                 bind_group: None,
                 view_buffer_id: None,
                 atmosphere_buffer_id: None,
                 bound_asset_identity: None,
-            },
-        );
-        #[cfg(test)]
+            });
+        prepared.mesh_cache.set_identity(identity);
+        if prepared.prepared_identity != Some(identity) || prepared.viewport.needs_rebuild(viewport)
         {
-            gpu.upload_count += 1;
+            let span = bevy::log::info_span!(
+                "cloud.admit",
+                rebuilds = work.rebuilds + 1,
+                waited = work.waited,
+                buffer_creations = work.buffer_creations,
+                uploaded_bytes = work.uploaded_bytes
+            );
+            let _guard = span.enter();
+            let (mesh, waited) = prepared
+                .mesh_cache
+                .get(runtime, viewport, above, *diagnostics);
+            let records = &mesh.records;
+            let bytes = bytemuck::cast_slice::<ViewportCloudQuad, u8>(records);
+            if !bytes.is_empty() {
+                if prepared
+                    .record_buffer
+                    .as_ref()
+                    .is_none_or(|buffer| buffer.size() < bytes.len() as u64)
+                {
+                    prepared.record_buffer = Some(render_device.create_buffer(&BufferDescriptor {
+                        label: Some("retained viewport cloud quad records"),
+                        size: (bytes.len() as u64).next_power_of_two(),
+                        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }));
+                    prepared.bind_group = None;
+                    work.buffer_creations += 1;
+                }
+                render_queue.write_buffer(prepared.record_buffer.as_ref().unwrap(), 0, bytes);
+            }
+            prepared.record_count =
+                u32::try_from(records.len()).expect("bounded cloud records fit u32");
+            prepared.geometry_diagnostic = mesh.diagnostic.clone();
+            if let Some(diagnostic) = &prepared.geometry_diagnostic {
+                bevy::log::info!("CLOUD_GEOMETRY_EVIDENCE {}", diagnostic.marker_fields());
+            }
+            prepared.prepared_identity = Some(identity);
+            prepared.viewport = viewport;
+            work.rebuilds += 1;
+            work.waited += u64::from(waited);
+            work.uploaded_bytes += bytes.len() as u64;
+            span.record("waited", work.waited);
+            span.record("buffer_creations", work.buffer_creations);
+            span.record("uploaded_bytes", work.uploaded_bytes);
+            #[cfg(test)]
+            {
+                uploads += 1;
+            }
         }
+        prepared
+            .mesh_cache
+            .prefetch(runtime, viewport, *diagnostics);
+    }
+    #[cfg(test)]
+    {
+        gpu.upload_count += uploads;
     }
 }
 
@@ -407,7 +456,7 @@ fn prepare_cloud_bind_group(
         if prepared.bind_group.is_some()
             && prepared.view_buffer_id == Some(view_buffer.id())
             && prepared.atmosphere_buffer_id == Some(atmosphere.buffer.id())
-            && prepared.bound_asset_identity == Some(identity)
+            && prepared.bound_asset_identity == identity
         {
             continue;
         }
@@ -435,7 +484,7 @@ fn prepare_cloud_bind_group(
         ));
         prepared.view_buffer_id = Some(view_buffer.id());
         prepared.atmosphere_buffer_id = Some(atmosphere.buffer.id());
-        prepared.bound_asset_identity = Some(identity);
+        prepared.bound_asset_identity = identity;
     }
 }
 
@@ -465,13 +514,9 @@ fn queue_clouds(
         if prepared.record_count == 0 {
             continue;
         }
-        debug_assert_eq!(
-            prepared
-                .geometry_diagnostic
-                .as_ref()
-                .map(CloudGeometryDiagnostic::quad_count),
-            Some(prepared.record_count),
-        );
+        if let Some(diagnostic) = &prepared.geometry_diagnostic {
+            debug_assert_eq!(diagnostic.quad_count(), prepared.record_count);
+        }
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };

@@ -4,6 +4,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::pack::PackTexture as T;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
@@ -28,13 +29,18 @@ pub(in crate::compiler) fn state(record: &RegistryRecord) -> Option<VesselState>
         serde_json::from_str(&record.canonical_state).ok()?;
     if block_render_fact(&record.name).kind == R::Composter && values.len() == 1 {
         return Some(VesselState::Composter(super::state::exact_tagged_int(
-            values.get("composter_fill_level")?,
+            values.get(assets::facts::BlockProperty::ComposterFillLevel.name())?,
             8,
         )? as u8));
     }
     if matches!(block_render_fact(&record.name).kind, R::Cauldron) && values.len() == 2 {
-        let level = super::state::exact_tagged_int(values.get("fill_level")?, 6)? as u8;
-        let liquid = match super::state::exact_tagged_string(values.get("cauldron_liquid")?)? {
+        let level = super::state::exact_tagged_int(
+            values.get(assets::facts::BlockProperty::FillLevel.name())?,
+            6,
+        )? as u8;
+        let liquid = match super::state::exact_tagged_string(
+            values.get(assets::facts::BlockProperty::CauldronLiquid.name())?,
+        )? {
             "water" => 0,
             "lava" => 1,
             "powder_snow" => 2,
@@ -131,7 +137,7 @@ pub(in crate::compiler) fn descriptors(
                     let key: Box<str> = if liquid == 1 {
                         "still_lava"
                     } else {
-                        "powder_snow"
+                        T::PowderSnow.key()
                     }
                     .into();
                     let (path, state_variant) =

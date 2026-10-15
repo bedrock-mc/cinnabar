@@ -454,7 +454,7 @@ fn resolve_rig(
     completed_tick: u64,
 ) -> Option<ActorRigState> {
     let identifier = match actor.kind() {
-        ActorKind::Player { .. } => "minecraft:player",
+        ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
         ActorKind::Entity { identifier } => identifier,
     };
     let entity_symbol = assets

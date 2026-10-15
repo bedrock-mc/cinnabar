@@ -92,13 +92,14 @@ pub(super) fn attach(
             (partial_tick, delta_seconds, glint_settings),
         );
     }
-    if let (Some(stream), Some(cape)) = (stream, cape_state.rig(entity_assets)) {
+    if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
         if !scene.contains_geometry(cape.id) {
             let _ = scene.insert_geometry(cape.geometry.clone());
         }
         crate::presentation::cape::apply_capes(
             batch,
             cape,
+            preparation,
             |runtime_id| {
                 stream.authority().actor_rig(runtime_id).map(|rig| {
                     if runtime_id == local_runtime_id

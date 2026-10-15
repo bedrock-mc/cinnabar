@@ -105,7 +105,7 @@ fn pinned_fire_state() -> Option<u32> {
     )
     .ok()?
     .iter()
-    .find(|state| state.name.as_ref() == "minecraft:fire")
+    .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
     .map(|state| state.sequential_id)
 }
 

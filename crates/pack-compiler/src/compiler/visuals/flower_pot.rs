@@ -2,6 +2,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::pack::PackBlock as B;
 use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn soil_material(
@@ -11,10 +12,14 @@ pub(in crate::compiler) fn soil_material(
     records
         .iter()
         .find(|record| {
-            record.name.as_ref() == "minecraft:dirt"
+            record.name.as_ref() == B::Dirt.identifier()
                 && serde_json::from_str::<serde_json::Value>(&record.canonical_state)
                     .ok()
-                    .is_some_and(|state| state.get("dirt_type").is_none_or(|kind| kind == "normal"))
+                    .is_some_and(|state| {
+                        state
+                            .get(assets::facts::BlockProperty::DirtType.name())
+                            .is_none_or(|kind| kind == "normal")
+                    })
         })
         .and_then(|record| inputs.material(record, BlockFace::Up))
 }
@@ -26,7 +31,9 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<[u32; 7], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() != "minecraft:flower_pot" {
+    if assets::facts::block_render_fact(&record.name).kind
+        != assets::facts::BlockRenderKind::FlowerPot
+    {
         return Ok(CompileRuleResult::NoMatch);
     }
     let Some((min, max, _)) = inputs.fallback.entry(record) else {

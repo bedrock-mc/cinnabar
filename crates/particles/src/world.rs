@@ -59,7 +59,7 @@ pub struct EmptyWorld;
 
 impl ParticleWorld for EmptyWorld {
     fn block_identity(&self, _block: [i32; 3]) -> Option<BlockIdentity<'_>> {
-        Some(BlockIdentity("minecraft:air"))
+        Some(BlockIdentity(assets::facts::VanillaBlock::Air.identifier()))
     }
 
     fn solid_boxes(&self, _min: [f32; 3], _max: [f32; 3], _out: &mut Vec<[f32; 6]>) {}

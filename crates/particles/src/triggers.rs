@@ -78,15 +78,15 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
                 aux: data & 0xffff,
             }),
             14 => Some(LevelParticle::FixedItemIcon {
-                identifier: "minecraft:snowball",
+                identifier: assets::facts::VanillaItem::Snowball.identifier(),
                 count: ITEM_ICON_PARTICLES,
             }),
             15 => Some(LevelParticle::FixedItemIcon {
-                identifier: "minecraft:snowball",
+                identifier: assets::facts::VanillaItem::Snowball.identifier(),
                 count: 1,
             }),
             36 => Some(LevelParticle::FixedItemIcon {
-                identifier: "minecraft:slime_ball",
+                identifier: assets::facts::VanillaItem::SlimeBall.identifier(),
                 count: ITEM_ICON_PARTICLES,
             }),
             32..=34 => Some(LevelParticle::Named {
@@ -120,7 +120,7 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
             })
         }
         2009 if data & 0xffff == 15 => Some(LevelParticle::FixedItemIcon {
-            identifier: "minecraft:snowball",
+            identifier: assets::facts::VanillaItem::Snowball.identifier(),
             count: 1,
         }),
         2009 => named(legacy_particle_effect(data & 0xffff)?),
@@ -268,7 +268,7 @@ pub fn terrain_request(
 #[must_use]
 pub fn item_icon_request(position: [f32; 3], tile: TileRequest, count: f32) -> SpawnRequest {
     SpawnRequest {
-        effect: "minecraft:breaking_item_icon".to_owned(),
+        effect: ParticleEffect::BreakingItemIcon.identifier().to_owned(),
         position,
         variables: variables(&[
             ("num_particles", count),
@@ -439,9 +439,9 @@ fn critical_particle_variables(particle_count: f32) -> Vec<(String, f32)> {
 #[must_use]
 pub fn critical_hit_request(magic: bool, position: [f32; 3], particle_count: f32) -> SpawnRequest {
     let effect = if magic {
-        "minecraft:magic_critical_hit_emitter"
+        ParticleEffect::MagicCriticalHitEmitter.identifier()
     } else {
-        "minecraft:critical_hit_emitter"
+        ParticleEffect::CriticalHitEmitter.identifier()
     };
     let mut request = named_request(effect, position, None);
     request.variables = critical_particle_variables(particle_count);

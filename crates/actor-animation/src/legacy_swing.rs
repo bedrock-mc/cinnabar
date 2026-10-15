@@ -1,8 +1,14 @@
 //! Ordinary player attacks, composed in model space so children share their parent's grip.
 use super::*;
+use assets::facts::VanillaItem;
 use protocol_ids::ActorFlag;
 use render_api::{BEDROCK_112, CombatVisuals};
 use render_model::legacy_combat::legacy_swing_pose;
+
+const BOW: &str = VanillaItem::Bow.identifier();
+const CROSSBOW: &str = VanillaItem::Crossbow.identifier();
+const EMPTY_MAP: &str = VanillaItem::EmptyMap.identifier();
+const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
 
 #[cfg(test)]
 mod pack_tests;
@@ -27,19 +33,14 @@ pub(super) fn ordinary(actor: &dyn AnimatedActor, context: &ActorTickContext, sw
         ]
         .into_iter()
         .any(|flag| query::actor_flag(actor, flag))
-        && !context.main_hand.as_deref().is_some_and(|item| {
-            matches!(
-                item,
-                "minecraft:bow"
-                    | "minecraft:crossbow"
-                    | "minecraft:filled_map"
-                    | "minecraft:empty_map"
-            )
-        })
+        && !context
+            .main_hand
+            .as_deref()
+            .is_some_and(|item| matches!(item, BOW | CROSSBOW | FILLED_MAP | EMPTY_MAP))
         && !context
             .off_hand
             .as_deref()
-            .is_some_and(|item| matches!(item, "minecraft:filled_map" | "minecraft:empty_map"))
+            .is_some_and(|item| matches!(item, FILLED_MAP | EMPTY_MAP))
 }
 
 /// Attack changes retained by named drivers until their destination skeleton is composed.

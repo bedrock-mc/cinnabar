@@ -60,21 +60,27 @@ jobs:
     if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      pages: read
+      # Replacing this job's cache entry.
+      actions: write
+    env:
+      # The build cache saves target/: keep intermediates there, without debug info, as ci.yml does.
+      CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
           targets: wasm32-unknown-unknown
-      - name: Cache Rust dependencies and build artifacts
-        uses: actions/cache@v5
+      # The wasm library, its host build scripts and proc-macros, and the debug font compiler.
+      - name: Restore Rust build cache
+        id: rust-cache
+        uses: ./.github/actions/build-cache
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: jsonui-editor-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: |
-            jsonui-editor-${{ runner.os }}-
+          lane: jsonui-editor-ci
+          cargo-outputs: release wasm32-unknown-unknown/release
       - name: Install the wasm-bindgen CLI Cargo.lock pins
         run: |
           version="$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print; exit }' Cargo.lock)"
@@ -99,6 +105,16 @@ jobs:
           path: ${{ runner.temp }}/artifact.tar
           retention-days: 1
           if-no-files-found: error
+      - name: Save Rust build cache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        # A cache problem, reported as an annotation, must not stop the deployment.
+        continue-on-error: true
+        uses: ./.github/actions/build-cache
+        with:
+          phase: save
+          key: ${{ steps.rust-cache.outputs.key }}
+          bucket: ${{ steps.rust-cache.outputs.bucket }}
+          paths: ${{ steps.rust-cache.outputs.paths }}
 
   deploy:
     needs: build

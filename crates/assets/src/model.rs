@@ -119,16 +119,17 @@ pub const fn bubble_column_quad_count(offset: u32) -> u32 {
 }
 /// Neighbor-selected portal axis. The low two model-transform bits stay zero.
 pub const BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN: u32 = 1 << 2;
-pub const NETHER_PORTAL_IDENTIFIER: &str = "minecraft:portal";
+pub const NETHER_PORTAL_IDENTIFIER: &str = crate::facts::VanillaBlock::Portal.identifier();
 
 /// The End portal surface is drawn by the block-entity renderer.
-pub const END_PORTAL_IDENTIFIER: &str = "minecraft:end_portal";
+pub const END_PORTAL_IDENTIFIER: &str = crate::facts::VanillaBlock::EndPortal.identifier();
 
 /// The End gateway uses the same animated surface family.
-pub const END_GATEWAY_IDENTIFIER: &str = "minecraft:end_gateway";
+pub const END_GATEWAY_IDENTIFIER: &str = crate::facts::VanillaBlock::EndGateway.identifier();
 
 /// End portal frame state identity shared by compilation and presentation.
-pub const END_PORTAL_FRAME_IDENTIFIER: &str = "minecraft:end_portal_frame";
+pub const END_PORTAL_FRAME_IDENTIFIER: &str =
+    crate::facts::VanillaBlock::EndPortalFrame.identifier();
 
 /// Checks the six outward unit-cube surfaces in canonical face order.
 pub(crate) fn unit_cube_quad_geometry_is_valid(

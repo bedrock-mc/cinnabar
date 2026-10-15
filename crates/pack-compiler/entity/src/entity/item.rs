@@ -90,8 +90,11 @@ pub(super) fn compile(
     // Banner models replace their legacy sign fallback; beds keep their dye-selected sprites.
     let block_wins = |key: &ItemVisualKey| {
         routes.routes.contains_key(key)
-            && (key.identifier.as_ref() == "minecraft:banner"
-                || (!sprite_first.contains(key) && key.identifier.as_ref() != "minecraft:bed"))
+            && (assets::facts::pack::rules().item_visual(&key.identifier)
+                == Some(assets::facts::pack::ItemVisualKind::BlockModel)
+                || (!sprite_first.contains(key)
+                    && assets::facts::pack::rules().item_visual(&key.identifier)
+                        != Some(assets::facts::pack::ItemVisualKind::Sprite)))
     };
     let binding_source = *source_indices
         .get(item_bindings::SOURCE_PATH)
@@ -102,13 +105,16 @@ pub(super) fn compile(
     let mut definitions = BTreeMap::<ItemVisualKey, (u32, ItemVisualDefinitionRoute)>::new();
     definitions.insert(
         ItemVisualKey {
-            identifier: "minecraft:air".into(),
+            identifier: assets::facts::pack::rules().empty_hand().into(),
             metadata: 0,
         },
         (route_source, ItemVisualDefinitionRoute::EmptyHand),
     );
     for (key, block_visual) in &routes.routes {
-        if key.identifier.as_ref() == "minecraft:air" && key.metadata == 0 {
+        if assets::facts::pack::rules().item_visual(&key.identifier)
+            == Some(assets::facts::pack::ItemVisualKind::EmptyHand)
+            && key.metadata == 0
+        {
             continue;
         }
         if definitions
@@ -401,7 +407,8 @@ fn add_retail_block_items(
             continue;
         }
         if let Some(&state) = first_state.get(identifier)
-            && identifier != "minecraft:air"
+            && assets::facts::pack::rules().item_visual(identifier)
+                != Some(assets::facts::pack::ItemVisualKind::EmptyHand)
         {
             routes.insert(key, BlockVisualId(state));
         }

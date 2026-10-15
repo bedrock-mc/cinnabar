@@ -129,7 +129,7 @@ fn nether_and_end_use_the_existing_block_icon_pages() {
         .iter()
         .enumerate()
         .map(|(index, art)| IconEntry {
-            identifier: art.block.into(),
+            identifier: art.icon.identifier().into(),
             metadata: 0,
             sprite: index as u32,
         })
@@ -144,7 +144,7 @@ fn nether_and_end_use_the_existing_block_icon_pages() {
     for dimension in [1, 2] {
         presentation.hud_frame_mut().dimension = dimension;
         let icon = presentation
-            .item_icon(DIMENSIONS[dimension as usize].block, 0)
+            .item_icon(DIMENSIONS[dimension as usize].icon.identifier(), 0)
             .unwrap();
         let mut nodes = Vec::new();
         presentation

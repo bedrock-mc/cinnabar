@@ -89,7 +89,7 @@ fn budget_rejections_preserve_vanilla_ids_in_both_modes_and_admission_palettes()
             );
             for record in records
                 .iter()
-                .filter(|record| record.name.as_ref() != super::super::RESERVED_RECORD_NAME)
+                .filter(|record| record.name.as_ref() != super::super::RESERVED_BLOCK_NAME)
             {
                 let omitted = !supply_vanilla
                     && assets::server_defined_blocks().iter().any(|block| {
@@ -190,7 +190,7 @@ fn omitted_server_definitions_remap_the_pinned_sequential_palette() {
         } else {
             assert_eq!(remap.to_internal(wire), record.sequential_id);
             assert_eq!(remap.to_wire(record.sequential_id), wire);
-            if record.name.as_ref() != super::super::RESERVED_RECORD_NAME {
+            if record.name.as_ref() != super::super::RESERVED_BLOCK_NAME {
                 assert_eq!(
                     registries.block_identifier(
                         assets::NetworkIdMode::Sequential,
