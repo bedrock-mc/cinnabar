@@ -119,6 +119,24 @@ fn compiled_pack(files: Vec<(Box<str>, Vec<u8>)>) -> Option<assets::SessionEntit
 
 /// Keeps actor identity, pose and equipment unchanged across each pack publication.
 fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
+    runtime.set_session_items(
+        Some(&client_presentation::session_assets::SessionItems {
+            components: Arc::new(
+                [(
+                    Arc::from(ITEM),
+                    protocol::ItemComponents {
+                        wearable_slot: Some("slot.armor.chest".into()),
+                        ..Default::default()
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            icons: None,
+        }),
+        None,
+        Vec::new(),
+    );
     let rig = render_model::skin_rig_id(0);
     runtime.register_skin_rig(rig, vec!["body".into()]);
     let pose: Arc<[render_model::RenderBoneTransform]> =

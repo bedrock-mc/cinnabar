@@ -1,5 +1,6 @@
 //! Interaction picks remote actors at this frame's tick positions without disturbing their
 //! per-tick animation or the actor clock.
+use actor_animation::AnimatedActor;
 use protocol_ids::ActorDataKey;
 use {super::*, client_presentation::actor_publication::ActorFramePartialTick};
 
@@ -214,26 +215,46 @@ fn pick_prediction_keeps_multi_tick_animation_inputs() {
             .unwrap();
         stream.poll([0.0, 64.0, 0.0], 0);
         if predict {
+            let before = [2, 4].map(|id| stream.authority().actor(id).cloned());
             stream.predict_remote_actor_motion(3);
+            assert_eq!(
+                [2, 4].map(|id| stream.authority().actor(id).cloned()),
+                before,
+                "pick prediction leaves authoritative actor state unchanged"
+            );
         }
         stream.advance_actor_interpolation_frame(3);
         let authority = stream.authority();
         let rig = authority.actor_rig(2).expect("the remote player has a rig");
         (
-            authority.actor(2).cloned(),
-            authority.actor(4).cloned(),
+            [2, 4].map(|id| {
+                authority.actor(id).map(|actor| {
+                    (
+                        actor.position,
+                        actor.velocity,
+                        actor.previous_pose,
+                        actor.received_pose,
+                        actor.dragon_flap_phase(),
+                        (0..)
+                            .map_while(|offset| actor.dragon_historical_frame(offset))
+                            .collect::<Vec<_>>(),
+                    )
+                })
+            }),
             rig.java,
             rig.previous_body_yaw,
             rig.body_yaw,
         )
     };
     let (interleaved, predicted) = (advance(false), advance(true));
-    assert_eq!(predicted.0, interleaved.0, "remote player state");
-    assert_eq!(predicted.1, interleaved.1, "dragon state and history");
-    assert_eq!(predicted.2, interleaved.2, "walk cycle and Java body yaw");
     assert_eq!(
-        (predicted.3, predicted.4),
-        (interleaved.3, interleaved.4),
+        predicted.0, interleaved.0,
+        "actor motion and dragon history"
+    );
+    assert_eq!(predicted.1, interleaved.1, "walk cycle and Java body yaw");
+    assert_eq!(
+        (predicted.2, predicted.3),
+        (interleaved.2, interleaved.3),
         "body yaw"
     );
 }
