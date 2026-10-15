@@ -183,7 +183,7 @@ fn authority_change_drops_a_held_release_whose_facing_never_went_out() {
 
     let mut ticker = held_release_ticker();
     let sent = flush_identities(&mut ticker, 8);
-    ticker.begin_respawn_search();
+    ticker.begin_respawn_search(&mut LocalPhysicsController::default());
     // A write acknowledged under the old epoch must not revive the release.
     ticker.acknowledge_physics_send(sent[0]);
     assert!(!ticker.has_held_release());

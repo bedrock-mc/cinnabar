@@ -6529,7 +6529,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   extending charge time, and keep use slowdown through that facing tick. Its sprint gate expires
   on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
-  releases cancel their pending and replayed launch. Travel-suppressed spin ticks use the compact
+  releases cancel their pending and replayed launch. Respawn search and ready anchors discard
+  retained releases, their temporary use modifier and pending launches from the old life.
+  Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
   bound is a known divergence for unsupported enchantment levels.

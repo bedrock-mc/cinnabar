@@ -495,6 +495,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &control,
             stream.local_player_runtime_id(),
             &mut movement,
+            &mut local_physics,
         ) {
             continue;
         }
