@@ -18,6 +18,8 @@ pub(super) struct StagedPack {
     last_drawn: HashMap<EntityRigId, u64>,
     /// Catalog revision and drawn set of the last admission that left a rig out.
     denied: Option<(u64, u64)>,
+    /// Sorted unique drawn IDs, retaining capacity across unchanged frames.
+    drawn: Vec<EntityRigId>,
 }
 
 impl StagedPack {
@@ -32,8 +34,8 @@ fn is_session_pack_rig(id: EntityRigId) -> bool {
 }
 
 impl ActorRigFrameBuilder {
-    /// Registers a whole dynamic batch, reclaiming the oldest staged pages only as needed.
-    /// Replaced dynamic pages are released first; an impossible batch leaves all residents intact.
+    /// Registers a geometry batch, reclaiming the oldest staged pages only as needed.
+    /// Replaced pages are released first; an impossible batch leaves all residents intact.
     pub(super) fn insert_reclaiming_staged(
         &mut self,
         mut geometries: Vec<ActorRigGeometry>,
@@ -70,8 +72,18 @@ impl ActorRigFrameBuilder {
             return Err(ActorRigGeometryError::CatalogCapacity);
         }
         let evicted: BTreeSet<_> = evictable[..plan.evicted].iter().copied().collect();
+        let staged_updates: Vec<_> = added
+            .iter()
+            .filter(|geometry| is_session_pack_rig(geometry.id))
+            .cloned()
+            .collect();
         self.catalog
             .append_evicting(added, |id| evicted.contains(id), revision)?;
+        self.staged.geometries.extend(
+            staged_updates
+                .into_iter()
+                .map(|geometry| (geometry.id, geometry)),
+        );
         self.staged.last_drawn.retain(|id, _| !evicted.contains(id));
         self.staged.denied = None;
         Ok(())
@@ -191,33 +203,36 @@ impl ActorRigFrameBuilder {
         if self.staged.is_empty() {
             return;
         }
-        let drawn: BTreeSet<EntityRigId> = drawn
-            .filter_map(|submission| {
-                let (id, geometry) =
-                    eligibility::geometry(&self.staged.geometries, submission).ok()?;
-                (u32::try_from(submission.input.reset_generation).is_ok()
-                    && self.matrices.pose_is_valid(
-                        &submission.input.previous_bones,
-                        id,
-                        &geometry.bone_pivots,
-                    )
-                    && self.matrices.pose_is_valid(
-                        &submission.input.current_bones,
-                        id,
-                        &geometry.bone_pivots,
-                    ))
-                .then_some(id)
-            })
-            .collect();
-        let mut missing = Vec::new();
-        for id in &drawn {
+        let geometries = &self.staged.geometries;
+        let drawn_rigs = &mut self.staged.drawn;
+        drawn_rigs.clear();
+        drawn_rigs.extend(drawn.filter_map(|submission| {
+            let (id, geometry) = eligibility::geometry(geometries, submission).ok()?;
+            (u32::try_from(submission.input.reset_generation).is_ok()
+                && self.matrices.pose_is_valid(
+                    &submission.input.previous_bones,
+                    id,
+                    &geometry.bone_pivots,
+                )
+                && self.matrices.pose_is_valid(
+                    &submission.input.current_bones,
+                    id,
+                    &geometry.bone_pivots,
+                ))
+            .then_some(id)
+        }));
+        drawn_rigs.sort_unstable();
+        drawn_rigs.dedup();
+        let drawn = &self.staged.drawn;
+        let mut missing = false;
+        for id in drawn {
             if self.catalog.geometries.contains_key(id) {
                 self.staged.last_drawn.insert(*id, frame_generation);
             } else {
-                missing.push(&self.staged.geometries[id]);
+                missing = true;
             }
         }
-        if missing.is_empty() {
+        if !missing {
             return;
         }
         let mut hasher = DefaultHasher::new();
@@ -226,13 +241,19 @@ impl ActorRigFrameBuilder {
         if self.staged.denied == Some(key) {
             return;
         }
-        missing.sort_by_key(|geometry| (geometry.vertices.len(), geometry.id));
-        let candidates: Vec<_> = missing.into_iter().cloned().collect();
+        let mut candidates: Vec<_> = drawn
+            .iter()
+            .filter(|id| !self.catalog.geometries.contains_key(id))
+            .map(|id| self.staged.geometries[id].clone())
+            .collect();
+        candidates.sort_by_key(|geometry| (geometry.vertices.len(), geometry.id));
         let mut evictable: Vec<_> = self
             .catalog
             .geometries
             .keys()
-            .filter(|id| self.staged.geometries.contains_key(id) && !drawn.contains(id))
+            .filter(|id| {
+                self.staged.geometries.contains_key(id) && drawn.binary_search(id).is_err()
+            })
             .map(|id| (self.staged.last_drawn.get(id).copied().unwrap_or(0), *id))
             .collect();
         evictable.sort_unstable();

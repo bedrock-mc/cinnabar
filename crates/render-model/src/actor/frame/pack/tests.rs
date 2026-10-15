@@ -519,3 +519,84 @@ fn staged_publication_revalidates_replaced_vertex_storage() {
         }
     }
 }
+
+/// Newly inserted pack rigs remain evictable and can return after another body needs space.
+#[test]
+fn inserted_pack_rigs_share_staged_residency() {
+    for inserted in [crate::pack_rig_id(9), crate::pack_equipment_rig_id(9)] {
+        let body = crate::pack_rig_id(0);
+        let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+        builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+        builder
+            .replace_pack_geometries(vec![pack_geometry(0, 12), pack_geometry(1, 12)])
+            .unwrap();
+        builder
+            .insert_geometry(distinct(inserted, 20.0, 12))
+            .unwrap();
+        for (generation, rig) in [inserted, body, inserted].into_iter().enumerate() {
+            let frame = builder.build(0.5, None, [draws(generation as u64 + 1, rig)]);
+            assert_eq!(frame.instances.len(), 1, "rig {rig:?}");
+            assert_eq!(frame.manifest[0].rig, rig);
+            assert_spans(&builder.catalog);
+        }
+    }
+}
+
+/// Successful replacements survive eviction; rejected replacements leave both copies intact.
+#[test]
+fn inserted_pack_replacements_survive_eviction() {
+    let replaced = crate::pack_rig_id(0);
+    let other = crate::pack_rig_id(1);
+    let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+    builder
+        .replace_pack_geometries(vec![pack_geometry(0, 12), pack_geometry(1, 12)])
+        .unwrap();
+    let replacement = distinct(replaced, 20.0, 12);
+    builder.insert_geometry(replacement.clone()).unwrap();
+    assert_eq!(
+        builder.insert_geometry(distinct(replaced, 30.0, 40)),
+        Err(ActorRigGeometryError::CatalogCapacity)
+    );
+    let _ = builder.build(0.5, None, [draws(1, other)]);
+    let frame = builder.build(0.5, None, [draws(2, replaced)]);
+    assert_eq!(frame.instances.len(), 1);
+    assert_eq!(builder.catalog.geometries[&replaced], replacement);
+    assert_spans(&builder.catalog);
+}
+
+/// Repeated resident and cached-denial frames allocate nothing in staged admission.
+#[test]
+fn warm_staged_admission_reuses_drawn_storage() {
+    for denied in [false, true] {
+        let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+        builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+        builder
+            .replace_pack_geometries(vec![
+                pack_geometry(0, 6),
+                pack_geometry(1, 6),
+                pack_geometry(2, 40),
+            ])
+            .unwrap();
+        let mut submissions = vec![
+            draws(1, crate::pack_rig_id(1)),
+            draws(2, crate::pack_rig_id(0)),
+            draws(3, crate::pack_rig_id(1)),
+        ];
+        if denied {
+            submissions.push(draws(4, crate::pack_rig_id(2)));
+        }
+        builder.admit_staged(submissions.iter(), 1);
+        let before = test_alloc::thread_allocations();
+        for generation in 2..12 {
+            builder.admit_staged(submissions.iter(), generation);
+        }
+        assert_eq!(
+            test_alloc::thread_allocations() - before,
+            0,
+            "denied {denied}"
+        );
+        assert!(builder.contains_geometry(crate::pack_rig_id(0)));
+        assert!(builder.contains_geometry(crate::pack_rig_id(1)));
+    }
+}
