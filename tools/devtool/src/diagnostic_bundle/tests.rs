@@ -611,3 +611,61 @@ fn bundle_reassembles_rotated_segments_of_the_current_session() {
     assert!(!client.contains("unrelated file"));
     assert!(!client.contains("fixture-secret"));
 }
+
+#[test]
+fn diagnostics_audit_core_archives_follow_identity_and_rotation() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("core.log");
+    for (name, id, event) in [
+        (
+            "core-20260101-000000.log",
+            "own",
+            "upstream first elapsed_ms=1",
+        ),
+        (
+            "core-20260101-000000-2.log",
+            "own",
+            "upstream second elapsed_ms=2",
+        ),
+        (
+            "core-20260101-000000-10.log",
+            "own",
+            "upstream third elapsed_ms=3",
+        ),
+        ("core.log", "other", "other session"),
+    ] {
+        fs::write(
+            temp.path().join(name),
+            format!("CORE_SESSION_START timestamp_ms=2 session={id}\n{event}\n"),
+        )
+        .unwrap();
+    }
+    let text =
+        core_session_tail(&path, "CLIENT_SESSION_START timestamp_ms=2 session=own\n").unwrap();
+    assert!(
+        text.contains("first") && text.contains("second") && text.contains("third"),
+        "{text}"
+    );
+    assert!(text.find("second") < text.find("third"), "{text}");
+    assert!(!text.contains("other session"), "{text}");
+}
+
+#[test]
+fn diagnostics_audit_large_client_logs_keep_their_archive_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let header = "CLIENT_SESSION_START timestamp_ms=2 session=own\n";
+    fs::write(
+        temp.path().join("client-20260101-000000.log"),
+        format!("{header}earlier session event\n"),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("client.log"),
+        format!("{header}{}\nlatest event\n", "x".repeat(LOG_LIMIT as usize)),
+    )
+    .unwrap();
+    let text = client_session_logs(temp.path()).unwrap();
+    assert!(text.starts_with(header), "missing session identity");
+    assert!(text.contains("earlier session event"));
+    assert!(text.ends_with("latest event\n"));
+}
