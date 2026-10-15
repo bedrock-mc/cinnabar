@@ -20,7 +20,7 @@ use render_model::{
 
 mod alpha;
 mod attack;
-mod block_reload;
+mod block_items;
 mod camera;
 mod combat;
 mod diagnostics;
@@ -35,7 +35,7 @@ mod push;
 mod readiness;
 mod session;
 mod types;
-pub use block_reload::{BlockItemPreparer, PreparedBlockItems};
+pub use block_items::{BlockItemPreparer, PreparedBlockItems};
 pub use java::java_draws_attachable;
 pub use pack::PackEquipment;
 pub use session::StagedSessionIcons;
@@ -96,12 +96,8 @@ pub struct EquipmentRuntime {
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
     placements: Vec<Option<Placement>>,
-    /// Block visual id to its carried or fallback sheet's index in `placements`.
-    block_sheets: BTreeMap<u32, usize>,
-    block_models: BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
-    block_alpha: BTreeMap<u32, render_model::HandItemAlphaMode>,
-    block_world: Option<Arc<RuntimeAssets>>,
-    reloaded_blocks: Option<crate::prepared_actor_artwork::PlacedBlockItems>,
+    blocks: crate::prepared_actor_artwork::PlacedBlockItems,
+    startup_blocks: crate::prepared_actor_artwork::PlacedBlockItems,
     atlas_locations: Vec<Option<ActorArtworkLocation>>,
     texture_locations: BTreeMap<Box<str>, ActorArtworkLocation>,
     body_bones: BTreeMap<u32, Option<Arc<BodyBones>>>,
@@ -163,46 +159,15 @@ impl EquipmentRuntime {
         block_entities: Option<Arc<RuntimeBlockEntityAssets>>,
         artwork: ActorArtworkPages,
     ) -> (Self, ActorArtworkPages, Vec<u32>) {
-        let mut blocks = world.as_deref().map_or_else(
-            || BlockSheets {
-                sheets: Vec::new(),
-                by_visual: BTreeMap::new(),
-                models: BTreeMap::new(),
-            },
-            |world| render_model::equipment::blocks::collect_held(world, &assets, &icons),
-        );
-        if let Some(world) = world.as_deref() {
-            blocks.prefer_carried_faces(world, &icons);
-        }
-        let BlockSheets {
-            sheets,
-            by_visual,
-            models: block_models,
-        } = blocks;
-        let icon_count = icons.sprites().len();
-        let mut block_sheets = by_visual
-            .into_iter()
-            .map(|(visual, sheet)| (visual, icon_count + sheet))
-            .collect::<BTreeMap<_, _>>();
-        // Authored carried textures override world faces: grass uses an opaque
-        // alpha-mask overlay here, not the biome-tinted terrain material.
-        block_sheets.extend(
-            block_reload::carried_sheets(&assets, &icons, &block_models)
-                .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
-        );
-        let block_alpha = alpha::block_alpha_modes(world.as_deref(), &block_sheets);
-        let packed = icons
-            .sprites()
-            .iter()
-            .cloned()
-            .chain(sheets)
-            .collect::<Vec<IconSprite>>();
-        let atlas = SpriteAtlas::pack(&packed);
+        let blocks = PreparedBlockItems::build(world, &assets, &icons);
+        let atlas = SpriteAtlas::pack(icons.sprites());
         let atlas_layers = atlas.layers.len();
         let textures = catalog
             .as_ref()
             .map_or(&[][..], |catalog| catalog.textures());
         let mut rasters = atlas.layers;
+        rasters.extend_from_slice(&blocks.rasters);
+        let texture_start = rasters.len();
         rasters.extend(textures.iter().map(|texture| EquipmentRaster {
             width: texture.width,
             height: texture.height,
@@ -236,9 +201,13 @@ impl EquipmentRuntime {
         let (mut artwork, locations) = artwork.with_equipment_rasters(&rasters);
         let texture_locations = textures
             .iter()
-            .zip(&locations[atlas_layers..])
+            .zip(&locations[texture_start..])
             .filter_map(|(texture, location)| Some((texture.identifier.clone(), (*location)?)))
             .collect();
+        let blocks = crate::prepared_actor_artwork::PlacedBlockItems {
+            source: blocks,
+            locations: locations[atlas_layers..texture_start].to_vec(),
+        };
         let skull_location = skull_raster_index.and_then(|index| locations[index]);
         let mut pending = Vec::new();
         let mut skulls = BTreeMap::new();
@@ -318,11 +287,8 @@ impl EquipmentRuntime {
             assets,
             icons,
             placements: atlas.placements,
-            block_sheets,
-            block_models,
-            block_alpha,
-            block_world: world,
-            reloaded_blocks: None,
+            startup_blocks: blocks.clone(),
+            blocks,
             atlas_locations: locations[..atlas_layers].to_vec(),
             texture_locations,
             body_bones: BTreeMap::new(),

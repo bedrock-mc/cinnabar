@@ -185,6 +185,102 @@ fn fixture_with_icons(
     (runtime, pages, body, item)
 }
 
+/// Reads the complete held sheet through its published placement, excluding atlas padding.
+fn held_sheet(runtime: &EquipmentRuntime, pages: &ActorArtworkPages) -> Vec<u8> {
+    let (_, placement, location) = runtime.block_placement(7).expect("held sheet is admitted");
+    let page = &pages.pages()[usize::from(location.page()) - 1];
+    let (width, height) = page.dimensions();
+    (0..usize::from(placement.height))
+        .flat_map(|row| {
+            let start = ((location.layer() as usize * usize::from(height)
+                + usize::from(placement.y)
+                + row)
+                * usize::from(width)
+                + usize::from(placement.x))
+                * 4;
+            page.pixels()[start..start + usize::from(placement.width) * 4]
+                .iter()
+                .copied()
+        })
+        .collect()
+}
+
+#[test]
+fn held_terrain_reload_matches_fresh_pack_sheets() {
+    for height in [128, 256] {
+        for (physical, grid, exposed) in [(32u32, 1, 16), (64, 2, 16), (64, 1, 32), (64, 0, 16)] {
+            let startup = terrain(height, [20, 80, 200, 255], 0);
+            let (mut runtime, pages, _, _) = fixture(Arc::clone(&startup));
+            let overlay = assets::BlockOverlay {
+                materials: vec![
+                    assets::Material::unvaried(),
+                    assets::Material {
+                        texture: assets::TextureRef::new(1, 0).unwrap(),
+                        ..assets::Material::unvaried()
+                    },
+                ],
+                textures: vec![assets::TextureArray {
+                    layers: 1,
+                    mips: (0..=physical.ilog2())
+                        .map(|level| {
+                            let side = physical >> level;
+                            assets::TextureMip {
+                                size: side,
+                                rgba8: (0..side * side)
+                                    .flat_map(|pixel| {
+                                        [
+                                            (pixel % side * 3) as u8,
+                                            (pixel / side * 3) as u8,
+                                            level as u8 * 30,
+                                            255,
+                                        ]
+                                    })
+                                    .collect(),
+                            }
+                        })
+                        .collect(),
+                }],
+                texture_source_sizes: vec![[exposed; 2]],
+                texture_source_grids: vec![grid],
+                material_overrides: vec![assets::MaterialOverride {
+                    material: 1,
+                    texture: assets::TextureRef::new(1, 0).unwrap(),
+                    animation: assets::NO_ANIMATION,
+                    variation: None,
+                }],
+                ..Default::default()
+            };
+            let expected = render_model::equipment::blocks::overlay_face_sheet(&overlay, [1; 6])
+                .expect("pack face preparation accepts the exposed source rectangle");
+            let replacement = Arc::new(
+                startup
+                    .with_block_overlay(startup.visual_count() as u32, &overlay)
+                    .unwrap(),
+            );
+            let (fresh, fresh_pages, _, _) = fixture(Arc::clone(&replacement));
+            let blocks = runtime
+                .block_item_preparer()
+                .unwrap()
+                .prepare(&replacement)
+                .unwrap();
+            let prepared =
+                PreparedActorArtwork::new_with_block_items(&pages, None, None, Some(blocks));
+            let resources = session_resources(&pages, None, Some(&prepared));
+            runtime.set_block_items(resources.block_items.as_ref());
+            let reloaded = held_sheet(&runtime, &resources.pages);
+            assert_eq!(
+                reloaded,
+                held_sheet(&fresh, &fresh_pages),
+                "reload must match a fresh build byte for byte"
+            );
+            assert!(
+                reloaded == expected.rgba8.as_ref(),
+                "held sheet must use the pack's exposed pixels: height={height}, physical={physical}, grid={grid}"
+            );
+        }
+    }
+}
+
 #[test]
 fn held_terrain_reload_preserves_authored_carried_sheet_routes() {
     for flags in [0, assets::MATERIAL_FLAG_GRASS_TINT] {
