@@ -246,6 +246,14 @@ impl GameplayContext<'_> {
 
     /// Called only for a successfully committed, once-consumed current-frame delta.
     pub(super) fn apply(&mut self, delta: CameraDelta) {
+        if self.player.as_ref().is_some_and(|player| {
+            player
+                .facts
+                .input_locks()
+                .blocks(protocol::ClientInputLock::Camera)
+        }) {
+            return;
+        }
         if let Some(view) = self.view.as_mut() {
             apply_delta(view, delta);
         }

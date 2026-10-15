@@ -23,6 +23,7 @@ mod transport_tests;
 
 #[path = "integration_tests/crouch_camera.rs"]
 mod crouch_camera;
+mod input_lock_sources;
 mod riptide;
 
 pub(super) fn evidence_context() -> PhysicsTickEvidenceContext {

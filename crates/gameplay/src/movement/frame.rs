@@ -140,11 +140,6 @@ impl LocomotionState {
         }
         let input_mode = self.input_mode;
         let movement = facts.input_locks.movement(movement);
-        let jump = if facts.input_locks.blocks(ClientInputLock::Jump) {
-            ActionPhase::default()
-        } else {
-            jump
-        };
         let processed_sneak = if facts.input_locks.blocks(ClientInputLock::Sneak) {
             ActionPhase::default()
         } else {
@@ -191,8 +186,8 @@ impl LocomotionState {
                 touch_input: input_mode == protocol::PlayerInputMode::Touch,
                 sprint_pressed: sprint.pressed,
                 sprint_held: sprint.held,
-                sneak_pressed: sneak.pressed,
-                sneak_held: sneak.held,
+                sneak_pressed: processed_sneak.pressed,
+                sneak_held: processed_sneak.held,
                 toggle_sprint: frame.toggle_sprint,
                 always_sprint: active && frame.always_sprint,
                 toggle_sneak: frame.toggle_sneak,
@@ -257,6 +252,7 @@ impl LocomotionState {
                         stop_sprinting: controlled.stop_sprinting,
                     },
                     release_use_modifier: movement_ticker.release_use_modifier(),
+                    input_locks: facts.input_locks,
                     input: super::TickInput {
                         movement_buttons: filtered_movement_buttons(
                             frame.movement_buttons,

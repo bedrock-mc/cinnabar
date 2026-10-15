@@ -25,6 +25,16 @@ pub(super) struct PendingInputEdges {
 }
 
 impl PendingInputEdges {
+    /// Discards blocked edges so a later tick or unlock cannot replay them.
+    pub(super) fn apply_input_locks(&mut self, locks: protocol::ClientInputLocks) {
+        if locks.blocks(protocol::ClientInputLock::Jump) {
+            self.jump = Default::default();
+        }
+        if locks.blocks(protocol::ClientInputLock::Sneak) {
+            self.sneak = Default::default();
+        }
+    }
+
     /// Accumulates button edges and keeps the latest server sprint state.
     pub(super) fn observe(&mut self, input: TickInput) {
         self.jump.pressed |= input.jump.pressed;

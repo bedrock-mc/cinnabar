@@ -20,6 +20,7 @@ mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
+mod input_requests;
 mod motion_ticks;
 mod timeline;
 mod visual_correction;
@@ -133,6 +134,8 @@ pub struct PhysicsSampleContext {
     pub analogue_move_vector: [f32; 2],
     pub mode_intent: ModeIntent,
     pub input: super::TickInput,
+    /// Current server permissions also revoke requests retained before this frame.
+    pub input_locks: protocol::ClientInputLocks,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -477,30 +480,6 @@ impl LocalPhysicsController {
         fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
     }
 
-    /// Drops unconsumed mod input when gameplay ownership or its world changes.
-    pub fn set_jump_pulse_scope(&mut self, scope: Option<(u64, i32)>) {
-        if scope.is_none() || scope != self.jump_pulse_scope {
-            self.jump_pulse_pending = false;
-        }
-        self.jump_pulse_scope = scope;
-    }
-
-    /// Queues one ordinary jump input for the next successful fixed tick.
-    pub fn request_jump_pulse(&mut self) {
-        if self.jump_pulse_scope.is_some() && self.is_active() {
-            self.jump_pulse_pending = true;
-        }
-    }
-
-    /// Whether the retained simulation is ordinary walking outside liquids.
-    pub fn jump_pulse_eligible(&self) -> bool {
-        self.is_active()
-            && self.modes.mode().is_walking()
-            && !self.last_environment.in_water
-            && !self.last_environment.in_lava
-            && !self.dimension_waiting
-    }
-
     /// Advances only when a finite, simulable server motion enters live prediction.
     pub const fn knockback_sequence(&self) -> u64 {
         self.knockback_sequence
@@ -535,10 +514,11 @@ impl LocalPhysicsController {
         &mut self,
         elapsed: Duration,
         mut input: MovementInput,
-        context: PhysicsSampleContext,
+        mut context: PhysicsSampleContext,
         world: &impl CollisionWorld,
         effects: &mut impl MovementEffectSource,
     ) -> LocalPhysicsFrame {
+        self.filter_input_requests(&mut input, &mut context);
         self.dimension_waiting = false;
         let Some(state) = self.state.as_mut() else {
             return LocalPhysicsFrame::default();
