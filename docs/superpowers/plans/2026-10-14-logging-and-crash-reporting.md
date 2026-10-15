@@ -14,7 +14,7 @@ uploaded; sharing is always an explicit user action.
 
 | Question | Decision |
 |---|---|
-| Crash dialog | Native OS dialog. Windows `TaskDialogIndirect` (summary, expandable details, Open folder, Copy report, Restart, Close); macOS and Linux through `launcher_host::native_dialog`. The report folder carries the detail. |
+| Crash dialog | A crash window drawn with the pre-game OreUI stack (`bootstrap-ui`: theme, open font, panorama, logo): summary card, scrollable details, Restart, Copy report, Open folder, Close and Join our Discord. When no window can open, a native dialog (`launcher_host::native_dialog`) offers the same actions. |
 | Crash monitor | Out of process. The client re-executes itself as `cinnabar --crash-monitor`, following the `--first-run-setup` precedent, so packaging gains no binary. |
 | Minidump contents | Thread stacks, thread list and module list. `CINNABAR_FULL_DUMP=1` adds full memory for developers. |
 | Symbols | Release builds keep line tables in split debug files; shipped binaries stay stripped; symbol archives are GitHub release assets. |
