@@ -227,6 +227,30 @@ else:
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["version"], SOURCE_VERSION)
 
+    def test_release_without_a_client_does_not_require_a_bridge_contract(self):
+        """Separate release tooling can prepare an old target without the client or contract."""
+        tooling = self.directory / "release-tools"
+        shutil.copytree(self.root / "packaging", tooling)
+        self.git("rm", "-r", "app", "crates/bridge", "packaging")
+        manifest = self.root / "Cargo.toml"
+        manifest.write_text(manifest.read_text().replace('"app", ', ''))
+        self.git("add", "Cargo.toml")
+        self.git("commit", "-m", "Model an old target without the client")
+        result = run(sys.executable, str(tooling / "prepare-release.py"), cwd=self.root, env=self.env, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs()["version"], SOURCE_VERSION)
+
+    def test_client_release_requires_a_bridge_contract_before_changing_refs(self):
+        """A client target with a missing contract must fail before creating release refs."""
+        self.git("rm", "crates/bridge/data/contract.json")
+        self.git("commit", "-m", "Remove the client bridge contract")
+        before = self.refs()
+        result = self.prepare(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("client release requires the bridge contract", result.stderr)
+        self.assertEqual(self.refs(), before)
+        self.assert_no_outputs()
+
     def test_placeholder_api_origin_is_rejected_before_creating_a_tag(self):
         """A release cannot publish a client whose API still has a reserved placeholder host."""
         contract = self.root / "crates/bridge/data/contract.json"

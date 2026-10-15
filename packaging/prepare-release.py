@@ -137,7 +137,13 @@ def dispatch(target_branch: str, bump: str) -> tuple[str, str]:
 
 def validate_api_origin() -> None:
     """Reject placeholder or malformed API origins before any release refs are changed."""
-    contract = json.loads((ROOT / "crates/bridge/data/contract.json").read_text())
+    contract_path = ROOT / "crates/bridge/data/contract.json"
+    if not contract_path.exists():
+        if (ROOT / "app/Cargo.toml").exists():
+            raise ReleaseError("a client release requires the bridge contract: crates/bridge/data/contract.json")
+        # Early targets without the client have no API origin to validate.
+        return
+    contract = json.loads(contract_path.read_text())
     origins = [row["value"] for row in contract["constants"] if row.get("go_name") == "CinnabarAPIBaseURL"]
     if not origins:
         # Older source revisions do not connect to the API and have no origin to validate.

@@ -36,12 +36,20 @@ pub(super) struct Roster {
     pub xuids: Vec<String>,
 }
 
+/// One answer's fixed refresh threshold and expiry, set when it arrives.
+struct Answer {
+    refresh_after: Instant,
+    expires_at: Instant,
+    found: bool,
+}
+
 /// Which roster XUIDs to ask about next and what each lookup answered.
 pub(super) struct Lookups {
     session: Option<u64>,
     roster: Vec<String>,
-    resolved: HashMap<String, (Instant, bool)>,
+    resolved: HashMap<String, Answer>,
     not_before: Option<Instant>,
+    /// Lifetime to assign to the next received answer, without changing retained answers.
     ttl: Duration,
     refresh: HashSet<String>,
 }
@@ -88,7 +96,7 @@ impl Lookups {
             && self.roster.iter().any(|xuid| {
                 self.resolved
                     .get(xuid)
-                    .is_some_and(|(at, _)| now.saturating_duration_since(*at) >= self.ttl)
+                    .is_some_and(|answer| now >= answer.expires_at)
             })
         {
             // Freeze the round until every negotiated prefix has answered, even past its TTL.
@@ -96,9 +104,9 @@ impl Lookups {
                 self.roster
                     .iter()
                     .filter(|xuid| {
-                        self.resolved.get(*xuid).is_some_and(|(at, _)| {
-                            now.saturating_duration_since(*at) > self.ttl / 2
-                        })
+                        self.resolved
+                            .get(*xuid)
+                            .is_some_and(|answer| now > answer.refresh_after)
                     })
                     .cloned(),
             );
@@ -140,8 +148,14 @@ impl Lookups {
                 continue;
             }
             self.refresh.remove(xuid);
-            self.resolved
-                .insert(xuid.clone(), (now, cinnabar.contains(xuid.as_str())));
+            self.resolved.insert(
+                xuid.clone(),
+                Answer {
+                    refresh_after: now + self.ttl / 2,
+                    expires_at: now + self.ttl,
+                    found: cinnabar.contains(xuid.as_str()),
+                },
+            );
         }
     }
 
@@ -159,8 +173,8 @@ impl Lookups {
         self.roster
             .iter()
             .map(|xuid| match self.resolved.get(xuid) {
-                Some((at, _)) if !self.refresh.contains(xuid) => {
-                    (*at + self.ttl).saturating_duration_since(now)
+                Some(answer) if !self.refresh.contains(xuid) => {
+                    answer.expires_at.saturating_duration_since(now)
                 }
                 Some(_) => Duration::ZERO,
                 None => Duration::ZERO,
@@ -174,9 +188,9 @@ impl Lookups {
         self.roster
             .iter()
             .filter(|xuid| {
-                self.resolved.get(*xuid).is_some_and(|(at, found)| {
-                    *found && now.saturating_duration_since(*at) < self.ttl
-                })
+                self.resolved
+                    .get(*xuid)
+                    .is_some_and(|answer| answer.found && now < answer.expires_at)
             })
             .cloned()
             .collect()
@@ -186,8 +200,8 @@ impl Lookups {
     fn next_expiry(&self, now: Instant) -> Option<Duration> {
         self.resolved
             .values()
-            .filter(|(at, found)| *found && *at + self.ttl > now)
-            .map(|(at, _)| (*at + self.ttl).saturating_duration_since(now))
+            .filter(|answer| answer.found && answer.expires_at > now)
+            .map(|answer| answer.expires_at.saturating_duration_since(now))
             .min()
     }
 }
@@ -410,6 +424,42 @@ mod tests {
         );
         assert!(lookups.players(start + RESOLVED_TTL).is_empty());
         assert_eq!(lookups.next_expiry(start), Some(RESOLVED_TTL));
+    }
+
+    /// A longer lifetime on a new reply cannot revive expired positive or negative answers.
+    #[test]
+    fn a_larger_negotiated_ttl_does_not_revive_expired_answers() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11", "22", "33"]));
+        lookups.resolve(start, 1, &["11".into(), "22".into()], &["11".into()]);
+        let now = start + RESOLVED_TTL;
+        assert!(lookups.players(now).is_empty());
+        lookups.ttl = RESOLVED_TTL * 4;
+        lookups.resolve(now, 1, &["33".into()], &["33".into()]);
+        assert_eq!(lookups.players(now), HashSet::from(["33".into()]));
+        assert_eq!(lookups.next_expiry(now), Some(RESOLVED_TTL * 4));
+        assert_eq!(lookups.next_wake(now), Some(Duration::ZERO));
+        assert_eq!(lookups.next_batch(now).unwrap(), ["11", "22"]);
+    }
+
+    /// A shorter lifetime affects only the new answer, including its refresh scheduling.
+    #[test]
+    fn a_smaller_negotiated_ttl_does_not_shorten_retained_answers() {
+        let start = Instant::now();
+        let mut lookups = Lookups::default();
+        lookups.set_roster(roster(1, &["11", "22", "33"]));
+        lookups.resolve(start, 1, &["11".into(), "22".into()], &["11".into()]);
+        let received = start + LOOKUP_SPACING;
+        lookups.ttl = RESOLVED_TTL / 4;
+        lookups.resolve(received, 1, &["33".into()], &["33".into()]);
+        assert_eq!(lookups.next_expiry(received), Some(RESOLVED_TTL / 4));
+        assert_eq!(lookups.next_wake(received), Some(RESOLVED_TTL / 4));
+        let now = received + RESOLVED_TTL / 4;
+        assert_eq!(lookups.players(now), HashSet::from(["11".into()]));
+        assert_eq!(lookups.next_expiry(now), Some((start + RESOLVED_TTL) - now));
+        assert_eq!(lookups.next_batch(now).unwrap(), ["33"]);
+        assert!(lookups.players(start + RESOLVED_TTL).is_empty());
     }
 
     /// Departed players and answers from older sessions cannot reappear in the cache.
