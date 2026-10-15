@@ -5,7 +5,7 @@ use super::{
     ceiling::{HELPER_MEMORY_BYTES, footprint_bytes},
     descriptor::Descriptor,
     ipc::{self, Reply, Request, Start},
-    ranges::{ChunkSource, HttpsChunks, load_verified},
+    ranges::{ChunkSource, HttpsChunks, RangeIndex, load_verified},
     service::output::Output,
 };
 use anyhow::{Result, ensure};
@@ -13,13 +13,19 @@ use std::{
     collections::BTreeSet,
     io::{Read, Write},
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Command},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     time::Duration,
+};
+
+mod lifecycle;
+use lifecycle::{
+    IPC_THREAD, REAPER_THREAD, Starting, SystemThreads, Threads, WATCHDOG_THREAD, kill, lock_child,
+    reap,
 };
 
 /// Helper subcommand that serves one decode over stdio.
@@ -57,6 +63,7 @@ pub struct Worker {
     cancelled: Arc<AtomicBool>,
     output: Mutex<mpsc::Receiver<Result<Output>>>,
     child: SharedChild,
+    threads: Arc<dyn Threads>,
 }
 
 impl Worker {
@@ -113,36 +120,45 @@ impl Worker {
 
     /// Launches `command` with private stdio and serves its chunk requests from `source`.
     pub(crate) fn spawn<S: ChunkSource + Send + 'static>(
-        mut command: Command,
+        command: Command,
         descriptor: Descriptor,
         source: S,
         generation: u64,
         start_us: u64,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Self> {
-        let lease = DecoderLease::acquire()
-            .ok_or_else(|| anyhow::anyhow!("media decoder already active"))?;
-        let mut child = command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?;
-        let (Some(input), Some(output)) = (child.stdin.take(), child.stdout.take()) else {
-            let _ = child.kill();
-            let _ = child.wait();
-            anyhow::bail!("missing media helper pipes");
-        };
-        let pid = child.id();
-        let child: SharedChild = Arc::new(Mutex::new(Some(child)));
+        let starting = Starting::spawn(command, cancelled)?;
+        Self::start_threads(
+            starting,
+            descriptor,
+            source,
+            generation,
+            start_us,
+            Arc::new(SystemThreads),
+        )
+    }
+
+    /// Starts both required tasks before transferring the armed child guard to the worker.
+    fn start_threads<S: ChunkSource + Send + 'static>(
+        starting: Starting,
+        descriptor: Descriptor,
+        source: S,
+        generation: u64,
+        start_us: u64,
+        threads: Arc<dyn Threads>,
+    ) -> Result<Self> {
+        let (pid, input, output) = starting.pipes()?;
         let over_ceiling = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::sync_channel(OUTPUT_DEPTH);
         {
-            let child = Arc::clone(&child);
+            let child = Arc::clone(&starting.child);
             let over_ceiling = Arc::clone(&over_ceiling);
-            std::thread::Builder::new()
-                .name("experience-media-ipc".into())
-                .spawn(move || {
+            let lease = Arc::clone(&starting.lease);
+            threads.spawn(
+                IPC_THREAD,
+                Box::new(move || {
                     let _lease = lease;
+                    let mut source = source;
                     let start = Start {
                         descriptor: descriptor.clone(),
                         start_us,
@@ -151,7 +167,7 @@ impl Worker {
                         input,
                         output,
                         &descriptor,
-                        source,
+                        &mut source,
                         start,
                         generation,
                         &sender,
@@ -165,19 +181,23 @@ impl Worker {
                         let _ = sender.send(Err(error));
                     }
                     kill(&child);
-                })?;
+                    drop(source);
+                }),
+            )?;
         }
         {
-            let child = Arc::clone(&child);
-            let cancelled = Arc::clone(&cancelled);
-            std::thread::Builder::new()
-                .name("experience-media-watchdog".into())
-                .spawn(move || watchdog(pid, &child, &cancelled, &over_ceiling))?;
+            let child = Arc::clone(&starting.child);
+            let cancelled = Arc::clone(&starting.cancelled);
+            threads.spawn(
+                WATCHDOG_THREAD,
+                Box::new(move || watchdog(pid, &child, &cancelled, &over_ceiling)),
+            )?;
         }
         Ok(Self {
-            cancelled,
+            cancelled: Arc::clone(&starting.cancelled),
             output: Mutex::new(receiver),
-            child,
+            child: starting.finish(),
+            threads,
         })
     }
 
@@ -188,17 +208,17 @@ impl Worker {
 }
 
 impl Drop for Worker {
-    /// Cancels fetches, kills the helper and reaps it off the calling thread.
+    /// Cancels and kills, reaping synchronously if a background reaper cannot start.
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Release);
-        let child = self.child.lock().ok().and_then(|mut child| child.take());
-        if let Some(mut child) = child {
-            let _ = child.kill();
-            let _ = std::thread::Builder::new()
-                .name("experience-media-reap".into())
-                .spawn(move || {
-                    let _ = child.wait();
-                });
+        kill(&self.child);
+        let child = Arc::clone(&self.child);
+        if self
+            .threads
+            .spawn(REAPER_THREAD, Box::new(move || reap(&child)))
+            .is_err()
+        {
+            reap(&self.child);
         }
     }
 }
@@ -208,11 +228,12 @@ pub(crate) fn serve_child(
     mut input: impl Write,
     mut output: impl Read,
     descriptor: &Descriptor,
-    mut source: impl ChunkSource,
+    source: &mut impl ChunkSource,
     start: Start,
     generation: u64,
     sender: &mpsc::SyncSender<Result<Output>>,
 ) -> Result<()> {
+    let index = RangeIndex::new(descriptor)?;
     ipc::write_request(&mut input, &Request::Start(Box::new(start)))
         .map_err(|error| error.context("media helper exited"))?;
     let mut ended = false;
@@ -223,10 +244,16 @@ pub(crate) fn serve_child(
             Err(error) => return Err(error.context("media helper exited")),
         };
         match reply {
-            Reply::Need(index) => {
-                let bytes = load_verified(descriptor, &mut source, index as usize)?;
-                ipc::write_request(&mut input, &Request::Chunk { index, bytes })
-                    .map_err(|error| error.context("media helper exited"))?;
+            Reply::Need(chunk) => {
+                let bytes = load_verified(&index, source, chunk as usize)?;
+                ipc::write_request(
+                    &mut input,
+                    &Request::Chunk {
+                        index: chunk,
+                        bytes,
+                    },
+                )
+                .map_err(|error| error.context("media helper exited"))?;
             }
             Reply::Output(output) => {
                 ended |= matches!(output, Output::End);
@@ -239,22 +266,12 @@ pub(crate) fn serve_child(
     }
 }
 
-fn kill(child: &SharedChild) {
-    if let Ok(mut child) = child.lock()
-        && let Some(child) = child.as_mut()
-    {
-        let _ = child.kill();
-    }
-}
-
 /// Kills the helper once its footprint passes the process ceiling.
 fn watchdog(pid: u32, child: &SharedChild, cancelled: &AtomicBool, over: &AtomicBool) {
     while !cancelled.load(Ordering::Acquire) {
-        let alive = child.lock().ok().is_some_and(|mut child| {
-            child
-                .as_mut()
-                .is_some_and(|c| matches!(c.try_wait(), Ok(None)))
-        });
+        let alive = lock_child(child)
+            .as_mut()
+            .is_some_and(|c| matches!(c.try_wait(), Ok(None)));
         if !alive {
             return;
         }
@@ -271,6 +288,9 @@ fn watchdog(pid: u32, child: &SharedChild, cancelled: &AtomicBool, over: &Atomic
 pub(crate) mod tests {
     use super::*;
     use crate::media::ranges::tests::descriptor_for;
+
+    #[cfg(unix)]
+    mod failures;
 
     /// Held by every test that claims the process-wide decoder slot, until it is free again.
     pub(crate) static DECODER_SLOT: std::sync::Mutex<()> = std::sync::Mutex::new(());
