@@ -190,6 +190,13 @@ a monitor that connects later reports nothing more; folders from fatal Unix sign
 session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
 uploaded.
 
+A `bedrock-core` process that crashes while the client lives (a Go panic or fatal error, or an
+exit other than 0 or its own logged failure status 1 that the client did not ask for) gets a
+`kind: core` folder written by the client, with `core-crash.txt` holding the Go runtime's
+panic and every goroutine's stack; no crash window opens, since the client shows its own
+disconnect. Every core's stderr goes to `logs/core.log`, one file per client session, each line
+labelled with the process role and pid.
+
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and
 streams verified downloads to the user's update directory. It rejects unknown keys, expired
