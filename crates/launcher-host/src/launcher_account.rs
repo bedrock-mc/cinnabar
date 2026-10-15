@@ -254,10 +254,15 @@ impl LauncherAccount {
             previous != key
         });
         if changed {
-            let _ = self.cinnabar_rosters.send(cinnabar_players::Roster {
-                session,
-                xuids: xuids.into_iter().map(str::to_owned).collect(),
-            });
+            let xuids: Vec<String> = xuids.into_iter().map(str::to_owned).collect();
+            tracing::debug!(players = xuids.len(), "Cinnabar roster submitted");
+            if self
+                .cinnabar_rosters
+                .send(cinnabar_players::Roster { session, xuids })
+                .is_err()
+            {
+                tracing::debug!("Cinnabar roster worker stopped");
+            }
         }
     }
 

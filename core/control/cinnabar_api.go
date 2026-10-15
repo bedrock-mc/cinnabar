@@ -96,6 +96,12 @@ func (server *Server) serveCinnabarLookup(conn net.Conn, id uint64, raw json.Raw
 		}
 	}
 	api := server.cinnabarAPI()
+	server.mu.Lock()
+	logger := server.logger
+	server.mu.Unlock()
+	if logger != nil {
+		logger.Debug("Cinnabar control lookup received", "requested", len(params.XUIDs), "available", api != nil)
+	}
 	if api == nil {
 		return reply.fail(codeServiceFailed, "Service unavailable")
 	}
@@ -103,6 +109,9 @@ func (server *Server) serveCinnabarLookup(conn net.Conn, id uint64, raw json.Raw
 	defer cancel()
 	batch := params.XUIDs[:min(len(params.XUIDs), api.LookupLimit())]
 	cinnabar, err := api.Lookup(ctx, batch)
+	if logger != nil {
+		logger.Debug("Cinnabar control lookup completed", "requested", len(batch), "found", len(cinnabar), "success", err == nil)
+	}
 	switch {
 	case errors.Is(err, cinnabarapi.ErrRateLimited):
 		return reply.fail(codeRateLimited, "Rate limited")

@@ -144,6 +144,7 @@ func (c *Client) Configure(config Config) {
 	}
 	previous, had := c.config, c.configured
 	c.config, c.configured = config, true
+	c.logger.Debug("Cinnabar API visibility configured", "visible", config.Visible)
 	switch {
 	case !had:
 		select {
@@ -179,11 +180,13 @@ func (c *Client) Lookup(ctx context.Context, xuids []string) ([]string, error) {
 	s := c.live
 	if s == nil {
 		c.mu.Unlock()
+		c.logger.Debug("Cinnabar API lookup unavailable", "requested", len(xuids))
 		return nil, ErrUnavailable
 	}
 	p := s.parameters
 	if !c.budget.take(time.Now(), len(xuids), p) {
 		c.mu.Unlock()
+		c.logger.Debug("Cinnabar API lookup rate limited", "requested", len(xuids))
 		return nil, ErrRateLimited
 	}
 	c.mu.Unlock()
@@ -235,6 +238,7 @@ func (c *Client) lookup(ctx context.Context, s *session, xuids []string) ([]stri
 	defer timer.Stop()
 	select {
 	case s.out <- payload:
+		c.logger.Debug("Cinnabar API lookup queued", "requested", len(xuids))
 	case <-s.closed:
 		return nil, ErrUnavailable
 	case <-ctx.Done():
@@ -244,6 +248,7 @@ func (c *Client) lookup(ctx context.Context, s *session, xuids []string) ([]stri
 	}
 	select {
 	case result := <-reply:
+		c.logger.Debug("Cinnabar API lookup answered", "found", len(result.cinnabar), "success", result.err == nil)
 		return result.cinnabar, result.err
 	case <-s.closed:
 		return nil, ErrUnavailable
@@ -340,6 +345,7 @@ func (c *Client) session(ctx context.Context, config Config) (bool, string, erro
 	}
 	c.mu.Unlock()
 	c.logger.Info("Cinnabar API connected")
+	c.logger.Debug("Cinnabar API visibility announced", "visible", config.Visible)
 	ctx, cancel := context.WithCancel(ctx)
 	written := make(chan struct{})
 	go func() {
@@ -441,6 +447,7 @@ func (c *Client) read(ctx context.Context, s *session) error {
 		case typeRelease:
 			c.release(msg)
 		case typeLookupResult:
+			c.logger.Debug("Cinnabar API lookup result received", "found", len(msg.Cinnabar))
 			c.answer(s, msg.ID, lookupReply{cinnabar: msg.Cinnabar})
 		case typeError:
 			err := ErrUnavailable
@@ -458,6 +465,7 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 	defer ticker.Stop()
 	for {
 		var payload []byte
+		visibilityChanged := false
 		select {
 		case <-ctx.Done():
 			return
@@ -470,6 +478,7 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 				continue
 			}
 			s.visible = visible
+			visibilityChanged = true
 			payload, _ = json.Marshal(visibilityMessage{Type: typeVisibility, Visible: visible})
 		case <-ticker.C:
 			payload = []byte(keepalivePing)
@@ -480,6 +489,9 @@ func (c *Client) write(ctx context.Context, stop context.CancelFunc, s *session)
 		if err != nil {
 			stop()
 			return
+		}
+		if visibilityChanged {
+			c.logger.Debug("Cinnabar API visibility sent", "visible", s.visible)
 		}
 	}
 }

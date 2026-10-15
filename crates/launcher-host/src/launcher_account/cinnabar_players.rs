@@ -85,6 +85,7 @@ impl Lookups {
             .collect();
         self.resolved.retain(|xuid, _| seen.contains(xuid));
         self.refresh.retain(|xuid| seen.contains(xuid));
+        tracing::debug!(players = self.roster.len(), "Cinnabar roster accepted");
     }
 
     /// The next batch of unresolved or expired XUIDs once the pacing allows another lookup.
@@ -260,14 +261,27 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                     if lookups.session == Some(session) {
                         match answer {
                             Ok(Ok(Ok(answer))) => {
+                                tracing::debug!(resolved = answer.resolved.len(), found = answer.cinnabar.len(), "Cinnabar lookup completed");
                                 lookups.ttl = Duration::from_millis(answer.cache_ttl_ms.max(1));
                                 lookups.resolve(Instant::now(), session, &answer.resolved, &answer.cinnabar);
                             }
                             Ok(Ok(Err(BridgeError::ControlRpc { code, .. }))) if code == RPC_CINNABAR_RATE_LIMITED => {
+                                tracing::debug!("Cinnabar lookup rate limited");
                                 lookups.fail(Instant::now(), RATE_LIMITED_RETRY);
                             }
-                            _ => lookups.fail(Instant::now(), UNAVAILABLE_RETRY),
+                            failure => {
+                                let outcome = match failure {
+                                    Err(_) => "worker_stopped",
+                                    Ok(Err(_)) => "timeout",
+                                    Ok(Ok(Err(BridgeError::ControlRpc { .. }))) => "control_rejected",
+                                    _ => "control_failed",
+                                };
+                                tracing::debug!(outcome, "Cinnabar lookup failed");
+                                lookups.fail(Instant::now(), UNAVAILABLE_RETRY);
+                            }
                         }
+                    } else {
+                        tracing::debug!("Cinnabar lookup discarded after session change");
                     }
                 }
                 default(wait) => {}
@@ -281,6 +295,7 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                 if snapshot.cinnabar_roster_key.map(|key| key.0) == lookups.session {
                     let players = lookups.players(now);
                     if *snapshot.cinnabar_players != players {
+                        tracing::debug!(found = players.len(), "Cinnabar badges published");
                         snapshot.cinnabar_players = Arc::new(players);
                     }
                 }
@@ -289,6 +304,7 @@ fn run(socket_dir: &std::path::Path, shared: &Mutex<Snapshot>, requests: &Receiv
                 && let Some(batch) = lookups.next_batch(now)
             {
                 pending = lookups.session;
+                tracing::debug!(players = batch.len(), "Cinnabar lookup started");
                 if send.send(batch).is_err() {
                     return;
                 }
@@ -493,3 +509,6 @@ mod tests {
         assert_eq!(lookups.next_wake(start), None);
     }
 }
+
+#[cfg(all(test, unix))]
+mod worker_tests;

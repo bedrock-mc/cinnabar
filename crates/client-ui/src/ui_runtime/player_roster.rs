@@ -20,6 +20,11 @@ impl PlayerRoster {
         if self.entries != entries {
             self.entries = entries;
             self.revision = self.revision.wrapping_add(1);
+            tracing::debug!(
+                players = self.entries.len(),
+                identities = self.xuids().count(),
+                "Cinnabar UI roster changed"
+            );
             self.rebadge();
         }
     }
@@ -42,6 +47,11 @@ impl PlayerRoster {
         if !Arc::ptr_eq(&self.reported, &reported) {
             self.reported = reported;
             self.rebadge();
+            tracing::debug!(
+                found = self.reported.len(),
+                rows = self.rows.iter().filter(|row| row.badged).count(),
+                "Cinnabar UI badges updated"
+            );
         }
     }
 

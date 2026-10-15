@@ -715,6 +715,14 @@ pub(crate) fn normalize_player_list(
             }
         }
     }
+    tracing::debug!(
+        entries = entries.len(),
+        identities = entries
+            .iter()
+            .filter(|entry| matches!(entry, PlayerListEntry::Add { xuid, .. } if !xuid.is_empty()))
+            .count(),
+        "Cinnabar player-list identities decoded"
+    );
     Ok(ActorEvent::PlayerList(PlayerListUpdateEvent {
         entries: Arc::from(entries),
     }))
