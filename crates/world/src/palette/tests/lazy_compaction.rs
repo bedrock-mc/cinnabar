@@ -111,9 +111,9 @@ fn logical_index_readers_do_not_materialize_canonical_words() {
         for z in 0..16 {
             let mut column = [0; SUB_CHUNK_SIDE];
             storage.column_palette_indices(x, z, &mut column);
-            for y in 0..16 {
+            for (y, &index) in column.iter().enumerate() {
                 let linear = (usize::from(x) << 8) | (usize::from(z) << 4) | y;
-                assert_eq!(usize::from(column[y]), indices[linear] as usize);
+                assert_eq!(usize::from(index), indices[linear] as usize);
                 assert_eq!(
                     storage.runtime_id(x, y as u8, z),
                     Some(storage.palette().values()[indices[linear] as usize])
