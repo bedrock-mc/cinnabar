@@ -13,6 +13,9 @@ use ui::{
     TextLayout, TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiScale,
 };
 
+#[path = "nametag_atlas/packing.rs"]
+mod packing;
+
 /// Widest line laid out before it would wrap, in font texels.
 const MAX_LINE_TEXELS: u32 = NAMETAG_ATLAS_SIDE;
 
@@ -88,6 +91,8 @@ struct AtlasCell {
 struct ShelfReclamation {
     shelves: Range<usize>,
     free: Vec<Range<u32>>,
+    /// Height needed by requested cells after unused lines are removed.
+    retained_height: u32,
     /// Spatially empty candidates cannot release a cached-line slot.
     has_unused_lines: bool,
 }
@@ -132,7 +137,8 @@ impl NametagAtlas {
         }
         let measured = measure_line(text, font, layouts)?;
         let [width, height] = measured.size;
-        if !self.has_room_for(1) && !self.reclaim_shelf(None) {
+        // Pixel exhaustion signals a later caller rebuild; smaller misses still try to fit.
+        if self.lines.len() >= MAX_ATLAS_LINES && !self.reclaim_shelf(None) {
             return None;
         }
         let placement = self.allocate(width, height);
@@ -195,173 +201,6 @@ impl NametagAtlas {
             Arc::clone(self.published.as_ref().expect("just published")),
             self.revision,
         )
-    }
-
-    /// Reserves a non-overlapping span in an existing shelf or appends a new shelf.
-    fn allocate(&mut self, width: u32, height: u32) -> Option<(usize, [u32; 2])> {
-        if width > NAMETAG_ATLAS_SIDE || height > NAMETAG_ATLAS_SIDE {
-            return None;
-        }
-        for (index, shelf) in self.shelves.iter_mut().enumerate() {
-            if shelf.height < height {
-                continue;
-            }
-            if let Some(span) = shelf
-                .free
-                .iter_mut()
-                .find(|span| span.end - span.start >= width)
-            {
-                let x = span.start;
-                span.start += width;
-                return Some((index, [x, shelf.y]));
-            }
-        }
-        let y = self
-            .shelves
-            .last()
-            .map_or(0, |shelf| shelf.y + shelf.height);
-        if y + height > NAMETAG_ATLAS_SIDE {
-            self.exhausted = true;
-            return None;
-        }
-        let index = self.shelves.len();
-        self.shelves.push(AtlasShelf {
-            y,
-            height,
-            free: Vec::from([width..NAMETAG_ATLAS_SIDE]),
-        });
-        Some((index, [0, y]))
-    }
-
-    /// Reclaims unused lines from one shelf, or adjoining empty shelves for taller ink.
-    /// A missing size only asks for a free line slot, independently of pixel placement.
-    fn reclaim_shelf(&mut self, size: Option<[u32; 2]>) -> bool {
-        if self.requested.is_empty() {
-            // Retained debug text has no frame-wide liveness set and must keep its cells.
-            return false;
-        }
-        if self.reclamation.is_none() {
-            self.reclamation = Some(self.unused_shelf_space());
-        }
-        let candidates = self.reclamation.as_ref().expect("prepared reclamation");
-        let candidate = candidates
-            .iter()
-            .find(|candidate| match size {
-                None => candidate.has_unused_lines,
-                Some([width, height]) => {
-                    self.shelves[candidate.shelves.start].height >= height
-                        && candidate
-                            .free
-                            .iter()
-                            .any(|span| span.end - span.start >= width)
-                }
-            })
-            .cloned()
-            .or_else(|| {
-                let [_, height] = size?;
-                // Several wholly unused neighboring shelves can become one taller shelf.
-                for first in candidates {
-                    let start = first.shelves.start;
-                    let mut end = start;
-                    let mut available = 0;
-                    let mut has_unused_lines = false;
-                    for next in candidates.iter().filter(|next| next.shelves.start >= start) {
-                        if self.shelves[end..next.shelves.start]
-                            .iter()
-                            .any(|shelf| shelf.height != 0)
-                            || next.free != [0..NAMETAG_ATLAS_SIDE]
-                        {
-                            break;
-                        }
-                        end = next.shelves.start;
-                        available += self.shelves[end].height;
-                        has_unused_lines |= next.has_unused_lines;
-                        end += 1;
-                        if available >= height {
-                            return Some(ShelfReclamation {
-                                shelves: start..end,
-                                free: Vec::from([0..NAMETAG_ATLAS_SIDE]),
-                                has_unused_lines,
-                            });
-                        }
-                    }
-                }
-                None
-            });
-        let Some(candidate) = candidate else {
-            return false;
-        };
-        let shelf = candidate.shelves.start;
-        let mut removed_lines = false;
-        let mut index = 0;
-        while index < self.cells.len() {
-            let cell = &self.cells[index];
-            if !candidate.shelves.contains(&cell.shelf) || self.requested.contains(&cell.text) {
-                index += 1;
-                continue;
-            }
-            let removed = self.cells.swap_remove(index);
-            removed_lines = true;
-            self.lines.remove(&removed.text);
-            if let Some(moved) = self.cells.get(index) {
-                *self.lines.get_mut(&moved.text).expect("retained cell") = index;
-            }
-        }
-        let end_y = self.shelves[candidate.shelves.end - 1].y
-            + self.shelves[candidate.shelves.end - 1].height;
-        self.shelves[shelf].height = end_y - self.shelves[shelf].y;
-        self.shelves[shelf].free = candidate.free;
-        for index in shelf + 1..candidate.shelves.end {
-            self.shelves[index].y = end_y;
-            self.shelves[index].height = 0;
-            self.shelves[index].free.clear();
-        }
-        self.reclamation = None;
-        self.exhausted = false;
-        if removed_lines {
-            self.published = None;
-        }
-        true
-    }
-
-    /// Plans reusable shelf spans in one pass over the bounded cache, then sorts each shelf.
-    fn unused_shelf_space(&self) -> Vec<ShelfReclamation> {
-        let mut occupied = vec![Vec::new(); self.shelves.len()];
-        let mut unused = vec![false; self.shelves.len()];
-        for cell in &self.cells {
-            if self.requested.contains(&cell.text) {
-                occupied[cell.shelf].push(cell.line.cell);
-            } else {
-                unused[cell.shelf] = true;
-            }
-        }
-        occupied
-            .into_iter()
-            .enumerate()
-            .filter_map(|(shelf, mut cells)| {
-                // Empty shelves still contribute contiguous height to spatial reclamation.
-                if self.shelves[shelf].height == 0 || (!unused[shelf] && !cells.is_empty()) {
-                    return None;
-                }
-                cells.sort_unstable_by_key(|cell| cell[0]);
-                let mut free = Vec::new();
-                let mut x = 0;
-                for [left, _, width, _] in cells {
-                    if x < left {
-                        free.push(x..left);
-                    }
-                    x = left + width;
-                }
-                if x < NAMETAG_ATLAS_SIDE {
-                    free.push(x..NAMETAG_ATLAS_SIDE);
-                }
-                Some(ShelfReclamation {
-                    shelves: shelf..shelf + 1,
-                    free,
-                    has_unused_lines: unused[shelf],
-                })
-            })
-            .collect()
     }
 }
 

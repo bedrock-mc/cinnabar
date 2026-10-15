@@ -443,3 +443,168 @@ fn empty_spatial_shelves_never_satisfy_count_reclamation_or_republish_pixels() {
     assert_eq!(unchanged.1, published.1);
     assert_eq!(reads.get(), 1);
 }
+
+const SHORT_LINE_SIZE: [u32; 2] = [NAMETAG_ATLAS_SIDE / 16, TEXT_LINE_HEIGHT_64 / 64 * 2];
+
+/// Supplies short lines and both narrow and full-width atlas-height glyphs.
+fn changing_height_font() -> RuntimeFontCatalog {
+    let font = ui_engine::test_support::fixture_font();
+    let glyphs = [
+        ('0', SHORT_LINE_SIZE),
+        ('2', [1, NAMETAG_ATLAS_SIDE]),
+        ('/', [NAMETAG_ATLAS_SIDE; 2]),
+    ]
+    .map(|(codepoint, size)| assets::SheetGlyph {
+        metrics: *font.glyph(codepoint).unwrap(),
+        draw_size_64: size.map(|value| value * 64),
+    });
+    font.with_glyphs(&glyphs, |_| true)
+}
+
+/// Builds distinct cache keys for a crowd of single-glyph short labels.
+fn short_anchors() -> Vec<super::super::nametags::NametagAnchor> {
+    use super::super::nametags::{MAX_PRESENTED_NAMETAGS, tests::anchor};
+    (1..=MAX_PRESENTED_NAMETAGS)
+        .map(|index| {
+            let mut tag = anchor(&format!("0{}", "§r".repeat(index)));
+            tag.runtime_id = index as u64;
+            tag.position.x = index as f32;
+            tag
+        })
+        .collect()
+}
+
+/// Checks cell ownership and coverage after shelf indices have changed.
+fn assert_placed_cells(atlas: &NametagAtlas) {
+    for (index, cell) in atlas.cells.iter().enumerate() {
+        assert_eq!(atlas.lines[&cell.text], index);
+        let shelf = &atlas.shelves[cell.shelf];
+        let [x, y, width, height] = cell.line.cell;
+        assert_eq!(y, shelf.y);
+        assert!(height <= shelf.height);
+        assert!(x + width <= NAMETAG_ATLAS_SIDE && y + height <= NAMETAG_ATLAS_SIDE);
+        for other in &atlas.cells[..index] {
+            let [ox, oy, ow, oh] = other.line.cell;
+            assert!(x + width <= ox || ox + ow <= x || y + height <= oy || oy + oh <= y);
+        }
+    }
+}
+
+#[test]
+fn tall_to_short_and_back_admits_the_whole_crowd_without_waiting_for_a_change() {
+    use super::super::nametags::{build_nametag_scene, tests::anchor};
+    let font = changing_height_font();
+    let anchors = short_anchors();
+    let pages = |page| font_page(&font, page);
+    let expected = build_nametag_scene(
+        &anchors,
+        1.0,
+        &font,
+        &mut TextLayoutCache::new(anchors.len(), 1 << 20),
+        &mut NametagAtlas::default(),
+        &pages,
+    );
+    assert_eq!(expected.atlas.len(), anchors.len());
+    assert!(
+        expected
+            .atlas
+            .iter()
+            .all(|cell| cell.cell[2..] == SHORT_LINE_SIZE)
+    );
+    let mut atlas = NametagAtlas::default();
+    let mut layouts = TextLayoutCache::new(anchors.len() + 1, 1 << 20);
+    let reads = Cell::new(0);
+    let counted_pages = |page| {
+        reads.set(reads.get() + 1);
+        pages(page)
+    };
+    let columns = NAMETAG_ATLAS_SIDE as usize / SHORT_LINE_SIZE[0] as usize;
+    let shelf_bound = anchors.len().div_ceil(columns) + 1;
+    for _ in 0..3 {
+        let tall = build_nametag_scene(
+            &[anchor("/")],
+            1.0,
+            &font,
+            &mut layouts,
+            &mut atlas,
+            &counted_pages,
+        );
+        assert_eq!(tall.atlas.len(), 1);
+        assert_eq!(
+            tall.atlas[0].cell,
+            [0, 0, NAMETAG_ATLAS_SIDE, NAMETAG_ATLAS_SIDE]
+        );
+        reads.set(0);
+        let short = build_nametag_scene(
+            &anchors,
+            1.0,
+            &font,
+            &mut layouts,
+            &mut atlas,
+            &counted_pages,
+        );
+        assert_eq!(short.records, expected.records);
+        assert_eq!(short.atlas.as_ref(), expected.atlas.as_ref());
+        assert_eq!(reads.get(), anchors.len());
+        assert!(atlas.shelves.len() <= shelf_bound);
+        assert_placed_cells(&atlas);
+        let built = layouts.built_layout_count();
+        for _ in 0..3 {
+            let repeated = build_nametag_scene(
+                &anchors,
+                1.0,
+                &font,
+                &mut layouts,
+                &mut atlas,
+                &counted_pages,
+            );
+            assert_eq!(repeated.records, short.records);
+            assert!(Arc::ptr_eq(&repeated.atlas, &short.atlas));
+            assert_eq!(repeated.atlas_revision, short.atlas_revision);
+            assert_eq!(reads.get(), anchors.len());
+            assert_eq!(layouts.built_layout_count(), built);
+        }
+    }
+}
+
+#[test]
+fn reclaiming_a_tall_cell_releases_its_tail_without_moving_short_requested_cells() {
+    use super::super::nametags::{build_nametag_scene, tests::anchor};
+    let font = changing_height_font();
+    let mut atlas = NametagAtlas::default();
+    let mut layouts = TextLayoutCache::new(256, 1 << 20);
+    let pages = |page| font_page(&font, page);
+    atlas
+        .line(&Arc::from("2"), &font, &mut layouts, &pages)
+        .unwrap();
+    let kept = atlas
+        .line(&Arc::from("0"), &font, &mut layouts, &pages)
+        .unwrap();
+    let before = build_nametag_scene(&[anchor("0")], 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let old_pixels = Arc::clone(&atlas.cells[atlas.lines["0"]].rgba8);
+    let mut anchors = short_anchors();
+    let mut protected = anchor("0");
+    protected.runtime_id = 0;
+    anchors.insert(0, protected);
+    let after = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    assert_eq!(after.records.len(), anchors.len() * 3);
+    assert_eq!(
+        atlas.line(&Arc::from("0"), &font, &mut layouts, &pages),
+        Some(kept)
+    );
+    assert!(Arc::ptr_eq(
+        &old_pixels,
+        &atlas.cells[atlas.lines["0"]].rgba8
+    ));
+    let protected: Vec<_> = after
+        .records
+        .iter()
+        .copied()
+        .filter(|record| record.anchor[0] == 0.0)
+        .collect();
+    assert_eq!(protected, before.records);
+    assert_placed_cells(&atlas);
+    let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    assert_eq!(repeated.records, after.records);
+    assert!(Arc::ptr_eq(&repeated.atlas, &after.atlas));
+}
