@@ -807,8 +807,8 @@ Describe 'Acceptance process cleanup ownership' {
         {
             Start-LoggedProcess -Executable 'unused' -Arguments @() -WorkingDirectory $TestDrive `
                 -StdoutPath (Join-Path $TestDrive 'stdout.log') -StderrPath (Join-Path $TestDrive 'stderr.log')
-        } | Should -Throw '*second log failed*'
-        $script:firstLog.CanWrite | Should -BeFalse
+        } | Should Throw '*second log failed*'
+        $script:firstLog.CanWrite | Should Be $false
     }
 
     It 'stops and disposes a started child when copy setup fails' {
@@ -825,9 +825,9 @@ Describe 'Acceptance process cleanup ownership' {
                 -Arguments @('-NoProfile', '-Command', '[Console]::In.ReadLine() | Out-Null') `
                 -WorkingDirectory $TestDrive -StdoutPath (Join-Path $TestDrive 'child.out') `
                 -StderrPath (Join-Path $TestDrive 'child.err')
-        } | Should -Throw '*copy setup failed*'
-        $script:reaped | Should -BeTrue
-        { $script:stoppedProcess.Id } | Should -Throw
+        } | Should Throw '*copy setup failed*'
+        $script:reaped | Should Be $true
+        { $script:stoppedProcess.Id } | Should Throw
         foreach ($path in @('child.out', 'child.err')) {
             $stream = [IO.FileStream]::new((Join-Path $TestDrive $path), [IO.FileMode]::Open,
                 [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
@@ -843,8 +843,8 @@ Describe 'Acceptance process cleanup ownership' {
         $second | Add-Member ScriptMethod Flush { param($sync) $script:cleanupCalls.Add('flush second') }
         $second | Add-Member ScriptMethod Dispose { $script:cleanupCalls.Add('dispose second') }
         $handle = [pscustomobject]@{ StdoutStream = $first; StderrStream = $second; StdoutCopy = $null; StderrCopy = $null }
-        { Complete-ProcessLogs $handle } | Should -Throw '*Process cleanup failed*'
-        ($script:cleanupCalls -join ',') | Should -Be 'flush first,dispose first,flush second,dispose second'
+        { Complete-ProcessLogs $handle } | Should Throw '*Process cleanup failed*'
+        ($script:cleanupCalls -join ',') | Should Be 'flush first,dispose first,flush second,dispose second'
     }
 
     It 'attempts core cleanup even when reporting and client cleanup fail' {
@@ -865,10 +865,10 @@ Describe 'Acceptance process cleanup ownership' {
         $core = [pscustomobject]@{ Name = 'core'; Process = $coreProcess }
         $parameters = @{ Manifest = @{ status = 'running' }; ManifestPath = 'unused'; RunSucceeded = $false
             ClientHandle = $client; CoreHandle = $core; ClientLogsCompleted = $false; CoreLogsCompleted = $false }
-        { Complete-RemoteAcceptanceRun @parameters } | Should -Throw '*Process cleanup failed*'
-        ($script:cleanupCalls -join ',') | Should -Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
+        { Complete-RemoteAcceptanceRun @parameters } | Should Throw '*Process cleanup failed*'
+        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
         $script:cleanupCalls.Clear()
-        { Complete-RemoteAcceptanceRun @parameters -PrimaryFailure ([Exception]::new('original run failed')) } | Should -Not -Throw
-        ($script:cleanupCalls -join ',') | Should -Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
+        { Complete-RemoteAcceptanceRun @parameters -PrimaryFailure ([Exception]::new('original run failed')) } | Should Not Throw
+        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
     }
 }
