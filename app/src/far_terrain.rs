@@ -555,17 +555,19 @@ mod tests {
         user.video.render_distance_chunks = render_distance;
         user.video.full_detail_distance_chunks = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS;
         settings.replace_user_settings(user);
-        let mut world = ClientWorld::default();
-        world.level_identity = Some(42);
-        world.stream = Some(WorldStream::new(protocol::WorldBootstrap {
-            local_player_unique_id: 1,
-            local_player_runtime_id: 1,
-            dimension: 0,
-            player_position: [0.0; 3],
-            world_spawn_position: [0; 3],
-            air_network_id: 0,
-            block_network_ids_are_hashes: false,
-        }));
+        let world = ClientWorld {
+            level_identity: Some(42),
+            stream: Some(WorldStream::new(protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            })),
+            ..ClientWorld::default()
+        };
         let mut app = App::new();
         app.insert_resource(settings)
             .insert_resource(world)
