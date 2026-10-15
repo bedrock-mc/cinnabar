@@ -95,6 +95,8 @@ fn sixty_four_forms_replace_ui_deltas_without_capacity_fanout() {
 #[test]
 fn sixty_four_link_and_transition_deltas_preserve_local_mount_capacity() {
     let mut stream = form_stream();
+    // Exercise capacity across bounded commit slices, independent of host speed.
+    stream.poll_budget = Duration::ZERO;
     let event = |sequence: u64| {
         let dimension = ((sequence - 1) / 2 % 2) as i32;
         if sequence.is_multiple_of(2) {
@@ -114,6 +116,10 @@ fn sixty_four_link_and_transition_deltas_preserve_local_mount_capacity() {
         stream.submit(sequence, event(sequence)).unwrap();
     }
     stream.submit(1, event(1)).unwrap();
+    test_time::eventually("all mount transitions are committed", || {
+        stream.poll([0.0; 3], 0);
+        stream.committed_sequence() == 64
+    });
     let entries = stream.take_committed_ui();
     assert_eq!(entries.len(), COMMITTED_UI_CAPACITY);
     for (index, entry) in entries.into_iter().enumerate() {

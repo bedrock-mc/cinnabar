@@ -112,6 +112,7 @@ use meshing::{
     PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
 };
 
+pub use actor::gpu::storage_binding_bytes as actor_storage_binding_bytes;
 pub use actor::material::blend_state as actor_material_blend_state;
 pub use actor_render::ActorRenderPlugin;
 
