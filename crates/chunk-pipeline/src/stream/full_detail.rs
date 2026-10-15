@@ -218,18 +218,23 @@ impl WorldStream {
                         centre,
                         radius: radius.saturating_add(FULL_DETAIL_HYSTERESIS_CHUNKS),
                     };
-                    if !initial_member {
+                    let active = initial_member || self.column_has_published_mesh(column);
+                    if !active {
                         self.full_detail.remove_column(column);
                     }
-                    if initial_member && disk.contains(column) {
+                    if active && disk.contains(column) {
                         if self.full_detail.scan_residents {
                             self.full_detail.insert_column(column);
+                            if !initial_member || self.full_detail.handoffs.contains_key(&column) {
+                                self.refresh_full_detail_column(column);
+                                self.full_detail.handoffs.remove(&column);
+                            }
                         } else {
                             let (_, last) = disk.row(column.x).expect("a kept column has a row");
                             self.full_detail.demotion_cursor =
                                 Some(ChunkKey::new(column.dimension, column.x, last));
                         }
-                    } else if initial_member {
+                    } else if active {
                         self.full_detail.remove_column(column);
                         self.demote_full_detail_column(column);
                     }
@@ -310,7 +315,18 @@ impl WorldStream {
     /// and keeps its meshes until [`WorldStream::finish_far_handoff`]; one with none is
     /// withdrawn now, as nothing near draws it.
     fn demote_full_detail_column(&mut self, column: ChunkKey) {
-        let on_screen = self.near_drawn_contains(column)
+        if self.column_has_published_mesh(column) {
+            let handoff = self.pending_handoff();
+            self.full_detail.handoffs.insert(column, handoff);
+            self.note_far_column_complete(column);
+        } else {
+            self.withdraw_full_detail_column(column);
+        }
+    }
+
+    /// Finds near geometry even if an interrupted restoration has not recorded membership.
+    fn column_has_published_mesh(&self, column: ChunkKey) -> bool {
+        self.near_drawn_contains(column)
             || self
                 .resident
                 .column(column)
@@ -318,14 +334,7 @@ impl WorldStream {
                 .any(|key| {
                     self.applied_mesh_generations.contains_key(key)
                         && !self.withdrawn_meshes.contains(key)
-                });
-        if on_screen {
-            let handoff = self.pending_handoff();
-            self.full_detail.handoffs.insert(column, handoff);
-            self.note_far_column_complete(column);
-        } else {
-            self.withdraw_full_detail_column(column);
-        }
+                })
     }
 
     /// Queues removal of the column's near meshes after its far coverage is ready.

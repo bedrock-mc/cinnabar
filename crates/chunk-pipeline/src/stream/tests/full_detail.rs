@@ -567,6 +567,145 @@ fn interrupted_restoration_refreshes_pending_promotions() {
     );
 }
 
+/// Meshes published ahead of a restoration scan keep coverage until far terrain takes over.
+#[test]
+fn interrupted_restoration_hands_off_newly_published_outer_meshes() {
+    for arriving in [false, true] {
+        let far = ChunkKey::new(0, 40, 0);
+        let mut stream = stream();
+        stream
+            .submit(1, WorldEvent::ChunkRadiusUpdated(64))
+            .unwrap();
+        stream.set_full_detail_radius(Some(16));
+        if !arriving {
+            stream
+                .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+                .unwrap();
+            complete_pending_decode_jobs(&mut stream);
+        }
+        stream.between_frames_service = true;
+        stream.set_full_detail_radius(None);
+        if arriving {
+            stream
+                .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+                .unwrap();
+            complete_pending_decode_jobs(&mut stream);
+        } else {
+            let keys: Vec<_> = stream.resident.column(far).copied().collect();
+            assert!(!keys.is_empty(), "retained far data");
+            stream.mark_changed_sources(keys, Instant::now());
+        }
+        assert!(
+            stream.has_pending_full_detail(),
+            "restoration has not completed"
+        );
+        assert!(!upload(&mut stream, far.x).is_empty());
+        assert!(
+            drawn(&stream, far.x),
+            "unlimited detail published the near mesh"
+        );
+        stream.set_full_detail_radius(Some(16));
+        test_time::eventually("the interrupted restoration demotion", || {
+            stream.poll([0.0; 3], 0);
+            !stream.has_pending_full_detail()
+        });
+        assert!(stream.wants_mesh(far), "a drawn outer mesh needs a handoff");
+        assert!(
+            drawn(&stream, far.x),
+            "near coverage stays until the far summary arrives"
+        );
+        test_time::eventually("the far coverage for an interrupted restoration", || {
+            stream.dispatch_far_summaries();
+            stream.drain_far_summaries(&mut Vec::new());
+            stream.far_handoffs().any(|column| column == far)
+        });
+        stream.mesh_jobs.pending.clear();
+        stream.finish_far_handoff(far);
+        assert!(!drawn(&stream, far.x));
+        assert!(!stream.wants_mesh(far));
+        assert!(
+            meshing(&stream, far.x),
+            "far coverage releases the near geometry"
+        );
+    }
+}
+
+/// A near mesh published during restoration remains live inside the replacement limit's band.
+#[test]
+fn interrupted_restoration_keeps_drawn_hysteresis_columns_active() {
+    let far = ChunkKey::new(0, 5, 0);
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    let keys: Vec<_> = stream.resident.column(far).copied().collect();
+    let key = *keys.first().expect("retained far data");
+    stream.mark_changed_sources(keys, Instant::now());
+    assert!(!upload(&mut stream, far.x).is_empty());
+    assert!(drawn(&stream, far.x));
+    stream.set_full_detail_radius(Some(3));
+    test_time::eventually("the replacement detail band", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(
+        stream.wants_mesh(far),
+        "drawn geometry in the band remains live"
+    );
+    assert!(drawn(&stream, far.x));
+    stream.mesh_jobs.pending.clear();
+    stream.mark_changed_sources([key], Instant::now());
+    assert!(
+        meshing(&stream, far.x),
+        "later block updates still reach its mesh"
+    );
+}
+
+/// Restoring a drawn handoff inside a new limit refreshes it and cancels the old demotion.
+#[test]
+fn interrupted_restoration_repromotes_a_drawn_handoff() {
+    let far = ChunkKey::new(0, 5, 0);
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, far.x);
+    stream.set_full_detail_radius(Some(1));
+    assert!(
+        stream.wants_mesh(far),
+        "near geometry waits for far coverage"
+    );
+    stream.mesh_jobs.pending.clear();
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(6));
+    test_time::eventually("the renewed near membership", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(far));
+    assert!(drawn(&stream, far.x));
+    test_time::eventually("the old demotion summary", || {
+        stream.dispatch_far_summaries();
+        let mut delivered = Vec::new();
+        stream.drain_far_summaries(&mut delivered);
+        delivered.iter().any(|summary| summary.column == far)
+    });
+    assert!(
+        !stream.far_handoffs().any(|column| column == far),
+        "the earlier demotion is cancelled"
+    );
+    assert!(
+        meshing(&stream, far.x),
+        "renewed detail refreshes its lighting and mesh"
+    );
+}
+
 /// Complete eviction cannot make new hysteresis-band arrivals inherit old membership.
 #[test]
 fn complete_eviction_preserves_pending_membership_epoch() {
