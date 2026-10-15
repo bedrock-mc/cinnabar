@@ -65,6 +65,9 @@ pub(super) fn spellings(value: &str, out: &mut Vec<String>) {
     let mut escaped = value.to_owned();
     for _ in 0..=MAX_ESCAPE_DEPTH {
         let json = serde_json::to_string(&escaped).expect("strings serialize");
-        out.push(std::mem::replace(&mut escaped, json[1..json.len() - 1].into()));
+        out.push(std::mem::replace(
+            &mut escaped,
+            json[1..json.len() - 1].into(),
+        ));
     }
 }

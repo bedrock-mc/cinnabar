@@ -1,8 +1,6 @@
 use serde::Deserialize;
 
-use super::{
-    Error, Learned, MAX_ESCAPE_DEPTH, PLACEHOLDER, Redactor, patterns, rules::RULES_JSON,
-};
+use super::{Error, Learned, MAX_ESCAPE_DEPTH, PLACEHOLDER, Redactor, patterns, rules::RULES_JSON};
 
 /// The Go core's embedded copy of the rule file.
 const GO_COPY: &str = include_str!("../../../../core/internal/redact/rules.json");
@@ -176,9 +174,7 @@ fn json_keeps_structure_and_replaces_private_keys_whole() {
     });
     let mut learned = Learned::default();
     learned.json(&report);
-    learned
-        .text(report["message"].as_str().unwrap())
-        .unwrap();
+    learned.text(report["message"].as_str().unwrap()).unwrap();
     learned.redactor().json(&mut report).unwrap();
     assert_eq!(report["gamertag"], PLACEHOLDER);
     assert_eq!(report["release"], "0.1.0");
@@ -196,8 +192,5 @@ fn json_keeps_structure_and_replaces_private_keys_whole() {
 #[test]
 fn json_keys_that_redact_to_the_same_key_are_an_error() {
     let mut value = serde_json::json!({"203.0.113.7": 1, "203.0.113.8": 2});
-    assert_eq!(
-        Redactor::default().json(&mut value),
-        Err(Error::MergedKeys)
-    );
+    assert_eq!(Redactor::default().json(&mut value), Err(Error::MergedKeys));
 }

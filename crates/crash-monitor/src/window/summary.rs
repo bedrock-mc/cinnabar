@@ -392,7 +392,9 @@ mod tests {
             assert!(!markdown.contains(private), "leaked {private}: {markdown}");
         }
         assert!(markdown.contains("12:00:03 ERROR [redacted] lost C:\\Users\\[redacted]\\AppData"));
-        assert!(markdown.contains(&format!("| {FAULT_LABEL} | `dial udp [redacted]: i/o timeout` |")));
+        assert!(markdown.contains(&format!(
+            "| {FAULT_LABEL} | `dial udp [redacted]: i/o timeout` |"
+        )));
     }
 
     #[test]
