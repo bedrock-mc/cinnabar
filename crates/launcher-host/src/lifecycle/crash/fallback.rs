@@ -1,5 +1,6 @@
 //! In-process crash folders for when no monitor is connected: before it is up, when it could
-//! not start, and on Android, which has none.
+//! not start, and on Android, which has none. Panic and Windows native reports carry the
+//! staging [`super::attachments`]; a Unix fatal signal writes only its prepared folder.
 
 use std::path::PathBuf;
 
@@ -8,7 +9,7 @@ use crash_report::{
     report::{Kind, Thread},
 };
 
-use super::Context;
+use super::{Context, attachments::Attachments};
 
 /// Writes a panic report with this session's log sections.
 pub(super) fn write_panic(
@@ -30,13 +31,26 @@ pub(super) fn write_panic(
     write(context, &report, now_ms)
 }
 
+/// Writes `report` with this session's log sections and the staging attachments.
 fn write(
     context: &Context,
     report: &crash_report::report::Report,
     now_ms: u64,
 ) -> std::io::Result<PathBuf> {
     let logs = folder::Logs::read(&context.log_sources());
-    folder::write(&context.crash_dir, report, &logs, None, now_ms)
+    let attachments = context
+        .staging
+        .as_ref()
+        .map(|staging| Attachments::read(staging.dir()))
+        .unwrap_or_default();
+    folder::write_with(
+        &context.crash_dir,
+        report,
+        &logs,
+        None,
+        &attachments.as_folder(),
+        now_ms,
+    )
 }
 
 /// Writes a native report from the faulting thread. Windows exception handling has no signal

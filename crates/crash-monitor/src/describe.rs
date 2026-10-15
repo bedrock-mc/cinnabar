@@ -3,11 +3,14 @@
 use std::path::PathBuf;
 
 use crash_report::{
-    folder::Logs,
+    folder::{self, Logs},
     report::{Kind, Report},
 };
-use launcher_host::lifecycle::crash::state::{
-    DIMENSION, Dimension, SERVER_KIND, SERVER_PACKS, SESSION_PHASE, ServerKind, SessionPhase,
+use launcher_host::lifecycle::crash::{
+    attachments,
+    state::{
+        DIMENSION, Dimension, SERVER_KIND, SERVER_PACKS, SESSION_PHASE, ServerKind, SessionPhase,
+    },
 };
 
 use crate::{
@@ -18,7 +21,8 @@ use crate::{
 /// Client log lines the details view lists, newest last.
 const LOG_TAIL_LINES: usize = 200;
 
-/// Summarizes `report`, saved with `logs` in `folder`.
+/// Summarizes `report`, saved with `logs` in `folder`; the last packets come from the folder's
+/// packet table.
 pub(crate) fn summary(report: &Report, logs: &Logs, folder: PathBuf) -> CrashSummary {
     let (fault, location) = fault_and_location(report);
     CrashSummary {
@@ -42,9 +46,16 @@ pub(crate) fn summary(report: &Report, logs: &Logs, folder: PathBuf) -> CrashSum
         graphics: graphics(report),
         session: session(report),
         log_tail: log_tail(&logs.client),
-        last_packets: Vec::new(),
+        last_packets: last_packets(&folder),
         folder,
     }
+}
+
+/// The last packets of `folder`'s packet table as the window lists them; none without one.
+fn last_packets(folder: &std::path::Path) -> Vec<String> {
+    std::fs::read_to_string(folder.join(folder::PACKETS_FILE))
+        .map(|table| attachments::window_lines(&table, attachments::WINDOW_PACKETS))
+        .unwrap_or_default()
 }
 
 /// Completes "while you were …".

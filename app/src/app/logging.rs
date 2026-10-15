@@ -40,6 +40,7 @@ pub(crate) fn install(process: Process) {
         base_filter: base_filter(),
         omit_frame_marks: cfg!(feature = "tracy"),
         layers,
+        flight_recorder: process == Process::Client,
     });
     if let Err(error) = &installed {
         bevy::log::warn!("{error}");

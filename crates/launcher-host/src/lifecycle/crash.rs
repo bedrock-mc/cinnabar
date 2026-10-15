@@ -3,8 +3,10 @@
 //! The client starts an out-of-process monitor (`<client> --crash-monitor`) first. Faults and
 //! panics only ask it for a minidump; it writes a panic's folder at once and a fault's once this
 //! process is gone, and tells the player when the client died. Until it is connected, or
-//! without one, the process writes the folder itself.
+//! without one, the process writes the folder itself. Either way the folder carries the
+//! [`attachments`] the client keeps in its crash staging directory while it runs.
 
+pub mod attachments;
 mod fallback;
 mod handler;
 pub mod monitor;
@@ -13,7 +15,7 @@ pub mod state;
 
 use std::{
     backtrace::Backtrace,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -24,6 +26,7 @@ use std::{
 use crash_report::{
     folder::{self, LogSources},
     report::{Identity, Kind, Report, Thread},
+    staging::{self, Staging},
 };
 use launcher::{graphics_backend::Adapter, install_layout::InstallLayout};
 
@@ -56,6 +59,9 @@ struct Context {
     data_root: PathBuf,
     identity: Identity,
     full_dump: bool,
+    /// The staging directory reports read the packet and log rings from; `None` when it could
+    /// not be created.
+    staging: Option<Staging>,
 }
 
 impl Context {
@@ -178,19 +184,32 @@ fn announce_exit_on_return() {
     }
 }
 
-/// Drops legacy report files and the oldest crash folders beyond the bound.
+/// Drops legacy report files, the oldest crash folders beyond the bound, and the staging
+/// directories of clients that are gone.
 pub fn prune_reports(layout: &InstallLayout) {
     folder::prune(&layout.crash_dir(), folder::MAX_REPORTS);
+    staging::prune(&layout.crash_dir());
+}
+
+/// This process's crash staging directory once [`install`] created it, for the packet and log
+/// rings to attach to.
+pub fn staging_dir() -> Option<&'static Path> {
+    CONTEXT.get()?.staging.as_ref().map(Staging::dir)
 }
 
 fn context(layout: &InstallLayout, identity: Identity) -> Context {
+    let crash_dir = layout.crash_dir();
+    let staging = Staging::create(&crash_dir, &identity.session_id)
+        .inspect_err(|error| tracing::warn!(%error, "crash staging directory unavailable"))
+        .ok();
     Context {
-        crash_dir: layout.crash_dir(),
         client_log: layout.log_dir().join("client.log"),
         core_log: layout.log_dir().join("core.log"),
         data_root: layout.user_data_root.clone(),
         identity,
         full_dump: std::env::var_os(FULL_DUMP_ENV).is_some_and(|value| value == "1"),
+        staging,
+        crash_dir,
     }
 }
 
@@ -201,6 +220,10 @@ fn hello(context: &Context) -> protocol::Hello {
         client_log: context.client_log.clone(),
         core_log: context.core_log.clone(),
         full_dump: context.full_dump,
+        staging: context
+            .staging
+            .as_ref()
+            .map(|staging| staging.dir().to_owned()),
     }
 }
 
