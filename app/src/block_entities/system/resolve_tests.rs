@@ -27,9 +27,20 @@ impl Fixture {
             2193,
         )
         .unwrap();
-        let atlas =
-            assets::encode_block_entity_catalog(b"{}", 1024, 256, &vec![255; 1024 * 256 * 4], &[])
-                .unwrap();
+        let atlas = assets::encode_block_entity_catalog(
+            b"{}",
+            1024,
+            256,
+            &vec![255; 1024 * 256 * 4],
+            &[assets::BlockEntityPlacement {
+                name: "textures/entity/chest/normal".into(),
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            }],
+        )
+        .unwrap();
         Self {
             stream: chunk_pipeline::WorldStream::new(WorldBootstrap {
                 dimension: 0,
@@ -76,6 +87,243 @@ impl Fixture {
             hidden,
         )
     }
+
+    /// Starts the same state-retention frame used by the scene system.
+    fn begin_frame(&mut self, ticks: f64) {
+        self.runtime.lids.begin();
+        self.runtime.books.begin(ticks);
+    }
+
+    /// Retains only the animation state touched in this frame.
+    fn finish_frame(&mut self) {
+        self.runtime.lids.finish();
+        self.runtime.books.finish();
+    }
+
+    /// Publishes a container or bell cue before resolving the next frame.
+    fn cue(&mut self, sequence: u64, position: [i32; 3], value: i32) {
+        self.stream
+            .submit(
+                sequence,
+                WorldEvent::BlockEvent(BlockEventEvent {
+                    dimension: 0,
+                    position,
+                    event_type: 1,
+                    event_value: value,
+                }),
+            )
+            .unwrap();
+    }
+}
+
+/// A camera at table height, looking away from or toward the fixture entities at positive Z.
+fn clip_from_world(turned: bool) -> Mat4 {
+    let projection = glam::camera::rh::proj::directx::perspective_infinite_reverse(1.0, 1.0, 0.1);
+    projection
+        * Mat4::from_rotation_y(if turned { std::f32::consts::PI } else { 0.0 })
+        * Mat4::from_translation(Vec3::new(0.0, -64.0, 0.0))
+}
+
+/// Applies the production admission rule without cave or terrain occlusion.
+fn admit(
+    work: &mut culling::BlockEntityWork,
+    matrix: Mat4,
+    template: &Template,
+    block: [i32; 3],
+) -> bool {
+    work.admit(
+        None::<&culling::CaveCulling<'_, fn(SubChunkKey) -> bool>>,
+        Some(matrix),
+        template,
+        block,
+    )
+}
+
+/// A normal single chest with its pose supplied by the resolver.
+fn chest_template() -> Template {
+    Template::Chest(ChestModel {
+        variant: ChestVariant::Normal,
+        facing: Facing::North,
+        pair: ChestPair::Single,
+        lid: 0.0,
+    })
+}
+
+#[test]
+fn frustum_hidden_cue_and_reader_changes_match_uninterrupted_animation_on_reentry() {
+    let positions = [[0, 64, 20], [4, 64, 20], [-4, 64, 20], [0, 64, 24]];
+    let templates = [
+        chest_template(),
+        Template::Bell {
+            attachment: BellAttachment::Standing,
+            direction: 0,
+        },
+        Template::EnchantTable,
+        Template::Shulker(render_model::ShulkerModel {
+            color: "undyed",
+            facing: 1,
+            open: 0.0,
+        }),
+    ];
+    for hidden_from_start in [false, true] {
+        let mut visible = Fixture::new();
+        let mut culled = Fixture::new();
+        let mut sequence = 0;
+        for tick in 0..=32 {
+            let ticks = f64::from(tick) + 0.5;
+            for fixture in [&mut visible, &mut culled] {
+                fixture.begin_frame(ticks);
+                fixture.readers = match tick {
+                    0..12 => vec![Vec3::new(-3.5, 65.62, 22.0)],
+                    12..26 => Vec::new(),
+                    _ => vec![Vec3::new(-5.0, 65.62, 20.5)],
+                };
+            }
+            if let Some(value) = match tick {
+                0 | 16 | 30 => Some(1),
+                8 | 24 => Some(0),
+                _ => None,
+            } {
+                for position in [positions[0], positions[3]] {
+                    sequence += 1;
+                    visible.cue(sequence, position, value);
+                    culled.cue(sequence, position, value);
+                }
+            }
+            if tick == 4 || tick == 26 {
+                sequence += 1;
+                visible.cue(sequence, positions[1], 1);
+                culled.cue(sequence, positions[1], 1);
+            }
+            let hidden = tick < 32 && (hidden_from_start || tick > 2);
+            let matrix = clip_from_world(!hidden);
+            let mut work = culling::BlockEntityWork::default();
+            for (template, position) in templates.iter().zip(positions) {
+                let frame = (ticks / TICKS_PER_SECOND, 0.05);
+                let expected = visible.resolve(template, position, frame, false);
+                let prepare = admit(&mut work, matrix, template, position);
+                assert_eq!(prepare, !hidden);
+                let actual = culled.resolve(template, position, frame, !prepare);
+                if hidden {
+                    assert_eq!(actual, None);
+                } else {
+                    assert!(actual.is_some());
+                    assert_eq!(actual, expected, "first visible pose at tick {tick}");
+                }
+            }
+            assert_eq!(
+                work.prepared,
+                if hidden { 0 } else { templates.len() as u32 }
+            );
+            visible.finish_frame();
+            culled.finish_frame();
+        }
+    }
+}
+
+#[test]
+fn hidden_animation_state_resets_across_sessions_and_dimensions() {
+    let position = [0, 64, 20];
+    let templates = [
+        chest_template(),
+        Template::Bell {
+            attachment: BellAttachment::Standing,
+            direction: 0,
+        },
+        Template::EnchantTable,
+    ];
+    for next_session in [(2, 0), (1, 1)] {
+        let mut fixture = Fixture::new();
+        fixture.runtime.bind_session(Some((1, 0)));
+        fixture.readers.push(Vec3::new(0.5, 65.62, 22.0));
+        fixture.cue(1, position, 1);
+        for ticks in [0.5, 10.5] {
+            fixture.begin_frame(ticks);
+            for template in &templates {
+                let mut work = culling::BlockEntityWork::default();
+                assert!(!admit(
+                    &mut work,
+                    clip_from_world(false),
+                    template,
+                    position
+                ));
+                assert_eq!(fixture.resolve(template, position, (0.5, 0.5), true), None);
+            }
+            fixture.finish_frame();
+        }
+        fixture.runtime.bind_session(Some(next_session));
+        let mut fresh = Fixture::new();
+        fresh.readers = fixture.readers.clone();
+        fresh.cue(1, position, 1);
+        for current in [&mut fixture, &mut fresh] {
+            current.begin_frame(11.5);
+        }
+        for template in &templates {
+            let actual = fixture.resolve(template, position, (0.6, 0.0), false);
+            let expected = fresh.resolve(template, position, (0.6, 0.0), false);
+            assert_eq!(
+                actual, expected,
+                "old hidden state survived {next_session:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn frustum_rejection_reduces_prepared_vertices_and_preserves_admitted_geometry() {
+    let template = chest_template();
+    let front = [0, 64, -20];
+    let behind = [0, 64, 20];
+    let mut fixture = Fixture::new();
+    let mut baseline = Fixture::new();
+    let mut work = culling::BlockEntityWork::default();
+    let mut submissions = Vec::new();
+    let mut unculled = Vec::new();
+    for position in [front, behind] {
+        let prepare = admit(&mut work, clip_from_world(false), &template, position);
+        if let Some(kind) = fixture.resolve(&template, position, (0.0, 0.0), !prepare) {
+            submissions.push(BlockEntitySubmission {
+                block: position,
+                light: 1.0.into(),
+                kind,
+            });
+        }
+        unculled.push(BlockEntitySubmission {
+            block: position,
+            light: 1.0.into(),
+            kind: baseline
+                .resolve(&template, position, (0.0, 0.0), false)
+                .unwrap(),
+        });
+    }
+    assert_eq!(work.candidates, 2);
+    assert_eq!(work.prepared, 1);
+    let clock = SceneClock::default();
+    let frame = fixture.scene.update(clock, &[], &submissions).clone();
+    let expected = baseline.scene.update(clock, &[], &unculled).clone();
+    assert!(!frame.solid.is_empty());
+    for (actual, full) in [
+        (&frame.solid, &expected.solid),
+        (&frame.overlay, &expected.overlay),
+        (&frame.crack, &expected.crack),
+        (&frame.portal, &expected.portal),
+        (&frame.additive, &expected.additive),
+    ] {
+        let admitted: Vec<_> = full
+            .iter()
+            .filter(|vertex| vertex.position[2] < 0.0)
+            .copied()
+            .collect();
+        assert_eq!(actual.as_ref(), admitted);
+    }
+    assert!(expected.solid.len() > frame.solid.len());
+    // An empty publication clears old GPU vertices, and re-entry republishes them.
+    let empty = fixture.scene.update(clock, &[], &[]).clone();
+    assert!(empty.solid.is_empty());
+    assert_ne!(empty.revision, frame.revision);
+    let revealed = fixture.scene.update(clock, &[], &unculled).clone();
+    assert_eq!(revealed.solid, baseline.scene.frame().solid);
+    assert_ne!(revealed.revision, empty.revision);
 }
 
 /// Hidden containers, bells and frames keep easing, ringing and requesting maps.

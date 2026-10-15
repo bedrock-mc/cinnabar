@@ -8890,11 +8890,14 @@ Incomplete parity: recipe eligibility and exact pattern-choice styling remain op
   Actors with unbounded attachments, extra layers or no authored bounds also draw.
   Controllers with any replacement geometry bypass base-model terrain proofs, including
   selections between ticks; controllers that always draw the base model remain eligible.
-- Block entities use the same proof without stopping lids, rings, map requests or text
-  canvases. Global beams bypass terrain proofs. Retained vertex runs are culled at draw
-  submission, so camera turns do not rebuild or upload cached meshes.
+- Block entities reject conservative bounds outside the current camera before scene geometry
+  and GPU preparation, then use the same terrain proof. Hidden entities keep advancing lids,
+  books and ring cues, requesting maps and retaining text canvases. Unknown bounds and global
+  beams bypass preparation culling. Retained vertex runs are also culled at draw submission;
+  camera turns publish geometry when admission changes.
 - Each kind has a fixed plane/cell probe budget. Preparation counters record candidates,
-  hidden-by-occlusion and submitted; draw counters record skipped/submitted vertices.
+  hidden-by-occlusion and submitted; block entities count hidden-by-visibility to include
+  frustum rejection. Draw counters record skipped/submitted vertices.
 - Performance and rendered-frame acceptance remain incomplete until comparable captures
   verify walls, gaps, rapid motion, shadows, name tags and unchanged animation state.
 
