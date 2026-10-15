@@ -1,3 +1,14 @@
+## Single-cell palette edits
+
+Paletted block storage retains usage counts after its first changed edit or batch rebuild.
+Canonical edits to an existing value, and insertions that fit the same width, patch one
+packed word while the source value remains used. Width changes, last-use removal and
+noncanonical inputs keep the full canonical rebuild. Decoder repair discards cached counts;
+clones own their counts, and equality still compares the exact packed representation.
+Regression tests and single-cell preparation benchmarks are written but unrun.
+Incomplete: broader lazy compaction, executed verification and performance measurements.
+No output-parity or hardware performance gate closes here.
+
 ## Incremental persona artwork pages
 
 Persona animation images retain bounded single-layer page slots across empty views.

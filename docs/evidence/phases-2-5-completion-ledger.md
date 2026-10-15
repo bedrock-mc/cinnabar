@@ -1,5 +1,11 @@
 # Phases 2-5 Completion Ledger
 
+Single-cell palette edits retain usage counts and patch canonical storage when existing
+indices and width stay valid. Structural changes still rebuild, and equality ignores only
+derived bookkeeping. Regression tests and benchmark fixtures have not been compiled or run;
+broader lazy compaction, output verification and measured performance remain incomplete.
+This change advances no phase completion, parity or hardware performance gate.
+
 Verified chunk blobs now persist through a bounded background store. Restart, corruption,
 miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
 this storage change advances no rendered, live-join or broader parity completion gate.
