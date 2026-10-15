@@ -5,6 +5,8 @@ use wgpu::util::DeviceExt;
 
 #[path = "grid_tests.rs"]
 mod grid_tests;
+#[path = "leaf_mip_tests.rs"]
+mod leaf_mip_tests;
 #[path = "minification_tests.rs"]
 mod minification_tests;
 
