@@ -31,11 +31,11 @@ impl FarTerrainCache {
                     self.queue_write(namespace, pos, column, now);
                 }
             }
-            if let Some(mut pending) = self.pending_event.take() {
-                if !self.apply_event(&mut pending, budget) {
-                    self.pending_event = Some(pending);
-                    return;
-                }
+            if let Some(mut pending) = self.pending_event.take()
+                && !self.apply_event(&mut pending, budget)
+            {
+                self.pending_event = Some(pending);
+                return;
             }
             let Some(event) = self.disk.as_ref().and_then(|disk| disk.events().next()) else {
                 return;

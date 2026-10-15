@@ -26,6 +26,10 @@ const GAMEPLAY_CAPACITY: usize = 4096;
 const HITCH_PRE_FRAMES: u64 = 4;
 const HITCH_POST_FRAMES: u64 = 2;
 const MAX_PENDING_HITCHES: usize = HITCH_POST_FRAMES as usize + 1;
+/// Hitch reports go to the session log, so a machine that hitches every frame must not flood it:
+/// a burst of reports, then one more per refill period of frames.
+const HITCH_REPORT_BURST: u32 = 4;
+const HITCH_REPORT_REFILL_FRAMES: u64 = 1800;
 
 /// Invalid or excessive requests retain the default bounded recording budget.
 fn trace_capacity(value: Option<&str>) -> usize {
@@ -76,6 +80,9 @@ struct TraceWindow {
     next_sequence: u64,
     pending: VecDeque<PendingHitch>,
     dropped_hitches: u64,
+    report_budget: u32,
+    frames_until_refill: u64,
+    suppressed_reports: u64,
 }
 
 impl TraceWindow {
@@ -142,6 +149,9 @@ impl FrameTrace {
                 next_sequence: 0,
                 pending: VecDeque::with_capacity(MAX_PENDING_HITCHES),
                 dropped_hitches: 0,
+                report_budget: HITCH_REPORT_BURST,
+                frames_until_refill: HITCH_REPORT_REFILL_FRAMES,
+                suppressed_reports: 0,
             }),
         }
     }
@@ -256,6 +266,13 @@ impl FrameTrace {
             .events
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if boundary.is_some() {
+            window.frames_until_refill -= 1;
+            if window.frames_until_refill == 0 {
+                window.frames_until_refill = HITCH_REPORT_REFILL_FRAMES;
+                window.report_budget = (window.report_budget + 1).min(HITCH_REPORT_BURST);
+            }
+        }
         let mut reports = Vec::new();
         while window
             .pending
@@ -263,7 +280,14 @@ impl FrameTrace {
             .is_some_and(|hitch| boundary.is_none_or(|id| id > hitch.frame_id + HITCH_POST_FRAMES))
         {
             let hitch = window.pending.pop_front().expect("pending hitch");
-            let snapshot = self.snapshot(&window, GAMEPLAY_CAPACITY);
+            if window.report_budget == 0 {
+                window.suppressed_reports += 1;
+                continue;
+            }
+            window.report_budget -= 1;
+            let first_frame = hitch.frame_id.saturating_sub(HITCH_PRE_FRAMES);
+            let snapshot = self.snapshot(&window, GAMEPLAY_CAPACITY, Some(first_frame));
+            window.suppressed_reports = 0;
             let pre_complete = hitch.frame_id > HITCH_PRE_FRAMES
                 && snapshot.events.iter().any(|event| {
                     event.name == "frame_start"
@@ -288,13 +312,28 @@ impl FrameTrace {
     }
 
     /// Copies completed records and loss metadata; serialization never holds the ring lock.
-    fn snapshot(&self, window: &TraceWindow, limit: usize) -> TraceSnapshot {
-        let retained = window.events.len().min(limit);
+    /// With `first_frame`, the copy starts at that frame's start marker when it is still retained.
+    fn snapshot(
+        &self,
+        window: &TraceWindow,
+        limit: usize,
+        first_frame: Option<u64>,
+    ) -> TraceSnapshot {
+        let since_first_frame = first_frame.and_then(|frame_id| {
+            window
+                .events
+                .iter()
+                .rposition(|event| event.name == "frame_start" && event.frame_id == Some(frame_id))
+        });
+        let retained = since_first_frame
+            .map_or(window.events.len(), |index| window.events.len() - index)
+            .min(limit);
         TraceSnapshot {
             capacity: window.events.capacity().min(limit),
             first_sequence: window.next_sequence - retained as u64,
             overwritten: window.overwritten(),
             dropped_hitches: window.dropped_hitches,
+            suppressed_reports: window.suppressed_reports,
             next_sequence: window.next_sequence,
             epoch_unix_nanos: self.epoch_unix_nanos,
             events: window
@@ -330,6 +369,7 @@ impl FrameTrace {
                 first_sequence: overwritten,
                 overwritten,
                 dropped_hitches: window.dropped_hitches,
+                suppressed_reports: window.suppressed_reports,
                 next_sequence: window.next_sequence,
                 epoch_unix_nanos: self.epoch_unix_nanos,
                 events: std::mem::take(&mut window.events),
@@ -406,6 +446,7 @@ struct TraceSnapshot {
     first_sequence: u64,
     overwritten: u64,
     dropped_hitches: u64,
+    suppressed_reports: u64,
     next_sequence: u64,
     epoch_unix_nanos: u128,
     events: VecDeque<TraceEvent>,
@@ -427,6 +468,7 @@ impl Serialize for TraceSnapshot {
         map.serialize_entry("dropped_events", &self.overwritten)?;
         map.serialize_entry("overwritten_events", &self.overwritten)?;
         map.serialize_entry("dropped_hitch_windows", &self.dropped_hitches)?;
+        map.serialize_entry("suppressed_hitch_reports", &self.suppressed_reports)?;
         map.serialize_entry("first_event_sequence", &self.first_sequence)?;
         map.serialize_entry("omitted_events", &(self.first_sequence - self.overwritten))?;
         map.serialize_entry("next_event_sequence", &self.next_sequence)?;
