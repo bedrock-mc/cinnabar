@@ -3,12 +3,12 @@
 use protocol::{ActorMetadataValue, SpawnParticleEffectEvent};
 use protocol_ids::ActorDataKey;
 
-use super::{ActorKind, ActorSnapshot, ActorStore};
+use super::{ActorSnapshot, ActorStore};
 
 const DRAGON_BREATH_PARTICLE: i32 = 49;
 const EMISSION_TICKS: u32 = 5;
 const MIN_RADIUS: f32 = 0.5;
-const LINGERING_BREATH: &str = "minecraft:dragon_breath_lingering";
+const LINGERING_BREATH: &str = assets::facts::ParticleEffect::DragonBreathLingering.identifier();
 
 enum CloudPresentation {
     Unavailable,
@@ -22,7 +22,8 @@ impl ActorStore {
             return;
         };
         for actor in self.actors.values_mut() {
-            if !matches!(&actor.kind, ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:area_effect_cloud")
+            if actor.entity_fact.native_class
+                != assets::facts::entity::NativeEntityClass::AreaEffectCloud
             {
                 continue;
             }

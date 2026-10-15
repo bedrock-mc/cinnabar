@@ -151,7 +151,7 @@ impl GpuSkinArrays {
                     bytes = resident.texels.len(),
                 )
                 .entered();
-                queue.write_texture(
+                queue.profiled_write_texture(
                     TexelCopyTextureInfo {
                         texture,
                         mip_level: 0,

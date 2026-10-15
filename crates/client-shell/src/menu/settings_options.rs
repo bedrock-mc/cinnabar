@@ -6,6 +6,7 @@ pub mod control_bindings;
 mod language;
 mod reset;
 mod runtime;
+pub(crate) use runtime::flush_on_exit;
 #[cfg(test)]
 mod tests;
 

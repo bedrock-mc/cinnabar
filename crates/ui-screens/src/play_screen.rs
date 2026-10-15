@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn the_featured_list_joins_the_pressed_or_selected_server() {
         let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
-        view.featured = vec![card("a"), card("g")];
+        view.featured = vec![card("a"), card("g")].into();
         assert_eq!(play_featured(&view, 0), Some(MenuAction::PlayFeatured(0)));
         assert_eq!(play_featured(&view, 1), Some(MenuAction::PlayFeatured(1)));
         assert_eq!(play_featured(&view, 2), None);
@@ -576,7 +576,8 @@ mod tests {
             realm("mine", false),
             realm("theirs", true),
             realm("ours", false),
-        ];
+        ]
+        .into();
         assert_eq!(
             realm_action(&view, &press(Some(FRIEND_REALMS), Some(0))),
             Some(MenuAction::PlayRealm(1))

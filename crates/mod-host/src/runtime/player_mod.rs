@@ -1,6 +1,6 @@
 //! `player-mod`'s own imports: the mod's screens beside the container screens and the
-//! session's read-only items and recipes. Every write stages into a copy of the committed
-//! screens, which the host publishes only when the callback returns.
+//! session's read-only items and recipes. A callback copies the committed screens on its
+//! first write and publishes the staged screens only when it returns.
 
 pub(super) use super::Stack as GuestStack;
 use super::{
@@ -11,13 +11,21 @@ use super::{
         session::{items, recipes},
     },
 };
-use crate::{ModEvent, ModScreens};
+use crate::ModEvent;
 use anyhow::{Result, ensure};
 use server_experience::{
     policy::MAX_HOST_OUTPUT,
     screen::{self as host_screen, Rect, ScreenLayout as HostLayout},
     session_data as data,
 };
+
+mod screen_write;
+pub(super) use screen_write::ScreenTransaction;
+use screen_write::ScreenWrite;
+
+#[cfg(test)]
+#[path = "../tests/screens/transactions.rs"]
+mod transaction_tests;
 
 pub(super) use super::{DataSource, Modifiers, ScreenLayout as Layout};
 
@@ -32,12 +40,12 @@ impl State {
         Ok(())
     }
 
-    /// Applies one screen write of `bytes` to this callback's copy of the screens, within the
-    /// output budget; a denied write changes nothing.
+    /// Validates and applies one write within the callback's budget, copying the screens
+    /// once and undoing a rejected mutation without losing earlier accepted writes.
     fn stage(
         &mut self,
         bytes: usize,
-        write: impl FnOnce(&mut ModScreens, &Self) -> Result<(), String>,
+        prepare: impl FnOnce(&Self) -> Result<ScreenWrite, String>,
     ) -> Result<Result<(), String>> {
         self.charge()?;
         if !self.grants.screen {
@@ -46,15 +54,16 @@ impl State {
         if bytes > MAX_HOST_OUTPUT - self.output {
             return Ok(Err("host output budget exceeded".into()));
         }
-        let mut screens = self
+        let write = match prepare(self) {
+            Ok(write) => write,
+            Err(error) => return Ok(Err(error)),
+        };
+        let screens = self
             .pending_screens
-            .clone()
-            .unwrap_or_else(|| self.screens.clone());
-        let result = write(&mut screens, self)
-            .and_then(|()| screens.data.check().map_err(|error| error.to_string()));
+            .get_or_insert_with(|| ScreenTransaction::new(&self.screens));
+        let result = screens.apply(write);
         if result.is_ok() {
             self.output += bytes;
-            self.pending_screens = Some(screens);
         }
         Ok(result)
     }
@@ -122,37 +131,32 @@ impl screen::Host for State {
     }
 
     fn set_overlay(&mut self, template: Option<String>) -> Result<Result<(), String>> {
-        self.stage(0, |screens, state| {
+        self.stage(0, |state| {
             state.template(template.as_ref())?;
-            screens.overlay = template;
-            screens.data.revision += 1;
-            Ok(())
+            Ok(ScreenWrite::Overlay(template))
         })
     }
 
     fn open_view(&mut self, template: Option<String>) -> Result<Result<(), String>> {
-        self.stage(0, |screens, state| {
+        self.stage(0, |state| {
             state.template(template.as_ref())?;
             if template.is_some() && state.layout.is_none() {
                 return Err("no container screen is open".into());
             }
-            screens.view = template;
-            screens.data.revision += 1;
-            Ok(())
+            Ok(ScreenWrite::View(template))
         })
     }
 
     fn set_collection(&mut self, name: String, rows_json: Vec<u8>) -> Result<Result<(), String>> {
         let bytes = rows_json.len();
-        self.stage(bytes, |screens, _| {
+        self.stage(bytes, |_| {
             if !host_screen::collection_name(&name) {
                 return Err("invalid collection name".into());
             }
             let rows: Vec<host_screen::Row> = serde_json::from_slice(&rows_json)
                 .map_err(|error| format!("invalid rows: {error}"))?;
             host_screen::validate_rows(&rows).map_err(|error| error.to_string())?;
-            screens.data.set_collection(name, rows);
-            Ok(())
+            Ok(ScreenWrite::Collection(name, rows))
         })
     }
 
@@ -164,40 +168,36 @@ impl screen::Host for State {
             ui::Value::Text(value) => host_screen::Value::Text(value),
             ui::Value::Numbers(values) => host_screen::Value::Numbers(values),
         };
-        let bytes = name.len() + serde_json::to_vec(&value).map_or(0, |json| json.len());
-        self.stage(bytes, |screens, _| {
+        let bytes = name.len() + screen_write::value_bytes(&value);
+        self.stage(bytes, |_| {
             if !host_screen::binding_name(&name) {
                 return Err("invalid binding name".into());
             }
             value.validate().map_err(|error| error.to_string())?;
-            screens.data.set_value(name, value);
-            Ok(())
+            Ok(ScreenWrite::Value(name, value))
         })
     }
 
     fn set_text(&mut self, control: String, text: String) -> Result<Result<(), String>> {
         let bytes = control.len() + text.len();
-        self.stage(bytes, |screens, state| {
+        self.stage(bytes, |state| {
             if !state.declared.actions.contains(&control) {
                 return Err(format!("{control} is not a declared action"));
             }
             if !host_screen::edit_text(&text) {
                 return Err("invalid edit box text".into());
             }
-            screens.data.set_text(control, text);
-            Ok(())
+            Ok(ScreenWrite::Text(control, text))
         })
     }
 
     fn focus_text(&mut self, control: String) -> Result<Result<(), String>> {
         let bytes = control.len();
-        self.stage(bytes, |screens, state| {
+        self.stage(bytes, |state| {
             if !state.declared.actions.contains(&control) {
                 return Err(format!("{control} is not a declared action"));
             }
-            screens.data.revision += 1;
-            screens.focus = Some((screens.data.revision, control));
-            Ok(())
+            Ok(ScreenWrite::Focus(control))
         })
     }
 }

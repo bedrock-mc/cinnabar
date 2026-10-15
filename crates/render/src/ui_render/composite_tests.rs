@@ -43,6 +43,8 @@ fn held(input: Arc<UiRenderInput>) -> HeldLayer {
     HeldLayer {
         content: UiLayerContent {
             revision: input.revision,
+            segment: 0..input.batches.len(),
+            inverted: None,
             skip: None,
             viewport: None,
             model_depth: false,
@@ -154,5 +156,159 @@ fn damage_clear_warmup_and_drawing_reuse_one_pipeline() {
             pipeline.specialize(cache, key).unwrap();
             assert_eq!(pipeline.clear, Some(clear));
         }
+    }
+}
+
+/// Segment content is independent of the changing world and of other alpha ranges.
+#[test]
+fn independent_segment_rasters_reuse_and_invalidate_separately() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let layers = [retained_layer(device, size), retained_layer(device, size)];
+    let mut frame = frame_layer(&layers[1], false);
+    frame.segments.push(frame_layer(&layers[0], false));
+    let content = UiLayerContent {
+        revision: 1,
+        skip: None,
+        viewport: None,
+        model_depth: false,
+        segment: 0..1,
+        inverted: Some(1),
+    };
+    let second = UiLayerContent {
+        segment: 2..3,
+        inverted: None,
+        ..content.clone()
+    };
+    frame
+        .segment(0, 2)
+        .unwrap()
+        .hold(Some((content.clone(), true)));
+    frame
+        .segment(1, 2)
+        .unwrap()
+        .hold(Some((second.clone(), true)));
+    assert_ne!(
+        frame.segment(0, 2).unwrap().texture.id(),
+        frame.texture.id()
+    );
+    for _ in 0..3 {
+        // Live world textures are deliberately not part of retained alpha content.
+        assert_eq!(frame.segment(0, 2).unwrap().holds(&content), Some(true));
+        assert_eq!(frame.segment(1, 2).unwrap().holds(&second), Some(true));
+    }
+    frame.segment(0, 2).unwrap().hold(None);
+    assert_eq!(frame.segment(0, 2).unwrap().holds(&content), None);
+    assert_eq!(frame.segment(1, 2).unwrap().holds(&second), Some(true));
+    assert!(
+        frame.segment(0, 3).is_none(),
+        "insufficient rasters must use full replay"
+    );
+}
+
+/// Extra layers are bounded and removed segments release their old raster storage.
+#[test]
+fn segment_storage_reuses_then_releases_topology_extent_and_device_lifetimes() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let mut layers = Vec::new();
+    synchronize_layers(&mut layers, device, size, 3);
+    let identities: Vec<_> = layers.iter().map(|layer| layer.texture.id()).collect();
+    synchronize_layers(&mut layers, device, size, 3);
+    assert_eq!(
+        layers
+            .iter()
+            .map(|layer| layer.texture.id())
+            .collect::<Vec<_>>(),
+        identities
+    );
+    synchronize_layers(&mut layers, device, size, 1);
+    assert_eq!(layers.len(), 1);
+    synchronize_layers(&mut layers, device, Extent3d { width: 80, ..size }, 2);
+    assert!(
+        layers
+            .iter()
+            .all(|layer| !identities.contains(&layer.texture.id()))
+    );
+    assert_eq!(retained_segment_count(9, size), 1);
+    assert_eq!(
+        retained_segment_count(
+            8,
+            Extent3d {
+                width: 4096,
+                height: 4096,
+                ..size
+            }
+        ),
+        1
+    );
+    assert_eq!(retained_segment_count(3, size), 3);
+}
+
+/// Publication topology is part of the raster identity even if geometry is unchanged.
+#[test]
+fn segment_boundary_changes_never_reuse_a_different_alpha_range() {
+    let input = input();
+    let held = held(Arc::clone(&input));
+    for (segment, inverted) in [(0..0, None), (0..1, Some(1))] {
+        let content = UiLayerContent {
+            segment,
+            inverted,
+            ..held.content.clone()
+        };
+        assert_eq!(
+            held.damage(&content, &input, [40; 2]),
+            super::super::damage::UiDamage::Full
+        );
+    }
+}
+
+/// Device replacement and view removal release accepted publications as well as color surfaces.
+#[test]
+fn retained_segments_leave_no_orphan_publication_after_view_or_device_removal() {
+    let world = super::super::ordered_command_tests::binding_world();
+    let device = world.resource::<RenderDevice>();
+    let size = Extent3d {
+        width: 40,
+        height: 40,
+        depth_or_array_layers: 1,
+    };
+    let owner = Entity::from_bits(7);
+    let mut store = UiLayerStore::default();
+    store.synchronize_device(device);
+    for remove_device in [false, true] {
+        let publication = input();
+        let weak = Arc::downgrade(&publication);
+        let layers = vec![retained_layer(device, size), retained_layer(device, size)];
+        let content = UiLayerContent {
+            revision: 1,
+            skip: None,
+            viewport: None,
+            model_depth: false,
+            segment: 0..1,
+            inverted: None,
+        };
+        frame_layer(&layers[0], false).hold_publication(Some((content, true)), Some(publication));
+        store.views.insert(owner, layers);
+        assert!(weak.upgrade().is_some());
+        if remove_device {
+            // Model a new device observation; synchronization must discard every old view.
+            store.device = None;
+            store.synchronize_device(device);
+        } else {
+            store.retain_live_views(|_| false);
+        }
+        assert!(store.views.is_empty());
+        assert!(weak.upgrade().is_none());
     }
 }

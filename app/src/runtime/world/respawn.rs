@@ -3,7 +3,7 @@
 use client_world::CommittedControlEvent;
 use protocol::{Packet, RespawnEvent};
 
-use client_interaction::movement::MovementTicker;
+use client_interaction::movement::{LocalPhysicsController, MovementTicker};
 use client_session::PacketSendError;
 
 #[derive(Debug, Default)]
@@ -36,6 +36,8 @@ impl RespawnLifecycle {
         control: &CommittedControlEvent,
         local_actor: u64,
         movement: &mut MovementTicker,
+        physics: &mut LocalPhysicsController,
+        item_use: Option<&mut client_interaction::item_use::ItemUseRuntime>,
     ) -> bool {
         let CommittedControlEvent::Respawn {
             sequence, respawn, ..
@@ -50,7 +52,10 @@ impl RespawnLifecycle {
         self.last_sequence = Some(*sequence);
         if respawn.searching_for_spawn() {
             if !self.searching {
-                movement.begin_respawn_search();
+                movement.begin_respawn_search(physics);
+                if let Some(item_use) = item_use {
+                    item_use.cancel_for_respawn();
+                }
             }
             self.pending = Some(*respawn);
             self.searching = true;
@@ -66,6 +71,9 @@ impl RespawnLifecycle {
             previous.ready_to_spawn() && previous.position == respawn.position
         }) {
             return true;
+        }
+        if let Some(item_use) = item_use {
+            item_use.cancel_for_respawn();
         }
         self.pending = Some(*respawn);
         self.searching = false;

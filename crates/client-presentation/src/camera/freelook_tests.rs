@@ -164,6 +164,38 @@ fn session_reset_clears_camera_orbit_without_turning_the_actor() {
     assert_eq!(settings.perspective(), PerspectiveMode::FirstPerson);
 }
 
+/// Quaternion publications cross the signed boundary without losing the camera's yaw history.
+#[test]
+fn view_heading_keeps_wrap_crossings_and_freelook_turns() {
+    let mut view = LocalViewPose::default();
+    for yaw in [120.0_f32, 240.0, 360.0, 480.0] {
+        view.set_rotation(Quat::from_rotation_y(-yaw.to_radians()));
+        assert!((view.camera_look()[1] - yaw).abs() < 1e-4);
+    }
+    view.set_freelook(true);
+    view.turn_look_rotation(
+        Quat::from_rotation_y(-1080.0_f32.to_radians()),
+        -600.0_f32.to_radians(),
+    );
+    assert!((view.camera_look()[1] - 1080.0).abs() < 1e-4);
+    view.set_freelook(false);
+    assert!((view.camera_look()[1] - 1200.0).abs() < 1e-4);
+    let before = view;
+    view.set_look_rotation(Quat::from_xyzw(0.0, 0.0, 0.0, 0.0));
+    view.turn_look_rotation(Quat::IDENTITY, f32::NAN);
+    assert_eq!(view, before);
+}
+
+/// Complete turn history does not round the orientation used for small camera input.
+#[test]
+fn hand_yaw_history_does_not_reduce_camera_orientation_precision() {
+    let mut view = LocalViewPose::default();
+    view.turn_look_rotation(Quat::IDENTITY, 10_000.0 * std::f32::consts::TAU);
+    let rotation = Quat::from_rotation_y(0.0001);
+    view.turn_look_rotation(rotation, 0.0001);
+    assert!((view.look_rotation() * Vec3::NEG_Z).abs_diff_eq(rotation * Vec3::NEG_Z, 1e-7));
+}
+
 #[test]
 fn routed_look_uses_follow_orbit_angles_before_clamping_the_actor() {
     use protocol::{CameraEvent, CameraInstructionEvent, CameraPreset, CameraSetInstruction};
@@ -250,13 +282,13 @@ fn routed_look_uses_follow_orbit_angles_before_clamping_the_actor() {
 /// Mouse look turns vanilla's per-count degrees for the window's pixel width and sensitivity.
 #[test]
 fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
-    let turned = |width: u32, sensitivity: Option<f32>| {
+    let turned = |width: u32, sensitivity: Option<f32>, counts: f32| {
         let mut router = SemanticInputRouter::default();
         router
             .route(DeviceFrame {
                 keyboard_mouse: Some(KeyboardMouseFrame {
                     activity_sequence: 1,
-                    mouse_motion: [-30.0, 0.0],
+                    mouse_motion: [-counts, 0.0],
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -278,21 +310,28 @@ fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
             .init_resource::<look::LookSmoother>()
             .add_systems(Update, drive);
         app.update();
-        let (yaw, _, _) = app
-            .world()
-            .resource::<LocalViewPose>()
-            .rotation()
-            .to_euler(EulerRot::YXZ);
-        yaw.to_degrees()
+        -app.world().resource::<LocalViewPose>().camera_look()[1]
     };
     let expected = |width, game| look::mouse_turn_degrees(Vec2::new(30.0, 0.0), width, game).x;
-    assert!((turned(1920, None) - expected(1920, 0.628)).abs() < 1e-4);
-    assert!((turned(2560, None) - expected(2560, 0.628)).abs() < 1e-4);
-    assert!(turned(2560, None) < turned(1920, None));
+    assert!((turned(1920, None, 30.0) - expected(1920, 0.628)).abs() < 1e-4);
+    assert!((turned(2560, None, 30.0) - expected(2560, 0.628)).abs() < 1e-4);
+    assert!(turned(2560, None, 30.0) < turned(1920, None, 30.0));
     let mut game = look::GameSensitivity::default();
     game.set_sensitivity(0.8);
-    assert!((turned(1920, Some(0.8)) - expected(1920, game.value())).abs() < 1e-4);
-    assert_eq!(turned(1920, Some(0.5)), turned(1920, None));
+    assert!((turned(1920, Some(0.8), 30.0) - expected(1920, game.value())).abs() < 1e-4);
+    assert_eq!(turned(1920, Some(0.5), 30.0), turned(1920, None, 30.0));
+    for counts in [
+        -semantic_input::MAX_LOOK_DELTA_PER_FRAME,
+        semantic_input::MAX_LOOK_DELTA_PER_FRAME,
+    ] {
+        let expected = look::mouse_turn_degrees(Vec2::new(counts, 0.0), 1920, 0.628).x;
+        assert!(expected.abs() > 180.0);
+        let actual = turned(1920, None, counts);
+        assert!(
+            (actual - expected).abs() < 1e-4,
+            "{counts} routed counts turn {actual} degrees, expected {expected}"
+        );
+    }
 }
 
 #[test]

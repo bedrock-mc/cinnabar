@@ -435,6 +435,7 @@ dependencies = [
  "pack-compiler",
  "pack-entity-compiler",
  "pack-font-compiler",
+ "protocol-ids",
  "reqwest",
  "same-file",
  "serde",
@@ -2514,6 +2515,7 @@ dependencies = [
  "ui",
  "ui-engine",
  "wgpu",
+ "winit",
  "zip",
 ]
 
@@ -2589,6 +2591,7 @@ dependencies = [
  "assets",
  "bytes",
  "hashbrown 0.16.1",
+ "inventory 0.1.20",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -5090,6 +5093,7 @@ name = "mod-host"
 version = "0.1.20"
 dependencies = [
  "anyhow",
+ "criterion",
  "experience-sdk",
  "mod-api",
  "mod-render",
@@ -5100,6 +5104,7 @@ dependencies = [
  "server-experience",
  "sha2",
  "tempfile",
+ "test-alloc",
  "test-time",
  "ui",
  "wasm-metadata",
@@ -5108,6 +5113,7 @@ dependencies = [
  "wat",
  "windows-sys 0.61.2",
  "wit-component",
+ "wit-parser 0.247.0",
 ]
 
 [[package]]
@@ -5606,6 +5612,7 @@ dependencies = [
  "bitflags 2.13.0",
  "block2 0.6.2",
  "objc2 0.6.4",
+ "objc2-core-foundation",
  "objc2-foundation 0.3.2",
 ]
 
@@ -6589,6 +6596,8 @@ dependencies = [
  "mod-api",
  "mod-render",
  "naga",
+ "objc2 0.6.4",
+ "objc2-metal 0.3.2",
  "pack-compiler",
  "particles",
  "rayon",
@@ -6658,6 +6667,7 @@ dependencies = [
  "particles",
  "render-api",
  "render-model",
+ "serde",
  "serde_json",
  "sha2",
  "simulation-clock",
@@ -7107,6 +7117,7 @@ version = "0.1.20"
 dependencies = [
  "assets",
  "block-transform",
+ "criterion",
  "serde",
  "serde_json",
  "sha2",
@@ -7886,12 +7897,14 @@ name = "ui"
 version = "0.1.20"
 dependencies = [
  "assets",
+ "criterion",
  "json-ui",
  "render-api",
  "semantic-input",
  "serde",
  "serde_json",
  "sha2",
+ "xxhash-rust",
 ]
 
 [[package]]

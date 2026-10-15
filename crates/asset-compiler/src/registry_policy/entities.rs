@@ -40,7 +40,10 @@ impl Rule {
                 format!("unknown entity field {field} in {}", self.id),
             )?;
             check(
-                !matches!(field.as_str(), "class_key" | "collision" | "provisional"),
+                !matches!(
+                    field.as_str(),
+                    "class_key" | "collision" | "collidable" | "provisional"
+                ),
                 "native rule cannot override a derived field",
             )?;
             check(
@@ -64,6 +67,7 @@ struct ComponentSource {
 #[serde(deny_unknown_fields)]
 struct Components {
     projectile: bool,
+    collidable: bool,
     collision: Option<[f32; 2]>,
 }
 
@@ -118,6 +122,9 @@ pub fn components(samples: &Path) -> Result<Vec<u8>> {
                     identifier.to_owned(),
                     Components {
                         projectile,
+                        collidable: entity["components"]
+                            .get("minecraft:is_collidable")
+                            .is_some(),
                         collision,
                     },
                 )
@@ -174,6 +181,7 @@ pub fn compile(root: &Path, out: &Path, policy_bytes: &[u8]) -> Result<()> {
                 native_class: NativeEntityClass::Ordinary,
                 class_key: u16::try_from(i + 1)?,
                 projectile: component.is_some_and(|v| v.projectile),
+                collidable: component.is_some_and(|v| v.collidable),
                 collision: component.and_then(|v| v.collision),
                 ..EntityFact::default()
             },

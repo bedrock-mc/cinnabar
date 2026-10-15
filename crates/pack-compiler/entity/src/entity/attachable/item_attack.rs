@@ -43,8 +43,10 @@ pub fn compile_item_attack_timings(
                 .pointer("/minecraft:tags/tags")
                 .and_then(Value::as_array)
                 .is_some_and(|tags| {
-                    tags.iter()
-                        .any(|tag| tag.as_str() == Some("minecraft:is_spear"))
+                    let facts = assets::facts::ItemFacts::builtin().expect("valid item facts");
+                    let mut fact = assets::facts::ItemFact::default();
+                    facts.apply_tags(&mut fact, tags.iter().filter_map(Value::as_str));
+                    fact.traits.contains(assets::facts::ItemTraits::SPEAR)
                 });
             (swing_duration_seconds.is_some()
                 || attack_cooldown.is_some()

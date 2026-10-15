@@ -116,6 +116,10 @@ fn player_animation_armor_presence_uses_worn_slots_and_fire_uses_actor_state() {
     let mut context = ActorTickContext::default();
     context.armor[1] = Some(super::super::tick::WornArmor {
         item: Arc::from("minecraft:elytra"),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:elytra")
+            .unwrap(),
         dye_rgb: None,
     });
     let number = MolangValue::Number;

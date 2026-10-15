@@ -10,6 +10,15 @@ use {
 
 use crate::present_mode::DisplayRefresh;
 
+/// Builds rolling attribution and sends owned reports to the background console.
+pub(crate) fn profiler(
+    enabled: bool,
+    trace_path: Option<std::path::PathBuf>,
+) -> RuntimeStageProfiler {
+    RuntimeStageProfiler::for_gameplay(enabled, trace_path)
+        .with_diagnostic_sink(diagnostics::console::defer_stderr)
+}
+
 /// Feeds slow-frame thresholds the primary window's monitor interval, or a slower frame cap.
 pub(crate) fn track_frame_interval(
     profiler: Res<RuntimeStageProfiler>,
@@ -62,12 +71,86 @@ pub(crate) fn trace_frame_focus(
     profiler.trace_frame(focused, *occluded, time.elapsed_secs_f64());
 }
 
-/// Saves recorded spans on the exit frame, before runner teardown can retain resources.
+/// Starts trace export on the exit frame, before runner teardown can retain resources.
 pub(crate) fn flush_trace_on_exit(
     profiler: Res<RuntimeStageProfiler>,
     mut exit: MessageReader<AppExit>,
 ) {
     if exit.read().next().is_some() {
         profiler.flush_trace();
+    }
+}
+
+/// Completes export when native termination clears the world without returning from the runner.
+#[derive(Resource)]
+struct TraceExportOnTeardown(RuntimeStageProfiler);
+
+impl Drop for TraceExportOnTeardown {
+    /// Flushes and joins even while the runner's profiler handle remains alive.
+    fn drop(&mut self) {
+        self.0.flush_trace();
+        self.0.wait_for_trace_export();
+    }
+}
+
+/// Completes export during world teardown or after a runner retains its world and returns.
+pub(crate) fn run(app: &mut App) -> AppExit {
+    let profiler = app.world().resource::<RuntimeStageProfiler>().clone();
+    // Like TeardownWatchdog, install before runner cleanup adds blocking render teardown resources.
+    app.insert_resource(TraceExportOnTeardown(profiler.clone()));
+    let exit = app.run();
+    profiler.flush_trace();
+    profiler.wait_for_trace_export();
+    exit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Native teardown must finish export before the runner returns, without an exit message.
+    #[test]
+    fn trace_export_finishes_during_world_teardown_before_runner_returns() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("teardown.json");
+        let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
+        profiler.begin_frame(true, false);
+        profiler.trace_frame(true, false, 0.0);
+        let mut app = App::new();
+        app.insert_resource(profiler);
+        app.set_runner(move |mut owned| {
+            assert!(owned.should_exit().is_none());
+            owned.world_mut().clear_all();
+            let saved: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&path).expect("trace exported during teardown"),
+            )
+            .unwrap();
+            assert_eq!(saved["traceEvents"][0]["frame_id"], 1);
+            AppExit::Success
+        });
+        assert!(run(&mut app).is_success());
+    }
+
+    /// A runner retaining its world cannot leave an unfinished export at process exit.
+    #[test]
+    fn trace_export_finishes_after_a_runner_retains_the_world() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("shutdown.json");
+        let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
+        profiler.begin_frame(true, false);
+        profiler.trace_frame(true, false, 0.0);
+        let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let runner_app = retained.clone();
+        let mut app = App::new();
+        app.insert_resource(profiler);
+        app.set_runner(move |app| {
+            *runner_app.borrow_mut() = Some(app);
+            AppExit::Success
+        });
+        assert!(run(&mut app).is_success());
+        let saved: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(saved["traceEvents"][0]["frame_id"], 1);
+        assert!(retained.borrow().is_some());
     }
 }

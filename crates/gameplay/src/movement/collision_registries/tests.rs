@@ -17,6 +17,9 @@ mod admission;
 #[path = "tests/multipart.rs"]
 mod multipart;
 
+#[path = "tests/sleeping.rs"]
+mod sleeping;
+
 /// Reads the checkout's shared target manifest for registry fixtures.
 fn active_content_registry_protocol() -> u32 {
     serde_json::from_str::<serde_json::Value>(include_str!(
@@ -420,7 +423,7 @@ fn remote_palette_rebuilds_admission_and_custom_order_each_session() {
                 assert_eq!(remap.to_wire(internal), wire);
                 registries
                     .block_identifier(assets::NetworkIdMode::Sequential, internal)
-                    .filter(|name| *name != super::RESERVED_RECORD_NAME)
+                    .filter(|name| *name != super::RESERVED_BLOCK_NAME)
                     .map(|name| (protocol::block_name_sort_key(name), name))
             })
             .collect::<Vec<_>>();

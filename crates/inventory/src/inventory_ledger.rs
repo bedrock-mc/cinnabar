@@ -44,6 +44,7 @@ mod overlay;
 #[cfg(test)]
 mod overlay_tests;
 mod personal;
+mod presentation;
 mod queue;
 mod quick_move;
 #[cfg(test)]
@@ -67,6 +68,7 @@ pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
 use personal::PersonalWindow;
+pub use presentation::InventoryPresentationSnapshot;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;

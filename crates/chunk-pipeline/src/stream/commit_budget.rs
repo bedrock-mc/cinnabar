@@ -24,6 +24,7 @@ impl WorldStream {
     /// Starts the frame's shared ingress, commit and scheduling allocation.
     pub fn begin_frame_work(&mut self) {
         let now = Instant::now();
+        self.maintenance_guarantee = true;
         self.frame_deadline = Some(now + self.poll_budget);
         self.poll_deadline =
             Some(now + self.poll_budget - self.poll_budget / WORLD_SCHEDULING_SHARE);
@@ -50,6 +51,7 @@ impl WorldStream {
                 .map_or(commit_deadline, |earlier| earlier.min(commit_deadline)),
         );
         self.polling = true;
+        self.maintenance_guarantee = true;
         self.poll_heavy_guarantee = true;
         self.chunk_data_offloaded = offloaded;
         frame_deadline
@@ -71,12 +73,45 @@ impl WorldStream {
             .is_some_and(|flag| flag.load(Ordering::Acquire))
     }
 
+    /// Guarantees maintenance progress past a deadline, but never after a reclaim request.
+    pub(super) fn maintenance_should_yield(&self, completed: usize) -> bool {
+        self.service_yield_requested()
+            || ((completed != 0 || !self.maintenance_guarantee) && self.poll_budget_exhausted())
+            || (self.between_frames_service
+                && self.poll_deadline.is_none()
+                && self.service_yield.is_none())
+    }
+
+    /// Keeps the largest indivisible item for reclaim attribution without formatting logs.
+    pub(super) fn record_service_item(&mut self, started: Instant) {
+        self.service_item_max = self.service_item_max.max(started.elapsed());
+    }
+
+    /// Attributes a service operation, including any nested commits, to this poll's maximum.
+    pub(super) fn service_item<T>(
+        &mut self,
+        kind: &'static str,
+        work: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let started = Instant::now();
+        #[cfg(feature = "tracy")]
+        let _item = tracing::info_span!("stream.service_item_max", kind).entered();
+        #[cfg(not(feature = "tracy"))]
+        let _ = kind;
+        let result = work(self);
+        self.record_service_item(started);
+        result
+    }
+
     /// Commits every unblocked event. Heavy terrain steps stop at the poll deadline, with one
     /// guaranteed per poll across every pass it runs; light steps never wait for, or spend,
     /// the terrain allocation. A deferred retention change evicts first, as it preceded
     /// every commit still to come.
     pub(super) fn apply_ready(&mut self) {
         self.apply_due_chunk_retention();
+        if self.retention_due || self.service_yield_requested() {
+            return;
+        }
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.commit_ready").entered();
         let deadline = self
@@ -85,6 +120,13 @@ impl WorldStream {
         let mut heavy_guaranteed =
             self.poll_deadline.is_none() || (self.polling && self.poll_heavy_guarantee);
         loop {
+            if self.service_yield_requested() {
+                break;
+            }
+            self.apply_due_chunk_retention();
+            if self.retention_due {
+                break;
+            }
             // Without local physics the server position scopes retention; a committed
             // teleport, respawn or dimension change can hand it back mid-pass. An offloaded
             // frame poll leaves heavy chunk data to the service unless a ready mutation,
@@ -97,6 +139,13 @@ impl WorldStream {
             };
             let Some(step) = self.order.next_commit_within(budget) else {
                 break;
+            };
+            let started = Instant::now();
+            #[cfg(feature = "tracy")]
+            let _item = {
+                let (kind, columns, sections, updates) = commit_item_size(&step);
+                tracing::info_span!("stream.service_item_max", kind, columns, sections, updates)
+                    .entered()
             };
             self.commit_steps = self.commit_steps.wrapping_add(1);
             if self.order.last_step_was_heavy() {
@@ -161,8 +210,9 @@ impl WorldStream {
                     }
                 }
             }
+            self.record_service_item(started);
         }
-        if !self.polling {
+        if !self.polling && !self.service_yield_requested() {
             self.dispatch_urgent_work();
         }
     }
@@ -179,6 +229,38 @@ impl WorldStream {
         if self.order.finish_commit(sequence) {
             self.cancel_request_reservation(sequence);
         }
+    }
+}
+
+/// Counts commit payload work without formatting packet contents.
+#[cfg(feature = "tracy")]
+fn commit_item_size(step: &CommitStep) -> (&'static str, usize, usize, usize) {
+    match step {
+        CommitStep::Apply { event, .. } => match event {
+            PreparedWorldEvent::InlineLevelChunk { decoded, .. } => {
+                ("inline_column", 1, decoded.sub_chunks().count(), 0)
+            }
+            PreparedWorldEvent::RequestLevelChunk { .. } => ("request_column", 1, 0, 0),
+            PreparedWorldEvent::SubChunks { entries, .. } => {
+                ("subchunks", entries.len(), entries.len(), 0)
+            }
+            PreparedWorldEvent::BlockUpdates { result, .. }
+            | PreparedWorldEvent::SyncedBlockUpdates { result, .. } => (
+                "prepared_block_updates",
+                0,
+                result.as_ref().map_or(0, |batch| batch.mutations.len()),
+                0,
+            ),
+            _ => ("control", 0, 0, 0),
+        },
+        CommitStep::BlockUpdates { events, .. } => ("block_updates", 0, 0, events.len()),
+        CommitStep::SyncedBlockUpdates { packets, .. } => (
+            "synced_block_updates",
+            0,
+            0,
+            packets.iter().map(Vec::len).sum(),
+        ),
+        CommitStep::BatchStarted => ("batch_started", 0, 0, 0),
     }
 }
 

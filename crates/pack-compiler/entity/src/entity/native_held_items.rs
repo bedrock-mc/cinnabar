@@ -83,7 +83,11 @@ pub(super) fn complete_sample_bindings(
                 "animations/spear.animation.json",
                 &texture_path,
             ],
-            spear_binding(&record.identifier, texture),
+            spear_binding(
+                &record.identifier,
+                texture,
+                record.fact.tier == Some(T::Wood),
+            ),
         )?;
     }
     Ok(size)
@@ -117,7 +121,7 @@ fn spyglass_binding(identifier: &str) -> Value {
 }
 
 /// Binds the spear's authored held and impact controllers in both perspectives.
-fn spear_binding(identifier: &str, material: &str) -> Value {
+fn spear_binding(identifier: &str, material: &str, wooden: bool) -> Value {
     serde_json::json!({
         "format_version": "1.10.0",
         "minecraft:attachable": {"description": {
@@ -136,7 +140,7 @@ fn spear_binding(identifier: &str, material: &str) -> Value {
                 "hit_controller": "controller.animation.spear.hit"
             },
             "scripts": {"animate": ["held_controller", "hit_controller"]},
-            "sound_effects": {"hit": if material == "wood" {"item.wooden_spear.hit"} else {"item.spear.hit"}},
+            "sound_effects": {"hit": if wooden {"item.wooden_spear.hit"} else {"item.spear.hit"}},
             "render_controllers": ["controller.render.item_default"]
         }}
     })

@@ -5,7 +5,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver, Sender, TryRecvError},
     },
     time::Duration,
 };
@@ -163,7 +163,7 @@ type Opening<H = (OutputStreamHandle, u32)> = Receiver<Option<(H, Sender<()>)>>;
 
 /// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
 pub struct AudioDevice {
-    /// The default output while its owner thread is still opening it; taken on first use.
+    /// The default output while its owner thread is still opening it.
     opening: Option<Opening>,
     output: Option<Output>,
     sample_rate: u32,
@@ -183,8 +183,7 @@ impl AudioDevice {
             test_output: None,
         }
     }
-    /// Starts opening the default output on its own thread and returns at once; the first use
-    /// waits for the open to finish.
+    /// Starts opening the default output on its own thread; later uses poll without waiting.
     pub fn open_default_once() -> Self {
         match open_on_owner_thread(open_default_stream) {
             Ok((opening, _owner)) => Self {
@@ -202,14 +201,45 @@ impl AudioDevice {
         let Some(opening) = self.opening.take() else {
             return;
         };
-        if let Ok(Some(((handle, sample_rate), release))) = opening.recv() {
-            self.sample_rate = sample_rate;
-            self.output = Some(Output {
-                handle,
-                _release: release,
-            });
+        match opening.try_recv() {
+            Ok(Some(((handle, sample_rate), release))) => {
+                self.sample_rate = sample_rate;
+                self.output = Some(Output {
+                    handle,
+                    _release: release,
+                });
+            }
+            Err(TryRecvError::Empty) => self.opening = Some(opening),
+            Ok(None) | Err(TryRecvError::Disconnected) => {}
         }
     }
+    /// Whether requests must wait for the device; capture and test mixers are ready immediately.
+    pub fn is_opening(&mut self) -> bool {
+        if self.available() {
+            return false;
+        }
+        self.opening.is_some()
+    }
+
+    /// Creates a device whose opening fails only after the test releases its channel gate.
+    #[cfg(test)]
+    pub(crate) fn delayed_open() -> (Self, Sender<()>, std::thread::JoinHandle<()>) {
+        let (release, wait) = mpsc::channel();
+        let (opening, owner) = open_on_owner_thread(move || {
+            let _ = wait.recv();
+            None::<((), (OutputStreamHandle, u32))>
+        })
+        .expect("start test output owner");
+        (
+            Self {
+                opening: Some(opening),
+                ..Self::disabled()
+            },
+            release,
+            owner,
+        )
+    }
+
     /// Output rate that streaming sources should produce to avoid a second conversion.
     pub fn sample_rate(&mut self) -> u32 {
         if self.capture.is_some() {

@@ -17,6 +17,11 @@ macro_rules! wire_ids {
                 match self { $(Self::$variant => $value),* }
             }
 
+            /// Resolves a named contract variant without repeating its numeric value.
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name { $(stringify!($variant) => Some(Self::$variant),)* _ => None }
+            }
+
             /// Resolves a known ID; aliases resolve to the first declared name.
             pub const fn from_wire(raw: $raw) -> Option<Self> {
                 $(if raw == $value { return Some(Self::$variant); })*

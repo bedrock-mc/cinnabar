@@ -3,7 +3,7 @@
 
 use bevy::math::Mat4;
 use render_model::java_animation::{
-    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword, is_java_tool,
+    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword,
 };
 
 use {
@@ -11,7 +11,7 @@ use {
     render_model::equipment::{ItemDisplay, attach_to_bone},
 };
 
-const BOW: &str = "minecraft:bow";
+const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 
 fn mesh_kind(block: bool) -> JavaItemMesh {
     if block {
@@ -57,7 +57,7 @@ impl EquipmentRuntime {
             JavaHeldItem::Block
         } else if &*item.identifier == BOW {
             JavaHeldItem::Bow
-        } else if is_java_tool(&item.identifier) {
+        } else if item.grip.upright() == Some(true) {
             JavaHeldItem::Tool {
                 rotate_around: item.grip.mirrored_art(),
                 blocking: grip.blocking && is_java_sword(&item.identifier),

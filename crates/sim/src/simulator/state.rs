@@ -6,6 +6,9 @@ use crate::{Aabb, SurfaceResponse, Vec3, WorldCollisionIdentity, WorldQueryError
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerState {
+    /// Completed ticks in the current spin attack; absence means the pose is inactive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spin_attack_ticks: Option<u8>,
     pub tick: u64,
     pub position: Vec3,
     pub velocity: Vec3,
@@ -48,9 +51,23 @@ pub(super) struct CollisionShape {
 }
 
 impl PlayerState {
+    /// Uses the compact collision pose throughout a spin attack.
+    pub(super) fn hitbox_height(&self, input: super::MovementInput) -> f64 {
+        let launching = input
+            .riptide
+            .is_some_and(super::RiptideLaunch::is_supported)
+            && input.mode != super::MovementMode::Riding
+            && !input.spectator;
+        if self.spin_attack_ticks.is_some() || launching {
+            crate::PLAYER_WIDTH
+        } else {
+            input.mode.hitbox_height(input.sneaking)
+        }
+    }
     #[must_use]
     pub const fn new(position: Vec3) -> Self {
         Self {
+            spin_attack_ticks: None,
             tick: 0,
             position,
             velocity: Vec3::ZERO,

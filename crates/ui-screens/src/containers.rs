@@ -275,8 +275,7 @@ impl ContainerScreen {
             cache.as_ref().map(|cached| Arc::as_ptr(&cached.resolved))
         };
         let before = resolved(cache);
-        // Server ui files always come with a new catalog, which rebuilds the screen's binding.
-        let server_ui = engine.server_ui;
+        let baseline = engine.base_catalog();
         let drawn = {
             let mut renderers: Vec<&mut dyn CustomRenderer> = Vec::with_capacity(caller.len() + 1);
             renderers.push(&mut item_renderer);
@@ -286,7 +285,7 @@ impl ContainerScreen {
             let mut paint_frame = frame.with_renderers(&mut renderers);
             let draw = |env: &json_ui::LayoutEnv<'_>, root| {
                 ScreenCache::render(
-                    cache, catalog, server_ui, reference, &context, &data, &view, root, env, text,
+                    cache, catalog, baseline, reference, &context, &data, &view, root, env, text,
                 )
             };
             if prepare {
@@ -294,7 +293,7 @@ impl ContainerScreen {
                 if let Some(cached) = cache {
                     // Closed-screen data is incomplete. The first paint binds from fresh state,
                     // even if its data happens to match the prepared layout's inputs.
-                    cached.binding = recipe_book::screen_binding(server_ui);
+                    cached.binding = recipe_book::screen_binding(cached.virtualize_recipe_book);
                     cached.data = None;
                 }
                 Ok(None)
@@ -389,6 +388,8 @@ struct ScreenCache {
     laid: Option<(ViewState, json_ui::LayoutCacheKey, Arc<json_ui::FormRender>)>,
     /// The open screen's live bindings across data refreshes.
     binding: json_ui::BindState,
+    virtualize_recipe_book: bool,
+    factory_inputs: bool,
     /// Grid and factory templates kept across binds, so their unchanged instances stand.
     resolutions: json_ui::ResolveCache,
     /// Language tables used by the retained measurements.
@@ -431,7 +432,7 @@ impl ScreenCache {
     fn render(
         cache: &mut Option<Self>,
         catalog: &Arc<json_ui::Catalog>,
-        server_ui: bool,
+        baseline: &Arc<json_ui::Catalog>,
         reference: &'static str,
         context: &json_ui::Context,
         data: &DataSource,
@@ -444,18 +445,26 @@ impl ScreenCache {
             Arc::ptr_eq(&cached.catalog, catalog)
                 && cached.reference == reference
                 && cached.context == *context
+                && cached.factory_inputs == data.has_factory_inputs()
         };
         if !cache.as_ref().is_some_and(same_screen) {
+            let resolved = Arc::new(json_ui::resolve_screen(reference, catalog, context)?);
+            let virtualize_recipe_book = Arc::ptr_eq(catalog, baseline)
+                || json_ui::screen_templates_unchanged(
+                    &resolved, reference, catalog, baseline, context, data,
+                );
             *cache = Some(Self {
                 catalog: Arc::clone(catalog),
                 reference,
                 context: context.clone(),
-                resolved: Arc::new(json_ui::resolve_screen(reference, catalog, context)?),
+                resolved,
                 data: None,
                 tree: None,
                 measures: json_ui::MeasureCache::default(),
                 laid: None,
-                binding: recipe_book::screen_binding(server_ui),
+                binding: recipe_book::screen_binding(virtualize_recipe_book),
+                virtualize_recipe_book,
+                factory_inputs: data.has_factory_inputs(),
                 resolutions: json_ui::ResolveCache::default(),
                 language: text.1,
                 layouts: 0,
@@ -944,7 +953,7 @@ mod review_tests {
             let rendered = ScreenCache::render(
                 &mut cache,
                 &catalog,
-                false,
+                &catalog,
                 "chest.small_chest_screen",
                 &context,
                 &data,

@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::{
     asset::{load_internal_asset, uuid_handle},
@@ -116,7 +117,7 @@ fn prepare(
     let inputs = (!fullbright.0).then_some(input.0);
     if let Some(mut gpu) = gpu {
         if gpu.inputs != inputs {
-            queue.write_buffer(&gpu.buffer, 0, bytemuck::cast_slice(&light_table(inputs)));
+            queue.profiled_write_buffer(&gpu.buffer, 0, bytemuck::cast_slice(&light_table(inputs)));
             gpu.inputs = inputs;
         }
         if let Some(atmosphere) = atmosphere.as_deref()

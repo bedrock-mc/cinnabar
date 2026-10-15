@@ -75,6 +75,8 @@ fn hotbar_publishes_food_and_projectile_cooldowns_for_every_matching_slot() {
         let mut item_use = ItemUseRuntime::default();
         item_use.observe_press(true);
         let outcome = item_use.step(&UseFrame {
+            riptide_facing: Default::default(),
+            riptide: None,
             tick,
             now_millis: tick * 50,
             position: [0.0; 3],

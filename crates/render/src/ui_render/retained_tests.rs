@@ -289,3 +289,32 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
         "first-frame pipelines must use this frame's prepared UI"
     );
 }
+
+/// Admission prepares glint bounds once; a clock-only frame reuses geometry and those bounds.
+#[test]
+fn retained_glint_coverage_lives_with_the_accepted_publication() {
+    let mut world = retained_world();
+    let previous = world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .as_ref()
+        .unwrap()
+        .clone();
+    let mut incoming = (*previous).clone();
+    incoming.revision += 1;
+    Arc::make_mut(&mut incoming.vertices)[0].style_flags |= render_model::UI_STYLE_GLINT;
+    world.resource_mut::<UiRenderSceneResource>().input = Some(Arc::new(incoming));
+    world.run_system_once(prepare_ui_resources).unwrap();
+    let bounds = Arc::clone(&world.resource::<UiGpu>().animation_damage);
+    let writes = world.resource::<UiGpu>().geometry_writes;
+    assert!(matches!(bounds[0], damage::UiDamage::Rect(_)));
+    world.run_system_once(prepare_ui_resources).unwrap();
+    assert!(Arc::ptr_eq(
+        &bounds,
+        &world.resource::<UiGpu>().animation_damage
+    ));
+    assert_eq!(world.resource::<UiGpu>().geometry_writes, writes);
+    world.resource_mut::<UiRenderSceneResource>().input = None;
+    world.run_system_once(prepare_ui_resources).unwrap();
+    assert!(world.resource::<UiGpu>().animation_damage.is_empty());
+}

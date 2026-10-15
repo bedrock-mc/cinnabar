@@ -21,6 +21,7 @@ impl TestWorld {
             aabb: Aabb::new(min, min + Vec3::new(1.0, height, 1.0)),
             block: Some(block),
             runtime_id: None,
+            cell_has_scaffolding: None,
         });
         self.blocks.insert(block, facts(response));
     }

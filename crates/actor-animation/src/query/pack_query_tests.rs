@@ -126,10 +126,18 @@ fn has_armor_slot_reads_worn_stacks_and_rejects_invalid_arguments() {
     let mut context = ActorTickContext::default();
     context.armor[3] = Some(WornArmor {
         item: "minecraft:diamond_boots".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:diamond_boots")
+            .unwrap(),
         dye_rgb: None,
     });
     context.armor[4] = Some(WornArmor {
         item: "minecraft:wolf_armor".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:wolf_armor")
+            .unwrap(),
         dye_rgb: None,
     });
     for (slot, expected) in [

@@ -55,7 +55,7 @@ pub(super) fn validate_input(submission: &ActorRigSubmission) -> Result<(), Reje
 
 /// Resolves exactly the geometry and finite pose admitted by the normal rig builder.
 pub(super) fn geometry<'a>(
-    catalog: &'a GeometryCatalog,
+    geometries: &'a BTreeMap<EntityRigId, ActorRigGeometry>,
     submission: &ActorRigSubmission,
 ) -> Result<(EntityRigId, &'a ActorRigGeometry), Rejection> {
     let previous = &submission.input.previous_bones;
@@ -78,10 +78,7 @@ pub(super) fn geometry<'a>(
         ActorRigRoute::Diagnostic => DIAGNOSTIC_RIG_ID,
         ActorRigRoute::NoDraw => return Err(Rejection::NoDraw),
     };
-    let geometry = catalog
-        .geometries
-        .get(&id)
-        .ok_or(Rejection::MissingGeometry)?;
+    let geometry = geometries.get(&id).ok_or(Rejection::MissingGeometry)?;
     if geometry.bones_used() > previous.len() {
         return Err(Rejection::Geometry);
     }

@@ -490,22 +490,6 @@ fn sneaking_riding_blocking_and_aiming_set_their_java_poses() {
     assert!((f64::from(aim.right_arm.angles.y) - (-0.1 + 10.0_f64.to_radians())).abs() < 1e-5);
 }
 
-#[test]
-fn java_item_classes_follow_their_java_items() {
-    for tool in [
-        "minecraft:iron_sword",
-        "minecraft:stone_pickaxe",
-        "minecraft:stick",
-    ] {
-        assert!(is_java_tool(tool));
-    }
-    for flat in ["minecraft:blaze_rod", "minecraft:mace", "minecraft:apple"] {
-        assert!(!is_java_tool(flat));
-    }
-    assert!(is_java_tool("minecraft:fishing_rod"));
-    assert!(is_java_sword("minecraft:diamond_sword") && !is_java_sword("minecraft:bow"));
-}
-
 /// A raster texel centre lands on the Java slab point that samples the same texel.
 #[test]
 fn raster_texels_land_on_their_java_slab_texels() {
@@ -685,5 +669,22 @@ fn third_person_sword_stays_upright_through_swing_restarts() {
                 "{sequence} sample {index} (swing {swing}): blade points {blade}"
             );
         }
+    }
+}
+
+#[test]
+fn sword_policy_matches_compiled_membership_for_every_retail_item() {
+    use assets::facts::ItemTraits;
+    let facts = assets::facts::ItemFacts::builtin().unwrap();
+    for record in &facts.payload().records {
+        // The legacy Java blocking policy excludes the native sword-tagged mace.
+        let java_sword = record.fact.traits.contains(ItemTraits::SWORD)
+            && !record.fact.traits.contains(ItemTraits::MACE);
+        assert_eq!(
+            super::is_java_sword(&record.identifier),
+            java_sword,
+            "{}",
+            record.identifier
+        );
     }
 }

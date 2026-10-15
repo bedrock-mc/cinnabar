@@ -24,13 +24,27 @@ pub(super) struct Shape {
     pub(super) max_copies: usize,
 }
 
-/// Hand, UI viewport and particle writes; fixed, since their recurring sizes are known.
+/// One maximum particle frame, derived from the simulation cap and actual GPU record.
+const PARTICLE_FRAME_BYTES: u64 =
+    (particles::MAX_LIVE_PARTICLES * std::mem::size_of::<particles::ParticleInstance>()) as u64;
+/// Additional recurring hand/UI writes and mapping-alignment padding per frame.
+const FRAME_OTHER_BYTES: u64 = 64 * 1024;
+const FRAME_SLOTS_PER_FRAME: u64 = 2;
+const FRAME_IN_FLIGHT_FRAMES: usize = 4;
+const FRAME_SLOT_COUNT: usize = FRAME_IN_FLIGHT_FRAMES * FRAME_SLOTS_PER_FRAME as usize;
+const FRAME_SLOT_GRANULE: u64 = 64 * 1024;
+const FRAME_SLOT_BYTES: u64 = (PARTICLE_FRAME_BYTES + FRAME_OTHER_BYTES)
+    .div_ceil(FRAME_SLOTS_PER_FRAME * FRAME_SLOT_GRANULE)
+    * FRAME_SLOT_GRANULE;
+
+/// Fixed storage for four maximum particle frames plus bounded hand/UI headroom.
+/// Pending or failed mappings, extra writes and copy-record exhaustion still use fallback.
 pub(super) const FRAME: Shape = Shape {
     name: "retained frame upload staging",
-    slots: 8,
-    max_slots: 8,
+    slots: FRAME_SLOT_COUNT,
+    max_slots: FRAME_SLOT_COUNT,
     growth_slots: 0,
-    slot_bytes: 64 * 1024,
+    slot_bytes: FRAME_SLOT_BYTES,
     max_copies: 128,
 };
 
@@ -129,14 +143,20 @@ impl Pool {
         self.shape.name
     }
 
-    /// Stages writes in issue order until the pool fills, without allocating or polling.
+    /// Stages writes in issue order until the pool fills, without allocating staging storage or polling.
     /// Returns the first write not wholly staged and how many of its bytes were.
+    #[track_caller]
     pub(super) fn stage_prefix(&mut self, writes: &[BufferWrite<'_>]) -> Option<(usize, u64)> {
         for (index, &(target, offset, bytes)) in writes.iter().enumerate() {
             if bytes.is_empty() {
                 continue;
             }
             let staged = self.stage(target, offset, bytes);
+            render_scene::runtime_profile_uploads::record(
+                render_scene::runtime_profile_uploads::UploadKind::Buffer,
+                render_scene::runtime_profile_uploads::UploadPath::Staged,
+                staged,
+            );
             if staged < bytes.len() as u64 {
                 return Some((index, staged));
             }

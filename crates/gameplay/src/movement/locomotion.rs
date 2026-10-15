@@ -94,6 +94,8 @@ pub(super) struct ModeObservation {
     pub yaw: f32,
     /// Retained pre-tick pose offset, shared with swimming steering and replay.
     pub liquid_attach_height: f32,
+    /// The preceding pose's liquid body probe, shared with this tick's travel input.
+    pub liquid_contact_height: Option<f64>,
     /// A fresh jump press arrived this tick.
     pub jump_edge: bool,
     /// Jump state sent as `JumpDown` this tick, which the flight double-tap reads.
@@ -156,6 +158,15 @@ impl ModeTracker {
 
     pub(super) fn contact_height(&self) -> f64 {
         self.mode.hitbox_height(self.sneaking)
+    }
+
+    /// Uses the compact spin body for liquid sensing, preserving the prior pose otherwise.
+    pub(super) fn liquid_contact_height(&self, spinning: bool) -> f64 {
+        if spinning {
+            sim::PLAYER_WIDTH
+        } else {
+            self.contact_height()
+        }
     }
 
     pub(super) const fn sneaking(&self) -> bool {
@@ -246,10 +257,11 @@ impl ModeTracker {
         }
         // Flight persists on the ground; only a toggle or an ability update changes it.
         let flying = intent.can_fly && held_flight != fly_toggle;
-        let sampled = sim::Simulator::default().movement_environment(
+        let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
             self.mode,
             self.sneaking,
+            observed.liquid_contact_height,
             world,
         )?;
         let observed = ModeObservation {

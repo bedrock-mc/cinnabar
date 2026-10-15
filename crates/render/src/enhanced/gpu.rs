@@ -1,6 +1,7 @@
 //! Render-world Enhanced resources: bind group layouts, fallbacks, material
 //! classes, and per-view uniforms, targets and bind groups.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::{collections::HashMap, num::NonZeroU64};
 
 use bevy::{
@@ -309,7 +310,7 @@ pub(crate) fn prepare_enhanced_materials(
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        queue.write_texture(
+        queue.profiled_write_texture(
             TexelCopyTextureInfo {
                 texture: &table,
                 mip_level: 0,
@@ -529,7 +530,7 @@ pub(crate) fn prepare_enhanced_views(
         }
         state.settings = *settings;
         state.cascades = fits.iter().map(|fit| fit.bounds).collect();
-        queue.write_buffer(&state.frame, 0, bytemuck::bytes_of(&frame));
+        queue.profiled_write_buffer(&state.frame, 0, bytemuck::bytes_of(&frame));
         let casters = fits
             .iter()
             .map(|fit| CasterUniformGpu {
@@ -539,7 +540,7 @@ pub(crate) fn prepare_enhanced_views(
                 padding: [Vec4::ZERO; 10],
             })
             .collect::<Vec<_>>();
-        queue.write_buffer(&state.casters, 0, bytemuck::cast_slice(&casters));
+        queue.profiled_write_buffer(&state.casters, 0, bytemuck::cast_slice(&casters));
 
         let resolution = frame.flags.z;
         let cascades = frame.flags.y;

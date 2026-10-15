@@ -829,6 +829,7 @@ impl WorldStream {
         if !self
             .revisions
             .is_current(completion.key, completion.revision)
+            || !self.wants_mesh(completion.key.chunk())
             || !source_is_current
             || !biome_sources_are_current
             || completion.tint_identity != self.biome_tint_identity()
@@ -901,7 +902,7 @@ fn requires_geometry(
     classifier: BlockClassifier,
     key: SubChunkKey,
 ) -> bool {
-    full_detail.wants_mesh(key.chunk())
+    full_detail.wants_mesh(key.chunk(), resident)
         && resident.contains(&key)
         && !known_air.contains(&key)
         && terrain

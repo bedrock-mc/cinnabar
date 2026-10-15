@@ -1,6 +1,7 @@
 //! Bounded frame uploads share mapped storage until asynchronous GPU completion permits reuse.
 //! Every update to a participating buffer must use its pool before the camera graph runs.
 
+use crate::queue_writes::ProfiledQueue as _;
 #[path = "upload_staging/pool.rs"]
 mod pool;
 #[cfg(test)]
@@ -95,6 +96,7 @@ fn initialize(world: &mut World) {
 }
 
 /// Uses retained storage when installed; isolated owners retain their ordinary queue path.
+#[track_caller]
 pub(crate) fn write_batch(
     staging: Option<&BufferUploadStaging>,
     device: &RenderDevice,
@@ -104,14 +106,19 @@ pub(crate) fn write_batch(
     if let Some(staging) = staging {
         staging.write_batch(device, queue, writes);
     } else {
-        fallback(queue, writes);
+        fallback(queue, writes, std::panic::Location::caller());
     }
 }
 
 /// Queues every nonempty fallback write without waiting for reusable storage.
-fn fallback(queue: &RenderQueue, writes: &[BufferWrite<'_>]) {
+#[track_caller]
+fn fallback(
+    queue: &RenderQueue,
+    writes: &[BufferWrite<'_>],
+    site: &'static std::panic::Location<'static>,
+) {
     for &(target, offset, bytes) in writes.iter().filter(|write| !write.2.is_empty()) {
-        queue.write_buffer(target, offset, bytes);
+        queue.profiled_write_buffer_at(target, offset, bytes, site);
     }
 }
 
@@ -151,19 +158,22 @@ impl Staging {
     }
 
     /// Stages what fits and queues the rest of the batch.
+    #[track_caller]
     pub(crate) fn write_batch(
         &self,
         device: &RenderDevice,
         queue: &RenderQueue,
         writes: &[BufferWrite<'_>],
     ) {
-        self.write_batch_or(device, queue, writes, |rest| fallback(queue, rest));
+        let site = std::panic::Location::caller();
+        self.write_batch_or(device, queue, writes, |rest| fallback(queue, rest, site));
     }
 
     /// Stages writes in order until the pool fills and passes the unstaged rest to `fallback`,
     /// after submitting older copies it overlaps. The lock is released before that submission:
     /// each participating buffer is written by one system at a time, so no other writer can
     /// interleave updates to the same bytes.
+    #[track_caller]
     pub(crate) fn write_batch_or(
         &self,
         device: &RenderDevice,
@@ -183,6 +193,7 @@ impl Staging {
     }
 
     /// Stages under the lock and returns what must take the queue path, if anything.
+    #[track_caller]
     fn admit<'a>(&self, device: &RenderDevice, writes: &[BufferWrite<'a>]) -> Option<Miss<'a>> {
         let mut pool = self.lock();
         let (index, staged) = pool.stage_prefix(writes)?;

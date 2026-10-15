@@ -1,22 +1,32 @@
 use super::*;
 
+impl PhysicsSampleContext {
+    /// Expires release slowdown and sprint blocking together before the next fixed tick.
+    pub(super) fn for_next_tick(mut self, completed_tick: u64) -> Self {
+        self.release_use_modifier = self
+            .release_use_modifier
+            .filter(|(through_tick, _)| completed_tick < *through_tick);
+        self.mode_intent.sprint_start_blocked |= self.release_use_modifier.is_some();
+        self
+    }
+}
+
 /// Input edges and controller state retained alongside one completed simulation tick.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
-    /// Only the first tick of a render frame may consume pending anchor recovery.
-    pub frame_start: bool,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
-    pub eye_height: f32,
+    pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
     pub jump_down: bool,
     pub requested_sneak: bool,
     pub requested_sprint: bool,
     pub sprint_down: bool,
+    pub server_sprinting: Option<bool>,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,
@@ -32,6 +42,16 @@ pub(super) struct ControllerFrame {
 }
 
 impl ControllerFrame {
+    /// Advances the pose eye once after a successful tick and retains its interpolation state.
+    pub(super) fn finish_eye(&mut self, eye: &mut eye::LocalEyeOffset, state: &PlayerState) {
+        eye.tick(
+            self.input.mode,
+            self.input.sneaking,
+            state.spin_attack_ticks.is_some(),
+        );
+        self.eye_offset = *eye;
+    }
+
     /// Re-evaluates pose, jump edges and ride placement from the corrected pre-tick state.
     pub(super) fn prepare(
         &mut self,
@@ -43,6 +63,9 @@ impl ControllerFrame {
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
         let previous_sprinting = input.sprinting;
+        if let Some(sprinting) = self.server_sprinting {
+            modes.restore_controls(sprinting, modes.sneaking());
+        }
         self.grounded_before_tick = state.on_ground;
         self.jump_repeated = !input.immobile
             && !self.jump_edge
@@ -59,7 +82,8 @@ impl ControllerFrame {
         if input.sprinting != self.input.sprinting {
             self.sprint_override = Some(input.sprinting);
         }
-        input.liquid_contact_height = Some(modes.contact_height());
+        input.liquid_contact_height =
+            Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
@@ -84,13 +108,12 @@ impl ControllerFrame {
             liquid_attach_height: input
                 .liquid_attach_height
                 .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
+            liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
         };
-        if self.frame_start {
-            anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
-            state.position = observed.feet;
-        }
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
             Ok(choice) => choice,

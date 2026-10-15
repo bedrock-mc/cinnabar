@@ -1,6 +1,8 @@
 use render_api::PoseGeneration;
 #[path = "runtime/elytra_tests.rs"]
 mod elytra_tests;
+#[path = "runtime/java_grip_facts_tests.rs"]
+mod java_grip_facts_tests;
 
 #[path = "runtime/held_animation_tests.rs"]
 pub(super) mod held_animation_tests;
@@ -27,7 +29,7 @@ use {
         display::{FirstPersonHand, FirstPersonShape, first_person_display},
         runtime::{FirstPersonArms, layer_presentation},
     },
-    render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display, is_rod},
+    render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display},
 };
 
 fn sprite(side: u16, fill: u8) -> IconSprite {
@@ -583,6 +585,21 @@ fn session_items(
     }
 }
 
+/// Declares a custom item's `minecraft:wearable` slot, which is what lets a non-vanilla stack be
+/// worn as armour; vanilla armour takes its slot from the item facts instead.
+pub(super) fn declare_wearable(
+    runtime: &mut super::runtime::EquipmentRuntime,
+    identifier: &str,
+    slot: &str,
+) {
+    let components = protocol::ItemComponents {
+        wearable_slot: Some(slot.into()),
+        ..Default::default()
+    };
+    let items = session_items(vec![(identifier, components)], vec![]);
+    runtime.set_session_items(Some(&items), None, Vec::new());
+}
+
 fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     vec![
         (
@@ -890,7 +907,6 @@ fn first_person_equip_dip_and_mirrored_art() {
     let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
     let half_turn = rest.rotation.inverse() * turned.rotation;
     assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
-    assert!(is_rod("minecraft:fishing_rod") && !is_rod("minecraft:stick"));
     let block = first_person_display(FirstPersonShape::Block, REST);
     assert!((block.scale - 0.4).abs() < 1e-5);
     assert!(

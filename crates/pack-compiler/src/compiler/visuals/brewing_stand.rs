@@ -23,9 +23,9 @@ fn bottles(record: &RegistryRecord) -> Option<[bool; 3]> {
     }
     let selector = |key| Some(super::state::exact_tagged_byte(state.get(key)?, 1)? != 0);
     Some([
-        selector("brewing_stand_slot_a_bit")?,
-        selector("brewing_stand_slot_b_bit")?,
-        selector("brewing_stand_slot_c_bit")?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotABit.name())?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotBBit.name())?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotCBit.name())?,
     ])
 }
 

@@ -6,7 +6,9 @@ use protocol::{
     ActorSpawnEvent,
 };
 
-use super::super::ActorStore;
+use super::super::{
+    ActorApplyResult, ActorStore, DEFAULT_ACTOR_COLLISION_WIDTH, spatial::MIN_COLLISION_DIMENSION,
+};
 
 fn spawn(store: &mut ActorStore, runtime_id: u64, identifier: &str, width: f32) {
     let kind = if identifier == "player" {
@@ -123,6 +125,79 @@ fn missing_width_falls_back_only_for_players() {
     spawn(&mut store, 2, "zombie", 0.0);
     assert!(close(radius(&store, 1), 0.6));
     assert_eq!(radius(&store, 2), None);
+}
+
+/// Server scale changes width-based shadows exactly as it changes collision bounds.
+#[test]
+fn scaled_player_shadow_uses_the_collision_width() {
+    for width in [None, Some(0.6), Some(0.3)] {
+        let mut store = ActorStore::new(1, 0);
+        spawn(&mut store, 1, "player", width.unwrap_or(0.0));
+        for (sequence, scale) in (2..).zip([0.5, 2.0, 1.0, 0.0]) {
+            let result = store.apply(
+                1,
+                sequence,
+                ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: ActorDataKey::Scale.wire_value(),
+                        value: ActorMetadataValue::Float(scale),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: sequence,
+                }),
+            );
+            assert_eq!(
+                result,
+                ActorApplyResult::Updated,
+                "width {width:?}, scale {scale}"
+            );
+            let expected_width = (width.unwrap_or(DEFAULT_ACTOR_COLLISION_WIDTH) * scale)
+                .max(MIN_COLLISION_DIMENSION);
+            let actor = store.get(1).unwrap();
+            let (min, max) = actor.bounding_box_at([0.0; 3]).unwrap();
+            assert_eq!(
+                max[0] - min[0],
+                expected_width,
+                "collision width {width:?}, scale {scale}"
+            );
+            assert!(
+                close(radius(&store, 1), expected_width),
+                "width {width:?}, scale {scale}: {:?}",
+                radius(&store, 1)
+            );
+        }
+    }
+}
+
+/// Class multipliers use scaled bounds, while fixed and variant radii stay independent.
+#[test]
+fn scale_applies_before_width_overrides_only() {
+    let mut store = ActorStore::new(1, 0);
+    for (id, identifier, width, expected) in [
+        (1, "cow", 0.9, 0.45),
+        (2, "spider", 1.4, 0.49),
+        (3, "iron_golem", 1.4, 0.175),
+        (4, "boat", 1.4, 1.0),
+        (5, "slime", 2.08, 1.0),
+    ] {
+        spawn(&mut store, id, identifier, width);
+        set(
+            &mut store,
+            id,
+            ActorDataKey::Scale.wire_value(),
+            ActorMetadataValue::Float(0.5),
+        );
+        flag(&mut store, id, ActorFlag::Baby.wire_value());
+        set(
+            &mut store,
+            id,
+            ActorDataKey::Variant.wire_value(),
+            ActorMetadataValue::Int(4),
+        );
+        assert!(close(radius(&store, id), expected), "{identifier}");
+    }
 }
 
 #[test]

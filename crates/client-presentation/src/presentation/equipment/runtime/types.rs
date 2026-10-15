@@ -103,8 +103,8 @@ pub struct FirstPersonArms {
     pub left: bool,
 }
 
-const FILLED_MAP: &str = "minecraft:filled_map";
-const SHIELD: &str = "minecraft:shield";
+const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
+const SHIELD: &str = assets::facts::VanillaItem::Shield.identifier();
 
 impl FirstPersonArms {
     /// The right arm shows for an empty hand or a map; the left for a map in either hand (a shield

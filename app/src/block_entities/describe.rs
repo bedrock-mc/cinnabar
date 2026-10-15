@@ -37,7 +37,7 @@ pub(super) struct PlantBlock {
 fn plant_block(plant: &NbtCompound) -> Option<PlantBlock> {
     let name = plant
         .string("name")
-        .filter(|name| !name.is_empty() && *name != "minecraft:air")?;
+        .filter(|name| !name.is_empty() && *name != assets::facts::block::AIR_IDENTIFIER)?;
     let mut states = serde_json::Map::new();
     if let Some(compound) = plant.compound("states") {
         for (key, value) in compound.iter() {

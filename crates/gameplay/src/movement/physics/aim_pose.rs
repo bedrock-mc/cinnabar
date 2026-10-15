@@ -25,7 +25,7 @@ impl LocalPhysicsController {
                     return None;
                 }
                 let mut eye = sample.position;
-                eye[1] += frame.eye_height - PLAYER_NETWORK_OFFSET;
+                eye[1] += frame.eye_offset.height(1.0) - PLAYER_NETWORK_OFFSET;
                 Some((sample.tick, eye, sample.camera_orientation))
             })
     }

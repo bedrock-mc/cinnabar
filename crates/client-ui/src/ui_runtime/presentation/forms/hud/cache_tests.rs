@@ -145,3 +145,66 @@ fn prepared_server_catalogs_resolve_no_hud_on_the_frame() {
         );
     }
 }
+
+#[test]
+fn retained_semantics_keep_hotbar_hits_during_idle_and_text_updates() {
+    let Some(mut presentation) = crate::test_support::engine_presentation() else {
+        eprintln!(
+            "skipping retained_semantics_keep_hotbar_hits_during_idle_and_text_updates: missing local UI carrier (make assets)"
+        );
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    player.inventory.set_local_selected_slot(0);
+    let mut runtime = UiRuntime::new(1);
+    presentation.hud_frame_mut().first_person = true;
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [800, 600],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let frame = presentation.screens.touch.hud.as_ref().unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| hit.collection.as_deref() == Some("hotbar_items"))
+        .expect("the hotbar has touch targets");
+    let point = [hit.rect.x + hit.rect.w * 0.5, hit.rect.y + hit.rect.h * 0.5];
+    let slot = hit.collection_index;
+    let before = presentation.hud_component_constructions();
+    for now in [1, 2, 3] {
+        if now == 3 {
+            runtime.hud.set_actionbar(Arc::from("Updated"), 1, now);
+        }
+        presentation
+            .build(
+                &player,
+                &runtime,
+                now,
+                [800, 600],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        let frame = presentation.screens.touch.hud.as_ref().unwrap();
+        let hit =
+            json_ui::hit_test(&frame.hits, point).expect("the same point selects a hotbar slot");
+        assert_eq!(hit.collection.as_deref(), Some("hotbar_items"));
+        assert_eq!(hit.collection_index, slot);
+        let after = presentation.hud_component_constructions();
+        let expected = json_ui::HudChanges {
+            text: now == 3,
+            ..Default::default()
+        }
+        .components();
+        for ((before, after), changed) in before.into_iter().zip(after).zip(expected) {
+            assert_eq!(after - before, usize::from(changed));
+        }
+    }
+}

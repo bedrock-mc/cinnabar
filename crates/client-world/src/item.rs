@@ -1,7 +1,7 @@
 mod use_profile;
 use std::{
-    collections::{BTreeMap, HashMap, VecDeque},
-    sync::Arc,
+    collections::{BTreeMap, VecDeque},
+    sync::{Arc, OnceLock},
 };
 pub use use_profile::{
     EffectiveItemUse, ResolvedUseCooldown, UseCooldownCategory, resolve_item_use,
@@ -23,10 +23,14 @@ use actor_animation::ActorLifetimeId;
 mod armour;
 mod durability;
 pub use durability::resolve_item_durability;
+#[cfg(test)]
+mod animation_tests;
 mod glint;
 mod grip;
+#[cfg(test)]
+mod presentation_tests;
 
-pub const MAX_ITEM_REGISTRY_RECORDS: usize = 16_384;
+pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
 /// Equipment notices kept between drains; later ones are dropped.
 pub const MAX_EQUIPMENT_NOTICES: usize = 256;
@@ -132,8 +136,11 @@ type EquipmentKey = (ActorLifetimeId, ActorHandedness);
 
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
+    presentation_generation: Arc<()>,
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
+    facts: inventory::SessionItemFacts,
+    skipped_registries: u64,
     equipment: BTreeMap<EquipmentKey, ActorEquipmentSnapshot>,
     pending: VecDeque<EquipmentKey>,
     /// Latest armor by runtime id; the client-owned runtime survives actor churn.
@@ -148,6 +155,11 @@ pub(crate) struct ItemStateStore {
 }
 
 impl ItemStateStore {
+    /// Retains this store's registry identity independently of its address.
+    pub(crate) fn presentation_generation(&self) -> &Arc<()> {
+        &self.presentation_generation
+    }
+
     pub(crate) fn diagnostic() -> Self {
         Self::new(None)
     }
@@ -159,8 +171,11 @@ impl ItemStateStore {
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let registry = built_in_registry(assets.as_deref());
         let mut store = Self {
+            presentation_generation: Arc::new(()),
             assets,
             registry,
+            facts: inventory::SessionItemFacts::default(),
+            skipped_registries: 0,
             equipment: BTreeMap::new(),
             pending: VecDeque::new(),
             armor: BTreeMap::new(),
@@ -235,6 +250,7 @@ impl ItemStateStore {
 
     #[cfg(test)]
     pub(crate) fn clear(&mut self) {
+        self.presentation_generation = Arc::new(());
         self.registry.clear();
         self.armor.clear();
         self.clear_actor_state();
@@ -374,21 +390,39 @@ impl ItemStateStore {
         })
     }
 
+    /// Copies negotiated animation facts by numeric item identity.
+    pub(crate) fn animation_fact(&self, network_id: i32) -> assets::facts::ItemFact {
+        let facts = if self.facts.kind(network_id).is_some() {
+            &self.facts
+        } else {
+            retail_animation_facts()
+        };
+        *facts.get(network_id)
+    }
+
     pub(crate) fn apply_registry(&mut self, registry: ItemRegistryEvent) -> bool {
-        if registry.entries.len() > MAX_ITEM_REGISTRY_RECORDS {
-            return false;
-        }
-        let mut next = built_in_registry(self.assets.as_deref());
-        let mut network_ids = HashMap::with_capacity(registry.entries.len());
-        for entry in registry.entries.iter() {
-            if network_ids.insert(entry.network_id, ()).is_some() {
-                return false;
+        let Some(facts) = inventory::SessionItemFacts::from_registry(
+            assets::facts::ItemFacts::builtin().expect("valid pinned item facts"),
+            &registry,
+        ) else {
+            self.skipped_registries = self.skipped_registries.saturating_add(1);
+            if self.skipped_registries.is_power_of_two() {
+                tracing::warn!(
+                    skipped = self.skipped_registries,
+                    entries = registry.entries.len(),
+                    "Skipping item registry outside numeric admission bounds"
+                );
             }
+            return false;
+        };
+        let mut next = built_in_registry(self.assets.as_deref());
+        for entry in registry.entries.iter() {
             next.insert(
                 entry.network_id,
                 registry_record(entry, self.assets.as_deref()),
             );
         }
+        self.facts = facts;
         self.registry = next;
         self.rebuild_use_profiles();
 
@@ -622,6 +656,20 @@ impl ItemStateStore {
             self.armor.remove(&runtime_id);
         }
     }
+}
+
+/// Admits retail fallback once, independently of the server registry's size and ID span.
+fn retail_animation_facts() -> &'static inventory::SessionItemFacts {
+    static FACTS: OnceLock<inventory::SessionItemFacts> = OnceLock::new();
+    FACTS.get_or_init(|| {
+        inventory::SessionItemFacts::from_registry(
+            assets::facts::ItemFacts::builtin().expect("valid pinned item facts"),
+            &ItemRegistryEvent {
+                entries: protocol::vanilla_item_registry(),
+            },
+        )
+        .expect("valid pinned retail item registry")
+    })
 }
 
 /// Admits the retail registry through the same compiled facts as server entries.
