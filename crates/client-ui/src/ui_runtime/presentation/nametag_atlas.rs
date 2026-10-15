@@ -13,6 +13,7 @@ use ui::{
     TextLayout, TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiScale,
 };
 
+mod badge;
 mod packing;
 
 /// Widest line laid out before it would wrap, in font texels.
@@ -63,6 +64,8 @@ pub(super) struct AtlasLine {
     pub(super) width_px: f32,
     /// Font pixels from the line box's top to the cell's top (negative for tall glyphs).
     pub(super) top_px: f32,
+    /// Vertical glyph bounds in font pixels, before line-box padding.
+    pub(super) ink_y_px: [f32; 2],
 }
 
 /// Shelf-packed cells with unused lines reclaimed only when a miss needs room.
@@ -86,7 +89,8 @@ pub struct NametagAtlas {
 }
 
 struct AtlasCell {
-    text: Arc<str>,
+    /// `None` pins the shared gem; text cells participate in normal line eviction.
+    text: Option<Arc<str>>,
     line: AtlasLine,
     rgba8: Arc<[u8]>,
     shelf: usize,
@@ -181,11 +185,14 @@ impl NametagAtlas {
             cell: [origin[0], origin[1], width, height],
             width_px: measured.advance as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
             top_px: measured.top as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
+            ink_y_px: measured
+                .ink_y
+                .map(|value| value as f32 / FONT_DESIGN_PIXEL_TEXELS as f32),
         };
         self.reclamation = None;
         self.lines.insert(Arc::clone(text), self.cells.len());
         self.cells.push(AtlasCell {
-            text: Arc::clone(text),
+            text: Some(Arc::clone(text)),
             line,
             rgba8: rgba8.into(),
             shelf,
@@ -245,6 +252,7 @@ struct LineLayout {
     size: [u32; 2],
     top: i32,
     advance: u32,
+    ink_y: [i32; 2],
 }
 
 /// Measures width-bounded ink before any atlas placement or pixel allocation.
@@ -271,6 +279,19 @@ fn measure_line(
         .ok()?;
     let advance = layout.size_64()[0].div_ceil(64).clamp(1, MAX_LINE_TEXELS);
     let glyphs = || layout.glyphs().iter().filter(|glyph| glyph.line == 0);
+    let ink = || {
+        glyphs().filter(|glyph| {
+            glyph.bounds_64[2] > glyph.bounds_64[0] && glyph.bounds_64[3] > glyph.bounds_64[1]
+        })
+    };
+    let ink_top = ink()
+        .map(|glyph| glyph.bounds_64[1].div_euclid(64))
+        .min()
+        .unwrap_or(0);
+    let ink_bottom = ink()
+        .map(|glyph| (glyph.bounds_64[3] + 63).div_euclid(64))
+        .max()
+        .unwrap_or(0);
     let top = glyphs()
         .map(|glyph| glyph.bounds_64[1].div_euclid(64))
         .min()
@@ -306,6 +327,7 @@ fn measure_line(
         size: [width, height],
         top,
         advance,
+        ink_y: [ink_top, ink_bottom],
     })
 }
 

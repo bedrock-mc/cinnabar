@@ -20,7 +20,10 @@ use ui_engine::{
     sources::{ImageWork, RemoteImage, RemoteSource},
     text_metrics::TextMetrics,
 };
-use ui_screens::chat_screen::{ChatInput, ChatScreen};
+use ui_screens::{
+    chat_screen::{ChatInput, ChatScreen},
+    player_list::PlayerList,
+};
 
 use crate::{
     carriers::{self, Error},
@@ -53,7 +56,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
-        Fixture::Chat { .. } => false,
+        Fixture::Chat { .. } | Fixture::TabList(_) => false,
     };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
@@ -166,6 +169,18 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 }
             }
         }
+        Fixture::TabList(rows) => {
+            let mut engine = json_engine(&carriers)?;
+            let mut list = PlayerList::default();
+            for now in [0.0, CAPTURE_SECONDS] {
+                frame.nodes.clear();
+                *frame.next = 1;
+                frame.now = now;
+                list.paint(&engine, &rows, &mut frame)
+                    .map_err(|error| error.to_string())?;
+            }
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::Loading(stage) => {
             carriers::validate_oreui(dir)?;
             let images = oreui::images::load_optional_oreui_images(dir)
@@ -203,27 +218,8 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             messages,
             options,
         } => {
-            let catalog = json_ui::Catalog::from_files(
-                carriers
-                    .ui
-                    .ui_files()
-                    .iter()
-                    .map(|file| (&*file.path, &*file.bytes)),
-            )
-            .map_err(|error| error.to_string())?;
-            let mut engine = FormEngine::new(
-                Arc::clone(&carriers.ui),
-                catalog,
-                carriers.ui_page,
-                &REGISTRY,
-                Arc::new(Offline),
-                ImageWork::inline(),
-            );
-            engine.set_server_atlas(
-                ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
-                    .with_image_work(ImageWork::inline()),
-                carriers.pages.len() as u16,
-            );
+            let mut engine = json_engine(&carriers)?;
+
             let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES)
                 .map_err(|error| format!("{error:?}"))?;
             editor.set_text(draft);
@@ -254,17 +250,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             if screen.nodes().is_empty() {
                 return Err(Error::Invalid("native chat screen did not resolve".into()));
             }
-            if let Some(pages) = engine.take_server_pages() {
-                // The inline image work finishes before painting; page order comes from the atlas.
-                carriers.pages.extend(pages.iter().map(|page| {
-                    let [width, height] = page.dimensions();
-                    Page {
-                        width,
-                        height,
-                        rgba: page.pixels().into(),
-                    }
-                }));
-            }
+            add_server_pages(&mut engine, &mut carriers.pages);
         }
     }
     if nodes.is_empty() {
@@ -315,6 +301,46 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         )
         .map_err(|error| error.to_string())?;
     Ok(png)
+}
+
+/// A JSON-UI engine over the vanilla carrier whose server atlas loads built-in images inline.
+fn json_engine(carriers: &carriers::Carriers) -> Result<FormEngine, Error> {
+    let catalog = json_ui::Catalog::from_files(
+        carriers
+            .ui
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut engine = FormEngine::new(
+        Arc::clone(&carriers.ui),
+        catalog,
+        carriers.ui_page,
+        &REGISTRY,
+        Arc::new(Offline),
+        ImageWork::inline(),
+    );
+    engine.set_server_atlas(
+        ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
+            .with_image_work(ImageWork::inline()),
+        carriers.pages.len() as u16,
+    );
+    Ok(engine)
+}
+
+/// Appends the server atlas pages after painting; page order comes from the atlas.
+fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
+    if let Some(server) = engine.take_server_pages() {
+        pages.extend(server.iter().map(|page| {
+            let [width, height] = page.dimensions();
+            Page {
+                width,
+                height,
+                rgba: page.pixels().into(),
+            }
+        }));
+    }
 }
 
 /// Gives each Mods-tab icon its own page under the key its card draws, as the client's

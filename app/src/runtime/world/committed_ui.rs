@@ -67,6 +67,9 @@ pub(crate) fn drain_committed_ui_before_authority(
             |unique_id| stream.authority().actor_display_name(unique_id),
             known_player_names,
         );
+        ui_runtime
+            .player_roster
+            .set_entries(stream.authority().player_list_roster());
     }
     for committed in committed_ui {
         let result = match committed {
@@ -268,6 +271,9 @@ pub(super) fn refresh_player_list_cache_for_controls(
         |unique_id| stream.authority().actor_display_name(unique_id),
         stream.authority().player_list_usernames(),
     );
+    ui_runtime
+        .player_roster
+        .set_entries(stream.authority().player_list_roster());
 }
 
 #[cfg(test)]
