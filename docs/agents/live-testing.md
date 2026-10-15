@@ -158,7 +158,7 @@ full-memory `crash.dmp` (Windows).
 | `packs` | Assets, resource packs, pack runtime and extensions |
 | `audio` | Audio playback and decoding |
 | `input` | Input mapping, gamepads and windowing input |
-| `core` | Go core bridge, launcher, lifecycle and diagnostics |
+| `core` | Go core bridge, launcher, lifecycle, crash monitor and diagnostics |
 | `session` | Client session, join, rich presence and telemetry |
 
 ## Native and performance evidence

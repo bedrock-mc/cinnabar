@@ -130,7 +130,13 @@ impl Category {
                 "bevy_input",
                 "cinnabar::semantic_controls",
             ],
-            Self::Core => &["bridge", "diagnostics", "launcher", "cinnabar::lifecycle"],
+            Self::Core => &[
+                "bridge",
+                "crash_monitor",
+                "diagnostics",
+                "launcher",
+                "cinnabar::lifecycle",
+            ],
             Self::Session => &[
                 "client_session",
                 "client_runtime",
