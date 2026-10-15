@@ -226,8 +226,8 @@ impl NearRadius {
     }
 }
 
-/// Destination, level, dimension, session and terrain inputs that identify one cache visit.
-type WorldIdentity<D> = (D, Option<u64>, i32, u64, [u8; 32]);
+/// Destination, level, dimension, stream/transition generation and terrain resource identity.
+type WorldIdentity<D> = (D, Option<u64>, i32, (u64, u64), [u8; 32]);
 
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
@@ -264,11 +264,9 @@ pub(crate) fn feed_far_terrain(
         .enabled(u32::from(video.render_distance_chunks), tier);
     // A transfer or rejoin to the same address is a new session and so a fresh visit: the
     // lobby behind it may be another instance under the same identity.
-    let destination = session.as_deref().and_then(|session| {
-        session
-            .destination_identity()
-            .map(|destination| (destination, session.generation()))
-    });
+    let destination = session
+        .as_deref()
+        .and_then(SessionController::destination_identity);
     let now = Instant::now();
     // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
     // every column it covered.
@@ -287,12 +285,12 @@ pub(crate) fn feed_far_terrain(
         .as_ref()
         .zip(destination)
         .filter(|_| wanted || draining)
-        .map(|(stream, (destination, generation))| {
+        .map(|(stream, destination)| {
             (
                 destination,
                 world.level_identity,
                 stream.current_dimension(),
-                generation,
+                stream.terrain_generation(),
                 world.terrain_resource_identity,
             )
         });
@@ -548,6 +546,10 @@ pub(crate) fn finish_far_terrain_on_exit(
 #[cfg(test)]
 #[path = "far_terrain/resource_tests.rs"]
 mod resource_tests;
+
+#[cfg(test)]
+#[path = "far_terrain/transfer_tests.rs"]
+mod transfer_tests;
 
 #[cfg(test)]
 mod tests {

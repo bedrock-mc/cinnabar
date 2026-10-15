@@ -178,7 +178,9 @@ Afterwards the first cached columns replaced by live ones are compared too: when
 differ, as for another lobby instance under the same identity, the visit drops the cached map
 and takes a new epoch. A disk read never replaces a newer column, and a retired session's late
 summaries never replace a later visit's. Every session, including a transfer to the same
-address, and every dimension change starts a fresh visit. An IO thread writes each region in
+address, and every committed dimension change starts a fresh visit, including a round trip
+between rendered frames. Dimension changes disconnect pending summary delivery before the
+destination can publish terrain. An IO thread writes each region in
 batches and evicts the least recently used regions past the per-server (64 MiB) and global
 (512 MiB) caps.
 
