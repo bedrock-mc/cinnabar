@@ -49,7 +49,7 @@ fn submit_frame_work(mut commands: bevy::render::renderer::FlushCommands) {
 }
 
 #[test]
-fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_submissions() {
+fn metal_frame_markers_report_inside_the_graph_submission_without_timestamp_queries() {
     use bevy::render::renderer::{PendingCommandBuffers, RenderGraph, RenderGraphSystems};
     bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
     let Some((device, queue)) = metal_device_with_features(wgpu::Features::empty()) else {
@@ -62,7 +62,7 @@ fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_sub
         mapped_at_creation: false,
     });
     let profiler = RuntimeStageProfiler::for_gameplay(true, None);
-    // Callback latency must remain informational even with a tiny frame budget.
+    // Only execution may count against even a tiny frame budget, never callback latency.
     profiler.set_frame_interval(std::time::Duration::from_nanos(1));
     let mut render_app = bevy::app::SubApp::new();
     render_app
@@ -110,18 +110,20 @@ fn metal_completion_latency_reports_without_timestamp_queries_or_extra_graph_sub
     let snapshot = profiler
         .take_snapshot_if_due(std::time::Duration::ZERO)
         .unwrap();
-    let frame = &snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize];
+    let latency = &snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize];
+    let execution = &snapshot.samples[RuntimeStage::GpuFrame as usize];
     assert_eq!(
-        frame.count, 1,
-        "one labelled latency is published after completion"
+        latency.count, 1,
+        "one latency is published after completion"
     );
-    assert!(frame.total > std::time::Duration::ZERO);
-    assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 0);
-    assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
-    assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
+    assert_eq!(execution.count, 1, "one execution span is published");
+    assert!(execution.total > std::time::Duration::ZERO);
+    assert!(execution.total <= latency.total);
+    assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 1);
+    assert_eq!(profiler.slow_frame_counts().unwrap().slow, 1);
     eprintln!(
-        "completion latency coverage: 0 -> {} samples; graph submissions: 1 -> 1; latency: {:?}",
-        frame.count, frame.total
+        "Metal gpu_frame samples: 0 -> {}; graph submissions: 1 -> 1; execution {:?}, latency {:?}",
+        execution.count, execution.total, latency.total
     );
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
 }
@@ -351,4 +353,200 @@ fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
     });
     queue.submit(buffers);
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+}
+
+/// Fragment work whose own pass timestamps bound the frame span from below.
+#[derive(Resource)]
+struct SpinWork {
+    pipeline: wgpu::RenderPipeline,
+    view: wgpu::TextureView,
+    queries: wgpu::QuerySet,
+    resolve: wgpu::Buffer,
+    readback: wgpu::Buffer,
+}
+
+impl SpinWork {
+    const SIZE: u32 = 1024;
+
+    fn new(device: &RenderDevice) -> Self {
+        let raw = device.wgpu_device();
+        let shader = raw.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("frame span regression"),
+            source: wgpu::ShaderSource::Wgsl(
+                "@vertex fn vertex(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+                     let xy = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
+                     return vec4f(xy * 2.0 - vec2f(1.0), 0.0, 1.0);
+                 }
+                 @fragment fn fragment(@builtin(position) p: vec4f) -> @location(0) vec4f {
+                     var x = p.x * p.y;
+                     for (var i = 0u; i < 4000u; i++) { x = fma(x, 1.0001, 0.5); }
+                     return vec4f(fract(x));
+                 }"
+                .into(),
+            ),
+        });
+        let pipeline = raw.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("frame span regression"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::TextureFormat::Rgba8Unorm.into())],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let texture = raw.create_texture(&wgpu::TextureDescriptor {
+            label: Some("frame span regression target"),
+            size: wgpu::Extent3d {
+                width: Self::SIZE,
+                height: Self::SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let buffer = |usage| {
+            raw.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("frame span regression timestamps"),
+                size: 2 * TIMESTAMP_BYTES,
+                usage,
+                mapped_at_creation: false,
+            })
+        };
+        Self {
+            pipeline,
+            view: texture.create_view(&Default::default()),
+            queries: raw.create_query_set(&wgpu::QuerySetDescriptor {
+                label: Some("frame span regression"),
+                ty: wgpu::QueryType::Timestamp,
+                count: 2,
+            }),
+            resolve: buffer(wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC),
+            readback: buffer(wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST),
+        }
+    }
+
+    /// Resolves completed pass timestamps separately so resolution cannot overtake sampling.
+    fn pass_duration(&self, device: &RenderDevice, queue: &RenderQueue) -> std::time::Duration {
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("completed frame span regression timestamps"),
+        });
+        encoder.resolve_query_set(&self.queries, 0..2, &self.resolve, 0);
+        encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.readback, 0, 2 * TIMESTAMP_BYTES);
+        queue.submit([encoder.finish()]);
+        let slice = self.readback.slice(..);
+        slice.map_async(wgpu::MapMode::Read, |result| result.unwrap());
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let ticks: Vec<u64> = slice.get_mapped_range().unwrap()[..16]
+            .as_chunks::<8>()
+            .0
+            .iter()
+            .map(|bytes| u64::from_le_bytes(*bytes))
+            .collect();
+        self.readback.unmap();
+        assert!(ticks[0] != 0 && ticks[1] > ticks[0], "pass ticks {ticks:?}");
+        render_scene::gpu_times::ticks_to_duration(
+            ticks[1] - ticks[0],
+            queue.get_timestamp_period(),
+        )
+    }
+}
+
+/// Draws the timed fragment work, leaving its timestamps for completed-frame readback.
+fn draw_spin_work(work: Res<SpinWork>, mut context: RenderContext) {
+    let encoder = context.command_encoder();
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("frame span regression"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &work.view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: Some(wgpu::RenderPassTimestampWrites {
+                query_set: &work.queries,
+                beginning_of_pass_write_index: Some(0),
+                end_of_pass_write_index: Some(1),
+            }),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&work.pipeline);
+        pass.draw(0..3, 0..1);
+    }
+}
+
+/// The marker span covers the frame's measured pass and stays below the CPU-observed latency.
+#[test]
+fn metal_frame_span_brackets_the_graph_work_it_submits() {
+    use bevy::render::renderer::{PendingCommandBuffers, RenderGraph, RenderGraphSystems};
+    bevy::tasks::ComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
+    let Some((device, queue)) = metal_device() else {
+        return;
+    };
+    let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+    let mut render_app = bevy::app::SubApp::new();
+    render_app
+        .add_schedule(bevy::ecs::schedule::Schedule::new(RenderStartup))
+        .add_schedule(RenderGraph::base_schedule())
+        .init_resource::<PendingCommandBuffers>()
+        .insert_resource(device.clone())
+        .insert_resource(queue.clone())
+        .insert_resource(profiler.clone())
+        .insert_resource(SpinWork::new(&device))
+        .add_systems(
+            RenderGraph,
+            (
+                draw_spin_work.in_set(RenderGraphSystems::Render),
+                submit_frame_work.in_set(RenderGraphSystems::Submit),
+            ),
+        );
+    crate::device_poll::install(&mut render_app);
+    super::metal_frame::install(&mut render_app);
+    let world = render_app.world_mut();
+    world.run_schedule(RenderStartup);
+    let mut previous = None;
+    for frame in 0..4 {
+        // Each frame publishes the previous one, whose markers settled during the wait below.
+        world.run_schedule(RenderGraph);
+        let snapshot = profiler
+            .take_snapshot_if_due(std::time::Duration::ZERO)
+            .unwrap();
+        let execution = &snapshot.samples[RuntimeStage::GpuFrame as usize];
+        let latency = &snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize];
+        if let Some(pass) = previous {
+            eprintln!(
+                "frame {frame}: pass {pass:?}, gpu_frame {:?}, completion latency {:?}",
+                execution.total, latency.total
+            );
+            assert_eq!((execution.count, latency.count), (1, 1));
+            assert!(pass <= execution.total, "the span covers the pass");
+            assert!(execution.total <= latency.total, "GPU time fits in latency");
+        } else {
+            assert_eq!((execution.count, latency.count), (0, 0));
+        }
+        world.run_schedule(Render);
+        previous = Some(world.resource::<SpinWork>().pass_duration(&device, &queue));
+    }
 }

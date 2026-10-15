@@ -242,6 +242,17 @@ impl SlowFrameRecorder {
         focused: bool,
         occluded: bool,
     ) -> Option<SlowFrameEvent> {
+        self.begin_frame_with_fields(now, focused, occluded, |_| {})
+    }
+
+    /// Adds optional diagnostic fields only to emitted slow-frame lines.
+    pub(crate) fn begin_frame_with_fields(
+        &self,
+        now: Instant,
+        focused: bool,
+        occluded: bool,
+        append: impl FnOnce(&mut String),
+    ) -> Option<SlowFrameEvent> {
         let totals = self.snapshot();
         let budgets = self.budgets();
         let violations = self.violations.swap(0, Ordering::Relaxed);
@@ -250,7 +261,8 @@ impl SlowFrameRecorder {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let (event, line) = frame.advance(now, totals, focused, occluded, &budgets, violations);
-        if let Some(line) = line {
+        if let Some(mut line) = line {
+            append(&mut line);
             eprintln!("{line}");
         }
         event

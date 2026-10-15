@@ -3,6 +3,11 @@
 use super::*;
 
 impl LocalPhysicsController {
+    /// Defers travel suppression until a successful tick can retain it for replay.
+    pub(in crate::movement) fn skip_next_travel_tick(&mut self) {
+        self.skip_travel_pending = true;
+    }
+
     pub(in crate::movement) fn apply_correction(
         &mut self,
         anchor: crate::movement::PhysicsAnchor,

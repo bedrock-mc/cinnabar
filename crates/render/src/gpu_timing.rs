@@ -1,5 +1,6 @@
 //! Nonblocking GPU timing sums elapsed pass latencies, including overlap and gaps, not active work.
-//! Metal reports labelled submission completion latency; whole-frame GPU time and shared draws stay absent.
+//! Metal times whole frames with marker command buffers and owned passes with queries; shared
+//! draws stay absent.
 //! Elsewhere, frames that nothing inspects pass by pass record only the whole-frame span: each
 //! marker is its own pass, and two per frame cost far less than two per timed node.
 

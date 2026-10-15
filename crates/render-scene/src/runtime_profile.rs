@@ -66,7 +66,7 @@ pub enum RuntimeStage {
     InputPacingWait,
     /// How far past its deadline the pacing wait woke.
     FramePacingLateness,
-    /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
+    /// First to last sampled GPU timestamp; on Metal, the graph submission's marker span.
     GpuFrame,
     GpuShadows,
     GpuOpaque,
@@ -396,6 +396,8 @@ struct RuntimeStageProfileState {
     last_snapshot_nanos: AtomicU64,
     stages: [StageSampleAccumulator; RuntimeStage::ALL.len()],
     latest_gpu: Mutex<Option<crate::GpuFrameTimes>>,
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: crate::runtime_profile_alloc::AllocationProfiler,
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -439,6 +441,8 @@ impl RuntimeStageProfiler {
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
                 latest_gpu: Mutex::new(None),
+                #[cfg(any(test, feature = "alloc-stats"))]
+                allocations: crate::runtime_profile_alloc::AllocationProfiler::default(),
             }),
         }
     }
@@ -454,16 +458,29 @@ impl RuntimeStageProfiler {
             state: self.active().then_some(&*self.state),
             stage,
             started: self.active().then(Instant::now),
+            #[cfg(any(test, feature = "alloc-stats"))]
+            allocations: self
+                .active()
+                .then(crate::runtime_profile_alloc::thread_snapshot),
         }
     }
 
     /// Reports the preceding slow frame and starts a new attribution window.
     pub fn begin_frame(&self, focused: bool, occluded: bool) {
+        crate::runtime_profile_uploads::finish_frame();
+        #[cfg(any(test, feature = "alloc-stats"))]
+        let allocations = self.state.allocations.finish_frame();
+        #[cfg(any(test, feature = "alloc-stats"))]
+        allocations.plot();
         let Some(slow) = &self.state.slow else {
             return;
         };
         if let (Some(event), Some(trace)) = (
-            slow.begin_frame(Instant::now(), focused, occluded),
+            slow.begin_frame_with_fields(Instant::now(), focused, occluded, |line| {
+                #[cfg(any(test, feature = "alloc-stats"))]
+                allocations.append_fields(line);
+                crate::runtime_profile_uploads::append_fields(line);
+            }),
             &self.state.trace,
         ) {
             trace.slow_frame(event);
@@ -607,6 +624,8 @@ pub struct RuntimeStageSpans {
     open: [Option<Instant>; RuntimeStage::ALL.len()],
     /// Each stage's most recently closed span.
     last: [Duration; RuntimeStage::ALL.len()],
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: [Option<test_alloc::Allocations>; RuntimeStage::ALL.len()],
 }
 
 #[cfg(any(test, feature = "publication-test-support"))]
@@ -622,6 +641,8 @@ impl Default for RuntimeStageSpans {
         Self {
             open: [None; RuntimeStage::ALL.len()],
             last: [Duration::ZERO; RuntimeStage::ALL.len()],
+            #[cfg(any(test, feature = "alloc-stats"))]
+            allocations: [None; RuntimeStage::ALL.len()],
         }
     }
 }
@@ -630,6 +651,10 @@ impl Default for RuntimeStageSpans {
 pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>) {
     if let Some(mut spans) = spans {
         spans.open[S] = Some(Instant::now());
+        #[cfg(any(test, feature = "alloc-stats"))]
+        {
+            spans.allocations[S] = Some(test_alloc::global_allocations());
+        }
     }
 }
 
@@ -649,6 +674,13 @@ pub fn end_stage_span<const S: usize>(
     if let Some(profiler) = profiler
         && profiler.active()
     {
+        #[cfg(any(test, feature = "alloc-stats"))]
+        if let Some(before) = spans.allocations[S].take() {
+            profiler
+                .state
+                .allocations
+                .record_global_since(RuntimeStage::ALL[S], before);
+        }
         record_elapsed(&profiler.state, RuntimeStage::ALL[S], started, elapsed);
     }
 }
@@ -672,6 +704,13 @@ pub fn end_render_frame_span(
     if let Some(profiler) = profiler
         && profiler.active()
     {
+        #[cfg(any(test, feature = "alloc-stats"))]
+        if let Some(before) = spans.allocations[FRAME].take() {
+            profiler
+                .state
+                .allocations
+                .record_global_since(RuntimeStage::RenderFrame, before);
+        }
         record_elapsed(&profiler.state, RuntimeStage::RenderFrame, started, elapsed);
     }
 }
@@ -681,11 +720,17 @@ pub struct RuntimeStageTimer<'a> {
     state: Option<&'a RuntimeStageProfileState>,
     stage: RuntimeStage,
     started: Option<Instant>,
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: Option<crate::runtime_profile_alloc::ThreadSnapshot>,
 }
 
 impl Drop for RuntimeStageTimer<'_> {
     fn drop(&mut self) {
         if let (Some(state), Some(started)) = (self.state, self.started) {
+            #[cfg(any(test, feature = "alloc-stats"))]
+            if let Some(before) = self.allocations {
+                state.allocations.record_since(self.stage, before);
+            }
             record_stage(state, self.stage, started);
         }
     }
@@ -765,6 +810,37 @@ mod tests {
         assert_eq!(latency.get(RuntimeStage::GpuFrame), None);
         assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
         assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
+    }
+
+    /// Metal frame spans count against the GPU budget; their callback latency never does.
+    #[test]
+    fn metal_frame_spans_feed_the_gpu_budget_without_latency() {
+        const BEGIN: u64 = 90_000_000_000_000;
+        let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+        profiler.set_frame_interval(Duration::from_secs_f64(1.0 / 120.0));
+        let latency = crate::GpuFrameTimes::completion_latency(Duration::from_millis(100));
+        let frame = |millis: u64| latency.with_frame_span(BEGIN, BEGIN + millis * 1_000_000);
+        assert_eq!(
+            frame(2).get(RuntimeStage::GpuFrame),
+            Some(Duration::from_millis(2))
+        );
+        profiler.record_gpu_frame(&frame(2));
+        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
+        profiler.record_gpu_frame(&frame(20));
+        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 1);
+        // Missing or reversed host times keep only the latency.
+        for invalid in [
+            latency.with_frame_span(0, BEGIN),
+            latency.with_frame_span(BEGIN, BEGIN - 1),
+        ] {
+            assert_eq!(invalid, latency);
+        }
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 2);
+        assert_eq!(
+            snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize].count,
+            2
+        );
     }
 
     #[test]
@@ -885,3 +961,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_profile/allocation_tests.rs"]
+mod allocation_tests;

@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 #[cfg(test)]
 use bevy::prelude::System;
@@ -239,7 +240,11 @@ pub(crate) fn prepare_cloud_records(
                     prepared.bind_group = None;
                     work.buffer_creations += 1;
                 }
-                render_queue.write_buffer(prepared.record_buffer.as_ref().unwrap(), 0, bytes);
+                render_queue.profiled_write_buffer(
+                    prepared.record_buffer.as_ref().unwrap(),
+                    0,
+                    bytes,
+                );
             }
             prepared.record_count =
                 u32::try_from(records.len()).expect("bounded cloud records fit u32");
@@ -290,7 +295,7 @@ fn prepare_cloud_colour(
     if gpu.colour == native {
         return;
     }
-    render_queue.write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
+    render_queue.profiled_write_buffer(&gpu.colour_buffer, 0, bytemuck::cast_slice(&native));
     gpu.colour = native;
     #[cfg(test)]
     {

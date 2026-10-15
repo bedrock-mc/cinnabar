@@ -243,6 +243,8 @@ pub struct LocalPhysicsController {
     visual_correction: visual_correction::VisualCorrection,
     accumulated_seconds: f64,
     discard_next_elapsed: bool,
+    /// A snapped server teleport suppresses travel on the next completed tick.
+    skip_travel_pending: bool,
     previous_jump_held: bool,
     jump_edge_pending: bool,
     input_edges: super::input_state::PendingInputEdges,
@@ -291,6 +293,7 @@ impl Default for LocalPhysicsController {
             visual_correction: visual_correction::VisualCorrection::default(),
             accumulated_seconds: 0.0,
             discard_next_elapsed: false,
+            skip_travel_pending: false,
             previous_jump_held: false,
             jump_edge_pending: false,
             input_edges: Default::default(),
@@ -349,6 +352,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -411,6 +415,7 @@ impl LocalPhysicsController {
         self.visual_correction = visual_correction::VisualCorrection::default();
         self.accumulated_seconds = 0.0;
         self.discard_next_elapsed = false;
+        self.skip_travel_pending = false;
         self.previous_jump_held = false;
         self.jump_edge_pending = false;
         self.input_edges = Default::default();
@@ -566,6 +571,7 @@ impl LocalPhysicsController {
                 .riptide_pending
                 .filter(|request| state.tick >= request.after_tick)
                 .map(|request| request.launch);
+            input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
@@ -611,16 +617,14 @@ impl LocalPhysicsController {
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
             };
-            if tick_index == 0 {
-                self.anchor_state.prepare_tick(
-                    world,
-                    self.modes,
-                    context.mode_intent,
-                    &mut observed,
-                    input,
-                );
-                state.position = observed.feet;
-            }
+            self.anchor_state.prepare_tick(
+                world,
+                self.modes,
+                context.mode_intent,
+                &mut observed,
+                input,
+            );
+            state.position = observed.feet;
             match self.modes.select(context.mode_intent, observed, world) {
                 Ok(choice) => {
                     input.mode = choice.mode;
@@ -711,6 +715,7 @@ impl LocalPhysicsController {
             };
             match predicted {
                 Ok(output) => {
+                    self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
                     while self.controller_history.len() >= self.history_capacity {
@@ -723,7 +728,6 @@ impl LocalPhysicsController {
                     );
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
-                        frame_start: tick_index == 0,
                         anchor_state: self.anchor_state,
                         entry_velocity,
                         eye_height: self.eye_offset.height(1.0),
