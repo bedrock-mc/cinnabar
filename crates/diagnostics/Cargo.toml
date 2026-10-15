@@ -18,6 +18,7 @@ reads = [
 [dependencies]
 assets = { path = "../assets" }
 chunk-pipeline = { path = "../chunk-pipeline" }
+crash-report = { path = "../crash-report" }
 env-compat = { path = "../env-compat" }
 meshing = { path = "../meshing" }
 render-model = { path = "../render-model" }
@@ -41,8 +42,14 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 
 [dev-dependencies]
 client-ui = { path = "../client-ui" }
+criterion.workspace = true
 tempfile = "3"
+test-alloc = { path = "../test-alloc" }
 toml = "0.9"
+
+[[bench]]
+name = "flight_recorder"
+harness = false
 
 [lints]
 workspace = true

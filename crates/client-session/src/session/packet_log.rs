@@ -1,41 +1,76 @@
 //! The always-on packet flight recorder and opt-in full capture at session ingress and egress.
 //!
 //! Every session reports its packets to [`global`]: a header ring of the last
-//! [`RING_CAPACITY`] packets in both directions, and the raw bodies of packets ingress rejected
-//! in the latest session that rejected any. Recording a header neither allocates nor formats;
-//! only a rejected packet's body is copied. Packets that can carry credentials or pack content
-//! keys keep their header but never their body, in samples or in captures.
+//! [`crash_report::ring::packets::CAPACITY`] packets in both directions, and the raw bodies of
+//! packets ingress rejected in the latest session that rejected any. Recording a header neither
+//! allocates, formats nor locks; only a rejected packet's body is copied. Packets that can carry
+//! credentials or pack content keys keep their header but never their body, in samples or in
+//! captures.
+//!
+//! Once [`PacketLog::attach`]ed to the session's crash staging directory, the ring lives in a
+//! mapped file there and each sample change is written beside it, so crash reports read both
+//! after any crash, including native faults.
 
 mod capture;
-mod ring;
 mod samples;
 
-use std::fmt;
-use std::fs;
-use std::io::{self, Write};
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError, TryLockError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
+use crash_report::{
+    ring::packets::{self, PacketRing},
+    staging,
+};
 use protocol::packet_tap::{
-    PacketBody, PacketDirection, PacketName, PacketOutcome, PacketRecordId, PacketTap,
-    UNFRAMED_BATCH_ID, carries_secrets,
+    PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap, UNFRAMED_BATCH_ID,
+    carries_secrets,
 };
 
 pub use capture::{
     CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, PacketCaptureRequest,
 };
 pub(crate) use capture::{CAPTURE_FINISH_TIMEOUT, CaptureFeed, CaptureFinisher};
-use ring::HeaderRing;
-pub use ring::{HeaderRecord, RING_CAPACITY};
 use samples::FailureSamples;
 pub use samples::{FailureSample, MAX_SAMPLE_BYTES, MAX_SAMPLES_PER_PACKET};
 
+/// One packet header as the ring stores it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HeaderRecord {
+    /// Position in the stream of every record this ring has accepted, starting at 1.
+    pub sequence: u64,
+    pub direction: PacketDirection,
+    pub packet_id: u32,
+    /// Body length in bytes.
+    pub len: u32,
+    /// Monotonic milliseconds since the packet log's epoch, as the recorder supplied them.
+    pub elapsed_ms: u64,
+    pub outcome: PacketOutcome,
+}
+
+impl HeaderRecord {
+    /// The typed record of a raw ring header; `None` for wire bytes no type has.
+    #[must_use]
+    pub fn from_ring(header: packets::PacketHeader) -> Option<Self> {
+        Some(Self {
+            sequence: header.sequence,
+            direction: PacketDirection::from_wire(header.direction)?,
+            packet_id: header.packet_id,
+            len: header.len,
+            elapsed_ms: header.elapsed_ms,
+            outcome: PacketOutcome::from_wire(header.outcome)?,
+        })
+    }
+}
+
 /// Packet headers and rejected bodies recorded by this process's sessions.
 pub struct PacketLog {
-    ring: HeaderRing,
+    ring: PacketRing,
     samples: Mutex<FailureSamples>,
+    /// Where sample changes are written once attached.
+    samples_dir: OnceLock<PathBuf>,
     sessions: AtomicU64, // sessions begun so far
 }
 
@@ -50,10 +85,25 @@ pub fn global() -> &'static PacketLog {
 impl PacketLog {
     pub(crate) const fn new() -> Self {
         Self {
-            ring: HeaderRing::new(),
+            ring: PacketRing::new(),
             samples: Mutex::new(FailureSamples::new()),
+            samples_dir: OnceLock::new(),
             sessions: AtomicU64::new(0),
         }
+    }
+
+    /// Moves the header ring into [`staging::PACKET_RING_FILE`] in the crash staging directory
+    /// `staging_dir` and from then on writes the samples to [`staging::DECODE_SAMPLES_DIR`]
+    /// there, starting with those kept so far. Headers recorded during the move may be lost.
+    /// Fails, changing nothing for the samples, when the file cannot be mapped or the log is
+    /// already attached.
+    pub fn attach(&self, staging_dir: &Path) -> io::Result<()> {
+        self.ring
+            .attach(&staging_dir.join(staging::PACKET_RING_FILE))?;
+        let dir = staging_dir.join(staging::DECODE_SAMPLES_DIR);
+        let samples = self.lock_samples();
+        let _ = self.samples_dir.set(dir.clone());
+        samples.persist_all(&dir)
     }
 
     /// Numbers a new session, from 1; its rejected bodies replace older sessions' samples.
@@ -63,6 +113,7 @@ impl PacketLog {
 
     /// Appends a header, returning its sequence number. `elapsed_ms` is the caller's monotonic
     /// time since its epoch.
+    #[inline]
     pub(crate) fn record(
         &self,
         direction: PacketDirection,
@@ -73,11 +124,11 @@ impl PacketLog {
     ) -> u64 {
         let len = u32::try_from(len).unwrap_or(u32::MAX);
         self.ring
-            .record(direction, packet_id, len, elapsed_ms, outcome)
+            .record(direction as u8, packet_id, len, elapsed_ms, outcome as u8)
     }
 
     /// Records that ingress in `session` rejected record `sequence` with `outcome`, keeping its
-    /// body as a sample within that session's sample bounds.
+    /// body as a sample within that session's sample bounds, and on disk once attached.
     pub(crate) fn reject(
         &self,
         session: u64,
@@ -86,16 +137,24 @@ impl PacketLog {
         outcome: PacketOutcome,
         body: &[u8],
     ) {
-        self.ring.settle(sequence, outcome);
-        self.lock_samples()
-            .offer(session, sequence, packet_id, outcome, body);
+        self.ring.settle(sequence, outcome as u8);
+        let mut samples = self.lock_samples();
+        let Some(offered) = samples.offer(session, sequence, packet_id, outcome, body) else {
+            return;
+        };
+        if let Some(dir) = self.samples_dir.get()
+            && let Err(error) = samples.persist(dir, offered)
+        {
+            tracing::warn!(dir = %dir.display(), %error, "could not save a rejected packet sample");
+        }
     }
 
     /// The retained headers, oldest first. A header overwritten while it is read is left out.
     #[must_use]
     pub fn headers(&self) -> Vec<HeaderRecord> {
-        let mut headers = Vec::with_capacity(RING_CAPACITY);
-        self.ring.for_each(|record| headers.push(record));
+        let mut headers = Vec::with_capacity(packets::CAPACITY);
+        self.ring
+            .for_each(|header| headers.extend(HeaderRecord::from_ring(header)));
         headers
     }
 
@@ -106,95 +165,8 @@ impl PacketLog {
         self.lock_samples().samples().to_vec()
     }
 
-    /// Writes the retained headers as a text table, oldest first, followed by a summary of the
-    /// latest session's rejected-packet samples. Never waits: samples another thread is
-    /// updating, as when the crash interrupted it, are reported as unavailable.
-    pub fn dump(&self, out: &mut impl Write) -> io::Result<()> {
-        let recorded = self.ring.recorded();
-        writeln!(
-            out,
-            "packet headers: {recorded} recorded, last {} kept",
-            recorded.min(RING_CAPACITY as u64)
-        )?;
-        writeln!(
-            out,
-            "{:>10}  {:>10}  {:<11}  {:<8}  {:>9}  packet",
-            "sequence", "elapsed_ms", "direction", "outcome", "bytes"
-        )?;
-        let mut result = Ok(());
-        self.ring.for_each(|record| {
-            if result.is_ok() {
-                result = writeln!(
-                    out,
-                    "{:>10}  {:>10}  {:<11}  {:<8}  {:>9}  {} ({})",
-                    record.sequence,
-                    record.elapsed_ms,
-                    Direction(record.direction),
-                    Outcome(record.outcome),
-                    record.len,
-                    PacketName(record.packet_id),
-                    record.packet_id,
-                );
-            }
-        });
-        result?;
-        let Some(samples) = self.try_lock_samples() else {
-            return writeln!(
-                out,
-                "rejected packet samples: unavailable while being updated"
-            );
-        };
-        writeln!(
-            out,
-            "rejected packet samples from session {}: {} kept ({} bytes), {} withheld as credential-bearing, {} over the bounds",
-            samples.session(),
-            samples.samples().len(),
-            samples.bytes(),
-            samples.withheld(),
-            samples.dropped(),
-        )
-    }
-
-    /// Writes each kept sample's body to `dir` as `<sequence>-<packet name>.bin`, with an
-    /// `index.txt` describing them, and returns how many bodies were written. Like
-    /// [`Self::dump`], never waits for a thread updating the samples; it then writes none.
-    pub fn dump_samples(&self, dir: &Path) -> io::Result<usize> {
-        let Some(samples) = self
-            .try_lock_samples()
-            .map(|samples| samples.samples().to_vec())
-        else {
-            return Ok(0);
-        };
-        fs::create_dir_all(dir)?;
-        let mut index = Vec::new();
-        for sample in &samples {
-            let name = format!("{}-{}.bin", sample.sequence, PacketName(sample.packet_id));
-            fs::write(dir.join(&name), &sample.body)?;
-            writeln!(
-                index,
-                "{name}: session {}, {} ({}) {}, {} of {} bytes",
-                sample.session,
-                PacketName(sample.packet_id),
-                sample.packet_id,
-                Outcome(sample.outcome),
-                sample.body.len(),
-                sample.len,
-            )?;
-        }
-        fs::write(dir.join("index.txt"), index)?;
-        Ok(samples.len())
-    }
-
     fn lock_samples(&self) -> MutexGuard<'_, FailureSamples> {
         self.samples.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn try_lock_samples(&self) -> Option<MutexGuard<'_, FailureSamples>> {
-        match self.samples.try_lock() {
-            Ok(samples) => Some(samples),
-            Err(TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
-            Err(TryLockError::WouldBlock) => None,
-        }
     }
 }
 
@@ -224,6 +196,14 @@ pub(crate) fn session_tap(
     let log = global();
     let tap = SessionTap::new(log, log.begin_session(), epoch, feed);
     (Arc::new(tap), finisher)
+}
+
+/// A tap into [`global`] for a new session without capture, as a session records through, for
+/// fixtures that stand in for one.
+#[cfg(any(test, feature = "test-support"))]
+#[must_use]
+pub fn fixture_tap() -> Arc<dyn PacketTap> {
+    session_tap(None).0
 }
 
 /// One session's [`PacketTap`]: headers go to a [`PacketLog`], and packets to its capture.
@@ -302,29 +282,6 @@ impl PacketTap for SessionTap<'_> {
 
 fn millis(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
-}
-
-struct Direction(PacketDirection);
-
-impl fmt::Display for Direction {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.pad(match self.0 {
-            PacketDirection::Clientbound => "clientbound",
-            PacketDirection::Serverbound => "serverbound",
-        })
-    }
-}
-
-struct Outcome(PacketOutcome);
-
-impl fmt::Display for Outcome {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.pad(match self.0 {
-            PacketOutcome::Accepted => "accepted",
-            PacketOutcome::Skipped => "skipped",
-            PacketOutcome::Failed => "failed",
-        })
-    }
 }
 
 #[cfg(test)]

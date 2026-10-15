@@ -160,7 +160,7 @@ full-memory `crash.dmp` (Windows).
 | `packs` | Assets, resource packs, pack runtime and extensions |
 | `audio` | Audio playback and decoding |
 | `input` | Input mapping, gamepads and windowing input |
-| `core` | Go core bridge, launcher, lifecycle and diagnostics |
+| `core` | Go core bridge, launcher, lifecycle, crash monitor and diagnostics |
 | `session` | Client session, join, rich presence and telemetry |
 
 ## Native and performance evidence
@@ -312,7 +312,13 @@ use a developer build for acceptance evidence, even when testing with the releas
 The client keeps the last 4,096 packet headers of its sessions in both directions (ID, length,
 the time the client read it and whether ingress accepted, skipped or failed the packet) and up
 to four raw bodies of each rejected packet ID, 1 MiB in total, from the latest session that
-rejected one. Nothing is written until a crash report asks for them.
+rejected one. Beside them a log flight recorder keeps the last 2,000 log lines its own filter
+passes: `debug` for the `net`, `session`, `core` and `packs` categories and the default level
+elsewhere, whatever `CINNABAR_LOG` sets for the session file. All three live in the session's
+crash staging directory, `crashes/.live-<session id>/` (the header and log rings as mapped
+files, the samples as written), so every crash folder gets `packets.txt` (the header table with
+packet names), `decode-samples/` and `flight.log`, even after a native fault or an external
+kill. Staging directories of clients that are gone are deleted at the next startup.
 
 Set `CINNABAR_PACKET_CAPTURE=1` (or turn on Settings → General → Advanced → Record network
 session) to record each session in full to `logs/packets-<session start unix ms>.cnbrcap`, or

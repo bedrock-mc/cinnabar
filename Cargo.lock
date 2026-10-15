@@ -2595,6 +2595,7 @@ version = "0.1.20"
 dependencies = [
  "bridge",
  "bytes",
+ "crash-report",
  "crossbeam-channel",
  "protocol",
  "protocol-ids",
@@ -3173,6 +3174,8 @@ name = "crash-monitor"
 version = "0.1.20"
 dependencies = [
  "bootstrap-ui",
+ "bytes",
+ "client-session",
  "crash-report",
  "diagnostics",
  "gilrs",
@@ -3181,6 +3184,7 @@ dependencies = [
  "minidump 0.26.1",
  "minidump-writer",
  "minidumper",
+ "protocol",
  "render-model",
  "sadness-generator",
  "serde_json",
@@ -3203,6 +3207,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3475,6 +3480,8 @@ dependencies = [
  "assets",
  "chunk-pipeline",
  "client-ui",
+ "crash-report",
+ "criterion",
  "env-compat",
  "libc",
  "meshing",
@@ -3483,6 +3490,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "test-alloc",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
  "tracing-error",

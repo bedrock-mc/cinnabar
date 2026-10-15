@@ -1,17 +1,21 @@
 //! The process `tracing` subscriber.
 //!
-//! [`install`] builds one subscriber for the whole process: caller layers (such as a profiler),
-//! a reloadable `EnvFilter`, span traces for errors, a formatter writing through
-//! [`crate::console`], an optional JSON Lines record (`CINNABAR_LOG_JSON=1`), and on Android a
-//! logcat copy. `log`-crate records are forwarded into it.
+//! [`install`] builds one subscriber for the whole process. The session-file stack, under a
+//! reloadable `EnvFilter`, holds caller layers (such as a profiler), span traces for errors, a
+//! formatter writing through [`crate::console`], an optional JSON Lines record
+//! (`CINNABAR_LOG_JSON=1`), and on Android a logcat copy. Beside it, under a filter of its own,
+//! the [`flight`] recorder keeps the last events in a ring crash reports read. Both filters are
+//! per-layer, so neither hides events from the other. `log`-crate records are forwarded in.
 //!
-//! The filter is the caller's base directives, then `RUST_LOG`, then `CINNABAR_LOG`, each
-//! overriding earlier directives for the same target. `CINNABAR_LOG` and [`set_filter`] accept
-//! [`Category`] directives (`net=debug`) as well as raw `EnvFilter` directives.
+//! The session-file filter is the caller's base directives, then `RUST_LOG`, then
+//! `CINNABAR_LOG`, each overriding earlier directives for the same target. `CINNABAR_LOG` and
+//! [`set_filter`] accept [`Category`] directives (`net=debug`) as well as raw `EnvFilter`
+//! directives.
 
 #[cfg(target_os = "android")]
 mod android;
 mod category;
+pub mod flight;
 mod json;
 #[cfg(test)]
 mod tests;
@@ -29,16 +33,13 @@ use tracing_subscriber::{
     EnvFilter, Layer, Registry,
     filter::{Directive, FilterFn, LevelFilter},
     fmt::{self, MakeWriter},
-    layer::{Layered, SubscriberExt},
+    layer::SubscriberExt,
     registry::LookupSpan,
     reload,
 };
 
-/// A layer the caller adds beneath the filter, such as a profiler.
+/// A layer the caller adds beneath the session-file filter, such as a profiler.
 pub type CallerLayer = Box<dyn Layer<Registry> + Send + Sync>;
-/// Caller layers sit in an `Option` because an empty `Vec` layer reports `Interest::never`
-/// for every callsite, which would disable all events beneath the filter.
-type Base = Layered<Option<Vec<CallerLayer>>, Registry>;
 
 /// What the caller supplies to [`install`].
 #[derive(Default)]
@@ -47,8 +48,10 @@ pub struct Options {
     pub base_filter: String,
     /// Keeps events carrying a `tracy.frame_mark` field out of the formatted output.
     pub omit_frame_marks: bool,
-    /// Layers that see every enabled span and event.
+    /// Layers that see every span and event the session-file filter enables.
     pub layers: Vec<CallerLayer>,
+    /// Adds the [`flight`] recorder.
+    pub flight_recorder: bool,
 }
 
 /// Why [`install`] did not install the subscriber.
@@ -105,7 +108,7 @@ struct Spec {
 }
 
 struct Logging {
-    handle: reload::Handle<EnvFilter, Base>,
+    handle: reload::Handle<EnvFilter, Registry>,
     base: String,
     rust_log: Vec<String>,
     spec: Mutex<Spec>,
@@ -212,15 +215,20 @@ pub fn install(options: Options) -> Result<(), InstallError> {
             console::console().write_at(Stream::Json, priority, line);
         })
     });
-    let subscriber = Registry::default()
-        .with((!options.layers.is_empty()).then_some(options.layers))
-        .with(filter)
-        .with(tracing_error::ErrorLayer::default())
-        .with(formatted)
-        .with(frame_filtered)
-        .with(json);
+    let output = tracing_error::ErrorLayer::default()
+        .and_then(formatted)
+        .and_then(frame_filtered)
+        .and_then(json);
     #[cfg(target_os = "android")]
-    let subscriber = subscriber.with(android::AndroidLayer);
+    let output = output.and_then(android::AndroidLayer);
+    // Caller layers sit in an `Option` because an empty `Vec` layer reports `Interest::never`
+    // for every callsite, which would disable all events beneath the filter.
+    let callers = (!options.layers.is_empty()).then_some(options.layers);
+    let session = Layer::<Registry>::and_then(callers, output).with_filter(filter);
+    let recorder = options
+        .flight_recorder
+        .then(|| flight::FlightLayer.with_filter(flight::filter(&options.base_filter)));
+    let subscriber = Registry::default().with(session).with(recorder);
     tracing::subscriber::set_global_default(subscriber)
         .map_err(|_| InstallError::AlreadyInstalled)?;
     let logger = tracing_log::LogTracer::init();

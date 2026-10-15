@@ -1,8 +1,9 @@
 //! Local crash report folders: schema, layout, log sections and retention. Nothing is uploaded.
 //!
 //! Each crash owns `crashes/<UTC yyyymmdd-hhmmss>-<id>/` holding `report.json` and the crashing
-//! session's sections of `client.log` and `core.log`. Callers supply the time; this crate never
-//! reads a clock.
+//! session's sections of `client.log` and `core.log`. A running client keeps the rings and
+//! samples later reports read in its [`staging`] directory. Callers supply the time; this crate
+//! never reads a clock.
 
 pub mod folder;
 pub mod native;
@@ -10,5 +11,7 @@ pub mod native;
 pub mod prepared;
 pub mod redact;
 pub mod report;
+pub mod ring;
 pub mod section;
+pub mod staging;
 mod utc;

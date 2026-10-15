@@ -35,7 +35,10 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 # The game binary enables wgpu's platform backends; the standalone crash preview needs them too.
 wgpu = { workspace = true, features = ["dx12", "metal", "vulkan"] }
+bytes.workspace = true
+client-session = { path = "../client-session", features = ["test-support"] }
 launcher = { path = "../launcher", features = ["test-support"] }
+protocol = { path = "../protocol" }
 sadness-generator = "0.7"
 tempfile = "3"
 test-time = { path = "../test-time" }

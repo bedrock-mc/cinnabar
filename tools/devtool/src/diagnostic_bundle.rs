@@ -52,6 +52,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             folder::REPORT_FILE,
             folder::CLIENT_LOG_FILE,
             folder::CORE_LOG_FILE,
+            folder::PACKETS_FILE,
+            folder::FLIGHT_LOG_FILE,
         ] {
             let path = crash.join(member);
             if fs::metadata(&path).is_ok_and(|meta| meta.len() <= LOG_LIMIT)
