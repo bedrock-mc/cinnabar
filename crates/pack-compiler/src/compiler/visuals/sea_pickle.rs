@@ -21,8 +21,14 @@ fn selectors(record: &RegistryRecord) -> Option<(u8, bool)> {
     if state.len() != 2 {
         return None;
     }
-    let count = super::state::exact_tagged_int(state.get("cluster_count")?, 3)? as u8;
-    let dead = super::state::exact_tagged_byte(state.get("dead_bit")?, 1)? != 0;
+    let count = super::state::exact_tagged_int(
+        state.get(assets::facts::BlockProperty::ClusterCount.name())?,
+        3,
+    )? as u8;
+    let dead = super::state::exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::DeadBit.name())?,
+        1,
+    )? != 0;
     Some((count, dead))
 }
 

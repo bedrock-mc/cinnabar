@@ -1,3 +1,12 @@
+## Creative search under server UI packs
+
+Unchanged inventory screens keep recipe-grid virtualization even when a server supplies
+unrelated UI definitions. Scoped grid and collection-factory templates are compared to the
+base catalog; modified screens and runtime factory inputs retain the conservative path.
+Incomplete: remaining placeholder layout work still costs about 21 ms per scroll in the
+2,048-item Windows offline fixture, down from about 203 ms before this change. Live typing,
+icons and hardware frame pacing remain unverified; no high-refresh performance gate closes.
+
 ## Repeated container delivery acknowledgements
 
 Repeated opens of the current non-dynamic chest retain its contents and send the warning
@@ -615,6 +624,9 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 
 ## OreUI menus, appearance and motion
 
+- Keyboard binding labels use unmodified layout characters observed during the session while saved
+  bindings keep their physical codes. Provisional: keys not yet observed use physical names;
+  startup layout lookup and live AZERTY acceptance remain incomplete.
 - Home, Pause, Play, Inbox, world creation, Accounts and confirmation dialogs use shared OreUI
   panels and controls. Home keeps the shipped title above Play and character cards, with compact
   utility actions and versions from their canonical sources. Commerce actions remain quiet.
@@ -735,6 +747,8 @@ these changes do not close the movement, camera, or actor parity gates.
 - Physics uses the selected collision support for landing responses and the
   near-feet material for travel friction. Auto-climb, levitation, restitution
   thresholds and per-axis horizontal epsilon handling follow vanilla tick order.
+  Slime and bed rebounds apply only the gravity remaining after impact, then
+  vertical drag; negligible clipped travel keeps ordinary gravity.
 - When collision data pauses local ticks, the camera holds the completed crouch
   and correction offsets alongside the feet position. Subtick rendering no longer
   repeats an unfinished stance or correction transition. Missing-terrain recovery
@@ -850,6 +864,10 @@ these changes do not close the movement, camera, or actor parity gates.
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained
   buffers; hardware captures measure elapsed time separately.
+- Hidden clouds skip geometry preparation. Visible cloud windows use bounded worker
+  prefetch and retained GPU storage while keeping the existing admission threshold
+  and cap selection. Cold views and missed prefetches still wait for exact geometry.
+  Incomplete: paired hardware captures and frame-time acceptance remain open.
 - UI publication re-emits only the nodes a frame changes into its retained draw list,
   and HUD rebinds run only the view bindings a change reaches. The paper doll and the
   inventory model turn as geometry without rebuilding a texture page. The pack worker
@@ -990,6 +1008,10 @@ acceptance gate.
   closes no parity or performance gate.
 - Worn elytra retains authored wing poses and glint in both modes, suppresses the separate cape,
   and uses the cape texture when present. Native controller blend composition stays intact.
+- Cape pixels are resampled and hashed in bounded appearance-worker batches. Equal source
+  content shares a prepared layer across wire allocations; presentation reads ready layers
+  without waiting. Cold capes appear after preparation, and session changes retire their
+  queues. Rendered-frame and hardware performance acceptance remain incomplete.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
 - Review corrections: local head sampling stays in the current render frame; cape and camera
@@ -1535,6 +1557,11 @@ acceptance gate.
   against both programs through their own pipelines.
 - `CINNABAR_GPU_NODES=1` plots per-node and per-section GPU times under Tracy, and Tracy
   builds expose wgpu's encode and submit zones; see the live-testing guide.
+- Metal reports `gpu_frame_completion_latency` through the stage profiler and Tracy,
+  as an informational field that never counts towards slow frames or GPU budget
+  violations. Three in-flight callback slots bound diagnostics without waiting. This CPU
+  interval includes submission, queue and polling delays; it is not GPU execution time. Incomplete: native whole-frame GPU time and shared
+  per-draw categories remain unavailable with the current command-buffer access API.
 - Evidence: [render frame time](docs/evidence/render-frame-time.md), measured on DX12 before
   Windows defaulted to Vulkan; `WGPU_BACKEND=dx12` selects that backend.
 
@@ -6499,6 +6526,12 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   seat offsets follow the mount's actor origin and yaw for local and remote riders without
   multiplying the offset by entity scale. Boat jump and other vehicle sneak presses send a
   vehicle-targeted dismount request; the server's removal link releases the rider.
+  Local movement includes solid actor bounds from compiled definition defaults and synced
+  collision flags, excluding the player's own mount. Prediction snapshots retain the actor
+  bounds used by each frame after later movement or removal. Landing, side contact, step-up,
+  size updates and retained support have deterministic coverage. Controlled live acceptance
+  of boat, chest-boat and shulker collisions remains incomplete. Shulker attachment and
+  lid-dependent bounds still need their specialized actor-shape implementation.
   Mounted prediction retains the seated posture while an exit request is pending, including
   during correction replay; the held sneak input resumes crouching after the server unlinks.
   Incomplete: authored seat fallbacks and special horse/camel/parrot placement, predictive

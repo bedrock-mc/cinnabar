@@ -927,9 +927,9 @@ pub(super) fn set_item_rotation_factor(
     }
 }
 
+/// Reads the native fish posture flag admitted with the actor's base class.
 fn is_native_fish(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.kind(), ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-        "minecraft:cod" | "minecraft:salmon" | "minecraft:pufferfish" | "minecraft:tropicalfish"))
+    actor.entity_fact().fish_animation
 }
 
 /// A clip to sample, its blend weight, and the animation tick its controller state began.

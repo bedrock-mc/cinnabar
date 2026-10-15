@@ -32,17 +32,20 @@ impl ChestVariant {
     /// blocks, including the ender chest, which its own block entity selects.
     #[must_use]
     pub fn from_block_name(block_name: &str) -> Option<Self> {
-        let name = block_name.strip_prefix("minecraft:")?;
-        let name = name.strip_prefix("waxed_").unwrap_or(name);
-        Some(match name {
-            "chest" => Self::Normal,
-            "trapped_chest" => Self::Trapped,
-            "copper_chest" => Self::Copper(CopperAge::Unaffected),
-            "exposed_copper_chest" => Self::Copper(CopperAge::Exposed),
-            "weathered_copper_chest" => Self::Copper(CopperAge::Weathered),
-            "oxidized_copper_chest" => Self::Copper(CopperAge::Oxidized),
-            _ => return None,
-        })
+        use assets::facts::{BlockModelVariant, ChestKind, CopperAge as Age};
+        Some(
+            match assets::facts::block_render_fact(block_name).variant? {
+                BlockModelVariant::Chest(ChestKind::Normal) => Self::Normal,
+                BlockModelVariant::Chest(ChestKind::Trapped) => Self::Trapped,
+                BlockModelVariant::Chest(ChestKind::Copper(age)) => Self::Copper(match age {
+                    Age::Unaffected => CopperAge::Unaffected,
+                    Age::Exposed => CopperAge::Exposed,
+                    Age::Weathered => CopperAge::Weathered,
+                    Age::Oxidized => CopperAge::Oxidized,
+                }),
+                _ => return None,
+            },
+        )
     }
 
     /// Returns the pack-relative texture path for this chest layout.
@@ -210,5 +213,41 @@ mod tests {
                 .fold(f32::MIN, f32::max)
         };
         assert!(top(1.0) > top(0.0) + 5.0);
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use super::*;
+    /// Retains the old parser as an independent registry-wide membership oracle.
+    fn previous(block_name: &str) -> Option<ChestVariant> {
+        let name = block_name.strip_prefix("minecraft:")?;
+        let name = name.strip_prefix("waxed_").unwrap_or(name);
+        Some(match name {
+            "chest" => ChestVariant::Normal,
+            "trapped_chest" => ChestVariant::Trapped,
+            "copper_chest" => ChestVariant::Copper(CopperAge::Unaffected),
+            "exposed_copper_chest" => ChestVariant::Copper(CopperAge::Exposed),
+            "weathered_copper_chest" => ChestVariant::Copper(CopperAge::Weathered),
+            "oxidized_copper_chest" => ChestVariant::Copper(CopperAge::Oxidized),
+            _ => return None,
+        })
+    }
+    #[test]
+    fn compiled_model_metadata_matches_previous_pinned_membership() {
+        for record in assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+        {
+            assert_eq!(
+                ChestVariant::from_block_name(&record.name),
+                previous(&record.name),
+                "{}",
+                record.name
+            );
+        }
+        assert_eq!(ChestVariant::from_block_name("example:chest"), None);
     }
 }

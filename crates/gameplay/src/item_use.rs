@@ -86,6 +86,7 @@ pub struct ItemUseRuntime {
     selected_slot: Option<u8>,
     slot_change_pending: bool,
     last_air_use_tick: Option<u64>,
+    last_frame_tick: Option<u64>,
     active: Option<ActiveUse>,
     session: Option<u64>,
     rearm_millis: Option<u64>,
@@ -205,6 +206,7 @@ impl ItemUseRuntime {
         self.selected_slot = None;
         self.slot_change_pending = false;
         self.last_air_use_tick = None;
+        self.last_frame_tick = None;
         self.cancel_pending_input();
         self.active = None;
         self.rearm_millis = None;
@@ -227,26 +229,26 @@ impl ItemUseRuntime {
         self.latched_press || self.active.is_some() || held
     }
 
-    /// The tick this frame's use resolves against: the newest unsent tick, else for a press or
-    /// release the next tick, as vanilla sends both in their frame. Held repeats and completion
-    /// wait for a tick.
+    /// Resolves after completed inputs drain, against the next tick and its preceding pose.
+    /// Presses and releases act immediately; held use advances once per completed tick.
     pub fn frame_sample(
         &self,
         movement: &crate::movement::MovementTicker,
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        movement.newest_unsent_sample().map(Into::into).or_else(|| {
-            let edge =
-                self.latched_press || self.release_pending || (self.active.is_some() && !held);
-            (between_ticks && edge)
-                .then(|| movement.between_ticks_sample())
-                .flatten()
-        })
+        let edge = self.latched_press || self.release_pending || (self.active.is_some() && !held);
+        let ticked = self
+            .last_frame_tick
+            .is_some_and(|tick| movement.completed_tick() >= tick);
+        (between_ticks && (edge || ticked))
+            .then(|| movement.between_ticks_sample())
+            .flatten()
     }
 
     /// Ends a use on release, depletion or reselection, then resolves a press or held repeat.
     pub fn step(&mut self, frame: &UseFrame) -> UseOutcome {
+        self.last_frame_tick = Some(frame.tick);
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.latched_press);

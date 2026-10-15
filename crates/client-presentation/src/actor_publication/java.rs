@@ -23,9 +23,9 @@ use crate::presentation::{
     },
 };
 
-const BOW: &str = "minecraft:bow";
+const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 const BOW_USE_DURATION: u32 = assets::item_use::LONG_WEAPON_USE_TICKS;
-const FILLED_MAP: &str = "minecraft:filled_map";
+const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
 /// Pose bones Java's parts drive, in [`JavaBiped::parts`] order.
 const PART_BONES: [&str; 6] = ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
 const RIGHT_ARM: usize = 2;

@@ -23,7 +23,9 @@ fn state(record: &RegistryRecord) -> Option<DoorPose> {
     if state.len() != 4 {
         return None;
     }
-    let direction = if let Some(value) = state.get("minecraft:cardinal_direction") {
+    let direction = if let Some(value) =
+        state.get(assets::facts::BlockProperty::MinecraftCardinalDirection.name())
+    {
         match exact_tagged_string(value)? {
             "south" => 0,
             "west" => 1,
@@ -32,11 +34,20 @@ fn state(record: &RegistryRecord) -> Option<DoorPose> {
             _ => return None,
         }
     } else {
-        exact_tagged_int(state.get("direction")?, 3)?
+        exact_tagged_int(
+            state.get(assets::facts::BlockProperty::Direction.name())?,
+            3,
+        )?
     };
-    let open = exact_tagged_byte(state.get("open_bit")?, 1)?;
-    let hinge = exact_tagged_byte(state.get("door_hinge_bit")?, 1)?;
-    let upper = exact_tagged_byte(state.get("upper_block_bit")?, 1)?;
+    let open = exact_tagged_byte(state.get(assets::facts::BlockProperty::OpenBit.name())?, 1)?;
+    let hinge = exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::DoorHingeBit.name())?,
+        1,
+    )?;
+    let upper = exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::UpperBlockBit.name())?,
+        1,
+    )?;
     for (field, value) in [
         (ModelStateField::Orientation, direction),
         (ModelStateField::Open, u32::from(open)),

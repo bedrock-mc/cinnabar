@@ -21,7 +21,12 @@ fn drag_down(record: &RegistryRecord) -> Option<bool> {
     if state.len() != 1 {
         return None;
     }
-    Some(super::state::exact_tagged_byte(state.get("drag_down")?, 1)? != 0)
+    Some(
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::DragDown.name())?,
+            1,
+        )? != 0,
+    )
 }
 
 /// Resolves four outer sprites, one inner sprite and four directional surface sprites.

@@ -28,7 +28,7 @@ const EFFECT_ID_NAUSEA: i32 = 9;
 const EFFECT_ID_BLINDNESS: i32 = 15;
 const EFFECT_ID_NIGHT_VISION: i32 = 16;
 const EFFECT_ID_DARKNESS: i32 = 30;
-const CARVED_PUMPKIN_IDENTIFIER: &str = "minecraft:carved_pumpkin";
+const CARVED_PUMPKIN_IDENTIFIER: &str = assets::facts::VanillaItem::CarvedPumpkin.identifier();
 const VISION_FADE_SECONDS: f32 = 1.0;
 
 /// Facts other lanes own and publish each frame; both default to false.

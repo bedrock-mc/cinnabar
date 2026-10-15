@@ -354,8 +354,8 @@ impl MovementTicker {
         });
     }
 
-    /// A frame-time interaction once every completed tick is on the wire: it reports the
-    /// newest admitted tick's position and precedes the next tick's input.
+    /// A frame-time interaction once every completed tick has entered the outbound FIFO.
+    /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
         if !self.outbox.is_empty() || self.held_release.is_some() {
             return None;
@@ -473,7 +473,8 @@ impl MovementTicker {
         }
     }
 
-    /// Action aim overrides actor facing on its unsent tick without changing movement or camera input.
+    /// Overrides actor facing on an unsent tick, or reserves the next tick after inputs drain.
+    /// Movement, head facing and camera input keep their sampled values.
     pub fn override_action_rotation(&mut self, tick: u64, pitch: f32, yaw: f32) -> bool {
         if !pitch.is_finite() || !yaw.is_finite() {
             return false;
@@ -483,6 +484,14 @@ impl MovementTicker {
             .iter_mut()
             .find(|sample| sample.snapshot.tick == tick)
         else {
+            if self
+                .between_ticks_sample()
+                .is_some_and(|sample| sample.tick == tick)
+                && self.physics_is_authorized()
+            {
+                self.next_tick_rotation = Some((pitch, yaw));
+                return true;
+            }
             return false;
         };
         sample.snapshot.pitch = pitch;
@@ -571,14 +580,17 @@ impl MovementTicker {
     /// A correction revokes in-flight interactions but keeps the player's pending action flags.
     pub(super) fn correction_authority_changed(&mut self) {
         let flags = self.take_next_tick_flags();
+        let rotation = self.next_tick_rotation.take();
         self.position_authority_changed();
         self.next_tick_flags = flags;
+        self.next_tick_rotation = rotation;
     }
 
     /// Invalidates every transport-owned sample after a position-authority
     /// change and publishes the new epoch atomically with that invalidation.
     pub(super) fn position_authority_changed(&mut self) {
         self.next_tick_flags = protocol::PlayerInputFlags::NONE;
+        self.next_tick_rotation = None;
         self.reanchor_epoch = self.reanchor_epoch.next();
         self.epoch_publisher.send_if_modified(|published| {
             if *published == self.reanchor_epoch {

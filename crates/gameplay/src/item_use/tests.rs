@@ -13,6 +13,7 @@ use {super::*, inventory::crossbow_animation_frame};
 mod admission;
 mod crossbow;
 mod delayfix;
+mod frame_order;
 mod riptide;
 mod rockets;
 

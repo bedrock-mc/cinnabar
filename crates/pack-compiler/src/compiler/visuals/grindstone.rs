@@ -21,13 +21,18 @@ fn pose(record: &RegistryRecord) -> Option<(u8, u8)> {
     if state.len() != 2 {
         return None;
     }
-    let attachment = match super::state::exact_tagged_string(state.get("attachment")?)? {
+    let attachment = match super::state::exact_tagged_string(
+        state.get(assets::facts::BlockProperty::Attachment.name())?,
+    )? {
         "standing" | "multiple" => 0,
         "hanging" => 1,
         "side" => 2,
         _ => return None,
     };
-    let direction = super::state::exact_tagged_int(state.get("direction")?, 3)? as u8;
+    let direction = super::state::exact_tagged_int(
+        state.get(assets::facts::BlockProperty::Direction.name())?,
+        3,
+    )? as u8;
     Some((attachment, direction))
 }
 

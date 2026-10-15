@@ -29,8 +29,6 @@ const STAGE: &str = "StartGame";
 
 /// What the spawn sequence leaves for play.
 pub(super) struct Spawned {
-    pub(super) start_game: StartGame,
-    pub(super) item_registry: ItemRegistry,
     pub(super) runtime_id: u64,
     pub(super) terrain_before_spawn: bool, // a publisher update or chunk preceded PlayerSpawn
 }
@@ -66,12 +64,17 @@ impl DeferredPackets {
 
 /// Runs the spawn sequence: requests the radius once StartGame has arrived, then returns once the
 /// first item registry, the radius reply and PlayerSpawn have all arrived, leaving every deferred
-/// packet ahead of unread ones. Dropping the future cancels it.
+/// packet ahead of unread ones. `on_startup` receives the first StartGame and item registry as soon
+/// as both have arrived, while the sequence keeps reading. Dropping the future cancels it.
 pub(super) async fn await_spawn(
     transport: &mut SessionTransport,
+    on_startup: impl FnOnce(StartGame, ItemRegistry),
 ) -> Result<Spawned, ProtocolError> {
-    let mut start_game: Option<(u64, StartGame)> = None;
+    let mut on_startup = Some(on_startup);
+    let mut runtime_id: Option<u64> = None;
+    let mut start_game: Option<StartGame> = None;
     let mut item_registry: Option<ItemRegistry> = None;
+    let mut registry_seen = false;
     let mut sent_chunk_radius = false;
     let mut received_chunk_radius = false;
     let mut received_player_spawn = false;
@@ -84,16 +87,19 @@ pub(super) async fn await_spawn(
                 let packets::Packet::StartGame(start) = *raw.decode()?.data else {
                     unreachable!("packet ID and decoded variant must agree")
                 };
-                let runtime_id = start.runtime_id.0;
-                match start_game.as_ref().map(|(first, _)| *first) {
-                    Some(first) if first != runtime_id => {
+                let received = start.runtime_id.0;
+                match runtime_id {
+                    Some(first) if first != received => {
                         return Err(SessionFailure::UnexpectedStartup(format!(
-                            "conflicting StartGame runtime entity ID: first {first}, then {runtime_id}"
+                            "conflicting StartGame runtime entity ID: first {first}, then {received}"
                         ))
                         .into());
                     }
                     Some(_) => {}
-                    None => start_game = Some((runtime_id, *start)),
+                    None => {
+                        runtime_id = Some(received);
+                        start_game = Some(*start);
+                    }
                 }
             }
             PacketId::ItemRegistry => {
@@ -102,9 +108,10 @@ pub(super) async fn await_spawn(
                 };
                 // The native registry initializes once: a later empty or custom-only table must
                 // not replace the first.
-                if item_registry.is_some() {
+                if registry_seen {
                     continue;
                 }
+                registry_seen = true;
                 item_registry = Some(registry);
             }
             PacketId::PlayStatus => {
@@ -147,7 +154,16 @@ pub(super) async fn await_spawn(
             }
         }
 
-        if !sent_chunk_radius && start_game.is_some() {
+        if start_game.is_some()
+            && item_registry.is_some()
+            && let Some(on_startup) = on_startup.take()
+        {
+            on_startup(
+                start_game.take().expect("checked above"),
+                item_registry.take().expect("checked above"),
+            );
+        }
+        if !sent_chunk_radius && runtime_id.is_some() {
             if let Err(error) = transport.send(&loading_started()).await {
                 return Err(
                     startup_write_failure(transport, error, STARTUP_WRITE_FAILURE_DRAIN).await,
@@ -158,17 +174,14 @@ pub(super) async fn await_spawn(
         if sent_chunk_radius
             && received_chunk_radius
             && received_player_spawn
-            && item_registry.is_some()
+            && on_startup.is_none()
         {
             break;
         }
     }
-    let (runtime_id, start_game) = start_game.expect("the radius request follows StartGame");
     transport.prepend(deferred.into_packets());
     Ok(Spawned {
-        start_game,
-        item_registry: item_registry.expect("spawn waits for the item registry"),
-        runtime_id,
+        runtime_id: runtime_id.expect("the radius request follows StartGame"),
         terrain_before_spawn,
     })
 }
