@@ -286,7 +286,7 @@ impl Text {
         let baseline = (top + ascent).round() as i64;
         let mut pen = x;
         for c in text.chars() {
-            let (metrics, bitmap) = self.glyph(c, px).clone();
+            let (metrics, bitmap) = self.glyph(c, px);
             let left = (pen + metrics.xmin as f32).round() as i64;
             let glyph_top = baseline - i64::from(metrics.ymin) - metrics.height as i64;
             for row in 0..metrics.height {
