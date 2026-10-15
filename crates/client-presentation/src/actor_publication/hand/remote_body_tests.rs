@@ -2,7 +2,8 @@
 use super::*;
 use bevy::math::Quat;
 
-/// Adds two remote players sharing skin data but using opposite head rotations.
+/// Adds two remote players sharing skin data but using opposite head rotations, standing in a
+/// resident column so their moves interpolate instead of snapping as moves into unloaded terrain.
 fn spawn_remotes(stream: &mut WorldStream) {
     let skin = stream
         .authority()
@@ -10,7 +11,32 @@ fn spawn_remotes(stream: &mut WorldStream) {
         .unwrap()
         .skin
         .clone();
-    let mut sequence = 1;
+    let mut payload = vec![1, 2];
+    payload.extend(std::iter::repeat_n(
+        0xff,
+        protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count
+            - 1,
+    ));
+    payload.push(0);
+    stream
+        .submit(
+            1,
+            protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                dimension: 0,
+                x: 0,
+                z: 0,
+                mode: protocol::LevelChunkMode::LimitedRequests { highest: 0 },
+                payload,
+            }),
+        )
+        .unwrap();
+    test_time::eventually("resident remote column", || {
+        stream.poll([2.5, 64.0, 0.5], 0);
+        stream.committed_sequence() >= 1
+    });
+    let mut sequence = 2;
     for id in [2u64, 3] {
         stream
             .submit(
