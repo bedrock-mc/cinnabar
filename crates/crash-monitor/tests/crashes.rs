@@ -17,7 +17,7 @@ use crash_report::{
     report::{Identity, Kind, Thread},
 };
 use launcher_host::lifecycle::crash::{
-    self, LogHooks, monitor,
+    self, LogHooks, heartbeat, monitor,
     protocol::{self, Stage},
 };
 
@@ -29,6 +29,10 @@ const GO_ENV: &str = "CINNABAR_CRASH_FIXTURE_GO";
 const MONITOR_DONE: &str = "monitor-done";
 /// Printed by the client fixture once its monitor connection attempt settled.
 const SETTLED: &str = "CRASH_FIXTURE_SETTLED";
+/// How long the fixture client may stall before its monitor reports a hang.
+const STALL_AFTER: std::time::Duration = std::time::Duration::from_millis(1_000);
+/// Monitor samples that span two stall windows.
+const TWO_WINDOWS_OF_CHECKS: u64 = 2 * crash_monitor::HANG_SAMPLES_PER_WINDOW + 5;
 
 fn layout(root: &Path) -> launcher::install_layout::InstallLayout {
     let mut layout = launcher::test_support::checkout();
@@ -82,6 +86,7 @@ fn client_fixture() {
             .into_iter()
             .map(Into::into)
             .collect(),
+        stall_after: STALL_AFTER,
     };
     crash::install(&layout(&root), identity, hooks, Some(&command));
     record_traffic();
@@ -126,6 +131,36 @@ fn client_fixture() {
                 assert!(crash::report_failure(stage, "fixture failure"));
                 crash::announce_exit(1);
                 std::process::exit(1);
+            }
+            "hang_then_kill" => {
+                heartbeat::tick();
+                let _ = std::io::stdin().read_line(&mut String::new());
+            }
+            "loading_stall" => {
+                heartbeat::tick();
+                let loading = heartbeat::Loading::begin();
+                let checks = heartbeat::monitor_checks();
+                test_time::eventually("the monitor watched two windows", || {
+                    heartbeat::monitor_checks() >= checks + TWO_WINDOWS_OF_CHECKS
+                });
+                drop(loading);
+                crash::announce_exit(0);
+            }
+            "hang_recover_hang" => {
+                let crashes = root.join("crashes");
+                heartbeat::tick();
+                test_time::eventually("the first hang report", || {
+                    folder::list(&crashes).len() == 1
+                });
+                let checks = heartbeat::monitor_checks();
+                test_time::eventually("the monitor saw progress", || {
+                    heartbeat::tick();
+                    heartbeat::monitor_checks() >= checks + 2
+                });
+                test_time::eventually("the second hang report", || {
+                    folder::list(&crashes).len() == 2
+                });
+                crash::announce_exit(0);
             }
             other => panic!("unknown fixture kind {other}"),
         }
@@ -270,7 +305,11 @@ fn crash(kind: &str) -> Run {
     assert!(settled, "{kind}: the client fixture never settled");
     // The harness keeps printing; a closed pipe would fail it after the fixture returns.
     let draining = std::thread::spawn(move || lines.for_each(drop));
-    if kind == "kill" {
+    if kind == "hang_then_kill" {
+        let crashes = root.path().join("crashes");
+        test_time::eventually("the hang report", || !folder::list(&crashes).is_empty());
+    }
+    if kind == "kill" || kind == "hang_then_kill" {
         client.kill().unwrap();
     }
     drop(client.stdin.take());
@@ -431,4 +470,54 @@ fn failures_before_and_after_startup_are_reported_by_stage() {
         assert_eq!(report.message, "fixture failure");
         assert_eq!(run.shown.as_ref(), Some(&run.folders[0]));
     }
+}
+
+/// The monitor dumps a live client on Windows and Linux; macOS denies it the client's task.
+const HANG_DUMPED: bool = cfg!(any(windows, target_os = "linux"));
+
+/// Asserts `folder` holds a hang report whose dump, where there is one, holds the watched
+/// thread among the others.
+fn assert_hang(folder: &Path) {
+    assert_report(folder, Kind::Hang, HANG_DUMPED);
+    let report = folder::read(folder).unwrap();
+    if !HANG_DUMPED {
+        assert!(report.message.contains("no minidump"), "{}", report.message);
+        return;
+    }
+    let dump = minidump::Minidump::read_path(folder.join(folder::DUMP_FILE)).unwrap();
+    let threads = dump.get_stream::<minidump::MinidumpThreadList>().unwrap();
+    let watched: u32 = report.thread.id.parse().unwrap();
+    assert!(threads.threads.len() > 1, "a dump of every thread");
+    assert!(
+        threads
+            .threads
+            .iter()
+            .any(|thread| thread.raw.thread_id == watched),
+        "the watched thread {watched} is in the dump"
+    );
+}
+
+#[test]
+fn a_hung_client_killed_by_the_player_is_reported_once_as_a_hang() {
+    let run = crash("hang_then_kill");
+    assert_eq!(run.folders.len(), 1, "{:?}", run.folders);
+    assert_hang(&run.folders[0]);
+    assert_eq!(run.shown.as_ref(), Some(&run.folders[0]));
+}
+
+#[test]
+fn a_stall_while_loading_is_not_a_hang() {
+    let run = crash("loading_stall");
+    assert_eq!(run.folders, Vec::<PathBuf>::new());
+    assert_eq!(run.shown, None);
+}
+
+#[test]
+fn a_stall_after_recovery_gets_its_own_report_and_neither_shows_a_window() {
+    let run = crash("hang_recover_hang");
+    assert_eq!(run.folders.len(), 2, "{:?}", run.folders);
+    for folder in &run.folders {
+        assert_hang(folder);
+    }
+    assert_eq!(run.shown, None);
 }

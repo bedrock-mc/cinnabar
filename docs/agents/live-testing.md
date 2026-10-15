@@ -147,7 +147,9 @@ runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per lin
 
 Every client also starts a `--crash-monitor` process that exits with it and logs to
 `logs/crash-monitor.log`. A crash, abort or kill opens the crash window once the client is gone;
-a panic the client survives only writes its folder. Set `CINNABAR_CRASH_UI=0` for scripted and
+a panic the client survives only writes its folder. A main loop that finishes no frame for 10 s
+outside a world join writes a `kind: hang` folder while the client keeps running; a client paused
+in a debugger is exempt. Set `CINNABAR_CRASH_UI=0` for scripted and
 headless sessions so a crash only writes its `crashes/` folder, and `CINNABAR_FULL_DUMP=1` for a
 full-memory `crash.dmp` (Windows).
 

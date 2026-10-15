@@ -64,6 +64,18 @@ pub struct Launch {
     pub token: Token,
     /// Relaunches the client as the player started it.
     pub restart: Restart,
+    /// The client's main-loop progress, when it could share it.
+    pub hang: Option<HangWatch>,
+}
+
+/// Where the client publishes main-loop progress and how long a stall must last to be a hang;
+/// see [`super::heartbeat`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HangWatch {
+    /// The heartbeat file, which the monitor removes once the client is gone.
+    pub heartbeat: PathBuf,
+    /// Milliseconds without progress, outside loading, that make a hang.
+    pub stall_after_ms: u64,
 }
 
 /// Who the client is and where its logs and crash staging directory are.
