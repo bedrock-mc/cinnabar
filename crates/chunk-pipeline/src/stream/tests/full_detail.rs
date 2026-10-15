@@ -530,30 +530,39 @@ fn evicting_mid_hand_over_withdraws_meshes() {
 /// An interrupted restoration still refreshes far residents admitted by a wider radius.
 #[test]
 fn interrupted_restoration_refreshes_pending_promotions() {
+    let radius = 64;
+    let far = ChunkKey::new(0, 40, 0);
     let mut stream = stream();
+    stream
+        .submit(1, WorldEvent::ChunkRadiusUpdated(radius))
+        .unwrap();
     stream.set_full_detail_radius(Some(16));
     stream
-        .submit(1, inline_block_entity_event(40, 7, Vec::new()))
+        .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
-    assert!(!meshing(&stream, 40));
+    assert!(
+        stream.resident.column(far).next().is_some(),
+        "the far column is retained"
+    );
+    assert!(!meshing(&stream, far.x));
     stream.between_frames_service = true;
     stream.set_full_detail_radius(None);
     stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
     stream.poll([0.0; 3], 0);
     assert!(
-        !meshing(&stream, 40),
+        !meshing(&stream, far.x),
         "restoration has not reached the far column"
     );
-    stream.set_full_detail_radius(Some(64));
+    stream.set_full_detail_radius(Some(radius));
     stream.service_yield = None;
     test_time::eventually("the wider replacement radius", || {
         stream.poll([0.0; 3], 0);
         !stream.has_pending_full_detail()
     });
-    assert!(stream.wants_mesh(ChunkKey::new(0, 40, 0)));
+    assert!(stream.wants_mesh(far));
     assert!(
-        meshing(&stream, 40),
+        meshing(&stream, far.x),
         "pending promotion must queue its mesh"
     );
 }
@@ -585,23 +594,32 @@ fn complete_eviction_preserves_pending_membership_epoch() {
 /// A column already demoted by an unfinished first limit still needs a later promotion.
 #[test]
 fn interrupted_initial_limit_restoration_refreshes_demoted_columns() {
+    let radius = 64;
+    let far = ChunkKey::new(0, 40, 0);
     let mut stream = stream();
     stream
-        .submit(1, inline_block_entity_event(40, 7, Vec::new()))
+        .submit(1, WorldEvent::ChunkRadiusUpdated(radius))
+        .unwrap();
+    stream
+        .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
         .unwrap();
     complete_pending_decode_jobs(&mut stream);
+    assert!(
+        stream.resident.column(far).next().is_some(),
+        "the far column is retained"
+    );
     stream.between_frames_service = true;
     stream.set_full_detail_radius(Some(16));
     stream.frame_deadline = Some(Instant::now());
     stream.poll([0.0; 3], 0);
     assert!(stream.has_pending_full_detail());
-    assert!(!stream.wants_mesh(ChunkKey::new(0, 40, 0)));
+    assert!(!stream.wants_mesh(far));
     stream.mesh_jobs.pending.clear();
     stream.set_full_detail_radius(None);
-    stream.set_full_detail_radius(Some(64));
+    stream.set_full_detail_radius(Some(radius));
     test_time::eventually("the replacement of an unfinished first limit", || {
         stream.poll([0.0; 3], 0);
         !stream.has_pending_full_detail()
     });
-    assert!(meshing(&stream, 40));
+    assert!(meshing(&stream, far.x));
 }
