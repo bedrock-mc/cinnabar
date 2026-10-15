@@ -23,6 +23,64 @@ fn bare(view: PreviewView, side: u16) -> Arc<UiMesh> {
 }
 
 #[test]
+fn source_counts_match_projected_skin_cape_armor_and_fire() {
+    let custom = standard_biped_vertices().repeat(3);
+    let parts = [None; 6];
+    for body in [None, Some((custom.as_slice(), &parts))] {
+        for armor_mask in 0..(1 << 4) {
+            let gear = PreviewEquipment {
+                armor: std::array::from_fn(|slot| {
+                    (armor_mask & (1 << slot) != 0).then(|| super::super::PreviewTexture {
+                        rgba: vec![255; 64 * 32 * 4].into(),
+                        width: 64,
+                        height: 32,
+                        tint: Some([200, 100, 50]),
+                    })
+                }),
+                ..Default::default()
+            };
+            let armor = gear
+                .armor
+                .each_ref()
+                .map(|texture| texture.as_ref().map(|_| skin(64)));
+            for cape in [None, Some((super::super::cape::rest_vertices(), skin(64)))] {
+                for fire in [
+                    None,
+                    Some(PreviewFire {
+                        texture: skin(64),
+                        size: [0.6, 1.8],
+                        outer_y: 0.0,
+                    }),
+                ] {
+                    let sources = MeshSources::new(body, skin(64), &gear, armor, fire, cape);
+                    take_body_projection_work();
+                    let (vertices, batches) = sources.counts().unwrap();
+                    assert_eq!(sources.batch_probe().unwrap().batches().len(), batches);
+                    assert_eq!(
+                        take_body_projection_work(),
+                        0,
+                        "admission does no projection"
+                    );
+                    let mesh = mesh_from_sources(
+                        &sources,
+                        Default::default(),
+                        PreviewView::default(),
+                        0.0,
+                        [None; 2],
+                        true,
+                        [0.0; 4],
+                    )
+                    .unwrap();
+                    assert_eq!(mesh.vertices().len(), vertices);
+                    assert_eq!(mesh.indices().len(), vertices);
+                    assert_eq!(mesh.batches().len(), batches);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn destination_geometry_preserves_original_hd_skin_texel_edges() {
     let source = standard_biped_vertices();
     let model = bare(Default::default(), 128);

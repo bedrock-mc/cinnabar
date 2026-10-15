@@ -293,7 +293,7 @@ fn motion_blur_warmup_queues_the_same_formats_and_samples_used_for_drawing() {
 #[test]
 fn exposure_and_tile_shader_variants_validate_without_a_native_adapter() {
     for multisampled in [false, true] {
-        let source = super::shader_source(include_str!("../motion_blur.wgsl"), multisampled);
+        let source = super::shader::source(include_str!("../motion_blur.wgsl"), multisampled);
         let module = naga::front::wgsl::parse_str(&source)
             .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
         naga::valid::Validator::new(

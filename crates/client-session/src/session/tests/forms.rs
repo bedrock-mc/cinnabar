@@ -4,7 +4,7 @@ use super::NetworkHandle;
 #[test]
 fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpressure() {
     let (mut network, _) = NetworkHandle::stub();
-    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, mut receiver) = super::super::frame_flush::command_channel(1);
     network.commands = sender;
     network.session_generation = 42;
     let packet = || protocol::modal_form_cancel_response(7);
@@ -46,7 +46,7 @@ fn production_form_enqueue_binds_generation_and_distinguishes_definite_backpress
 #[test]
 fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressure() {
     let (mut network, _) = NetworkHandle::stub();
-    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, mut receiver) = super::super::frame_flush::command_channel(1);
     network.commands = sender;
     network.session_generation = 42;
     let packet = || protocol::request_chunk_radius_packet(8, u8::MAX);
@@ -75,7 +75,7 @@ fn render_distance_settings_send_is_session_fenced_and_retries_after_backpressur
 #[test]
 fn boss_subscription_packets_use_the_session_fenced_fifo_and_retry_without_loss() {
     let (mut network, _) = NetworkHandle::stub();
-    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    let (sender, mut receiver) = super::super::frame_flush::command_channel(1);
     network.commands = sender;
     network.session_generation = 42;
     let event = protocol::BossEvent {

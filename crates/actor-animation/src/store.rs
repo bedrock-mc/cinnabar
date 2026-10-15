@@ -21,6 +21,8 @@ pub struct ActorAnimationStore {
     pub(super) next_reset_generation: u64,
     pub(super) next_rest_reset_generation: u64,
     pub(super) stats: ActorAnimationStats,
+    /// Frame samples that failed or ran out of budget and drew the completed tick pair instead.
+    pub(super) frame_fallbacks: std::sync::atomic::AtomicU64,
     #[cfg(any(test, feature = "test-support"))]
     pub(super) schedule: schedule::TestSchedule,
 }
@@ -75,6 +77,7 @@ impl ActorAnimationStore {
             next_reset_generation: 1,
             next_rest_reset_generation: 1,
             stats: ActorAnimationStats::default(),
+            frame_fallbacks: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             schedule: Default::default(),
         };
@@ -309,6 +312,12 @@ impl ActorAnimationStore {
         );
     }
 
+    /// Frame samples that fell back to the completed tick pair since the store was created.
+    pub fn frame_fallbacks(&self) -> u64 {
+        self.frame_fallbacks
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn get(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {
         let lifetime = *self.runtime_to_lifetime.get(&runtime_id)?;
         self.snapshot(lifetime, self.rigs.get(&lifetime)?)
@@ -386,7 +395,7 @@ impl ActorAnimationStore {
                 .and_then(|skeleton| skeleton.prepared.mesh.as_ref()),
             skin_layers: &state.skin_layers,
             hand: state.hand_phases(),
-            main_hand_equipped: state.equipped_main.as_deref(),
+            main_hand_equipped: state.equipped_main.0.as_deref(),
             item_animation: state.hand_phases().map(ItemAnimationState::from),
             off_hand_animation: state.off_hand_animation,
             animation_variables: ActorAnimationVariables::new(
@@ -445,7 +454,7 @@ fn resolve_rig(
     completed_tick: u64,
 ) -> Option<ActorRigState> {
     let identifier = match actor.kind() {
-        ActorKind::Player { .. } => "minecraft:player",
+        ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
         ActorKind::Entity { identifier } => identifier,
     };
     let entity_symbol = assets

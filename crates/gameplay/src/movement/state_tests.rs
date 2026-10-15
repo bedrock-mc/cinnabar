@@ -210,6 +210,8 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
         released: false,
     };
     takeoff.processed = ProcessedMovementState {
+        spinning: false,
+        spin_started: false,
         jump_initiated: true,
         jump_arc_active: true,
         sneaking: false,
@@ -217,6 +219,7 @@ fn released_jump_clears_wire_jumping_while_the_simulated_arc_continues() {
         mode: sim::MovementMode::Walking,
         forced_sneak: false,
         ride: None,
+        flight_request: None,
     };
     let mut released = settled_sample(42, [0.0, 64.9, 0.0]);
     // The button is up but the simulated arc is still in progress.

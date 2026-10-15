@@ -1,4 +1,5 @@
 use super::*;
+use assets::facts::entity::NativeEntityClass;
 
 impl ActorStore {
     /// Replaces remote velocity and seeds a previously unrotated arrow's launch orientation.
@@ -7,8 +8,7 @@ impl ActorStore {
             actor.velocity = event.motion;
             actor.status.native_velocity = event.motion;
             actor.movement_revision = sequence;
-            let arrow = matches!(&actor.kind, ActorKind::Entity { identifier }
-                if identifier.as_ref() == "minecraft:arrow");
+            let arrow = actor.entity_fact.native_class == NativeEntityClass::Arrow;
             if arrow && actor.previous_pose.pitch == 0.0 && actor.previous_pose.yaw == 0.0 {
                 let [x, y, z] = event.motion;
                 let yaw = x.atan2(z).to_degrees();

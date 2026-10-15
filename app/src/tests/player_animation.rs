@@ -464,6 +464,7 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         main_hand: main_hand.map(Arc::from),
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -471,6 +472,7 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
         first_person: true,
@@ -798,7 +800,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
         .iter()
         .map(|packet| format!("{:?}", packet.kind()))
         .collect();
-    assert_eq!(names, ["AnimatePacket", "InventoryTransactionPacket"]);
+    assert_eq!(names, ["InventoryTransactionPacket", "AnimatePacket"]);
     world.start_local_player_swing(swings.take_started().expect("the attack swings"));
     let swing = (0..3).map(|_| arm(&mut world)).collect::<Vec<_>>();
     assert!(

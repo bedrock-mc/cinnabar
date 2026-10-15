@@ -4,7 +4,10 @@ use super::super::theme;
 use super::super::transitions::resources::{Group, Listing, Mods};
 use super::super::widgets::Variant;
 use super::Content;
-use super::resources::{Face, accordion, actions, caption, card, cards, empty, note, reveal};
+mod permissions;
+use super::resources::{
+    Face, accordion, actions, caption, card_with_summary, cards, empty, note, reveal,
+};
 use launcher::menu::{MenuAction, file_size};
 use launcher::mods::{Action, InstalledMod, Snapshot, Status};
 use ui_engine::engine::screen::PaintError;
@@ -150,7 +153,8 @@ fn draw_sections(
     Ok(())
 }
 
-/// Draws identity-scoped controls, reload outcomes and generated permission toggles.
+/// Draws declared metadata, identity-scoped controls, reload outcomes and generated permission
+/// toggles.
 fn mod_card(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
@@ -169,110 +173,96 @@ fn mod_card(
         Status::Failed(message) | Status::ReloadFailed(message) => Some(message.as_str()),
         _ => None,
     });
-    let subtitle = match (active, status) {
+    let state = match (active, status) {
         (false, _) => "Ready to enable",
         (true, Some(Status::Running)) => "Running",
         (true, Some(Status::ReloadFailed(_))) => "Reload failed · previous instance running",
         (true, Some(Status::Failed(_))) => "Failed",
         (true, Some(Status::Starting) | None) => "Starting…",
     };
+    let metadata = &item.metadata;
+    let subtitle = match &metadata.version {
+        Some(version) => {
+            let version = version.strip_prefix(['v', 'V']).unwrap_or(version);
+            format!("{state} · v{version}")
+        }
+        None => state.to_owned(),
+    };
+    let icon = item.icon_key();
     let face = Face {
-        icon: None,
-        title: &item.name,
-        subtitle,
+        icon: icon.as_deref(),
+        title: item.name(),
+        subtitle: &subtitle,
         expanded: snapshot.details_expanded == Some(item.id),
         toggle: command(Action::ReadMore(item.id)),
         details,
         interactive,
     };
-    card(content, face, |content| {
-        caption(
-            content,
-            &format!("{} · {}", item.file, file_size(item.bytes)),
-        )?;
-        if let Some(message) = failure {
-            caption(content, message)?;
-        }
-        let available = interactive && !library.busy;
-        let toggle = if active {
-            (
-                "Disable",
-                Variant::Secondary,
-                available.then_some(command(Action::Disable(item.id))),
-            )
-        } else {
-            (
-                "Enable",
-                Variant::Primary,
-                available.then_some(command(Action::Enable(item.id))),
-            )
-        };
-        let mut buttons = vec![toggle];
-        if active {
-            buttons.push((
-                "Reload",
-                Variant::Secondary,
-                available.then_some(command(Action::Reload(item.id))),
-            ));
-            let position = library.active.iter().position(|entry| entry.id == item.id);
-            if position.is_some_and(|position| position > 0) {
-                buttons.push((
-                    "Move up",
-                    Variant::Neutral,
-                    available.then_some(command(Action::MoveUp(item.id))),
-                ));
-            }
-            if position.is_some_and(|position| position + 1 < library.active.len()) {
-                buttons.push((
-                    "Move down",
-                    Variant::Neutral,
-                    available.then_some(command(Action::MoveDown(item.id))),
-                ));
-            }
-        }
-        buttons.push((
-            "Remove",
-            Variant::Destructive,
-            available.then_some(command(Action::Remove(item.id))),
-        ));
-        actions(content, &buttons)?;
-        caption(content, "Permissions")?;
-        for (index, permission) in item.permissions.iter().enumerate() {
-            let [left, right] = content.inset();
-            let y = content.y;
-            let action = command(Action::Permission(item.id, index, !permission.enabled));
-            super::controls::toggle_control(
-                content.canvas,
-                content.view,
-                [left, y],
-                permission.enabled,
-                action,
-                available,
-            )?;
-            let request = match permission.requested {
-                Some(true) => " · requested",
-                Some(false) => " · not requested",
-                None => "",
+    card_with_summary(
+        content,
+        face,
+        |content| {
+            let available = interactive && !library.busy;
+            let toggle = if active {
+                (
+                    "Disable",
+                    Variant::Secondary,
+                    available.then_some(command(Action::Disable(item.id))),
+                )
+            } else {
+                (
+                    "Enable",
+                    Variant::Primary,
+                    available.then_some(command(Action::Enable(item.id))),
+                )
             };
-            content.canvas.text_line_vertically_centred(
-                &format!("{}{request}", permission.name),
-                [
-                    left + content.canvas.r(8.0),
-                    y,
-                    right,
-                    y + content.canvas.r(3.6),
-                ],
-                theme::BODY,
-                theme::TEXT,
-            )?;
-            if available {
-                content
-                    .canvas
-                    .hit(action, [left, y, right, y + content.canvas.r(3.6)])?;
+            let mut buttons = vec![toggle];
+            if active {
+                buttons.push((
+                    "Reload",
+                    Variant::Secondary,
+                    available.then_some(command(Action::Reload(item.id))),
+                ));
+                let position = library.active.iter().position(|entry| entry.id == item.id);
+                if position.is_some_and(|position| position > 0) {
+                    buttons.push((
+                        "Move up",
+                        Variant::Neutral,
+                        available.then_some(command(Action::MoveUp(item.id))),
+                    ));
+                }
+                if position.is_some_and(|position| position + 1 < library.active.len()) {
+                    buttons.push((
+                        "Move down",
+                        Variant::Neutral,
+                        available.then_some(command(Action::MoveDown(item.id))),
+                    ));
+                }
             }
-            content.y += content.canvas.r(4.4);
-            caption(content, &permission.description)?;
-        }
-        Ok(())
-    })
+            buttons.push((
+                "Remove",
+                Variant::Destructive,
+                available.then_some(command(Action::Remove(item.id))),
+            ));
+            actions(content, &buttons)?;
+            permissions::draw(content, snapshot, item, active, available)
+        },
+        |content| {
+            if let Some(description) = &metadata.description {
+                caption(content, description)?;
+            }
+            if let Some(authors) = &metadata.authors {
+                caption(content, &format!("By {authors}"))?;
+            }
+            let mut source = format!("{} · {}", item.file, file_size(item.bytes));
+            if let Some(licenses) = &metadata.licenses {
+                source = format!("{source} · {licenses}");
+            }
+            caption(content, &source)?;
+            if let Some(message) = failure {
+                caption(content, message)?;
+            }
+            Ok(())
+        },
+    )
 }

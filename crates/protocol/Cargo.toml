@@ -14,6 +14,7 @@ reads = [
     "assets/block-data-sources.json",
     "crates/protocol-ids/data/protocol-ids.json",
     "crates/protocol-ids/data/actor-data-extensions.json",
+    "crates/protocol-ids/data/movement-contract.json",
     "tools/localserver/experience/testdata/protocol/limits.json",
 ]
 
@@ -29,8 +30,6 @@ path = "tests/it/main.rs"
 protocol-ids = { path = "../protocol-ids" }
 simulation-clock = { path = "../simulation-clock" }
 zeroize = "1"
-cap-std = "3.4.5"
-cap-fs-ext = "3.4.5"
 block-transform = { path = "../block-transform" }
 render-api = { path = "../render-api" }
 anyhow.workspace = true
@@ -47,6 +46,10 @@ tracing.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
 bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cap-std = "3.4.5"
+cap-fs-ext = "3.4.5"
 
 [dev-dependencies]
 test-alloc = { path = "../test-alloc" }

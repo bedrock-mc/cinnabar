@@ -1,8 +1,8 @@
 //! Records the actor tick of each fire-state transition.
 
 use super::{ActorSnapshot, ActorStatus};
+use protocol_ids::ActorFlag;
 
-pub(super) const ACTOR_FLAG_ON_FIRE: u32 = 0;
 /// Vanilla fire-state retention and default on-fire color ramp/fade duration.
 pub const FIRE_FADE_TICKS: u32 = 5;
 
@@ -39,7 +39,7 @@ impl FireAnimation {
 impl ActorSnapshot {
     #[must_use]
     pub fn is_on_fire(&self) -> bool {
-        self.flag(ACTOR_FLAG_ON_FIRE)
+        self.flag(ActorFlag::OnFire.wire_value())
     }
 }
 

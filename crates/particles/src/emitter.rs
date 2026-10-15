@@ -29,6 +29,8 @@ pub struct TileRequest {
 #[derive(Clone, Debug, Default)]
 pub struct SpawnRequest {
     pub effect: String,
+    /// A compiled native route; server-authored effects retain their named path.
+    pub native_effect: Option<assets::facts::ParticleEffect>,
     pub position: [f32; 3],
     /// Independent uniform offsets around the emitter origin, sampled once at creation.
     pub position_spread: [f32; 3],
@@ -357,11 +359,10 @@ impl Emitter {
             particle.plane_side =
                 plane[0] * rel[0] + plane[1] * rel[1] + plane[2] * rel[2] + plane[3];
         }
-        let events = def.particle.creation_events.clone();
         self.particles.push_back(particle);
         let world_pos = self.world_position(self.particles.len() - 1);
-        for event in events {
-            self.run_event(&event, world_pos, velocity, output);
+        for event in &def.particle.creation_events {
+            self.run_event(event, world_pos, velocity, output);
         }
     }
 

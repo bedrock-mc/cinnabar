@@ -1,8 +1,9 @@
 //! Java HUD row geometry through the real model, authored pack, and bitmap label adapter.
 
+use json_ui::vanilla::Reference;
 use std::sync::Arc;
 
-use json_ui::{Catalog, Context, HUD_SCREEN, HudModel, Timed, hud_data_source, render_screen};
+use json_ui::{Catalog, Context, HudModel, Timed, hud_data_source, render_screen};
 
 use crate::ui_runtime::presentation::UiPresentationRuntime;
 use crate::ui_runtime::presentation::forms::screen_registry::registry;
@@ -90,7 +91,7 @@ fn builtin_java_hud_keeps_single_and_wrapped_chat_rows_nine_pixels_high() {
                 },
                 |env, root| {
                     let render = render_screen(
-                        HUD_SCREEN,
+                        Reference::HudHudScreen.as_str(),
                         engine.catalog(),
                         &Context::desktop(),
                         &data,
@@ -98,7 +99,7 @@ fn builtin_java_hud_keeps_single_and_wrapped_chat_rows_nine_pixels_high() {
                         env,
                         &Default::default(),
                     )?;
-                    drawn = render.nodes.clone();
+                    drawn = render.nodes.to_vec();
                     Some(render)
                 },
             )

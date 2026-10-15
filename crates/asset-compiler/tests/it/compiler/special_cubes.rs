@@ -789,7 +789,7 @@ fn compiler_selects_huge_mushroom_face_variants_and_keeps_other_arrays_at_zero()
         unrelated_id,
         0x8000_1000 + unrelated_id,
         "minecraft:unrelated",
-        r#"{"huge_mushroom_bits":15}"#,
+        r#"{"huge_mushroom_bits":{"type":"int","value":15}}"#,
         BlockFlags::CUBE_GEOMETRY,
     ));
 

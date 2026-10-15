@@ -367,7 +367,7 @@ fn use_surroundings(
     sneaking: bool,
 ) -> UseSurroundings {
     let stream = context.client_world.stream.as_ref();
-    let identifier = |position: [i32; 3]| -> Option<String> {
+    let fact = |position| {
         let stream = stream?;
         let mode = stream.network_id_mode();
         let world = PaletteWorld::new(
@@ -376,14 +376,12 @@ fn use_surroundings(
             stream.current_dimension(),
             Default::default(),
         );
-        if world.is_air(position).ok()? {
-            return Some("minecraft:air".to_owned());
-        }
-        let runtime_id = world.primary_runtime_id(position).ok()?;
-        context
-            .collisions
-            .block_identifier(mode, runtime_id)
-            .map(str::to_owned)
+        let runtime_id = if world.is_air(position).ok()? {
+            stream.air_block_id()
+        } else {
+            world.primary_runtime_id(position).ok()?
+        };
+        Some(context.collisions.block_facts(mode, runtime_id))
     };
     let feet = [
         f64::from(network_position[0]),
@@ -393,32 +391,34 @@ fn use_surroundings(
     let half_width = sim::PLAYER_WIDTH * 0.5;
     let height = sim::MovementMode::Walking.hitbox_height(sneaking);
     let mut surroundings = UseSurroundings {
-        clicked_identifier: context
-            .collisions
-            .block_identifier(
-                stream.map_or(assets::NetworkIdMode::Sequential, |stream| {
-                    stream.network_id_mode()
-                }),
-                observed.target.runtime_id,
-            )
-            .map(str::to_owned),
+        clicked: context.collisions.block_facts(
+            stream.map_or(assets::NetworkIdMode::Sequential, |stream| {
+                stream.network_id_mode()
+            }),
+            observed.target.runtime_id,
+        ),
         clicked_canonical_state: stream.and_then(|stream| {
             context
                 .collisions
                 .block_canonical_state(stream.network_id_mode(), observed.target.runtime_id)
                 .map(str::to_owned)
         }),
-        held_block_identifier: stream.and_then(|stream| {
-            let block = held_block_store_id(stream, observed.selection.item.block_runtime_id())?;
-            context
-                .collisions
-                .block_identifier(stream.network_id_mode(), block)
-                .map(str::to_owned)
-        }),
-        neighbor_identifier: identifier(placement_cell(
+        held: stream
+            .and_then(|stream| {
+                let block =
+                    held_block_store_id(stream, observed.selection.item.block_runtime_id())?;
+                Some(
+                    context
+                        .collisions
+                        .block_facts(stream.network_id_mode(), block),
+                )
+            })
+            .unwrap_or_default(),
+        neighbor: fact(placement_cell(
             observed.target.position,
             observed.target.face,
-        )),
+        ))
+        .unwrap_or_default(),
         player_box: (
             [feet[0] - half_width, feet[1], feet[2] - half_width],
             [feet[0] + half_width, feet[1] + height, feet[2] + half_width],

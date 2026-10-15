@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::Attribute;
 
 impl ActorStore {
     /// Replaces conflicting IDs and installs one authoritative actor lifetime.
@@ -53,18 +54,19 @@ impl ActorStore {
         let interaction_traits = Self::resolve_actor_interactions(
             &spawn.kind,
             self.entity_assets.as_deref(),
-            &self.custom_actor_traits,
+            &self.custom_actor_facts,
         );
-        let mut actor = ActorSnapshot::from_spawn(spawn, sequence);
+        let fact = self.resolve_entity_fact(&spawn.kind);
+        let mut actor = ActorSnapshot::from_spawn(spawn, sequence, fact);
         actor.interaction_traits = interaction_traits;
         self.bind_actor_seat(&actor);
+        self.effect_members.update(&mut actor);
         self.actors.insert(runtime_id, actor);
         self.queue_rocket_launch_audio(runtime_id);
-        self.effect_members.update(&self.actors[&runtime_id]);
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
             if self.actors[&runtime_id]
                 .attributes
-                .contains_key("minecraft:health")
+                .contains_key(Attribute::Health.wire_name())
             {
                 self.pending_local_health = None;
                 self.pending_local_damage = None;

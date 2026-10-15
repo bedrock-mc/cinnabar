@@ -1,4 +1,5 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
 fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
@@ -316,7 +317,7 @@ fn operation_work_and_transition_budgets_are_aggregate() {
         work_left: 1,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: Default::default(),
         static_draw: None,
     };
     assert_eq!(budget.charge(), Ok(()));
@@ -463,6 +464,7 @@ fn eating_raises_the_arm_then_bobs_and_other_held_items_stay_lowered() {
     let holding = |identifier: &str, consumption| ActorTickContext {
         main_hand: Some(identifier.into()),
         main_hand_consumption: consumption,
+        main_hand_max_use_ticks: 32,
         ..ActorTickContext::default()
     };
     let progress = |context: &ActorTickContext, item_use_ticks: u32| {
@@ -479,11 +481,34 @@ fn eating_raises_the_arm_then_bobs_and_other_held_items_stay_lowered() {
     };
     let apple = holding("minecraft:golden_apple", ItemConsumption::Eat);
     assert_eq!(progress(&apple, 0), [0.0, 0.0]);
-    assert!(progress(&apple, 2)[0] > 0.0 && progress(&apple, 2)[0] < 1.0);
-    let raised: Vec<_> = (4..=12).map(|ticks| progress(&apple, ticks)).collect();
-    assert!(raised.iter().all(|[startup, _]| *startup == 1.0));
-    assert!(raised.iter().any(|[_, interval]| *interval > 0.5));
-    assert!(raised.iter().any(|[_, interval]| *interval == 0.0));
+    // The first using tick has the whole use remaining; the arm rises until 25 ticks remain,
+    // then bobs on the remaining ticks modulo four.
+    let expected = [
+        (1, [0.0, 0.0]),
+        (4, [1.0 - 4.0 / 7.0, 0.0]),
+        (8, [1.0, 0.0]),
+        (9, [1.0, 0.0]),
+        (10, [1.0, 0.75]),
+        (11, [1.0, 0.5]),
+        (12, [1.0, 0.25]),
+        (13, [1.0, 0.0]),
+    ];
+    // An undeclared duration uses the default consumable duration.
+    let undeclared = ActorTickContext {
+        main_hand_max_use_ticks: 0,
+        ..apple.clone()
+    };
+    for context in [&apple, &undeclared] {
+        for (ticks, expected) in expected {
+            let actual = progress(context, ticks);
+            for (actual, expected) in actual.into_iter().zip(expected) {
+                assert!(
+                    (actual - expected).abs() < 1.0e-6,
+                    "tick {ticks}: {actual} vs {expected}"
+                );
+            }
+        }
+    }
     assert_eq!(
         progress(&holding("minecraft:bow", ItemConsumption::None), 8),
         [0.0, 0.0]
@@ -777,10 +802,18 @@ fn sampled_fluid_overrides_the_heuristic_and_armor_queries_read_worn_stacks() {
     let mut context = ActorTickContext::default();
     context.armor[4] = Some(WornArmor {
         item: "minecraft:golden_horse_armor".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:golden_horse_armor")
+            .unwrap(),
         dye_rgb: None,
     });
     context.armor[0] = Some(WornArmor {
         item: "minecraft:leather_helmet".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:leather_helmet")
+            .unwrap(),
         dye_rgb: Some(0x00FF_0000),
     });
     let number = |name: &str, arguments: &[f32]| {
@@ -911,6 +944,10 @@ fn elytra_reads_slot_five_on_the_chest_and_cape_flap_follows_tick_displacement()
     let mut context = ActorTickContext::default();
     context.armor[1] = Some(WornArmor {
         item: "minecraft:elytra".into(),
+        fact: *assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier("minecraft:elytra")
+            .unwrap(),
         dye_rgb: None,
     });
     let input = ActorTickInput {
@@ -1045,8 +1082,8 @@ fn hud_pose_advances_crawling_animation_independently_of_first_person() {
     };
     let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
     let mut actor = actor_with_metadata(HashMap::from([(
-        super::test_actor::EXTENDED_FLAGS_METADATA_KEY,
-        ActorMetadataValue::FlagsExtended(1 << (query::FLAG_CRAWLING - u64::BITS)),
+        ActorDataKey::FlagsTwo.wire_value(),
+        ActorMetadataValue::FlagsExtended(1 << (ActorFlag::Crawling.wire_value() - u64::BITS)),
     )]));
     actor.kind = ActorKind::Player {
         uuid: [0; 16],

@@ -122,6 +122,7 @@ fn extra_large_ui_actions_persist_without_changing_ordinary_gui_preferences() {
     for enabled in [true, false] {
         menu.activate(MenuAction::SettingsOption(index, i32::from(enabled)));
         menu.sync_user_settings(None);
+        menu.flush_user_settings().unwrap();
         assert!(
             !menu.settings_dirty,
             "the real action must save successfully"
@@ -142,6 +143,7 @@ fn extra_large_ui_actions_persist_without_changing_ordinary_gui_preferences() {
     menu.activate(MenuAction::SettingsResetGroup(SettingsGroup::Audio));
     menu.activate(MenuAction::SettingsConfirmResetGroup(SettingsGroup::Audio));
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     assert!(root.menu().view().settings_options.extra_large_ui());
     assert_eq!(load(&root.0).unwrap(), ordinary);
     assert_eq!(menu.gui_scale_preference(), fixed);

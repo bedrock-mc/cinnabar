@@ -12,7 +12,7 @@ use crate::env::{Env, evaluate, substitute};
 use crate::merge::{Layering, flatten_def, flatten_properties, inherit};
 use crate::tree::{ControlRef, Factory, ResolvedControl};
 
-const MAX_DEPTH: usize = 256;
+pub(crate) const MAX_DEPTH: usize = 256;
 /// Property recording the `$vars` a factory's or grid's created controls see.
 pub(crate) const FACTORY_SCOPE: &str = "factory_scope";
 /// A digest of [`FACTORY_SCOPE`], so equal scopes are recognised without comparing.
@@ -81,6 +81,25 @@ impl<'a> Resolver<'a> {
         }
         let env = self.build_env(root_env, &control.props);
         Some(self.resolve_with_env(&control, provenance, None, &env, 0))
+    }
+
+    /// Resolves a control reference held in an owner's variable, retaining that owner's scope.
+    pub(crate) fn resolve_variable_content(
+        &mut self,
+        namespace: &str,
+        name: &str,
+        variable: &str,
+        root_env: &Env,
+    ) -> Option<ResolvedControl> {
+        let (owner, _) = flatten_def(self.catalog, namespace, name, &mut self.diagnostics)?;
+        if self.is_ignored(&owner, root_env) {
+            return None;
+        }
+        self.root = Some(root_env.clone());
+        let env = self.build_env(root_env, &owner.props);
+        let content = evaluate(&Value::String(variable.to_owned()), &env);
+        let reference = ControlRef::parse(content.as_str()?, namespace);
+        self.resolve(&reference.namespace, &reference.name, &env)
     }
 
     /// The root's `type` and substituted properties without resolving its

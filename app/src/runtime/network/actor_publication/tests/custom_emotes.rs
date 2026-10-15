@@ -154,6 +154,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
     );
     world.init_resource::<crate::block_entities::SpawnerDisplayPublisher>();
     world.insert_resource(client);
+    world.init_resource::<crate::runtime::shutdown::FatalError>();
     world.insert_resource(Time::<Real>::default());
     world.insert_resource(
         render_scene::ActorRenderScene::with_runtime_entity_assets(&entities).unwrap(),

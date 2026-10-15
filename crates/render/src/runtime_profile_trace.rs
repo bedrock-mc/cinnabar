@@ -8,7 +8,8 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
     const SUBMISSION: usize = RuntimeStage::RenderSubmission as usize;
     const SURFACE: usize = RuntimeStage::SurfacePreparation as usize;
     const FRAME: usize = RuntimeStage::RenderFrame as usize;
-    app.init_resource::<render_scene::RuntimeStageSpans>()
+    app.add_systems(bevy::render::ExtractSchedule, extract_frame_identity)
+        .init_resource::<render_scene::RuntimeStageSpans>()
         .add_systems(
             Render,
             (
@@ -35,10 +36,19 @@ pub(crate) fn install_surface_trace(app: &mut bevy::app::SubApp) {
         );
 }
 
+/// Carries the input identity into the render world before its queued commands run.
+fn extract_frame_identity(
+    mut commands: bevy::prelude::Commands,
+    profiler: bevy::render::Extract<bevy::prelude::Res<render_scene::RuntimeStageProfiler>>,
+) {
+    commands.insert_resource(profiler.for_frame());
+}
+
 #[cfg(test)]
 mod tests {
     use render_scene::{RuntimeStage, RuntimeStageProfiler, RuntimeStageSpans};
     use std::time::Duration;
+
     /// The render-frame span is open from asset preparation through rendering, closed by Cleanup.
     #[test]
     fn render_frame_span_covers_asset_preparation_through_cleanup() {

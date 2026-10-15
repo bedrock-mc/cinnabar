@@ -31,6 +31,7 @@ fn binding(identifier: &str, slot: ArmorSlot, texture: &str, material: &str) -> 
         category: EquipmentCategory::Armor { slot },
         geometry: reference("geometry.fixture"),
         texture: reference(texture),
+        resources: Default::default(),
         material: material.into(),
         color_mask: assets::EquipmentColorMask::NoMask,
         render_controller: "controller.render.armor".into(),

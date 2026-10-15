@@ -2,28 +2,40 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use super::*;
 
-impl WorldAuthority {
-    /// Retains canonical custom state identities independently of visual pack compilation.
-    /// Sequential identities require the admitted internal range; hashed identities use their hash.
-    pub fn set_custom_block_identities(&mut self, definitions: &CustomBlocks) {
+/// Immutable custom identities and names prepared for one admitted palette.
+#[derive(Clone, Debug)]
+pub struct PreparedBlockIdentities {
+    mode: NetworkIdMode,
+    custom_ids: std::ops::Range<u32>,
+    identities: Arc<HashMap<u32, u32>>,
+    names: Arc<HashMap<Arc<str>, Vec<u32>>>,
+    skipped: usize,
+}
+
+impl PreparedBlockIdentities {
+    /// Resolves canonical state hashes once, retaining the existing palette and name semantics.
+    pub fn new(
+        definitions: &CustomBlocks,
+        mode: NetworkIdMode,
+        custom_ids: std::ops::Range<u32>,
+    ) -> Self {
         let mut identities = HashMap::new();
-        self.block_names.clear_custom();
-        let mut next = self.custom_block_ids.start;
+        let mut names: HashMap<Arc<str>, Vec<u32>> = HashMap::new();
+        let mut next = custom_ids.start;
         let mut skipped = 0_usize;
         for (index, block) in definitions.blocks.iter().enumerate() {
             let first = next;
-            if self.network_id_mode == NetworkIdMode::Sequential {
+            if mode == NetworkIdMode::Sequential {
                 let Some(end) = next.checked_add(block.state_count) else {
                     skipped = skipped.saturating_add(definitions.blocks.len() - index);
                     break;
                 };
                 next = end;
-                if end > self.custom_block_ids.end {
+                if end > custom_ids.end {
                     skipped = skipped.saturating_add(1);
                     continue;
                 }
-                self.block_names
-                    .custom
+                names
                     .entry(Arc::clone(&block.name))
                     .or_default()
                     .extend(first..end);
@@ -34,27 +46,58 @@ impl WorldAuthority {
                 continue;
             }
             for (offset, state) in states.into_iter().enumerate() {
-                let internal = match self.network_id_mode {
+                let internal = match mode {
                     NetworkIdMode::Sequential => first + offset as u32,
                     NetworkIdMode::Hashed => state.hash,
                 };
                 identities.entry(state.hash).or_insert(internal);
-                if self.network_id_mode == NetworkIdMode::Hashed {
-                    self.block_names
-                        .custom
+                if mode == NetworkIdMode::Hashed {
+                    names
                         .entry(Arc::clone(&block.name))
                         .or_default()
                         .push(internal);
                 }
             }
         }
+        Self {
+            mode,
+            custom_ids,
+            identities: Arc::new(identities),
+            names: Arc::new(names),
+            skipped,
+        }
+    }
+}
+
+impl WorldAuthority {
+    /// Prepares and installs identities for callers that already own the session mutation.
+    pub fn set_custom_block_identities(&mut self, definitions: &CustomBlocks) {
+        let prepared = PreparedBlockIdentities::new(
+            definitions,
+            self.network_id_mode,
+            self.custom_block_ids.clone(),
+        );
+        self.install_custom_block_identities(prepared);
+    }
+
+    /// Installs an immutable identity view without enumerating custom states on the commit path.
+    #[expect(
+        clippy::print_stderr,
+        reason = "SESSION_CUSTOM_BLOCK_IDENTITIES is a stderr marker read during live sessions"
+    )]
+    pub fn install_custom_block_identities(&mut self, prepared: PreparedBlockIdentities) {
+        assert_eq!(prepared.mode, self.network_id_mode);
+        assert_eq!(prepared.custom_ids, self.custom_block_ids);
+        self.block_names.revision = self.block_names.revision.wrapping_add(1);
+        self.block_names.custom = prepared.names;
+        self.custom_block_identities = prepared.identities;
         eprintln!(
-            "SESSION_CUSTOM_BLOCK_IDENTITIES session={} mode={:?} states={} skipped_definitions={skipped}",
+            "SESSION_CUSTOM_BLOCK_IDENTITIES session={} mode={:?} states={} skipped_definitions={}",
             self.actor_session_id,
             self.network_id_mode,
-            identities.len(),
+            self.custom_block_identities.len(),
+            prepared.skipped,
         );
-        self.custom_block_identities = Arc::new(identities);
     }
 }
 
@@ -65,14 +108,14 @@ type SharedNameIndex = Arc<OnceLock<NameIndex>>;
 #[derive(Debug)]
 pub(super) struct BlockNames {
     base: SharedNameIndex,
-    custom: HashMap<Arc<str>, Vec<u32>>,
+    custom: Arc<HashMap<Arc<str>, Vec<u32>>>,
     revision: u64,
 }
 
 impl BlockNames {
     /// Removes names from the previous custom range before a new palette is admitted.
     pub(super) fn clear_custom(&mut self) {
-        self.custom.clear();
+        self.custom = Arc::default();
         self.revision = self.revision.wrapping_add(1);
     }
 
@@ -90,7 +133,7 @@ impl BlockNames {
                 assets::active_content_registry_protocol(),
             )
             .unwrap_or_else(|error| {
-                eprintln!("block name registry unavailable: {error}");
+                tracing::warn!("block name registry unavailable: {error}");
                 Box::default()
             });
             let mut names: HashMap<Box<str>, Vec<u32>> = HashMap::new();
@@ -123,7 +166,7 @@ impl BlockNames {
         });
         Self {
             base: Arc::clone(base),
-            custom: HashMap::new(),
+            custom: Arc::default(),
             revision: 0,
         }
     }
@@ -175,7 +218,7 @@ mod tests {
             pending.recv().unwrap();
             HashMap::from([("example:pinned".into(), Box::from([7, 8]))])
         });
-        names.custom.insert("example:custom".into(), vec![12]);
+        Arc::make_mut(&mut names.custom).insert("example:custom".into(), vec![12]);
         let before = names.revision();
         assert_eq!(names.ids("example:custom"), [12]);
         assert!(names.ids("example:pinned").is_empty());
@@ -187,5 +230,65 @@ mod tests {
         assert_eq!(names.ids("example:pinned"), [7, 8]);
         assert_eq!(shared.ids("example:pinned"), [7, 8]);
         assert_ne!(names.revision(), before);
+    }
+
+    /// Supplies a minimal authority with the same negotiated palette mode as its prepared data.
+    fn authority(mode: NetworkIdMode) -> WorldAuthority {
+        WorldAuthority::new(
+            WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: mode == NetworkIdMode::Hashed,
+            },
+            Arc::new(RuntimeAssets::diagnostic()),
+            None,
+            [0.0; 3],
+            None,
+        )
+    }
+
+    #[test]
+    fn prepared_identities_install_without_rebuilding_names_or_state_maps() {
+        use world::BlockIds;
+        let definitions =
+            CustomBlocks::from_definitions([("example:prepared", b"\x0a\x00\x00".as_slice())]);
+        let hash = definitions.blocks[0].hashed_states()[0].hash;
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let ids = if mode == NetworkIdMode::Sequential {
+                10..11
+            } else {
+                0..0
+            };
+            let prepared = PreparedBlockIdentities::new(&definitions, mode, ids.clone());
+            let names = Arc::clone(&prepared.names);
+            let identities = Arc::clone(&prepared.identities);
+            let mut world = authority(mode);
+            world.set_custom_block_ids(ids.clone());
+            let before = world.block_name_revision();
+            world.install_custom_block_identities(prepared);
+            assert!(Arc::ptr_eq(&identities, &world.custom_block_identities));
+            assert!(Arc::ptr_eq(&names, &world.block_names.custom));
+            let id = if mode == NetworkIdMode::Sequential {
+                10
+            } else {
+                hash
+            };
+            assert_eq!(world.block_ids_for_name("example:prepared"), [id]);
+            assert_eq!(world.decode_ids(0).resolve(id), id);
+            assert_ne!(world.block_name_revision(), before);
+            world.install_custom_block_identities(PreparedBlockIdentities::new(
+                &CustomBlocks::default(),
+                mode,
+                ids,
+            ));
+            assert!(world.block_ids_for_name("example:prepared").is_empty());
+            assert!(world.custom_block_identities.is_empty());
+            assert_eq!(identities.get(&hash), Some(&id));
+            assert_eq!(names.get("example:prepared").unwrap(), &[id]);
+        }
     }
 }

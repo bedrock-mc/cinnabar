@@ -16,6 +16,31 @@ pub struct CarrierRestore {
     pub restore: fn(&mut Catalog, &Catalog),
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn higher_index_selects_lower_custom_document() {
+        let layers = vec![
+            vec![(
+                "@behub/label.json".into(),
+                br#"{"namespace":"custom","label":{"type":"label","text":"Lower file"}}"#.to_vec(),
+            )],
+            vec![(
+                json_ui::UI_DEFS_PATH.into(),
+                br#"{"ui_defs":["@behub/label.json"]}"#.to_vec(),
+            )],
+        ];
+        let layered = CatalogPolicy::default().layer(&Catalog::default(), &layers);
+        let label = json_ui::resolve(&layered.pack, "custom.label", &json_ui::Context::empty())
+            .control
+            .unwrap();
+        assert_eq!(label.properties["text"], "Lower file");
+        assert!(layered.pack.diagnostics().is_empty());
+    }
+}
+
 #[derive(Default)]
 pub struct CatalogPolicy {
     extensions: Vec<CatalogPatch>,
@@ -75,6 +100,17 @@ impl CatalogPolicy {
     pub fn layer(&self, carrier: &Catalog, layers: &[Vec<(String, Vec<u8>)>]) -> LayeredCatalogs {
         let builtin = self.builtin(carrier);
         let mut catalog = builtin.clone();
+        // A higher layer's index may select a document in a lower layer.
+        for files in layers {
+            for (_, bytes) in files
+                .iter()
+                .filter(|(path, _)| path == json_ui::UI_DEFS_PATH)
+            {
+                if let Ok(paths) = Catalog::declared_paths(bytes) {
+                    catalog.include_paths(paths);
+                }
+            }
+        }
         let mut restored = vec![false; self.restores.len()];
         for files in layers {
             for (done, rule) in restored.iter_mut().zip(&self.restores) {

@@ -40,7 +40,7 @@ impl MenuRuntime {
         }
         let state = UserState {
             settings: (*self.persistent_settings()).clone(),
-            servers: self.servers.clone(),
+            servers: self.servers.to_vec(),
             video: launcher_host::video_settings::SavedVideoSettings {
                 fullscreen: self.fullscreen,
                 gui_scale_offset: self.gui_scale_offset,
@@ -121,7 +121,7 @@ impl MenuRuntime {
             }
             self.language_pending = state.settings.language() != self.settings_options.language();
             self.settings_options = Arc::new(state.settings);
-            self.servers = state.servers;
+            self.servers.replace(state.servers);
             self.fullscreen = state.video.fullscreen;
             self.fullscreen_change = Some(self.fullscreen);
             self.gui_scale_offset = state.video.gui_scale_offset;

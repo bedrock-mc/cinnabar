@@ -25,8 +25,11 @@ pub mod particles;
 pub mod primitive_shapes;
 pub mod readiness;
 pub mod runtime_profile;
+#[cfg(any(test, feature = "alloc-stats"))]
+mod runtime_profile_alloc;
 pub mod runtime_profile_slow;
 pub mod runtime_profile_trace;
+pub mod runtime_profile_uploads;
 pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;
@@ -76,7 +79,7 @@ pub use chunk::model_witness::{
 };
 pub use chunk::queue::{ChunkRenderQueue, ChunkRenderQueueLimits};
 pub use chunk::schedule::ChunkRenderApplySet;
-pub use chunk::texture_reload::ChunkTextureReload;
+pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,

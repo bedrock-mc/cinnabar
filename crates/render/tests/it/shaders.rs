@@ -3,6 +3,7 @@ use crate::shader_source;
 // Every shader validates, not just parses: naga's parser accepts colliding varying locations
 // and reserved identifiers that fail pipeline creation at runtime and silently skip the pass.
 
+use crate::motion_blur_shader;
 use crate::nametag_shader;
 use crate::ui_shader;
 
@@ -18,6 +19,97 @@ fn standalone(source: &str) -> String {
         panic!("checked constructor must produce WESL");
     };
     shader_source::standalone(&source, &[])
+}
+
+/// Checks emitted sampling and gradient order for divergent fragments.
+fn assert_explicit_fragment_samples(source: &str, entry_name: &str) {
+    let module = naga::front::wgsl::parse_str(source).expect("fragment shader parses");
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("fragment shader validates");
+    let function = module
+        .entry_points
+        .iter()
+        .find(|entry| entry.name == entry_name)
+        .map(|entry| &entry.function)
+        .or_else(|| {
+            module
+                .functions
+                .iter()
+                .find(|(_, function)| function.name.as_deref() == Some(entry_name))
+                .map(|(_, function)| function)
+        })
+        .expect("fragment sampling function exists");
+    let mut samples = 0;
+    for (_, expression) in function.expressions.iter() {
+        if let naga::Expression::ImageSample { level, .. } = expression {
+            assert!(
+                matches!(level, naga::SampleLevel::Gradient { .. }),
+                "{entry_name} must supply the original sample footprint explicitly"
+            );
+            samples += 1;
+        }
+    }
+    assert!(samples > 0, "the fragment's sampling contract is exercised");
+    let mut branched = false;
+    let mut derivatives = 0;
+    for statement in function.body.iter() {
+        match statement {
+            naga::Statement::Emit(range) => {
+                for handle in range.clone() {
+                    if matches!(
+                        function.expressions[handle],
+                        naga::Expression::Derivative { .. }
+                    ) {
+                        assert!(
+                            !branched,
+                            "{entry_name} computes gradients before rejection"
+                        );
+                        derivatives += 1;
+                    }
+                }
+            }
+            naga::Statement::If { .. }
+            | naga::Statement::Switch { .. }
+            | naga::Statement::Kill
+            | naga::Statement::Return { .. } => branched = true,
+            _ => {}
+        }
+    }
+    assert!(
+        derivatives >= 2,
+        "the fragment computes both screen-space gradients"
+    );
+}
+
+#[test]
+fn divergent_fragments_keep_explicit_gradients_before_rejection() {
+    for (raw, entry_name) in [
+        (include_str!("../../src/actor.wesl"), "actor_colour"),
+        (include_str!("../../src/hand_rig.wesl"), "hand_fragment"),
+    ] {
+        assert_explicit_fragment_samples(&standalone(raw), entry_name);
+    }
+    let shader = shader_safety::from_block_entity_wesl(
+        include_str!("../../src/block_entity/block_entity.wesl"),
+        "block entity gradients",
+        render_model::BLOCK_ENTITY_VERTEX_WORDS,
+        render_model::BLOCK_SELECTION_VERTICES_PER_EDGE,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("block entity constructor produces WESL");
+    };
+    let source = shader_source::standalone(&source, &[]);
+    for entry in [
+        "block_entity_overlay",
+        "block_entity_crack",
+        "portal_fragment",
+    ] {
+        assert_explicit_fragment_samples(&source, entry);
+    }
 }
 
 #[test]
@@ -68,6 +160,9 @@ fn every_shader_parses_and_validates() {
                 panic!("UI shader constructor must produce WGSL");
             };
             standalone(&source)
+        } else if name == "motion_blur.wgsl" {
+            // The production constructor injects the shared motion tile size.
+            standalone(&motion_blur_shader::source(&raw, false))
         } else if name == "transparent_terrain.wesl" {
             // Composes the liquid and model modules, whose shared names only the composer resolves.
             shader_source::composed(&raw, &[])

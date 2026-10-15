@@ -1,13 +1,16 @@
 //! Connection-state collision boxes for fences and thin panes/bars.
 
-use assets::RegistryRecord;
 use assets::block_shapes::ShapeBox;
+use assets::registry::BlockTraits;
+use assets::{ModelFamily, RegistryRecord};
 
 /// Uses the registry's connection traits instead of its reduced legacy shape.
 pub(super) fn shapes(record: &RegistryRecord) -> Option<Vec<ShapeBox>> {
-    let name = record.name.strip_prefix("minecraft:")?;
-    let pane = name == "iron_bars" || name == "glass_pane" || name.ends_with("_stained_glass_pane");
-    if !pane && !name.ends_with("_fence") {
+    let pane = record.model_family == ModelFamily::Pane
+        && record.traits.contains(BlockTraits::CONNECTS_THIN);
+    let fence = record.model_family == ModelFamily::Fence
+        && record.traits.contains(BlockTraits::CONNECTS_FENCE);
+    if !pane && !fence {
         return None;
     }
     let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;

@@ -43,15 +43,166 @@ impl MotionBuffer {
 fn allocate(device: &RenderDevice, bytes: usize) -> Buffer {
     device.create_buffer(&BufferDescriptor {
         label: Some("actor velocity history"),
-        size: bytes as u64,
+        size: capacity(
+            bytes as u64,
+            crate::actor::gpu::storage_binding_bytes(device),
+        ),
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
 }
 
+/// Rounds storage up geometrically without exceeding the device's whole-binding limit.
+fn capacity(bytes: u64, limit: u64) -> u64 {
+    let bytes = bytes.max(1);
+    assert!(
+        bytes <= limit,
+        "actor motion history exceeds the storage binding limit"
+    );
+    bytes
+        .checked_next_power_of_two()
+        .unwrap_or(limit)
+        .min(limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn growing_crowds_create_logarithmically_many_buffers_without_extra_uploads() {
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let actors = 256;
+        for stride in [
+            size_of::<crate::motion_blur::actor_history::MotionInstance>(),
+            render_model::ACTOR_BONE_MATRIX_BYTES,
+        ] {
+            let mut buffer = MotionBuffer::new(&device, stride);
+            let mut creations = 1;
+            let mut allocated = buffer.buffer.size();
+            let mut uploaded = 0;
+            for count in 1..=actors {
+                let bytes = vec![1; count * stride];
+                let identity = buffer.buffer.id();
+                let resized = buffer.upload(&device, &bytes, |target, source| {
+                    assert!(target.size() >= source.len() as u64);
+                    assert_eq!(source, bytes);
+                    uploaded += source.len();
+                });
+                assert_eq!(resized, identity != buffer.buffer.id());
+                if resized {
+                    creations += 1;
+                    allocated += buffer.buffer.size();
+                }
+            }
+            let exact_size_bytes = stride * actors * (actors + 1) / 2;
+            assert!(
+                creations <= 10,
+                "created {creations} buffers for {actors} actors"
+            );
+            assert!(allocated < exact_size_bytes as u64 / 16);
+            assert_eq!(uploaded, exact_size_bytes);
+        }
+    }
+
+    #[test]
+    fn motion_transform_bytes_keep_their_order_through_growth_and_empty_inputs() {
+        use crate::motion_blur::actor_history::MotionInstance;
+        use bevy::math::{Mat4, Vec3};
+
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let mut instances = MotionBuffer::new(&device, size_of::<MotionInstance>());
+        let mut bones = MotionBuffer::new(&device, render_model::ACTOR_BONE_MATRIX_BYTES);
+        let mut instance_gpu = vec![0; instances.buffer.size() as usize];
+        let mut bone_gpu = vec![0; bones.buffer.size() as usize];
+        for (frame, count) in [1, 2, 3, 4, 2, 0, 3, 8, 1, 0].into_iter().enumerate() {
+            let records = (0..count)
+                .rev()
+                .map(|actor| MotionInstance {
+                    current_clip_from_actor: Mat4::from_translation(Vec3::new(
+                        actor as f32,
+                        frame as f32,
+                        1.0,
+                    )),
+                    previous_clip_from_actor: Mat4::from_translation(Vec3::new(
+                        actor as f32,
+                        frame as f32 - 1.0,
+                        2.0,
+                    )),
+                    pose: [actor, 1, 0, 0],
+                })
+                .collect::<Vec<_>>();
+            let matrices = (0..count)
+                .map(|bone| [[bone as f32, frame as f32, 3.0, 4.0]; 3])
+                .collect::<Vec<_>>();
+            for (buffer, bytes, gpu) in [
+                (
+                    &mut instances,
+                    bytemuck::cast_slice(&records),
+                    &mut instance_gpu,
+                ),
+                (&mut bones, bytemuck::cast_slice(&matrices), &mut bone_gpu),
+            ] {
+                let previous = buffer.buffer.clone();
+                let previous_size = previous.size();
+                let resized = buffer.upload(&device, bytes, |target, source| {
+                    if target.id() != previous.id() {
+                        *gpu = vec![0; target.size() as usize];
+                    }
+                    gpu[..source.len()].copy_from_slice(source);
+                });
+                assert_eq!(resized, buffer.buffer.id() != previous.id());
+                assert_eq!(previous.size(), previous_size);
+                assert_eq!(&gpu[..bytes.len()], bytes);
+                assert!(!buffer.upload(&device, bytes, |_, _| panic!("repeated upload")));
+            }
+        }
+    }
+
+    #[test]
+    fn geometric_growth_respects_both_device_limits_without_truncating_payloads() {
+        for (buffer_limit, binding_limit) in [(1024, 768), (768, 1024)] {
+            let (device, _) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+                required_limits: wgpu::Limits {
+                    max_buffer_size: buffer_limit,
+                    max_storage_buffer_binding_size: binding_limit,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+            let device = RenderDevice::from(device);
+            let mut buffer = MotionBuffer::new(&device, 512);
+            let bytes = vec![1; 576];
+            assert!(buffer.upload(&device, &bytes, |_, source| assert_eq!(source, bytes)));
+            assert_eq!(buffer.buffer.size(), buffer_limit.min(binding_limit));
+            let identity = buffer.buffer.id();
+            let bytes = vec![2; buffer.buffer.size() as usize];
+            assert!(!buffer.upload(&device, &bytes, |_, source| assert_eq!(source, bytes)));
+            assert_eq!(buffer.buffer.id(), identity);
+        }
+    }
+
+    #[test]
+    fn empty_motion_storage_is_nonempty_and_does_not_upload() {
+        let (device, _) = wgpu::Device::noop(&Default::default());
+        let device = RenderDevice::from(device);
+        let mut buffer = MotionBuffer::new(&device, 0);
+        assert!(buffer.buffer.size() > 0);
+        assert!(!buffer.upload(&device, &[], |_, _| panic!("empty upload")));
+    }
+
+    #[test]
+    fn capacity_handles_rounding_overflow() {
+        assert_eq!(capacity((1 << 63) + 1, u64::MAX), u64::MAX);
+    }
+
+    #[test]
+    #[should_panic(expected = "actor motion history exceeds the storage binding limit")]
+    fn oversized_motion_history_is_rejected_without_truncation() {
+        capacity(1025, 1024);
+    }
 
     #[test]
     fn repeated_motion_contents_stage_no_bytes_or_allocations() {

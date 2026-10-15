@@ -415,6 +415,28 @@ fn idless_note_block_entity_nbt(position: [i32; 3], note: u8, powered: u8, marke
     bytes
 }
 
+/// Reads the pinned registry once for visual fixtures and their event identities.
+fn block_entity_visual_registry() -> &'static [assets::RegistryRecord] {
+    static RECORDS: std::sync::OnceLock<Box<[assets::RegistryRecord]>> = std::sync::OnceLock::new();
+    RECORDS.get_or_init(|| {
+        assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .expect("decode pinned block-entity visual registry")
+    })
+}
+
+/// Selects a real state for a named block used in a visual event.
+fn block_entity_runtime_id(name: &str) -> u32 {
+    block_entity_visual_registry()
+        .iter()
+        .find(|record| record.name.as_ref() == name)
+        .expect("visual fixture block exists in the pinned registry")
+        .sequential_id
+}
+
+/// Gives synthetic cube artwork the pinned registry's state and hash identities.
 fn block_entity_visual_assets() -> RuntimeAssets {
     let visual = BlockVisual {
         native_material: assets::native_material::NativeMaterialFacts::Unresolved,
@@ -428,10 +450,22 @@ fn block_entity_visual_assets() -> RuntimeAssets {
         variant: 0,
         destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
     };
+    let records = block_entity_visual_registry();
+    let count = records
+        .iter()
+        .map(|record| record.sequential_id)
+        .max()
+        .unwrap() as usize
+        + 1;
+    let mut hashed = records
+        .iter()
+        .map(|record| (record.network_hash, record.sequential_id))
+        .collect::<Vec<_>>();
+    hashed.sort_unstable();
     let compiled = CompiledAssets {
-        visuals: vec![visual; 15_692].into_boxed_slice(),
-        light_properties: vec![assets::LightProperties::default(); 15_692].into_boxed_slice(),
-        hashed: Box::new([]),
+        visuals: vec![visual; count].into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); count].into_boxed_slice(),
+        hashed: hashed.into_boxed_slice(),
         materials: vec![Material {
             texture: TextureRef::DIAGNOSTIC,
             flags: 0,
@@ -456,12 +490,7 @@ fn block_entity_visual_assets() -> RuntimeAssets {
         })]
         .into_boxed_slice(),
         biomes: CompiledBiomeAssets::diagnostic(),
-        provenance: assets::BlobProvenance {
-            source_manifest_sha256: [0xA5; 32],
-            block_registry_sha256: [0x5A; 32],
-            light_registry_sha256: [0x33; 32],
-            biome_registry_sha256: [0x3C; 32],
-        },
+        provenance: *assets::pinned_world_provenance(),
     };
     RuntimeAssets::decode(&encode_blob(&compiled).unwrap()).unwrap()
 }
@@ -480,7 +509,7 @@ fn block_entity_visual_stream_for_player(local_player_unique_id: i64) -> WorldSt
             local_player_runtime_id: 1,
             player_position: [0.0; 3],
             world_spawn_position: [0; 3],
-            air_network_id: 0,
+            air_network_id: block_entity_runtime_id("minecraft:air"),
             block_network_ids_are_hashes: false,
         },
         Arc::new(block_entity_visual_assets()),
@@ -1007,6 +1036,7 @@ mod lenient_decode;
 mod local_abilities;
 mod near_drawn;
 mod prediction;
+mod remote_motion_replay;
 mod render_distance;
 mod service;
 mod streaming_harness;

@@ -6,6 +6,27 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 
+/// Installs the reviewed item facts beside a fixture's selected world carrier.
+pub fn write_pinned_item_facts(world_asset_path: &std::path::Path) {
+    let facts = crate::facts::ItemFacts::builtin().unwrap();
+    let bytes = crate::facts::encode_item_facts(facts.payload().clone()).unwrap();
+    std::fs::write(
+        world_asset_path.with_file_name(crate::carriers::ITEM_FACTS.output),
+        bytes,
+    )
+    .unwrap();
+}
+
+/// Installs both required content-facts carriers beside a fixture's world path.
+pub fn write_pinned_facts(world_asset_path: &std::path::Path) {
+    write_pinned_item_facts(world_asset_path);
+    std::fs::write(
+        world_asset_path.with_file_name(crate::carriers::ENTITY_FACTS.output),
+        crate::facts::entity::SOURCE_BYTES,
+    )
+    .unwrap();
+}
+
 fn manifest() -> [u8; 32] {
     super::canonical_source_manifest_sha256(super::VANILLA_SOURCE_JSON)
 }

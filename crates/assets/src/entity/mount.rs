@@ -1,7 +1,5 @@
 //! Equipment capabilities admitted independently of a mount's screen or artwork.
 
-use std::{collections::BTreeMap, sync::OnceLock};
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -9,7 +7,7 @@ use super::{EntityAssetKind, EntityAssetSource, EntityAssetSymbol, invalid};
 use crate::AssetError;
 
 pub const MOUNT_EQUIPMENT_SOURCE_PATH: &str = "registry/mount-equipment.json";
-pub const MOUNT_EQUIPMENT_SOURCE_BYTES: &[u8] = include_bytes!("../../data/mount-equipment.json");
+pub const MOUNT_EQUIPMENT_SOURCE_BYTES: &[u8] = crate::facts::entity::SOURCE_BYTES;
 
 /// The admitted kind of equipment worn in the body slot.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -71,29 +69,11 @@ impl MountEquipment {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Catalog {
-    version: u32,
-    equipment: BTreeMap<Box<str>, MountEquipment>,
-}
-
-/// Reads the embedded compatibility catalog once during asset or actor admission.
+/// Resolves compiled equipment cells during asset or actor admission.
 pub fn builtin_mount_equipment(identifier: &str) -> MountEquipment {
-    static CATALOG: OnceLock<Catalog> = OnceLock::new();
-    let catalog = CATALOG.get_or_init(|| {
-        serde_json::from_slice(MOUNT_EQUIPMENT_SOURCE_BYTES)
-            .expect("embedded mount equipment catalog is valid")
-    });
-    assert_eq!(
-        catalog.version, 1,
-        "unsupported embedded mount equipment catalog"
-    );
-    catalog
-        .equipment
+    crate::facts::entity::EntityFacts::pinned()
         .get(identifier)
-        .copied()
-        .unwrap_or_default()
+        .equipment
 }
 
 /// Rejects unsupported assignments and facts without their exact source identity.

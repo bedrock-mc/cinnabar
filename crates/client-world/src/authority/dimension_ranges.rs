@@ -17,6 +17,10 @@ impl WorldAuthority {
     }
 
     /// Retains the first valid named definition, preserving dimensions already in use.
+    #[expect(
+        clippy::print_stderr,
+        reason = "DIMENSION_RANGE_SKIPPED is a stderr marker line read during live session runs"
+    )]
     pub fn apply_dimension_heights(&mut self, heights: &[DimensionHeightDiagnostic]) {
         for height in heights {
             let name_already_defined = self
@@ -61,15 +65,10 @@ impl WorldAuthority {
 }
 
 fn definition_dimension(height: &DimensionHeightDiagnostic) -> Option<i32> {
-    match height.name.as_ref() {
-        "minecraft:overworld" => Some(0),
-        "minecraft:nether" => Some(1),
-        "minecraft:the_end" => Some(2),
-        name if !name.is_empty() && (1000..=i32::from(u16::MAX)).contains(&height.dimension) => {
-            Some(height.dimension)
-        }
-        _ => None,
-    }
+    assets::facts::dimension_id(&height.name).or_else(|| {
+        (!height.name.is_empty() && (1000..=i32::from(u16::MAX)).contains(&height.dimension))
+            .then_some(height.dimension)
+    })
 }
 
 fn definition_range(height: &DimensionHeightDiagnostic) -> Option<DimensionRange> {

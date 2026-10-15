@@ -8,7 +8,7 @@ use super::{
         load_atmosphere_assets, load_entity_assets, load_font_assets, load_material_keys,
         load_vanilla_entity_refs,
     },
-    world_provenance,
+    require_entity_facts, world_provenance,
 };
 use crate::RuntimeAssets;
 use serde::Deserialize;
@@ -55,12 +55,12 @@ pub fn load_runtime_assets(selection: AssetSelection) -> Result<LoadedAssets, As
     load_runtime_assets_observed(selection, &())
 }
 
-/// [`load_runtime_assets`], loading its four carriers in parallel through `observer`.
-/// Errors keep the serial order: world, atmosphere, entity, then font.
+/// Loads the required facts and artwork carriers, preserving world error priority.
 pub fn load_runtime_assets_observed(
     selection: AssetSelection,
     observer: &impl CarrierLoadObserver,
 ) -> Result<LoadedAssets, AssetStartupError> {
+    let item_facts = observer.observe("item-facts", || super::require_item_facts(&selection.path));
     let source: VanillaSource = serde_json::from_str(VANILLA_SOURCE_JSON)?;
     let path = selection.path.as_path();
     let (world, atmosphere, entities, fonts) = std::thread::scope(|scope| {
@@ -71,22 +71,29 @@ pub fn load_runtime_assets_observed(
         let world = observer.observe("world", || load_world_carrier(path));
         (world, join(atmosphere), join(entities), join(fonts))
     });
-    let Some(world) = world? else {
+    let world = world?;
+    // Preserve the existing required-carrier error order before checking the facts sibling.
+    let atmosphere = atmosphere?;
+    let entities = entities?;
+    observer.observe("entity facts", || require_entity_facts(path))?;
+    let Some(world) = world else {
         return Ok(diagnostic_assets(
             selection,
             source,
-            atmosphere?,
-            entities?,
+            atmosphere,
+            entities,
             fonts?,
+            item_facts?,
         ));
     };
     let metrics = runtime_metrics(&world.runtime, source, world.blob_sha256);
     Ok(LoadedAssets {
         runtime: world.runtime,
+        item_facts: item_facts?,
         material_keys: world.material_keys,
         vanilla_entity_refs: world.vanilla_entity_refs,
-        atmosphere: atmosphere?,
-        entities: entities?,
+        atmosphere,
+        entities,
         fonts: fonts?,
         metrics,
         selected_path: selection.path,
@@ -189,6 +196,7 @@ fn diagnostic_assets(
     atmosphere: LoadedAtmosphereAssets,
     entities: LoadedEntityAssets,
     fonts: LoadedFontAssets,
+    item_facts: Arc<crate::facts::ItemFacts>,
 ) -> LoadedAssets {
     let runtime = Arc::new(RuntimeAssets::diagnostic());
     let metrics = runtime_metrics(&runtime, source, "diagnostic".to_owned());
@@ -200,6 +208,7 @@ fn diagnostic_assets(
     );
     LoadedAssets {
         runtime,
+        item_facts,
         material_keys: None,
         vanilla_entity_refs: None,
         atmosphere,
@@ -236,5 +245,57 @@ fn runtime_metrics(
         animation_count: u32::try_from(runtime.animations().len()).unwrap_or(u32::MAX),
         animation_frame_count: u32::try_from(runtime.animation_frames().len()).unwrap_or(u32::MAX),
         missing_mapping_count: runtime.missing_count(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::carriers::startup::test_carriers::{
+        synthetic_atmosphere_blob, synthetic_entity_blob, write_pinned_facts,
+    };
+
+    #[derive(Default)]
+    struct Loads(std::sync::Mutex<Vec<&'static str>>);
+
+    impl CarrierLoadObserver for Loads {
+        /// Records each carrier load without reading the clock.
+        fn observe<T>(&self, carrier: &'static str, load: impl FnOnce() -> T) -> T {
+            self.0.lock().unwrap().push(carrier);
+            load()
+        }
+    }
+
+    #[test]
+    fn diagnostic_startup_loads_every_required_sibling_once() {
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join(crate::carriers::WORLD.output);
+        write_pinned_facts(&world);
+        std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
+        std::fs::write(entity_asset_path(&world), synthetic_entity_blob(0)).unwrap();
+        let observer = Loads::default();
+        let loaded = load_runtime_assets_observed(
+            super::super::select_asset_path(Some(&world), None),
+            &observer,
+        )
+        .unwrap();
+        assert_eq!(loaded.kind, LoadedAssetKind::Diagnostic);
+        assert!(Arc::ptr_eq(
+            &loaded.item_facts,
+            crate::facts::ItemFacts::builtin().unwrap(),
+        ));
+        let mut loads = observer.0.into_inner().unwrap();
+        loads.sort_unstable();
+        assert_eq!(
+            loads,
+            [
+                "atmosphere",
+                "entity",
+                "entity facts",
+                "font",
+                "item-facts",
+                "world"
+            ]
+        );
     }
 }

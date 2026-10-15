@@ -30,7 +30,7 @@ fn ticks(identifier: &str, conditions: DestroyConditions) -> Option<u32> {
 
 fn grounded(tool: Option<&str>) -> DestroyConditions {
     DestroyConditions {
-        tool: tool.map(|identifier| HeldTool::from_identifier(identifier).expect("tool")),
+        tool: tool.map(|identifier| held_tool(identifier).expect("tool")),
         on_ground: true,
         ..DestroyConditions::default()
     }
@@ -178,21 +178,21 @@ fn zero_hardness_is_instant_and_negative_is_indestructible() {
 }
 
 #[test]
-fn only_vanilla_tool_identifiers_classify() {
+fn pinned_tool_traits_and_tiers_classify() {
     assert_eq!(
-        HeldTool::from_identifier("minecraft:golden_hoe"),
+        held_tool("minecraft:golden_hoe"),
         Some(HeldTool {
             kind: ToolKind::Hoe,
-            tier: Some(ToolTier::Gold)
+            tier: Some(assets::facts::ItemTier::Gold)
         })
     );
     for identifier in [
         "minecraft:stick",
-        "minecraft:iron_shears",
-        "custom:iron_pickaxe",
         "minecraft:iron_ingot",
+        "minecraft:mace",
+        "minecraft:iron_spear",
     ] {
-        assert_eq!(HeldTool::from_identifier(identifier), None, "{identifier}");
+        assert_eq!(held_tool(identifier), None, "{identifier}");
     }
 }
 
@@ -253,7 +253,7 @@ fn rows_without_tool_evidence_take_the_slowest_rate_for_every_tool() {
         let slowest = 1.0 / info.hardness / 100.0;
         for tool in EVERY_TOOL {
             let conditions = DestroyConditions {
-                tool: HeldTool::from_identifier(tool),
+                tool: held_tool(tool),
                 on_ground: true,
                 ..DestroyConditions::default()
             };
@@ -329,4 +329,13 @@ fn unresolved_destroy_facts_never_predict_completion() {
         destroy_progress_per_tick(&indestructible, &DestroyConditions::default()),
         None
     );
+}
+
+/// Resolves fixture tools from the real pinned item carrier.
+fn held_tool(identifier: &str) -> Option<HeldTool> {
+    HeldTool::from_facts(
+        assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)?,
+    )
 }

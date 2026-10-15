@@ -1,22 +1,20 @@
 use super::*;
+use protocol_ids::{ActorDataKey, HorseFlag};
 
-pub(super) const KEY_FLAGS: u32 = 16;
-const FLAG_GRAZING: u32 = 5;
-const FLAG_MOUTH_OPEN: u32 = 7;
 const TAIL_CHANCE: u64 = 200;
 const TAIL_END: u8 = 8;
 
 fn flag(actor: &dyn AnimatedActor, bit: u32) -> bool {
-    matches!(actor.metadata().get(&KEY_FLAGS), Some(ActorMetadataValue::Long(flags))
+    matches!(actor.metadata().get(&ActorDataKey::HorseFlags.wire_value()), Some(ActorMetadataValue::Long(flags))
         if (*flags as u64) & (1_u64 << bit) != 0)
 }
 
 pub(super) fn is_grazing(actor: &dyn AnimatedActor) -> bool {
-    flag(actor, FLAG_GRAZING)
+    flag(actor, HorseFlag::Grazing.wire_value())
 }
 
 pub(super) fn mouth_open(actor: &dyn AnimatedActor) -> bool {
-    flag(actor, FLAG_MOUTH_OPEN)
+    flag(actor, HorseFlag::MouthOpen.wire_value())
 }
 
 /// Horse animation state survives geometry and controller changes within an actor lifetime.
@@ -136,19 +134,21 @@ mod tests {
     fn grazing_and_mouth_read_the_horse_word_without_float_conversion() {
         let mut actor = super::super::tests::actor_with_metadata(HashMap::new());
         actor.metadata.insert(
-            KEY_FLAGS,
-            ActorMetadataValue::Long((1 << 60) | (1 << FLAG_GRAZING)),
+            ActorDataKey::HorseFlags.wire_value(),
+            ActorMetadataValue::Long((1 << 60) | (1 << HorseFlag::Grazing.wire_value())),
         );
         assert!(is_grazing(&actor));
         assert!(!mouth_open(&actor));
-        actor
-            .metadata
-            .insert(KEY_FLAGS, ActorMetadataValue::Long(1 << FLAG_MOUTH_OPEN));
+        actor.metadata.insert(
+            ActorDataKey::HorseFlags.wire_value(),
+            ActorMetadataValue::Long(1 << HorseFlag::MouthOpen.wire_value()),
+        );
         assert!(mouth_open(&actor));
         assert!(!is_grazing(&actor));
-        actor
-            .metadata
-            .insert(KEY_FLAGS, ActorMetadataValue::Float(f32::NAN));
+        actor.metadata.insert(
+            ActorDataKey::HorseFlags.wire_value(),
+            ActorMetadataValue::Float(f32::NAN),
+        );
         assert!(!mouth_open(&actor));
         assert!(!is_grazing(&actor));
     }

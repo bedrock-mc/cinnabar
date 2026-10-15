@@ -25,7 +25,7 @@ fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget 
             assets::compiled::block_destroy::builtin_destroy_facts(block),
         ),
         conditions: DestroyConditions {
-            tool: tool.and_then(HeldTool::from_identifier),
+            tool: tool.and_then(held_tool),
             ..DestroyConditions::default()
         },
         selection: FrozenMiningSelection {
@@ -331,7 +331,7 @@ fn server_destroys_of_blocks_with_hardness_predict_tool_wear() {
     // A one-tick break of a block with hardness still wears.
     let leaves = DestroyTarget {
         conditions: DestroyConditions {
-            tool: HeldTool::from_identifier("minecraft:golden_hoe"),
+            tool: held_tool("minecraft:golden_hoe"),
             ..DestroyConditions::default()
         },
         ..worn("minecraft:oak_leaves")
@@ -519,12 +519,63 @@ fn unbreaking_suppresses_damage_by_the_reference_chance() {
 }
 
 #[test]
-fn swords_and_the_trident_cannot_destroy_in_creative() {
-    assert!(!destroys_in_creative(Some("minecraft:diamond_sword")));
-    assert!(!destroys_in_creative(Some("minecraft:trident")));
-    assert!(destroys_in_creative(Some("minecraft:diamond_pickaxe")));
-    assert!(destroys_in_creative(Some("minecraft:stick")));
-    assert!(destroys_in_creative(None));
+fn creative_no_break_tags_include_mace() {
+    let pinned = assets::facts::ItemFacts::builtin().unwrap();
+    for identifier in [
+        "minecraft:diamond_sword",
+        "minecraft:trident",
+        "minecraft:mace",
+    ] {
+        assert!(
+            !destroys_in_creative(pinned.by_identifier(identifier).unwrap()),
+            "{identifier}"
+        );
+    }
+    for identifier in ["minecraft:diamond_pickaxe", "minecraft:stick"] {
+        assert!(
+            destroys_in_creative(pinned.by_identifier(identifier).unwrap()),
+            "{identifier}"
+        );
+    }
+    assert!(destroys_in_creative(&assets::facts::ItemFact::default()));
+}
+
+#[test]
+fn tagged_session_tool_uses_its_admitted_tier_after_id_remapping() {
+    let pinned = assets::facts::ItemFacts::builtin().unwrap();
+    let mut entry = protocol::vanilla_item_registry()
+        .iter()
+        .find(|entry| entry.identifier.as_ref() == "minecraft:netherite_pickaxe")
+        .unwrap()
+        .clone();
+    let original = pinned.by_identifier(&entry.identifier).unwrap();
+    entry.item_tags = pinned
+        .payload()
+        .tags
+        .iter()
+        .filter(|tag| original.tags.contains(pinned.tag(&tag.name).unwrap()))
+        .map(|tag| std::sync::Arc::from(tag.name.as_ref()))
+        .collect::<Vec<_>>()
+        .into();
+    entry.identifier = format!("fixture:{}", entry.network_id).into();
+    entry.network_id = -entry.network_id;
+    entry.component_based = true;
+    entry.version = protocol::ItemRegistryVersion::DataDriven;
+    entry.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+    let session = inventory::SessionItemFacts::from_registry(
+        pinned,
+        &protocol::ItemRegistryEvent {
+            entries: vec![entry.clone()].into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        HeldTool::from_facts(session.get(entry.network_id)),
+        Some(HeldTool {
+            kind: assets::compiled::block_destroy::ToolKind::Pickaxe,
+            tier: Some(assets::facts::ItemTier::Netherite),
+        })
+    );
 }
 
 pub(crate) use crate::test_support::survival_mining::{completed, evidence, ticker_with_ticks};
@@ -915,4 +966,13 @@ fn missing_world_destroy_facts_do_not_inherit_name_based_prediction() {
         .resolve(assets::NetworkIdMode::Sequential, 0)
         .destroy();
     assert_eq!(sim::BlockDestroyInfo::from_facts(facts), None);
+}
+
+/// Resolves fixture tools from the real pinned item carrier.
+fn held_tool(identifier: &str) -> Option<HeldTool> {
+    HeldTool::from_facts(
+        assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)?,
+    )
 }

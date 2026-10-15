@@ -1,6 +1,9 @@
 use protocol::ActorInterpolation;
 
-use super::{ACTOR_INTERPOLATION_TICKS, ActorPose, ActorSnapshot};
+use super::{ACTOR_INTERPOLATION_TICKS, ActorPose, ActorSnapshot, PoseYOrigin};
+
+/// Distance below a block surface that grounded interpolation lifts onto it.
+const GROUND_SURFACE_TOLERANCE: f32 = 0.01;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct QueuedInterpolation {
@@ -10,6 +13,7 @@ struct QueuedInterpolation {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct MovementInterpolation {
+    pub(super) current_y_origin: PoseYOrigin,
     last_received: Option<ActorPose>,
     must_complete: bool,
     queued: Option<QueuedInterpolation>,
@@ -71,14 +75,15 @@ impl ActorSnapshot {
         }
     }
 
-    pub(super) fn shift_interpolation_targets_y(&mut self, delta: f32) {
+    /// Rebases buffered movement targets through their retained coordinate origins.
+    pub(super) fn shift_interpolation_targets_y(&mut self, network_delta: f32, spawn_delta: f32) {
         let state = &mut self.status.movement_interpolation;
         for pose in state
             .last_received
             .iter_mut()
             .chain(state.queued.iter_mut().map(|queued| &mut queued.pose))
         {
-            pose.position[1] += delta;
+            pose.shift_y(network_delta, spawn_delta);
         }
     }
 
@@ -90,14 +95,16 @@ impl ActorSnapshot {
             remaining: self.interpolation_ticks_remaining,
             interpolation: self.status.movement_interpolation,
             dying_dragon: self.is_dying_dragon(),
+            ground_offset: (self.on_ground == Some(true) && !self.is_minecart())
+                .then(|| self.network_position_offset()),
         }
     }
 
     pub(super) fn apply_motion_state(&mut self, state: MotionState) {
-        self.set_current_pose(state.pose);
         self.received_pose = state.received;
         self.interpolation_ticks_remaining = state.remaining;
         self.status.movement_interpolation = state.interpolation;
+        self.set_current_pose(state.pose);
     }
 }
 
@@ -109,6 +116,8 @@ pub(super) struct MotionState {
     pub(super) remaining: u32,
     interpolation: MovementInterpolation,
     dying_dragon: bool,
+    /// Native origin offset of a grounded non-minecart, whose lerp lifts onto block surfaces.
+    ground_offset: Option<f32>,
 }
 
 impl MotionState {
@@ -124,6 +133,7 @@ impl MotionState {
         if self.remaining > 1 {
             let fraction = 1.0 / self.remaining as f32;
             let target = self.received;
+            next.y_origin = current.y_origin.interpolate(target.y_origin, fraction);
             next.position = std::array::from_fn(|axis| {
                 current.position[axis] + (target.position[axis] - current.position[axis]) * fraction
             });
@@ -132,6 +142,24 @@ impl MotionState {
         self.remaining = self.remaining.saturating_sub(1);
         self.pose = next;
         self.advance_queue();
+        self.lift_onto_surface();
+    }
+
+    /// While any counter runs, a grounded native origin within 0.01 below a block surface
+    /// rises onto it.
+    fn lift_onto_surface(&mut self) {
+        let Some(offset) = self.ground_offset else {
+            return;
+        };
+        let state = self.interpolation;
+        if self.remaining == 0 && state.rotation_ticks == 0 && state.head_ticks == 0 {
+            return;
+        }
+        let native = self.pose.position[1] + offset;
+        let surface = (native + GROUND_SURFACE_TOLERANCE).floor();
+        if surface != native.floor() {
+            self.pose.position[1] = surface - offset;
+        }
     }
 
     fn interpolate_rotation(&self, current: ActorPose, next: &mut ActorPose) {

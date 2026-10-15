@@ -8,6 +8,44 @@ use protocol::{
 use super::*;
 use crate::ui_runtime::presentation::{inventory_tooltip, publish::capture_hud_frame};
 
+#[test]
+fn enchantment_names_resolve_complete_keys_and_level_fallbacks() {
+    let entries = [
+        ("enchantment.damage.all", "Sharpness"),
+        ("enchantment.fire", "Fire Aspect"),
+        ("enchantment.level.2", "II"),
+    ]
+    .map(|(key, value)| assets::LangEntry {
+        key: key.into(),
+        value: value.into(),
+    });
+    let bytes = assets::encode_lang_catalog([9; 32], [10; 32], &entries).unwrap();
+    let mut runtime = UiRuntime::new(1);
+    runtime.set_lang_catalog(Arc::new(
+        assets::RuntimeLangCatalog::decode(&bytes).unwrap(),
+    ));
+    assert_eq!(
+        inventory_tooltip::enchantment_name(
+            &runtime,
+            i16::from(protocol_ids::Enchantment::Fireaspect.wire_value()),
+            2,
+        ),
+        "Fire Aspect II",
+    );
+    assert_eq!(
+        inventory_tooltip::enchantment_name(
+            &runtime,
+            i16::from(protocol_ids::Enchantment::Sharpness.wire_value()),
+            3,
+        ),
+        "Sharpness 3",
+    );
+    assert_eq!(
+        inventory_tooltip::enchantment_name(&runtime, -1, 2),
+        "Enchantment -1 II",
+    );
+}
+
 fn sword(name: Option<&str>) -> NetworkItemStack {
     let mut extra = (-1_i16).to_le_bytes().to_vec();
     extra.extend([1, 10, 0, 0]); // Version and unnamed fixed little-endian NBT root.

@@ -4,6 +4,10 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread::JoinHandle,
     time::SystemTime,
 };
@@ -63,6 +67,12 @@ enum Command {
         entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
     },
+    ResolveFresh {
+        world: WorldKey,
+        entry: u64,
+        from: NamespaceKey,
+        since: u64,
+    },
     ResolveWrite {
         world: WorldKey,
         entry: u64,
@@ -77,6 +87,7 @@ pub struct DiskCache {
     tx: Option<Sender<Command>>,
     rx: Receiver<DiskEvent>,
     thread: Option<JoinHandle<()>>,
+    observed_version: Arc<AtomicU64>,
 }
 
 impl DiskCache {
@@ -85,6 +96,8 @@ impl DiskCache {
     pub fn spawn(root: PathBuf, bounds: DiskBounds) -> Option<Self> {
         let (tx, commands) = unbounded();
         let (events, rx) = unbounded();
+        let observed_version = Arc::new(AtomicU64::new(0));
+        let worker_version = Arc::clone(&observed_version);
         let thread = std::thread::Builder::new()
             .name("far-terrain-io".into())
             .spawn(move || {
@@ -95,6 +108,7 @@ impl DiskCache {
                     events,
                     claimed: HashSet::new(),
                     visits: HashMap::new(),
+                    observed_version: worker_version,
                 };
                 for command in commands {
                     worker.run(command);
@@ -105,6 +119,7 @@ impl DiskCache {
             tx: Some(tx),
             rx,
             thread: Some(thread),
+            observed_version,
         })
     }
 
@@ -135,6 +150,18 @@ impl DiskCache {
         });
     }
 
+    /// Gives visit `entry` to `world` a new epoch of its own, as when its cached columns turned
+    /// out to be another map's, and moves the columns that visit already wrote to `from`
+    /// (versions from `since` on) there.
+    pub fn resolve_fresh(&self, world: WorldKey, entry: u64, from: NamespaceKey, since: u64) {
+        self.send(Command::ResolveFresh {
+            world,
+            entry,
+            from,
+            since,
+        });
+    }
+
     /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
     /// first if no earlier request of that visit did, for a world left before it resolved.
     pub fn resolve_and_write(
@@ -155,6 +182,11 @@ impl DiskCache {
     /// Events finished so far.
     pub fn events(&self) -> impl Iterator<Item = DiskEvent> + '_ {
         self.rx.try_iter()
+    }
+
+    /// Highest version read by the worker, including events the owner has not consumed yet.
+    pub(crate) fn observed_version(&self) -> u64 {
+        self.observed_version.load(Ordering::Relaxed)
     }
 
     /// Blocks until every earlier command has finished.
@@ -205,6 +237,7 @@ struct Worker {
     claimed: HashSet<NamespaceKey>,
     /// The epoch each world visit resolved to, so every later write of that visit lands in it.
     visits: HashMap<(WorldKey, u64), u32>,
+    observed_version: Arc<AtomicU64>,
 }
 
 impl Worker {
@@ -227,6 +260,12 @@ impl Worker {
             }
             Command::Load { namespace, region } => {
                 let columns = self.load(namespace, region);
+                let highest = columns
+                    .iter()
+                    .map(|(_, column)| column.version)
+                    .max()
+                    .unwrap_or(0);
+                self.observed_version.fetch_max(highest, Ordering::Relaxed);
                 let _ = self.events.send(DiskEvent::Loaded {
                     namespace,
                     region,
@@ -239,6 +278,22 @@ impl Worker {
                 probes,
             } => {
                 let epoch = self.resolve_entry(world, entry, &probes);
+                let _ = self.events.send(DiskEvent::Resolved {
+                    world,
+                    entry,
+                    epoch,
+                });
+            }
+            Command::ResolveFresh {
+                world,
+                entry,
+                from,
+                since,
+            } => {
+                let epoch = self.fresh_epoch(world);
+                self.claim(world.namespace(epoch));
+                self.visits.insert((world, entry), epoch);
+                self.move_newer(from, world.namespace(epoch), since);
                 let _ = self.events.send(DiskEvent::Resolved {
                     world,
                     entry,
@@ -344,8 +399,8 @@ impl Worker {
         epoch
     }
 
-    /// The epoch whose cached columns match `probes`, else the newest when it holds nothing
-    /// the probes cover and no world resolved this run took it, else a new one.
+    /// Reuses an epoch only when every live probe has a matching cached column.
+    /// Missing evidence starts a fresh epoch rather than showing another map's terrain.
     fn pick_epoch(&self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
         let mut epochs: Vec<u32> = fs::read_dir(self.root.join(world.server.to_string()))
             .into_iter()
@@ -361,23 +416,63 @@ impl Worker {
         let Some(&newest) = epochs.first() else {
             return 0;
         };
-        // A positive match anywhere wins before an empty newest epoch is reused, so returning
-        // to an older map never writes it into the newer map's namespace.
-        let mut newest_overlaps = true;
-        for (rank, &epoch) in epochs.iter().take(WORLD_PROBE_EPOCHS).enumerate() {
+        for &epoch in epochs.iter().take(WORLD_PROBE_EPOCHS) {
             let (present, similar) = self.compare(world.namespace(epoch), probes);
-            if present > 0 && similar == present {
+            if !probes.is_empty() && present == probes.len() && similar == present {
                 return epoch;
             }
-            if rank == 0 {
-                newest_overlaps = present > 0;
+        }
+        newest + 1
+    }
+
+    /// Moves every column of `from` at version `since` or newer into `to`, so a visit that
+    /// turned out to be another map keeps what it wrote and leaves `from` as it was.
+    fn move_newer(&mut self, from: NamespaceKey, to: NamespaceKey, since: u64) {
+        let directory = self
+            .root
+            .join(from.server.to_string())
+            .join(from.directory());
+        for entry in fs::read_dir(directory).into_iter().flatten().flatten() {
+            let Some(region) = entry.file_name().to_str().and_then(RegionPos::parse) else {
+                continue;
+            };
+            let path = entry.path();
+            let Some(columns) = read_region(&path) else {
+                continue;
+            };
+            let (moved, kept): (Vec<_>, Vec<_>) = columns
+                .into_iter()
+                .partition(|(_, column)| column.version >= since);
+            if moved.is_empty() {
+                continue;
             }
+            if kept.is_empty() {
+                let _ = fs::remove_file(&path);
+                if let Some(index) = &mut self.index {
+                    index.files.remove(&path);
+                }
+            } else {
+                let bytes = encode_region(&kept);
+                if write_atomic(&path, &bytes).is_ok() {
+                    self.index().record(path, from.server, bytes.len() as u64);
+                }
+            }
+            self.write(to, region, moved);
         }
-        if newest_overlaps || self.claimed.contains(&world.namespace(newest)) {
-            newest + 1
-        } else {
-            newest
-        }
+    }
+
+    /// An epoch past every one of `world` on disk or handed out this run.
+    fn fresh_epoch(&self, world: WorldKey) -> u32 {
+        fs::read_dir(self.root.join(world.server.to_string()))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| NamespaceKey::parse(world.server, entry.file_name().to_str()?))
+            .chain(self.claimed.iter().copied())
+            .filter(|namespace| namespace.world() == world)
+            .map(|namespace| namespace.epoch + 1)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Reserves `namespace` before it is acknowledged, on disk as well as for this run.

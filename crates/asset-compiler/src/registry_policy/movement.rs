@@ -1,4 +1,4 @@
-use super::{BlockFact, Policy, RESERVED, Result, Scalar, check, projection};
+use super::{BlockFact, Policy, RESERVED_BLOCK_NAME, Result, Scalar, check, projection};
 use assets::registry::{ModelStateField, MovementSemantics, RegistryRecord};
 use assets::{BlockPhysicsFlags as Flags, BlockPhysicsRecord, SurfaceResponse};
 use serde::Deserialize;
@@ -120,7 +120,7 @@ pub(super) fn compile(
     let names: BTreeSet<&str> = records
         .iter()
         .map(|record| record.name.as_ref())
-        .filter(|name| *name != RESERVED)
+        .filter(|name| *name != RESERVED_BLOCK_NAME)
         .collect();
     let classes = classify(policy, &names)?;
     let mut counts = BTreeMap::new();
@@ -143,7 +143,7 @@ pub(super) fn compile(
             surface_response: SurfaceResponse::None,
             movement_semantics: MovementSemantics::Unresolved,
         };
-        if record.name.as_ref() == RESERVED {
+        if record.name.as_ref() == RESERVED_BLOCK_NAME {
             entry.flags = Flags::PASSABLE;
             result.push(entry);
             continue;
@@ -246,6 +246,19 @@ mod tests {
         let reviewed: String = names.iter().map(|name| format!("{name}\n")).collect();
         let owned = |list: &[&str]| list.iter().map(|name| (*name).to_owned()).collect();
         Policy {
+            runtime_identifiers: BTreeMap::new(),
+            presentation: Default::default(),
+            pack_rules: serde_json::from_slice::<Policy>(super::super::POLICY)
+                .unwrap()
+                .pack_rules,
+            placement_rules: Vec::new(),
+            entity_compatibility: Vec::new(),
+            entity_rules: Vec::new(),
+            block_rules: Vec::new(),
+            block_entity_rules: Vec::new(),
+            model_family_rules: Vec::new(),
+            item_rules: Vec::new(),
+            visual_events: Default::default(),
             twins: BTreeMap::new(),
             unresolved_retail: Vec::new(),
             movement: vec![super::super::Movement {

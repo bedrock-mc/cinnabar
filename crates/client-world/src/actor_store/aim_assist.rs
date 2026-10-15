@@ -7,42 +7,18 @@ impl ActorStore {
         &mut self,
         registry: protocol::ActorIdentifierRegistry,
     ) -> ActorApplyResult {
-        use assets::interactions::{self, EntityInteractionTraits};
         let previous_skips = self.actor_identifier_skips;
+        self.apply_entity_bases(&registry);
         self.actor_identifier_skips += registry.skipped;
-        for entry in registry.entries.iter() {
-            if interactions::builtin(&entry.identifier) != EntityInteractionTraits::Unresolved
-                || self.custom_actor_traits.contains_key(&entry.identifier)
-            {
-                continue;
-            }
-            if self.custom_actor_traits.len() == protocol::MAX_ACTOR_IDENTIFIERS {
-                self.actor_identifier_skips += 1;
-                continue;
-            }
-            let traits = if entry.base_identifier.is_empty() {
-                EntityInteractionTraits::GENERIC_MOB
-            } else {
-                self.entity_assets.as_ref().map_or_else(
-                    || interactions::builtin(&entry.base_identifier),
-                    |assets| assets.interaction_traits_for(&entry.base_identifier),
-                )
-            };
-            if traits == EntityInteractionTraits::Unresolved {
-                self.actor_identifier_skips += 1;
-            }
-            self.custom_actor_traits
-                .insert(entry.identifier.clone(), traits);
-        }
         for actor in self.actors.values_mut() {
             actor.interaction_traits = Self::resolve_actor_interactions(
                 &actor.kind,
                 self.entity_assets.as_deref(),
-                &self.custom_actor_traits,
+                &self.custom_actor_facts,
             );
         }
         if self.actor_identifier_skips != previous_skips {
-            eprintln!(
+            tracing::warn!(
                 "ignored unsupported actor identifiers (total {})",
                 self.actor_identifier_skips
             );
@@ -54,10 +30,7 @@ impl ActorStore {
     pub(super) fn resolve_actor_interactions(
         kind: &ActorKind,
         assets: Option<&assets::RuntimeEntityAssets>,
-        custom: &std::collections::HashMap<
-            std::sync::Arc<str>,
-            assets::interactions::EntityInteractionTraits,
-        >,
+        custom: &std::collections::HashMap<std::sync::Arc<str>, assets::facts::entity::EntityFact>,
     ) -> assets::interactions::EntityInteractionTraits {
         use assets::interactions::{self, EntityInteractionTraits};
         match kind {
@@ -68,9 +41,11 @@ impl ActorStore {
                     |assets| assets.interaction_traits_for(identifier),
                 );
                 match traits {
-                    EntityInteractionTraits::Unresolved => {
-                        custom.get(identifier).copied().unwrap_or_default()
-                    }
+                    EntityInteractionTraits::Unresolved => custom
+                        .get(identifier)
+                        .map_or(EntityInteractionTraits::Unresolved, |fact| {
+                            fact.interactions
+                        }),
                     resolved => resolved,
                 }
             }
@@ -105,7 +80,7 @@ impl ActorStore {
                 | protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Unknown)
         ) {
             self.player_game_mode_skips += 1;
-            eprintln!(
+            tracing::warn!(
                 "ignored unsupported player game mode (total {})",
                 self.player_game_mode_skips
             );
@@ -203,36 +178,36 @@ mod tests {
         }
         assert_eq!(
             store
-                .custom_actor_traits
+                .custom_actor_facts
                 .get("custom:arrow")
-                .and_then(|traits| traits.aim_assist()),
+                .and_then(|fact| fact.interactions.aim_assist()),
             Some(false)
         );
         assert_eq!(
             store
-                .custom_actor_traits
+                .custom_actor_facts
                 .get("custom:mob")
-                .and_then(|traits| traits.aim_assist()),
+                .and_then(|fact| fact.interactions.aim_assist()),
             Some(true)
         );
         assert_eq!(
             store
-                .custom_actor_traits
+                .custom_actor_facts
                 .get("custom:unknown")
-                .and_then(|traits| traits.aim_assist()),
+                .and_then(|fact| fact.interactions.aim_assist()),
             None
         );
-        assert!(!store.custom_actor_traits.contains_key("minecraft:pig"));
+        assert!(!store.custom_actor_facts.contains_key("minecraft:pig"));
         store.reset_dimension(1, 1, 1);
         assert_eq!(
             store
-                .custom_actor_traits
+                .custom_actor_facts
                 .get("custom:arrow")
-                .and_then(|traits| traits.aim_assist()),
+                .and_then(|fact| fact.interactions.aim_assist()),
             Some(false)
         );
         store.begin_session(2, 0);
-        assert!(store.custom_actor_traits.is_empty());
+        assert!(store.custom_actor_facts.is_empty());
     }
     #[test]
     fn interaction_admission_refreshes_earlier_actors_and_preserves_first_base() {

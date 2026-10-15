@@ -1,5 +1,6 @@
 use super::*;
 use assets::{EntityAssetKind, MolangSymbol, MolangSymbolKind};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 /// The initialized pose and part-visibility fixture.
 fn compiled_assets() -> assets::CompiledEntityAssets {
@@ -184,10 +185,10 @@ fn initial_render_alternate_pose_retries_after_layer_budget_exhaustion() {
 fn first_presentation_seeds_java_posture_without_advancing_motion() {
     for (flag, sleeping, riding, spear) in [
         (None, false, false, false),
-        (Some(query::FLAG_SWIMMING), false, false, false),
-        (Some(query::FLAG_GLIDING), false, false, false),
-        (Some(query::FLAG_EMOTING), false, false, false),
-        (Some(query::FLAG_CRAWLING), false, false, false),
+        (Some(ActorFlag::Swimming.wire_value()), false, false, false),
+        (Some(ActorFlag::Gliding.wire_value()), false, false, false),
+        (Some(ActorFlag::Emoting.wire_value()), false, false, false),
+        (Some(ActorFlag::Crawling.wire_value()), false, false, false),
         (None, true, false, false),
         (None, false, true, false),
         (None, false, false, true),
@@ -206,7 +207,7 @@ fn first_presentation_seeds_java_posture_without_advancing_motion() {
             let (key, bit) = if flag < 64 {
                 (0, flag)
             } else {
-                (crate::test_actor::EXTENDED_FLAGS_METADATA_KEY, flag - 64)
+                (ActorDataKey::FlagsTwo.wire_value(), flag - 64)
             };
             actor
                 .metadata
@@ -261,9 +262,10 @@ fn first_presentation_refreshes_current_queries_after_pending_simulation_history
     actor.position = [4.0, 5.0, 6.0];
     actor.yaw = 75.0;
     actor.pitch = 30.0;
-    actor
-        .metadata
-        .insert(0, ActorMetadataValue::Flags(1 << query::FLAG_USING_ITEM));
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+    );
     store.prepare_frame(&actors, None, None, false, |_| ActorTickContext {
         is_riding: true,
         local_item_use_ticks: Some(3),

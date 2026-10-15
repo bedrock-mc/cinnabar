@@ -40,7 +40,7 @@ use {
     render::{ActorRenderPlugin, AtmospherePlugin, ChunkRenderPlugin, UiRenderPlugin},
     render_scene::{
         ActorRenderScene, AtmosphereFrame, AtmosphereTextureAssets, ChunkRenderApplySet,
-        ChunkTextureAssets, RuntimeStageProfiler, VisibilityDiagnosticsInput,
+        ChunkTextureAssets, VisibilityDiagnosticsInput,
     },
 };
 mod logging;
@@ -144,6 +144,7 @@ const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
 
 mod authority;
 mod executor;
+mod interaction;
 pub(crate) use authority::{configure_client_authority_systems, configure_client_frame_schedule};
 
 /// Registers the production actor observation and publication boundaries.
@@ -192,7 +193,9 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     configure_client_authority_systems(app);
     configure_actor_render_systems(app);
     crate::audio::configure(app);
+    interaction::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
+        .init_resource::<crate::melee::MeleeTarget>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()
         .init_resource::<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>()
         .add_systems(
@@ -301,25 +304,6 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
             (publish_ui_runtime, drive_menu_panorama)
                 .chain()
                 .in_set(ClientFrameSet::UiPublication),
-        )
-        .add_systems(
-            Update,
-            (
-                flush_inventory_network,
-                #[cfg(feature = "acceptance")]
-                emit_movement_evidence,
-                #[cfg(not(feature = "acceptance"))]
-                crate::runtime::telemetry::discard_completed_movement_evidence,
-                produce_melee,
-                produce_survival_mining,
-                crate::item_use::produce_item_use,
-                #[cfg(feature = "tracy")]
-                crate::tracy::plot_physics_to_send,
-                send_player_auth_inputs,
-                crate::pick_block::produce_pick_block,
-            )
-                .chain()
-                .in_set(ClientFrameSet::NetworkSend),
         );
     #[cfg(feature = "tracy")]
     app.init_resource::<crate::tracy::PhysicsEnd>().add_systems(
@@ -384,6 +368,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let app = logging::startup_app();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -422,7 +407,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     // Owned before any core spawn so the direct-connect path below derives
     // the upstream client-cache advertisement from the same cache it later
     // hands to the network session.
-    let client_blob_cache = ClientBlobCacheOwner::default();
+    let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
     // Bound before the core guard is declared so Rust's reverse local-drop
     // order always stops the core before releasing this directory, including
     // every startup `?` before the app takes ownership of the guard.
@@ -446,11 +431,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
+    bevy::log::info!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
+    bevy::log::info!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -464,7 +449,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
+    bevy::log::info!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
@@ -494,6 +479,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
     let particle_assets = carriers.particles;
+    let flame_texture = particle_assets
+        .as_deref()
+        .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
+    let (actor_flames, actor_artwork) =
+        client_presentation::actor_publication::WorldActorFlames::prepare(
+            actor_artwork,
+            flame_texture,
+        );
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
         crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
@@ -529,7 +522,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .unwrap_or(Path::new(".")),
     ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
+        bevy::log::warn!("OreUI originals disabled ({reason})");
     }
     let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
@@ -537,11 +530,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
         .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation
-        .set_gui_fire_texture(
-            particle_assets
-                .as_deref()
-                .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE)),
-        )
+        .set_gui_fire_texture(flame_texture)
         .context("prepare native HUD actor flame texture frames")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
@@ -563,6 +552,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
+    if let Some(geometry) = actor_flames.geometry() {
+        actor_render_scene
+            .insert_geometry(geometry)
+            .map_err(|error| anyhow::anyhow!("prepare world actor flame geometry: {error:?}"))?;
+    }
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
@@ -570,7 +564,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    diagnostics::log_stderr!(
+    bevy::log::info!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );
@@ -635,6 +629,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::runtime::network::await_overlay_texture_device();
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
+            registry_base: crate::runtime::network::session_registries::RegistryBase::new(
+                &runtime_assets,
+                &collision_registries,
+            ),
             session_generation: simulation_clock::identity::SessionGeneration::new(1),
             socket_dir,
             display_name: args.display_name.clone(),
@@ -695,7 +693,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
-    let mut app = App::new();
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -716,7 +715,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // OS default SIGINT action also preserves a real developer escape
         // hatch if graceful Bevy teardown is wedged.
         .disable::<TerminalCtrlCHandlerPlugin>();
-    let plugins = plugins.set(logging::plugin());
+    let plugins = plugins.disable::<bevy::log::LogPlugin>();
     app.add_plugins(plugins);
     app.add_plugins(render::InputPacingPlugin::default())
         .init_resource::<crate::present_mode::DisplayRefresh>()
@@ -761,10 +760,12 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
     .insert_resource(render_scene::ActorArtworkResource(actor_artwork))
+    .insert_resource(actor_flames)
     .insert_resource(ClientWorld::new_with_entity_assets(
         Arc::clone(&runtime_assets),
         Arc::clone(&entity_runtime),
     ))
+    .init_resource::<crate::runtime::shutdown::FatalError>()
     .insert_resource(UiRuntimeResource({
         let mut ui_runtime = UiRuntime::new(0);
         ui_runtime.set_item_fuel_catalog(Arc::clone(&entity_runtime));
@@ -856,7 +857,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     });
     {
         const MAIN_FRAME: usize = render_scene::RuntimeStage::MainFrame as usize;
-        app.insert_resource(RuntimeStageProfiler::for_gameplay(
+        app.insert_resource(crate::runtime::frame_profile::profiler(
             stage_profile_enabled,
             env_compat::var_os(diagnostics::markers::STAGE_PROFILE_FRAMES)
                 .map(std::path::PathBuf::from),
@@ -968,7 +969,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
-    let exit = app.run();
+    let exit = crate::runtime::frame_profile::run(&mut app);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app

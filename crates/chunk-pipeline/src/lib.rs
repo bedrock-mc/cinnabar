@@ -1,6 +1,8 @@
 //! Bounded terrain scheduling and publication for an ordered client world.
 
 mod culling;
+#[cfg(target_arch = "wasm32")]
+pub mod jobs;
 mod stream;
 
 pub use culling::{CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet};
@@ -20,10 +22,13 @@ pub use stream::{
     RequestQueueEvidence, SUB_CHUNK_RESPONSE_TIMEOUT, ServicedStream, StageDurations,
     SubChunkOutcomeCounters, ViewCohortStatus, WORK_RESULT_CAPACITY, WorldMeshChange, WorldStream,
     WorldStreamFatalError, WorldStreamNormalizationStats, WorldStreamPoll, WorldStreamService,
-    WorldStreamStats, on_idle_world_cores, world_worker_threads,
+    WorldStreamStats, world_worker_threads,
 };
 #[cfg(feature = "publication-test-support")]
-pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
+pub use stream::{FarSummaryFixture, PublicationFixtureIdentity, PublicationFixtureSnapshot};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use stream::on_idle_world_cores;
 
 pub use stream::ResourceMeshSnapshot;
 

@@ -18,6 +18,7 @@ The create screen defaults to Dragonfly and Normal (Vanilla). Backend and genera
 both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
 Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
 A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
+Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition
@@ -64,6 +65,12 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   keep running and status reports `pause_supported: false`.
 - **Test commands:** dragonfly worlds give every player `/speed [multiplier|reset]` (vanilla fly speed and movement
   attribute ×0.1–100, sent as UpdateAbilities and UpdateAttributes), `/fly` and `/tp <x> <y> <z>`.
+  `/flyspeed <blocks/s>` sets direct motion flight for chunk-streaming tests, for example `/flyspeed 500`.
+  Use `/fly` if the current game mode does not allow flight, then double-tap jump to start flying.
+  Movement follows yaw and raw forward/strafe input; jump and sneak move vertically, and releasing input stops motion.
+  `/flyspeed off` restores the previous flight abilities; `/speed` also switches back to ability flight.
+  Direct flight has no speed multiplier cap, but motion must fit the protocol's floating-point values.
+  Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. Player-data persistence needs a stable client identity.

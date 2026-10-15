@@ -15,7 +15,7 @@ def constant_value(row, root, resolved):
         raise ValueError("bridge constants must have exactly one value source")
     if "source" in row:
         source = row["source"]
-        return json.loads((root / source["path"]).read_text())[source["field"]]
+        return json.loads((root / source["path"]).read_text(encoding="utf-8"))[source["field"]]
     if "from_constant" in row:
         return str(resolved[row["from_constant"]])
     return row["value"]
@@ -128,7 +128,7 @@ def declarations(manifest, root=ROOT):
         values = ", ".join(json.dumps(value) for value in string_list_values(row, resolved))
         go += ["", f'// {row["go_name"]}: {row["doc"]}',
                f'var {row["go_name"]} = [...]string{{{values}}}']
-    formatted = subprocess.run(["gofmt"], input="\n".join(go) + "\n", text=True,
+    formatted = subprocess.run(["gofmt"], input="\n".join(go) + "\n", encoding="utf-8",
                                capture_output=True, check=True).stdout
     return {ROOT / "crates/bridge/src/contract.rs": "\n".join(rust) + "\n",
             ROOT / "core/internal/bridgecontract/contract.go": formatted}
@@ -139,14 +139,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    manifest = json.loads((ROOT / "crates/bridge/data/contract.json").read_text())
+    manifest = json.loads((ROOT / "crates/bridge/data/contract.json").read_text(encoding="utf-8"))
     for path, content in declarations(manifest).items():
         if args.check:
-            if not path.exists() or path.read_text() != content:
+            if not path.exists() or path.read_text(encoding="utf-8") != content:
                 parser.exit(1, f"stale bridge contract: {path.relative_to(ROOT)}\n")
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

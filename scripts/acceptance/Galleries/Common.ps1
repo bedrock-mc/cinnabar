@@ -1,11 +1,14 @@
-# Reads the active registry schema and the appended byte fields gallery readers skip.
+# Reads the active registry schema and the appended fields gallery readers skip.
 function Get-GalleryRegistrySchema {
     $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../..'))
     $schema = Get-Content -LiteralPath (Join-Path $root 'crates/assets/data/registry-schema.json') -Raw | ConvertFrom-Json
     $extensionBytes = 0
     foreach ($field in @($schema.record_header | Where-Object { $_.PSObject.Properties.Name -contains 'previous_default' })) {
-        if ($field.type -cne 'u8') { throw 'unsupported registry record extension in gallery reader' }
-        $extensionBytes++
+        switch -CaseSensitive ($field.type) {
+            'u8' { $extensionBytes++ }
+            'u64' { $extensionBytes += 8 }
+            default { throw 'unsupported registry record extension in gallery reader' }
+        }
     }
     return [pscustomobject]@{ magic = [string]$schema.magic; extension_bytes = $extensionBytes }
 }

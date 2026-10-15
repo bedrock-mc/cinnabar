@@ -1,5 +1,10 @@
 //! Repeatable HUD bind/layout costs against the owner's local vanilla templates.
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports frame cost lines on stderr and explains missing local fixtures"
+)]
 
+use json_ui::vanilla::Reference;
 #[path = "it/support/frame_stats.rs"]
 mod frame_stats;
 #[path = "it/support/mod.rs"]
@@ -11,10 +16,9 @@ static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 use std::{hint::black_box, path::PathBuf, sync::Arc, time::Instant};
 
 use json_ui::{
-    BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HUD_SCREEN, HudModel,
-    LayoutEnv, ResolveCache, Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState,
-    bind_shared, bind_stateful, hud_context, hud_data_source, render_bound, render_bound_cached,
-    resolve,
+    BindState, BossBar, CachedLibrary, Catalog, CatalogLibrary, Context, HudModel, LayoutEnv,
+    ResolveCache, Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState, bind_shared,
+    bind_stateful, hud_context, hud_data_source, render_bound, render_bound_cached, resolve,
 };
 
 /// Stable font metrics keep this benchmark independent of the rasterizer and GPU.
@@ -112,7 +116,11 @@ fn run_hud_bench(name: &str, server_pack: Option<PathBuf>) {
     }
     let context = hud_context(&Context::desktop());
     let started = Instant::now();
-    let tree = Arc::new(resolve(&catalog, HUD_SCREEN, &context).control.unwrap());
+    let tree = Arc::new(
+        resolve(&catalog, Reference::HudHudScreen.as_str(), &context)
+            .control
+            .unwrap(),
+    );
     let cold_resolve = started.elapsed();
     let cache = ResolveCache::default();
     let library = CachedLibrary {

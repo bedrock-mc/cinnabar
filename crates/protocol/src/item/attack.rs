@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use super::registry_capacity::{ITEM_TAGS_FIELD, TAGS_COMPONENT, TAGS_LIST};
 use crate::nbt_tree::Nbt;
 
 /// Authored kinetic phases, measured in simulation ticks.
@@ -73,13 +74,13 @@ pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
     });
     let timing = ItemAttackTiming {
         is_spear: components
-            .list("item_tags")
+            .list(ITEM_TAGS_FIELD)
             .iter()
             .chain(
                 components
-                    .field("minecraft:tags")
+                    .field(TAGS_COMPONENT)
                     .into_iter()
-                    .flat_map(|tags| tags.list("tags")),
+                    .flat_map(|tags| tags.list(TAGS_LIST)),
             )
             .any(|tag| tag.as_str() == Some("minecraft:is_spear")),
         swing_duration_ticks,
@@ -96,6 +97,14 @@ pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn facts_migration_spear_component_tag_remains_in_the_pinned_vocabulary() {
+        assert_eq!(
+            crate::vanilla_tag_contains("minecraft:is_spear", "fixture:missing"),
+            Some(false)
+        );
+    }
 
     /// Builds original network-component trees without redistributing a game definition.
     fn component(name: &str, fields: Vec<(&str, Nbt)>) -> (String, Nbt) {

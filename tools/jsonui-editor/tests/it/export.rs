@@ -339,7 +339,13 @@ fn review_generated_child_operations_preserve_authored_modifications() {
     let layer = workspace.add_layer("base");
     workspace.add_files(
         layer,
-        vec![("ui/test.json".into(), before.as_bytes().to_vec())],
+        vec![
+            (
+                json_ui::UI_DEFS_PATH.into(),
+                br#"{"ui_defs":["ui/test.json"]}"#.to_vec(),
+            ),
+            ("ui/test.json".into(), before.as_bytes().to_vec()),
+        ],
         vec![],
     );
     workspace.edit(layer, "ui/test.json", after);

@@ -9,6 +9,8 @@ mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
+mod riptide;
+pub use riptide::RiptideLaunch;
 mod scaffolding;
 mod spectator;
 mod state;
@@ -107,8 +109,20 @@ impl Simulator {
         sneaking: bool,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
+        self.movement_environment_with_liquid_contact(position, mode, sneaking, None, world)
+    }
+
+    /// Samples pose triggers with the same preceding liquid body height used by travel.
+    pub fn movement_environment_with_liquid_contact(
+        &self,
+        position: Vec3,
+        mode: MovementMode,
+        sneaking: bool,
+        liquid_contact_height: Option<f64>,
+        world: &(impl CollisionWorld + ?Sized),
+    ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
-        let mut sampled = sample(world, position, Vec3::ZERO, height, None)?;
+        let mut sampled = sample(world, position, height, liquid_contact_height)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
             world,
@@ -143,6 +157,7 @@ impl Simulator {
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
         let output = self.advance(state, input, world)?;
+        riptide::finish(state);
         state.previous_rotation = Some(rotation);
         Ok(output)
     }
@@ -157,7 +172,9 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
-            return immobile::tick(state, input.mode, controls, world.registry_identity());
+            let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
+            riptide::launch(state, input, false);
+            return Ok(output);
         }
         let mut next = state.clone();
         next.position = next.position.rounded();
@@ -185,10 +202,25 @@ impl Simulator {
         let mut sampled = sample(
             world,
             next.position,
-            next.velocity,
-            input.mode.hitbox_height(input.sneaking),
+            next.hitbox_height(input),
             input.liquid_contact_height,
         )?;
+        let shallow_water = if input.riptide.is_some_and(RiptideLaunch::is_supported)
+            && next.on_ground
+            && sampled.movement.in_water
+        {
+            let head = water::sample_water_head(
+                world,
+                next.position,
+                input.liquid_attach_height.unwrap_or(crate::PLAYER_HEIGHT),
+            )?;
+            sampled.identity = sampled.identity.merge(&head.identity)?;
+            sampled.block_samples += 1;
+            !head.value
+        } else {
+            false
+        };
+        riptide::launch(&mut next, input, shallow_water);
         if input.mode != MovementMode::Riding
             && input
                 .liquid_flow_enabled
@@ -196,7 +228,7 @@ impl Simulator {
         {
             let contact_height = input
                 .liquid_contact_height
-                .unwrap_or_else(|| input.mode.hitbox_height(input.sneaking));
+                .unwrap_or_else(|| next.hitbox_height(input));
             let contact = crate::Aabb::player_with_height_at(next.position, contact_height);
             if let Some(current) = world.liquid_current(contact)? {
                 sampled.identity = sampled.identity.merge(&current.identity)?;
@@ -223,7 +255,7 @@ impl Simulator {
         };
         let scaffold = scaffolding::sample_contact(
             world,
-            Aabb::player_with_height_at(next.position, input.mode.hitbox_height(input.sneaking)),
+            Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
             input.sneaking,
             &mut sampled,
         )?;
@@ -231,7 +263,7 @@ impl Simulator {
         // Sneaking over supported scaffolding descends through it at a fixed speed.
         sampled.descend_through =
             input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
-        if sampled.descend_through {
+        if sampled.descend_through && !input.skip_travel {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
         }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
@@ -252,6 +284,27 @@ impl Simulator {
             } else if sampled.movement.in_water || sampled.movement.in_lava {
                 water::jump(&mut next.velocity.y);
             }
+        }
+        if input.skip_travel && input.mode != MovementMode::Riding {
+            if input.jumping
+                && !scaffold_jump
+                && !jump_suppressed
+                && sampled.movement.on_climbable
+                && !matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+            {
+                next.velocity.y = CLIMB_SPEED;
+            }
+            let jump_initiated =
+                jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
+            return travel::tick_without_travel(
+                next,
+                state,
+                input,
+                controls,
+                sampled,
+                jump_initiated,
+                world,
+            );
         }
         // Vanilla selects water travel by the previous tick's in-water flag,
         // independent of the retained swimming pose on a dry low ceiling.
@@ -304,38 +357,8 @@ impl Simulator {
         // A held jump on a climbable feet cell climbs instead: no ground jump,
         // sprint impulse, jump delay or start-jump report.
         let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
-        let jump_initiated = input.jump_pressed
-            && !scaffold_jump
-            && !climb_jump
-            && !jump_suppressed
-            && next.on_ground
-            && next.jump_delay == 0
-            && !sampled.movement.in_water
-            && !sampled.movement.in_lava;
-        if jump_initiated {
-            let honey = if sampled.honey_jump {
-                HONEY_JUMP_FACTOR
-            } else {
-                1.0
-            };
-            let boost = input
-                .effects
-                .jump_boost
-                .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
-            next.velocity.y = f64::from(
-                (next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey),
-            );
-            next.jump_delay = JUMP_DELAY_TICKS;
-            if input.sprinting {
-                let yaw = f64::from((input.yaw_degrees as f32).to_radians());
-                next.velocity.x = f64::from(
-                    next.velocity.x as f32 - minecraft_sin(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
-                );
-                next.velocity.z = f64::from(
-                    next.velocity.z as f32 + minecraft_cos(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
-                );
-            }
-        }
+        let jump_initiated =
+            jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
 
         if sampled.movement.on_climbable {
             next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
@@ -369,7 +392,7 @@ impl Simulator {
                 world,
                 next.position,
                 next.velocity,
-                input.mode.hitbox_height(input.sneaking),
+                next.hitbox_height(input),
             )?;
             let mut retained = next.velocity;
             for axis in [0, 2] {
@@ -386,7 +409,7 @@ impl Simulator {
 
         let pre_collision_velocity = next.velocity;
         next.requested_movement = pre_collision_velocity;
-        let height = input.mode.hitbox_height(input.sneaking);
+        let height = next.hitbox_height(input);
         let collision_box = next.collision_box(height);
         let motion = resolve_motion(
             &scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through),
@@ -456,6 +479,14 @@ impl Simulator {
         if stuck.is_some() {
             next.velocity = Vec3::ZERO;
         }
+        let bounced = motion.collisions.y && next.velocity.y > f64::from(f32::EPSILON);
+        let bounce_corrected_gravity = |gravity| {
+            if bounced {
+                effects::gravity_after_bounce(gravity, pre_collision_velocity.y, motion.resolved.y)
+            } else {
+                gravity
+            }
+        };
 
         let liquid_ledge_exit = (sampled.movement.in_water || sampled.movement.in_lava)
             && (motion.collisions.x || motion.collisions.z);
@@ -496,7 +527,12 @@ impl Simulator {
             } else {
                 0.02
             };
-            effects::apply_vertical(&mut next.velocity.y, input.effects, gravity, 1.0);
+            effects::apply_vertical(
+                &mut next.velocity.y,
+                input.effects,
+                bounce_corrected_gravity(gravity),
+                1.0,
+            );
         } else {
             let gravity = if sampled.descend_through && (scaffold.inside || scaffold.over) {
                 // Descending through scaffolding keeps only the vertical drag.
@@ -512,7 +548,7 @@ impl Simulator {
                 if auto_climb {
                     0.0
                 } else {
-                    vertical.gravity(gravity)
+                    bounce_corrected_gravity(vertical.gravity(gravity))
                 },
                 if auto_climb {
                     1.0
@@ -676,3 +712,47 @@ fn movement_impulse(axis: f64) -> f64 {
 
 #[cfg(test)]
 mod environment_review_tests;
+
+/// Applies ground-jump motion independently of travel, including its cooldown and sprint impulse.
+fn jump_from_ground(
+    next: &mut PlayerState,
+    input: &MovementInput,
+    sampled: &environment::SampledEnvironment,
+    scaffold_jump: bool,
+    jump_suppressed: bool,
+) -> bool {
+    let climb_jump = input.jumping && !scaffold_jump && sampled.movement.on_climbable;
+    let jump_initiated = !matches!(input.mode, MovementMode::Flying | MovementMode::Riding)
+        && input.jump_pressed
+        && !scaffold_jump
+        && !climb_jump
+        && !jump_suppressed
+        && next.on_ground
+        && next.jump_delay == 0
+        && !sampled.movement.in_water
+        && !sampled.movement.in_lava;
+    if jump_initiated {
+        let honey = if sampled.honey_jump {
+            HONEY_JUMP_FACTOR
+        } else {
+            1.0
+        };
+        let boost = input
+            .effects
+            .jump_boost
+            .map_or(0.0, |amplifier| 0.1_f32 * (amplifier as f32 + 1.0));
+        next.velocity.y =
+            f64::from((next.velocity.y as f32).max((DEFAULT_JUMP_HEIGHT as f32 + boost) * honey));
+        next.jump_delay = JUMP_DELAY_TICKS;
+        if input.sprinting {
+            let yaw = f64::from((input.yaw_degrees as f32).to_radians());
+            next.velocity.x = f64::from(
+                next.velocity.x as f32 - minecraft_sin(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
+            );
+            next.velocity.z = f64::from(
+                next.velocity.z as f32 + minecraft_cos(yaw) as f32 * SPRINT_JUMP_IMPULSE as f32,
+            );
+        }
+    }
+    jump_initiated
+}

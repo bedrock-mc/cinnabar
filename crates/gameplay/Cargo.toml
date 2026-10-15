@@ -15,6 +15,7 @@ reads = [
 test-support = []
 
 [dependencies]
+protocol-ids = { path = "../protocol-ids" }
 env-compat = { path = "../env-compat" }
 simulation-clock = { path = "../simulation-clock" }
 block-transform = { path = "../block-transform" }
@@ -36,7 +37,6 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-protocol-ids = { path = "../protocol-ids" }
 protocol = { path = "../protocol", features = ["test-support"] }
 
 [lints]

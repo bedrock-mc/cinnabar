@@ -1,3 +1,4 @@
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 use std::sync::Arc;
 
 use protocol::{
@@ -6,9 +7,7 @@ use protocol::{
 };
 
 use super::super::{
-    ACTOR_FLAG_INVISIBLE, ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY,
-    BOUNDING_BOX_WIDTH_METADATA_KEY, FLAG_BABY, SCALE_METADATA_KEY, VARIANT_METADATA_KEY,
-    fire::ACTOR_FLAG_ON_FIRE,
+    ActorApplyResult, ActorStore, DEFAULT_ACTOR_COLLISION_WIDTH, spatial::MIN_COLLISION_DIMENSION,
 };
 
 fn spawn(store: &mut ActorStore, runtime_id: u64, identifier: &str, width: f32) {
@@ -47,7 +46,7 @@ fn spawn(store: &mut ActorStore, runtime_id: u64, identifier: &str, width: f32) 
         set(
             store,
             runtime_id,
-            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorDataKey::Width.wire_value(),
             ActorMetadataValue::Float(width),
         );
     }
@@ -128,12 +127,85 @@ fn missing_width_falls_back_only_for_players() {
     assert_eq!(radius(&store, 2), None);
 }
 
+/// Server scale changes width-based shadows exactly as it changes collision bounds.
+#[test]
+fn scaled_player_shadow_uses_the_collision_width() {
+    for width in [None, Some(0.6), Some(0.3)] {
+        let mut store = ActorStore::new(1, 0);
+        spawn(&mut store, 1, "player", width.unwrap_or(0.0));
+        for (sequence, scale) in (2..).zip([0.5, 2.0, 1.0, 0.0]) {
+            let result = store.apply(
+                1,
+                sequence,
+                ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                    dimension: 0,
+                    runtime_id: 1,
+                    metadata: Arc::from([protocol::ActorMetadata {
+                        key: ActorDataKey::Scale.wire_value(),
+                        value: ActorMetadataValue::Float(scale),
+                    }]),
+                    properties: Arc::from([]),
+                    tick: sequence,
+                }),
+            );
+            assert_eq!(
+                result,
+                ActorApplyResult::Updated,
+                "width {width:?}, scale {scale}"
+            );
+            let expected_width = (width.unwrap_or(DEFAULT_ACTOR_COLLISION_WIDTH) * scale)
+                .max(MIN_COLLISION_DIMENSION);
+            let actor = store.get(1).unwrap();
+            let (min, max) = actor.bounding_box_at([0.0; 3]).unwrap();
+            assert_eq!(
+                max[0] - min[0],
+                expected_width,
+                "collision width {width:?}, scale {scale}"
+            );
+            assert!(
+                close(radius(&store, 1), expected_width),
+                "width {width:?}, scale {scale}: {:?}",
+                radius(&store, 1)
+            );
+        }
+    }
+}
+
+/// Class multipliers use scaled bounds, while fixed and variant radii stay independent.
+#[test]
+fn scale_applies_before_width_overrides_only() {
+    let mut store = ActorStore::new(1, 0);
+    for (id, identifier, width, expected) in [
+        (1, "cow", 0.9, 0.45),
+        (2, "spider", 1.4, 0.49),
+        (3, "iron_golem", 1.4, 0.175),
+        (4, "boat", 1.4, 1.0),
+        (5, "slime", 2.08, 1.0),
+    ] {
+        spawn(&mut store, id, identifier, width);
+        set(
+            &mut store,
+            id,
+            ActorDataKey::Scale.wire_value(),
+            ActorMetadataValue::Float(0.5),
+        );
+        flag(&mut store, id, ActorFlag::Baby.wire_value());
+        set(
+            &mut store,
+            id,
+            ActorDataKey::Variant.wire_value(),
+            ActorMetadataValue::Int(4),
+        );
+        assert!(close(radius(&store, id), expected), "{identifier}");
+    }
+}
+
 #[test]
 fn babies_and_slimes_follow_their_own_rules() {
     let mut store = ActorStore::new(1, 0);
     for (id, identifier) in [(1, "iron_golem"), (2, "shulker"), (3, "turtle"), (4, "cow")] {
         spawn(&mut store, id, identifier, 1.0);
-        flag(&mut store, id, FLAG_BABY);
+        flag(&mut store, id, ActorFlag::Baby.wire_value());
     }
     assert!(close(radius(&store, 1), 0.25));
     assert!(close(radius(&store, 2), 0.25));
@@ -149,7 +221,7 @@ fn babies_and_slimes_follow_their_own_rules() {
         set(
             &mut store,
             id,
-            VARIANT_METADATA_KEY,
+            ActorDataKey::Variant.wire_value(),
             ActorMetadataValue::Int(variant),
         );
         assert!(
@@ -195,7 +267,7 @@ fn cushions_cast_no_shadow_with_streamed_collision_bounds() {
         set(
             &mut store,
             id,
-            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorDataKey::Height.wire_value(),
             ActorMetadataValue::Float(0.249),
         );
         assert_eq!(radius(&store, id), None, "cushion width {width}");
@@ -210,13 +282,13 @@ fn burning_invisible_dead_and_submerged_actors_cast_nothing() {
     for id in 1..=6 {
         spawn(&mut store, id, "pig", 0.9);
     }
-    flag(&mut store, 1, ACTOR_FLAG_ON_FIRE);
-    flag(&mut store, 2, ACTOR_FLAG_INVISIBLE);
+    flag(&mut store, 1, ActorFlag::OnFire.wire_value());
+    flag(&mut store, 2, ActorFlag::Invisible.wire_value());
     store.actors.get_mut(&3).unwrap().status.dead = true;
     store.actors.get_mut(&4).unwrap().attributes.insert(
-        "minecraft:health".into(),
+        Attribute::Health.wire_name().into(),
         ActorAttribute {
-            name: "minecraft:health".into(),
+            name: Attribute::Health.wire_name().into(),
             min: 0.0,
             max: 10.0,
             current: 0.0,
@@ -251,7 +323,7 @@ fn riders_of_visible_vehicles_cast_nothing() {
     store.apply_link(1, 10, link(1, 2));
     store.apply_link(1, 11, link(3, 4));
     store.apply_link(1, 12, link(5, 1));
-    flag(&mut store, 4, ACTOR_FLAG_INVISIBLE);
+    flag(&mut store, 4, ActorFlag::Invisible.wire_value());
     assert_eq!(radius(&store, 1), None);
     assert!(close(radius(&store, 2), 0.84));
     assert!(close(radius(&store, 3), 0.6));
@@ -266,27 +338,27 @@ fn ghasts_lower_their_shadow_by_a_relative_height() {
     set(
         &mut store,
         1,
-        BOUNDING_BOX_HEIGHT_METADATA_KEY,
+        ActorDataKey::Height.wire_value(),
         ActorMetadataValue::Float(4.0),
     );
     set(
         &mut store,
         1,
-        SCALE_METADATA_KEY,
+        ActorDataKey::Scale.wire_value(),
         ActorMetadataValue::Float(0.5),
     );
     spawn(&mut store, 2, "happy_ghast", 4.0);
     set(
         &mut store,
         2,
-        BOUNDING_BOX_HEIGHT_METADATA_KEY,
+        ActorDataKey::Height.wire_value(),
         ActorMetadataValue::Float(4.0),
     );
     spawn(&mut store, 3, "cow", 0.9);
     set(
         &mut store,
         3,
-        BOUNDING_BOX_HEIGHT_METADATA_KEY,
+        ActorDataKey::Height.wire_value(),
         ActorMetadataValue::Float(1.3),
     );
     let feet = |id: u64| {

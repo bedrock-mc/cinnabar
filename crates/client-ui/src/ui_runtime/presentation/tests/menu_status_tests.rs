@@ -1,3 +1,5 @@
+//! Layout coverage for the retained in-session menu fallback.
+
 use ui::{DpiScale, SafeArea};
 
 use super::fixture_font;
@@ -7,6 +9,14 @@ use {
 };
 
 const OBSERVED_KICK: &str = "server disconnected: Cinnabar launcher return check (the server ended the current play session)";
+
+/// Selects the retained session fallback when the JSON-UI engine is unavailable.
+fn legacy_view(screen: MenuScreen) -> launcher::menu::MenuView {
+    let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+    view.over_world = true;
+    view.screen = screen;
+    view
+}
 
 #[test]
 fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
@@ -22,7 +32,7 @@ fn home_catalog_recovery_stays_inside_the_featured_empty_card() {
         (900, 360, 1),
         (420, 360, 1),
     ] {
-        let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+        let mut view = legacy_view(MenuScreen::Home);
         view.catalog_loading = false;
         view.catalog_message = Some("Social: Refresh to try again.".to_owned());
         let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -209,7 +219,7 @@ fn measured_home_heading_never_moves_successful_featured_hits_below_the_viewport
 
     let runtime = UiRuntime::new(1);
     for (width, height, gui) in [(1280, 720, 3), (900, 360, 1)] {
-        let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
+        let mut view = legacy_view(MenuScreen::Home);
         view.catalog_loading = false;
         view.catalog_message = Some("Social: Refresh to try again.".to_owned());
         view.featured = (0..3)
@@ -262,8 +272,7 @@ fn presented_message(
     reason: &str,
 ) -> (render_model::UiRenderInput, usize) {
     let runtime = UiRuntime::new(1);
-    let mut menu = launcher::menu::MenuView::new(true, "Player".to_owned());
-    menu.screen = MenuScreen::Play;
+    let menu = legacy_view(MenuScreen::Play);
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.set_safe_area(safe_area);
     let mut baseline_view = menu.clone();

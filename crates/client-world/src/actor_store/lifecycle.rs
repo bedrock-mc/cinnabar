@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::Attribute;
 mod spawn;
 
 mod equipment;
@@ -93,11 +94,11 @@ impl ActorStore {
             player_game_mode_skips: 0,
             world_default_game_mode: None,
             entity_assets: None,
-            custom_actor_traits: HashMap::new(),
+            custom_actor_facts: HashMap::new(),
             actors: HashMap::new(),
             effect_members: Default::default(),
-            unique_to_runtime: HashMap::new(),
-            rider_to_ridden: HashMap::new(),
+            unique_to_runtime: FastHashMap::new(),
+            rider_to_ridden: FastHashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -114,6 +115,7 @@ impl ActorStore {
             local_player_spawned: false,
             synthetic_local_uuid: None,
             synthetic_local_skin: None,
+            local_skin_fingerprints: Default::default(),
             synthetic_local_skin_pending: false,
             synthetic_local_revision: 0,
             local_first_person: false,
@@ -125,6 +127,7 @@ impl ActorStore {
             local_hands: [None, None],
             local_held_network_ids: [0; 2],
             local_main_metadata: 0,
+            local_held_variants: Default::default(),
             local_main_stack_id: None,
             local_main_slot: 0,
             local_item_use: LocalItemUse::Unpredicted,
@@ -133,7 +136,7 @@ impl ActorStore {
             camera_rotation: [0.0; 2],
             camera_position: [0.0; 3],
             animation_view: None,
-            seat_bindings: HashMap::new(),
+            seat_bindings: FastHashMap::new(),
             seat_bases: HashMap::new(),
             property_registry: Default::default(),
             local_knockback: None,
@@ -207,6 +210,7 @@ impl ActorStore {
         self.local_hands = [feed.main_hand.clone(), feed.off_hand.clone()];
         self.local_held_network_ids = feed.held_network_ids;
         self.local_main_metadata = feed.main_hand_metadata;
+        self.local_held_variants = feed.held_variants;
         self.local_main_stack_id = feed.main_hand_stack_id.filter(|id| *id > 0);
         self.local_main_slot = feed.main_hand_slot;
         self.local_view_dirty |= self.local_item_use != feed.item_use;
@@ -214,6 +218,7 @@ impl ActorStore {
         self.local_bedrock_swing_ticks = feed.bedrock_swing_ticks;
         self.local_java_swing_ticks = feed.java_swing_ticks;
         let pose = ActorPose {
+            y_origin: Default::default(),
             position: feed.position,
             pitch: feed.pitch,
             yaw: feed.yaw,
@@ -255,13 +260,14 @@ impl ActorStore {
                 actor.set_current_pose(pose);
                 self.animation.mark_reset(runtime_id);
             }
+            self.effect_members.collidable.update(actor);
             return;
         }
         let mut actor =
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
-        self.effect_members.update(&actor);
+        self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
         self.apply_pending_local_health(runtime_id);
@@ -293,6 +299,7 @@ impl ActorStore {
                 self.remove_profile(&stale);
             }
             self.synthetic_local_skin = None;
+            self.local_skin_fingerprints.clear();
             self.synthetic_local_skin_pending = false;
             return (uuid, username);
         }
@@ -301,7 +308,7 @@ impl ActorStore {
         } else {
             feed.uuid
         };
-        let skin_fingerprint = super::profiles::skin_fingerprint(&feed.skin);
+        let skin_fingerprint = self.local_skin_fingerprints.fingerprint(&feed.skin);
         let stale = match self
             .players
             .get(&uuid)
@@ -325,6 +332,7 @@ impl ActorStore {
                     xuid: "".into(),
                     skin: feed.skin.clone(),
                 },
+                None,
             );
             self.synthetic_local_skin_pending = self
                 .players
@@ -349,7 +357,7 @@ impl ActorStore {
         self.picks_ahead = false;
         self.dimension = dimension;
         self.latest_sequence = 0;
-        self.custom_actor_traits.clear();
+        self.custom_actor_facts.clear();
         self.actor_identifier_skips = 0;
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
@@ -363,6 +371,7 @@ impl ActorStore {
         self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
         self.synthetic_local_skin = None;
+        self.local_skin_fingerprints.clear();
         self.synthetic_local_skin_pending = false;
         self.retained_player_skin_bytes = 0;
         self.animation.clear();
@@ -392,7 +401,7 @@ impl ActorStore {
         self.pending_local_health = self
             .remote_state_excluded_runtime_id
             .and_then(|runtime_id| self.actors.get(&runtime_id))
-            .and_then(|actor| actor.attributes.get("minecraft:health"))
+            .and_then(|actor| actor.attributes.get(Attribute::Health.wire_name()))
             .cloned()
             .or_else(|| self.pending_local_health.take());
         self.pending_local_damage = self
@@ -414,6 +423,7 @@ impl ActorStore {
             self.remove_profile(&uuid);
         }
         self.synthetic_local_skin = None;
+        self.local_skin_fingerprints.clear();
         self.synthetic_local_skin_pending = false;
         self.prune_unlisted_players();
         self.animation.clear();
@@ -475,7 +485,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(1);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored unsupported actor movement duration (total {})",
                             self.ignored_movement_components
                         );
@@ -517,6 +527,14 @@ impl ActorStore {
                         }),
                     );
                 }
+                if movement.position[1].is_some_and(f32::is_finite) {
+                    received.y_origin =
+                        if movement.position_origin == ActorPositionOrigin::NetworkOffset {
+                            PoseYOrigin::NETWORK
+                        } else {
+                            PoseYOrigin::default()
+                        };
+                }
                 merge(&mut received.pitch, movement.pitch);
                 merge(&mut received.yaw, movement.yaw);
                 merge(&mut received.head_yaw, movement.head_yaw);
@@ -524,7 +542,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(ignored);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored non-finite actor movement components: {}",
                             self.ignored_movement_components
                         );
@@ -566,6 +584,7 @@ impl ActorStore {
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
                 actor.source_tick = movement.source_tick;
+                self.effect_members.collidable.update(actor);
                 if movement.teleported {
                     self.animation.mark_reset(movement.runtime_id);
                     if let Some(lifetime) = self.lifetime(movement.runtime_id) {
@@ -616,6 +635,14 @@ impl ActorStore {
             ActorEvent::Skin { uuid, skin } => self.apply_skin_update(uuid, skin),
             ActorEvent::PlayerList(update) => {
                 let mut capacity_rejected = false;
+                // Several additions share one actor pass; upserts never change the actors.
+                let spawned = update
+                    .entries
+                    .iter()
+                    .filter(|entry| matches!(entry, PlayerListEntry::Add { .. }))
+                    .nth(1)
+                    .is_some()
+                    .then(|| self.spawned_player_unique_ids());
                 for entry in update.entries.iter() {
                     match entry {
                         PlayerListEntry::Add {
@@ -635,6 +662,7 @@ impl ActorStore {
                                     xuid: xuid.clone(),
                                     skin: skin.clone(),
                                 },
+                                spawned.as_ref(),
                             );
                             capacity_rejected |= !admitted;
                             if admitted && self.synthetic_local_uuid == Some(*uuid) {
@@ -737,7 +765,7 @@ impl ActorStore {
     }
 
     fn apply_link_to(
-        rider_to_ridden: &mut HashMap<i64, i64>,
+        rider_to_ridden: &mut FastHashMap<i64, i64>,
         max_actor_links: usize,
         event: ActorLinkEvent,
     ) -> ActorApplyResult {
@@ -871,16 +899,15 @@ impl ActorStore {
                         .actions
                         .apply(lifetime, rig, sequence, source_tick, &action);
                     if applied && matches!(action.kind, protocol::ActorActionKind::SwingArm) {
-                        let java_ticks = self
+                        let effects = self
                             .actors
                             .get(&lifetime.runtime_id)
-                            .map_or(actor_animation::ACTOR_SWING_TICKS, |actor| {
-                                actor.status.swing_effects.ticks()
-                            });
+                            .map(|actor| actor.status.swing_effects)
+                            .unwrap_or_default();
                         self.animation.start_swing(
                             lifetime.runtime_id,
-                            actor_animation::ACTOR_SWING_TICKS,
-                            java_ticks,
+                            effects.bedrock_ticks(render_api::DEFAULT_COMBAT_VISUALS),
+                            effects.ticks(),
                         );
                     }
                     if applied && let Some(request) = prepared.as_ref() {

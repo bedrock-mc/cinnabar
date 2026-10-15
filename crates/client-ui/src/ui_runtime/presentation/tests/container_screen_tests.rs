@@ -13,6 +13,8 @@ use ui_screens::container_actions::InventoryCellHit;
 
 mod furnace_fuel_tests;
 mod furnace_recipe_tests;
+mod hotbar_open_tests;
+mod inventory_layout_tests;
 mod prewarm_tests;
 
 #[test]
@@ -248,7 +250,7 @@ fn screens() -> Vec<(
             "inventory_recipe_book",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = true;
+                runtime.screen_state_mut().book_open = Some(true);
                 runtime
             },
             vec![
@@ -261,7 +263,7 @@ fn screens() -> Vec<(
             "inventory_recipe_search",
             |player_runtime| {
                 let mut runtime = personal(player_runtime);
-                runtime.screen_state_mut().book_open = true;
+                runtime.screen_state_mut().book_open = Some(true);
                 runtime
                     .screen_state_mut()
                     .select_tab(ui_screens::container_actions::SEARCH_TAB);

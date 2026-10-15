@@ -262,6 +262,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
         identifier: Arc::from("test:opaque_cube"),
@@ -270,6 +271,7 @@ fn block_fixture() -> (EquipmentRuntime, ActorRigSubmission, WornItem) {
         kind: HeldKind::Block(visual),
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     (runtime, body, item)
 }

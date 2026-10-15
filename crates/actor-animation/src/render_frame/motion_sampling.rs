@@ -11,6 +11,7 @@ pub(super) const ROTATION_FRAME: u8 = 8;
 pub(crate) struct MotionSampling {
     uses_swell: bool,
     uses_rotation: bool,
+    uses_walk: bool,
     expressions: BTreeSet<u32>,
     weighted_symbols: BTreeSet<u32>,
     timed_symbols: BTreeSet<u32>,
@@ -19,6 +20,11 @@ pub(crate) struct MotionSampling {
     properties: bool,
     selection_effects: bool,
     rig_scale: bool,
+}
+
+/// Resamples every channel of `bones` from both endpoints.
+pub(super) fn full_mask(bones: usize) -> Vec<[u8; 3]> {
+    vec![[TRANSLATION | ROTATION | SCALE | ROTATION_FRAME; 3]; bones]
 }
 
 impl MotionSampling {
@@ -47,6 +53,13 @@ impl MotionSampling {
                 _ => false,
             })
         });
+        let uses_walk = expressions.iter().any(|&expression| {
+            ops(assets, expression).iter().any(|op| match op {
+                MolangOp::LoadQuery(symbol) => super::rotation::is_walk_query(assets, *symbol),
+                MolangOp::CallQuery(call) => super::rotation::is_walk_query(assets, call.symbol),
+                _ => false,
+            })
+        });
         let mut queries = BTreeSet::new();
         let mut properties = false;
         for &expression in &expressions {
@@ -58,25 +71,33 @@ impl MotionSampling {
                         properties |= assets
                             .molang_symbols()
                             .get(call.symbol as usize)
-                            .is_some_and(|s| s.identifier.as_ref() == "query.property");
+                            .is_some_and(|s| {
+                                assets::MolangQuery::from_name(&s.identifier)
+                                    == Some(assets::MolangQuery::Property)
+                            });
                         None
                     }
                     _ => None,
                 };
+                // Camera queries read each frame's live camera, never a frozen endpoint value.
                 if let Some(symbol) = symbol
                     && !super::rotation::is_query(assets, symbol)
+                    && !super::rotation::is_walk_query(assets, symbol)
+                    && !super::camera::camera_symbol(assets, symbol, false)
                     && assets
                         .molang_symbols()
                         .get(symbol as usize)
                         .is_some_and(|s| {
                             !matches!(
-                                s.identifier.as_ref(),
-                                "query.swell_amount"
-                                    | "query.frame_alpha"
-                                    | "query.anim_time"
-                                    | "query.all_animations_finished"
-                                    | "query.any_animation_finished"
-                                    | "query.state_time"
+                                assets::MolangQuery::from_name(&s.identifier),
+                                Some(
+                                    assets::MolangQuery::SwellAmount
+                                        | assets::MolangQuery::FrameAlpha
+                                        | assets::MolangQuery::AnimTime
+                                        | assets::MolangQuery::AllAnimationsFinished
+                                        | assets::MolangQuery::AnyAnimationFinished
+                                        | assets::MolangQuery::StateTime
+                                )
                             )
                         })
                 {
@@ -162,6 +183,7 @@ impl MotionSampling {
         Arc::new(Self {
             uses_swell,
             uses_rotation,
+            uses_walk,
             render_writes,
             queries,
             properties,
@@ -180,6 +202,11 @@ impl MotionSampling {
     /// Rotation consumers sample independently of swelling and camera queries.
     pub(crate) fn uses_rotation(&self) -> bool {
         self.uses_rotation
+    }
+
+    /// Walk stride and speed consumers sample at the frame fraction.
+    pub(crate) fn uses_walk(&self) -> bool {
+        self.uses_walk
     }
 
     /// Whether a retained dependency changes the authored uniform or axis scale.
@@ -249,6 +276,7 @@ impl MotionSampling {
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
         let mut mask = vec![[0; 3]; names.len()];
+        let mut channel_bones = pose::ChannelBones::new(names);
         for weighted in clips {
             let weighted = match geometry {
                 Some(geometry) => match render::clip_for_layer(assets, weighted, geometry) {
@@ -260,13 +288,12 @@ impl MotionSampling {
             let Some(clip) = assets.animation_clips().get(weighted.clip) else {
                 continue;
             };
+            let weighted = self.weighted_symbols.contains(&clip.symbol)
+                || self.timed_symbols.contains(&clip.symbol);
             let first = clip.first_channel as usize;
             for channel in &assets.animation_channels()[first..first + clip.channel_count as usize]
             {
-                let index = match &channel.bone_name {
-                    Some(name) => names.iter().position(|candidate| candidate == name),
-                    None => Some(channel.bone as usize),
-                };
+                let index = channel_bones.resolve(channel);
                 let Some(bone) = index.and_then(|index| mask.get_mut(index)) else {
                     continue;
                 };
@@ -275,8 +302,6 @@ impl MotionSampling {
                     EntityAnimationProperty::Rotation => ROTATION,
                     EntityAnimationProperty::Scale => SCALE,
                 };
-                let weighted = self.weighted_symbols.contains(&clip.symbol)
-                    || self.timed_symbols.contains(&clip.symbol);
                 if weighted && clip.override_previous {
                     bone.fill(TRANSLATION | ROTATION | SCALE | ROTATION_FRAME);
                 } else if weighted && channel.rotation_relative_to_entity {
@@ -292,10 +317,13 @@ impl MotionSampling {
                         } else {
                             0.0
                         };
-                        if expression
-                            .is_some_and(|expression| self.expressions.contains(&expression))
-                            || (weighted
+                        // Each test is pure, so set bits and cheap weighted reads go first.
+                        if (bone[axis] & bit) == 0
+                            && ((weighted
                                 && (expression.is_some() || key.value[axis].get() != neutral))
+                                || expression.is_some_and(|expression| {
+                                    self.expressions.contains(&expression)
+                                }))
                         {
                             bone[axis] |= bit;
                         }
@@ -368,6 +396,7 @@ fn is_swell(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
 fn is_presentation_query(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
     is_swell(assets, symbol)
         || super::rotation::is_query(assets, symbol)
+        || super::rotation::is_walk_query(assets, symbol)
         || assets
             .molang_symbols()
             .get(symbol as usize)

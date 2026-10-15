@@ -25,23 +25,24 @@ pub(in crate::compiler) fn compile_rule(
     templates: &mut BTreeMap<TemplateKey, u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if !matches!(
-        record.name.as_ref(),
-        "minecraft:anvil" | "minecraft:chipped_anvil" | "minecraft:damaged_anvil"
-    ) || record.contributor_role != ContributorRole::Primary
+    if assets::facts::block_render_fact(&record.name).kind != assets::facts::BlockRenderKind::Anvil
+        || record.contributor_role != ContributorRole::Primary
         || record.flags.contains(BlockFlags::AIR)
     {
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);
-    let direction = canonical_state_str(&record.canonical_state, "minecraft:cardinal_direction")
-        .and_then(|direction| match direction.as_ref() {
-            "south" => Some(0),
-            "west" => Some(1),
-            "north" => Some(2),
-            "east" => Some(3),
-            _ => None,
-        });
+    let direction = canonical_state_str(
+        &record.canonical_state,
+        assets::facts::BlockProperty::MinecraftCardinalDirection.name(),
+    )
+    .and_then(|direction| match direction.as_ref() {
+        "south" => Some(0),
+        "west" => Some(1),
+        "north" => Some(2),
+        "east" => Some(3),
+        _ => None,
+    });
     let Some(direction) = direction else {
         return Ok(CompileRuleResult::Compiled(visual));
     };

@@ -6,6 +6,14 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AssetStartupError {
     #[error(
+        "required entity facts at {path} are unavailable or invalid: {detail}; rebuild with make assets"
+    )]
+    EntityFacts { path: PathBuf, detail: String },
+    #[error(
+        "required item facts carrier at {path} is unavailable or invalid: {detail}\nrebuild with: make assets"
+    )]
+    ItemFacts { path: PathBuf, detail: String },
+    #[error(
         "invalid local finite PCM carrier at {path}: {detail}; rebuild with make audio-pcm-assets"
     )]
     AudioPcm { path: PathBuf, detail: String },

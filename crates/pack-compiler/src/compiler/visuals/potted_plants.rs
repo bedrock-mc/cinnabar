@@ -2,20 +2,14 @@ use super::super::*;
 use super::context::{ModelStorage, RuleInputs, push_model_template};
 use super::geometry::vanilla_cuboid_quads;
 use assets::BlockFace;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 /// Whether compilation needs all face selectors for a dedicated pot-content model.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    (record.model_family == ModelFamily::Cross
-        && !matches!(
-            record.name.as_ref(),
-            "minecraft:fire" | "minecraft:soul_fire"
-        ))
+    (record.model_family == ModelFamily::Cross && block_render_fact(&record.name).kind != R::Fire)
         || matches!(
-            record.name.as_ref(),
-            "minecraft:cactus"
-                | "minecraft:bamboo"
-                | "minecraft:azalea"
-                | "minecraft:flowering_azalea"
+            block_render_fact(&record.name).kind,
+            R::Cactus | R::Bamboo | R::Azalea
         )
 }
 
@@ -30,15 +24,13 @@ pub(in crate::compiler) fn apply(
     if !is_record(record) || visual.model_template == assets::NO_MODEL_TEMPLATE {
         return Ok(());
     }
-    let materials = if record.name.as_ref() == "minecraft:cactus" {
+    let materials = if block_render_fact(&record.name).kind == R::Cactus {
         visual.faces
     } else {
-        let faces: &[BlockFace] = match record.name.as_ref() {
-            "minecraft:bamboo" => &[BlockFace::North, BlockFace::East],
-            "minecraft:azalea" | "minecraft:flowering_azalea" => {
-                &[BlockFace::Down, BlockFace::South, BlockFace::West]
-            }
-            "minecraft:crimson_roots" | "minecraft:warped_roots" => &[BlockFace::South],
+        let faces: &[BlockFace] = match block_render_fact(&record.name).kind {
+            R::Bamboo => &[BlockFace::North, BlockFace::East],
+            R::Azalea => &[BlockFace::Down, BlockFace::South, BlockFace::West],
+            R::Roots => &[BlockFace::South],
             _ => &[cross_texture_face(record)],
         };
         let mut materials = [0; 6];
@@ -55,14 +47,11 @@ pub(in crate::compiler) fn apply(
         visual.model_template = template;
         return Ok(());
     }
-    let quads = if record.name.as_ref() == "minecraft:bamboo" {
+    let quads = if block_render_fact(&record.name).kind == R::Bamboo {
         bamboo_quads(materials)
-    } else if matches!(
-        record.name.as_ref(),
-        "minecraft:azalea" | "minecraft:flowering_azalea"
-    ) {
+    } else if block_render_fact(&record.name).kind == R::Azalea {
         azalea_quads(materials)
-    } else if record.name.as_ref() == "minecraft:cactus" {
+    } else if block_render_fact(&record.name).kind == R::Cactus {
         let mut quads = vanilla_cuboid_quads(materials, [96, 0, 96], [160, 192, 160]);
         for quad in &mut quads {
             for position in &mut quad.positions {
@@ -71,10 +60,7 @@ pub(in crate::compiler) fn apply(
         }
         quads.to_vec()
     } else {
-        let face = if matches!(
-            record.name.as_ref(),
-            "minecraft:crimson_roots" | "minecraft:warped_roots"
-        ) {
+        let face = if block_render_fact(&record.name).kind == R::Roots {
             BlockFace::South
         } else {
             cross_texture_face(record)

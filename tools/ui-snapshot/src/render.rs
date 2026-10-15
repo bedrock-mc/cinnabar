@@ -1,5 +1,7 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod panorama;
+
 use std::{
     collections::HashMap,
     path::Path,
@@ -50,7 +52,12 @@ impl RemoteSource for Offline {
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
-    let menu = matches!(&fixture, Fixture::Menu(_));
+    let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
+    let show_panorama = match &fixture {
+        Fixture::Menu(view) => view.out_of_game(),
+        Fixture::Loading(stage) => stage.is_world_entry(),
+        Fixture::Chat { .. } => false,
+    };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
@@ -82,7 +89,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             let images = oreui::images::load_optional_oreui_images(dir)
                 .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
             let first = carriers.pages.len() as u16;
-            let artwork: HashMap<_, _> = images
+            let mut artwork: HashMap<_, _> = images
                 .sprites
                 .iter()
                 .map(|(key, sprite)| {
@@ -101,6 +108,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 height: page.dimensions[1],
                 rgba: Arc::clone(&page.pixels),
             }));
+            mod_icons(&view, &mut artwork, &mut carriers.pages)?;
             let mut screen = oreui_screen(first, images);
             let mut scrolls = ui_engine::menu_scroll::MenuScrolls::default();
             // Mount at zero, then sample settled motion without reading a clock or sleeping.
@@ -128,6 +136,32 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                     .unwrap()
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                let popup = if let Some(prompt) = view.server_trust_prompt() {
+                    Some(launcher::menu::dialogs::server_trust(
+                        &prompt.url,
+                        frame.translate,
+                    ))
+                } else if let Some(name) = view.join_request_prompt() {
+                    Some(launcher::menu::dialogs::join_request(name, frame.translate))
+                } else {
+                    view.dialog
+                        .filter(|dialog| {
+                            !matches!(
+                                dialog,
+                                launcher::menu::MenuDialog::MinecraftImport
+                                    | launcher::menu::MenuDialog::Accounts
+                                    | launcher::menu::MenuDialog::Exit
+                            )
+                        })
+                        .map(|dialog| {
+                            launcher::menu::dialogs::dialog(&view, dialog, frame.translate)
+                        })
+                };
+                if let Some(popup) = popup {
+                    screen
+                        .paint_popup(&view, &popup, size, &scrolls, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
                 if view.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
                     screen
                         .paint_minecraft_import(&view, size, &mut scrolls, &mut frame)
@@ -147,13 +181,51 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             }
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::Chat { draft, suggestions } => {
+        Fixture::Loading(stage) => {
+            carriers::validate_oreui(dir)?;
+            let images = oreui::images::load_optional_oreui_images(dir)
+                .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            let first = carriers.pages.len() as u16;
+            let artwork = HashMap::new();
+            carriers.pages.extend(images.pages.iter().map(|page| Page {
+                width: page.dimensions[0],
+                height: page.dimensions[1],
+                rgba: Arc::clone(&page.pixels),
+            }));
+            let mut screen = oreui_screen(first, images);
+            let words = launcher::menu::join_progress::loading_words(stage, &|key, fallback| {
+                ui_engine::engine::screen::translated(frame.translate, key, fallback)
+            });
+            frame.now = CAPTURE_SECONDS;
+            screen
+                .paint_loading(
+                    oreui::loading_screen::LoadingInput {
+                        stage,
+                        words: [&words[0], &words[1]],
+                        size,
+                        title_artwork: None,
+                        destination_icon: None,
+                        artwork: &artwork,
+                        dimension: 0,
+                    },
+                    &mut frame,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        Fixture::Chat {
+            draft,
+            suggestions,
+            messages,
+            options,
+        } => {
             let mut engine = json_engine(&carriers)?;
+
             let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES)
                 .map_err(|error| format!("{error:?}"))?;
             editor.set_text(draft);
             frame.now = CAPTURE_SECONDS;
             let mut screen = ChatScreen::default();
+            screen.settings.set_snapshot((options, None));
             for now in [0.0, CAPTURE_SECONDS] {
                 frame.nodes.clear();
                 *frame.next = 1;
@@ -163,7 +235,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                         &engine,
                         ChatInput {
                             editor: &editor,
-                            messages: &Default::default(),
+                            messages: &messages,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -190,22 +262,39 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
         .map_err(|error| error.to_string())?;
     let list = tree.build_draw_list().map_err(|error| error.to_string())?;
-    if list.batches.iter().any(|batch| {
+    if let Some(batch) = list.batches.iter().find(|batch| {
         carriers
             .pages
             .get(usize::from(batch.texture_page))
             .is_none()
     }) {
-        return Err(Error::Invalid(
-            "screen sampled an unavailable texture page".into(),
-        ));
+        return Err(Error::Invalid(format!(
+            "screen sampled unavailable texture page {} ({} loaded)",
+            batch.texture_page,
+            carriers.pages.len()
+        )));
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
     canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
+    let mut pixels = canvas.into_rgba();
+    if show_panorama {
+        panorama::composite(&mut pixels, state.size, &carriers.ui)?;
+    }
+    if !menu {
+        // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let alpha = f32::from(pixel[3]) / 255.0;
+            for (channel, background) in [70.0, 90.0, 110.0].into_iter().enumerate() {
+                pixel[channel] =
+                    (f32::from(pixel[channel]) * alpha + background * (1.0 - alpha)).round() as u8;
+            }
+            pixel[3] = 255;
+        }
+    }
     let mut png = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png)
         .write_image(
-            &canvas.into_rgba(),
+            &pixels,
             state.size[0],
             state.size[1],
             image::ExtendedColorType::Rgba8,
@@ -252,6 +341,39 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
             }
         }));
     }
+}
+
+/// Gives each Mods-tab icon its own page under the key its card draws, as the client's
+/// artwork worker does.
+fn mod_icons(
+    view: &launcher::menu::MenuView,
+    artwork: &mut HashMap<String, ui::IconRef>,
+    pages: &mut Vec<Page>,
+) -> Result<(), Error> {
+    for item in &view.mods.library.installed {
+        let (Some(key), Some(png)) = (item.icon_key(), &item.metadata.icon) else {
+            continue;
+        };
+        let image = image::load_from_memory(png)
+            .map_err(|error| error.to_string())?
+            .to_rgba8();
+        let (width, height) = image.dimensions();
+        let page = u16::try_from(pages.len()).map_err(|error| error.to_string())?;
+        artwork.insert(
+            key,
+            ui::IconRef {
+                page,
+                uv: [0, 0, width as u16, height as u16],
+                glint: false,
+            },
+        );
+        pages.push(Page {
+            width,
+            height,
+            rgba: image.into_raw().into(),
+        });
+    }
+    Ok(())
 }
 
 /// Attaches the atlas to the sprite and nine-slice painters with the client's artwork look.

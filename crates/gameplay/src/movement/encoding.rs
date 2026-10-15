@@ -5,6 +5,7 @@ use super::PhysicsMovementSample;
 /// Previous actor state used only for start/stop actions between ticks.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct HeldInput {
+    spinning: bool,
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
@@ -13,6 +14,7 @@ pub(super) struct HeldInput {
 impl From<&PhysicsMovementSample> for HeldInput {
     fn from(sample: &PhysicsMovementSample) -> Self {
         Self {
+            spinning: sample.processed.spinning,
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
@@ -32,6 +34,12 @@ pub(super) fn direction_flags(buttons: semantic_input::MovementButtons) -> Playe
 /// Encodes independent input requests, raw button edges and resulting actor transitions.
 pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     let mut flags = direction_flags(sample.input.movement_buttons);
+    if sample.processed.spin_started {
+        flags |= PlayerInputFlags::START_SPIN_ATTACK;
+    }
+    if !sample.processed.spinning && (previous.spinning || sample.processed.spin_started) {
+        flags |= PlayerInputFlags::STOP_SPIN_ATTACK;
+    }
 
     if sample.horizontal_collision {
         flags |= PlayerInputFlags::HORIZONTAL_COLLISION;
@@ -81,7 +89,8 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
             PlayerInputFlags::STOP_SNEAKING
         };
     }
-    if sample.processed.sprinting != previous.sprinting {
+    let previous_sprinting = sample.input.server_sprinting.unwrap_or(previous.sprinting);
+    if sample.processed.sprinting != previous_sprinting {
         flags |= if sample.processed.sprinting {
             PlayerInputFlags::START_SPRINTING
         } else {
@@ -95,6 +104,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
 }
 
 /// Start/stop edges for each locomotion mode, plus flight's vertical intent.
+///
+/// Flight edges follow the double-tap request alone: ability updates and ground
+/// contact change flight without one, as in vanilla.
 fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInputFlags {
     use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
     let mut flags = PlayerInputFlags::NONE;
@@ -115,17 +127,17 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             PlayerInputFlags::START_CRAWLING,
             PlayerInputFlags::STOP_CRAWLING,
         ),
-        (
-            Flying,
-            PlayerInputFlags::START_FLYING,
-            PlayerInputFlags::STOP_FLYING,
-        ),
     ] {
         match (current == mode, previous.mode == mode) {
             (true, false) => flags |= start,
             (false, true) => flags |= stop,
             _ => {}
         }
+    }
+    match sample.processed.flight_request {
+        Some(true) => flags |= PlayerInputFlags::START_FLYING,
+        Some(false) => flags |= PlayerInputFlags::STOP_FLYING,
+        None => {}
     }
     if current == sim::MovementMode::Riding && sample.processed.ride == Some(super::RideKind::Boat)
     {
@@ -149,18 +161,8 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     flags
 }
 
-pub(super) fn normalize_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let length_squared = vector[0].mul_add(vector[0], vector[1] * vector[1]);
-    if length_squared > 1.0 {
-        let inverse_length = length_squared.sqrt().recip();
-        [vector[0] * inverse_length, vector[1] * inverse_length]
-    } else {
-        vector
-    }
-}
-
 /// Converts processed right-positive controls to the wire's left-positive vector.
 pub(super) fn wire_move_vector(vector: [f32; 2]) -> [f32; 2] {
-    let [right, forward] = normalize_move_vector(vector);
+    let [right, forward] = semantic_input::clamp_movement_vector(vector);
     [if right == 0.0 { 0.0 } else { -right }, forward]
 }

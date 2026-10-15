@@ -7,6 +7,9 @@ use world::{PalettedStorage, SubChunk};
 
 use crate::{BlockClassifier, Face, SIDE};
 
+#[path = "contributors/mesh_inputs.rs"]
+pub(crate) mod mesh_inputs;
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ResolvedPaletteEntry {
     pub(crate) network_value: u32,
@@ -222,6 +225,8 @@ struct DecodedVoxels {
     voxels: Box<[u16]>,
     entries: Vec<ResolvedPaletteEntry>,
     shelters: Vec<bool>,
+    /// Whether [`PaletteFacts::model_entries_at`] holds a model-template contributor.
+    model_candidates: Vec<bool>,
 }
 
 /// Largest table of layer-index combinations a section decodes into; larger palettes keep the
@@ -329,7 +334,8 @@ impl<'a> PaletteFacts<'a> {
             radix <<= storage.storage.bits_per_index();
         }
         let mut answer_of = vec![u16::MAX; combinations];
-        let (mut entries, mut shelters) = (Vec::new(), Vec::new());
+        let (mut entries, mut shelters, mut model_candidates) =
+            (Vec::new(), Vec::new(), Vec::new());
         for (linear, voxel) in voxels.iter_mut().enumerate() {
             let slot = &mut answer_of[usize::from(*voxel)];
             if *slot == u16::MAX {
@@ -337,6 +343,12 @@ impl<'a> PaletteFacts<'a> {
                 *slot = entries.len() as u16;
                 entries.push(self.at(x, y, z));
                 shelters.push(self.seasonal_shelters_at(x, y, z));
+                model_candidates.push(
+                    self.model_entries_at(x, y, z)
+                        .into_iter()
+                        .flatten()
+                        .any(is_model_entry),
+                );
             }
             *voxel = *slot;
         }
@@ -344,7 +356,15 @@ impl<'a> PaletteFacts<'a> {
             voxels,
             entries,
             shelters,
+            model_candidates,
         });
+    }
+
+    /// False only when the voxel provably has no [`is_model_entry`] contributor in
+    /// [`Self::model_entries_at`]; undecoded sections answer true.
+    pub(crate) fn may_have_model_at(&self, x: usize, y: usize, z: usize) -> bool {
+        self.decoded_slot(x, y, z)
+            .is_none_or(|(decoded, slot)| decoded.model_candidates[slot])
     }
 
     /// The decoded table and answer slot of a voxel inside the section.
@@ -395,19 +415,15 @@ impl<'a> PaletteFacts<'a> {
     }
 
     pub(crate) fn has_model_geometry(&self) -> bool {
-        let is_model = |entry: ResolvedPaletteEntry| {
-            matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
-                && entry.model_template != NO_MODEL_TEMPLATE
-        };
         match &self.source {
             PaletteSource::Air => false,
             PaletteSource::Uniform(contributors) => {
-                is_model(contributors.geometry_entry())
-                    || contributors.covered_plant.is_some_and(is_model)
+                is_model_entry(contributors.geometry_entry())
+                    || contributors.covered_plant.is_some_and(is_model_entry)
             }
             PaletteSource::Mixed(storages) => storages
                 .iter()
-                .any(|storage| storage.entries.iter().copied().any(is_model)),
+                .any(|storage| storage.entries.iter().copied().any(is_model_entry)),
         }
     }
 
@@ -492,6 +508,12 @@ impl<'a> PaletteFacts<'a> {
         }
         contributors.geometry_entry()
     }
+}
+
+/// A contributor the model pass tessellates: a crossed or model visual with a template.
+pub(crate) const fn is_model_entry(entry: ResolvedPaletteEntry) -> bool {
+    matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
+        && entry.model_template != NO_MODEL_TEMPLATE
 }
 
 const fn seasonal_block(entry: ResolvedPaletteEntry) -> SeasonalFoliageBlock {
@@ -600,8 +622,23 @@ pub(crate) fn resolve_palette_entry(
     if classifier.is_air(network_value) {
         return ResolvedPaletteEntry::air(network_value);
     }
+    palette_entry_of_block(
+        visuals,
+        network_id_mode,
+        network_value,
+        visuals.resolve(network_id_mode, network_value),
+    )
+}
 
-    let block = visuals.resolve(network_id_mode, network_value);
+/// The non-air [`resolve_palette_entry`] answer for `block`, which must be
+/// `visuals.resolve(network_id_mode, network_value)`; callers that already hold the
+/// resolved block reuse it instead of resolving (and counting a miss) twice.
+pub(crate) fn palette_entry_of_block(
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    network_value: u32,
+    block: assets::ResolvedBlock,
+) -> ResolvedPaletteEntry {
     let sequential_id = if block.is_known() {
         match network_id_mode {
             NetworkIdMode::Sequential => Some(network_value),
@@ -671,7 +708,14 @@ fn unpacked_indices(storage: &PalettedStorage) -> Option<Box<[u16]>> {
     Some(indices.into_boxed_slice())
 }
 
-fn packed_palette_index(storage: &PalettedStorage, x: usize, y: usize, z: usize) -> Option<usize> {
+/// Palette index of one voxel in `storage`, `None` outside the section or past its words;
+/// the same answer [`PalettedStorage::runtime_id`] looks its palette value up with.
+pub(crate) fn packed_palette_index(
+    storage: &PalettedStorage,
+    x: usize,
+    y: usize,
+    z: usize,
+) -> Option<usize> {
     if x >= SIDE || y >= SIDE || z >= SIDE {
         return None;
     }

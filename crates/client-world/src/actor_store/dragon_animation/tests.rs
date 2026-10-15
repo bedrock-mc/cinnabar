@@ -1,4 +1,5 @@
 use super::*;
+use protocol::ActorKind;
 
 #[test]
 fn flap_rate_uses_fixed_tick_displacement_and_sitting_state() {

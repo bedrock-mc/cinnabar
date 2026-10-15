@@ -1,9 +1,10 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent, ActorMetadataValue};
 use world::{NbtCompound, NbtValue};
 
-use super::{ActorStore, HITBOX_METADATA_KEY, tests::spawn};
+use super::{ActorStore, tests::spawn};
 
 /// One `Hitboxes` entry as `(min, max, pivot)`.
 type Entry = ([f32; 3], [f32; 3], [f32; 3]);
@@ -30,7 +31,7 @@ fn hitbox_compound(entries: &[Entry]) -> ActorMetadata {
 /// Wraps network NBT bytes in HITBOX actor metadata.
 fn compound(bytes: Vec<u8>) -> ActorMetadata {
     ActorMetadata {
-        key: HITBOX_METADATA_KEY,
+        key: ActorDataKey::HitBox.wire_value(),
         value: ActorMetadataValue::Compound(Arc::from(bytes)),
     }
 }
@@ -161,7 +162,7 @@ fn hitbox_updates_append_and_empty_updates_do_not_remove_boxes() {
         compound(NbtCompound::default().encode_root().unwrap()),
         compound(vec![10, 0, 0xff]),
         ActorMetadata {
-            key: HITBOX_METADATA_KEY,
+            key: ActorDataKey::HitBox.wire_value(),
             value: ActorMetadataValue::Int(0),
         },
     ]
@@ -186,15 +187,15 @@ fn custom_hitboxes_ignore_render_scale_and_collision_dimensions() {
         vec![
             hitbox_compound(&[RAISED]),
             ActorMetadata {
-                key: super::SCALE_METADATA_KEY,
+                key: ActorDataKey::Scale.wire_value(),
                 value: ActorMetadataValue::Float(4.0),
             },
             ActorMetadata {
-                key: super::BOUNDING_BOX_WIDTH_METADATA_KEY,
+                key: ActorDataKey::Width.wire_value(),
                 value: ActorMetadataValue::Float(0.0),
             },
             ActorMetadata {
-                key: super::BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                key: ActorDataKey::Height.wire_value(),
                 value: ActorMetadataValue::Float(0.0),
             },
         ],
@@ -208,7 +209,7 @@ fn custom_hitboxes_ignore_render_scale_and_collision_dimensions() {
         &mut store,
         2,
         ActorMetadata {
-            key: super::SCALE_METADATA_KEY,
+            key: ActorDataKey::Scale.wire_value(),
             value: ActorMetadataValue::Float(0.0),
         },
     );

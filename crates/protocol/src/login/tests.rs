@@ -83,7 +83,7 @@ fn truncated_audio_wire_remains_fatal() {
 ///
 /// 1.26.40 writes the hashes unconditionally and signals cache participation
 /// with `cache_enabled`, so `blobs: Some(..)` has no direct equivalent.
-fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunk {
+pub(super) fn cached_level_chunk(hashes: Vec<u64>) -> LevelChunk {
     let sub_chunks_count = u32::try_from(hashes.len().saturating_sub(1)).expect("fixture count");
     LevelChunk {
         sub_chunks_count: wire::VarUInt(sub_chunks_count),

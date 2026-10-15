@@ -103,8 +103,16 @@ fn retained_publication_plans_no_vertex_or_index_uploads() {
         .unwrap()
         .clone();
     let mut gpu = world.resource_mut::<UiGpu>();
+    let UiGpu {
+        uploads, textures, ..
+    } = &mut *gpu;
+    // A warm font frame remaps the retained publication without writing glyphs.
+    textures
+        .fonts
+        .prepare(&input, |_, _, _, _| panic!("warm glyph uploaded twice"))
+        .unwrap();
     let before = test_alloc::thread_allocations();
-    let plan = gpu.uploads.plan(&input, false, false);
+    let plan = uploads.plan(&input, &textures.fonts, false, false);
     let allocations = test_alloc::thread_allocations() - before;
     assert!(plan.vertices.is_empty());
     assert!(plan.indices.is_empty());
@@ -288,4 +296,33 @@ fn first_frame_view_pipelines_use_the_current_accepted_ui() {
         gpu.view_pipelines.contains_key(&owner),
         "first-frame pipelines must use this frame's prepared UI"
     );
+}
+
+/// Admission prepares glint bounds once; a clock-only frame reuses geometry and those bounds.
+#[test]
+fn retained_glint_coverage_lives_with_the_accepted_publication() {
+    let mut world = retained_world();
+    let previous = world
+        .resource::<UiRenderSceneResource>()
+        .input
+        .as_ref()
+        .unwrap()
+        .clone();
+    let mut incoming = (*previous).clone();
+    incoming.revision += 1;
+    Arc::make_mut(&mut incoming.vertices)[0].style_flags |= render_model::UI_STYLE_GLINT;
+    world.resource_mut::<UiRenderSceneResource>().input = Some(Arc::new(incoming));
+    world.run_system_once(prepare_ui_resources).unwrap();
+    let bounds = Arc::clone(&world.resource::<UiGpu>().animation_damage);
+    let writes = world.resource::<UiGpu>().geometry_writes;
+    assert!(matches!(bounds[0], damage::UiDamage::Rect(_)));
+    world.run_system_once(prepare_ui_resources).unwrap();
+    assert!(Arc::ptr_eq(
+        &bounds,
+        &world.resource::<UiGpu>().animation_damage
+    ));
+    assert_eq!(world.resource::<UiGpu>().geometry_writes, writes);
+    world.resource_mut::<UiRenderSceneResource>().input = None;
+    world.run_system_once(prepare_ui_resources).unwrap();
+    assert!(world.resource::<UiGpu>().animation_damage.is_empty());
 }

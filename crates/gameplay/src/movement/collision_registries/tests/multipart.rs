@@ -16,9 +16,15 @@ fn states(record: &RegistryRecord) -> Map<String, Value> {
     serde_json::from_str(&record.canonical_state).unwrap()
 }
 
+/// Shares the dense facts compiled from every actual pinned state.
+fn facts() -> &'static assets::facts::BlockFacts {
+    static FACTS: std::sync::OnceLock<assets::facts::BlockFacts> = std::sync::OnceLock::new();
+    FACTS.get_or_init(|| assets::facts::BlockFacts::new(&records()).unwrap())
+}
+
 /// Resolves the other-part offset from a registry record.
 fn record_offset(record: &RegistryRecord) -> Option<[i32; 3]> {
-    second_part_offset(&record.name, &states(record))
+    second_part_offset(facts().get(record.sequential_id), &states(record))
 }
 
 /// The offset of the first `name` state whose fields hold every `wanted` value.
@@ -33,7 +39,7 @@ fn offset(records: &[RegistryRecord], name: &str, wanted: &[(&str, Value)]) -> O
                 })
         })
         .unwrap_or_else(|| panic!("{name} {wanted:?}"));
-    second_part_offset(&record.name, &states(record))
+    second_part_offset(facts().get(record.sequential_id), &states(record))
 }
 
 /// The blocks whose native `getSecondPart` reports another block. A new block in the registry

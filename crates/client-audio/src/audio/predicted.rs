@@ -11,10 +11,10 @@ use sim::PaletteWorld;
 use super::{
     echo::{EchoOrigin, EchoSubject},
     engine::{AudioEngine, SoundRequest},
-    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_at},
+    systems::{ACTOR_ECHO_SECONDS, BLOCK_ECHO_SECONDS, block_lookup, identifier_ref},
 };
 
-const PLAYER: &str = "minecraft:player";
+const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
 /// Height fraction of an actor's box standing in for its head attach point.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
 /// Seconds between block hit sounds while mining (vanilla 200 ms).
@@ -124,7 +124,10 @@ pub fn drive_block_cues(
     let previous = mining.target.as_ref().map(|(cell, _)| *cell);
     if target != previous {
         mining.hit_timer = 0.0;
-        mining.target = target.map(|cell| (cell, identifier_at(&palette, collisions, mode, cell)));
+        mining.target = target.map(|cell| {
+            let identifier = identifier_ref(&palette, collisions, mode, cell).map(str::to_owned);
+            (cell, identifier)
+        });
     }
     if let Some(cell) = mining.target.as_ref().map(|(cell, _)| *cell) {
         mining.hit_timer -= time.delta_secs();
@@ -306,11 +309,16 @@ pub fn drive_consume_audio(
 fn status_request(
     tables: &assets::SoundEventTables,
     identifier: &str,
+    class: assets::facts::entity::NativeEntityClass,
     notice: &ActorStatusNotice,
 ) -> Option<(&'static str, SoundRequest)> {
     let event = match notice.kind {
         ActorStatusKind::Hurt | ActorStatusKind::HurtWithoutDamage => "hurt",
-        ActorStatusKind::Death if identifier == "minecraft:ender_dragon" => return None,
+        ActorStatusKind::Death
+            if class == assets::facts::entity::NativeEntityClass::EnderDragon =>
+        {
+            return None;
+        }
         ActorStatusKind::Death => "death",
         _ => return None,
     };
@@ -343,8 +351,12 @@ pub fn drive_actor_audio(
     }
     let local = stream.local_player_runtime_id();
     for notice in &notices {
-        let (identifier, unique_id) = if notice.runtime_id == local {
-            (PLAYER, stream.authority().local_player_unique_id())
+        let (identifier, unique_id, class) = if notice.runtime_id == local {
+            (
+                PLAYER,
+                stream.authority().local_player_unique_id(),
+                assets::facts::entity::NativeEntityClass::Player,
+            )
         } else {
             let Some(actor) = stream.authority().actor(notice.runtime_id) else {
                 continue;
@@ -353,11 +365,11 @@ pub fn drive_actor_audio(
                 ActorKind::Player { .. } => PLAYER,
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             };
-            (identifier, actor.unique_id)
+            (identifier, actor.unique_id, actor.entity_fact.native_class)
         };
         let Some((event, request)) = engine
             .bank()
-            .and_then(|bank| status_request(bank.tables(), identifier, notice))
+            .and_then(|bank| status_request(bank.tables(), identifier, class, notice))
         else {
             continue;
         };
@@ -519,16 +531,33 @@ mod tests {
             height: Some(2.0),
             eating_position: [0.0; 3],
         };
-        let (event, hurt) =
-            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Hurt)).unwrap();
+        let (event, hurt) = status_request(
+            &tables,
+            "minecraft:zombie",
+            assets::facts::entity::EntityFacts::pinned()
+                .get("minecraft:zombie")
+                .native_class,
+            &notice(ActorStatusKind::Hurt),
+        )
+        .unwrap();
         assert_eq!((event, &*hurt.name), ("hurt", "mob.zombie.hurt"));
         assert_eq!(hurt.position, Some([1.0, 65.8, 1.0]));
-        let (_, death) =
-            status_request(&tables, "minecraft:zombie", &notice(ActorStatusKind::Death)).unwrap();
+        let (_, death) = status_request(
+            &tables,
+            "minecraft:zombie",
+            assets::facts::entity::EntityFacts::pinned()
+                .get("minecraft:zombie")
+                .native_class,
+            &notice(ActorStatusKind::Death),
+        )
+        .unwrap();
         assert_eq!(&*death.name, "game.death");
         let silent = status_request(
             &tables,
             "minecraft:armor_stand",
+            assets::facts::entity::EntityFacts::pinned()
+                .get("minecraft:armor_stand")
+                .native_class,
             &notice(ActorStatusKind::Hurt),
         );
         assert!(silent.is_none());
@@ -553,14 +582,32 @@ mod tests {
             eating_position: [0.0; 3],
         };
         assert!(
-            status_request(&tables, "minecraft:ender_dragon", &notice).is_none(),
+            status_request(
+                &tables,
+                "minecraft:ender_dragon",
+                assets::facts::entity::EntityFacts::pinned()
+                    .get("minecraft:ender_dragon")
+                    .native_class,
+                &notice
+            )
+            .is_none(),
             "the death status starts the visual sequence without an early voice"
         );
         let hurt = ActorStatusNotice {
             kind: ActorStatusKind::Hurt,
             ..notice
         };
-        assert!(status_request(&tables, "minecraft:ender_dragon", &hurt).is_some());
+        assert!(
+            status_request(
+                &tables,
+                "minecraft:ender_dragon",
+                assets::facts::entity::EntityFacts::pinned()
+                    .get("minecraft:ender_dragon")
+                    .native_class,
+                &hurt
+            )
+            .is_some()
+        );
         let event = protocol::LevelAudioEvent {
             sound_event: "death".into(),
             position: [1.0, 64.2, 1.0],

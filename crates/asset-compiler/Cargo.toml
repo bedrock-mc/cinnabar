@@ -17,6 +17,7 @@ reads = [
     "crates/protocol/data/retail_items_1_26_50.tsv",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
+    "crates/protocol/data/item_tags_dragonfly.tsv",
     "assets/cinnangles-sans-source.json",
     "assets/fonts/CinnanglesSans.ttf",
     "assets/hud-source-v2193.json",
@@ -25,11 +26,14 @@ reads = [
     "assets/ui-font-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
+    "crates/assets/src/facts/identities_generated.rs",
     "crates/assets/tests/fixtures/registry-wire.hex",
+    "crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt",
     "packaging/common/prep-kit-files.txt",
 ]
 
 [dependencies]
+protocol-ids = { path = "../protocol-ids" }
 world = { path = "../world" }
 assets = { path = "../assets" }
 block-transform = { path = "../block-transform" }

@@ -1,4 +1,5 @@
 use super::*;
+use protocol_ids::ActorFlag;
 
 /// Supplies a client-owned player without any server-authored actor metadata.
 fn local_feed() -> client_world::LocalPlayerFeed {
@@ -19,6 +20,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,
         head_yaw: 0.0,
@@ -26,6 +28,7 @@ fn local_feed() -> client_world::LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
@@ -79,10 +82,10 @@ fn client_generated_flags_allow_own_tag_extraction_and_preserve_server_visibilit
     for (index, (flags, expected)) in [
         (0, false),
         (
-            (1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_INVISIBLE),
+            (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
             false,
         ),
-        (1 << ACTOR_FLAG_SHOW_NAME, true),
+        (1 << ActorFlag::ShowName.wire_value(), true),
     ]
     .into_iter()
     .enumerate()
@@ -156,7 +159,9 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.0));
     actor.metadata.insert(
         0,
-        ActorMetadataValue::Flags((1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_SNEAKING)),
+        ActorMetadataValue::Flags(
+            (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Sneaking.wire_value()),
+        ),
     );
     let boards = ui::ScoreboardStore::default();
     let extract = |actor: &ActorSnapshot, position| {
@@ -172,7 +177,10 @@ fn render_feet_preserve_actor_visibility_height_and_reject_nonfinite_positions()
     ] {
         assert!(extract(&actor, invalid).is_none());
     }
-    for flags in [0, (1 << ACTOR_FLAG_SHOW_NAME) | (1 << ACTOR_FLAG_INVISIBLE)] {
+    for flags in [
+        0,
+        (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
+    ] {
         actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
         assert!(extract(&actor, feet).is_none());
     }

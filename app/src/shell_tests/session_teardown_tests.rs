@@ -22,8 +22,11 @@ use {
     crate::{
         app::configure_client_frame_schedule,
         runtime::{
-            network::session::NetworkControlEvent, shutdown::record_fatal_error,
-            telemetry::send_player_auth_inputs, visibility::AppMetrics, world::ClientWorld,
+            network::session::NetworkControlEvent,
+            shutdown::{FatalError, record_fatal_error},
+            telemetry::send_player_auth_inputs,
+            visibility::AppMetrics,
+            world::ClientWorld,
         },
         session::{SessionController, drive_session, recover_session_failure},
     },
@@ -49,7 +52,7 @@ struct DelayedTerminal(Option<tokio::sync::mpsc::Sender<NetworkControlEvent>>);
 
 fn receive_terminal_for_test(
     mut network: ResMut<NetworkHandle<PackApplication>>,
-    mut client_world: ResMut<ClientWorld>,
+    mut fatal_error: ResMut<FatalError>,
 ) {
     for event in drain_network_controls(network.control_events_mut(), 16) {
         let NetworkControlEvent::Failed {
@@ -61,7 +64,7 @@ fn receive_terminal_for_test(
             continue;
         };
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             client_session::session_failure_display(&message, server_disconnect.as_ref()),
         );
     }
@@ -193,11 +196,13 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(movement)
         .insert_resource(physics)
         .insert_resource(AcceptanceRun::new(None, None, false, false))
@@ -220,7 +225,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
     let menu = app.world().resource::<MenuRuntime>();
     assert_eq!(menu.view().screen, MenuScreen::Servers);
     assert!(menu.view().message.is_none());
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
     assert_eq!(
         app.world()
             .resource::<UiRuntimeResource>()
@@ -285,11 +290,13 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         .insert_resource(DelayedTerminal(Some(terminal_sender)))
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(movement)
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(AcceptanceRun::new(None, None, false, false))
@@ -318,7 +325,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
 
     app.update();
     assert!(
-        app.world().resource::<ClientWorld>().fatal_error.is_none(),
+        app.world().resource::<FatalError>().0.is_none(),
         "a queued terminal control must outrank the synthetic closed-send error"
     );
     assert!(
@@ -332,7 +339,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
     );
 
     app.update();
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
     assert!(!app.world().resource::<MenuRuntime>().is_visible());
 
     app.update();
@@ -343,7 +350,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         menu.view().disconnect_message.as_deref(),
         Some("server disconnected: Cinnabar launcher return check (network read failed: closed)")
     );
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
 }
 
 fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, SessionController) {
@@ -368,11 +375,13 @@ fn drive_once(
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
         )))
         .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
         .insert_resource(MovementTicker::default())
         .insert_resource(LocalPhysicsController::default())
         .insert_resource(LocalPlayerFrameCarrier::default())

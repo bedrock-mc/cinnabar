@@ -769,7 +769,10 @@ fn pack_hud_visibility_controls_diagnostic_eligibility_without_allocations() {
     let runtime = UiRuntime::new(1);
     let mut presentation = mini_engine_presentation();
     let base = presentation.pack_catalog_base().unwrap();
-    let (namespace, name) = json_ui::HUD_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudHudScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     for render_game_behind in [false, true] {
         let definition = serde_json::to_vec(&serde_json::json!({
             "namespace": namespace,
@@ -916,38 +919,58 @@ fn obfuscated_overlay_text_keeps_its_style_and_resamples_frame_geometry() {
     let player = player_state::PlayerState::new(1);
     let runtime = UiRuntime::new(1);
     let mut presentation = mini_engine_presentation();
-    presentation.set_debug_lines(Some(DebugLines {
-        left: vec!["Name: §kSecret".into()],
-        right: Vec::new(),
-    }));
-    presentation
-        .build(
-            &player,
-            &runtime,
-            0,
-            [800, 600],
-            DpiScale::new(1.0).unwrap(),
-        )
-        .unwrap();
+    let mut full = mini_engine_presentation();
+    for presentation in [&mut presentation, &mut full] {
+        presentation.set_debug_lines(Some(DebugLines {
+            left: vec!["Name: §kSecret".into()],
+            right: Vec::new(),
+        }));
+    }
+    let build = |presentation: &mut UiPresentationRuntime, now| {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                now,
+                [800, 600],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap()
+    };
+    build(&mut presentation, 0);
     let tree_builds = presentation.tree_builds;
     let paints = presentation.debug_overlay.paints;
-    assert!(presentation.last_frame.is_none());
+    assert!(presentation.last_frame.is_some());
     assert!(presentation.assembly_nodes.iter().any(|node| {
         matches!(node.visual(), UiVisual::Text { layout, .. }
             if layout.glyphs().iter().any(|glyph| glyph.style.obfuscated))
     }));
-    presentation
-        .build(
-            &player,
-            &runtime,
-            1,
-            [800, 600],
-            DpiScale::new(1.0).unwrap(),
+    let obfuscated = presentation
+        .assembly_nodes
+        .iter()
+        .filter(
+            |node| matches!(node.visual(), UiVisual::Text { layout, .. } if layout.obfuscated()),
         )
-        .unwrap();
-    assert_eq!(presentation.tree_builds, tree_builds + 1);
+        .count();
+    for now in 1..8 {
+        let redrawn = presentation.redrawn_nodes;
+        let drawn = build(&mut presentation, now);
+        full.last_frame = None;
+        let expected = build(&mut full, now);
+        assert_eq!(drawn.vertices, expected.vertices, "frame at {now}");
+        assert_eq!(drawn.indices, expected.indices, "frame at {now}");
+        assert_eq!(drawn.batches, expected.batches, "frame at {now}");
+        assert_eq!(
+            presentation.tree_builds, tree_builds,
+            "§k text keeps the retained frame"
+        );
+        assert_eq!(
+            presentation.redrawn_nodes - redrawn,
+            obfuscated,
+            "only the §k labels are emitted again"
+        );
+    }
     assert_eq!(presentation.debug_overlay.paints, paints);
-    assert!(presentation.last_frame.is_none());
     assert!(presentation.assembly_nodes.iter().any(|node| {
         matches!(node.visual(), UiVisual::Text { layout, .. }
             if layout.glyphs().iter().any(|glyph| glyph.style.obfuscated))

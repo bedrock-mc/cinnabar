@@ -1,6 +1,7 @@
 //! Actor geometry on the CPU: skins, the standard biped, rig contracts and entity-catalog meshes.
 mod asset_geometry;
 mod biped;
+pub mod flame;
 mod geometry;
 mod ids;
 mod locator;
@@ -30,7 +31,8 @@ pub use ids::{
 pub use rig::{
     ACTOR_RIG_VERTEX_WORDS, ActorRigGeometry, ActorRigGeometryError, ActorRigVertex, EntityRigId,
     MAX_ACTOR_CATALOG_VERTEX_BYTES, MAX_ACTOR_CATALOG_VERTICES, MAX_ACTOR_RIG_VERTICES,
-    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE, diagnostic_geometry,
+    MAX_RENDER_BONES_PER_ACTOR, RenderBoneTransform, UNIT_AXIS_SCALE, actor_catalog_budget_bytes,
+    diagnostic_geometry,
 };
 pub use skin::{
     ActorSkinPixels, DEFAULT_PLAYER_SKIN_PATH, DEFAULT_SKIN_PROVENANCE, MAX_RENDERED_PLAYERS,

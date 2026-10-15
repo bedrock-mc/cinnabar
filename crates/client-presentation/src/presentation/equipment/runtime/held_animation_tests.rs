@@ -1,6 +1,6 @@
 use super::{
-    elytra_tests::selected_pixel, local_carrier, pack_catalog, pack_runtime, player_body,
-    startup_runtime,
+    declare_wearable, elytra_tests::selected_pixel, local_carrier, pack_catalog, pack_runtime,
+    player_body, startup_runtime,
 };
 use crate::presentation::equipment::runtime::*;
 use actor_animation::{ActorLifetimeId, ActorRigSnapshot};
@@ -10,7 +10,7 @@ use protocol::{ActorEvent, ActorKind, ActorSpawnEvent, WorldBootstrap, WorldEven
 use std::sync::Arc;
 
 /// Builds a protocol-spawned skeleton with a distinct owner lifetime.
-fn owner() -> client_world::ActorSnapshot {
+pub(in crate::presentation::equipment) fn owner() -> client_world::ActorSnapshot {
     let mut world = WorldAuthority::new(
         WorldBootstrap {
             local_player_unique_id: 1,
@@ -54,7 +54,7 @@ fn owner() -> client_world::ActorSnapshot {
 }
 
 /// Supplies retained owner timing and named bones to equipment publication.
-fn owner_rig<'a>(
+pub(in crate::presentation::equipment) fn owner_rig<'a>(
     owner: &client_world::ActorSnapshot,
     names: &'a [Box<str>],
 ) -> ActorRigSnapshot<'a> {
@@ -99,6 +99,8 @@ fn owner_rig<'a>(
 fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
+            charged_projectile: None,
             use_facts: client_world::resolve_item_use(
                 &assets::item_use::diagnostic_profile(identifier),
                 None,
@@ -819,7 +821,11 @@ fn third_person_held_attachable_receives_the_render_delta() {
 
 #[test]
 fn worn_attachable_categories_do_not_become_held_models() {
-    for identifier in ["minecraft:elytra", "test:helmet"] {
+    // Vanilla elytra is worn by its item facts; the custom helmet by its declared wearable slot.
+    for (identifier, wearable) in [
+        ("minecraft:elytra", None),
+        ("test:helmet", Some("slot.armor.head")),
+    ] {
         let mut files = held_pack();
         let (_, attachable) = files
             .iter_mut()
@@ -831,6 +837,9 @@ fn worn_attachable_categories_do_not_become_held_models() {
         *attachable = serde_json::to_vec(&document).unwrap();
         let (mut runtime, _) = pack_runtime(files);
         let body = player_body(&mut runtime);
+        if let Some(slot) = wearable {
+            declare_wearable(&mut runtime, identifier, slot);
+        }
         let owner = owner();
         let names = ["rightItem".into()];
         let rig = owner_rig(&owner, &names);

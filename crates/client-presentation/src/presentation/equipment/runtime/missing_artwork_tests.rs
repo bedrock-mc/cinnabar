@@ -2,7 +2,7 @@
 
 use super::*;
 
-const ITEM: &str = "fixture:helmet";
+const ITEM: &str = "minecraft:iron_helmet";
 const DEFAULT_PATH: &str = "textures/fixture_armor.png";
 const BASE_PIXEL: [u8; 4] = [22, 33, 44, 255];
 
@@ -88,6 +88,7 @@ fn secondary_only_pack_keeps_startup_armour_visible() {
         ActorArtworkPages::default(),
     );
     runtime.register_skin_rig(body.input.rig, vec!["head".into()]);
+    crate::presentation::equipment::tests::declare_wearable(&mut runtime, ITEM, "slot.armor.head");
     let input = ActorEquipmentInput {
         armor: [
             Some(WornItem {

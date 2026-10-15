@@ -12,9 +12,11 @@ mod matching;
 mod screen_recipes;
 mod selection;
 mod session;
+mod session_items;
+pub use session_items::{SessionItemFacts, SessionItemKind};
 mod transport;
 
-pub use anvil::{ANVIL_TOO_EXPENSIVE, AnvilItem, AnvilOutcome, evaluate_anvil, repairs_with};
+pub use anvil::{ANVIL_TOO_EXPENSIVE, AnvilItem, AnvilOutcome, evaluate_anvil};
 pub use crafting::{
     CraftGridItem, CraftGridMatch, ingredient_accepts, match_crafting_grid,
     recipe_ingredient_accepts, screen_ingredient_accepts,

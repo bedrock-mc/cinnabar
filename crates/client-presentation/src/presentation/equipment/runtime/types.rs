@@ -19,6 +19,8 @@ pub(super) struct JavaRasterFrame {
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
+    /// Loaded projectile admitted for this stack, independent of display metadata.
+    pub charged_projectile: Option<assets::item_use::ItemProjectileRole>,
     /// Grip admitted by the numeric item registry, copied from the canonical stack.
     pub grip: assets::item::grip::ItemGrip,
     /// Use and animation facts from the numerical registry admission.
@@ -31,6 +33,8 @@ pub struct WornItem {
     pub dye_rgb: Option<u32>,
     /// Enables the resource pack's enchanted material on worn equipment.
     pub enchanted: bool,
+    /// Data value, block and tags whose change re-equips a held stack.
+    pub variant: actor_animation::StackVariant,
 }
 
 /// How a held stack is drawn.
@@ -99,8 +103,8 @@ pub struct FirstPersonArms {
     pub left: bool,
 }
 
-const FILLED_MAP: &str = "minecraft:filled_map";
-const SHIELD: &str = "minecraft:shield";
+const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
+const SHIELD: &str = assets::facts::VanillaItem::Shield.identifier();
 
 impl FirstPersonArms {
     /// The right arm shows for an empty hand or a map; the left for a map in either hand (a shield

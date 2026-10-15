@@ -99,6 +99,38 @@ fn near_mask_bounds_its_columns() {
     assert_eq!(NearMask::from_columns(centre, 64, []).inner_blocks(), 0.0);
 }
 
+/// Air extends occlusion in either direction without changing geometry bounds or tile detail.
+#[test]
+fn distant_air_masks_columns_without_refining_tiles() {
+    let (centre, radius, horizon) = ([5, -3], 16, 160);
+    let handoff = ColumnPos::new(centre[0] + 30, centre[1]);
+    let air = [
+        ColumnPos::new(centre[0] + 128, centre[1]),
+        ColumnPos::new(centre[0], centre[1] - 128),
+        handoff,
+    ];
+    let geometry = NearMask::around(centre, horizon, radius, [handoff]);
+    let mask = NearMask::around_with_empty(
+        centre,
+        horizon,
+        radius,
+        [handoff],
+        air.into_iter()
+            .chain([ColumnPos::new(centre[0] + horizon + 1, centre[1])]),
+    );
+    for column in air {
+        assert!(mask.contains(column));
+    }
+    assert!(!mask.contains(ColumnPos::new(centre[0] + horizon + 1, centre[1])));
+    assert_eq!(mask.inner_blocks(), geometry.inner_blocks());
+    assert_eq!(mask.outer_blocks(), geometry.outer_blocks());
+    let view = TileView::around(centre, &mask, radius, horizon);
+    let geometry_view = TileView::around(centre, &geometry, radius, horizon);
+    assert_eq!(view, geometry_view);
+    assert_eq!(select_tiles(view), select_tiles(geometry_view));
+    assert!(geometry.outer_blocks() > NearMask::around(centre, horizon, radius, []).outer_blocks());
+}
+
 /// Inside the near edge but outside the skipped disc, only finest tiles are selected.
 #[test]
 fn tiles_between_the_skipped_disc_and_the_near_edge_are_finest() {
@@ -245,17 +277,40 @@ fn coarse_water_cells_keep_the_sea_level() {
     assert!(grid.cell(0, 0).water_depth > 0);
 }
 
+// Blocks of a level-2 tile of the coarse `near_growth` view that the grown view splits into
+// finest tiles.
+const SPLIT_FAR: (i32, i32) = (-270, -100); // Past the grown near edge.
+const SPLIT_NEAR: (i32, i32) = (-264, -8); // Inside it.
+
+/// Flat columns, a view without near terrain, and the view after near terrain grows toward the
+/// same horizon. Small, so the hand-over takes few tile builds even on a slow runner.
+fn near_growth() -> (SummaryStore, TileView, TileView) {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -32..32 {
+        for z in -32..32 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let coarse = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 0.0,
+        skip_blocks: 0.0,
+        far_blocks: 304.0,
+    };
+    let grown = TileView {
+        near_blocks: 288.0,
+        far_blocks: 16.0,
+        ..coarse
+    };
+    (store, coarse, grown)
+}
+
 /// A coarser tile replaced by finer ones stays drawn until they are built, unless near terrain
 /// now draws one of its columns.
 #[test]
 fn replaced_coarse_tiles_stay_until_covered_or_near() {
-    let mut store = SummaryStore::new(usize::MAX);
-    for x in -80..80 {
-        for z in -80..80 {
-            store.admit(ColumnPos::new(x, z), &flat(64));
-        }
-    }
-    let levels = |tiles: &FarTiles, x: i32, z: i32| -> Vec<u8> {
+    let (mut store, coarse, grown) = near_growth();
+    let levels = |tiles: &FarTiles, (x, z): (i32, i32)| -> Vec<u8> {
         tiles
             .drawn()
             .iter()
@@ -263,38 +318,29 @@ fn replaced_coarse_tiles_stay_until_covered_or_near() {
             .map(|mesh| mesh.key.level)
             .collect()
     };
-    let coarse = TileView {
-        centre: [8.0, 8.0],
-        near_blocks: 32.0,
-        skip_blocks: 32.0,
-        far_blocks: 1200.0,
-    };
     let mut tiles = FarTiles::default();
     tiles.set_view(coarse);
     let now = Instant::now();
     test_time::eventually("coarse tiles build", || {
         tiles.update(&mut store, now);
-        levels(&tiles, 600, 8) == [2] && levels(&tiles, 600, 300) == [2]
+        levels(&tiles, SPLIT_NEAR) == [2] && levels(&tiles, SPLIT_FAR) == [2]
     });
 
-    tiles.set_view(TileView {
-        near_blocks: 640.0,
-        ..coarse
-    });
+    tiles.set_view(grown);
     assert_eq!(
-        levels(&tiles, 600, 300),
+        levels(&tiles, SPLIT_FAR),
         [2],
         "kept until finer tiles are built"
     );
     assert_eq!(
-        levels(&tiles, 600, 8),
+        levels(&tiles, SPLIT_NEAR),
         [2],
         "near columns hide it per fragment, so its other columns stay covered"
     );
     test_time::eventually("finer tiles replace it", || {
         tiles.update(&mut store, now);
-        levels(&tiles, 600, 300).iter().all(|level| *level < 2)
-            && !levels(&tiles, 600, 300).is_empty()
+        let levels = levels(&tiles, SPLIT_FAR);
+        !levels.is_empty() && levels.iter().all(|level| *level < 2)
     });
 }
 
@@ -416,23 +462,12 @@ fn skirts_reach_a_lower_neighbour() {
 /// mesh still hides it.
 #[test]
 fn hidden_replacements_are_not_ready() {
-    let mut store = SummaryStore::new(usize::MAX);
-    for x in -80..80 {
-        for z in -80..80 {
-            store.admit(ColumnPos::new(x, z), &flat(64));
-        }
-    }
-    let coarse = TileView {
-        centre: [8.0, 8.0],
-        near_blocks: 32.0,
-        skip_blocks: 32.0,
-        far_blocks: 1200.0,
-    };
+    let (mut store, coarse, grown) = near_growth();
     let retained = |tiles: &FarTiles| {
         tiles
             .drawn()
             .iter()
-            .any(|mesh| mesh.key.level == 2 && contains(mesh.key, 600, 300))
+            .any(|mesh| mesh.key.level == 2 && contains(mesh.key, SPLIT_FAR.0, SPLIT_FAR.1))
     };
     let mut tiles = FarTiles::default();
     tiles.set_view(coarse);
@@ -441,11 +476,8 @@ fn hidden_replacements_are_not_ready() {
         tiles.update(&mut store, now);
         retained(&tiles)
     });
-    tiles.set_view(TileView {
-        near_blocks: 640.0,
-        ..coarse
-    });
-    let column = ColumnPos::new(600 / 16, 300 / 16);
+    tiles.set_view(grown);
+    let column = ColumnPos::new(SPLIT_FAR.0.div_euclid(16), SPLIT_FAR.1.div_euclid(16));
     test_time::eventually("the finer tiles take over", || {
         tiles.update(&mut store, now);
         assert!(
@@ -481,4 +513,54 @@ fn changes_in_the_skirt_ring_rebuild_the_neighbour() {
     store.admit(outside, &flat(10));
     tiles.mark_changed(&store.take_changed());
     assert!(!tiles.ready(inside), "the tile beside the change rebuilds");
+}
+
+/// On a warm join, while near meshes arrive ring by ring, far terrain never shows inside the
+/// near radius: every tile column there is masked, and only finest tiles reach it.
+#[test]
+fn warm_joins_draw_nothing_far_inside_the_near_radius() {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -40..40 {
+        for z in -40..40 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let (centre, near_radius, horizon) = ([0, 0], 8, 32);
+    let mut tiles = FarTiles::default();
+    let mut drawn = Vec::new();
+    let now = Instant::now();
+    let mut far_tiles_seen = false;
+    for frame in 0..48 {
+        if frame % 4 == 3 {
+            let ring = frame / 4;
+            drawn.extend(
+                (-ring..=ring)
+                    .flat_map(|x| (-ring..=ring).map(move |z| ColumnPos::new(x, z)))
+                    .filter(|column| column.x * column.x + column.z * column.z <= ring * ring),
+            );
+        }
+        let mask = NearMask::around(centre, horizon, near_radius, drawn.iter().copied());
+        tiles.set_view(TileView::around(centre, &mask, near_radius, horizon));
+        // Builds finish on workers; wait until this view's far terrain is drawn.
+        test_time::eventually("this frame's far tiles build", || {
+            tiles.update(&mut store, now);
+            tiles.ready(ColumnPos::new(20, 0))
+        });
+        for mesh in tiles.drawn() {
+            far_tiles_seen = true;
+            for column in mesh.key.columns() {
+                if column.x * column.x + column.z * column.z <= near_radius * near_radius {
+                    assert!(
+                        mask.contains(column),
+                        "far terrain over {column:?} at frame {frame}"
+                    );
+                    assert_eq!(
+                        mesh.key.level, 0,
+                        "coarse tile near the player at frame {frame}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(far_tiles_seen);
 }

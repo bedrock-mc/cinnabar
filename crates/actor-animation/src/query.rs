@@ -1,4 +1,6 @@
+use assets::facts::entity::NativeEntityClass;
 use assets::{MolangQuery as Q, MolangQueryHandler};
+use protocol_ids::{ActorDataKey, ActorFlag};
 use {
     super::{evaluation::MolangValue, *},
     simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION,
@@ -8,6 +10,8 @@ mod item_use;
 pub(super) mod potion;
 pub(super) mod wolf;
 
+#[cfg(test)]
+mod facts_tests;
 #[cfg(test)]
 mod item_use_tests;
 
@@ -24,50 +28,6 @@ mod pack_query_tests;
 mod potion_tests;
 #[cfg(test)]
 mod tropical_fish_tests;
-
-// Actor flag bits and metadata keys follow gophertunnel v1.61.0
-// `minecraft/protocol/entity_metadata.go` (`EntityDataFlag*` and `EntityDataKey*`, iota from
-// zero); flag bits from 64 live in the overflow flag word.
-pub(super) const FLAG_SNEAKING: u32 = 1;
-pub(super) const FLAG_USING_ITEM: u32 = 4;
-pub(super) const FLAG_BABY: u32 = flag_bit(Q::IsBaby);
-pub(super) const FLAG_CRAWLING: u32 = flag_bit(Q::IsCrawling);
-pub(super) const FLAG_BLOCKING: u32 = 72;
-pub(super) const FLAG_DAMAGE_NEARBY_MOBS: u32 = 56;
-pub(super) const FLAG_GLIDING: u32 = 32;
-pub(super) const FLAG_EMOTING: u32 = 92;
-const FLAG_ANGRY: u32 = 25;
-const FLAG_TAMED: u32 = flag_bit(Q::IsTamed);
-
-const KEY_CARRY_BLOCK: u32 = 23;
-const KEY_NAME: u32 = 4;
-const KEY_TARGET: u32 = 6;
-const KEY_SWELL: u32 = 19;
-pub(super) const FLAG_STANDING: u32 = 39;
-pub(super) const FLAG_SWIMMING: u32 = 57;
-
-// Actors that swim in place, so airborne means in water; without a fluid sample this stands in
-// for the fish-on-land flop.
-const AQUATIC: [&str; 10] = [
-    "cod",
-    "salmon",
-    "pufferfish",
-    "tropicalfish",
-    "squid",
-    "glow_squid",
-    "guardian",
-    "elder_guardian",
-    "dolphin",
-    "axolotl",
-];
-
-/// The actor flag bit a flag query reads, from the query manifest.
-const fn flag_bit(query: Q) -> u32 {
-    match query.descriptor().handler {
-        MolangQueryHandler::Flag(bit) => bit,
-        _ => panic!("query reads no actor flag"),
-    }
-}
 
 // Head-over-body yaw bound for look-at queries; needs independent measurement.
 const TARGET_YAW_LIMIT: f32 = 85.0;
@@ -97,7 +57,12 @@ pub(super) fn query(
     name: Q,
     arguments: &[MolangValue],
 ) -> MolangValue {
-    let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
+    let text = |value: Option<&str>| {
+        MolangValue::String(match value.filter(|value| !value.is_empty()) {
+            Some(value) => Arc::from(value),
+            None => empty_text(),
+        })
+    };
     match name {
         Q::IsSpectator => MolangValue::Number(truth(match evaluator.actor.player_game_mode() {
             Some(protocol::GameModeUpdate::Explicit(mode)) => {
@@ -111,13 +76,19 @@ pub(super) fn query(
         Q::GetEquippedItemName => {
             text(hand_item(evaluator.context, arguments.first()).map(item_name))
         }
-        Q::GetName => text(match evaluator.actor.metadata().get(&KEY_NAME) {
-            Some(ActorMetadataValue::String(name)) => Some(name.as_ref()),
-            _ => None,
-        }),
+        Q::GetName => text(
+            match evaluator
+                .actor
+                .metadata()
+                .get(&ActorDataKey::Name.wire_value())
+            {
+                Some(ActorMetadataValue::String(name)) => Some(name.as_ref()),
+                _ => None,
+            },
+        ),
         Q::OwnerIdentifier => text(evaluator.context.attachable.map(
             |_| match evaluator.actor.kind() {
-                ActorKind::Player { .. } => "minecraft:player",
+                ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
@@ -150,6 +121,12 @@ pub(super) fn query(
         Q::GetDefaultBonePivot => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
+}
+
+/// The idle `''` every string query without a value shares instead of allocating.
+fn empty_text() -> Arc<str> {
+    static EMPTY: std::sync::LazyLock<Arc<str>> = std::sync::LazyLock::new(|| Arc::from(""));
+    Arc::clone(&EMPTY)
 }
 
 /// The actor's synced property by name: enums read as their value name, everything else as its
@@ -317,12 +294,16 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             _ => 0.0,
         }),
         // Native actor-state position, before the actor store removes collision offsets.
-        Q::Position if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
-            0 => input.position[0],
-            1 => input.position[1] + actor.network_position_offset(),
-            2 => input.position[2],
-            _ => 0.0,
-        }),
+        Q::Position if arguments.len() == 1 => {
+            argument(0)
+                .filter(|axis| axis.is_finite())
+                .map_or(0.0, |axis| match axis as i32 {
+                    0 => input.position[0],
+                    1 => input.position[1] + actor.network_position_offset(),
+                    2 => input.position[2],
+                    _ => 0.0,
+                })
+        }
         Q::Position => 0.0,
         Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
@@ -343,18 +324,17 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(metadata_number(actor, KEY_CARRY_BLOCK).unwrap_or(0.0) != 0.0),
+        Q::IsCarryingBlock => truth(
+            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
+                != 0.0,
+        ),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
-        Q::ItemRemainingUseDuration => {
-            item_use::remaining(evaluator, arguments)
-        }
+        Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
         Q::BaseSwingDuration if arguments.is_empty() => context
             .main_hand_swing_seconds
             .unwrap_or(super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()),
-        Q::EquippedItemAnyTag => truth(context.main_hand_is_spear
-            && matches!(arguments.first(), Some(MolangValue::String(slot)) if slot.as_ref() == "slot.weapon.mainhand")
-            && arguments.iter().skip(1).any(|tag| matches!(tag, MolangValue::String(tag) if tag.as_ref() == "minecraft:is_spear"))),
+        Q::EquippedItemAnyTag => truth(equipped_item_any_tag(context, arguments)),
         Q::KineticWeaponDelay => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.delay_ticks as f32),
@@ -369,9 +349,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             .map_or(0.0, |timing| timing.damage_ticks as f32),
         Q::TicksSinceLastKineticWeaponHit => {
             if input.item_use_ticks > 0 {
-                actor
-                    .kinetic_hit_ticks()
-                    .map_or(-1.0, |ticks| ticks as f32)
+                actor.kinetic_hit_ticks().map_or(-1.0, |ticks| ticks as f32)
             } else {
                 -1.0
             }
@@ -383,7 +361,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::SwellAmount if actor.is_creeper() => evaluator
             .swell_amount
             .unwrap_or_else(|| actor.creeper_swell_amount(context.frame_alpha)),
-        Q::SwellAmount => metadata_number(actor, KEY_SWELL)
+        Q::SwellAmount => metadata_number(actor, ActorDataKey::Swell.wire_value())
             .map_or(0.0, |swell| (swell / actor.swell_full_ticks()).max(0.0)),
         // Wither armor shows below half health.
         Q::IsShieldPowered => truth(
@@ -393,7 +371,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         ),
         Q::SwimAmount => input.swim_amount,
         // Unsmoothed 0/1 stand-in for the pose blend.
-        Q::StandingScale => truth(actor_flag(actor, FLAG_STANDING)),
+        Q::StandingScale => truth(actor_flag(actor, ActorFlag::Standing.wire_value())),
         Q::IsInWater => truth(in_water(actor, input)),
         Q::SleepRotation => actor.sleep_rotation().unwrap_or(0.0),
         // Local velocity stays available across catch-up ticks; remote packet speed is
@@ -433,7 +411,9 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::BodyYRotation => input.body_yaw,
         Q::BodyXRotation | Q::TargetXRotation => input.pitch,
         Q::TargetYRotation => {
-            if input.placement_frame.target_rotation() == Some(assets::placement::ActorYawFrame::Absolute) {
+            if input.placement_frame.target_rotation()
+                == Some(assets::placement::ActorYawFrame::Absolute)
+            {
                 input.yaw
             } else {
                 head_relative_yaw(input, TARGET_YAW_LIMIT)
@@ -490,7 +470,7 @@ pub(super) fn delta_time(context: &ActorTickContext) -> f32 {
 }
 
 pub(super) fn is_arrow(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:arrow")
+    actor.entity_fact().native_class == NativeEntityClass::Arrow
 }
 
 fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {
@@ -502,7 +482,12 @@ fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::Wor
 
 /// Elytra suppresses the player's cape and outer chest skin layer while equipped.
 pub(super) fn wearing_elytra(context: &ActorTickContext) -> bool {
-    worn_armor(context, 1.0).is_some_and(|armor| item_name(&armor.item) == "elytra")
+    worn_armor(context, 1.0).is_some_and(|armor| {
+        armor
+            .fact
+            .traits
+            .contains(assets::facts::ItemTraits::GLIDER)
+    })
 }
 
 // Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
@@ -511,21 +496,10 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     let Some(armor) = worn_armor(context, slot) else {
         return 0.0;
     };
-    let name = item_name(&armor.item);
-    // The chest slot reads 5 for an elytra, which hides the cape.
     if slot == 1.0 && wearing_elytra(context) {
         return 5.0;
     }
-    let material = name.split('_').next().unwrap_or("");
-    match material {
-        "leather" => 1.0,
-        "iron" => 2.0,
-        "golden" | "gold" => 3.0,
-        "diamond" => 4.0,
-        "copper" => 5.0,
-        "netherite" => 6.0,
-        _ => 0.0,
-    }
+    armor.fact.armor_texture_index() as f32
 }
 
 // Undyed leather tints with the public default colour; every other stack tints white.
@@ -539,15 +513,30 @@ fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Opti
     let Some(armor) = worn_armor(context, slot) else {
         return 1.0;
     };
-    let rgb = armor.dye_rgb.or_else(|| {
-        item_name(&armor.item)
-            .starts_with("leather_")
-            .then_some(DEFAULT_LEATHER_RGB)
-    });
+    let rgb = armor
+        .dye_rgb
+        .or_else(|| armor.fact.is_leather().then_some(DEFAULT_LEATHER_RGB));
     match (channel as i32, rgb) {
         (0..=2, Some(rgb)) => ((rgb >> (16 - 8 * channel as u32)) & 0xff) as f32 / 255.0,
         _ => 1.0,
     }
+}
+
+/// Tests admitted tag masks for the slot named by this Molang query.
+fn equipped_item_any_tag(context: &ActorTickContext, arguments: &[MolangValue]) -> bool {
+    let Some(MolangValue::String(slot)) = arguments.first() else {
+        return false;
+    };
+    let fact = match slot.as_ref() {
+        "slot.weapon.mainhand" => &context.held_item_facts[0],
+        "slot.weapon.offhand" => &context.held_item_facts[1],
+        _ => return false,
+    };
+    let facts = assets::facts::ItemFacts::builtin().expect("valid pinned item facts");
+    arguments.iter().skip(1).any(|argument| match argument {
+        MolangValue::String(name) => facts.tag(name).is_some_and(|tag| fact.tags.contains(tag)),
+        _ => false,
+    })
 }
 
 /// The equipped item a hand argument names: 0 or `'main_hand'` (the default), 1 or
@@ -593,15 +582,15 @@ fn item_name_matches(context: &ActorTickContext, arguments: &[MolangValue]) -> b
     })
 }
 
-const KEY_ACTOR_VALUE: u32 = 15;
-
 /// Sprite frame of an experience orb, chosen by its XP value; other actors use frame 0.
 fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
-    let is_orb = matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:xp_orb");
+    let is_orb = actor.entity_fact().native_class == NativeEntityClass::XpOrb;
     if !is_orb {
         return 0.0;
     }
-    let Some(ActorMetadataValue::Int(value)) = actor.metadata().get(&KEY_ACTOR_VALUE) else {
+    let Some(ActorMetadataValue::Int(value)) =
+        actor.metadata().get(&ActorDataKey::Value.wire_value())
+    else {
         return 0.0;
     };
     const UPPER_BOUNDS: [i32; 10] = [2, 6, 16, 36, 72, 148, 306, 616, 1236, 2476];
@@ -612,15 +601,14 @@ fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
 }
 
 pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.metadata().get(&KEY_TARGET), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+    matches!(actor.metadata().get(&ActorDataKey::Target.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
 
 /// The native updater tests the low byte of the Int variant for the base,
 /// and the Int mark variant selects one of six patterns within that base family.
 pub(super) fn tropical_fish_variables(actor: &dyn AnimatedActor) -> Option<[f32; 2]> {
     const PATTERNS_PER_FAMILY: i32 = 6;
-    if !matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:tropicalfish")
-    {
+    if actor.entity_fact().native_class != NativeEntityClass::Tropicalfish {
         return None;
     }
     // Unlike the numeric Molang queries, this native updater requires Int metadata.
@@ -651,14 +639,8 @@ fn in_water(actor: &dyn AnimatedActor, input: &ActorTickInput) -> bool {
     if let Some((water, _)) = actor.fluid() {
         return water;
     }
-    let aquatic = match actor.kind() {
-        ActorKind::Entity { identifier } => {
-            let name = identifier.as_ref();
-            AQUATIC.contains(&name.strip_prefix("minecraft:").unwrap_or(name))
-        }
-        ActorKind::Player { .. } => false,
-    };
-    actor_flag(actor, FLAG_SWIMMING) || (aquatic && !input.on_ground)
+    let aquatic = actor.entity_fact().aquatic;
+    actor_flag(actor, ActorFlag::Swimming.wire_value()) || (aquatic && !input.on_ground)
 }
 
 fn health(actor: &dyn AnimatedActor) -> Option<f32> {

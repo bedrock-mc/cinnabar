@@ -6,7 +6,7 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Query, Real, Res, ResMut, Time, Window, With},
+    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_interaction::melee::{MeleeRuntime, SwingTracker};
@@ -32,6 +32,10 @@ use {
 
 use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send, swing_duration};
 
+/// The current frame's picked attack target, shared with admission after movement drains.
+#[derive(Resource, Default)]
+pub(crate) struct MeleeTarget(Option<Crosshair>);
+
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
     input: Res<'w, SemanticInputSnapshot>,
@@ -49,20 +53,17 @@ pub(crate) struct MeleeContext<'w, 's> {
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
 
-/// Whether the attack button acts at all: only an open screen or spectator mode stops it,
-/// whatever the game mode or abilities otherwise allow.
-/// Runs before the mining producers so they can defer to a targeted actor.
-///
-/// Like vanilla's build-action handler, only an open screen or spectator mode ignores the
-/// press; everything else swings.
-pub(crate) fn produce_melee(
+/// Picks the current attack target before mining, without admitting its packets.
+/// Open screens and spectator mode cancel the press.
+pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
     mut runtime: ResMut<MeleeRuntime>,
     mut swings: ResMut<SwingTracker>,
-    mut movement: ResMut<MovementTicker>,
-    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    movement: Res<MovementTicker>,
+    mut target: ResMut<MeleeTarget>,
 ) {
+    target.0 = None;
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -107,17 +108,14 @@ pub(crate) fn produce_melee(
     let attack_reach = caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
     let attack_reach = effective_reach(attack_reach, context.mod_interaction.as_deref());
     let input_mode = protocol_input_mode(input.input_mode);
-    let (Some(crosshair), Some(stream)) = (
-        resolve_crosshair(
-            &player_runtime,
-            &context,
-            input_mode,
-            attack_reach,
-            caps.is_some_and(|caps| caps.creative_reach),
-            (input.authority_generation, input.frame_sequence),
-            movement.interaction_authority_identity().1,
-        ),
-        context.client_world.stream.as_ref(),
+    let Some(crosshair) = resolve_crosshair(
+        &player_runtime,
+        &context,
+        input_mode,
+        attack_reach,
+        caps.is_some_and(|caps| caps.creative_reach),
+        (input.authority_generation, input.frame_sequence),
+        movement.interaction_authority_identity().1,
     ) else {
         drop("no_interaction_ray");
         runtime.defer(now_millis);
@@ -127,24 +125,32 @@ pub(crate) fn produce_melee(
         crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),
     );
-    // A press leaves in its own frame; an aim-assist facing needs an unsent tick to carry it.
-    let between_ticks =
-        client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera)
-            .is_none()
-            .then(|| runtime.between_ticks_press(&movement))
-            .flatten();
-    // Fresh block presses wait for a tick committed in this frame.
-    let sample = between_ticks.or_else(|| {
-        runtime
-            .press_sample(
-                crosshair,
-                &movement,
-                context.effects.recent_tick_count(),
-                now_millis,
-            )
-            .map(Into::into)
-    });
-    let Some(sample) = sample else {
+    target.0 = Some(crosshair);
+}
+
+/// Admits the picked press after completed movement, using the pose before the next tick.
+pub(crate) fn produce_melee(
+    player_runtime: Res<client_state::PlayerRuntime>,
+    context: MeleeContext,
+    target: Res<MeleeTarget>,
+    mut runtime: ResMut<MeleeRuntime>,
+    mut swings: ResMut<SwingTracker>,
+    mut movement: ResMut<MovementTicker>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    let (Some(crosshair), Some(input), Some(stream)) = (
+        target.0,
+        context.input.snapshot(),
+        context.client_world.stream.as_ref(),
+    ) else {
+        return;
+    };
+    let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
+    let input_mode = protocol_input_mode(input.input_mode);
+    let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    // Completed movement must enter the FIFO before this frame's press.
+    let Some(sample) = runtime.between_ticks_press(&movement) else {
+        runtime.defer(now_millis);
         return;
     };
     let press = PressContext {

@@ -14,6 +14,7 @@ pub use action::{
     Action, ActionPhase, ActionSnapshot, InputContext, InputMode, MovementButtons, PerspectiveMode,
     ReleaseReason,
 };
+pub use axes::clamp_movement_vector;
 pub use binding::{
     ActionBinding, AxisDirection, BindingError, ControlSettings, DEFAULT_MOUSE_SENSITIVITY,
     InputChord, MAX_BINDINGS, ModifierChord, MouseAxis, PhysicalControl,

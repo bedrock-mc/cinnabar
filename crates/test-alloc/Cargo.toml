@@ -5,5 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[features]
+# Adds process-wide counters for opt-in runtime profiling.
+global-stats = []
+
 [lints]
 workspace = true

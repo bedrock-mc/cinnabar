@@ -30,7 +30,8 @@ fn view() -> MenuView {
         address: "home.test:19132".into(),
         favorite: false,
         last_joined_unix: 0,
-    }];
+    }]
+    .into();
     view
 }
 

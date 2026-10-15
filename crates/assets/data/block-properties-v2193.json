@@ -1,0 +1,3657 @@
+{
+  "schema": 1,
+  "source_sha256": "c0b6151f5f9a0c31ebe3c909dfc82d97f12473ed2c6e039aa7e22d667042026c",
+  "properties": [
+    {
+      "name": "active",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "age",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "age_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "allow_underwater_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "attached_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "attachment",
+      "type": "string",
+      "values": [
+        {
+          "value": "standing"
+        },
+        {
+          "value": "hanging"
+        },
+        {
+          "value": "side"
+        },
+        {
+          "value": "multiple"
+        }
+      ]
+    },
+    {
+      "name": "bamboo_leaf_size",
+      "type": "string",
+      "values": [
+        {
+          "value": "no_leaves"
+        },
+        {
+          "value": "small_leaves"
+        },
+        {
+          "value": "large_leaves"
+        }
+      ]
+    },
+    {
+      "name": "bamboo_stalk_thickness",
+      "type": "string",
+      "values": [
+        {
+          "value": "thin"
+        },
+        {
+          "value": "thick"
+        }
+      ]
+    },
+    {
+      "name": "big_dripleaf_head",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "big_dripleaf_tilt",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "unstable"
+        },
+        {
+          "value": "partial_tilt"
+        },
+        {
+          "value": "full_tilt"
+        }
+      ]
+    },
+    {
+      "name": "bite_counter",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        }
+      ]
+    },
+    {
+      "name": "block_light_level",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "bloom",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "books_stored",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        },
+        {
+          "value": 26
+        },
+        {
+          "value": 27
+        },
+        {
+          "value": 28
+        },
+        {
+          "value": 29
+        },
+        {
+          "value": 30
+        },
+        {
+          "value": 31
+        },
+        {
+          "value": 32
+        },
+        {
+          "value": 33
+        },
+        {
+          "value": 34
+        },
+        {
+          "value": 35
+        },
+        {
+          "value": 36
+        },
+        {
+          "value": 37
+        },
+        {
+          "value": 38
+        },
+        {
+          "value": 39
+        },
+        {
+          "value": 40
+        },
+        {
+          "value": 41
+        },
+        {
+          "value": 42
+        },
+        {
+          "value": 43
+        },
+        {
+          "value": 44
+        },
+        {
+          "value": 45
+        },
+        {
+          "value": 46
+        },
+        {
+          "value": 47
+        },
+        {
+          "value": 48
+        },
+        {
+          "value": 49
+        },
+        {
+          "value": 50
+        },
+        {
+          "value": 51
+        },
+        {
+          "value": 52
+        },
+        {
+          "value": 53
+        },
+        {
+          "value": 54
+        },
+        {
+          "value": 55
+        },
+        {
+          "value": 56
+        },
+        {
+          "value": 57
+        },
+        {
+          "value": 58
+        },
+        {
+          "value": 59
+        },
+        {
+          "value": 60
+        },
+        {
+          "value": 61
+        },
+        {
+          "value": 62
+        },
+        {
+          "value": 63
+        }
+      ]
+    },
+    {
+      "name": "brewing_stand_slot_a_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "brewing_stand_slot_b_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "brewing_stand_slot_c_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "brushed_progress",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "button_pressed_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "can_summon",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "candles",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "cauldron_liquid",
+      "type": "string",
+      "values": [
+        {
+          "value": "water"
+        },
+        {
+          "value": "lava"
+        },
+        {
+          "value": "powder_snow"
+        }
+      ]
+    },
+    {
+      "name": "chemistry_table_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "compound_creator"
+        },
+        {
+          "value": "material_reducer"
+        },
+        {
+          "value": "element_constructor"
+        },
+        {
+          "value": "lab_table"
+        }
+      ]
+    },
+    {
+      "name": "chisel_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "chiseled"
+        },
+        {
+          "value": "lines"
+        },
+        {
+          "value": "smooth"
+        }
+      ]
+    },
+    {
+      "name": "cluster_count",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "color",
+      "type": "string",
+      "values": [
+        {
+          "value": "white"
+        },
+        {
+          "value": "orange"
+        },
+        {
+          "value": "magenta"
+        },
+        {
+          "value": "light_blue"
+        },
+        {
+          "value": "yellow"
+        },
+        {
+          "value": "lime"
+        },
+        {
+          "value": "pink"
+        },
+        {
+          "value": "gray"
+        },
+        {
+          "value": "silver"
+        },
+        {
+          "value": "cyan"
+        },
+        {
+          "value": "purple"
+        },
+        {
+          "value": "blue"
+        },
+        {
+          "value": "brown"
+        },
+        {
+          "value": "green"
+        },
+        {
+          "value": "red"
+        },
+        {
+          "value": "black"
+        }
+      ]
+    },
+    {
+      "name": "color_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "composter_fill_level",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        }
+      ]
+    },
+    {
+      "name": "conditional_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "coral_color",
+      "type": "string",
+      "values": [
+        {
+          "value": "blue"
+        },
+        {
+          "value": "pink"
+        },
+        {
+          "value": "purple"
+        },
+        {
+          "value": "red"
+        },
+        {
+          "value": "yellow"
+        }
+      ]
+    },
+    {
+      "name": "coral_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "coral_fan_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        }
+      ]
+    },
+    {
+      "name": "coral_hang_type_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "covered_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "cracked_state",
+      "type": "string",
+      "values": [
+        {
+          "value": "no_cracks"
+        },
+        {
+          "value": "cracked"
+        },
+        {
+          "value": "max_cracked"
+        }
+      ]
+    },
+    {
+      "name": "crafting",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "creaking_heart_state",
+      "type": "string",
+      "values": [
+        {
+          "value": "uprooted"
+        },
+        {
+          "value": "dormant"
+        },
+        {
+          "value": "awake"
+        }
+      ]
+    },
+    {
+      "name": "damage",
+      "type": "string",
+      "values": [
+        {
+          "value": "undamaged"
+        },
+        {
+          "value": "slightly_damaged"
+        },
+        {
+          "value": "very_damaged"
+        },
+        {
+          "value": "broken"
+        }
+      ]
+    },
+    {
+      "name": "dead_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "deprecated",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "dirt_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "normal"
+        },
+        {
+          "value": "coarse"
+        }
+      ]
+    },
+    {
+      "name": "disarmed_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "door_hinge_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "double_plant_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "sunflower"
+        },
+        {
+          "value": "syringa"
+        },
+        {
+          "value": "grass"
+        },
+        {
+          "value": "fern"
+        },
+        {
+          "value": "rose"
+        },
+        {
+          "value": "paeonia"
+        }
+      ]
+    },
+    {
+      "name": "drag_down",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "dripstone_thickness",
+      "type": "string",
+      "values": [
+        {
+          "value": "tip"
+        },
+        {
+          "value": "frustum"
+        },
+        {
+          "value": "middle"
+        },
+        {
+          "value": "base"
+        },
+        {
+          "value": "merge"
+        }
+      ]
+    },
+    {
+      "name": "end_portal_eye_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "explode_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "extinguished",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "facing_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        }
+      ]
+    },
+    {
+      "name": "fill_level",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        }
+      ]
+    },
+    {
+      "name": "flower_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "poppy"
+        },
+        {
+          "value": "orchid"
+        },
+        {
+          "value": "allium"
+        },
+        {
+          "value": "houstonia"
+        },
+        {
+          "value": "tulip_red"
+        },
+        {
+          "value": "tulip_orange"
+        },
+        {
+          "value": "tulip_white"
+        },
+        {
+          "value": "tulip_pink"
+        },
+        {
+          "value": "oxeye"
+        },
+        {
+          "value": "cornflower"
+        },
+        {
+          "value": "lily_of_the_valley"
+        }
+      ]
+    },
+    {
+      "name": "ground_sign_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "growing_plant_age",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        }
+      ]
+    },
+    {
+      "name": "growth",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        }
+      ]
+    },
+    {
+      "name": "hanging",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "head_piece_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "height",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        }
+      ]
+    },
+    {
+      "name": "honey_level",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        }
+      ]
+    },
+    {
+      "name": "huge_mushroom_bits",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "in_wall_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "infiniburn_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "item_frame_map_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "item_frame_photo_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "kelp_age",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        }
+      ]
+    },
+    {
+      "name": "lever_direction",
+      "type": "string",
+      "values": [
+        {
+          "value": "down_east_west"
+        },
+        {
+          "value": "east"
+        },
+        {
+          "value": "west"
+        },
+        {
+          "value": "south"
+        },
+        {
+          "value": "north"
+        },
+        {
+          "value": "up_north_south"
+        },
+        {
+          "value": "up_east_west"
+        },
+        {
+          "value": "down_north_south"
+        }
+      ]
+    },
+    {
+      "name": "liquid_depth",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "lit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:block_face",
+      "type": "string",
+      "values": [
+        {
+          "value": "down"
+        },
+        {
+          "value": "up"
+        },
+        {
+          "value": "north"
+        },
+        {
+          "value": "south"
+        },
+        {
+          "value": "west"
+        },
+        {
+          "value": "east"
+        }
+      ]
+    },
+    {
+      "name": "minecraft:cardinal_direction",
+      "type": "string",
+      "values": [
+        {
+          "value": "south"
+        },
+        {
+          "value": "west"
+        },
+        {
+          "value": "north"
+        },
+        {
+          "value": "east"
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_down",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_east",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_north",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_south",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_up",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:connection_west",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "minecraft:corner",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "inner_left"
+        },
+        {
+          "value": "inner_right"
+        },
+        {
+          "value": "outer_left"
+        },
+        {
+          "value": "outer_right"
+        }
+      ]
+    },
+    {
+      "name": "minecraft:facing_direction",
+      "type": "string",
+      "values": [
+        {
+          "value": "down"
+        },
+        {
+          "value": "up"
+        },
+        {
+          "value": "north"
+        },
+        {
+          "value": "south"
+        },
+        {
+          "value": "west"
+        },
+        {
+          "value": "east"
+        }
+      ]
+    },
+    {
+      "name": "minecraft:multi_block_part",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "minecraft:sixteen_way_rotation",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "minecraft:vertical_half",
+      "type": "string",
+      "values": [
+        {
+          "value": "bottom"
+        },
+        {
+          "value": "top"
+        }
+      ]
+    },
+    {
+      "name": "moisturized_amount",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        }
+      ]
+    },
+    {
+      "name": "monster_egg_stone_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "stone"
+        },
+        {
+          "value": "cobblestone"
+        },
+        {
+          "value": "stone_brick"
+        },
+        {
+          "value": "mossy_stone_brick"
+        },
+        {
+          "value": "cracked_stone_brick"
+        },
+        {
+          "value": "chiseled_stone_brick"
+        }
+      ]
+    },
+    {
+      "name": "multi_face_direction_bits",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        },
+        {
+          "value": 26
+        },
+        {
+          "value": 27
+        },
+        {
+          "value": 28
+        },
+        {
+          "value": 29
+        },
+        {
+          "value": 30
+        },
+        {
+          "value": 31
+        },
+        {
+          "value": 32
+        },
+        {
+          "value": 33
+        },
+        {
+          "value": 34
+        },
+        {
+          "value": 35
+        },
+        {
+          "value": 36
+        },
+        {
+          "value": 37
+        },
+        {
+          "value": 38
+        },
+        {
+          "value": 39
+        },
+        {
+          "value": 40
+        },
+        {
+          "value": 41
+        },
+        {
+          "value": 42
+        },
+        {
+          "value": 43
+        },
+        {
+          "value": 44
+        },
+        {
+          "value": 45
+        },
+        {
+          "value": 46
+        },
+        {
+          "value": 47
+        },
+        {
+          "value": 48
+        },
+        {
+          "value": 49
+        },
+        {
+          "value": 50
+        },
+        {
+          "value": 51
+        },
+        {
+          "value": 52
+        },
+        {
+          "value": 53
+        },
+        {
+          "value": 54
+        },
+        {
+          "value": 55
+        },
+        {
+          "value": 56
+        },
+        {
+          "value": 57
+        },
+        {
+          "value": 58
+        },
+        {
+          "value": 59
+        },
+        {
+          "value": 60
+        },
+        {
+          "value": 61
+        },
+        {
+          "value": 62
+        },
+        {
+          "value": 63
+        }
+      ]
+    },
+    {
+      "name": "natural",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "new_leaf_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "acacia"
+        },
+        {
+          "value": "dark_oak"
+        }
+      ]
+    },
+    {
+      "name": "new_log_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "acacia"
+        },
+        {
+          "value": "dark_oak"
+        }
+      ]
+    },
+    {
+      "name": "no_drop_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "occupied_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "old_leaf_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "oak"
+        },
+        {
+          "value": "spruce"
+        },
+        {
+          "value": "birch"
+        },
+        {
+          "value": "jungle"
+        }
+      ]
+    },
+    {
+      "name": "old_log_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "oak"
+        },
+        {
+          "value": "spruce"
+        },
+        {
+          "value": "birch"
+        },
+        {
+          "value": "jungle"
+        }
+      ]
+    },
+    {
+      "name": "ominous",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "open_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "orientation",
+      "type": "string",
+      "values": [
+        {
+          "value": "down_east"
+        },
+        {
+          "value": "down_north"
+        },
+        {
+          "value": "down_south"
+        },
+        {
+          "value": "down_west"
+        },
+        {
+          "value": "up_east"
+        },
+        {
+          "value": "up_north"
+        },
+        {
+          "value": "up_south"
+        },
+        {
+          "value": "up_west"
+        },
+        {
+          "value": "west_up"
+        },
+        {
+          "value": "east_up"
+        },
+        {
+          "value": "north_up"
+        },
+        {
+          "value": "south_up"
+        }
+      ]
+    },
+    {
+      "name": "output_lit_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "output_subtract_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "pale_moss_carpet_side_east",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "pale_moss_carpet_side_north",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "pale_moss_carpet_side_south",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "pale_moss_carpet_side_west",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "persistent_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "pillar_axis",
+      "type": "string",
+      "values": [
+        {
+          "value": "y"
+        },
+        {
+          "value": "x"
+        },
+        {
+          "value": "z"
+        }
+      ]
+    },
+    {
+      "name": "portal_axis",
+      "type": "string",
+      "values": [
+        {
+          "value": "unknown"
+        },
+        {
+          "value": "x"
+        },
+        {
+          "value": "z"
+        }
+      ]
+    },
+    {
+      "name": "potent_sulfur_state",
+      "type": "string",
+      "values": [
+        {
+          "value": "dry"
+        },
+        {
+          "value": "wet"
+        },
+        {
+          "value": "dormant"
+        },
+        {
+          "value": "erupting"
+        },
+        {
+          "value": "continuous"
+        }
+      ]
+    },
+    {
+      "name": "powered_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "powered_shelf_type",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "prismarine_block_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "dark"
+        },
+        {
+          "value": "bricks"
+        }
+      ]
+    },
+    {
+      "name": "propagule_stage",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        }
+      ]
+    },
+    {
+      "name": "rail_data_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "rail_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        }
+      ]
+    },
+    {
+      "name": "redstone_signal",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "rehydration_level",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "repeater_delay",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "respawn_anchor_charge",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        }
+      ]
+    },
+    {
+      "name": "rotation",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "sand_stone_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "heiroglyphs"
+        },
+        {
+          "value": "cut"
+        },
+        {
+          "value": "smooth"
+        }
+      ]
+    },
+    {
+      "name": "sand_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "normal"
+        },
+        {
+          "value": "red"
+        }
+      ]
+    },
+    {
+      "name": "sapling_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "oak"
+        },
+        {
+          "value": "spruce"
+        },
+        {
+          "value": "birch"
+        },
+        {
+          "value": "jungle"
+        },
+        {
+          "value": "acacia"
+        },
+        {
+          "value": "dark_oak"
+        },
+        {
+          "value": "pale_oak"
+        }
+      ]
+    },
+    {
+      "name": "sculk_sensor_phase",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        }
+      ]
+    },
+    {
+      "name": "sea_grass_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "double_top"
+        },
+        {
+          "value": "double_bot"
+        }
+      ]
+    },
+    {
+      "name": "sponge_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "dry"
+        },
+        {
+          "value": "wet"
+        }
+      ]
+    },
+    {
+      "name": "stability",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        }
+      ]
+    },
+    {
+      "name": "stability_check",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "stone_brick_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "mossy"
+        },
+        {
+          "value": "cracked"
+        },
+        {
+          "value": "chiseled"
+        },
+        {
+          "value": "smooth"
+        }
+      ]
+    },
+    {
+      "name": "stone_slab_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "smooth_stone"
+        },
+        {
+          "value": "sandstone"
+        },
+        {
+          "value": "wood"
+        },
+        {
+          "value": "cobblestone"
+        },
+        {
+          "value": "brick"
+        },
+        {
+          "value": "stone_brick"
+        },
+        {
+          "value": "quartz"
+        },
+        {
+          "value": "nether_brick"
+        }
+      ]
+    },
+    {
+      "name": "stone_slab_type_2",
+      "type": "string",
+      "values": [
+        {
+          "value": "red_sandstone"
+        },
+        {
+          "value": "purpur"
+        },
+        {
+          "value": "prismarine_rough"
+        },
+        {
+          "value": "prismarine_dark"
+        },
+        {
+          "value": "prismarine_brick"
+        },
+        {
+          "value": "mossy_cobblestone"
+        },
+        {
+          "value": "smooth_sandstone"
+        },
+        {
+          "value": "red_nether_brick"
+        }
+      ]
+    },
+    {
+      "name": "stone_slab_type_3",
+      "type": "string",
+      "values": [
+        {
+          "value": "end_stone_brick"
+        },
+        {
+          "value": "smooth_red_sandstone"
+        },
+        {
+          "value": "polished_andesite"
+        },
+        {
+          "value": "andesite"
+        },
+        {
+          "value": "diorite"
+        },
+        {
+          "value": "polished_diorite"
+        },
+        {
+          "value": "granite"
+        },
+        {
+          "value": "polished_granite"
+        }
+      ]
+    },
+    {
+      "name": "stone_slab_type_4",
+      "type": "string",
+      "values": [
+        {
+          "value": "mossy_stone_brick"
+        },
+        {
+          "value": "smooth_quartz"
+        },
+        {
+          "value": "stone"
+        },
+        {
+          "value": "cut_sandstone"
+        },
+        {
+          "value": "cut_red_sandstone"
+        }
+      ]
+    },
+    {
+      "name": "stone_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "stone"
+        },
+        {
+          "value": "granite"
+        },
+        {
+          "value": "granite_smooth"
+        },
+        {
+          "value": "diorite"
+        },
+        {
+          "value": "diorite_smooth"
+        },
+        {
+          "value": "andesite"
+        },
+        {
+          "value": "andesite_smooth"
+        }
+      ]
+    },
+    {
+      "name": "stripped_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "structure_block_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "data"
+        },
+        {
+          "value": "save"
+        },
+        {
+          "value": "load"
+        },
+        {
+          "value": "corner"
+        },
+        {
+          "value": "invalid"
+        },
+        {
+          "value": "export"
+        }
+      ]
+    },
+    {
+      "name": "structure_void_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "void"
+        },
+        {
+          "value": "air"
+        }
+      ]
+    },
+    {
+      "name": "suspended_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "tall_grass_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "default"
+        },
+        {
+          "value": "tall"
+        },
+        {
+          "value": "fern"
+        },
+        {
+          "value": "snow"
+        }
+      ]
+    },
+    {
+      "name": "tip",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "toggle_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "top_slot_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "torch_facing_direction",
+      "type": "string",
+      "values": [
+        {
+          "value": "unknown"
+        },
+        {
+          "value": "west"
+        },
+        {
+          "value": "east"
+        },
+        {
+          "value": "north"
+        },
+        {
+          "value": "south"
+        },
+        {
+          "value": "top"
+        }
+      ]
+    },
+    {
+      "name": "trial_spawner_state",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        }
+      ]
+    },
+    {
+      "name": "triggered_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "turtle_egg_count",
+      "type": "string",
+      "values": [
+        {
+          "value": "one_egg"
+        },
+        {
+          "value": "two_egg"
+        },
+        {
+          "value": "three_egg"
+        },
+        {
+          "value": "four_egg"
+        }
+      ]
+    },
+    {
+      "name": "twisting_vines_age",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        }
+      ]
+    },
+    {
+      "name": "update_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "upper_block_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "upside_down_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "vault_state",
+      "type": "string",
+      "values": [
+        {
+          "value": "inactive"
+        },
+        {
+          "value": "active"
+        },
+        {
+          "value": "unlocking"
+        },
+        {
+          "value": "ejecting"
+        }
+      ]
+    },
+    {
+      "name": "vine_direction_bits",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        }
+      ]
+    },
+    {
+      "name": "wall_block_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "cobblestone"
+        },
+        {
+          "value": "mossy_cobblestone"
+        },
+        {
+          "value": "granite"
+        },
+        {
+          "value": "diorite"
+        },
+        {
+          "value": "andesite"
+        },
+        {
+          "value": "sandstone"
+        },
+        {
+          "value": "brick"
+        },
+        {
+          "value": "stone_brick"
+        },
+        {
+          "value": "mossy_stone_brick"
+        },
+        {
+          "value": "nether_brick"
+        },
+        {
+          "value": "end_brick"
+        },
+        {
+          "value": "prismarine"
+        },
+        {
+          "value": "red_sandstone"
+        },
+        {
+          "value": "red_nether_brick"
+        }
+      ]
+    },
+    {
+      "name": "wall_connection_type_east",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "wall_connection_type_north",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "wall_connection_type_south",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "wall_connection_type_west",
+      "type": "string",
+      "values": [
+        {
+          "value": "none"
+        },
+        {
+          "value": "short"
+        },
+        {
+          "value": "tall"
+        }
+      ]
+    },
+    {
+      "name": "wall_post_bit",
+      "type": "bool",
+      "values": [
+        {
+          "value": false
+        },
+        {
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "weeping_vines_age",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        },
+        {
+          "value": 10
+        },
+        {
+          "value": 11
+        },
+        {
+          "value": 12
+        },
+        {
+          "value": 13
+        },
+        {
+          "value": 14
+        },
+        {
+          "value": 15
+        },
+        {
+          "value": 16
+        },
+        {
+          "value": 17
+        },
+        {
+          "value": 18
+        },
+        {
+          "value": 19
+        },
+        {
+          "value": 20
+        },
+        {
+          "value": 21
+        },
+        {
+          "value": 22
+        },
+        {
+          "value": 23
+        },
+        {
+          "value": 24
+        },
+        {
+          "value": 25
+        }
+      ]
+    },
+    {
+      "name": "weirdo_direction",
+      "type": "int",
+      "values": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        }
+      ]
+    },
+    {
+      "name": "wood_type",
+      "type": "string",
+      "values": [
+        {
+          "value": "oak"
+        },
+        {
+          "value": "spruce"
+        },
+        {
+          "value": "birch"
+        },
+        {
+          "value": "jungle"
+        },
+        {
+          "value": "acacia"
+        },
+        {
+          "value": "dark_oak"
+        }
+      ]
+    }
+  ]
+}

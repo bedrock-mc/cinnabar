@@ -1,14 +1,7 @@
 use protocol::ActorMetadataValue;
+use protocol_ids::ActorDataKey;
 
 use super::ActorStore;
-
-/// Seat metadata streamed on the rider (protocol `EntityDataKeySeat*`).
-pub(super) const KEY_SEAT_OFFSET: u32 = 56;
-const KEY_SEAT_LOCK_DEGREES: u32 = 58;
-const KEY_SEAT_ROTATION_DEGREES: u32 = 60;
-pub(super) const KEY_BED_POSITION: u32 = 28;
-
-pub(crate) const FLAG_BABY: u32 = 11;
 
 /// Head turn, in degrees either side of the body, at or beyond which a seat does not limit it.
 const UNLOCKED_HEAD_DEGREES: f32 = 180.0;
@@ -84,6 +77,7 @@ impl ActorStore {
         actor.received_pose.position = position;
         actor.interpolation_ticks_remaining = 0;
         actor.status.movement_interpolation = Default::default();
+        self.effect_members.collidable.update(actor);
         if reanchor {
             self.animation.reanchor_position(runtime_id, position);
         }
@@ -101,7 +95,9 @@ impl ActorStore {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
             _ => None,
         };
-        if let Some(ActorMetadataValue::Vector(seat)) = rider.metadata.get(&KEY_SEAT_OFFSET) {
+        if let Some(ActorMetadataValue::Vector(seat)) =
+            rider.metadata.get(&ActorDataKey::SeatOffset.wire_value())
+        {
             return seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
                 // Streamed offsets join native actor origins; the store keeps collision feet.
                 position: [
@@ -111,8 +107,8 @@ impl ActorStore {
                 ],
                 min_riders: 0,
                 max_riders: u32::MAX,
-                rotate_by: degrees(KEY_SEAT_ROTATION_DEGREES),
-                lock_degrees: degrees(KEY_SEAT_LOCK_DEGREES),
+                rotate_by: degrees(ActorDataKey::SeatRotationOffsetDegrees.wire_value()),
+                lock_degrees: degrees(ActorDataKey::SeatLockPassengerRotationDegrees.wire_value()),
             });
         }
         let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
@@ -191,6 +187,7 @@ impl ActorStore {
             let mut state = rider.motion_state();
             state.seat(&placement);
             rider.apply_motion_state(state);
+            self.effect_members.collidable.update(rider);
         }
     }
 
@@ -232,20 +229,24 @@ impl ActorStore {
 
     /// The streamed bed block of every sleeping actor; sleepers without a bed position are skipped.
     pub(crate) fn bed_sample_points(&self) -> Vec<(u64, [i32; 3])> {
-        self.actors
-            .values()
-            .filter(|actor| actor.is_sleeping())
-            .filter_map(|actor| Some((actor.runtime_id, actor.bed_position()?)))
+        self.effect_members
+            .sleepers
+            .iter()
+            .map(|(&runtime, &bed)| (runtime, bed))
             .collect()
     }
 
-    /// Replaces every actor's sampled bed rotation with `(runtime_id, degrees)` samples.
+    /// Replaces current sleepers' headings; unavailable beds lose their previous sample.
     pub(crate) fn set_bed_rotations(&mut self, samples: &[(u64, f32)]) {
-        for actor in self.actors.values_mut() {
-            actor.status.sleep_rotation = None;
+        for runtime in self.effect_members.sleepers.keys() {
+            if let Some(actor) = self.actors.get_mut(runtime) {
+                actor.status.sleep_rotation = None;
+            }
         }
         for &(runtime_id, degrees) in samples {
-            if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            if self.effect_members.sleepers.contains_key(&runtime_id)
+                && let Some(actor) = self.actors.get_mut(&runtime_id)
+            {
                 actor.status.sleep_rotation = Some(degrees);
             }
         }
@@ -290,24 +291,22 @@ pub struct ActorFluidProbe {
 #[cfg(test)]
 mod tests {
     use protocol::ActorMetadataValue;
+    use protocol_ids::ActorDataKey;
 
     use super::seat_world_offset;
 
     #[test]
     fn actor_fluid_probes_use_the_streamed_body_bounds() {
-        use crate::actor_store::{
-            ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-            tests::spawn,
-        };
+        use crate::actor_store::{ActorStore, tests::spawn};
         let mut store = ActorStore::new(1, 0);
         store.apply(1, 1, spawn(7, 70));
         let actor = store.actors.get_mut(&7).unwrap();
         actor.metadata.insert(
-            BOUNDING_BOX_WIDTH_METADATA_KEY,
+            ActorDataKey::Width.wire_value(),
             ActorMetadataValue::Float(0.4),
         );
         actor.metadata.insert(
-            BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            ActorDataKey::Height.wire_value(),
             ActorMetadataValue::Float(0.4),
         );
         let probes = store.fluid_probes();
@@ -321,7 +320,6 @@ mod tests {
     /// per-tick seating gives it.
     #[test]
     fn nested_rider_pick_pose_matches_the_live_frame() {
-        use super::{KEY_SEAT_OFFSET, KEY_SEAT_ROTATION_DEGREES};
         use crate::actor_store::{ActorStore, tests::spawn};
         let mut store = ActorStore::new(1, 0);
         for (sequence, runtime_id) in [(1, 7), (2, 8), (3, 9)] {
@@ -332,12 +330,14 @@ mod tests {
         store.rider_to_ridden.insert(90, 80);
         for runtime_id in [8, 9] {
             let rider = store.actors.get_mut(&runtime_id).unwrap();
-            rider
-                .metadata
-                .insert(KEY_SEAT_OFFSET, ActorMetadataValue::Vector([0.0, 1.0, 0.5]));
-            rider
-                .metadata
-                .insert(KEY_SEAT_ROTATION_DEGREES, ActorMetadataValue::Float(30.0));
+            rider.metadata.insert(
+                ActorDataKey::SeatOffset.wire_value(),
+                ActorMetadataValue::Vector([0.0, 1.0, 0.5]),
+            );
+            rider.metadata.insert(
+                ActorDataKey::SeatRotationOffsetDegrees.wire_value(),
+                ActorMetadataValue::Float(30.0),
+            );
         }
         store.apply(
             1,
@@ -629,7 +629,7 @@ impl super::ActorSnapshot {
     /// The bed block the server streams for this actor.
     #[must_use]
     pub fn bed_position(&self) -> Option<[i32; 3]> {
-        match self.metadata.get(&KEY_BED_POSITION) {
+        match self.metadata.get(&ActorDataKey::BedPosition.wire_value()) {
             Some(ActorMetadataValue::BlockPosition(block)) => Some(*block),
             _ => None,
         }

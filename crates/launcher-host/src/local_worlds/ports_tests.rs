@@ -1,6 +1,60 @@
 use super::*;
 
 #[test]
+fn automatic_allocation_moves_past_a_reusable_but_udp_blocked_candidate() {
+    let players = 3;
+    let blocked = free_bds_port(players, 0).expect("first window");
+    let first_tcp = TcpListener::bind((LOCAL_SERVER_HOST, blocked)).expect("hold first TCP");
+    let _blocked_udp: Vec<_> = (0..players)
+        .map(|offset| {
+            let port = u16::try_from(u32::from(blocked) + offset).expect("port");
+            UdpSocket::bind((LOCAL_SERVER_HOST, port)).expect("occupy first UDP window")
+        })
+        .collect();
+    let available = free_bds_port(players, 0).expect("second window");
+    drop(first_tcp);
+
+    let selected = automatic_bds_port(players, || {
+        // Model an allocator that reuses the first port whenever its listener is dropped.
+        TcpListener::bind((LOCAL_SERVER_HOST, blocked))
+            .or_else(|_| TcpListener::bind((LOCAL_SERVER_HOST, available)))
+    })
+    .expect("the second candidate has an available TCP and UDP window");
+    assert_eq!(selected, available);
+    TcpListener::bind((LOCAL_SERVER_HOST, blocked)).expect("rejected TCP candidate released");
+    TcpListener::bind((LOCAL_SERVER_HOST, available)).expect("selected TCP candidate released");
+}
+
+#[test]
+fn exhausted_automatic_allocation_releases_rejected_signaling_ports() {
+    let mut occupied_udp = Vec::new();
+    let mut candidates = Vec::new();
+    let error = automatic_bds_port(1, || {
+        let mut rejected_udp = Vec::new();
+        for _ in 0..AUTOMATIC_ATTEMPTS {
+            let udp = UdpSocket::bind((LOCAL_SERVER_HOST, 0))?;
+            let port = udp.local_addr()?.port();
+            if let Ok(tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {
+                occupied_udp.push(udp);
+                candidates.push(port);
+                return Ok(tcp);
+            }
+            // Keep failed fixture candidates occupied until both protocols can be held.
+            rejected_udp.push(udp);
+        }
+        Err(std::io::Error::other(
+            "fixture could not reserve a matching TCP/UDP pair",
+        ))
+    })
+    .expect_err("every candidate has an occupied UDP port");
+    assert!(error.to_string().contains("UDP transport port"), "{error}");
+    assert_eq!(candidates.len(), AUTOMATIC_ATTEMPTS);
+    for port in candidates {
+        TcpListener::bind((LOCAL_SERVER_HOST, port)).expect("rejected TCP candidate released");
+    }
+}
+
+#[test]
 fn automatic_windows_reserve_both_protocols_and_release_every_port() {
     let players = 3;
     let port = free_bds_port(players, 0).expect("window");
@@ -32,10 +86,15 @@ fn a_fixed_port_reserves_its_exact_window_or_fails() {
         );
     }
     {
-        let last = u16::try_from(u32::from(port) + players - 1).expect("port");
-        let _taken = UdpSocket::bind((LOCAL_SERVER_HOST, last)).expect("take UDP");
+        let (port, taken) = blocked_udp_window(players);
+        let last = taken.local_addr().expect("address").port();
         let error = free_bds_port(players, port).expect_err("occupied UDP window");
-        assert!(error.to_string().contains("UDP transport"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("UDP transport port {last}:")),
+            "{error}"
+        );
         let _tcp = TcpListener::bind((LOCAL_SERVER_HOST, port))
             .expect("a failed UDP reservation leaked its TCP port");
         let _udp = UdpSocket::bind((LOCAL_SERVER_HOST, port))
@@ -45,6 +104,31 @@ fn a_fixed_port_reserves_its_exact_window_or_fails() {
         free_bds_port(players, 65_535).is_err(),
         "a wrapping fixed window must fail"
     );
+}
+
+/// Holds a window's last UDP port after checking its TCP port and earlier UDP ports are available.
+fn blocked_udp_window(players: u32) -> (u16, UdpSocket) {
+    let mut rejected = Vec::new();
+    for _ in 0..AUTOMATIC_ATTEMPTS {
+        let first = UdpSocket::bind((LOCAL_SERVER_HOST, 0)).expect("reserve fixture UDP");
+        let port = first.local_addr().expect("address").port();
+        let Some(last) = port.checked_add(u16::try_from(players - 1).expect("window fits")) else {
+            rejected.push(first);
+            continue;
+        };
+        if let Ok(_tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {
+            let later: std::io::Result<Vec<_>> = (port..last)
+                .map(|candidate| UdpSocket::bind((LOCAL_SERVER_HOST, candidate + 1)))
+                .collect();
+            if let Ok(mut later) = later {
+                return (port, later.pop().unwrap_or(first));
+            }
+        }
+        // A forward window cannot overlap an earlier rejected base when the OS
+        // assigns consecutive candidates.
+        rejected.push(first);
+    }
+    panic!("fixture could not reserve a window with only its last UDP port blocked");
 }
 
 #[test]

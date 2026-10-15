@@ -38,7 +38,10 @@ pub(crate) fn drive_menu_panorama(
         *state = Some((Instant::now(), 0.0, overlay_tint(assets)));
         scene.set_faces(launcher_faces(assets).map(Arc::new));
     }
-    let shown = menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
+    let shown = presentation
+        .loading_stage()
+        .is_some_and(ui::LoadingStage::is_world_entry)
+        || menu.as_deref().is_some_and(MenuRuntime::uses_panorama);
     let aspect = windows
         .iter()
         .next()

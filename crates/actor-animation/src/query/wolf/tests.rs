@@ -3,7 +3,8 @@ use crate::{
     ActorTickContext, ActorTickInput, evaluation::MolangValue, query::QueryInputs,
     test_actor::TestActor, tests::actor_with_metadata,
 };
-use protocol::{ActorAttribute, ActorMetadataValue};
+use protocol::{ActorAttribute, ActorKind, ActorMetadataValue};
+use protocol_ids::ActorFlag;
 use std::{collections::HashMap, sync::Arc};
 
 fn wolf(flags: u64, health: Option<(f32, f32)>) -> TestActor {
@@ -52,7 +53,10 @@ fn read_tail(actor: &TestActor, ticks: u64) -> f32 {
 #[test]
 fn wild_and_angry_wolf_tail_angles_match_the_native_float_bits() {
     assert_eq!(read_tail(&wolf(0, None), 0).to_bits(), 0x3f20_d97c);
-    for flags in [1 << FLAG_ANGRY, (1 << FLAG_ANGRY) | (1 << FLAG_TAMED)] {
+    for flags in [
+        1 << ActorFlag::Angry.wire_value(),
+        (1 << ActorFlag::Angry.wire_value()) | (1 << ActorFlag::Tamed.wire_value()),
+    ] {
         let actor = wolf(flags, Some((0.0, 40.0)));
         assert_eq!(read_tail(&actor, 0).to_bits(), 0x3fc5_0a6b);
         assert_eq!(read_tail(&actor, 103), read_tail(&actor, 0));
@@ -62,7 +66,7 @@ fn wild_and_angry_wolf_tail_angles_match_the_native_float_bits() {
 #[test]
 fn tamed_wolf_tail_uses_the_health_fraction_without_a_pose_clamp() {
     for (current, max) in [(0.0, 40.0), (20.0, 40.0), (40.0, 40.0), (48.0, 40.0)] {
-        let actor = wolf(1 << FLAG_TAMED, Some((current, max)));
+        let actor = wolf(1 << ActorFlag::Tamed.wire_value(), Some((current, max)));
         let expected = (current / max * HEALTH_WEIGHT + HEALTH_BASE) * std::f32::consts::PI;
         assert_eq!(read_tail(&actor, 0), expected);
         assert_eq!(read_tail(&actor, 200), expected);
@@ -71,7 +75,10 @@ fn tamed_wolf_tail_uses_the_health_fraction_without_a_pose_clamp() {
 
 #[test]
 fn non_wolves_never_acquire_a_wolf_tail_default() {
-    let mut actor = wolf((1 << FLAG_ANGRY) | (1 << FLAG_TAMED), Some((40.0, 40.0)));
+    let mut actor = wolf(
+        (1 << ActorFlag::Angry.wire_value()) | (1 << ActorFlag::Tamed.wire_value()),
+        Some((40.0, 40.0)),
+    );
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:cat".into(),
     };
@@ -87,10 +94,13 @@ fn incomplete_or_odd_health_keeps_a_finite_tail_until_authoritative_data_arrives
         Some((20.0, f32::INFINITY)),
         Some((f32::MAX, f32::MIN_POSITIVE)),
     ] {
-        assert_eq!(read_tail(&wolf(1 << FLAG_TAMED, health), 0), WILD_ANGLE);
+        assert_eq!(
+            read_tail(&wolf(1 << ActorFlag::Tamed.wire_value(), health), 0),
+            WILD_ANGLE
+        );
     }
-    let mut actor = wolf(1 << FLAG_TAMED, None);
-    actor.attributes = wolf(1 << FLAG_TAMED, Some((40.0, 40.0))).attributes;
+    let mut actor = wolf(1 << ActorFlag::Tamed.wire_value(), None);
+    actor.attributes = wolf(1 << ActorFlag::Tamed.wire_value(), Some((40.0, 40.0))).attributes;
     assert_ne!(read_tail(&actor, 0), WILD_ANGLE);
 }
 
@@ -107,14 +117,22 @@ fn pinned_wolf_clips_rotate_the_existing_tail_for_wild_tame_angry_and_baby_actor
     const PACK_DEGREES_PER_RADIAN: f32 = 57.3;
     for (flags, health, pivot) in [
         (0, None, [1.0, 12.0, 8.0]),
-        (1 << FLAG_TAMED, Some((40.0, 40.0)), [1.0, 12.0, 8.0]),
-        (1 << FLAG_TAMED, Some((20.0, 40.0)), [1.0, 12.0, 8.0]),
         (
-            (1 << FLAG_TAMED) | (1 << FLAG_ANGRY),
+            1 << ActorFlag::Tamed.wire_value(),
             Some((40.0, 40.0)),
             [1.0, 12.0, 8.0],
         ),
-        (1 << crate::query::FLAG_BABY, None, [0.0, 5.0, 3.0]),
+        (
+            1 << ActorFlag::Tamed.wire_value(),
+            Some((20.0, 40.0)),
+            [1.0, 12.0, 8.0],
+        ),
+        (
+            (1 << ActorFlag::Tamed.wire_value()) | (1 << ActorFlag::Angry.wire_value()),
+            Some((40.0, 40.0)),
+            [1.0, 12.0, 8.0],
+        ),
+        (1 << ActorFlag::Baby.wire_value(), None, [0.0, 5.0, 3.0]),
     ] {
         let actor = wolf(flags, health);
         let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
@@ -148,4 +166,17 @@ fn pinned_wolf_clips_rotate_the_existing_tail_for_wild_tame_angry_and_baby_actor
             );
         }
     }
+}
+
+#[test]
+fn a_custom_actor_with_a_wolf_base_keeps_the_native_tail_query() {
+    let base = "minecraft:wolf";
+    let mut actor = wolf(0, None);
+    let expected = tail_angle(&actor);
+    assert_ne!(expected, 0.0);
+    actor.entity_fact_override = Some(assets::facts::entity::EntityFacts::pinned().get(base));
+    actor.kind = ActorKind::Entity {
+        identifier: format!("fixture:{}", base.strip_prefix("minecraft:").unwrap()).into(),
+    };
+    assert_eq!(tail_angle(&actor), expected);
 }

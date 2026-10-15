@@ -110,10 +110,12 @@ fn player_cape_replaces_the_wings_texture_and_suppresses_a_separate_cape_draw() 
     let mut batch = batch();
     let profile = profile(true);
     let cape = fixture_cape();
+    let mut preparation = prepared_cape(&profile);
     let before = batch.submissions[1].clone();
     apply_capes(
         &mut batch,
         &cape,
+        &mut preparation,
         |_| None,
         |_| Some(&profile),
         |_| None,
@@ -144,11 +146,13 @@ fn capeless_player_keeps_the_pack_wings_texture_without_adding_a_skin_layer() {
     let mut batch = batch();
     let profile = profile(false);
     let cape = fixture_cape();
+    let mut preparation = prepared_cape(&profile);
     let before = batch.submissions[1].clone();
     let artwork = batch.artwork.clone();
     apply_capes(
         &mut batch,
         &cape,
+        &mut preparation,
         |_| None,
         |_| Some(&profile),
         |_| None,
@@ -174,11 +178,13 @@ fn java_cape_motion_cannot_replace_worn_wing_pose_or_glint() {
     batch.submissions.push(extra);
     let profile = profile(true);
     let cape = fixture_cape();
+    let mut preparation = prepared_cape(&profile);
     let before = batch.submissions[1..].to_vec();
     let java_calls = std::cell::Cell::new(0);
     apply_capes(
         &mut batch,
         &cape,
+        &mut preparation,
         |_| None,
         |_| Some(&profile),
         |_| {
@@ -209,4 +215,96 @@ fn java_cape_motion_cannot_replace_worn_wing_pose_or_glint() {
         );
         assert!(!batch.artwork.contains_key(&wing.input.identity));
     }
+}
+
+#[test]
+fn independent_equal_capes_share_prepared_pixels() {
+    let first_profile = profile(true);
+    let next_profile = profile(true);
+    let cape = fixture_cape();
+    let mut preparation = prepared_cape(&first_profile);
+    let mut first = batch();
+    let mut next = batch();
+    apply_capes(
+        &mut first,
+        &cape,
+        &mut preparation,
+        |_| None,
+        |_| Some(&first_profile),
+        |_| None,
+        |_| true,
+    );
+    apply_capes(
+        &mut next,
+        &cape,
+        &mut preparation,
+        |_| None,
+        |_| Some(&next_profile),
+        |_| None,
+        |_| true,
+    );
+    preparation.finish_fixture_batch();
+    apply_capes(
+        &mut next,
+        &cape,
+        &mut preparation,
+        |_| None,
+        |_| Some(&next_profile),
+        |_| None,
+        |_| true,
+    );
+    assert!(
+        Arc::ptr_eq(first.skin_layers[1].pixels(), next.skin_layers[1].pixels()),
+        "equal wire allocations must reuse their normalized cape"
+    );
+}
+
+#[test]
+fn cold_cape_preserves_wings_until_the_worker_is_ready() {
+    let profile = profile(true);
+    let cape = fixture_cape();
+    let mut preparation = actor_animation::CapePreparationQueue::default();
+    let mut pending = batch();
+    let wings = pending.submissions[1].clone();
+    let artwork = pending.artwork.clone();
+    apply_capes(
+        &mut pending,
+        &cape,
+        &mut preparation,
+        |_| None,
+        |_| Some(&profile),
+        |_| None,
+        |_| true,
+    );
+    assert_eq!(pending.submissions[1], wings);
+    assert_eq!(pending.artwork, artwork);
+    assert_eq!(pending.skin_layers.len(), 1);
+    preparation.finish_fixture_batch();
+    let mut ready = batch();
+    apply_capes(
+        &mut ready,
+        &cape,
+        &mut preparation,
+        |_| None,
+        |_| Some(&profile),
+        |_| None,
+        |_| true,
+    );
+    assert_eq!(ready.skin_layers.len(), 2);
+    assert_eq!(ready.submissions[1].material, wings.material);
+    assert_eq!(ready.submissions[1].input, wings.input);
+    assert_eq!(&ready.skin_layers[1][..4], &[9, 8, 7, 255]);
+}
+
+/// Makes this fixture's cape ready without relying on a worker deadline.
+fn prepared_cape(profile: &PlayerProfile) -> actor_animation::CapePreparationQueue {
+    let mut preparation = actor_animation::CapePreparationQueue::default();
+    if let PlayerSkin::Standard(skin) = &profile.skin
+        && let Some(cape) = &skin.cape
+    {
+        preparation.request(cape);
+        preparation.submit();
+        preparation.finish_fixture_batch();
+    }
+    preparation
 }

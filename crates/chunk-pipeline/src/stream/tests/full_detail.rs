@@ -2,6 +2,10 @@
 
 use super::*;
 
+mod cancellations;
+mod handoffs;
+mod transitions;
+
 fn stream() -> WorldStream {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
@@ -75,8 +79,8 @@ fn drawn(stream: &WorldStream, x: i32) -> bool {
         .any(|column| column == ChunkKey::new(0, x, 0))
 }
 
-/// Uploads every mesh waiting in `column`.
-fn upload(stream: &mut WorldStream, x: i32) {
+/// Uploads every mesh waiting in `column`, returning the sections it acknowledged.
+fn upload(stream: &mut WorldStream, x: i32) -> Vec<SubChunkKey> {
     let column = ChunkKey::new(0, x, 0);
     let keys: Vec<SubChunkKey> = stream
         .resident
@@ -85,6 +89,7 @@ fn upload(stream: &mut WorldStream, x: i32) {
         .copied()
         .collect();
     let now = Instant::now();
+    let mut acknowledged = Vec::new();
     for key in keys {
         if let Some((revision, since)) = stream
             .revisions
@@ -92,8 +97,10 @@ fn upload(stream: &mut WorldStream, x: i32) {
             .map(|dirty| (dirty.revision, dirty.since))
         {
             stream.acknowledge_mesh_upload(key, revision, since, now);
+            acknowledged.push(key);
         }
     }
+    acknowledged
 }
 
 /// Limiting detail after running without a limit hands meshes already past the radius to far
@@ -177,6 +184,174 @@ fn lifting_the_limit_meshes_partial_columns() {
     assert!(meshing(&stream, 7));
 }
 
+/// Detail maintenance yields at the deadline and a changed destination replaces its cursor.
+#[test]
+fn interrupted_detail_scan_converges_on_the_latest_player_grid() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(16));
+    stream.between_frames_service = true;
+    stream.local_player_chunk = Some(ChunkKey::new(0, 100, 0));
+    stream.frame_deadline = Some(Instant::now());
+    let first = stream.poll([1600.0, 0.0, 0.0], 0);
+    assert!(first.maintenance_items > 0);
+    assert!(
+        stream.has_pending_full_detail(),
+        "a teleport resumes across polls"
+    );
+
+    stream.local_player_chunk = Some(ChunkKey::new(0, -100, 0));
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    let before = stream.maintenance_items;
+    stream.poll([-1600.0, 0.0, 0.0], 0);
+    assert_eq!(
+        stream.maintenance_items, before,
+        "reclaim runs no new maintenance"
+    );
+    stream.service_yield = None;
+    test_time::eventually("the replacement detail grid", || {
+        stream.poll([-1600.0, 0.0, 0.0], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(ChunkKey::new(0, -100, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 100, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 0, 0)));
+}
+
+/// A paused radius change preserves drawn columns until their far summaries take over.
+#[test]
+fn serviced_radius_changes_preserve_the_far_handoff() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, 5);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    assert!(
+        drawn(&stream, 5),
+        "near coverage survives a paused demotion"
+    );
+    test_time::eventually("the detail limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(drawn(&stream, 5));
+    let five = ChunkKey::new(0, 5, 0);
+    test_time::eventually("the delivered far summary", || {
+        stream.dispatch_far_summaries();
+        stream.drain_far_summaries(&mut Vec::new());
+        stream.far_handoffs().any(|column| column == five)
+    });
+    stream.finish_far_handoff(five);
+    assert!(!drawn(&stream, 5));
+    assert!(!stream.wants_mesh(five));
+    stream.set_full_detail_radius(None);
+    test_time::eventually("restoring full detail", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(five));
+    assert!(meshing(&stream, 5));
+}
+
+/// An initial limit preserves old membership while paused, including resends and live edits.
+#[test]
+fn paused_initial_limit_keeps_existing_columns_active() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    assert!(stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    stream
+        .submit(2, inline_block_entity_event(3, 7, Vec::new()))
+        .unwrap();
+    stream
+        .submit(3, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(
+        stream.wants_mesh(ChunkKey::new(0, 2, 0)),
+        "resends keep old membership"
+    );
+    assert!(
+        !stream.wants_mesh(ChunkKey::new(0, 3, 0)),
+        "new arrivals use the base radius"
+    );
+    stream.mesh_jobs.pending.clear();
+    let keys: Vec<_> = stream
+        .resident
+        .column(ChunkKey::new(0, 2, 0))
+        .copied()
+        .collect();
+    stream.mark_changed_sources(keys, Instant::now());
+    assert!(
+        meshing(&stream, 2),
+        "an edit still invalidates the near mesh"
+    );
+    test_time::eventually("the initial detail limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 3, 0)));
+}
+
+/// Replacing an unfinished unlimited transition uses current residency, not an old disk.
+#[test]
+fn interrupted_unlimited_transition_does_not_promote_new_outer_columns() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(4));
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(2, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+    test_time::eventually("the replacement radius", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 2, 0)));
+}
+
+/// A dimension change during the first limit retires already visited old memberships too.
+#[test]
+fn initial_detail_scan_drops_membership_from_a_retired_dimension() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(5, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(16));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    stream
+        .submit(
+            2,
+            WorldEvent::ChangeDimension(ChangeDimensionEvent {
+                dimension: 1,
+                position: [0.0; 3],
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+    test_time::eventually("detail after a dimension change", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 5, 0)));
+    assert!(stream.wants_mesh(ChunkKey::new(1, 0, 0)));
+}
+
 /// Radius changes, mode and render-distance changes (Auto crossing its threshold), block
 /// changes, uploads, resends and evictions in a scrambled order never leave a column that had
 /// a drawer without one: near terrain draws it once its meshes are published, and far terrain
@@ -210,6 +385,9 @@ fn covered_columns_always_keep_a_drawer() {
     let mut far_on = true;
     let mut far_summaries: HashSet<ChunkKey> = HashSet::new();
     let mut covered: HashSet<ChunkKey> = HashSet::new();
+    // Whether each section's last upload drew geometry or withdrew it. Near terrain draws these
+    // meshes whether or not far terrain tracks the column as drawn.
+    let mut on_screen: HashMap<SubChunkKey, bool> = HashMap::new();
     for step in 0..600 {
         let x = next(COLUMNS as u64) as i32;
         let column = ChunkKey::new(0, x, 0);
@@ -242,7 +420,12 @@ fn covered_columns_always_keep_a_drawer() {
                     stream.mark_changed_sources([key], Instant::now());
                 }
             }
-            3 | 4 => upload(&mut stream, x),
+            3 | 4 => {
+                let wanted = stream.wants_mesh(column);
+                for key in upload(&mut stream, x) {
+                    on_screen.insert(key, wanted);
+                }
+            }
             5 => {
                 stream.dispatch_far_summaries();
                 let mut delivered = Vec::new();
@@ -261,6 +444,7 @@ fn covered_columns_always_keep_a_drawer() {
                 stream.evict_column(column);
                 far_summaries.remove(&column);
                 covered.remove(&column);
+                on_screen.retain(|key, _| key.chunk() != column);
             }
         }
         if !far_on && stream.far_terrain_enabled() && stream.all_loaded_near_drawn() {
@@ -278,7 +462,15 @@ fn covered_columns_always_keep_a_drawer() {
                 covered.remove(&column);
                 continue;
             }
-            let near = drawn(&stream, x);
+            let near = stream
+                .resident
+                .column(column)
+                .chain(stream.known_air.column(column))
+                .all(|key| on_screen.get(key).copied().unwrap_or(false));
+            assert!(
+                near || !drawn(&stream, x),
+                "far terrain hides under {column:?} without its meshes at step {step}"
+            );
             let far = far_shown && far_summaries.contains(&column);
             if near || far {
                 covered.insert(column);
@@ -337,4 +529,240 @@ fn evicting_mid_hand_over_withdraws_meshes() {
     stream.evict_column(ChunkKey::new(0, 5, 0));
     assert!(meshing(&stream, 5), "its removal is queued");
     assert!(!drawn(&stream, 5));
+}
+
+/// An interrupted restoration still refreshes far residents admitted by a wider radius.
+#[test]
+fn interrupted_restoration_refreshes_pending_promotions() {
+    let radius = 64;
+    let far = ChunkKey::new(0, 40, 0);
+    let mut stream = stream();
+    stream
+        .submit(1, WorldEvent::ChunkRadiusUpdated(radius))
+        .unwrap();
+    stream.set_full_detail_radius(Some(16));
+    stream
+        .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(
+        stream.resident.column(far).next().is_some(),
+        "the far column is retained"
+    );
+    assert!(!meshing(&stream, far.x));
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    stream.poll([0.0; 3], 0);
+    assert!(
+        !meshing(&stream, far.x),
+        "restoration has not reached the far column"
+    );
+    stream.set_full_detail_radius(Some(radius));
+    stream.service_yield = None;
+    test_time::eventually("the wider replacement radius", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(far));
+    assert!(
+        meshing(&stream, far.x),
+        "pending promotion must queue its mesh"
+    );
+}
+
+/// Meshes published ahead of a restoration scan keep coverage until far terrain takes over.
+#[test]
+fn interrupted_restoration_hands_off_newly_published_outer_meshes() {
+    for arriving in [false, true] {
+        let far = ChunkKey::new(0, 40, 0);
+        let mut stream = stream();
+        stream
+            .submit(1, WorldEvent::ChunkRadiusUpdated(64))
+            .unwrap();
+        stream.set_full_detail_radius(Some(16));
+        if !arriving {
+            stream
+                .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+                .unwrap();
+            complete_pending_decode_jobs(&mut stream);
+        }
+        stream.between_frames_service = true;
+        stream.set_full_detail_radius(None);
+        if arriving {
+            stream
+                .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+                .unwrap();
+            complete_pending_decode_jobs(&mut stream);
+        } else {
+            let keys: Vec<_> = stream.resident.column(far).copied().collect();
+            assert!(!keys.is_empty(), "retained far data");
+            stream.mark_changed_sources(keys, Instant::now());
+        }
+        assert!(
+            stream.has_pending_full_detail(),
+            "restoration has not completed"
+        );
+        assert!(!upload(&mut stream, far.x).is_empty());
+        assert!(
+            drawn(&stream, far.x),
+            "unlimited detail published the near mesh"
+        );
+        stream.set_full_detail_radius(Some(16));
+        test_time::eventually("the interrupted restoration demotion", || {
+            stream.poll([0.0; 3], 0);
+            !stream.has_pending_full_detail()
+        });
+        assert!(stream.wants_mesh(far), "a drawn outer mesh needs a handoff");
+        assert!(
+            drawn(&stream, far.x),
+            "near coverage stays until the far summary arrives"
+        );
+        test_time::eventually("the far coverage for an interrupted restoration", || {
+            stream.dispatch_far_summaries();
+            stream.drain_far_summaries(&mut Vec::new());
+            stream.far_handoffs().any(|column| column == far)
+        });
+        stream.mesh_jobs.pending.clear();
+        stream.finish_far_handoff(far);
+        assert!(!drawn(&stream, far.x));
+        assert!(!stream.wants_mesh(far));
+        assert!(
+            meshing(&stream, far.x),
+            "far coverage releases the near geometry"
+        );
+    }
+}
+
+/// A near mesh published during restoration remains live inside the replacement limit's band.
+#[test]
+fn interrupted_restoration_keeps_drawn_hysteresis_columns_active() {
+    let far = ChunkKey::new(0, 5, 0);
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(1));
+    stream
+        .submit(1, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    let keys: Vec<_> = stream.resident.column(far).copied().collect();
+    let key = *keys.first().expect("retained far data");
+    stream.mark_changed_sources(keys, Instant::now());
+    assert!(!upload(&mut stream, far.x).is_empty());
+    assert!(drawn(&stream, far.x));
+    stream.set_full_detail_radius(Some(3));
+    test_time::eventually("the replacement detail band", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(
+        stream.wants_mesh(far),
+        "drawn geometry in the band remains live"
+    );
+    assert!(drawn(&stream, far.x));
+    stream.mesh_jobs.pending.clear();
+    stream.mark_changed_sources([key], Instant::now());
+    assert!(
+        meshing(&stream, far.x),
+        "later block updates still reach its mesh"
+    );
+}
+
+/// Restoring a drawn handoff inside a new limit refreshes it and cancels the old demotion.
+#[test]
+fn interrupted_restoration_repromotes_a_drawn_handoff() {
+    let far = ChunkKey::new(0, 5, 0);
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    upload(&mut stream, far.x);
+    stream.set_full_detail_radius(Some(1));
+    assert!(
+        stream.wants_mesh(far),
+        "near geometry waits for far coverage"
+    );
+    stream.mesh_jobs.pending.clear();
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(6));
+    test_time::eventually("the renewed near membership", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(far));
+    assert!(drawn(&stream, far.x));
+    test_time::eventually("the old demotion summary", || {
+        stream.dispatch_far_summaries();
+        let mut delivered = Vec::new();
+        stream.drain_far_summaries(&mut delivered);
+        delivered.iter().any(|summary| summary.column == far)
+    });
+    assert!(
+        !stream.far_handoffs().any(|column| column == far),
+        "the earlier demotion is cancelled"
+    );
+    assert!(
+        meshing(&stream, far.x),
+        "renewed detail refreshes its lighting and mesh"
+    );
+}
+
+/// Complete eviction cannot make new hysteresis-band arrivals inherit old membership.
+#[test]
+fn complete_eviction_preserves_pending_membership_epoch() {
+    let mut stream = stream();
+    let column = ChunkKey::new(0, 2, 0);
+    let key = SubChunkKey::from_chunk(column, 0);
+    stream.resident.insert(key);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    assert!(stream.wants_mesh(column));
+    stream.evict_columns(BTreeSet::from([column]));
+    assert!(stream.resident.is_empty());
+    stream.resident.insert(key);
+    assert!(
+        !stream.wants_mesh(column),
+        "a new arrival is outside the base radius"
+    );
+    test_time::eventually("membership after full eviction", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(column));
+}
+
+/// A column already demoted by an unfinished first limit still needs a later promotion.
+#[test]
+fn interrupted_initial_limit_restoration_refreshes_demoted_columns() {
+    let radius = 64;
+    let far = ChunkKey::new(0, 40, 0);
+    let mut stream = stream();
+    stream
+        .submit(1, WorldEvent::ChunkRadiusUpdated(radius))
+        .unwrap();
+    stream
+        .submit(2, inline_block_entity_event(far.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(
+        stream.resident.column(far).next().is_some(),
+        "the far column is retained"
+    );
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(16));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    assert!(stream.has_pending_full_detail());
+    assert!(!stream.wants_mesh(far));
+    stream.mesh_jobs.pending.clear();
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(radius));
+    test_time::eventually("the replacement of an unfinished first limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(meshing(&stream, far.x));
 }

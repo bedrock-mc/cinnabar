@@ -1,34 +1,9 @@
 //! Vanilla entity-shadow casters: who casts one, its radius and where it hangs.
-//! Rules are tabulated in `docs/reference/entity-shadows.md`.
+//! Class dispositions come from the compiled entity facts carrier.
 use protocol::{ActorKind, ActorMetadataValue};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 
-use super::{
-    ActorSnapshot, ActorStore, BOUNDING_BOX_HEIGHT_METADATA_KEY, BOUNDING_BOX_WIDTH_METADATA_KEY,
-    DEFAULT_ACTOR_COLLISION_WIDTH, FLAG_BABY, VARIANT_METADATA_KEY,
-};
-
-/// Actor types flagged as projectiles, which never cast a shadow.
-const PROJECTILES: [&str; 19] = [
-    "arrow",
-    "breeze_wind_charge_projectile",
-    "dragon_fireball",
-    "egg",
-    "ender_pearl",
-    "evocation_fang",
-    "fireball",
-    "ice_bomb",
-    "lingering_potion",
-    "llama_spit",
-    "shulker_bullet",
-    "small_fireball",
-    "snowball",
-    "splash_potion",
-    "thrown_trident",
-    "wind_charge_projectile",
-    "wither_skull",
-    "wither_skull_dangerous",
-    "xp_bottle",
-];
+use super::{ActorSnapshot, ActorStore, DEFAULT_ACTOR_COLLISION_WIDTH};
 
 /// One caster: interpolated feet, lowered by any authored offset, and its radius.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,57 +17,22 @@ impl ActorSnapshot {
     /// The radius vanilla gives this actor's shadow; zero casts none.
     #[must_use]
     pub fn shadow_radius(&self, riding: bool) -> f32 {
-        let path = match &self.kind {
-            ActorKind::Player { .. } => return self.collision_width(),
-            ActorKind::Entity { identifier } => {
-                identifier.strip_prefix("minecraft:").unwrap_or(identifier)
-            }
-        };
-        let width = self.collision_width();
-        let baby = self.flag(FLAG_BABY);
-        match path {
-            "ghast" | "happy_ghast" | "creaking" => width * 0.8,
-            "spider" | "cave_spider" => width * 0.7,
-            "armadillo" => width * 0.575,
-            "horse" | "donkey" | "mule" | "skeleton_horse" | "zombie_horse" => width * 0.6,
-            "ender_dragon" => width * 0.3,
-            "tadpole" => width * 0.5,
-            "iron_golem" | "shulker" => width * 0.5 * if baby { 0.5 } else { 1.0 },
-            "turtle" if baby => width * 0.33,
-            "slime" | "magma_cube" | "sulfur_cube" => self.variant() as f32 * 0.25,
-            "tripod_camera" | "ender_crystal" => 0.5,
-            "boat" | "chest_boat" => 1.0,
-            "parrot" if riding => 0.0,
-            "armor_stand"
-            | "area_effect_cloud"
-            | "cushion"
-            | "fishing_hook"
-            | "minecart"
-            | "chest_minecart"
-            | "hopper_minecart"
-            | "tnt_minecart"
-            | "command_block_minecart"
-            | "xp_orb"
-            | "leash_knot"
-            | "eye_of_ender_signal"
-            | "lightning_bolt"
-            | "tnt"
-            | "falling_block"
-            | "fireworks_rocket"
-            | "painting" => 0.0,
-            _ => width,
-        }
+        self.entity_fact.shadow.radius(
+            self.collision_width(),
+            self.flag(ActorFlag::Baby.wire_value()),
+            self.variant(),
+            riding,
+        )
     }
 
     /// Whether this actor's own state hides its shadow.
     #[must_use]
     pub fn shadow_hidden(&self) -> bool {
-        let projectile = matches!(&self.kind, ActorKind::Entity { identifier }
-            if identifier.strip_prefix("minecraft:").is_some_and(|path| PROJECTILES.contains(&path)));
+        let projectile = self.entity_fact.projectile;
         let dead = self.status.dead
             || self
                 .attributes
-                .get("minecraft:health")
+                .get(Attribute::Health.wire_name())
                 .is_some_and(|health| health.current <= 0.0);
         projectile
             || dead
@@ -103,30 +43,30 @@ impl ActorSnapshot {
 
     /// Height the shadow hangs below the feet; ghasts carry authored relative offsets.
     fn shadow_drop(&self) -> f32 {
-        let relative = match &self.kind {
-            ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ghast" => -0.875,
-            ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:happy_ghast" => {
-                -0.5
-            }
-            _ => return 0.0,
-        };
-        let height = match self.metadata.get(&BOUNDING_BOX_HEIGHT_METADATA_KEY) {
+        let relative = self.entity_fact.shadow_drop;
+        let height = match self.metadata.get(&ActorDataKey::Height.wire_value()) {
             Some(ActorMetadataValue::Float(height)) if height.is_finite() => *height,
             _ => 0.0,
         };
         relative * height * self.render_scale()
     }
 
+    /// Uses scaled collision width; only players supply a default for omitted bounds.
     fn collision_width(&self) -> f32 {
-        match self.metadata.get(&BOUNDING_BOX_WIDTH_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(width)) if width.is_finite() && *width > 0.0 => *width,
-            _ if matches!(self.kind, ActorKind::Player { .. }) => DEFAULT_ACTOR_COLLISION_WIDTH,
-            _ => 0.0,
+        if !matches!(self.kind, ActorKind::Player { .. })
+            && !matches!(
+                self.metadata.get(&ActorDataKey::Width.wire_value()),
+                Some(ActorMetadataValue::Float(width)) if width.is_finite()
+            )
+        {
+            return 0.0;
         }
+        self.scaled_collision_dimension(ActorDataKey::Width, DEFAULT_ACTOR_COLLISION_WIDTH)
+            .unwrap_or(0.0)
     }
 
     fn variant(&self) -> i32 {
-        match self.metadata.get(&VARIANT_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Variant.wire_value()) {
             Some(ActorMetadataValue::Int(variant)) => (*variant).max(0),
             _ => 0,
         }

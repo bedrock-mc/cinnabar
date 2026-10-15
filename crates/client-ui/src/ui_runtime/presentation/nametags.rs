@@ -1,12 +1,13 @@
 //! Java-style actor labels, retaining server text and the shared font-pixel atlas.
 
+use protocol_ids::ActorFlag;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
 
 use assets::RuntimeFontCatalog;
-use client_world::{ACTOR_FLAG_SHOW_NAME, ActorSnapshot};
+use client_world::ActorSnapshot;
 use glam::Vec3;
 use protocol::{ActorKind, ActorMetadataValue};
 use render_model::{
@@ -36,8 +37,6 @@ const METADATA_HEIGHT: u32 = 54;
 const METADATA_ALWAYS_SHOW_NAMETAG: u32 = 81;
 const METADATA_SCORE: u32 = 84;
 const METADATA_RENDER_DISTANCE: u32 = 140;
-const ACTOR_FLAG_SNEAKING: u32 = 1;
-const ACTOR_FLAG_INVISIBLE: u32 = 5;
 const ACTOR_FLAG_ALWAYS_SHOW_NAME: u32 = 15;
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
@@ -81,6 +80,8 @@ impl NametagAnchor {
 #[derive(Default)]
 pub struct NametagTextCache {
     entries: HashMap<(u64, i64), CachedNametagText>,
+    #[cfg(test)]
+    retention_checks: usize,
 }
 
 struct CachedNametagText {
@@ -91,6 +92,21 @@ struct CachedNametagText {
 }
 
 impl NametagTextCache {
+    /// Checks each cached identity once against the selected actor identities.
+    fn retain_selected(&mut self, selected: &HashSet<(u64, i64)>) {
+        #[cfg(test)]
+        {
+            self.retention_checks = 0;
+        }
+        self.entries.retain(|identity, _| {
+            #[cfg(test)]
+            {
+                self.retention_checks += 1;
+            }
+            selected.contains(identity)
+        });
+    }
+
     /// Reuses unchanged text while recomputing visibility, pose and viewer distance.
     fn extract(
         &mut self,
@@ -158,7 +174,7 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
     };
     let offset = if !matches!(actor.kind, ActorKind::Player { .. }) {
         0.0
-    } else if actor_flag(actor, ACTOR_FLAG_SNEAKING) {
+    } else if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_PLAYER_Y_OFFSET
     } else if actor.is_sleeping() {
         SLEEPING_LABEL_DROP
@@ -174,7 +190,7 @@ fn tag_world_position(actor: &ActorSnapshot, feet: Vec3) -> Vec3 {
 }
 
 fn render_distance(actor: &ActorSnapshot) -> f32 {
-    let java_distance = if actor_flag(actor, ACTOR_FLAG_SNEAKING) {
+    let java_distance = if actor_flag(actor, ActorFlag::Sneaking.wire_value()) {
         SNEAK_RENDER_DISTANCE
     } else {
         DEFAULT_RENDER_DISTANCE
@@ -188,7 +204,7 @@ fn render_distance(actor: &ActorSnapshot) -> f32 {
 
 /// Applies explicit always-show overrides before the ordinary show-name gate.
 fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
-    if actor_flag(actor, ACTOR_FLAG_INVISIBLE) {
+    if actor_flag(actor, ActorFlag::Invisible.wire_value()) {
         return false;
     }
     let always = actor_flag(actor, ACTOR_FLAG_ALWAYS_SHOW_NAME)
@@ -201,12 +217,13 @@ fn visible(actor: &ActorSnapshot, picked_actor: Option<u64>) -> bool {
     if matches!(
         actor.metadata.get(&0),
         Some(ActorMetadataValue::Flags(_) | ActorMetadataValue::FlagsExtended(_))
-    ) && !actor_flag(actor, ACTOR_FLAG_SHOW_NAME)
+    ) && !actor_flag(actor, ActorFlag::ShowName.wire_value())
     {
         return false;
     }
     matches!(actor.kind, ActorKind::Player { .. })
-        || (actor_flag(actor, ACTOR_FLAG_SHOW_NAME) && picked_actor == Some(actor.runtime_id))
+        || (actor_flag(actor, ActorFlag::ShowName.wire_value())
+            && picked_actor == Some(actor.runtime_id))
 }
 
 fn tag_text(
@@ -298,7 +315,7 @@ fn nametag_with_lines(
     if !view_depth.is_finite() {
         return None;
     }
-    let sneaking = actor_flag(actor, ACTOR_FLAG_SNEAKING);
+    let sneaking = actor_flag(actor, ActorFlag::Sneaking.wire_value());
     Some(NametagAnchor {
         runtime_id: actor.runtime_id,
         position,
@@ -403,11 +420,11 @@ pub fn project_nametags(
             .then(a.runtime_id.cmp(&b.runtime_id))
     });
     candidates.truncate(MAX_PRESENTED_NAMETAGS);
-    cache.entries.retain(|&(runtime_id, unique_id), _| {
-        candidates
-            .iter()
-            .any(|(actor, _, _)| actor.runtime_id == runtime_id && actor.unique_id == unique_id)
-    });
+    let selected: HashSet<_> = candidates
+        .iter()
+        .map(|(actor, _, _)| (actor.runtime_id, actor.unique_id))
+        .collect();
+    cache.retain_selected(&selected);
     candidates
         .into_iter()
         .filter_map(|(actor, name, _)| {
@@ -433,27 +450,31 @@ pub fn build_nametag_scene<'p>(
             .total_cmp(&a.view_depth)
             .then(a.runtime_id.cmp(&b.runtime_id))
     });
-    let requested_lines = ordered
-        .iter()
-        .map(|anchor| anchor.lines.len())
-        .sum::<usize>()
-        .min(MAX_NAMETAG_LINES);
-    if !atlas.has_room_for(requested_lines) {
-        atlas.reset();
-    }
+    let mut available_records = MAX_NAMETAG_RECORDS;
+    // Any deferred atlas rebuild must finish before this frame captures its first cell UVs.
+    atlas.begin_frame(ordered.iter().flat_map(|anchor| {
+        let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
+        let count = anchor.lines.len().min(available_records / records_per_line);
+        available_records -= count * records_per_line;
+        anchor.lines.iter().take(count)
+    }));
     let side = NAMETAG_ATLAS_SIDE as f32;
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut records = Vec::new();
     let mut labels = Vec::with_capacity(ordered.len());
+    // One line buffer serves every label.
+    let mut placed = Vec::new();
     for anchor in ordered {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let remaining_lines = (MAX_NAMETAG_RECORDS - records.len()) / records_per_line;
-        let placed: Vec<_> = anchor
-            .lines
-            .iter()
-            .take(remaining_lines)
-            .filter_map(|line| atlas.line(line, font, layouts, pages))
-            .collect();
+        placed.clear();
+        placed.extend(
+            anchor
+                .lines
+                .iter()
+                .take(remaining_lines)
+                .filter_map(|line| atlas.line(line, font, layouts, pages)),
+        );
         if placed.is_empty() {
             continue;
         }
@@ -595,5 +616,55 @@ pub(super) fn style_scene(
             scene.records.extend(extra);
             scene.records.push(record);
         }
+    }
+}
+
+#[cfg(test)]
+mod selection_work_tests {
+    use super::*;
+
+    #[test]
+    fn retention_checks_each_identity_once_and_preserves_selected_text() {
+        let mut cache = NametagTextCache::default();
+        let lines: Arc<[Arc<str>]> = vec![Arc::from("cached")].into();
+        for runtime_id in 0..MAX_PRESENTED_NAMETAGS as u64 {
+            cache.entries.insert(
+                (runtime_id, runtime_id as i64),
+                CachedNametagText {
+                    name: Arc::from("cached"),
+                    score: None,
+                    scoreboard_revision: None,
+                    lines: Arc::clone(&lines),
+                },
+            );
+        }
+        let selected: HashSet<_> = cache.entries.keys().copied().collect();
+        let mut previous_checks = 0;
+        for identity in cache.entries.keys() {
+            assert!(selected.iter().any(|candidate| {
+                previous_checks += 1;
+                candidate == identity
+            }));
+        }
+        assert_eq!(
+            previous_checks,
+            MAX_PRESENTED_NAMETAGS * (MAX_PRESENTED_NAMETAGS + 1) / 2
+        );
+        cache.retain_selected(&selected);
+        assert_eq!(cache.retention_checks, MAX_PRESENTED_NAMETAGS);
+        assert_eq!(cache.entries.len(), selected.len());
+        assert!(
+            cache
+                .entries
+                .values()
+                .all(|entry| Arc::ptr_eq(&entry.lines, &lines))
+        );
+        // Reusing a runtime ID with a different unique ID must retire the old identity.
+        cache.retain_selected(&HashSet::from([(0, -1), (1, 1)]));
+        assert_eq!(cache.retention_checks, MAX_PRESENTED_NAMETAGS);
+        assert_eq!(cache.entries.keys().copied().collect::<Vec<_>>(), [(1, 1)]);
+        cache.retain_selected(&HashSet::new());
+        assert_eq!(cache.retention_checks, 1);
+        assert!(cache.entries.is_empty());
     }
 }

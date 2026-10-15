@@ -3,13 +3,14 @@
 
 use crate::support;
 use crate::support::java_pack;
+use json_ui::vanilla::Reference;
 
 use std::path::{Path, PathBuf};
 
 use json_ui::{
-    BossBar, Catalog, Context, Draw, DrawNode, HUD_SCREEN, HudModel, HudSlot, HudTitle, LayoutEnv,
-    Sidebar, TextMeasure, TextureMeta, TextureSource, Timed, ViewState, hud_context,
-    hud_data_source, parse_texture_meta, render_screen,
+    BossBar, Catalog, Context, Draw, DrawNode, HudModel, HudSlot, HudTitle, LayoutEnv, Sidebar,
+    TextMeasure, TextureMeta, TextureSource, Timed, ViewState, hud_context, hud_data_source,
+    parse_texture_meta, render_screen,
 };
 
 mod offhand;
@@ -142,7 +143,7 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 }
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
-    render_full(model, java).map(|render| render.nodes)
+    render_full(model, java).map(|render| render.nodes.to_vec())
 }
 
 /// The vanilla UI catalog for the pack's directory, before any overlay.
@@ -170,7 +171,7 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
         textures: &textures,
     };
     let render = render_screen(
-        HUD_SCREEN,
+        Reference::HudHudScreen.as_str(),
         &catalog,
         &hud_context(&Context::desktop()),
         &hud_data_source(model),
@@ -655,7 +656,7 @@ fn a_pack_retargeting_hud_tip_text_moves_the_tip_text() {
         textures: &textures,
     };
     let render = render_screen(
-        HUD_SCREEN,
+        Reference::HudHudScreen.as_str(),
         &catalog,
         &hud_context(&Context::desktop()),
         &hud_data_source(&model),

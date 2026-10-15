@@ -11,11 +11,14 @@ mod optional_carriers;
 pub(crate) use optional_carriers::shell_quote_path;
 mod error;
 pub use error::AssetStartupError;
+mod entity_facts;
 mod loading;
+pub use entity_facts::require_entity_facts;
 pub use loading::{
     CarrierLoadObserver, atmosphere_asset_path, entity_asset_path, font_asset_path,
     load_runtime_assets, load_runtime_assets_observed, local_font_asset_path,
 };
+pub mod delivery;
 mod world_provenance;
 
 pub const ATMOSPHERE_FILENAME: &str = crate::carriers::ATMOSPHERE.output;
@@ -67,6 +70,7 @@ pub struct CarrierMetrics {
 
 pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
+    pub item_facts: Arc<crate::facts::ItemFacts>,
     pub atmosphere: LoadedAtmosphereAssets,
     pub entities: LoadedEntityAssets,
     pub fonts: LoadedFontAssets,
@@ -103,6 +107,8 @@ mod equipment_carrier;
 pub use actor_carrier::{ACTOR_ASSETS_FILENAME, actor_asset_path, require_actor_assets};
 pub use audio_pcm_carrier::load_audio_pcm_assets;
 pub use equipment_carrier::{equipment_asset_path, load_optional_equipment_assets};
+mod item_facts_carrier;
+pub use item_facts_carrier::require_item_facts;
 mod hud_carrier;
 mod icon_carrier;
 mod lang_carrier;

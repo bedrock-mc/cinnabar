@@ -27,6 +27,7 @@ pub struct ActorFrameState {
     pub(super) hand_revision: u64,
     pub(super) java_hand: java::HandCache,
     pub(super) java_poses: java::PoseScratch,
+    pub(super) body_scratch: super::bodies::BodyScratch,
     pub(super) input: Option<ActorFrameInput>,
     pub(super) step: Option<crate::actor_clock::ActorFrameStep>,
     motion_step: Option<crate::actor_clock::ActorFrameStep>, // Taken by early remote motion.
@@ -35,6 +36,7 @@ pub struct ActorFrameState {
     hand_ready: bool,
     pub(super) captured_view: LocalViewPose,
     pub(super) captured_sampling_camera: Option<([f32; 2], [f32; 3])>,
+    pub(super) captured_aspect: f32,
     pub(super) first_person: bool,
     pub(super) java_mode: bool,
     pub(super) combat_visuals: render_api::CombatVisuals,
@@ -128,6 +130,7 @@ pub fn advance_actor_frame(
         session_artwork,
         skin_rigs,
         skin_layers,
+        cape_state,
         poses,
         layer_poses,
         java_hand,
@@ -139,6 +142,7 @@ pub fn advance_actor_frame(
         step: captured_step,
         captured_view,
         captured_sampling_camera,
+        captured_aspect,
         first_person: captured_first_person,
         java_mode: captured_java_mode,
         combat_visuals: captured_combat_visuals,
@@ -169,6 +173,7 @@ pub fn advance_actor_frame(
             actor_clock.reset();
         }
         *skin_layers = Default::default();
+        *cape_state = Default::default();
         *published_session = session_id;
     }
     let pack = session_id.and_then(|_| client_world.pack_entities.clone());
@@ -261,6 +266,8 @@ pub fn advance_actor_frame(
             .main
             .as_ref()
             .map_or(0, |item| item.damage.unwrap_or(item.metadata));
+        feed.held_variants = [&input.local_equipment.main, &input.local_equipment.off]
+            .map(|item| item.as_ref().map(|item| item.variant).unwrap_or_default());
     }
     if let Some(stream) = client_world.stream.as_mut() {
         if let Some(equipment) = equipment.as_deref() {
@@ -334,6 +341,10 @@ pub fn advance_actor_frame(
         &mut local_visibility,
     );
 
+    let aspect = match camera.single() {
+        Ok((_, Projection::Perspective(perspective))) => perspective.aspect_ratio,
+        _ => 1.0,
+    };
     let sampling_camera = camera.single().ok().map(|(transform, _)| {
         (
             views::actor_camera_rotation(view.camera_rotation()),
@@ -400,6 +411,7 @@ pub fn advance_actor_frame(
                     alpha: step.partial_tick,
                     artwork,
                     sampling_camera,
+                    aspect,
                     motion: hand_motion
                         .as_deref()
                         .map_or(Mat4::IDENTITY, hand_motion_matrix),
@@ -426,6 +438,7 @@ pub fn advance_actor_frame(
     *hand_ready = hand::is_ready(&hand_builder.0, hand_source.as_ref(), fov);
     *captured_view = *view;
     *captured_sampling_camera = sampling_camera;
+    *captured_aspect = aspect;
     *captured_first_person = first_person;
     *captured_java_mode = java_mode;
     *captured_combat_visuals = combat_visuals;

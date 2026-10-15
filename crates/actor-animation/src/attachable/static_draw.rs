@@ -1,6 +1,8 @@
 //! Reuses only frame-independent controller results with explicitly bounded inputs.
 use super::*;
+use assets::entity::EngineVariable as V;
 use assets::{MolangFunction, MolangOp};
+use protocol_ids::ActorFlag;
 
 #[derive(Debug, Eq, PartialEq)]
 enum Value {
@@ -47,12 +49,12 @@ impl Inputs {
             .owner_variables
             .iter()
             .rev()
-            .find(|(name, _)| *name == "variable.is_enchanted")
+            .find(|(name, _)| *name == V::IsEnchanted.name())
             .map(|(_, value)| Value::Number(value.to_bits()))
             .or_else(|| {
                 inherited
-                    .value("variable.is_enchanted")
-                    .map(Value::from_molang)
+                    .value(V::IsEnchanted.name())
+                    .map(|value| Value::from_molang(&value))
             })
             .unwrap_or(Value::Number(0.0f32.to_bits()));
         Self {
@@ -60,7 +62,7 @@ impl Inputs {
             off_hand: input.off_hand,
             paperdoll: input.is_paperdoll,
             worn: input.worn,
-            blocking: query::actor_flag(owner, query::FLAG_BLOCKING),
+            blocking: query::actor_flag(owner, ActorFlag::Blocking.wire_value()),
             target: query::has_target(owner),
             elapsed: input.use_elapsed_ticks,
             duration: input.max_use_ticks,
@@ -112,11 +114,11 @@ pub(crate) fn expression_is_static(
     };
     ops.iter().all(|op| match *op {
         MolangOp::LoadVariable(index) => symbol(index)
-            .is_some_and(|name| context(name) || (!preparation && name == "variable.is_enchanted")),
+            .is_some_and(|name| context(name) || (!preparation && name == V::IsEnchanted.name())),
         MolangOp::StoreVariable(index) => {
             preparation
                 && symbol(index).is_some_and(|name| {
-                    name.starts_with("variable.") && name != "variable.is_enchanted"
+                    name.starts_with("variable.") && name != V::IsEnchanted.name()
                 })
         }
         MolangOp::LoadQuery(index)
@@ -124,14 +126,16 @@ pub(crate) fn expression_is_static(
             preparation
                 || symbol(index).is_some_and(|name| {
                     matches!(
-                        name,
-                        "query.blocking"
-                            | "query.has_target"
-                            | "query.is_using_item"
-                            | "query.main_hand_item_use_duration"
-                            | "query.item_remaining_use_duration"
-                            | "query.main_hand_item_max_duration"
-                            | "query.get_animation_frame"
+                        assets::MolangQuery::from_name(name),
+                        Some(
+                            assets::MolangQuery::Blocking
+                                | assets::MolangQuery::HasTarget
+                                | assets::MolangQuery::IsUsingItem
+                                | assets::MolangQuery::MainHandItemUseDuration
+                                | assets::MolangQuery::ItemRemainingUseDuration
+                                | assets::MolangQuery::MainHandItemMaxDuration
+                                | assets::MolangQuery::GetAnimationFrame
+                        )
                     )
                 })
         }

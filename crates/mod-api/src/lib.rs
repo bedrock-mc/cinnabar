@@ -1,6 +1,23 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
+/// Largest terrain query extent along each axis, in blocks.
+pub const MAX_TERRAIN_EXTENT: u8 = 16;
+/// Maximum cells in one terrain query.
+pub const MAX_TERRAIN_CELLS: usize = (MAX_TERRAIN_EXTENT as usize).pow(3);
+/// Maximum distinct terrain queries serviced for one mod per frame.
+pub const MAX_TERRAIN_QUERIES: usize = 4;
+/// Maximum terrain distance from the current player, along each axis.
+pub const MAX_TERRAIN_DISTANCE: i64 = 128;
+/// Cells re-sampled per frame across all mods; further changed queries wait a frame.
+pub const MAX_TERRAIN_FRAME_CELLS: usize = 2 * MAX_TERRAIN_CELLS;
+/// Distinct block-local boxes in one terrain region.
+pub const MAX_TERRAIN_BOXES: usize = 4096;
+/// Identifier, canonical-state and tag bytes in one terrain region.
+pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
+/// Guest-memory bytes of one lowered terrain region.
+pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
+
 mod guest;
 
 pub use guest::PlayerMod;
@@ -23,6 +40,41 @@ pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
 /// Bounded control and settings payloads for personal components.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
+/// Optional top-level component data containing one existing personal panel bundle.
+pub const PANEL_BUNDLE_SECTION: &str = "cinnabar:extension/panel-bundle@1";
+/// Optional top-level component data containing one outline font for the personal panel.
+pub const PANEL_FONT_SECTION: &str = "cinnabar:extension/font@1";
+/// Maximum source bytes in an embedded or explicitly selected personal panel font.
+pub const MAX_PANEL_FONT_BYTES: usize = 2 * 1024 * 1024;
+/// Optional top-level PNG data replacing the local main-menu logo.
+pub const MENU_LOGO_SECTION: &str = "cinnabar:extension/menu-logo@1";
+/// Optional top-level UTF-8 text replacing the local menu's product heading.
+pub const MENU_TITLE_SECTION: &str = "cinnabar:extension/menu-title@1";
+/// Optional top-level UTF-8 copyright and license notices, retained outside executable bytes.
+pub const NOTICES_SECTION: &str = "cinnabar:extension/notices@1";
+/// Bounded static menu-logo source and decoded image geometry.
+pub const MAX_MENU_LOGO_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_MENU_LOGO_WIDTH: u32 = 4096;
+pub const MAX_MENU_LOGO_HEIGHT: u32 = 2048;
+pub const MAX_MENU_LOGO_PIXELS: u64 = 4 * 1024 * 1024;
+/// A menu heading is one bounded, nonempty line of UTF-8 text.
+pub const MAX_MENU_TITLE_BYTES: usize = 64;
+/// Retained license text has its own static source budget.
+pub const MAX_NOTICES_BYTES: usize = 4 * 1024 * 1024;
+/// Optional top-level PNG shown beside the component in the Mods library.
+pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
+/// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
+pub const MAX_ICON_BYTES: usize = 256 * 1024;
+pub const MAX_ICON_SIDE: u32 = 256;
+/// Every versioned static section recognized by the local component loader.
+pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
+    PANEL_BUNDLE_SECTION,
+    PANEL_FONT_SECTION,
+    MENU_LOGO_SECTION,
+    MENU_TITLE_SECTION,
+    NOTICES_SECTION,
+    ICON_SECTION,
+];
 pub const MAX_CONTROL_KEYS: usize = 64;
 /// Maximum bytes in a physical key name supplied by local controls.
 pub const MAX_CONTROL_KEY_BYTES: usize = 32;

@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -61,7 +62,7 @@ use bevy::{
 };
 use render_model::ActorRigVertex;
 use {
-    crate::actor::gpu::ActorDrawTracker,
+    crate::actor::gpu::{ActorDrawBatch, ActorDrawTracker},
     render_model::{ActorGpuInstance, ActorRigGeometrySpan},
     render_scene::{ActorPresentationGate, ActorRenderFrame, ActorRuntimeWitness},
 };
@@ -159,6 +160,8 @@ pub(crate) struct ActorGpu {
     sorted: dissolve::SortedDraws,
     instances: std::sync::Arc<[ActorGpuInstance]>,
     executed_instances: std::sync::atomic::AtomicU32,
+    /// The immutable draw identity installed by the current queue pass.
+    queued_draw: Option<ActorDrawBatch>,
     artwork_identity: [u8; 32],
     artwork_current: bool,
     instance_buffer: Buffer,
@@ -231,6 +234,7 @@ fn init_actor_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         sorted: dissolve::SortedDraws::default(),
         instances: std::sync::Arc::from([]),
         executed_instances: std::sync::atomic::AtomicU32::new(0),
+        queued_draw: None,
         artwork_identity: [0; 32],
         artwork_current: false,
         instance_buffer: render_device.create_buffer(&BufferDescriptor {
@@ -283,6 +287,8 @@ fn prepare_actor_resources(
     gate: Res<ActorPresentationGate>,
     tracker: Res<ActorDrawTracker>,
 ) {
+    // Preparation can replace any part of the queued identity, even before queue runs.
+    gpu.queued_draw = None;
     let rig = &frame.rig;
     let artwork_valid = gpu
         .artwork
@@ -363,17 +369,17 @@ fn prepare_actor_resources(
                     + std::mem::size_of_val(&*rig.current_bones),
             )
             .entered();
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.instance_buffer,
                 0,
                 bytemuck::cast_slice::<ActorGpuInstance, u8>(&instances),
             );
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.previous_bone_buffer,
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.previous_bones),
             );
-            render_queue.write_buffer(
+            render_queue.profiled_write_buffer(
                 &gpu.current_bone_buffer,
                 0,
                 bytemuck::cast_slice::<[[f32; 4]; 3], u8>(&rig.current_bones),
@@ -383,7 +389,12 @@ fn prepare_actor_resources(
             gpu.instance_count = rig.instances.len() as u32;
             gpu.maximum_vertex_count = rig.maximum_vertex_count;
             gpu.manifest = std::sync::Arc::clone(&rig.manifest);
-            gpu.spans = draw_spans(&frame.instance_pages, &instances, &rig.geometry_spans);
+            draw_spans(
+                &mut gpu.spans,
+                &frame.instance_pages,
+                &instances,
+                &rig.geometry_spans,
+            );
             gpu.instances = instances;
             let ActorGpu {
                 sorted,

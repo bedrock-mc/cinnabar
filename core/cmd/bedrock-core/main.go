@@ -19,6 +19,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
@@ -37,6 +38,13 @@ const (
 	// Past this, a shutdown still waiting on work that ignores its context hard-exits.
 	shutdownGrace      = 2 * time.Second
 	parentPollInterval = 250 * time.Millisecond
+)
+
+// The build stamps these with -ldflags "-X main.version=<workspace version> -X main.commit=<commit>",
+// the release and commit the Rust client reports, so a core crash can be matched to its client.
+var (
+	version = "unknown"
+	commit  = "unknown"
 )
 
 func main() {
@@ -96,6 +104,23 @@ type options struct {
 	xboxPresence              bool
 	upstreamClientCache       bool
 	serverTrustFile           string
+	logLevel                  slog.Level
+	crashOutput               string
+}
+
+// process names the core's role in every log record, so interleaved cores stay distinguishable.
+func (opts options) process() string {
+	switch {
+	case opts.authEvents:
+		return "auth-events"
+	case opts.catalogFile != "":
+		return "catalog"
+	case opts.xboxPresence:
+		return "account"
+	case opts.upstream != "":
+		return "game"
+	}
+	return "bedrock-core"
 }
 
 func parseFlags(args []string, stderr io.Writer) (options, error) {
@@ -116,6 +141,8 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 	flags.BoolVar(&opts.cinnabarAPI, "cinnabar-api", false, "connect the account to the Cinnabar API once the control client configures it (requires -control-status)")
 	flags.StringVar(&opts.serverTrustFile, "server-trust-file", "", "ask the control client before joining an unknown http NetherNet server, remembering trusted ones in this file (requires -control-status)")
 	flags.BoolVar(&opts.upstreamClientCache, "upstream-client-cache", false, "advertise client-cache capability upstream; enable only when the connecting client owns a verified blob cache")
+	corelog.LevelFlag(flags, &opts.logLevel)
+	flags.StringVar(&opts.crashOutput, "crash-output", "", "also append unhandled panics and fatal runtime errors, with every goroutine's stack, to this file (created owner-only); unset leaves them on stderr only")
 	if err := flags.Parse(args); err != nil {
 		return options{}, err
 	}
@@ -148,11 +175,25 @@ func parseFlags(args []string, stderr io.Writer) (options, error) {
 type sourceFunc func(context.Context, authcache.Config) (oauth2.TokenSource, error)
 type serveFunc func(context.Context, proxy.Config) error
 
-// Replaced in tests that must not reach the network.
+// Replaced in tests that must not reach the network or change process-wide state.
 var (
 	startVerifierPreload = proxy.StartVerifierPreload
 	keepAccountFresh     = (*authcache.Account).KeepFresh
+	installDiagnostics   = installProcessDiagnostics
 )
+
+// installProcessDiagnostics makes logger the process default, so library and lifeline records share
+// its format, and arms -crash-output. A crash output that cannot be opened leaves crashes on stderr.
+func installProcessDiagnostics(opts options, logger *slog.Logger) {
+	slog.SetDefault(logger)
+	if opts.crashOutput == "" {
+		return
+	}
+	if err := corelog.SetCrashOutput(opts.crashOutput); err != nil {
+		// The error names the private path; the level is enough to act on.
+		logger.Warn("crash output unavailable; crashes reach stderr only")
+	}
+}
 
 type ownedResourcePackCache interface {
 	minecraft.ResourcePackCache
@@ -162,12 +203,13 @@ type resourcePackCacheFactory func(string, ...packcache.Option) (ownedResourcePa
 
 func execute(ctx context.Context, args []string, stdout, stderr io.Writer, source sourceFunc, serve serveFunc) int {
 	if err := run(ctx, args, stdout, stderr, source, serve); err != nil {
-		newLifecycleLogger(stderr).Error("core failed", "error", err)
 		return 1
 	}
 	return 0
 }
 
+// run parses args, installs the process's root logger on stderr and runs the core; a failure is also
+// logged as "core failed".
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, source sourceFunc, serve serveFunc) error {
 	return runWithResourcePackCacheFactory(ctx, args, stdout, stderr, source, serve, func(root string, options ...packcache.Option) (ownedResourcePackCache, error) {
 		return packcache.New(root, options...)
@@ -181,15 +223,23 @@ func runWithResourcePackCacheFactory(
 	source sourceFunc,
 	serve serveFunc,
 	openCache resourcePackCacheFactory,
-) error {
+) (err error) {
 	opts, err := parseFlags(args, stderr)
-	if err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
+	if errors.Is(err, flag.ErrHelp) {
+		return nil
+	}
+	// Invalid arguments leave opts zero: the failure is still logged, as bedrock-core at info.
+	logger := corelog.New(stderr, opts.process(), opts.logLevel)
+	installDiagnostics(opts, logger)
+	defer func() {
+		if err != nil {
+			logger.Error("core failed", "error", err)
 		}
+	}()
+	if err != nil {
 		return err
 	}
-	logger := newLifecycleLogger(stderr)
+	logger.Info("core build", "version", version, "commit", commit, "go", runtime.Version())
 	if opts.authEvents {
 		if opts.authCache == "" {
 			return errors.New("auth-events mode requires -auth-cache")
@@ -200,7 +250,7 @@ func runWithResourcePackCacheFactory(
 		return authflow.Run(ctx, authflow.Config{
 			Path: opts.authCache, Writer: stdout,
 			CompleteSignIn: func(ctx context.Context, path string, source oauth2.TokenSource) error {
-				return authcache.CompleteSignIn(ctx, path, source, stderr)
+				return authcache.CompleteSignIn(ctx, path, source, logger)
 			},
 		})
 	}
@@ -249,7 +299,7 @@ func runWithResourcePackCacheFactory(
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, stderr); account != nil {
+		if account = authcache.NewAccount(credentialCtx, authcache.DerivedCachePath(opts.authCache), tokenSource, logger); account != nil {
 			tokenSource = account
 			defer func() { closeCredentials(); _ = account.Close() }()
 		}
@@ -443,10 +493,6 @@ func runWithResourcePackCacheFactory(
 		return errors.Join(serveErr, errors.New("close resource pack cache: unavailable"))
 	}
 	return serveErr
-}
-
-func newLifecycleLogger(writer io.Writer) *slog.Logger {
-	return slog.New(slog.NewTextHandler(writer, nil))
 }
 
 // devicePath is the install's device profile, independent of which account's token the core holds.

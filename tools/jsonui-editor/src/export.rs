@@ -7,14 +7,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Cursor, Read, Write};
 
+use json_ui::{GLOBAL_VARIABLES_PATH as GLOBALS, UI_DEFS_PATH as UI_DEFS};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::outline::{self, Node, Spanned};
 use crate::workspace::Workspace;
 
-const UI_DEFS: &str = "ui/_ui_defs.json";
-const GLOBALS: &str = "ui/_global_variables.json";
 /// Files the export writes itself.
 const GENERATED: &[&str] = &["manifest.json", "pack_icon.png"];
 const TARGET: &str = include_str!("../../../assets/bedrock-target.json");
@@ -204,8 +203,12 @@ fn edits(workspace: &Workspace) -> Vec<(usize, String)> {
 fn new_ui_files(workspace: &Workspace, plan: &Plan) -> Vec<String> {
     plan.files
         .keys()
+        .filter(|path| *path != UI_DEFS && *path != GLOBALS)
         .filter(|path| {
-            path.starts_with("ui/") && path.ends_with(".json") && !path.starts_with("ui/_")
+            workspace
+                .layers()
+                .iter()
+                .any(|layer| layer.ui_paths().any(|known| known == path.as_str()))
         })
         .filter(|path| !workspace.layers().iter().any(|layer| layer.had(path)))
         .cloned()
@@ -255,7 +258,11 @@ fn full(workspace: &mut Workspace, layer: Option<usize>, own: bool, plan: &mut P
 fn overlay(workspace: &Workspace, plan: &mut Plan) {
     let mut merged: BTreeMap<String, Map<String, Value>> = BTreeMap::new();
     for (layer, path) in edits(workspace) {
-        if path == UI_DEFS || !path.starts_with("ui/") || !path.ends_with(".json") {
+        if path == UI_DEFS
+            || !workspace.layers()[layer]
+                .ui_paths()
+                .any(|known| known == path)
+        {
             continue;
         }
         let target = &workspace.layers()[layer];

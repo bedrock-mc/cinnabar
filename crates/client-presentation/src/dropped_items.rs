@@ -1,5 +1,5 @@
 //! Publishes dropped items, falling blocks, primed TNT and ropes as renderer geometry.
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use assets::{
     BlockFace, ItemVisualRoute, MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT,
@@ -7,17 +7,17 @@ use assets::{
 };
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Local, Res, ResMut},
+    platform::collections::HashMap,
+    prelude::{Camera, Camera3d, Local, Query, Res, ResMut, With},
 };
 use chunk_pipeline::WorldStream;
 use client_world::{BlockEntityKind, RopeKind};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use {
     render_model::{
-        DroppedItemInstance, DroppedItemModel, DroppedItemShape, DroppedItemSpawnPose,
-        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
-        dropped_item_transform, native_dropped_item_transform, pack_overlay_rgba8, rope_color,
-        rope_ribbon,
+        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, ItemMeshVertex,
+        MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
+        pack_overlay_rgba8, rope_color, rope_ribbon,
     },
     render_scene::{ChunkTextureAssets, DroppedItemScene},
 };
@@ -26,6 +26,8 @@ use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
 mod dials;
 mod lighting;
+mod preparation;
+use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
 const TNT_FLASH_OVERLAY: [f32; 4] = [1.0, 1.0, 1.0, 0.8];
@@ -50,7 +52,34 @@ pub(super) struct DroppedItemPublisher<'w, 's> {
     textures: Option<Res<'w, ChunkTextureAssets>>,
     placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
+    scratch: Local<'s, PublishScratch>,
     device: Option<Res<'w, bevy::render::renderer::RenderDevice>>,
+    cameras: Query<
+        'w,
+        's,
+        (
+            &'static Camera,
+            Option<&'static bevy::render::camera::TemporalJitter>,
+        ),
+        With<Camera3d>,
+    >,
+}
+
+/// Frame-local buffers kept between publications; every field is cleared before it is filled,
+/// so only retained capacity carries over.
+#[derive(Default)]
+pub(crate) struct PublishScratch {
+    instances: Vec<DroppedItemInstance>,
+    terrain_instances: Vec<TerrainItemInstance>,
+    lines: Vec<ItemMeshVertex>,
+    /// The icon each static placement (by index) resolved during demand collection.
+    placement_icons: Vec<Option<ui::IconRef>>,
+    transitions: HashMap<i64, Vec<TerrainItemTransition>>,
+    /// This frame's dropped-item views, block actors and ropes from the world authority;
+    /// emptied again once published so no view outlives its frame.
+    dropped: Vec<client_world::DroppedItemView>,
+    candidates: Vec<client_world::BlockEntityCandidate>,
+    ropes: Vec<client_world::RopeView>,
 }
 
 fn tint_rgba(flags: u32) -> u32 {
@@ -240,6 +269,19 @@ fn template_model(
 }
 
 impl DroppedItemPublisher<'_, '_> {
+    /// Retains draws for multiple cameras, jitter or subviews absent from the publication view.
+    fn culling_view(
+        &self,
+        view: Option<ActorCullView>,
+    ) -> Option<render_model::dropped_item::DroppedItemFrustum> {
+        preparation::publication_frustum(
+            view,
+            self.cameras
+                .single()
+                .is_ok_and(|(camera, jitter)| jitter.is_none() && camera.sub_camera_view.is_none()),
+        )
+    }
+
     /// Resolves a plant's separate potted geometry through the current terrain carrier.
     fn potted_model(cache: &mut ModelCache, assets: &RuntimeAssets, id: u32) -> Option<u32> {
         let template = assets.potted_model_template(NetworkIdMode::Sequential, id)?;
@@ -278,12 +320,21 @@ impl DroppedItemPublisher<'_, '_> {
         metadata: u32,
         native_drop: bool,
     ) -> Option<u32> {
-        let key = ModelKey::icon(icons.item_icon(identifier, metadata)?, native_drop);
-        cache.model(
-            key,
-            || Some(1),
-            || icon_sprite(icons, identifier, metadata, native_drop),
-        )
+        let icon = icons.item_icon(identifier, metadata)?;
+        Self::resolved_icon_model(cache, icon, native_drop, || {
+            icon_sprite(icons, identifier, metadata, native_drop)
+        })
+    }
+
+    /// Resolves the sprite model of an already looked-up `icon`; `build` produces its pixels
+    /// from the same identifier and metadata only when the model is not resident.
+    fn resolved_icon_model(
+        cache: &mut ModelCache,
+        icon: ui::IconRef,
+        native_drop: bool,
+        build: impl FnOnce() -> Option<DroppedItemModel>,
+    ) -> Option<u32> {
+        cache.model(ModelKey::icon(icon, native_drop), || Some(1), build)
     }
 
     fn carried_block_model(
@@ -330,13 +381,15 @@ impl DroppedItemPublisher<'_, '_> {
         icons: Option<&UiPresentationRuntime>,
         stream: Option<&WorldStream>,
         collisions: Option<&dyn crate::observations::CollisionLookup>,
-        camera: Option<([f32; 3], f32)>,
+        camera: (Option<([f32; 3], f32)>, Option<ActorCullView>),
         partial_tick: f32,
         glint: (
             Option<render_model::EquipmentRaster>,
             render_model::ActorGlint,
         ),
     ) {
+        let (camera, cull_view) = camera;
+        let frustum = self.culling_view(cull_view);
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
             return;
         };
@@ -345,20 +398,31 @@ impl DroppedItemPublisher<'_, '_> {
             return;
         };
         let cache = &mut *self.cache;
+        let PublishScratch {
+            instances,
+            terrain_instances,
+            lines,
+            placement_icons,
+            transitions,
+            dropped,
+            candidates,
+            ropes,
+        } = &mut *self.scratch;
         cache.sync(
             stream.authority().actor_session_id(),
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
         let assets = self.textures.as_ref().map(|textures| textures.assets());
-        let mut instances = Vec::new();
-        let mut terrain_instances = Vec::new();
+        instances.clear();
+        terrain_instances.clear();
+        placement_icons.clear();
 
-        let dropped = stream.authority().dropped_items(partial_tick);
+        stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
         cache.begin_frame();
         // Protect all current consumers before admitting new models, regardless of iteration order.
-        for view in &dropped {
+        for view in dropped.iter() {
             if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
@@ -376,15 +440,20 @@ impl DroppedItemPublisher<'_, '_> {
             for placement in &placements.0.0 {
                 if let Some(id) = placement.potted_block {
                     cache.request(&ModelKey::PottedBlock { id });
+                    placement_icons.push(None);
                     continue;
                 }
-                if let Some(icon) = icons.item_icon(&placement.identifier, placement.metadata) {
+                let icon = icons.item_icon(&placement.identifier, placement.metadata);
+                if let Some(icon) = icon {
                     cache.request(&ModelKey::icon(icon, false));
                 }
+                placement_icons.push(icon);
             }
         }
-        let candidates = stream.authority().block_entity_candidates(partial_tick);
-        for candidate in &candidates {
+        stream
+            .authority()
+            .block_entity_candidates_into(partial_tick, candidates);
+        for candidate in candidates.iter() {
             if let Some((mode, id, _)) = entity_block_id(stream, &candidate.view.kind) {
                 cache.request(&ModelKey::Block {
                     hashed: mode == NetworkIdMode::Hashed,
@@ -393,86 +462,67 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
         cache.finish_demand();
-        let live = dropped
-            .iter()
-            .map(|view| (view.runtime_id, view.spawn_revision))
-            .collect::<std::collections::HashSet<_>>();
-        cache
-            .spawn_poses
-            .retain(|lifetime, _| live.contains(lifetime));
-        for view in dropped {
+        preparation::retain_lifetimes(cache, dropped);
+        for view in dropped.iter() {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
             let block_id = item_block_id(stream, view.item.visual);
-            let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
-                Self::carried_block_model(cache, icons, assets, mode, id)
-                    .or_else(|| Self::block_model(cache, assets, mode, id))
-            });
-            let (model, shape) = match cube {
-                Some(model) => (model, DroppedItemShape::Cube),
-                None => {
-                    let (icon_identifier, variant) =
-                        dropped_icon_key(icons, identifier, &view.item);
-                    let Some(model) =
-                        Self::icon_model(cache, icons, icon_identifier, variant, true)
-                    else {
-                        continue;
-                    };
-                    (model, DroppedItemShape::Sprite)
-                }
+            let preparation = DropPreparation {
+                view,
+                native_origin: stream.authority().actor(view.runtime_id).map_or(
+                    view.position,
+                    |actor| {
+                        let mut origin = actor.position;
+                        origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
+                        origin
+                    },
+                ),
+                camera,
+                frustum: frustum.as_ref(),
             };
-            let pose = *cache
-                .spawn_poses
-                .entry((view.runtime_id, view.spawn_revision))
-                .or_insert_with(|| {
-                    DroppedItemSpawnPose::new(
-                        stream
-                            .authority()
-                            .actor(view.runtime_id)
-                            .map_or(view.position, |actor| {
-                                let mut native_origin = actor.position;
-                                native_origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
-                                native_origin
-                            }),
-                        camera,
+            let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
+                let hashed = mode == NetworkIdMode::Hashed;
+                preparation
+                    .model(
+                        cache,
+                        &ModelKey::CarriedBlock { hashed, id },
+                        DroppedItemShape::Cube,
+                        |cache| Self::carried_block_model(cache, icons, assets, mode, id),
                     )
-                });
-            let mut position = view.position;
-            position[1] += pose.bob(view.age_ticks, view.bob_phase, shape) * view.bob_multiplier;
-            let yaw = pose.yaw(view.yaw_radians);
-            let (block_level, sky_level) = stream.light_level_at(position);
-            for offset in view.copy_offsets.iter().take(usize::from(view.copy_count)) {
-                instances.push(DroppedItemInstance {
-                    model,
-                    world_from_item: native_dropped_item_transform(
-                        position,
-                        yaw,
-                        *offset,
-                        view.render_scale,
-                        shape,
-                    ),
-                    block_level: u32::from(block_level),
-                    sky_level: u32::from(sky_level),
-                    overlay_rgba8: 0,
-                    glint: view.item.enchanted || view.item.glint.enabled().unwrap_or(false),
-                });
+                    .or_else(|| {
+                        preparation.model(
+                            cache,
+                            &ModelKey::Block { hashed, id },
+                            DroppedItemShape::Cube,
+                            |cache| Self::block_model(cache, assets, mode, id),
+                        )
+                    })
+            });
+            let prepared = cube.or_else(|| {
+                let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
+                let key = ModelKey::icon(icons.item_icon(icon_identifier, variant)?, true);
+                preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
+                    Self::icon_model(cache, icons, icon_identifier, variant, true)
+                })
+            });
+            if let Some(prepared) = prepared {
+                prepared.append(view, instances, |position| stream.light_level_at(position));
             }
         }
 
         // Items held by block entities (item frames, campfires) use the same sprite path.
         if let Some(placements) = self.placements.as_ref() {
-            for placement in &placements.0.0 {
+            for (placement, &icon) in placements.0.0.iter().zip(placement_icons.iter()) {
                 let model = if let Some(id) = placement.potted_block {
                     assets.and_then(|assets| Self::potted_model(cache, assets, id))
                 } else {
-                    Self::icon_model(
-                        cache,
-                        icons,
-                        &placement.identifier,
-                        placement.metadata,
-                        false,
-                    )
+                    // Demand collection already resolved this placement's icon.
+                    icon.and_then(|icon| {
+                        Self::resolved_icon_model(cache, icon, false, || {
+                            icon_sprite(icons, &placement.identifier, placement.metadata, false)
+                        })
+                    })
                 };
                 let Some(model) = model else {
                     continue;
@@ -493,7 +543,7 @@ impl DroppedItemPublisher<'_, '_> {
         }
 
         if let Some(assets) = assets {
-            let mut transitions: HashMap<i64, Vec<TerrainItemTransition>> = HashMap::new();
+            transitions.clear();
             for fence in stream.actor_block_sync_fences() {
                 transitions
                     .entry(fence.sync.actor_unique_id)
@@ -504,8 +554,8 @@ impl DroppedItemPublisher<'_, '_> {
                         visible: fence.sync.message == 1,
                     });
             }
-            for candidate in candidates {
-                let view = candidate.view;
+            for candidate in candidates.iter() {
+                let view = &candidate.view;
                 let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
                     continue;
                 };
@@ -549,9 +599,10 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
 
-        let mut lines: Vec<ItemMeshVertex> = Vec::new();
+        lines.clear();
         if let Some((camera, _)) = camera {
-            for rope in stream.authority().ropes(partial_tick) {
+            stream.authority().ropes_into(partial_tick, ropes);
+            for rope in ropes.iter() {
                 let length = rope
                     .from
                     .iter()
@@ -574,7 +625,7 @@ impl DroppedItemPublisher<'_, '_> {
                     ),
                 };
                 rope_ribbon(
-                    rope.from, rope.to, camera, segments, sag, half_width, color, &mut lines,
+                    rope.from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
             }
         }
@@ -600,12 +651,15 @@ impl DroppedItemPublisher<'_, '_> {
         scene.publish(
             cache.revision,
             Arc::clone(&cache.shared),
-            &instances,
-            &lines,
+            instances,
+            lines,
             DAYLIGHT,
         );
         scene.set_glint(glint.0, glint.1.scroll());
-        scene.publish_terrain_instances(stream.authority().actor_session_id(), &terrain_instances);
+        scene.publish_terrain_instances(stream.authority().actor_session_id(), terrain_instances);
+        dropped.clear();
+        candidates.clear();
+        ropes.clear();
     }
 }
 

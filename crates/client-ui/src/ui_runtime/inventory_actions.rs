@@ -682,8 +682,9 @@ impl UiRuntime {
                 Ok(0)
             }
             Widget::BookToggle => {
+                let shown = super::presentation::forms::recipe_book_shown(player_runtime, self);
                 let state = self.screen_state_mut();
-                state.book_open = !state.book_open;
+                state.book_open = Some(!shown);
                 state.book_page = 0;
                 Ok(0)
             }
@@ -701,8 +702,7 @@ impl UiRuntime {
                 let creative = player_runtime.facts.player_game_mode()
                     == Some(protocol::PlayerGameMode::Creative);
                 let state = self.screen_state_mut();
-                // The book shows when `book_open` differs from creative's default.
-                state.book_open = (layout != 1) != creative;
+                state.book_open = Some(layout != 1);
                 state.creative_wide = creative && layout == 3;
                 state.book_page = 0;
                 state.container_scroll.clear();

@@ -1,3 +1,4 @@
+use assets::entity::EngineVariable as V;
 use assets::{MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MolangSymbolKind, molang_call};
 
 use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
@@ -5,6 +6,7 @@ use {super::*, simulation_clock::TICK_DURATION as ACTOR_TICK_DURATION};
 mod input_reads;
 mod owner_variables;
 mod presentation;
+pub(super) mod variables;
 
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
@@ -39,6 +41,9 @@ pub(super) struct VariableLayout {
     variable_count: usize,
     temp_base: usize,
     temp_count: usize,
+    /// Shared copies of the symbol table's string literals, from `string_base` on.
+    string_base: usize,
+    strings: Box<[Arc<str>]>,
     clip_reads: Vec<Box<[u32]>>,
     clip_inputs: Vec<PresentationReads>,
     controller_inputs: Vec<PresentationReads>,
@@ -48,7 +53,7 @@ pub(super) struct VariableLayout {
 }
 
 /// Immutable camera and attack inputs used to admit scratch presentation evaluation.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub(super) struct PresentationReads {
     pub camera: bool,
     pub swing: bool,
@@ -106,26 +111,26 @@ pub(super) struct EngineSlots {
 // Client-owned variables seeded on construction and needing independent measurement; remote third-person actors keep these values because
 // only first-person, HUD, and paper-doll renderers change them.
 const SEEDED_VARIABLES: [(&str, f32); 20] = [
-    ("variable.animation_frames_128x128", 1.0),
-    ("variable.animation_frames_32x32", 1.0),
-    ("variable.animation_frames_face", 1.0),
-    ("variable.attack_time", 0.0),
-    ("variable.charge_amount", 0.0),
-    ("variable.gliding_speed_value", 1.0),
-    ("variable.has_target", 0.0),
-    ("variable.is_first_person", 0.0),
-    ("variable.is_horizontal_splitscreen", 0.0),
-    ("variable.is_paperdoll", 0.0),
-    ("variable.is_using_vr", 0.0),
-    ("variable.is_vertical_splitscreen", 0.0),
-    ("variable.left_arm_swim_amount", 0.0),
-    ("variable.map_face_icon", 0.0),
-    ("variable.player_x_rotation", 0.0),
-    ("variable.right_arm_swim_amount", 0.0),
-    ("variable.short_arm_offset_left", 0.0),
-    ("variable.short_arm_offset_right", 0.0),
-    ("variable.swim_amount", 0.0),
-    ("variable.use_blinking_animation", 0.0),
+    (V::AnimationFrames128x128.name(), 1.0),
+    (V::AnimationFrames32x32.name(), 1.0),
+    (V::AnimationFramesFace.name(), 1.0),
+    (V::AttackTime.name(), 0.0),
+    (V::ChargeAmount.name(), 0.0),
+    (V::GlidingSpeedValue.name(), 1.0),
+    (V::HasTarget.name(), 0.0),
+    (V::IsFirstPerson.name(), 0.0),
+    (V::IsHorizontalSplitscreen.name(), 0.0),
+    (V::IsPaperdoll.name(), 0.0),
+    (V::IsUsingVr.name(), 0.0),
+    (V::IsVerticalSplitscreen.name(), 0.0),
+    (V::LeftArmSwimAmount.name(), 0.0),
+    (V::MapFaceIcon.name(), 0.0),
+    (V::PlayerXRotation.name(), 0.0),
+    (V::RightArmSwimAmount.name(), 0.0),
+    (V::ShortArmOffsetLeft.name(), 0.0),
+    (V::ShortArmOffsetRight.name(), 0.0),
+    (V::SwimAmount.name(), 0.0),
+    (V::UseBlinkingAnimation.name(), 0.0),
 ];
 
 impl VariableLayout {
@@ -150,6 +155,7 @@ impl VariableLayout {
         };
         let (variable_base, variable_count) = range(MolangSymbolKind::Variable);
         let (temp_base, temp_count) = range(MolangSymbolKind::Temporary);
+        let (string_base, string_count) = range(MolangSymbolKind::String);
         let slot = |name: &str| {
             symbols[variable_base..variable_base + variable_count]
                 .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
@@ -160,6 +166,11 @@ impl VariableLayout {
             variable_count,
             temp_base,
             temp_count,
+            string_base,
+            strings: symbols[string_base..string_base + string_count]
+                .iter()
+                .map(|symbol| Arc::from(symbol.identifier.as_ref()))
+                .collect(),
             clip_reads: Vec::new(),
             clip_inputs: Vec::new(),
             controller_inputs: Vec::new(),
@@ -170,41 +181,39 @@ impl VariableLayout {
                     .iter()
                     .filter_map(|(name, value)| slot(name).map(|slot| (slot, *value)))
                     .collect(),
-                attack_time: slot("variable.attack_time"),
+                attack_time: slot(V::AttackTime.name()),
                 spear: super::spear::Slots::new(slot),
-                gliding_speed_value: slot("variable.gliding_speed_value"),
-                is_holding_right: slot("variable.is_holding_right"),
-                is_holding_left: slot("variable.is_holding_left"),
-                is_sneaking: slot("variable.is_sneaking"),
-                chest_layer_visible: slot("variable.chest_layer_visible"),
-                is_blocking: slot("variable.is_blocking"),
-                damage_nearby_mobs: slot("variable.damage_nearby_mobs"),
-                use_item_startup_progress: slot("variable.use_item_startup_progress"),
-                use_item_interval_progress: slot("variable.use_item_interval_progress"),
-                is_first_person: slot("variable.is_first_person"),
+                gliding_speed_value: slot(V::GlidingSpeedValue.name()),
+                is_holding_right: slot(V::IsHoldingRight.name()),
+                is_holding_left: slot(V::IsHoldingLeft.name()),
+                is_sneaking: slot(V::IsSneaking.name()),
+                chest_layer_visible: slot(V::ChestLayerVisible.name()),
+                is_blocking: slot(V::IsBlocking.name()),
+                damage_nearby_mobs: slot(V::DamageNearbyMobs.name()),
+                use_item_startup_progress: slot(V::UseItemStartupProgress.name()),
+                use_item_interval_progress: slot(V::UseItemIntervalProgress.name()),
+                is_first_person: slot(V::IsFirstPerson.name()),
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),
                 context_item_slot: slot("context.item_slot"),
                 context_owning_entity: slot("context.owning_entity"),
-                player_x_rotation: slot("variable.player_x_rotation"),
-                bob_animation: slot("variable.bob_animation"),
-                first_person_item_rotation_factor: slot(
-                    "variable.first_person_item_rotation_factor",
-                ),
-                first_person_rotation_factor: slot("variable.first_person_rotation_factor"),
-                player_arm_height: slot("variable.player_arm_height"),
+                player_x_rotation: slot(V::PlayerXRotation.name()),
+                bob_animation: slot(V::BobAnimation.name()),
+                first_person_item_rotation_factor: slot(V::FirstPersonItemRotationFactor.name()),
+                first_person_rotation_factor: slot(V::FirstPersonRotationFactor.name()),
+                player_arm_height: slot(V::PlayerArmHeight.name()),
                 context_player_offhand_arm_height: slot("context.player_offhand_arm_height"),
-                swim_amount: slot("variable.swim_amount"),
-                left_arm_swim_amount: slot("variable.left_arm_swim_amount"),
-                right_arm_swim_amount: slot("variable.right_arm_swim_amount"),
-                has_target: slot("variable.has_target"),
-                fish_animation_amount: slot("variable.animationamount"),
-                fish_animation_amount_previous: slot("variable.animationamountprev"),
-                tropical_fish_base: slot("variable.tropicalfish.base"),
-                tropical_fish_pattern: slot("variable.tropicalfish.pattern"),
-                horse_stand_anim: slot("variable.stand_anim"),
-                horse_shake_tail: slot("variable.shake_tail"),
-                horse_open_mouth: slot("variable.open_mouth"),
+                swim_amount: slot(V::SwimAmount.name()),
+                left_arm_swim_amount: slot(V::LeftArmSwimAmount.name()),
+                right_arm_swim_amount: slot(V::RightArmSwimAmount.name()),
+                has_target: slot(V::HasTarget.name()),
+                fish_animation_amount: slot(V::Animationamount.name()),
+                fish_animation_amount_previous: slot(V::Animationamountprev.name()),
+                tropical_fish_base: slot(V::TropicalfishBase.name()),
+                tropical_fish_pattern: slot(V::TropicalfishPattern.name()),
+                horse_stand_anim: slot(V::StandAnim.name()),
+                horse_shake_tail: slot(V::ShakeTail.name()),
+                horse_open_mouth: slot(V::OpenMouth.name()),
                 dragon_history: symbols[variable_base..variable_base + variable_count]
                     .iter()
                     .enumerate()
@@ -227,12 +236,7 @@ impl VariableLayout {
     }
 
     pub(super) fn fresh(&self, seed: u64) -> MolangVariables {
-        MolangVariables {
-            values: vec![None; self.variable_count],
-            temps: vec![None; self.temp_count],
-            random: seed | 1,
-            ..Default::default()
-        }
+        MolangVariables::fresh(self, seed)
     }
 
     pub(super) fn named_slot(&self, assets: &RuntimeEntityAssets, name: &str) -> Option<usize> {
@@ -240,18 +244,15 @@ impl VariableLayout {
             .binary_search_by(|symbol| symbol.identifier.as_ref().cmp(name))
             .ok()
     }
-}
 
-/// One actor's Molang variables and random stream; an unassigned variable reads as 0.0.
-#[derive(Clone, Debug, Default)]
-pub(super) struct MolangVariables {
-    values: Vec<Option<MolangValue>>,
-    temps: Vec<Option<MolangValue>>,
-    random: u64,
-    random_draws: u64,
-    publication_random: Option<(u64, u64)>,
-    capture_writes: bool,
-    writes: Vec<u64>,
+    /// The shared copy of string literal `symbol` when it reads `identifier` in this layout's
+    /// symbol table; `None` for any other symbol, so callers allocate their own copy.
+    fn interned_string(&self, symbol: u32, identifier: &str) -> Option<&Arc<str>> {
+        (symbol as usize)
+            .checked_sub(self.string_base)
+            .and_then(|index| self.strings.get(index))
+            .filter(|interned| ***interned == *identifier)
+    }
 }
 
 /// Completed owner query clocks and borrowed script values for equipment and particles.
@@ -298,246 +299,11 @@ impl MolangEffects {
             if let Some(value) = value {
                 variables.store(*place, value.clone())?;
             } else {
-                *variables.entry(*place).ok_or(EvalError::Invalid)? = None;
+                variables.unset(*place)?;
             }
         }
         variables.advance_random(self.random_start, self.random_end, self.random_draws);
         Ok(())
-    }
-}
-
-impl MolangVariables {
-    /// Nested recording preserves the enclosing authored-write bitmap.
-    pub(super) fn begin_effects(&mut self) -> EffectsCapture {
-        let capture = EffectsCapture {
-            enabled: self.capture_writes,
-            writes: std::mem::take(&mut self.writes),
-            random_draws: self.random_draws,
-            random: self.random,
-        };
-        self.capture_writes = true;
-        capture
-    }
-
-    /// Completed events restore their enclosing capture after retaining their effects.
-    pub(super) fn finish_effects(&mut self, capture: EffectsCapture) -> MolangEffects {
-        let mut effects = MolangEffects {
-            random_draws: self.random_draws.wrapping_sub(capture.random_draws),
-            random_start: capture.random,
-            random_end: self.random,
-            ..Default::default()
-        };
-        for (word, &bits) in self.writes.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                let place = if slot < self.values.len() {
-                    Place::Variable(slot)
-                } else {
-                    Place::Temporary(slot - self.values.len())
-                };
-                let value = match place {
-                    Place::Variable(slot) => &self.values[slot],
-                    Place::Temporary(slot) => &self.temps[slot],
-                };
-                effects.writes.push((place, value.clone()));
-            }
-        }
-        let mut writes = capture.writes;
-        if capture.enabled {
-            writes.resize(writes.len().max(self.writes.len()), 0);
-            for (target, bits) in writes.iter_mut().zip(&self.writes) {
-                *target |= bits;
-            }
-        }
-        self.writes = writes;
-        self.capture_writes = capture.enabled;
-        effects
-    }
-
-    /// Records authored assignments after endpoint pre-animation without copying frozen inputs.
-    pub(super) fn capture_writes(&mut self) {
-        self.capture_writes = true;
-        self.writes.clear();
-        self.publication_random = Some((self.random, self.random_draws));
-    }
-
-    /// Publishes authored side effects to matching slots without replacing untouched values; random draws continue on the same stream.
-    pub(super) fn publish_writes(&self, target: &mut Self) {
-        if let Some((random, draws)) = self.publication_random {
-            target.advance_random(random, self.random, self.random_draws.wrapping_sub(draws));
-        }
-        for (word, &bits) in self.writes.iter().enumerate() {
-            let mut bits = bits;
-            while bits != 0 {
-                let slot = word * u64::BITS as usize + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                if slot < self.values.len() {
-                    target.values[slot].clone_from(&self.values[slot]);
-                } else {
-                    let slot = slot - self.values.len();
-                    target.temps[slot].clone_from(&self.temps[slot]);
-                }
-            }
-        }
-    }
-
-    fn store(&mut self, place: Place, value: MolangValue) -> Result<(), EvalError> {
-        *self.entry(place).ok_or(EvalError::Invalid)? = Some(value);
-        let slot = match place {
-            Place::Variable(slot) => slot,
-            Place::Temporary(slot) => self.values.len() + slot,
-        };
-        self.record_write(slot);
-        Ok(())
-    }
-
-    /// Tracks authored writes across both direct and mapped script slots.
-    fn record_write(&mut self, slot: usize) {
-        if self.capture_writes {
-            let word = slot / u64::BITS as usize;
-            if self.writes.len() <= word {
-                self.writes.resize(word + 1, 0);
-            }
-            self.writes[word] |= 1 << (slot % u64::BITS as usize);
-        }
-    }
-
-    /// Mapped scripts inherit write recording without retaining an earlier invocation's writes.
-    pub(super) fn inherit_write_capture(&mut self, source: &Self) {
-        self.capture_writes = source.capture_writes;
-        self.writes.clear();
-        self.publication_random = None;
-    }
-
-    /// Mapped copies preserve the source script's authored-write identities.
-    pub(super) fn copy_named_from(
-        &mut self,
-        target: &[assets::MolangSymbol],
-        source: &[assets::MolangSymbol],
-        variables: &Self,
-    ) {
-        let first = source.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
-        let target_first =
-            target.partition_point(|symbol| symbol.kind < MolangSymbolKind::Variable);
-        let target_end = target.partition_point(|symbol| symbol.kind <= MolangSymbolKind::Variable);
-        for (offset, value) in variables.values.iter().enumerate() {
-            let Some(value) = value else {
-                continue;
-            };
-            let Some(symbol) = source.get(first + offset) else {
-                break;
-            };
-            if let Ok(slot) = target[target_first..target_end]
-                .binary_search_by(|candidate| candidate.identifier.cmp(&symbol.identifier))
-            {
-                self.values[slot] = Some(value.clone());
-                if variables.capture_writes
-                    && variables
-                        .writes
-                        .get(offset / u64::BITS as usize)
-                        .is_some_and(|bits| bits & (1 << (offset % u64::BITS as usize)) != 0)
-                {
-                    self.record_write(slot);
-                }
-            }
-        }
-    }
-    pub(super) fn set_string(&mut self, slot: Option<usize>, value: &str) {
-        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
-            *entry = Some(MolangValue::String(Arc::from(value)));
-        }
-    }
-
-    pub(super) fn set_actor_reference(&mut self, slot: Option<usize>, runtime_id: u64) {
-        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
-            *entry = Some(MolangValue::ActorReference(runtime_id));
-        }
-    }
-
-    pub(super) fn set(&mut self, slot: Option<usize>, value: f32) {
-        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
-            *entry = Some(MolangValue::Number(value));
-        }
-    }
-
-    pub(super) fn clear(&mut self, slot: Option<usize>) {
-        if let Some(entry) = slot.and_then(|slot| self.values.get_mut(slot)) {
-            *entry = None;
-        }
-    }
-
-    pub(super) fn get(&self, slot: Option<usize>) -> Option<f32> {
-        self.values
-            .get(slot?)
-            .and_then(Option::as_ref)
-            .map(MolangValue::number)
-    }
-
-    /// Compares persistent authored inputs, including assignment presence and value type.
-    pub(super) fn read_changed(
-        &self,
-        completed: &Self,
-        layout: &VariableLayout,
-        symbol: u32,
-    ) -> bool {
-        match layout.place(symbol) {
-            Some(Place::Variable(slot)) => self.values.get(slot) != completed.values.get(slot),
-            Some(Place::Temporary(_)) | None => false,
-        }
-    }
-
-    pub(super) fn clear_temporaries(&mut self) {
-        self.temps.fill(None);
-    }
-
-    fn entry(&mut self, place: Place) -> Option<&mut Option<MolangValue>> {
-        match place {
-            Place::Variable(slot) => self.values.get_mut(slot),
-            Place::Temporary(slot) => self.temps.get_mut(slot),
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn slots(count: usize) -> Self {
-        Self {
-            values: vec![None; count],
-            temps: Vec::new(),
-            random: 1,
-            ..Default::default()
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn number_at(&self, slot: usize) -> Option<f32> {
-        self.values
-            .get(slot)
-            .and_then(|entry| entry.clone())
-            .map(|value| value.number())
-    }
-
-    /// Effects consume draws after the receiving prefix, preserving its conditional random work.
-    fn advance_random(&mut self, start: u64, end: u64, draws: u64) {
-        if self.random == start {
-            self.random = end;
-            self.random_draws = self.random_draws.wrapping_add(draws);
-        } else {
-            for _ in 0..draws {
-                self.next_random();
-            }
-        }
-    }
-
-    /// Next value in `[0, 1]` from a per-actor xorshift stream.
-    fn next_random(&mut self) -> f32 {
-        let mut state = self.random;
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        self.random = state;
-        self.random_draws = self.random_draws.wrapping_add(1);
-        (state >> 40) as f32 / (1_u64 << 24) as f32
     }
 }
 
@@ -636,10 +402,10 @@ impl Evaluator<'_> {
         this: f32,
         budget: &mut EvalBudget<'_>,
     ) -> Result<MolangValue, EvalError> {
-        let mut stack = std::mem::take(&mut budget.stack);
+        let mut stack = std::mem::take(&mut budget.stack.0);
         stack.clear();
         let result = self.run_on(&mut stack, expression_index, variables, this, budget);
-        budget.stack = stack;
+        budget.stack.0 = stack;
         result
     }
 
@@ -702,10 +468,7 @@ impl Evaluator<'_> {
                 }
                 MolangOp::LoadVariable(symbol) => {
                     let place = self.layout.place(symbol).ok_or(EvalError::Invalid)?;
-                    let value = variables
-                        .entry(place)
-                        .and_then(|entry| entry.clone())
-                        .unwrap_or(MolangValue::Number(0.0));
+                    let value = variables.read(place).unwrap_or(MolangValue::Number(0.0));
                     stack.push(value);
                 }
                 MolangOp::StoreVariable(symbol) => {
@@ -715,7 +478,7 @@ impl Evaluator<'_> {
                 }
                 MolangOp::Coalesce(branch) => {
                     let place = self.layout.place(branch.symbol).ok_or(EvalError::Invalid)?;
-                    if let Some(value) = variables.entry(place).and_then(|entry| entry.clone()) {
+                    if let Some(value) = variables.read(place) {
                         stack.push(value);
                         pc = jump(branch.target)?;
                     }
@@ -838,12 +601,18 @@ impl Evaluator<'_> {
         pop(stack)
     }
 
+    /// The literal's value, sharing the layout's interned copy instead of allocating one.
     fn string(&self, symbol: u32) -> Result<Arc<str>, EvalError> {
-        self.symbols()
+        let identifier = self
+            .symbols()
             .get(symbol as usize)
             .filter(|symbol| symbol.kind == MolangSymbolKind::String)
-            .map(|symbol| Arc::from(symbol.identifier.as_ref()))
-            .ok_or(EvalError::Invalid)
+            .map(|symbol| symbol.identifier.as_ref())
+            .ok_or(EvalError::Invalid)?;
+        Ok(self
+            .layout
+            .interned_string(symbol, identifier)
+            .map_or_else(|| Arc::from(identifier), Arc::clone))
     }
 
     pub(super) fn query(&self, symbol: u32, arguments: &[MolangValue]) -> MolangValue {

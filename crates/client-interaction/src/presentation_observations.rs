@@ -52,9 +52,9 @@ impl CollisionLookup for crate::movement::PhysicsCollisionRegistries {
     fn registry(&self, mode: assets::NetworkIdMode) -> &sim::CollisionRegistry {
         std::ops::Deref::deref(self).registry(mode)
     }
-    /// Borrows the canonical state used by actor surface observations.
-    fn block_canonical_state(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {
-        std::ops::Deref::deref(self).block_canonical_state(mode, runtime_id)
+    /// Borrows the heading compiled when this registry was admitted.
+    fn bed_rotation_degrees(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<f32> {
+        std::ops::Deref::deref(self).bed_rotation_degrees(mode, runtime_id)
     }
     /// Resolves the existing block-name fact for presentation.
     fn block_identifier(&self, mode: assets::NetworkIdMode, runtime_id: u32) -> Option<&str> {

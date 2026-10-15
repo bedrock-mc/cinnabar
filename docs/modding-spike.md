@@ -43,6 +43,75 @@ label only after initialization succeeds; a broken replacement keeps the previou
 instance. A runtime trap removes its label and disables callbacks until a changed,
 valid component is loaded.
 
+## Single-file presentation resources
+
+An installed binary component may carry optional resources in these singleton
+top-level WebAssembly custom sections. No filesystem extraction or additional
+guest imports are required.
+
+| Section | Contents | Source limit |
+| --- | --- | --- |
+| `cinnabar:extension/panel-bundle@1` | Existing UTF-8 panel bundle JSON | 8 MiB |
+| `cinnabar:extension/font@1` | Outline font bytes | 2 MiB |
+| `cinnabar:extension/menu-logo@1` | PNG main-menu logo | 2 MiB |
+| `cinnabar:extension/menu-title@1` | Nonempty UTF-8 single-line heading | 64 bytes |
+| `cinnabar:extension/notices@1` | UTF-8 copyright and license text | 4 MiB |
+| `cinnabar:extension/icon@1` | PNG Mods-tab icon, at most 256 by 256 pixels | 256 KiB |
+
+Embedded resources are supported only in the single-file component form, not in
+directory packages. Directory packages retain their existing asset lifecycle and
+4 MiB component ceiling. Resources require a binary component and are rejected when duplicated, nested,
+truncated or over their limits; an icon's size or content only affects its card.
+Recognized resources are removed before compiling
+the component; executable bytes and unrelated custom metadata retain the existing
+4 MiB limit. License text has no required product schema and grants no authority.
+The PNG must be at most 4096 by 2048 pixels and 4,194,304 pixels in total. Its
+original source bytes remain intact; the existing artwork decoder fits the image
+into its bounded atlas and native main-menu layout preserves its aspect ratio.
+
+Panel bundles are available before guest initialization. Panel and font use require
+the controls grant; local main-menu branding requires the environment grant.
+Declaring requested grants in component metadata never grants them automatically.
+Enabled instances use their existing registration order for branding precedence.
+Disabling, removing or quarantining the selected instance restores the next active
+instance or Cinnabar's shipped branding. Server-defined pause and loading logos
+keep their existing priority.
+
+Install through Settings, Mods, Import, review the requested grants, then Enable.
+To update while preserving the same registration and preferences, atomically
+replace the installed component at its current path and select Reload. Importing
+a differently named version creates another registration.
+
+`CINNABAR_MOD_COMPONENT=/absolute/path/component.wasm` also accepts embedded
+resources with the existing explicit capability switches. Optional
+`CINNABAR_MOD_FONT` and `CINNABAR_MOD_UI` sidecars override the embedded sources.
+Changed environment components prepare the guest, panel, font and branding on a
+bounded worker, then publish them together. Invalid replacements retain the
+accepted instance; preferences changed during preparation cause a fresh retry.
+
+## Mods-tab name, version and icon
+
+Mod cards read the WebAssembly Component Model's standard metadata sections, the
+ones `wasm-tools metadata add` writes: the component name, `description`,
+`version`, `authors` and `licenses`. The file name is the fallback name. For example:
+
+```sh
+wasm-tools metadata add --name "Zoom Plus" --description "Smooth zoom" \
+  --version 1.2.0 --authors "Example Author" --licenses MIT mod.wasm -o mod.wasm
+```
+
+Recent `cargo component` releases write the same sections from `Cargo.toml` package
+metadata. Each field displays as one line. Name is limited to 64 bytes,
+description 512, version 32, authors 256 and licenses 128. A field that is too
+long, not UTF-8 or has control characters is ignored.
+
+Append an icon to the finished component as the top-level custom section
+`cinnabar:extension/icon@1`, for example with `wasm-encoder`'s `CustomSection`.
+A section inside the core module is rejected like other embedded resources. The
+icon must be one PNG within the limits above that decodes completely; otherwise
+the card shows the placeholder. Metadata and icons are read by parsing the file
+only, and their content never causes a load to fail.
+
 ## Visual time changer
 
 `environment.set-time-override(option<u32>)` accepts a fixed tick within one
@@ -138,8 +207,9 @@ On PowerShell, set the corresponding `$env:CINNABAR_MOD_*` variables before
 launching the client. Only the exact value `1` grants access. These grants apply
 only to the explicitly selected personal component, not to server bundles.
 
-`read-frame` returns an error without the players grant, or `ok(none)` outside
-active gameplay. A snapshot contains the actor session, dimension, local subject
+`read-frame` returns an error without the players or terrain grant, or `ok(none)` outside
+active gameplay; the terrain grant alone omits remote players. Terrain reads
+(`CINNABAR_MOD_TERRAIN=1`) are described in [mod-terrain-api.md](mod-terrain-api.md). A snapshot contains the actor session, dimension, local subject
 eye position, actor yaw/pitch, frame duration in seconds, held semantic attack
 action and up to `mod_api::MAX_GAMEPLAY_PLAYERS` remote player feet positions.
 Positions are world block coordinates; angles and rotation deltas are radians
@@ -517,8 +587,14 @@ resets guest state and preserves current companion preferences. Hot replacement 
 the same path. Permission changes reload only the affected mod; revoked authority is
 released before admission completes. A guest trap quarantines only that guest.
 
-Each expanded card has a Permissions section generated from `ModGrants`. Optional
-grants default off. A binary component may declare its requested grants as JSON in the
+Cards show how many requested permissions are allowed and warn about allowed
+capabilities that can change gameplay. Customize opens a compact requested-first
+grid; Show all permissions reveals the remaining capabilities. Hover or focus a
+permission to read its description. Allow requested grants exactly the declared
+requests, while Revoke all clears the card's grants. Both save once through the
+same path as individual toggles. Undeclared components offer Customize only.
+Permission names and gameplay warnings come from `ModGrants`. Optional grants
+default off. A binary component may declare its requested grants as JSON in the
 optional top-level custom section `cinnabar:grants`; declarations never grant authority.
 For example, `{"camera":true,"controls":true,"commands":["ability"]}` marks those
 requests. Command permissions enable only the declared command names; undeclared

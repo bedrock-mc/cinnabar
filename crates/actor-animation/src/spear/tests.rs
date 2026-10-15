@@ -128,6 +128,13 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
     let input = ActorTickInput::default();
     let context = ActorTickContext {
         main_hand_is_spear: true,
+        held_item_facts: [
+            *assets::facts::ItemFacts::builtin()
+                .unwrap()
+                .by_identifier("minecraft:wooden_spear")
+                .unwrap(),
+            assets::facts::ItemFact::default(),
+        ],
         ..Default::default()
     };
     let query = |context: &ActorTickContext, slot: &str, tag: &str| {
@@ -184,7 +191,7 @@ fn authored_player_spear_inputs_keep_their_own_pre_animation() {
     compiled.molang_symbols[7].identifier = "variable.melee_spear_equipped".into();
     let assets = RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
     assert!(
-        !needs_completion(&assets, 0),
+        !needs_completion(&assets, 0, assets::facts::entity::NativeEntityClass::Player),
         "a supplied spear pre-animation must win"
     );
 }

@@ -20,6 +20,8 @@ use ui::IconRef;
 
 /// The start screen's title texture, which Cinnabar's own logo replaces.
 pub const TITLE_KEY: &str = "textures/ui/title";
+/// Prepared local branding has its own original-art key; base/server title ownership stays distinct.
+pub const MOD_MENU_TITLE_KEY: &str = "local-mod:menu-title";
 
 /// Texture sources a form engine owns across frames.
 pub struct TextureSet {
@@ -196,8 +198,15 @@ impl<'a> Textures<'a> {
             })
     }
 
+    /// The item icon at `key`, matched case-insensitively against the lowercased icon paths;
+    /// only a key with uppercase letters is copied to lowercase it.
     fn icon(&self, key: &str) -> Option<IconRef> {
-        self.set.icons.get(&key.to_ascii_lowercase()).copied()
+        let icons = &self.set.icons;
+        if key.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            icons.get(&key.to_ascii_lowercase()).copied()
+        } else {
+            icons.get(key).copied()
+        }
     }
 
     fn image(&self, path: &str) -> Option<IconRef> {
@@ -214,8 +223,8 @@ impl<'a> Textures<'a> {
     }
 
     /// The drawn paths the server atlas must hold: pack textures, and what
-    /// neither the carrier nor the icon atlas already has.
-    pub fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<String> {
+    /// neither the carrier nor the icon atlas already has. Keys borrow from `paths`.
+    pub fn atlas_keys<'p>(&self, paths: impl Iterator<Item = &'p str>) -> Vec<Cow<'p, str>> {
         paths
             .filter(|path| self.admits(path) && self.image(path).is_none())
             .map(|path| self.canonical(path))
@@ -223,7 +232,6 @@ impl<'a> Textures<'a> {
                 self.atlas.has_image(key)
                     || (self.assets.texture(key).is_none() && self.icon(key).is_none())
             })
-            .map(Cow::into_owned)
             .collect()
     }
 

@@ -11,7 +11,7 @@ use client_presentation::{
     },
 };
 use client_runtime::{
-    ingress::{OUTBOUND_SEND_BUDGET_PER_FRAME, drain_network_controls},
+    ingress::{NETWORK_CONTROL_BUDGET_PER_FRAME, drain_network_controls},
     network::NetworkHandle,
     pack_admission::ResourcePackAdmissionState,
     publication::PublicationController,
@@ -80,9 +80,10 @@ pub(crate) fn receive_network_events(
     }
     // Controls establish or retire the session before world ingress. Bootstrap publishes
     // the stream before releasing equipment; each world event then sees the preceding commit.
-    for control in
-        drain_network_controls(network.control_events_mut(), OUTBOUND_SEND_BUDGET_PER_FRAME)
-    {
+    for control in drain_network_controls(
+        network.control_events_mut(),
+        NETWORK_CONTROL_BUDGET_PER_FRAME,
+    ) {
         if matches!(control, NetworkControlEvent::Bootstrap { .. }) {
             bootstrap::apply(
                 control,
@@ -110,6 +111,7 @@ pub(crate) fn receive_network_events(
             controls::Retirement {
                 player_runtime: &mut player_runtime,
                 client_world: &mut state.client_world,
+                fatal_error: &mut state.fatal_error.0,
                 ui_runtime: &mut state.ui_runtime,
                 resource_pack_admission: &mut resource_pack_admission,
                 pack_reload: pack_reload.as_deref_mut(),
@@ -125,6 +127,7 @@ pub(crate) fn receive_network_events(
     world_ingress::drain(
         &mut network,
         &mut state.client_world,
+        &mut state.fatal_error.0,
         &mut player_runtime,
         &mut state.ui_runtime,
         #[cfg(feature = "acceptance")]
@@ -172,9 +175,10 @@ pub(crate) mod block_entity_art;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;
+pub(crate) mod session_registries;
 pub(crate) use actor_publication::{
-    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
-    publish_local_actor_damage,
+    advance_actor_frame, advance_actor_motion, initialize_actor_geometry_budget,
+    prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
 };
 
 #[cfg(test)]

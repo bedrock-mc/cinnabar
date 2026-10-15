@@ -41,6 +41,9 @@ libs="$stage/lib/$abi"
 rm -rf "$stage" "$out/classes" "$out/dex"
 mkdir -p "$libs" "$stage/assets" "$out/classes" "$out/dex"
 
+# One commit identifies both the client library and the core, chosen as the Makefile does.
+export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
+
 # 16 KB pages: Android 15 devices may use them, and every LOAD segment must allow it.
 page_flags='-Wl,-z,max-page-size=16384'
 export RUSTFLAGS="${RUSTFLAGS:-} -C link-arg=$page_flags"
@@ -58,7 +61,7 @@ install -m 0644 "$toolchain/sysroot/usr/lib/$triple/libc++_shared.so" "$libs/lib
 # Pion's Android interface lookup (anet) needs Go's private net linknames.
 CGO_ENABLED=1 GOOS=android GOARCH=arm64 CC="$toolchain/bin/$triple$min_sdk-clang" \
     go build -buildmode=pie -trimpath \
-    -ldflags "-s -w -checklinkname=0 -extldflags=$page_flags" \
+    -ldflags "-s -w -checklinkname=0 -extldflags=$page_flags $(bash "$here/../common/core-ldflags.sh")" \
     -o "$libs/$(pin core_library)" ./core/cmd/bedrock-core
 
 # The desktop resource root, minus the kit's compiler: setup links it from the native libraries.

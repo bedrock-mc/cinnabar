@@ -38,17 +38,34 @@ impl<P> NetworkHandle<P> {
 
 /// Every packet a stub handle queued, in send order.
 #[cfg(any(test, feature = "test-support"))]
-pub struct CapturedPackets(mpsc::Receiver<NetworkCommand>);
+pub struct CapturedPackets {
+    commands: mpsc::Receiver<NetworkCommand>,
+    pending: Vec<Packet>,
+}
 
 #[cfg(any(test, feature = "test-support"))]
 impl CapturedPackets {
+    /// Drains queued packets regardless of whether their frame has been flushed.
     pub fn drain(&mut self) -> Vec<Packet> {
-        std::iter::from_fn(|| self.0.try_recv().ok())
-            .filter_map(|command| match command {
-                NetworkCommand::Send { packet, .. } => Some(packet),
-                NetworkCommand::FinishLoading | NetworkCommand::FlushFrame => None,
-            })
-            .collect()
+        let mut packets = std::mem::take(&mut self.pending);
+        while let Ok(command) = self.commands.try_recv() {
+            if let NetworkCommand::Send { packet, .. } = command {
+                packets.push(packet);
+            }
+        }
+        packets
+    }
+
+    /// Returns one submitted frame, retaining unflushed packets for the next call.
+    pub fn take_flushed_frame(&mut self) -> Option<Vec<Packet>> {
+        while let Ok(command) = self.commands.try_recv() {
+            match command {
+                NetworkCommand::Send { packet, .. } => self.pending.push(packet),
+                NetworkCommand::FlushFrame => return Some(std::mem::take(&mut self.pending)),
+                NetworkCommand::FinishLoading => {}
+            }
+        }
+        None
     }
 }
 
@@ -56,8 +73,14 @@ impl CapturedPackets {
 impl<P> NetworkHandle<P> {
     pub fn stub_capturing_packets() -> (Self, CapturedPackets) {
         let (mut handle, _) = Self::stub();
-        let (commands, command_rx) = mpsc::channel(64);
+        let (commands, command_rx) = frame_flush::command_channel(COMMAND_CAPACITY);
         handle.commands = commands;
-        (handle, CapturedPackets(command_rx))
+        (
+            handle,
+            CapturedPackets {
+                commands: command_rx,
+                pending: Vec::new(),
+            },
+        )
     }
 }

@@ -1,7 +1,11 @@
 use super::*;
 
+mod camera_endpoints;
+mod continuity;
 mod first_presentation;
+mod frame_budget;
 mod rotation;
+mod walk;
 
 /// Captures only authored VM/controller/clock state that render evaluation must not commit.
 fn authored_state(store: &ActorAnimationStore) -> String {

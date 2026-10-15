@@ -116,10 +116,10 @@ pub(crate) fn advance_local_physics(
         publish_physics_view(&physics, &mut view);
         return;
     }
-    let world = sim::PaletteWorld::for_movement(
-        stream.collision_store(),
+    let world = super::collision_world(
+        stream,
         collisions.registry(stream.network_id_mode()),
-        stream.current_dimension(),
+        &client_world.movement_colliders,
     );
     let advanced = locals.advance(
         frame,

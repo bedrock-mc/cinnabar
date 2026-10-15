@@ -385,7 +385,7 @@ impl AttachablesRuntime {
             work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
             transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
             used: 0,
-            stack: Vec::new(),
+            stack: OperandStack::lease(),
             static_draw: (!self.previewing)
                 .then_some(self.assets.rig_bindings()[binding].geometry_count == 1),
         };
@@ -508,3 +508,6 @@ mod activation_clock_tests;
 #[cfg(test)]
 #[path = "attachable/parent_frame_tests.rs"]
 mod parent_frame_tests;
+
+#[cfg(test)]
+mod spear_tests;

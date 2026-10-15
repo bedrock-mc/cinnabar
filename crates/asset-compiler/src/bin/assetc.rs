@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "assetc reports compiled outputs and prepare progress on stdout and prepare failures on stderr"
+)]
+
 use std::{
     fs::{self, File},
     io::{self, Read},
@@ -36,6 +42,8 @@ mod block_entity_command;
 mod cli;
 #[path = "assetc/command_outputs.rs"]
 mod command_outputs;
+#[path = "assetc/entity_facts_command.rs"]
+mod entity_facts_command;
 #[path = "assetc/equipment_command.rs"]
 mod equipment_command;
 #[path = "assetc/font_command.rs"]
@@ -188,13 +196,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
     command_outputs::validate_command_outputs(&command)?;
     match command {
+        Command::EntityFacts { source, out } => entity_facts_command::compile(&source, &out)?,
         Command::Vocabulary {
             archive,
             source_manifest,
             out,
             actors_out,
+            ui_out,
         } => {
-            vocabulary_command::compile(&archive, &source_manifest, &out, &actors_out)?;
+            vocabulary_command::compile(
+                &archive,
+                &source_manifest,
+                &out,
+                &actors_out,
+                ui_out.as_deref(),
+            )?;
+        }
+        Command::ItemFacts { root, out } => {
+            asset_compiler::registry_policy::items::write(&root, &out, None)?;
         }
         Command::BlockPhysics {
             registry,

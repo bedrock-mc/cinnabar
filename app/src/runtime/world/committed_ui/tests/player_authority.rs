@@ -149,7 +149,7 @@ fn targeted_game_mode_updates_reach_live_hud_and_input_authority_after_fifo_comm
             .player_game_mode(),
         Some(PlayerGameMode::Survival)
     );
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
 }
 
 /// Binds the live player resource to the fixture stream.
@@ -285,10 +285,7 @@ fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
             .submit(2, WorldEvent::Abilities(ability_update(1, 33)))
             .unwrap();
         match case {
-            0 => {
-                app.world_mut().resource_mut::<ClientWorld>().fatal_error =
-                    Some("fixture failure".into())
-            }
+            0 => app.world_mut().resource_mut::<FatalError>().0 = Some("fixture failure".into()),
             1 => {
                 app.world_mut()
                     .resource_mut::<ClientWorld>()
@@ -311,9 +308,10 @@ fn actual_drain_cannot_repopulate_after_fatal_transfer_or_missing_stream() {
                 .is_none()
         );
         {
-            let mut world = app.world_mut().resource_mut::<ClientWorld>();
-            world.fatal_error = None;
-            world.transfer_notice = None;
+            app.world_mut().resource_mut::<FatalError>().0 = None;
+            app.world_mut()
+                .resource_mut::<ClientWorld>()
+                .transfer_notice = None;
         }
         schedule.run(app.world_mut());
         assert!(
@@ -509,6 +507,17 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
             .unwrap();
         app.update();
         let (handle, sender) = NetworkHandle::<PackApplication>::stub_with_control_sender();
+        let custom_blocks = protocol::CustomBlocks::default();
+        let base = crate::runtime::network::session_registries::RegistryBase::new(
+            &app.world().resource::<ClientWorld>().runtime_assets,
+            app.world().resource::<PhysicsCollisionRegistries>(),
+        );
+        let packs = crate::runtime::network::session_registries::tests::prepared_packs(
+            base,
+            simulation_clock::identity::SessionGeneration::new(generation),
+            &custom_blocks,
+            false,
+        );
         sender
             .try_send(NetworkControlEvent::Bootstrap {
                 session_generation: simulation_clock::identity::SessionGeneration::new(generation),
@@ -529,7 +538,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     rain_level: 0.0,
                     lightning_level: 0.0,
                 },
-                custom_blocks: protocol::CustomBlocks::default(),
+                custom_blocks,
                 inventory: protocol::InventoryEvent::SelectedSlot(protocol::SelectedSlotEvent {
                     container: protocol::ContainerIdentity::window(0),
                     slot: 0,
@@ -546,9 +555,9 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 hardcore: false,
                 hud_rules: protocol::HudRules::default(),
                 death_rules: protocol::DeathRules::default(),
-                packs: crate::runtime::network::resource_packs::PackApplication::default(),
+                packs,
                 terrain_before_spawn: true,
-                level_identity: 0,
+                level_identity: None,
             })
             .unwrap();
         app.insert_resource(handle);
@@ -563,7 +572,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     .local_abilities(),
                 Some(&ability_update(1, 0))
             );
-            assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+            assert!(app.world().resource::<FatalError>().0.is_none());
         } else {
             assert!(
                 app.world()
@@ -572,7 +581,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                     .local_abilities()
                     .is_none()
             );
-            assert!(app.world().resource::<ClientWorld>().fatal_error.is_some());
+            assert!(app.world().resource::<FatalError>().0.is_some());
         }
     }
 }

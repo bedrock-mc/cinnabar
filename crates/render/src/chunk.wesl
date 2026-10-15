@@ -258,7 +258,10 @@ fn vertex_unit(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    let unit = terrain_units[instance_index];
+    // Header locates packed visibility references beside stable descriptor slots.
+    let references = terrain_units[0].x;
+    let slot = terrain_units[references + instance_index / 4u][instance_index % 4u];
+    let unit = terrain_units[1u + slot];
     let quad = vertex_index / 4u;
     if (quad >= unit.y) {
         var invisible: VertexOutput;
@@ -635,6 +638,12 @@ dx: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 dy: vec2<f32>, @if(ALPHA_TO_COVERAGE)
 sampled: vec4<f32>, @if(ALPHA_TO_COVERAGE)
 flags: u32) -> CutoutSample {
+    // World leaves use alpha as a cutoff, then cover every surviving sample.
+    // Fractional mip alpha must not turn a dense canopy into partial MSAA coverage.
+    @if(!ENHANCED)
+    if (material_uses_native_leaf_colour(flags)) {
+        return CutoutSample(select(0.0, 1.0, sampled.a >= TERRAIN_ALPHA_THRESHOLD), sampled);
+    }
     let layer = texture_layer(texture_ref);
     let coordinate = texture_cube_uv(texture_ref, uv);
     let page = texture_page(texture_ref);

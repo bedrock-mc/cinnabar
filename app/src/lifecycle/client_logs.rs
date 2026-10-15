@@ -8,6 +8,10 @@ use std::{
 const MAX_CLIENT_LOG_BYTES: u64 = 8 << 20;
 
 /// Mirrors diagnostics to the rotating client log before startup can fail.
+#[expect(
+    clippy::print_stderr,
+    reason = "the client log could not open, so stderr is the only sink"
+)]
 pub(super) fn capture(layout: &InstallLayout) {
     #[cfg(test)]
     if !layout.log_dir().starts_with(std::env::temp_dir()) {

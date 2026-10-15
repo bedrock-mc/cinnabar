@@ -1,4 +1,7 @@
-use protocol::{ActorHandedness, ActorKind, ITEM_ACTOR_NETWORK_OFFSET};
+use assets::facts::entity::NativeEntityClass;
+#[cfg(test)]
+use protocol::ActorKind;
+use protocol::{ActorHandedness, ITEM_ACTOR_NETWORK_OFFSET};
 use std::{
     hash::{BuildHasher, Hash},
     sync::OnceLock,
@@ -124,10 +127,7 @@ impl ActorStore {
         if actor.status.pickup.is_some() {
             return None;
         }
-        let ActorKind::Entity { identifier } = &actor.kind else {
-            return None;
-        };
-        if identifier.as_ref() != "minecraft:item" {
+        if actor.entity_fact.native_class != NativeEntityClass::Item {
             return None;
         }
         let mut position = actor.position;
@@ -138,16 +138,17 @@ impl ActorStore {
             .then_some(position)
     }
 
-    /// Views for every dropped-item actor whose stack resolved; picked-up items fly to their
-    /// collector and vanish once they arrive.
-    pub(crate) fn dropped_items(&self, partial_tick: f32) -> Vec<DroppedItemView> {
+    /// Replaces `views` with every dropped-item actor whose stack resolved, ordered by runtime
+    /// ID; picked-up items fly to their collector and vanish once they arrive.
+    pub(crate) fn dropped_items_into(&self, partial_tick: f32, views: &mut Vec<DroppedItemView>) {
         let alpha = partial_tick.clamp(0.0, 1.0);
-        let mut views = self
-            .actors
-            .values()
-            .filter(|actor| actor.status.pickup.is_none())
-            .filter_map(|actor| self.dropped_item_view(actor, alpha))
-            .collect::<Vec<_>>();
+        views.clear();
+        views.extend(
+            self.actors
+                .values()
+                .filter(|actor| actor.status.pickup.is_none())
+                .filter_map(|actor| self.dropped_item_view(actor, alpha)),
+        );
         views.extend(self.pickup_visuals.iter().filter_map(|pickup| {
             let collector = self
                 .actors
@@ -166,14 +167,18 @@ impl ActorStore {
             Some(view)
         }));
         views.sort_unstable_by_key(|view| view.runtime_id);
+    }
+
+    /// [`Self::dropped_items_into`] as a new list.
+    #[cfg(test)]
+    pub(crate) fn dropped_items(&self, partial_tick: f32) -> Vec<DroppedItemView> {
+        let mut views = Vec::new();
+        self.dropped_items_into(partial_tick, &mut views);
         views
     }
 
     fn dropped_item_view(&self, actor: &ActorSnapshot, alpha: f32) -> Option<DroppedItemView> {
-        let ActorKind::Entity { identifier } = &actor.kind else {
-            return None;
-        };
-        if identifier.as_ref() != "minecraft:item" {
+        if actor.entity_fact.native_class != NativeEntityClass::Item {
             return None;
         }
         let item = self

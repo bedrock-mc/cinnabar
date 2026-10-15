@@ -75,7 +75,9 @@ impl ParticleSystem {
         let emitter = self.emitters.iter_mut().find(|emitter| emitter.id == id)?;
         emitter.biome_tinted_key = Some(key);
         let mut output = Outputs::default();
-        emitter.emit_cached_manual(position, &mut output, live_budget);
+        self.bookkeeping.edit(emitter, &mut self.atlas, |emitter| {
+            emitter.emit_cached_manual(position, &mut output, live_budget);
+        });
         self.sounds.append(&mut output.sounds);
         let excess = self.sounds.len().saturating_sub(MAX_QUEUED_SOUNDS);
         self.sounds.drain(..excess);

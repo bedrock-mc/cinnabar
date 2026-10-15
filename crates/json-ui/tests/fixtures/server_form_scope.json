@@ -1,0 +1,63 @@
+{
+  "namespace": "server_form",
+  "third_party_server_screen": {
+    "type": "screen",
+    "$form_content|default": "server_form.scoped_content",
+    "$screen_content": "$form_content",
+    "$caption": "Server market",
+    "variables": [{
+      "requires": "$desktop_screen",
+      "$caption": "Desktop market"
+    }]
+  },
+  "scoped_content": {
+    "type": "panel",
+    "size": [240, 160],
+    "controls": [
+      {"caption": {
+        "type": "label", "size": [240, 20], "text": "$caption",
+        "anchor_from": "top_left", "anchor_to": "top_left"
+      }},
+      {"server_form_factory": {
+        "type": "factory",
+        "size": [0, 0],
+        "control_ids": {
+          "long_form": "server_form.selected_form",
+          "custom_form": "server_form.selected_form"
+        }
+      }}
+    ]
+  },
+  "long_form": {"type": "label", "size": [240, 20], "text": "Default form"},
+  "custom_form": {"type": "label", "size": [240, 20], "text": "Default custom form"},
+  "selected_form": {
+    "type": "panel",
+    "size": [240, 100],
+    "$selected_title": "Market",
+    "controls": [
+      {"market_panel": {
+        "type": "label",
+        "size": [240, 20],
+        "text": "Buy supplies",
+        "visible": false,
+        "bindings": [{
+          "binding_type": "view",
+          "source_control_name": "selected_form",
+          "source_property_name": "(#title_text = $selected_title)",
+          "target_property_name": "#visible"
+        }]
+      }},
+      {"ordinary_panel": {
+        "type": "label",
+        "size": [240, 20],
+        "text": "Ordinary menu",
+        "bindings": [{
+          "binding_type": "view",
+          "source_control_name": "selected_form",
+          "source_property_name": "(not (#title_text = $selected_title))",
+          "target_property_name": "#visible"
+        }]
+      }}
+    ]
+  }
+}

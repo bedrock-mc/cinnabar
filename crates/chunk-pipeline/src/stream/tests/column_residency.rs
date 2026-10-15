@@ -125,6 +125,54 @@ fn column_eviction_removes_custom_height_air_without_visiting_other_columns() {
     assert_eq!(visits[1], visits[0], "eviction visited unrelated residency");
 }
 
+/// Bulk retirement publishes removals in ascending key order across columns, before any
+/// survivor it dirties, whether or not it retires every resident section.
+#[test]
+fn bulk_eviction_marks_removed_sections_in_key_order_before_survivors() {
+    for keep_survivor in [false, true] {
+        let mut stream = stream_with_unrelated_columns(0);
+        // Same X, different Z: key order interleaves the columns by height.
+        let columns = BTreeSet::from([ChunkKey::new(0, 0, 0), ChunkKey::new(0, 0, 5)]);
+        let mut removed = Vec::new();
+        for &column in columns.iter().rev() {
+            for y in [7, -3, 0] {
+                let key = SubChunkKey::from_chunk(column, y);
+                stream.record_known_air(key);
+                removed.push(key);
+            }
+        }
+        let survivor = SubChunkKey::new(0, 0, 0, 1);
+        if keep_survivor {
+            stream.record_known_air(survivor);
+        }
+        stream.evict_columns(columns);
+        removed.sort_unstable();
+        let mut marked = removed
+            .iter()
+            .map(|&key| {
+                (
+                    stream
+                        .revisions
+                        .dirty(key)
+                        .expect("removal marked")
+                        .revision,
+                    key,
+                )
+            })
+            .collect::<Vec<_>>();
+        marked.sort_unstable();
+        assert_eq!(
+            marked.iter().map(|(_, key)| *key).collect::<Vec<_>>(),
+            removed
+        );
+        if let Some(dirty) = stream.revisions.dirty(survivor) {
+            assert!(dirty.revision > marked.last().expect("removed keys").0);
+        }
+        assert_eq!(stream.resident.contains(&survivor), keep_survivor);
+        assert_eq!(stream.resident.len(), usize::from(keep_survivor));
+    }
+}
+
 /// Retention runs on every local chunk crossing, so finding tracked columns must not walk
 /// every resident section.
 #[test]
@@ -194,5 +242,53 @@ fn residency_hash_reuses_unchanged_membership_and_preserves_legacy_key_order() {
     assert_eq!(
         keys, uncached_empty,
         "a cached hash is not part of set equality"
+    );
+}
+
+/// The resumable index follows first insertion, partial removal, last removal and clearing.
+#[test]
+fn ordered_column_cursor_tracks_actual_residency() {
+    let mut keys = ColumnSubChunkSet::default();
+    let a = ChunkKey::new(0, -1, 2);
+    let b = ChunkKey::new(0, 2, -1);
+    for key in [
+        SubChunkKey::from_chunk(b, 0),
+        SubChunkKey::from_chunk(a, -4),
+        SubChunkKey::from_chunk(a, 7),
+    ] {
+        keys.insert(key);
+    }
+    assert_eq!(keys.next_column(None), Some(a));
+    assert_eq!(keys.next_column(Some(a)), Some(b));
+    assert_eq!(keys.next_column(Some(b)), None);
+    keys.remove(&SubChunkKey::from_chunk(a, -4));
+    assert_eq!(keys.next_column(None), Some(a));
+    keys.remove(&SubChunkKey::from_chunk(a, 7));
+    assert_eq!(keys.next_column(None), Some(b));
+    keys.clear();
+    assert_eq!(keys.next_column(None), None);
+}
+
+/// A resend preserves membership age; leaving and re-entering creates a new membership.
+#[test]
+fn captured_column_membership_survives_resends_but_not_eviction() {
+    let mut keys = ColumnSubChunkSet::default();
+    let column = ChunkKey::new(0, 1, 2);
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    let captured = keys.column_generation();
+    keys.replace_column(column, [SubChunkKey::from_chunk(column, 7)]);
+    assert!(keys.existed_at(column, captured));
+    assert_eq!(keys.len(), 1);
+    assert!(!keys.contains(&SubChunkKey::from_chunk(column, 0)));
+    keys.replace_column(column, []);
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    assert!(!keys.existed_at(column, captured));
+    let captured = keys.column_generation();
+    let retired = keys.retire();
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    assert!(retired.existed_at(column, captured));
+    assert!(
+        !keys.existed_at(column, captured),
+        "full retirement preserves the membership clock"
     );
 }

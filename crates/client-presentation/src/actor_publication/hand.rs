@@ -109,6 +109,7 @@ pub(super) fn hand_progress(
         consume: consume_ticks
             .filter(|_| current.use_ticks > 0)
             .map(|ticks| (current.use_ticks as f32 - 1.0 + partial_tick, ticks as f32)),
+        aspect: 1.0,
     }
 }
 
@@ -210,6 +211,8 @@ pub(super) struct HandInputs<'a> {
     pub(super) artwork: &'a render_model::ActorArtworkPages,
     pub(super) motion: Mat4,
     pub(super) sampling_camera: Option<([f32; 2], [f32; 3])>,
+    /// Viewport width over height for the first-person eating offset.
+    pub(super) aspect: f32,
 }
 
 /// Builds vanilla arms and attachables with the displayed stack and its actual owner.
@@ -268,11 +271,16 @@ pub(super) fn vanilla_hand_source(
         });
         let layer = modern.or_else(|| {
             if index == 0 {
-                equipment.first_person_item_for_profile(
+                equipment.first_person_item_with_use(
                     &presentation.submission,
                     item,
                     hand,
                     profile,
+                    item_animation
+                        .map(|input| {
+                            attachable_hand_input(equipment_input, owner_equipment, input, false)
+                        })
+                        .unwrap_or_default(),
                 )
             } else {
                 equipment.first_person_offhand(&presentation.submission, item)
@@ -412,6 +420,7 @@ pub(super) fn source(
     hand.swing = hand_progress(rig.hand, None, alpha).swing;
     hand.consume =
         local_consume(inputs.item_animation.as_ref(), inputs.consume_ticks).or(hand.consume);
+    hand.aspect = inputs.aspect;
     let rendered = ActorEquipmentInput {
         main: cache
             .native_displayed_main(rig.main_hand_equipped, inputs.equipment_input.main.as_ref()),

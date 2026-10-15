@@ -69,11 +69,11 @@ pub(super) fn creative_page(
             window_icons.creative[cell] = items.icon(&item.stack, None);
         }
         for (tab, id) in [
-            "minecraft:brick",
-            "minecraft:oak_sapling",
-            "minecraft:iron_sword",
-            "minecraft:stick",
-            "minecraft:compass",
+            assets::facts::UiItemIcon::Construction.identifier(),
+            assets::facts::UiItemIcon::Nature.identifier(),
+            assets::facts::UiItemIcon::Equipment.identifier(),
+            assets::facts::UiItemIcon::Items.identifier(),
+            assets::facts::UiItemIcon::Search.identifier(),
         ]
         .iter()
         .enumerate()
@@ -156,11 +156,12 @@ pub(super) fn book_page(
         inventory_screen,
         InventoryScreen::Personal | InventoryScreen::Workbench
     ) {
-        window_icons.book_button = presentation.item_icon("minecraft:book", 0);
+        window_icons.book_button =
+            presentation.item_icon(assets::facts::UiItemIcon::Book.identifier(), 0);
         window_text.book_title = runtime
             .translation("recipe.book.title")
             .map(|text| text.to_string());
-        if runtime.screen_state().book_open {
+        if runtime.screen_state().book_open.unwrap_or(false) {
             let first = runtime.screen_state().book_page * presentation::screens::BOOK_CELLS;
             let page =
                 runtime.book_recipes(player_runtime, first, presentation::screens::BOOK_CELLS + 1);

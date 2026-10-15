@@ -1,7 +1,7 @@
 //! The open anvil's predicted result and cost, and the name box it prefills.
 
 use inventory::inventory_ledger::{ANVIL_MATERIAL_SLOT, ANVIL_TARGET_SLOT, InventoryTarget};
-use protocol::{ItemRegistryEntry, NetworkItemStack, WindowKind};
+use protocol::{NetworkItemStack, WindowKind};
 use sha2::{Digest, Sha256};
 
 use super::UiRuntime;
@@ -48,22 +48,25 @@ impl AnvilTargetIdentity {
 /// One occupied anvil input with data that can be edited without losing item properties.
 struct AnvilInput {
     stack: NetworkItemStack,
-    entry: ItemRegistryEntry,
+    fact: assets::facts::ItemFact,
+    kind: inventory::SessionItemKind,
+    retail_id: Option<i32>,
     data: protocol::ItemAnvilData,
     damage: Option<u32>,
 }
 
 impl AnvilInput {
-    /// The durability the registry gives this item: its components' maximum, else the
-    /// vanilla maximum for an item the server does not define by components.
+    /// Returns the durability admitted for this negotiated item.
     fn max_damage(&self) -> Option<u32> {
-        client_world::resolve_item_durability(&self.entry, None).maximum()
+        self.fact.durability.maximum()
     }
 
     /// The calculator's view of this input.
     fn item(&self) -> inventory::AnvilItem<'_> {
         inventory::AnvilItem {
-            identifier: &self.entry.identifier,
+            kind: Some(self.kind),
+            retail_id: self.retail_id,
+            fact: self.fact,
             count: self.stack.count,
             damage: self.damage.unwrap_or(0),
             max_damage: self.max_damage(),
@@ -86,7 +89,6 @@ impl UiRuntime {
             .target_stack(InventoryTarget::Craft(slot))
             .filter(|stack| stack.count > 0)?
             .clone();
-        let entry = ledger.negotiated_item_entry(stack.network_id)?.clone();
         let mut data = protocol::item_anvil_data(&stack.extra_data)?;
         let overlay = ledger.presented_target_overlay(InventoryTarget::Craft(slot));
         if let Some(name) = overlay.and_then(|overlay| overlay.custom_name.clone()) {
@@ -97,8 +99,10 @@ impl UiRuntime {
             .and_then(|damage| u32::try_from(damage).ok())
             .or_else(|| protocol::item_stack_damage(&stack));
         Some(AnvilInput {
+            kind: ledger.item_facts().kind(stack.network_id)?,
+            fact: *ledger.item_facts().get(stack.network_id),
+            retail_id: ledger.item_facts().retail_id(stack.network_id),
             stack,
-            entry,
             data,
             damage,
         })
@@ -262,13 +266,11 @@ impl UiRuntime {
             },
         )?;
         let mut stack = left.stack;
-        if let Some(identifier) = outcome.result_identifier {
-            let entry = self
+        if outcome.enchant_book {
+            stack.network_id = self
                 .inventory_ledger(player_runtime)
-                .negotiated_item_registry()?
-                .values()
-                .find(|entry| entry.identifier.as_ref() == identifier)?;
-            stack.network_id = entry.network_id;
+                .item_facts()
+                .enchanted_book_id()?;
             stack.count = 1;
             stack.metadata = 0;
             stack.block_runtime_id = 0;

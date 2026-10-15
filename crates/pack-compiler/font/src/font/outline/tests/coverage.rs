@@ -39,6 +39,7 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
                 pixel_height: face.raster_em_pixels(),
                 atlas_side: 2048,
                 synthesize_mathematical_letters: true,
+                include_original_symbols: true,
                 space_advance_64: face.space_advance_64(),
                 ascii_bearing: face.ascii_bearing,
                 ..OutlineFontConfig::default()
@@ -54,7 +55,15 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
                 codepoint as u32
             );
         }
-        for codepoint in ['\u{2b50}', '\u{a000}', '\u{ac00}', '𝑩', '𝗦', '𝟭'] {
+        for codepoint in [
+            '\u{2b50}',
+            '\u{a000}',
+            '\u{ac00}',
+            '𝑩',
+            '𝗦',
+            '𝟭',
+            symbols::BED_CODEPOINT,
+        ] {
             assert!(
                 catalog.glyph(codepoint).is_some(),
                 "{} missing U+{:04X}",
@@ -62,6 +71,12 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
                 codepoint as u32
             );
         }
+        let bed = catalog.glyph(symbols::BED_CODEPOINT).unwrap();
+        assert!(bed.advance_64 > 0);
+        let bed_pixels = glyph_pixels(&catalog, symbols::BED_CODEPOINT);
+        assert!(bed_pixels.contains(&255));
+        assert!(bed_pixels.contains(&0));
+        assert_ne!(bed_pixels, glyph_pixels(&catalog, REQUIRED_REPLACEMENT));
         if let Some(advance) = face.space_advance_64() {
             assert_eq!(catalog.glyph(' ').unwrap().advance_64, advance);
             assert_eq!(catalog.glyph('\u{a0}').unwrap().advance_64, advance);
@@ -106,6 +121,20 @@ fn complete_carriers_keep_every_mapped_scalar_and_styled_motd_letters() {
             assert_eq!(pixels, original.alpha.as_ref(), "{} {codepoint}", face.name);
         }
     }
+}
+
+/// Returns the glyph's coverage pixels without the atlas shelf padding.
+fn glyph_pixels(catalog: &assets::RuntimeFontCatalog, codepoint: char) -> Vec<u8> {
+    let glyph = catalog.glyph(codepoint).unwrap();
+    let page = &catalog.pages()[usize::from(glyph.page)];
+    (glyph.uv[1]..glyph.uv[3])
+        .flat_map(|y| {
+            let start = usize::from(y) * page.width as usize + usize::from(glyph.uv[0]);
+            page.pixels.bytes()[start..start + usize::from(glyph.uv[2] - glyph.uv[0])]
+                .iter()
+                .copied()
+        })
+        .collect()
 }
 
 #[test]

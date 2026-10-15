@@ -93,7 +93,7 @@ pub const FAR_TERRAIN_CHOICES: &[SettingChoice] = &[
 const _: () =
     assert!(FAR_TERRAIN_CHOICES.len() == render_api::far_terrain::FarTerrainMode::ALL.len());
 
-/// Advanced: chunks meshed in full detail around the player; 0 is Auto, by device tier.
+/// Chunks meshed in full detail around the player; 0 is Auto, by device tier.
 pub const FULL_DETAIL_DISTANCE_OPTION: SettingDefinition =
     SettingId::FullDetailDistance.definition();
 
@@ -372,6 +372,8 @@ macro_rules! settings {
 }
 
 settings! {
+    MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
+        [(SettingPanel::Keyboard, 6)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2)], [SettingsGroup::Video], None, None;
     ContentLogGuiLevel => "content_log_gui_level", dropdown("options.content_log_gui.level", CONTENT_LEVELS, 0),
@@ -609,7 +611,7 @@ settings! {
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [], [SettingsGroup::Video], None, None;
     FarTerrain => "far_terrain", dropdown("Far Terrain (LOD)", FAR_TERRAIN_CHOICES, render_api::far_terrain::FarTerrainMode::Auto.index()),
-        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
-        [(SettingPanel::VideoAdvanced, 0)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
 }

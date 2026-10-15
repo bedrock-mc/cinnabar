@@ -1,12 +1,23 @@
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
 mod priority;
+#[cfg(feature = "tracy")]
+mod queue_lock;
+#[cfg(not(target_arch = "wasm32"))]
+use native::{now, restore_lowered_job};
+#[cfg(feature = "tracy")]
+use queue_lock::QueueGuard;
+use simulation_clock::Moment;
 
-use std::cell::Cell;
 use std::collections::VecDeque;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossbeam_channel::Sender;
+
+#[cfg(not(feature = "tracy"))]
+type QueueGuard<'a> = MutexGuard<'a, Queues>;
 
 /// Cores left to the frame (main and render threads).
 const FRAME_CORES: usize = 2;
@@ -15,16 +26,14 @@ const MIN_WORLD_THREADS: usize = 3;
 /// sustained mesh load cannot starve the decode and light work that mesh depends on.
 const DECODE_MAX_WAIT: Duration = Duration::from_millis(4);
 const LIGHT_MAX_WAIT: Duration = Duration::from_millis(16);
-/// Windows lowers workers only during jobs so queue locks retain normal priority.
-/// Other platforms keep workers lowered because they cannot restore their niceness.
-const LOWER_PER_JOB: bool = cfg!(windows);
 
-/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light trails.
+/// Work classes in scheduling order: mesh gates chunks appearing, decode feeds it, light and summaries trail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Lane {
     Mesh,
     Decode,
     Light,
+    Summary,
 }
 
 /// Thread split for one machine; only background threads take light, so they cap its width.
@@ -35,6 +44,7 @@ pub(super) struct PoolSize {
 }
 
 impl PoolSize {
+    /// Splits the native pool while reserving frame cores and the minimum light width.
     pub(super) fn for_cores(cores: usize) -> Self {
         let threads = cores.saturating_sub(FRAME_CORES).max(MIN_WORLD_THREADS);
         let background = (threads * 2 / 3).max(super::MIN_EFFECTIVE_LIGHT_JOB_CAP);
@@ -50,7 +60,7 @@ impl PoolSize {
 }
 
 type Job = Box<dyn FnOnce(&mut world::LightSolverScratch) + Send + 'static>;
-type Queue = VecDeque<(Instant, Job)>;
+type Queue = VecDeque<(Moment, Job)>;
 
 #[derive(Default)]
 struct Queues {
@@ -60,22 +70,27 @@ struct Queues {
     mesh: Queue,
     decode: Queue,
     light: Queue,
+    summary: Queue,
     shutdown: bool,
+    #[cfg(target_arch = "wasm32")]
+    observed_at: Moment,
 }
 
 impl Queues {
-    fn push(&mut self, lane: Lane, queued_at: Instant, job: Job) {
+    /// Adds one lane job with its monotonic submission observation.
+    fn push(&mut self, lane: Lane, queued_at: Moment, job: Job) {
         let queue = match lane {
             Lane::Mesh => &mut self.mesh,
             Lane::Decode => &mut self.decode,
             Lane::Light => &mut self.light,
+            Lane::Summary => &mut self.summary,
         };
         queue.push_back((queued_at, job));
     }
 
     /// Next job for a worker at time `now`; the clock is a parameter so ageing is testable.
     /// Urgent work comes first on any thread.
-    fn take(&mut self, background: bool, now: Instant) -> Option<Job> {
+    fn take(&mut self, background: bool, now: Moment) -> Option<Job> {
         if let Some((_, job)) = self.urgent.pop_front() {
             return Some(job);
         }
@@ -95,7 +110,9 @@ impl Queues {
         } else {
             &mut self.mesh
         };
-        lane.pop_front().map(|(_, job)| job)
+        lane.pop_front()
+            .or_else(|| background.then(|| self.summary.pop_front()).flatten())
+            .map(|(_, job)| job)
     }
 }
 
@@ -103,28 +120,57 @@ impl Queues {
 struct Shared {
     queues: Mutex<Queues>,
     ready: Condvar,
-    /// Queue locks taken by a thread running below normal priority.
     #[cfg(all(test, windows))]
     lowered_locks: std::sync::atomic::AtomicUsize,
 }
 
 impl Shared {
-    fn lock(&self) -> MutexGuard<'_, Queues> {
+    /// Recovers the job queue after poison without discarding accepted work.
+    fn lock(&self) -> QueueGuard<'_> {
         #[cfg(feature = "tracy")]
-        let _zone = tracing::info_span!("stream.queue_lock").entered();
+        let owned = tracing::info_span!("stream.queue_owned");
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let wait = tracing::info_span!("stream.worker_wait");
         #[cfg(all(test, windows))]
         if priority::is_lowered() {
             self.lowered_locks
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
-        self.queues
-            .lock()
+        let guard = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.queue_lock").entered();
+            self.queues
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+        };
+        #[cfg(all(feature = "tracy", not(target_arch = "wasm32")))]
+        let guard = QueueGuard::new(guard, owned, wait);
+        #[cfg(all(feature = "tracy", target_arch = "wasm32"))]
+        let guard = QueueGuard::new(guard, owned);
+        guard
+    }
+
+    /// Sleeps atomically with queue release, excluding the sleep from lock ownership.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
+        #[cfg(feature = "tracy")]
+        {
+            let (guard, owned, wait) = guard.end_ownership();
+            let waiting = wait.entered();
+            let guard = self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            QueueGuard::new(guard, owned, waiting.exit())
+        }
+        #[cfg(not(feature = "tracy"))]
+        self.ready
+            .wait(guard)
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
-/// One world pool: threads prefer mesh, then decode, then light, unless a lower lane is
-/// overdue. Light runs only on the lowered-priority background threads.
+/// World queues; native light jobs run on the lowered-priority background share.
 pub(super) struct WorldPool {
     shared: Arc<Shared>,
     size: PoolSize,
@@ -137,6 +183,7 @@ pub fn world_worker_threads(cores: usize) -> usize {
 
 /// Runs pre-stream work on a temporary normal-priority pool sized like the world pool.
 /// Falls back to the caller pool if worker threads cannot start.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     match rayon::ThreadPoolBuilder::new()
@@ -150,38 +197,48 @@ pub fn on_idle_world_cores<T: Send>(work: impl FnOnce() -> T + Send) -> T {
 }
 
 pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
+    #[cfg(not(target_arch = "wasm32"))]
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    #[cfg(target_arch = "wasm32")]
+    let cores = 1;
     WorldPool::new(PoolSize::for_cores(cores))
 });
 
 impl WorldPool {
+    /// Creates the queues and starts native threads; the browser driver retains the same jobs.
     fn new(size: PoolSize) -> Self {
         let shared = Arc::new(Shared::default());
-        for (name, count, background) in [
-            ("world", size.foreground, false),
-            ("world-bg", size.background, true),
-        ] {
-            for index in 0..count {
-                let shared = Arc::clone(&shared);
-                std::thread::Builder::new()
-                    .name(format!("{name}-{index}"))
-                    .spawn(move || work(&shared, name, background))
-                    .expect("world worker could not start");
-            }
-        }
+        #[cfg(not(target_arch = "wasm32"))]
+        native::start(&shared, size);
         Self { shared, size }
+    }
+
+    /// Samples native time, or uses the browser driver's latest frame observation.
+    fn observed_at(&self) -> Moment {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            now()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.shared.lock().observed_at
+        }
     }
 
     pub(super) const fn size(&self) -> PoolSize {
         self.size
     }
 
+    /// Accepts a finite job without running it on the submitting thread.
     pub(super) fn spawn(&self, lane: Lane, job: impl FnOnce() + Send + 'static) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.queue_submit", ?lane, jobs = 1).entered();
+        let queued_at = self.observed_at();
         self.shared
             .lock()
-            .push(lane, Instant::now(), Box::new(move |_| job()));
-        // A foreground waiter cannot take light, so light wakes everyone.
-        if lane == Lane::Light {
+            .push(lane, queued_at, Box::new(move |_| job()));
+        // Background-only lanes must wake an eligible worker even if a foreground one waits.
+        if matches!(lane, Lane::Light | Lane::Summary) {
             self.shared.ready.notify_all();
         } else {
             self.shared.ready.notify_one();
@@ -197,11 +254,11 @@ impl WorldPool {
     }
 }
 
-/// Prepared jobs retain independent scheduling priority after their shared publication.
+/// Prepared jobs retain independent priority after their shared publication.
 pub(super) struct DispatchBatch<'a> {
     pool: &'a WorldPool,
     lane: Lane,
-    jobs: Vec<(Instant, bool, Job)>,
+    jobs: Vec<(Moment, bool, Job)>,
 }
 
 impl DispatchBatch<'_> {
@@ -217,7 +274,8 @@ impl DispatchBatch<'_> {
         urgent: bool,
         job: impl FnOnce(&mut world::LightSolverScratch) + Send + 'static,
     ) {
-        self.jobs.push((Instant::now(), urgent, Box::new(job)));
+        self.jobs
+            .push((self.pool.observed_at(), urgent, Box::new(job)));
     }
 }
 
@@ -226,6 +284,10 @@ impl Drop for DispatchBatch<'_> {
         if self.jobs.is_empty() {
             return;
         }
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.queue_submit", lane = ?self.lane, jobs = self.jobs.len())
+                .entered();
         let mut queues = self.pool.shared.lock();
         for (at, urgent, job) in self.jobs.drain(..) {
             if urgent {
@@ -246,59 +308,40 @@ impl Drop for WorldPool {
     }
 }
 
-fn work(shared: &Shared, name: &str, background: bool) {
-    if background
-        && !LOWER_PER_JOB
-        && let Err(error) = priority::lower()
-    {
-        eprintln!("{name}: could not lower worker priority: {error}");
-    }
-    let mut scratch = world::LightSolverScratch::default();
-    let mut queues = shared.lock();
-    loop {
-        if queues.shutdown {
-            return;
-        }
-        let Some(job) = queues.take(background, Instant::now()) else {
-            #[cfg(feature = "tracy")]
-            let _zone = tracing::info_span!("stream.worker_wait").entered();
-            queues = shared
-                .ready
-                .wait(queues)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            continue;
-        };
-        drop(queues);
-        LOWERED_FOR_JOB.set(background && LOWER_PER_JOB && priority::lower().is_ok());
-        // Matches rayon's default: a panicking world job aborts rather than losing its permits.
-        if catch_unwind(AssertUnwindSafe(|| job(&mut scratch))).is_err() {
-            std::process::abort();
-        }
-        restore_lowered_job();
-        queues = shared.lock();
-    }
-}
-
-thread_local! {
-    /// Whether this worker runs its current job lowered and must restore normal priority.
-    static LOWERED_FOR_JOB: Cell<bool> = const { Cell::new(false) };
-}
-
-/// Returns a worker lowered for its job to normal priority; does nothing otherwise.
-fn restore_lowered_job() {
-    if LOWERED_FOR_JOB.replace(false)
-        && let Err(error) = priority::restore()
-    {
-        let name = std::thread::current().name().unwrap_or("world").to_owned();
-        eprintln!("{name}: could not restore worker priority: {error}");
-    }
-}
-
 /// Restores normal job priority before reserving a result-channel slot.
 /// This prevents the receiving frame from spinning on a preempted, lowered sender.
 pub(super) fn send_result<T>(tx: &Sender<T>, result: T) {
+    #[cfg(not(target_arch = "wasm32"))]
     restore_lowered_job();
     let _ = tx.send(result);
+}
+
+/// Updates the browser observation before a frame submits jobs.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn observe(now: Moment) {
+    let mut queues = WORKERS.shared.lock();
+    queues.observed_at = queues.observed_at.max(now);
+}
+
+/// Takes and runs one job with the same urgent and ageing rules as a background worker.
+#[cfg(any(test, target_arch = "wasm32"))]
+fn run_one(shared: &Shared, now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
+    let Some(job) = shared.lock().take(true, now) else {
+        return false;
+    };
+    // Matches native workers: a panic cannot silently lose job permits.
+    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(scratch))).is_err() {
+        std::process::abort();
+    }
+    true
+}
+
+/// Runs at most one browser world job; the host yields between calls.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn run_browser_job(now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
+    observe(now);
+    let now = WORKERS.shared.lock().observed_at;
+    run_one(&WORKERS.shared, now, scratch)
 }
 
 #[cfg(test)]

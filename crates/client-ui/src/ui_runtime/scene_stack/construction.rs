@@ -50,6 +50,17 @@ const fn gameplay_settings() -> ScreenSettings {
     }
 }
 
+/// Client-owned world-entry loading covers the world, owns input and frees the cursor,
+/// whatever a server pack's progress screen declares.
+fn loading_settings() -> ScreenSettings {
+    ScreenSettings {
+        render_game_behind: false,
+        absorbs_input: true,
+        should_steal_mouse: false,
+        ..ScreenSettings::default()
+    }
+}
+
 /// The OreUI death overlay preserves world overlays while owning player input.
 pub(in crate::ui_runtime) fn death_settings() -> ScreenSettings {
     ScreenSettings {
@@ -78,10 +89,12 @@ impl UiRuntime {
         if self.session_id() != 0 && host.over_world {
             visit(Scene::Gameplay, gameplay_settings());
             // The HUD screens are JSON scenes; without their definitions nothing draws them.
-            if let Some(settings) = table.get(json_ui::CROSSHAIR_SCREEN) {
+            if let Some(settings) =
+                table.get(json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str())
+            {
                 visit(Scene::Crosshair, settings);
             }
-            if let Some(settings) = table.get(json_ui::HUD_SCREEN) {
+            if let Some(settings) = table.get(json_ui::vanilla::Reference::HudHudScreen.as_str()) {
                 visit(Scene::Hud, settings);
             }
         }
@@ -107,9 +120,14 @@ impl UiRuntime {
                 json(Some(ui_screens::emote_screen::EMOTE_SCREEN)),
             );
         }
-        if host.loading && host.menu.is_none() {
-            let reference = ui_screens::loading_screen::LOADING_SCREEN;
-            visit(Scene::Loading, json(Some(reference)));
+        if let Some(stage) = host.loading.filter(|_| host.menu.is_none()) {
+            // Only the in-session dimension change keeps the server-restylable JSON-UI screen.
+            let settings = if stage == ui::LoadingStage::ChangingDimension {
+                json(Some(ui_screens::loading_screen::LOADING_SCREEN))
+            } else {
+                loading_settings()
+            };
+            visit(Scene::Loading, settings);
         }
         if self.sign_editor().is_open() {
             let reference = ui_screens::sign_editor::SIGN_SCREEN;
@@ -125,7 +143,11 @@ impl UiRuntime {
             );
         }
         if let Some(screen) = host.menu {
-            let reference = launcher::menu::menu_reference(screen);
+            let reference = if host.over_world || screen.requires_session() {
+                launcher::menu::menu_reference(screen)
+            } else {
+                None
+            };
             let settings = if screen == MenuScreen::Death {
                 death_settings()
             } else {

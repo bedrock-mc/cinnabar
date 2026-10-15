@@ -1,6 +1,6 @@
 //! Player capes: the cape geometry drawn with the player's own pose and a cape raster carried
 //! in the skin layer payload.
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use actor_animation::ActorRigSnapshot;
 use assets::{CAPE_GEOMETRY_IDENTIFIER, RuntimeEntityAssets};
@@ -10,8 +10,8 @@ use protocol::PlayerSkin;
 use render_api::SkinRgba8;
 use render_model::{ACTOR_LAYER_BODY, ActorRigRoute, ActorRigSubmission};
 use render_model::{
-    ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, STANDARD_SKIN_BYTES,
-    STANDARD_SKIN_SIDE, entity_geometry, equipment_rig_id, find_geometry_index,
+    ActorRigGeometry, EntityRigId, MAX_RENDERED_PLAYERS, RenderBoneTransform, entity_geometry,
+    equipment_rig_id, find_geometry_index,
     java_animation::{CAPE_MAX_SWING_DEGREES, JavaCapeInput, java_cape_bone},
     resolve_geometry_bones,
 };
@@ -84,39 +84,23 @@ impl CapeRig {
 pub struct CapeState {
     resolved: bool,
     rig: Option<CapeRig>,
+    preparation: actor_animation::CapePreparationQueue,
 }
 
 impl CapeState {
-    pub fn rig(&mut self, assets: Option<&RuntimeEntityAssets>) -> Option<&CapeRig> {
+    /// Resolves the rig once and borrows its worker readiness queue for this draw pass.
+    pub fn rig(
+        &mut self,
+        assets: Option<&RuntimeEntityAssets>,
+    ) -> Option<(&CapeRig, &mut actor_animation::CapePreparationQueue)> {
         if !self.resolved
             && let Some(assets) = assets
         {
             self.resolved = true;
             self.rig = CapeRig::resolve(assets);
         }
-        self.rig.as_ref()
+        Some((self.rig.as_ref()?, &mut self.preparation))
     }
-}
-
-/// Resamples a cape raster into one standard skin layer; the cape geometry's texture
-/// coordinates are normalised, so any cape size maps onto the layer exactly.
-pub fn cape_layer(width: u32, height: u32, rgba8: &[u8]) -> Option<Arc<[u8]>> {
-    let (width, height) = (width as usize, height as usize);
-    let expected = width.checked_mul(height)?.checked_mul(4)?;
-    if width == 0 || height == 0 || rgba8.len() != expected {
-        return None;
-    }
-    let side = STANDARD_SKIN_SIDE;
-    let mut layer = Vec::with_capacity(STANDARD_SKIN_BYTES);
-    for y in 0..side {
-        let source_y = y * height / side;
-        for x in 0..side {
-            let source_x = x * width / side;
-            let offset = (source_y * width + source_x) * 4;
-            layer.extend_from_slice(&rgba8[offset..offset + 4]);
-        }
-    }
-    Some(layer.into())
 }
 
 /// Retargets animation deltas onto the cape's attachment, independent of the skin's rest markers.
@@ -270,34 +254,15 @@ fn java_cape_pose(
     pose.into()
 }
 
-/// The cape layer, resampled and hashed once per source raster; entries hold their source, so a
-/// matched pointer is never a reused allocation.
-fn cape_of(profile: &PlayerProfile) -> Option<SkinRgba8> {
-    type Entry = (Arc<[u8]>, u32, u32, Option<SkinRgba8>);
-    static CACHE: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
+/// Queues a published profile's cape and reads only its ready worker result.
+fn cape_of(
+    profile: &PlayerProfile,
+    preparation: &mut actor_animation::CapePreparationQueue,
+) -> Option<SkinRgba8> {
     let PlayerSkin::Standard(skin) = &profile.skin else {
         return None;
     };
-    let cape = skin.cape.as_ref()?;
-    let mut cache = CACHE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((.., layer)) = cache.iter().find(|(source, width, height, _)| {
-        Arc::ptr_eq(source, &cape.rgba8) && *width == cape.width && *height == cape.height
-    }) {
-        return layer.clone();
-    }
-    let layer = cape_layer(cape.width, cape.height, &cape.rgba8).map(SkinRgba8::new);
-    if cache.len() == MAX_RENDERED_PLAYERS {
-        cache.remove(0);
-    }
-    cache.push((
-        Arc::clone(&cape.rgba8),
-        cape.width,
-        cape.height,
-        layer.clone(),
-    ));
-    layer
+    preparation.request(skin.cape.as_ref()?)
 }
 
 /// Uses cape art on worn wings, otherwise appends a cape with Java inputs when supplied.
@@ -305,11 +270,13 @@ fn cape_of(profile: &PlayerProfile) -> Option<SkinRgba8> {
 pub fn apply_capes<'a>(
     batch: &mut ActorPresentationBatch,
     cape: &CapeRig,
+    preparation: &mut actor_animation::CapePreparationQueue,
     rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
     profile_of: impl Fn(u64) -> Option<&'a PlayerProfile>,
     java_cape: impl Fn(u64) -> Option<JavaCapeInput>,
     elytra_of: impl Fn(u64) -> bool,
 ) {
+    preparation.begin_frame();
     let mut capes: Vec<(SkinRgba8, usize)> = Vec::new();
     let mut extras = Vec::new();
     for index in 0..batch.submissions.len() {
@@ -321,7 +288,9 @@ pub fn apply_capes<'a>(
         {
             continue;
         }
-        let Some(cape_pixels) = profile_of(identity.runtime_id).and_then(cape_of) else {
+        let Some(cape_pixels) =
+            profile_of(identity.runtime_id).and_then(|profile| cape_of(profile, preparation))
+        else {
             continue;
         };
         let layer = match capes.iter().find(|(known, _)| *known == cape_pixels) {
@@ -357,10 +326,16 @@ pub fn apply_capes<'a>(
                 submission.input.current_bones = pose;
             }
             None => {
+                let current = cape_pose(cape, rig.bone_names, rig.rest, &body.input.current_bones);
+                // One body pose for both endpoints gives one cape pose; sharing it also lets
+                // the frame builder reuse its matrices for the second endpoint.
                 submission.input.previous_bones =
-                    cape_pose(cape, rig.bone_names, rig.rest, &body.input.previous_bones);
-                submission.input.current_bones =
-                    cape_pose(cape, rig.bone_names, rig.rest, &body.input.current_bones);
+                    if Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones) {
+                        Arc::clone(&current)
+                    } else {
+                        cape_pose(cape, rig.bone_names, rig.rest, &body.input.previous_bones)
+                    };
+                submission.input.current_bones = current;
             }
         }
         submission.texture_layer = layer as u32;
@@ -368,6 +343,7 @@ pub fn apply_capes<'a>(
         submission.overlay_rgba8 = 0;
         extras.push(submission);
     }
+    preparation.submit();
     batch.submissions.extend(extras);
 }
 
@@ -388,8 +364,6 @@ mod elytra_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::cape_layer;
-
     #[test]
     fn installed_cape_hangs_behind_the_body_with_its_front_raster_outward() {
         use bevy::math::{Quat, Vec3};
@@ -462,26 +436,7 @@ mod tests {
         }
     }
 
-    #[test]
-    fn cape_rasters_resample_onto_one_skin_layer() {
-        let mut cape = vec![0u8; 64 * 32 * 4];
-        cape[..4].copy_from_slice(&[9, 8, 7, 255]);
-        let layer = cape_layer(64, 32, &cape).unwrap();
-        assert_eq!(layer.len(), render_model::STANDARD_SKIN_BYTES);
-        assert_eq!(&layer[..4], &[9, 8, 7, 255]);
-        let row = render_model::STANDARD_SKIN_SIDE * 4;
-        let rows_per_source = render_model::STANDARD_SKIN_SIDE / 32;
-        assert_eq!(&layer[row..row + 4], &[9, 8, 7, 255]);
-        let next = rows_per_source * row;
-        assert_eq!(&layer[next..next + 4], &[0, 0, 0, 0]);
-        assert!(cape_layer(64, 32, &cape[1..]).is_none());
-    }
-    #[test]
-    fn review_render_cape_rejects_overflowing_dimensions() {
-        assert!(cape_layer(1 << 31, 1 << 31, &[]).is_none());
-        assert!(cape_layer(u32::MAX, u32::MAX, &[]).is_none());
-    }
-
+    /// Builds an original cape rig for pose and wing-routing tests.
     pub(super) fn fixture_cape() -> super::CapeRig {
         let source = serde_json::json!({
             "format_version":"1.12.0",

@@ -5,7 +5,9 @@ use protocol::NetworkItemStack;
 use std::{collections::HashMap, sync::Arc};
 use ui::IconRef;
 
-#[derive(Clone, Debug)]
+pub mod cache;
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct InventoryIcons(pub [Option<IconRef>; 36]);
 
 impl Default for InventoryIcons {
@@ -16,13 +18,13 @@ impl Default for InventoryIcons {
 
 /// The active crafting grid's icons in row-major order plus the previewed
 /// output of its unique recipe.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct CraftingFrame {
     pub icons: [Option<IconRef>; 9],
     pub output: Option<(Option<IconRef>, protocol::NetworkItemStack)>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StorageIcons(pub [Option<IconRef>; 54]);
 
 impl Default for StorageIcons {
@@ -32,7 +34,7 @@ impl Default for StorageIcons {
 }
 
 /// Durability bar fractions per inventory surface.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Durability {
     pub player: [Option<f32>; 36],
     pub storage: [Option<f32>; 54],
@@ -50,6 +52,7 @@ impl Default for Durability {
 }
 
 /// Slot artwork and hover names captured from the displayed inventory.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InventoryContents {
     pub inventory_icons: InventoryIcons,
     pub storage_icons: StorageIcons,

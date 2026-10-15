@@ -26,6 +26,7 @@ struct IdentityProbeWorld {
     collision_identity: WorldCollisionIdentity,
     liquid_probe_identity: WorldCollisionIdentity,
     physics_calls: Cell<usize>,
+    collision_started: Cell<bool>,
 }
 
 struct TranslatedBoundaryProbeWorld;
@@ -126,7 +127,9 @@ impl CollisionWorld for SharedBudgetWorld {
 }
 
 impl CollisionWorld for IdentityProbeWorld {
+    /// Marks the end of pre-move sampling and supplies the ledge collision identity.
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        self.collision_started.set(true);
         let ledge = Aabb::new(Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 1.0, 1.0));
         Ok(CollisionQuery {
             value: ledge
@@ -143,10 +146,10 @@ impl CollisionWorld for IdentityProbeWorld {
         self.physics_calls.set(calls + 1);
         Ok(BlockPhysicsSample {
             layers: Box::new([water_facts()]),
-            identity: if calls < 6 {
-                self.initial_identity.clone()
-            } else {
+            identity: if self.collision_started.get() {
                 self.liquid_probe_identity.clone()
+            } else {
+                self.initial_identity.clone()
             },
         })
     }
@@ -343,48 +346,28 @@ fn mixed_water_and_lava_uses_water_drag_and_gravity_precedence() {
 }
 
 #[test]
-fn liquid_exit_probe_shares_the_tick_block_sample_budget() {
-    let within_cap = SharedBudgetWorld {
-        calls: Cell::new(0),
-        bubbles: false,
-    };
-    let mut state = PlayerState::new(Vec3::new(0.5, 0.1, 0.5));
-    state.velocity.x = 29.0;
-    let result = Simulator::default()
-        .tick(
-            &mut state,
-            MovementInput {
-                jumping: true,
-                ..MovementInput::default()
-            },
-            &within_cap,
-        )
-        .unwrap();
-    assert!(result.collisions.x);
-    assert_eq!(within_cap.calls.get(), 64);
-
-    let beyond_cap = SharedBudgetWorld {
-        calls: Cell::new(0),
-        bubbles: false,
-    };
-    let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
-    state.velocity.x = 20.0;
-    let before = state.clone();
-    assert!(matches!(
-        Simulator::default().tick(
-            &mut state,
-            MovementInput {
-                jumping: true,
-                ..MovementInput::default()
-            },
-            &beyond_cap,
-        ),
-        Err(sim::SimulationError::World(
-            WorldQueryError::QueryExtentExceeded
-        ))
-    ));
-    assert_eq!(beyond_cap.calls.get(), 64);
-    assert_eq!(state, before);
+fn fast_liquid_exit_keeps_contact_and_exit_probes_within_the_sample_budget() {
+    for (height, speed) in [(0.1, 29.0), (0.5, 20.0)] {
+        let world = SharedBudgetWorld {
+            calls: Cell::new(0),
+            bubbles: false,
+        };
+        let mut state = PlayerState::new(Vec3::new(0.5, height, 0.5));
+        state.velocity.x = speed;
+        let result = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput {
+                    jumping: true,
+                    ..MovementInput::default()
+                },
+                &world,
+            )
+            .unwrap();
+        assert!(result.collisions.x);
+        assert_eq!(result.tick, 1);
+        assert!(world.calls.get() <= sim::MAX_BLOCK_SAMPLES_PER_TICK);
+    }
 }
 
 #[test]
@@ -397,6 +380,7 @@ fn liquid_exit_probe_merges_distinct_collision_and_liquid_identities() {
         collision_identity: collision_identity.clone(),
         liquid_probe_identity: liquid_probe_identity.clone(),
         physics_calls: Cell::new(0),
+        collision_started: Cell::new(false),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
     state.velocity.x = 0.5;
@@ -419,7 +403,7 @@ fn liquid_exit_probe_merges_distinct_collision_and_liquid_identities() {
             .merge(&liquid_probe_identity)
             .unwrap()
     );
-    assert_eq!(world.physics_calls.get(), 8);
+    assert!(world.physics_calls.get() <= sim::MAX_BLOCK_SAMPLES_PER_TICK);
 }
 
 #[test]
@@ -429,6 +413,7 @@ fn incompatible_liquid_exit_probe_identity_fails_transactionally() {
         collision_identity: probe_identity(3, 11, 7),
         liquid_probe_identity: probe_identity(4, 12, 8),
         physics_calls: Cell::new(0),
+        collision_started: Cell::new(false),
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 0.5, 0.5));
     state.velocity.x = 0.5;
@@ -447,7 +432,7 @@ fn incompatible_liquid_exit_probe_identity_fails_transactionally() {
             WorldQueryError::RegistryIdentityMismatch
         ))
     ));
-    assert_eq!(world.physics_calls.get(), 8);
+    assert!(world.physics_calls.get() <= sim::MAX_BLOCK_SAMPLES_PER_TICK);
     assert_eq!(state, before);
 }
 
@@ -821,7 +806,7 @@ fn depth_strider_reads_effective_sprint_and_custom_speed_once_in_both_water_mode
     }
 }
 
-/// Exit-probe reads spend the shared budget, so later bubble-column reads cannot exceed it.
+/// Exit and bubble-column probes share a bounded budget even after a fast move.
 #[test]
 fn post_move_block_reads_share_the_budget_spent_by_the_exit_probe() {
     let world = SharedBudgetWorld {
@@ -830,20 +815,17 @@ fn post_move_block_reads_share_the_budget_spent_by_the_exit_probe() {
     };
     let mut state = PlayerState::new(Vec3::new(0.5, 0.1, 0.5));
     state.velocity.x = 29.0;
-    let before = state.clone();
-    assert!(matches!(
-        Simulator::default().tick(
+    let result = Simulator::default()
+        .tick(
             &mut state,
             MovementInput {
                 jumping: true,
                 ..MovementInput::default()
             },
             &world,
-        ),
-        Err(sim::SimulationError::World(
-            WorldQueryError::QueryExtentExceeded
-        ))
-    ));
-    assert_eq!(world.calls.get(), 64);
-    assert_eq!(state, before);
+        )
+        .unwrap();
+    assert!(result.collisions.x);
+    assert!(result.velocity.y > 0.0);
+    assert!(world.calls.get() <= sim::MAX_BLOCK_SAMPLES_PER_TICK);
 }

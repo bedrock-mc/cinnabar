@@ -23,9 +23,8 @@ use super::{
     settings::AudioSettings,
 };
 
-const PLAYER: &str = "minecraft:player";
+const PLAYER: &str = assets::facts::VanillaEntity::Player.identifier();
 const FEET_PROBE_BELOW: f64 = 0.2;
-const WATER_IDENTIFIERS: [&str; 2] = ["minecraft:water", "minecraft:flowing_water"];
 const THUNDER_GRACE_SECONDS: f32 = 0.3;
 
 /// A local interface sound request by sound definition name; ECS callers may send this instead of
@@ -52,20 +51,27 @@ fn network_block_lookup<'a>(
     move |wire_id| lookup(stream.resolve_block_network_id(wire_id))
 }
 
-pub fn identifier_at(
+/// The primary block identifier at `block`, borrowed from the registries so per-frame and
+/// per-tick probes allocate nothing.
+pub(super) fn identifier_ref<'a>(
     world: &PaletteWorld<'_>,
-    collisions: &dyn PhysicsCollisionRegistries,
+    collisions: &'a dyn PhysicsCollisionRegistries,
     mode: assets::NetworkIdMode,
     block: [i32; 3],
-) -> Option<String> {
+) -> Option<&'a str> {
     let runtime_id = world.primary_runtime_id(block).ok()?;
-    collisions
-        .block_identifier(mode, runtime_id)
-        .map(str::to_owned)
+    collisions.block_identifier(mode, runtime_id)
 }
 
-pub fn is_water(identifier: Option<&str>) -> bool {
-    identifier.is_some_and(|name| WATER_IDENTIFIERS.contains(&name))
+/// Checks ordinary water from numeric movement facts; bubble-column cues keep their own route.
+pub fn is_water(registry: &sim::CollisionRegistry, runtime_id: u32) -> bool {
+    registry.movement_facts(runtime_id).is_some_and(|fact| {
+        fact.flags.contains(sim::BlockPhysicsFlags::WATER)
+            && !matches!(
+                fact.surface_response,
+                sim::SurfaceResponse::BubbleUp | sim::SurfaceResponse::BubbleDown
+            )
+    })
 }
 
 #[derive(Default)]
@@ -293,7 +299,9 @@ fn admit_level_echo(engine: &mut AudioEngine, level: &protocol::LevelAudioEvent)
         )
     } else if name == client_world::ROCKET_LAUNCH_EVENT
         && (level.actor_identifier.is_empty()
-            || level.actor_identifier.as_ref() == client_world::FIREWORK_ROCKET_IDENTIFIER)
+            || assets::facts::entity::NativeEntityClass::FireworksRocket
+                .identifier()
+                .is_some_and(|identifier| level.actor_identifier.as_ref() == identifier))
     {
         engine.admit_echo(
             EchoOrigin::Packet,
@@ -360,7 +368,7 @@ pub fn drive_local_motion(
         }
         *last_tick = Some(tick);
         let position = sample.position;
-        let below = identifier_at(
+        let below = identifier_ref(
             &palette,
             collisions,
             mode,
@@ -375,7 +383,7 @@ pub fn drive_local_motion(
             let request = {
                 let Some(bank) = engine.bank() else { return };
                 let tables = bank.tables();
-                let material = below.as_deref().and_then(|name| tables.material_of(name));
+                let material = below.and_then(|name| tables.material_of(name));
                 let (route, volume) = match cue {
                     LocalCue::Step => (
                         material.and_then(|material| tables.interactive(PLAYER, "step", material)),
@@ -503,7 +511,10 @@ pub fn drive_ambience(
                 eye.y.floor() as i32,
                 eye.z.floor() as i32,
             ];
-            is_water(identifier_at(&palette, collisions, mode, block).as_deref())
+            palette
+                .primary_runtime_id(block)
+                .ok()
+                .is_some_and(|id| is_water(collisions.registry(mode), id))
         }
         _ => false,
     };
@@ -667,15 +678,7 @@ pub fn pump_audio(
 ) {
     engine.poll_server();
     let sources = engine.pump(Some(listener), time.delta_secs(), &settings);
-    let Some(device) = device.as_mut() else {
-        return;
-    };
-    for source in sources {
-        if !device.play_source(source) {
-            engine.stats.backend_failed += 1;
-            break;
-        }
-    }
+    engine.submit_sources(sources, device.as_deref_mut());
 }
 
 #[cfg(test)]
@@ -985,3 +988,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod open_tests;

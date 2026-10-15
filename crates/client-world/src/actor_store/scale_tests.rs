@@ -1,3 +1,4 @@
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 use protocol::{
@@ -5,7 +6,7 @@ use protocol::{
 };
 
 use super::{
-    ActorStore, NAMETAG_METADATA_KEY, SCALE_METADATA_KEY,
+    ActorStore,
     tests::{entity_spawn, network_move, spawn},
 };
 
@@ -20,11 +21,11 @@ fn zero_scale_nametag_host_retains_its_authoritative_scale_and_name() {
     };
     event.metadata = Arc::from([
         ActorMetadata {
-            key: SCALE_METADATA_KEY,
+            key: ActorDataKey::Scale.wire_value(),
             value: ActorMetadataValue::Float(0.0),
         },
         ActorMetadata {
-            key: NAMETAG_METADATA_KEY,
+            key: ActorDataKey::Name.wire_value(),
             value: ActorMetadataValue::String("Game mode".into()),
         },
     ]);
@@ -53,7 +54,7 @@ fn zero_scale_nametag_host_retains_its_authoritative_scale_and_name() {
                 dimension: 0,
                 runtime_id: 8,
                 metadata: Arc::from([ActorMetadata {
-                    key: SCALE_METADATA_KEY,
+                    key: ActorDataKey::Scale.wire_value(),
                     value: ActorMetadataValue::Float(scale),
                 }]),
                 properties: Arc::from([]),
@@ -70,11 +71,11 @@ fn falling_block_network_offsets_follow_their_scaled_box() {
     let metadata = |height: f32, scale: f32| -> Arc<[ActorMetadata]> {
         Arc::from([
             ActorMetadata {
-                key: super::BOUNDING_BOX_HEIGHT_METADATA_KEY,
+                key: ActorDataKey::Height.wire_value(),
                 value: ActorMetadataValue::Float(height),
             },
             ActorMetadata {
-                key: SCALE_METADATA_KEY,
+                key: ActorDataKey::Scale.wire_value(),
                 value: ActorMetadataValue::Float(scale),
             },
         ])
@@ -121,7 +122,7 @@ fn falling_block_scale_change_keeps_its_network_position_and_targets() {
             dimension: 0,
             runtime_id: 40,
             metadata: Arc::from([ActorMetadata {
-                key: SCALE_METADATA_KEY,
+                key: ActorDataKey::Scale.wire_value(),
                 value: ActorMetadataValue::Float(2.0),
             }]),
             properties: Arc::from([]),

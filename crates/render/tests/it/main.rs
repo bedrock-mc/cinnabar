@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "GPU fixture helpers explain skipped tests and report raster comparisons on stderr"
+)]
+
 #[path = "../../src/chunk/constants.rs"]
 #[allow(dead_code, reason = "reuse the production quad index order")]
 mod chunk_constants;
@@ -8,8 +13,16 @@ mod hand_rig_bindings;
 #[path = "../../src/material_shader.rs"]
 #[allow(dead_code, reason = "shared production shader substitutions")]
 mod material_shader;
+#[path = "../../src/motion_blur/shader.rs"]
+mod motion_blur_shader;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
+#[path = "../../src/queue_writes.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures exercise a subset of queue upload entry points"
+)]
+mod queue_writes;
 #[path = "support/rod_snapshot.rs"]
 mod rod_snapshot;
 #[path = "../../src/shader_safety.rs"]

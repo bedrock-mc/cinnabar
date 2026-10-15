@@ -1,11 +1,40 @@
 //! Spatial queries for retained actor snapshots.
 
 use super::*;
+use protocol_ids::ActorDataKey;
 
 /// Collision dimensions retain a small positive extent after server scaling.
-const MIN_COLLISION_DIMENSION: f32 = 0.005;
+pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
+    /// Bounds for movement use constructor dimensions when the server omits them.
+    pub(super) fn movement_collision_bounds(&self) -> Option<ActorCollisionBounds> {
+        self.bounding_box_with_defaults(
+            self.position,
+            self.entity_fact.collision.unwrap_or([
+                DEFAULT_ACTOR_COLLISION_WIDTH,
+                DEFAULT_ACTOR_COLLISION_HEIGHT,
+            ]),
+        )
+    }
+
+    /// Uses the synced collision flag when supplied, otherwise the default definition.
+    #[must_use]
+    pub fn is_collidable(&self) -> bool {
+        let bit = ActorFlag::Collidable.wire_value();
+        let key = if bit < 64 {
+            ActorDataKey::Flags
+        } else {
+            ActorDataKey::FlagsTwo
+        };
+        match self.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::Flags(_) | ActorMetadataValue::FlagsExtended(_)) => {
+                self.flag(bit)
+            }
+            _ => self.entity_fact.collidable,
+        }
+    }
+
     /// Feet-anchored `(min, max)` box with server scale applied once.
     /// Omitted dimensions retain the generic actor defaults independently.
     #[must_use]
@@ -16,6 +45,21 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
+        self.bounding_box_with_defaults(
+            position,
+            [
+                DEFAULT_ACTOR_COLLISION_WIDTH,
+                DEFAULT_ACTOR_COLLISION_HEIGHT,
+            ],
+        )
+    }
+
+    /// Applies server dimensions and scale to a box, using caller-owned defaults for omitted size.
+    fn bounding_box_with_defaults(
+        &self,
+        position: [f32; 3],
+        defaults: [f32; 2],
+    ) -> Option<([f32; 3], [f32; 3])> {
         if let Some(painting) = &self.painting {
             use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
             use protocol::PaintingDirection;
@@ -35,34 +79,37 @@ impl ActorSnapshot {
                 std::array::from_fn(|axis| position[axis] + half[axis]),
             ));
         }
-        let player = matches!(self.kind, ActorKind::Player { .. });
-        let dimension = |key, default| match self.metadata.get(&key) {
-            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
-            Some(ActorMetadataValue::Float(_)) => player.then_some(default),
-            _ => Some(default),
-        };
-        let scale = match self.metadata.get(&SCALE_METADATA_KEY) {
-            Some(ActorMetadataValue::Float(value)) => *value,
-            _ => 1.0,
-        };
-        let width = dimension(
-            BOUNDING_BOX_WIDTH_METADATA_KEY,
-            DEFAULT_ACTOR_COLLISION_WIDTH,
-        )? * scale;
-        let height = dimension(
-            BOUNDING_BOX_HEIGHT_METADATA_KEY,
-            DEFAULT_ACTOR_COLLISION_HEIGHT,
-        )? * scale;
-        if !width.is_finite() || !height.is_finite() {
-            return None;
-        }
-        let half_width = width.max(MIN_COLLISION_DIMENSION) * 0.5;
-        let height = height.max(MIN_COLLISION_DIMENSION);
+        let width = self.scaled_collision_dimension(ActorDataKey::Width, defaults[0])?;
+        let height = self.scaled_collision_dimension(ActorDataKey::Height, defaults[1])?;
+        let half_width = width * 0.5;
         let [x, y, z] = position;
         Some((
             [x - half_width, y, z - half_width],
             [x + half_width, y + height, z + half_width],
         ))
+    }
+
+    /// Applies server scale and the collision minimum to one dimension, independently of position.
+    pub(super) fn scaled_collision_dimension(
+        &self,
+        key: ActorDataKey,
+        default: f32,
+    ) -> Option<f32> {
+        let dimension = match self.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => *value,
+            Some(ActorMetadataValue::Float(_)) => {
+                matches!(self.kind, ActorKind::Player { .. }).then_some(default)?
+            }
+            _ => default,
+        };
+        let scale = match self.metadata.get(&ActorDataKey::Scale.wire_value()) {
+            Some(ActorMetadataValue::Float(value)) => *value,
+            _ => 1.0,
+        };
+        let scaled = dimension * scale;
+        scaled
+            .is_finite()
+            .then_some(scaled.max(MIN_COLLISION_DIMENSION))
     }
 
     /// Interaction boxes at the actor's current pose.
@@ -116,6 +163,11 @@ impl ActorSnapshot {
             .then_some(position)
     }
 
+    /// Whether this actor is any minecart variant.
+    pub(crate) fn is_minecart(&self) -> bool {
+        self.entity_fact.native_class == NativeEntityClass::Minecart
+    }
+
     /// Offset from stored collision feet to the native actor-state position.
     pub(crate) fn network_position_offset(&self) -> f32 {
         match &self.kind {
@@ -126,27 +178,32 @@ impl ActorSnapshot {
                     PLAYER_NETWORK_OFFSET
                 }
             }
-            ActorKind::Entity { identifier } => {
-                let Some(path) = identifier.strip_prefix("minecraft:") else {
-                    return 0.0;
-                };
-                match path {
-                    "item" => ITEM_ACTOR_NETWORK_OFFSET,
-                    "falling_block" => self.falling_block_network_offset(),
-                    "tnt" => self.primed_tnt_network_offset(),
-                    "minecart"
-                    | "hopper_minecart"
-                    | "tnt_minecart"
-                    | "chest_minecart"
-                    | "command_block_minecart" => MINECART_NETWORK_OFFSET,
-                    "boat" => BOAT_NETWORK_OFFSET,
-                    _ => 0.0,
-                }
-            }
+            ActorKind::Entity { .. } => match self.entity_fact.native_class {
+                NativeEntityClass::FallingBlock => self.falling_block_network_offset(),
+                NativeEntityClass::Tnt => self.primed_tnt_network_offset(),
+                _ => self.entity_fact.network_y_offset,
+            },
         }
+    }
+}
+
+impl ActorStore {
+    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount.
+    pub(crate) fn movement_collider_snapshot(
+        &self,
+        mover: u64,
+        rider: i64,
+    ) -> std::sync::Arc<[ActorCollisionBounds]> {
+        self.effect_members
+            .collidable
+            .snapshot(mover, self.ridden_unique_id(rider))
     }
 }
 
 #[cfg(test)]
 #[path = "spatial_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "collision_tests.rs"]
+mod collision_tests;

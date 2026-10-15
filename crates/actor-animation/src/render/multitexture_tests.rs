@@ -1,4 +1,5 @@
 use super::super::*;
+use protocol_ids::ActorFlag;
 
 #[test]
 #[ignore = "requires a pinned entity carrier; set CINNABAR_ENTITY_CARRIER"]
@@ -12,7 +13,11 @@ fn pinned_trader_llama_draws_body_and_carpet_as_one_three_sampler_layer() {
                 (43, ActorMetadataValue::Int(1)),
                 (
                     0,
-                    ActorMetadataValue::Flags(if baby { 1 << query::FLAG_BABY } else { 0 }),
+                    ActorMetadataValue::Flags(if baby {
+                        1 << ActorFlag::Baby.wire_value()
+                    } else {
+                        0
+                    }),
                 ),
             ]));
             actor.kind = ActorKind::Entity {

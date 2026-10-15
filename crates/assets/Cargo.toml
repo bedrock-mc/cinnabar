@@ -19,6 +19,8 @@ reads = [
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_items_1_26_50.tsv",
+    "crates/protocol/data/item_capacity_1_26_50.tsv",
+    "crates/protocol/data/item_tags_dragonfly.tsv",
     "crates/asset-compiler/data/*",
 ]
 
@@ -32,6 +34,7 @@ block-transform = { path = "../block-transform" }
 bitflags = "2"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 glam.workspace = true
+png = "0.18"
 lewton = "0.10.2"
 rayon.workspace = true
 serde = { version = "1", features = ["derive"] }

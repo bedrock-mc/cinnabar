@@ -1,16 +1,19 @@
 //! The player's last death location, which recovery compasses point at.
 
 use protocol::ActorMetadataValue;
+use protocol_ids::ActorDataKey;
 
 use super::{ActorSnapshot, ActorStore};
 
 /// Whether actor data `key` belongs to the player's last death.
 fn is_last_death_key(key: u32) -> bool {
     matches!(
-        key,
-        LAST_DEATH_POSITION_METADATA_KEY
-            | LAST_DEATH_DIMENSION_METADATA_KEY
-            | HAS_DIED_METADATA_KEY
+        ActorDataKey::from_wire(key),
+        Some(
+            ActorDataKey::PlayerLastDeathPosition
+                | ActorDataKey::PlayerLastDeathDimension
+                | ActorDataKey::PlayerHasDied
+        )
     )
 }
 
@@ -62,27 +65,28 @@ impl ActorStore {
     }
 }
 
-/// Bedrock `PlayerLastDeathPosition` actor data.
-const LAST_DEATH_POSITION_METADATA_KEY: u32 = 127;
-/// Bedrock `PlayerLastDeathDimension` actor data.
-const LAST_DEATH_DIMENSION_METADATA_KEY: u32 = 128;
-/// Bedrock `PlayerHasDied` actor data.
-const HAS_DIED_METADATA_KEY: u32 = 129;
-
 impl ActorSnapshot {
     /// Where and in which dimension the player last died, as the server reports it. Servers
     /// send the position as a block position or a vector; `None` until the player has died.
     #[must_use]
     pub fn last_death(&self) -> Option<([f64; 3], i32)> {
-        if let Some(ActorMetadataValue::Byte(0)) = self.metadata.get(&HAS_DIED_METADATA_KEY) {
+        if let Some(ActorMetadataValue::Byte(0)) =
+            self.metadata.get(&ActorDataKey::PlayerHasDied.wire_value())
+        {
             return None;
         }
-        let position = match self.metadata.get(&LAST_DEATH_POSITION_METADATA_KEY)? {
+        let position = match self
+            .metadata
+            .get(&ActorDataKey::PlayerLastDeathPosition.wire_value())?
+        {
             ActorMetadataValue::BlockPosition(block) => block.map(|axis| f64::from(axis) + 0.5),
             ActorMetadataValue::Vector(vector) => vector.map(f64::from),
             _ => return None,
         };
-        let dimension = match self.metadata.get(&LAST_DEATH_DIMENSION_METADATA_KEY)? {
+        let dimension = match self
+            .metadata
+            .get(&ActorDataKey::PlayerLastDeathDimension.wire_value())?
+        {
             ActorMetadataValue::Int(dimension) => *dimension,
             ActorMetadataValue::Byte(dimension) => i32::from(*dimension),
             _ => return None,

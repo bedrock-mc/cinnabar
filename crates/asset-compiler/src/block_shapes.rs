@@ -1,7 +1,12 @@
 //! Compiles movement and interaction facts once per block state.
 
 use assets::block_shapes::{CompiledBlockShapes, PickRule, ShapeBox, ShapeFlags};
+use assets::facts::BlockProperty;
 use assets::{BlockPhysicsRecord, CollisionBox, ModelFamily, RegistryRecord};
+use assets::{
+    facts::{block::RESERVED_BLOCK_NAME, shape::ShapeTraits},
+    registry::BlockTraits,
+};
 
 mod attachments;
 mod connected;
@@ -51,6 +56,12 @@ pub fn compile_registry(
 
 /// Compiles final geometry while retaining the input's independent movement scalars.
 pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhysicsRecord {
+    let (traits, shapes) = crate::registry_policy::block_shape_facts(record);
+    let mut effective = std::borrow::Cow::Borrowed(record);
+    if traits != record.traits {
+        effective.to_mut().traits = traits;
+    }
+    let record = effective.as_ref();
     let mut output = input.clone();
     let collision = connected::shapes(record)
         .or_else(|| stairs::shapes(record))
@@ -71,82 +82,73 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
         ShapeFlags::BAMBOO_OFFSET,
         assets::bamboo::BambooState::from_record(record).is_some(),
     );
-    flags.set(ShapeFlags::AIR, record.name.as_ref() == "minecraft:air");
+    flags.set(ShapeFlags::AIR, traits.contains(BlockTraits::AIR));
     flags.set(
         ShapeFlags::HIDE_OVERLAY,
-        record.name.as_ref() == "minecraft:end_gateway",
+        shapes.contains(ShapeTraits::END_GATEWAY),
     );
     flags.set(
         ShapeFlags::CREATIVE_OVERLAY,
-        record.name.as_ref() == "minecraft:barrier",
+        shapes.contains(ShapeTraits::BARRIER),
     );
-    flags.set(ShapeFlags::LIGHT_BLOCK, is_light(record));
+    flags.set(
+        ShapeFlags::LIGHT_BLOCK,
+        traits.contains(BlockTraits::LIGHT_BLOCK),
+    );
     flags.set(
         ShapeFlags::DRIPSTONE_OFFSET,
-        matches!(
-            record.name.as_ref(),
-            "minecraft:pointed_dripstone" | "minecraft:sulfur_spike"
-        ),
+        traits.contains(BlockTraits::DRIPSTONE_OFFSET),
     );
     flags.set(
         ShapeFlags::PORTAL,
-        record.name.as_ref() == "minecraft:portal",
+        traits.contains(BlockTraits::PORTAL) && !traits.contains(BlockTraits::END_PORTAL),
     );
     flags.set(
         ShapeFlags::CHORUS_CONNECT,
-        matches!(
-            record.name.as_ref(),
-            "minecraft:chorus_plant" | "minecraft:chorus_flower"
-        ),
+        traits.contains(BlockTraits::CHORUS_CONNECT),
     );
     flags.set(
         ShapeFlags::END_STONE,
-        record.name.as_ref() == "minecraft:end_stone",
+        shapes.contains(ShapeTraits::END_STONE),
     );
     flags |= support::flags(record);
-    let mut pick_rule = pick_rule(record);
+    let mut pick_rule = pick_rule(record, shapes);
     let selection = (pick_rule == PickRule::Never)
         .then(|| Box::new([]) as Box<[ShapeBox]>)
         .or_else(|| hopper::selection(record))
         .or_else(|| vessels::selection(record))
         .or_else(|| stairs::selection(record))
-        .or_else(|| piston::selection(record))
+        .or_else(|| piston::selection(record, shapes))
         .or_else(|| scaffolding::selection(record))
         .or_else(|| faces::multiface(record))
         .or_else(|| faces::vine(record))
-        .or_else(|| faces::pale_moss(record))
+        .or_else(|| faces::pale_moss(record, shapes))
         .unwrap_or_else(|| {
-            visual::shape(record)
-                .or_else(|| furnishings::shape(record))
+            visual::shape(record, shapes)
+                .or_else(|| furnishings::shape(record, shapes))
                 .or_else(|| attachments::shape(record))
-                .or_else(|| redstone::shape(record))
-                .or_else(|| plants::shape(record))
-                .or_else(|| selection::shape(record))
+                .or_else(|| redstone::shape(record, shapes))
+                .or_else(|| plants::shape(record, shapes))
+                .or_else(|| selection::shape(record, shapes))
                 .map_or_else(
                     || Box::new([UNIT]) as Box<[ShapeBox]>,
                     |shape| Box::new([shape]) as Box<[ShapeBox]>,
                 )
         });
     if selection.is_empty()
-        && matches!(
-            record.name.as_ref(),
-            "minecraft:glow_lichen"
-                | "minecraft:sculk_vein"
-                | "minecraft:resin_clump"
-                | "minecraft:pale_moss_carpet"
-        )
+        && (traits.contains(BlockTraits::MULTIFACE) || shapes.contains(ShapeTraits::PALE_MOSS))
     {
         pick_rule = PickRule::Never;
     }
-    let (outline, connected_outline, outline_context) = outlines::compile(record);
+    let (outline, connected_outline, outline_context) = outlines::compile(record, shapes);
     let (mut selection_context, contextual_selection) = support::selection(record);
-    if let Some(context) = piston::context(record) {
+    if let Some(context) = piston::context(shapes) {
         selection_context = context;
     }
     output.shapes = Some(CompiledBlockShapes {
         state_identity: state::State::identity(record),
         actor_facing: piston::facing(record),
-        actor_visual: piston::visual(record, &selection),
+        actor_visual: piston::visual(record, &selection, shapes),
         selection,
         selection_context,
         contextual_selection,
@@ -156,37 +158,38 @@ pub fn compile(record: &RegistryRecord, input: &BlockPhysicsRecord) -> BlockPhys
         pick_rule,
         flags,
         door: doors::state(record),
-        flow: flow::facts(record),
+        flow: flow::facts(record, shapes),
         tags: tags::native_block_tags(record),
     });
     output
 }
 
 /// Classifies native eligibility separately from visual or movement geometry.
-fn pick_rule(record: &RegistryRecord) -> PickRule {
-    if is_light(record) {
+fn pick_rule(record: &RegistryRecord, shapes: ShapeTraits) -> PickRule {
+    let traits = record.traits;
+    if traits.contains(BlockTraits::LIGHT_BLOCK) {
         return PickRule::HeldLight;
     }
-    match record.name.as_ref() {
-        "minecraft:ladder" | "minecraft:wall_banner"
-            if state::State::read(record)
-                .and_then(|state| state.number("facing_direction"))
-                .is_some_and(|facing| facing < 2) =>
-        {
-            PickRule::Never
-        }
-        "minecraft:air"
-        | "minecraft:fire"
-        | "minecraft:soul_fire"
-        | "minecraft:invisible_bedrock"
-        | "cinnabar:reserved" => PickRule::Never,
-        "minecraft:water"
-        | "minecraft:flowing_water"
-        | "minecraft:lava"
-        | "minecraft:flowing_lava" => PickRule::LiquidSource,
-        "minecraft:bubble_column" => PickRule::Liquid,
-        "minecraft:portal" => PickRule::Creative,
-        _ => PickRule::Always,
+    if (traits.contains(BlockTraits::LADDER) || shapes.contains(ShapeTraits::WALL_BANNER))
+        && state::State::read(record)
+            .and_then(|state| state.number(BlockProperty::FacingDirection))
+            .is_some_and(|facing| facing < 2)
+    {
+        return PickRule::Never;
+    }
+    if traits.intersects(BlockTraits::AIR | BlockTraits::FIRE)
+        || shapes.contains(ShapeTraits::NEVER_PICK)
+        || record.name.as_ref() == RESERVED_BLOCK_NAME
+    {
+        PickRule::Never
+    } else if shapes.contains(ShapeTraits::BUBBLE_COLUMN) {
+        PickRule::Liquid
+    } else if traits.intersects(BlockTraits::WATER | BlockTraits::LAVA) {
+        PickRule::LiquidSource
+    } else if traits.contains(BlockTraits::PORTAL) && !traits.contains(BlockTraits::END_PORTAL) {
+        PickRule::Creative
+    } else {
+        PickRule::Always
     }
 }
 
@@ -203,13 +206,4 @@ fn collision_box(shape: ShapeBox) -> CollisionBox {
         max_y,
         max_z,
     }
-}
-
-/// Recognizes the sixteen native light classes while compiling their interaction facts.
-fn is_light(record: &RegistryRecord) -> bool {
-    record
-        .name
-        .strip_prefix("minecraft:light_block_")
-        .and_then(|level| level.parse::<u8>().ok())
-        .is_some_and(|level| level <= 15)
 }

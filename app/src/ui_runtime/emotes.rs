@@ -70,6 +70,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
     network: Option<Res<'w, NetworkHandle<PackApplication>>>,
+    movement: Option<ResMut<'w, client_interaction::movement::MovementTicker>>,
 }
 
 /// Runs before chat/menu adapters and before semantic gameplay is finalized.
@@ -169,8 +170,18 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         ) {
             return false;
         }
-        let alt = if pointer_presses.is_empty() {
-            chat_modifiers::alt_held(&input.keys)
+        let macro_matches = |held: &ButtonInput<KeyCode>| {
+            command_macros::command(
+                input.menu.as_deref(),
+                &input.runtime,
+                chat_modifiers::held_chord(held),
+                client_shell::physical_input::mouse_button_code(*button)
+                    .map(semantic_input::PhysicalControl::MouseButton),
+            )
+            .is_some()
+        };
+        let macro_owns_press = if pointer_presses.is_empty() {
+            macro_matches(&input.keys)
         } else {
             pointer_presses
                 .iter()
@@ -180,17 +191,10 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
                     for event in keyboard.iter().take(*before) {
                         chat_modifiers::track(&mut held, event);
                     }
-                    chat_modifiers::alt_held(&held)
+                    macro_matches(&held)
                 })
         };
-        command_macros::command(
-            input.menu.as_deref(),
-            &input.runtime,
-            alt,
-            client_shell::physical_input::mouse_button_code(*button)
-                .map(semantic_input::PhysicalControl::MouseButton),
-        )
-        .is_none()
+        !macro_owns_press
     });
     // An open wheel owns D-pad selection, including the default opening button.
     let navigating =
@@ -221,7 +225,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             && command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
-                chat_modifiers::alt_held(&input.observed.modifiers),
+                chat_modifiers::held_chord(&input.observed.modifiers),
                 client_shell::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
             )
@@ -330,6 +334,8 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             length_ticks,
         )) {
             bevy::log::warn!(?error, "emote start was not admitted to the session queue");
+        } else if let Some(movement) = input.movement.as_deref_mut() {
+            movement.start_emote(length_ticks);
         }
     }
     if let Some(preferences) = input.runtime.emotes_mut().take_preferences()
@@ -360,9 +366,15 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
 pub(crate) fn cancel_emote_from_gameplay(
     semantic: Res<SemanticInputSnapshot>,
     mut runtime: ResMut<UiRuntimeResource>,
+    movement: Option<ResMut<client_interaction::movement::MovementTicker>>,
 ) {
     if should_stop_emote(&semantic) {
         runtime.emotes_mut().stop();
+    }
+    if runtime.emotes().playback().is_none()
+        && let Some(mut movement) = movement
+    {
+        movement.stop_emote();
     }
 }
 

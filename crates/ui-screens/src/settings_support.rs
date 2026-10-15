@@ -40,39 +40,6 @@ fn link_for_key(key: &str) -> Option<SupportLink> {
     }
 }
 
-/// Builds the local-license modal and the matching fallback for the feedback prompt.
-pub(super) fn dialog_model(
-    dialog: SupportDialog,
-    translate: Translate<'_>,
-) -> (json_ui::FormModel, MenuAction) {
-    let words = |key| translated(translate, key, key);
-    let (title, body, button1, button2, confirm) = match dialog {
-        SupportDialog::Help => (
-            words("feedbackPopup.title"),
-            String::new(),
-            words("gui.feedbackYes"),
-            words("gui.no"),
-            MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Help)),
-        ),
-        SupportDialog::FontLicense => (
-            words("options.font_license.name"),
-            launcher::menu::settings_support::font_licenses(),
-            words("gui.close"),
-            words("gui.close"),
-            MenuAction::DismissDialog,
-        ),
-    };
-    (
-        json_ui::FormModel::Modal(json_ui::ModalForm {
-            title,
-            body,
-            button1,
-            button2,
-        }),
-        confirm,
-    )
-}
-
 /// Populates vanilla's three feedback prompt bindings on the actual rating prompt.
 pub fn help_data(data: &mut DataSource, translate: Translate<'_>) {
     data.set_strict(true);

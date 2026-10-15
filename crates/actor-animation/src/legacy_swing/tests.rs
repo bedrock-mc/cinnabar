@@ -1,6 +1,7 @@
 use super::*;
 use crate::tick::WeightedClip;
 use assets::{EntityAnimationProperty, RuntimeEntityAssets};
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 mod frame_tests;
 
@@ -118,7 +119,7 @@ fn sample(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: Default::default(),
         static_draw: None,
     };
     let local = pose::sample_clips(
@@ -218,12 +219,12 @@ fn modern_and_special_postures_keep_the_authored_attack() {
         assert_eq!(sample(context, &actor, 0.5, None)[2].rotation, expected);
     }
     for flag in [
-        query::FLAG_SWIMMING,
-        query::FLAG_BLOCKING,
-        query::FLAG_USING_ITEM,
-        query::FLAG_GLIDING,
-        query::FLAG_CRAWLING,
-        query::FLAG_EMOTING,
+        ActorFlag::Swimming.wire_value(),
+        ActorFlag::Blocking.wire_value(),
+        ActorFlag::UsingItem.wire_value(),
+        ActorFlag::Gliding.wire_value(),
+        ActorFlag::Crawling.wire_value(),
+        ActorFlag::Emoting.wire_value(),
     ] {
         let mut actor = player();
         if flag < 64 {
@@ -232,7 +233,7 @@ fn modern_and_special_postures_keep_the_authored_attack() {
                 .insert(0, ActorMetadataValue::Flags(1u64 << flag));
         } else {
             actor.metadata.insert(
-                crate::test_actor::EXTENDED_FLAGS_METADATA_KEY,
+                ActorDataKey::FlagsTwo.wire_value(),
                 ActorMetadataValue::FlagsExtended(1u64 << (flag - 64)),
             );
         }
@@ -245,27 +246,18 @@ fn modern_and_special_postures_keep_the_authored_attack() {
 
 #[test]
 fn registered_maps_keep_the_authored_attack_in_either_hand() {
-    let items = protocol::vanilla_item_registry();
-    let maps = items
-        .iter()
-        .filter(|item| {
-            matches!(
-                item.identifier.as_ref(),
-                "minecraft:empty_map" | "minecraft:filled_map"
-            )
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(maps.len(), 2);
-    for item in maps {
+    for identifier in ["minecraft:empty_map", "minecraft:filled_map"] {
+        // The full pinned item table, since the creative-only registry omits filled maps.
+        assert!(assets::item::names::serialization_ids(identifier).is_some());
         for off_hand in [false, true] {
             let mut context = ActorTickContext {
                 combat_visuals: CombatVisuals::Legacy112,
                 ..Default::default()
             };
             if off_hand {
-                context.off_hand = Some(item.identifier.clone());
+                context.off_hand = Some(identifier.into());
             } else {
-                context.main_hand = Some(item.identifier.clone());
+                context.main_hand = Some(identifier.into());
             }
             assert_eq!(
                 sample(context, &player(), 0.5, None)[2].rotation,

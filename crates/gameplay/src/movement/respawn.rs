@@ -1,15 +1,28 @@
 //! Spawn search suppresses wire input while preserving the global input clock.
 
-use super::{HeldInput, MovementTicker, PhysicsAuthorityFault, PhysicsMovementSample};
+use super::{
+    HeldInput, LocalPhysicsController, MovementTicker, PhysicsAuthorityFault, PhysicsMovementSample,
+};
 
 impl MovementTicker {
     /// Revoke pre-search commands without installing the pending respawn position.
-    pub fn begin_respawn_search(&mut self) {
+    pub fn begin_respawn_search(&mut self, physics: &mut LocalPhysicsController) {
+        self.discard_respawn_actions(physics);
         self.position_authority_changed();
         self.outbox.clear();
-        self.previous_input = HeldInput::default();
         self.clear_pending_teleport_ack();
         self.refresh_outbox_reconciliation();
+    }
+
+    /// Revokes old-life releases, temporary use state, launches and input transitions.
+    pub(crate) fn discard_respawn_actions(&mut self, physics: &mut LocalPhysicsController) {
+        self.held_release = None;
+        self.admitted_riptide = None;
+        self.written_riptide_tick = None;
+        self.previous_input = HeldInput::default();
+        self.next_tick_flags = protocol::PlayerInputFlags::NONE;
+        self.next_tick_rotation = None;
+        physics.restore_riptide_request(None);
     }
 
     /// Advance the global input clock through a stationary tick without a wire packet.

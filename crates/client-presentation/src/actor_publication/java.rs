@@ -23,9 +23,9 @@ use crate::presentation::{
     },
 };
 
-const BOW: &str = "minecraft:bow";
+const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 const BOW_USE_DURATION: u32 = assets::item_use::LONG_WEAPON_USE_TICKS;
-const FILLED_MAP: &str = "minecraft:filled_map";
+const FILLED_MAP: &str = assets::facts::FILLED_MAP_IDENTIFIER;
 /// Pose bones Java's parts drive, in [`JavaBiped::parts`] order.
 const PART_BONES: [&str; 6] = ["head", "body", "rightarm", "leftarm", "rightleg", "leftleg"];
 const RIGHT_ARM: usize = 2;
@@ -352,8 +352,8 @@ pub(super) fn apply_pose(
 fn death_tilt(mut rows: [[f32; 4]; 3], native_progress: f32, death_ticks: f32) -> [[f32; 4]; 3] {
     let java_progress =
         ((death_ticks - 1.0) / f32::from(client_world::DEATH_DURATION_TICKS) * 1.6).clamp(0.0, 1.0);
-    let angle = (java_progress.sqrt() - native_progress.clamp(0.0, 1.0).sqrt())
-        * std::f32::consts::FRAC_PI_2;
+    let angle =
+        (java_progress.sqrt() - native_progress.clamp(0.0, 1.0)) * std::f32::consts::FRAC_PI_2;
     let (sine, cosine) = angle.sin_cos();
     for row in &mut rows {
         let (x, y) = (row[0], row[1]);
@@ -560,13 +560,13 @@ pub(super) fn hand_source(
         alpha,
         item_animation.as_ref(),
     );
+    let retained_equipment = ActorEquipmentInput {
+        main: main.clone(),
+        ..equipment_input.clone()
+    };
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |identifier| {
         equipment.is_vanilla_attachable(identifier)
     }) {
-        let retained_equipment = ActorEquipmentInput {
-            main: main.clone(),
-            ..equipment_input.clone()
-        };
         let progress = FirstPersonHand {
             swing: hand.swing,
             equip: hand.equip,
@@ -575,6 +575,7 @@ pub(super) fn hand_source(
                 super::hand::local_consume(item_animation.as_ref(), consume_ticks)
                     .or(hand_progress(rig.hand, consume_ticks, alpha).consume)
             },
+            aspect: inputs.aspect,
         };
         let mut source = vanilla_hand_source(
             HandInputs {
@@ -614,7 +615,21 @@ pub(super) fn hand_source(
                 )
             });
         let layer = attachable.flatten().or_else(|| {
-            equipment.first_person_java_item(&inputs.presentation.submission, item, hand)
+            equipment.first_person_java_item_with_use(
+                &inputs.presentation.submission,
+                item,
+                hand,
+                item_animation
+                    .map(|input| {
+                        super::hand::attachable_hand_input(
+                            &retained_equipment,
+                            owner_equipment,
+                            input,
+                            false,
+                        )
+                    })
+                    .unwrap_or_default(),
+            )
         })?;
         let atlas = item_atlas(&layer, artwork)?;
         Some((layer, atlas))

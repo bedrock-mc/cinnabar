@@ -76,6 +76,19 @@ fn only_a_gliding_actor_tilts() {
     assert_eq!(glide_tilted(rows, None), rows);
 }
 
+#[test]
+fn a_spin_uses_view_pitch_and_continuous_actor_age_without_a_glide_blend() {
+    let mut actor = player(
+        [0.0; 3],
+        1 << protocol_ids::ActorFlag::DamageNearbyMobs.wire_value(),
+    );
+    actor.pitch = -30.0;
+    actor.status.age_ticks = 12;
+    assert_eq!(spin_rotation(&actor, 0.5), Some([-60.0, -937.5]));
+    actor.metadata.insert(0, ActorMetadataValue::Flags(0));
+    assert_eq!(spin_rotation(&actor, 0.5), None);
+}
+
 /// The local glide eases from upright to prone, reaching it once ticks plus alpha reach ten.
 #[test]
 fn pitch_tilt_eases_in_over_the_first_ten_gliding_ticks() {

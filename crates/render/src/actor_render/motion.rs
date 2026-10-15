@@ -181,12 +181,12 @@ pub(crate) fn prepare(
     let instances_changed = state.instances.upload(
         device,
         bytemuck::cast_slice(&state.history.instances),
-        |buffer, bytes| queue.write_buffer(buffer, 0, bytes),
+        |buffer, bytes| queue.profiled_write_buffer(buffer, 0, bytes),
     );
     let bones_changed = state.bones.upload(
         device,
         bytemuck::cast_slice(&state.history.bones),
-        |buffer, bytes| queue.write_buffer(buffer, 0, bytes),
+        |buffer, bytes| queue.profiled_write_buffer(buffer, 0, bytes),
     );
     if instances_changed || bones_changed || state.binding.is_none() {
         state.binding = Some(device.create_bind_group(

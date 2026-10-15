@@ -1,8 +1,10 @@
 //! The wolf-only native tail query and dye tint; authored clips retain ownership of the final pose.
-use super::{ActorKind, ActorMetadataValue, AnimatedActor, FLAG_ANGRY, FLAG_TAMED, actor_flag};
+use super::{ActorMetadataValue, AnimatedActor, actor_flag};
+use assets::facts::entity::NativeEntityClass;
+use protocol_ids::{ActorDataKey, ActorFlag};
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) const WOLF_IDENTIFIER: &str = "minecraft:wolf";
-pub(crate) const COLOR_METADATA_KEY: u32 = 3;
 
 // The query admits Wolf (type 0x530e), then reads its tail angle.
 // The result is radians, not a render-frame-interpolated angle.
@@ -15,10 +17,10 @@ pub(super) fn tail_angle(actor: &dyn AnimatedActor) -> f32 {
     if !is_wolf(actor) {
         return 0.0;
     }
-    if actor_flag(actor, FLAG_ANGRY) {
+    if actor_flag(actor, ActorFlag::Angry.wire_value()) {
         return ANGRY_ANGLE;
     }
-    if !actor_flag(actor, FLAG_TAMED) {
+    if !actor_flag(actor, ActorFlag::Tamed.wire_value()) {
         return WILD_ANGLE;
     }
     // A native Wolf always owns HEALTH. Missing/non-finite server attributes cannot
@@ -36,10 +38,10 @@ pub(super) fn tail_angle(actor: &dyn AnimatedActor) -> f32 {
 /// Supplies the wolf's tamed dye tint when its controller inherits actor color.
 /// Other actors and wild wolves retain the neutral multiplier.
 pub(crate) fn default_render_color(actor: &dyn AnimatedActor) -> [f32; 4] {
-    if !is_wolf(actor) || !actor_flag(actor, FLAG_TAMED) {
+    if !is_wolf(actor) || !actor_flag(actor, ActorFlag::Tamed.wire_value()) {
         return [1.0; 4];
     }
-    let index = match actor.metadata().get(&COLOR_METADATA_KEY) {
+    let index = match actor.metadata().get(&ActorDataKey::ColorIndex.wire_value()) {
         Some(ActorMetadataValue::Byte(value)) => *value as u8,
         _ => 0,
     };
@@ -47,7 +49,7 @@ pub(crate) fn default_render_color(actor: &dyn AnimatedActor) -> [f32; 4] {
 }
 
 fn is_wolf(actor: &dyn AnimatedActor) -> bool {
-    matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == WOLF_IDENTIFIER)
+    actor.entity_fact().native_class == NativeEntityClass::Wolf
 }
 
 #[cfg(test)]

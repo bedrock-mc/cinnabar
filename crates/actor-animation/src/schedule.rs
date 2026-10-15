@@ -3,10 +3,7 @@
 //! Generations and the world budget are settled serially; rigs evaluate together only in a run
 //! whose remaining world budget covers each rig's whole actor budget, so none can exhaust it.
 
-use std::{
-    cell::RefCell,
-    sync::{Condvar, Mutex, PoisonError},
-};
+use std::sync::{Condvar, Mutex, PoisonError};
 
 use super::*;
 
@@ -46,11 +43,6 @@ struct Catalogs<'a> {
     pack: Option<(&'a RuntimeEntityAssets, &'a VariableLayout)>,
     tick: u64,
     exempt: Option<u64>,
-}
-
-thread_local! {
-    /// Operand stack reused by every expression this thread runs.
-    static STACK: RefCell<Vec<evaluation::MolangValue>> = const { RefCell::new(Vec::new()) };
 }
 
 impl ActorAnimationStore {
@@ -248,6 +240,49 @@ impl ActorAnimationStore {
             stats,
             starved: None,
         };
+        // A rig back in view first evaluates its previous tick, so its first frame blends. These
+        // warm-ups share a capped slice of the world budget, and one that fails is not retried.
+        let mut warm_failed = Vec::new();
+        if !refresh_view {
+            let mut warm_left = world_left / RESUME_WARMUP_SHARE;
+            for (index, job) in jobs.iter_mut().enumerate().filter(|(_, job)| {
+                job.evaluates() && job.state.culled && job.state.history.len() > 1
+            }) {
+                // The warm-up and the tick's evaluation split the elapsed interval between them.
+                let elapsed = job.context.animation_elapsed_ticks;
+                job.context.animation_elapsed_ticks = Some(elapsed.unwrap_or(1).saturating_sub(1));
+                let latest = job.state.history.pop_back();
+                let previous = Catalogs {
+                    tick: completed_tick.saturating_sub(1),
+                    ..catalogs.view()
+                };
+                let warm_up = (warm_left > 0).then(|| evaluate_job(job, previous, &mut warm_left));
+                job.state.history.extend(latest);
+                match warm_up {
+                    Some(Evaluation {
+                        result: Ok(evaluated),
+                        used,
+                    }) => {
+                        world_left = world_left.saturating_sub(used);
+                        job.outcome = Some(Evaluation {
+                            result: Ok(evaluated),
+                            used,
+                        });
+                        ledger.apply(job);
+                    }
+                    Some(Evaluation { used, .. }) => {
+                        world_left = world_left.saturating_sub(used);
+                        ledger.stats.evaluated_molang_ops = ledger
+                            .stats
+                            .evaluated_molang_ops
+                            .saturating_add(used as u64);
+                        warm_failed.push(index);
+                    }
+                    None => {}
+                }
+                job.context.animation_elapsed_ticks = elapsed.map(|ticks| ticks.min(1));
+            }
+        }
         let mut next = 0;
         while next < jobs.len() {
             // Each rig spends at most its actor budget, so this many fit before the world runs out.
@@ -278,6 +313,9 @@ impl ActorAnimationStore {
                 ledger.apply(job);
             }
             next = end;
+        }
+        for index in warm_failed {
+            jobs[index].state.culled = false;
         }
         let starved = ledger.starved;
         if evaluate && !refresh_view {
@@ -375,6 +413,9 @@ fn culled(
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)
 }
+
+/// Returning rigs' warm-ups spend at most this fraction of the tick's remaining world budget.
+const RESUME_WARMUP_SHARE: usize = 4;
 
 /// Rigs each pool helper must have to itself to repay waking it.
 const RIGS_PER_HELPER: usize = 8;
@@ -529,7 +570,7 @@ fn evaluate_job(
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: STACK.with_borrow_mut(std::mem::take),
+        stack: OperandStack::lease(),
         static_draw: None,
     };
     render::cache_layer_skeletons(assets, state);
@@ -579,7 +620,6 @@ fn evaluate_job(
         state.ui_animation = None;
     }
     let used = budget.used;
-    STACK.set(budget.stack);
     Evaluation { result, used }
 }
 
@@ -690,6 +730,7 @@ impl Ledger<'_> {
         if let Some(next) = evaluated.render_frame.as_mut() {
             if restart {
                 next.previous_rotation = next.motion.input;
+                next.previous_walk = next.motion.input;
             }
             let previous = state.render_frame.as_mut().filter(|_| !restart);
             super::render_frame::carry_motion_history(previous, next, self.advance_history);

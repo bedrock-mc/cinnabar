@@ -165,9 +165,13 @@ fn actors(world: &World) -> Vec<Value> {
         .map(|actor| {
             let distance = Vec3::from_array(actor.position).distance(eye);
             let (kind, name) = match &actor.kind {
-                protocol::ActorKind::Player { username, .. } => {
-                    ("minecraft:player".to_owned(), Some(username.to_string()))
-                }
+                protocol::ActorKind::Player { username, .. } => (
+                    assets::facts::entity::NativeEntityClass::Player
+                        .identifier()
+                        .expect("pinned player identity")
+                        .to_owned(),
+                    Some(username.to_string()),
+                ),
                 protocol::ActorKind::Entity { identifier } => (
                     identifier.to_string(),
                     authority
@@ -238,6 +242,7 @@ fn player_motion(world: &World) -> Option<Value> {
         },
         "selected_item": selected_item,
         "on_ground": state.map(|state| state.on_ground),
+        "spin_attack_ticks": state.and_then(|state| state.spin_attack_ticks),
         "tick": state.map(|state| state.tick),
         "velocity": state.map(|state| [state.velocity.x, state.velocity.y, state.velocity.z]),
         "jump_delay": state.map(|state| state.jump_delay),
@@ -294,6 +299,7 @@ pub(super) fn snapshot(world: &World) -> Value {
 
     json!({
         "in_world": stream.is_some(),
+        "sign_in": menu.map(|menu| menu.sign_in_status().as_str()),
         "immobile": world.get_resource::<client_state::PlayerRuntime>()
             .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),
@@ -306,6 +312,8 @@ pub(super) fn snapshot(world: &World) -> Value {
         "health": health,
         "java_animations": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| settings.feel().java_animations),
+        "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
+            .map(|settings| format!("{:?}", settings.perspective())),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
             "loaded_columns": stream.loaded_column_count(),

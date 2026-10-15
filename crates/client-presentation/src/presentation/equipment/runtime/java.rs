@@ -3,7 +3,7 @@
 
 use bevy::math::Mat4;
 use render_model::java_animation::{
-    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword, is_java_tool,
+    self as java, JavaHand, JavaHeldItem, JavaItemMesh, is_java_sword,
 };
 
 use {
@@ -11,7 +11,7 @@ use {
     render_model::equipment::{ItemDisplay, attach_to_bone},
 };
 
-const BOW: &str = "minecraft:bow";
+const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 
 fn mesh_kind(block: bool) -> JavaItemMesh {
     if block {
@@ -57,7 +57,7 @@ impl EquipmentRuntime {
             JavaHeldItem::Block
         } else if &*item.identifier == BOW {
             JavaHeldItem::Bow
-        } else if is_java_tool(&item.identifier) {
+        } else if item.grip.upright() == Some(true) {
             JavaHeldItem::Tool {
                 rotate_around: item.grip.mirrored_art(),
                 blocking: grip.blocking && is_java_sword(&item.identifier),
@@ -87,6 +87,9 @@ impl EquipmentRuntime {
 
     /// Authored pack attachables and held items Java never had keep their own hand animation.
     pub fn is_vanilla_attachable(&self, identifier: &str) -> bool {
+        if self.uses_native_item_mesh(identifier) {
+            return false;
+        }
         self.binding_source(identifier)
             .and_then(|(catalog, from_pack)| {
                 catalog
@@ -103,7 +106,18 @@ impl EquipmentRuntime {
         item: &WornItem,
         hand: JavaHand,
     ) -> Option<FirstPersonItem> {
-        let (mesh, location, block, span) = self.held_mesh(item, true)?;
+        self.first_person_java_item_with_use(body, item, hand, Default::default())
+    }
+
+    /// Uses native stage artwork with Java's first-person swing and use transforms.
+    pub fn first_person_java_item_with_use(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: JavaHand,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
         let camera = java::first_person_item(hand, mesh_kind(block), item.grip.mirrored_art());
         let rest = [rest_bone([0.0; 3])];
         let poses = self

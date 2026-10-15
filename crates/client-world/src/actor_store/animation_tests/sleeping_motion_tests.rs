@@ -3,12 +3,24 @@ use std::sync::Arc;
 
 use super::super::ActorStore;
 use actor_animation::test_support;
+use assets::MolangOp;
 use protocol::{ActorEvent, ActorKind, ActorMetadataValue, ActorSpawnEvent};
 
 /// Spawns a stationary local player whose render color exposes native walking speed and tick count.
 fn stationary_player() -> ActorStore {
     let mut compiled = test_support::counting_random_compiled("minecraft:player");
-    compiled.molang_symbols[1].identifier = "query.modified_move_speed".into();
+    // Symbols must stay sorted, so the renamed query moves after the fixture's other queries.
+    compiled.molang_symbols[1..5].rotate_left(1);
+    compiled.molang_symbols[4].identifier = "query.modified_move_speed".into();
+    for op in &mut compiled.molang_ops {
+        if let MolangOp::LoadQuery(index) = op {
+            *index = match *index {
+                1 => 4,
+                index @ 2..=4 => index - 1,
+                index => index,
+            };
+        }
+    }
     let assets = Arc::new(
         assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
     );

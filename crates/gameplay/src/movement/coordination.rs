@@ -1,13 +1,13 @@
-use super::{PhysicsAuthorityFault, physics::is_transient_collision_unavailability};
+use super::{PhysicsAuthorityFault, physics::is_retryable_collision_block};
 
-/// Classifies a failed simulation frame without treating pending world data as a fault.
+/// Classifies a failed frame while retaining authority for terrain waits and query limits.
 pub fn physics_authority_fault_for_frame(
     frame: &super::LocalPhysicsFrame,
 ) -> Option<PhysicsAuthorityFault> {
     if frame
         .blocked
         .as_ref()
-        .is_some_and(is_transient_collision_unavailability)
+        .is_some_and(is_retryable_collision_block)
     {
         return None;
     }

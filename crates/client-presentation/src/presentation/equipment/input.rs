@@ -35,6 +35,10 @@ pub(super) fn worn_item(
         return None;
     }
     Some(WornItem {
+        charged_projectile: item
+            .charged_projectile
+            .as_ref()
+            .map(|_| item.charged_projectile_role),
         use_facts,
         grip: item.grip,
         identifier: item.identifier.clone()?,
@@ -47,6 +51,7 @@ pub(super) fn worn_item(
         },
         dye_rgb,
         enchanted: item.enchanted || item.glint.enabled().unwrap_or(false),
+        variant: (&item.identity).into(),
     })
 }
 
@@ -181,6 +186,7 @@ mod tests {
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {
         let item = |identifier: &str| WornItem {
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
             identifier: identifier.into(),
@@ -189,6 +195,7 @@ mod tests {
             kind: HeldKind::Other,
             dye_rgb: None,
             enchanted: false,
+            variant: Default::default(),
         };
         let equipment = ActorEquipmentInput {
             main: Some(item("minecraft:bow")),

@@ -57,6 +57,12 @@ impl Default for Server {
 impl Server {
     /// Processes one admitted control immediately while allowing its reply to be delayed or lost.
     fn send(&mut self, ledger: &mut PlayerInventoryLedger, now: u64, lose_reply: bool) {
+        if ledger.pending_batch().unwrap()
+            == Some((protocol::repeated_container_open_warning_packet(), 1))
+        {
+            assert!(ledger.mark_transport_enqueued(now));
+            return;
+        }
         let Some(request) = ledger.pending_control() else {
             // Non-control traffic, including a world drop, may unblock a close.
             ledger.mark_transport_enqueued(now);
@@ -134,6 +140,13 @@ impl Server {
 
     /// Opens storage independently of an outstanding personal request.
     fn open_storage(&mut self, ledger: &mut PlayerInventoryLedger, window_id: i32) {
+        // Deliver earlier replacement menus before announcing the next server window.
+        while self.replies.iter().any(|reply| {
+            matches!(reply, InventoryEvent::Open(open)
+                if open.window_type == GENERIC_STORAGE_WINDOW_TYPE)
+        }) {
+            self.deliver(ledger);
+        }
         self.storage = Some(window_id);
         ledger.apply(&storage_open(window_id));
     }
@@ -237,6 +250,14 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
         assert_eq!(ledger.controls.storage.confirmed.is_some(), desired_storage);
         assert_eq!(server.personal_open, desired_personal);
         assert_eq!(server.storage.is_some(), desired_storage);
+        assert_eq!(
+            ledger
+                .controls
+                .storage
+                .confirmed
+                .map(|window| window.window_id),
+            server.storage
+        );
 
         ledger.request_personal_close();
         ledger.request_storage_close();
@@ -258,6 +279,39 @@ fn randomized_server_interleavings_converge_and_always_allow_reopening() {
         }
         assert_eq!(server.duplicate_opens, 0);
     }
+}
+
+#[test]
+fn queued_storage_replacement_precedes_a_new_server_window() {
+    let mut ledger = ledger_with_slot_zero();
+    let mut server = Server::default();
+    server.open_storage(&mut ledger, 3);
+    ledger.request_storage_close();
+    server.replace_next_storage_close = true;
+    server.send(&mut ledger, 0, false);
+    server.open_storage(&mut ledger, 4);
+    while !server.replies.is_empty() {
+        server.deliver(&mut ledger);
+    }
+    assert_eq!(
+        ledger
+            .controls
+            .storage
+            .confirmed
+            .map(|window| window.window_id),
+        server.storage
+    );
+    assert_eq!(ledger.storage.as_ref().unwrap().window_id, 4);
+
+    ledger.request_storage_close();
+    let mut now = 0;
+    server.settle(&mut ledger, &mut now);
+    assert!(server.storage.is_none());
+    assert!(ledger.controls.storage.confirmed.is_none());
+    assert!(ledger.request_personal_open(42));
+    server.settle(&mut ledger, &mut now);
+    assert!(server.personal_open);
+    assert_eq!(server.duplicate_opens, 0);
 }
 
 #[test]

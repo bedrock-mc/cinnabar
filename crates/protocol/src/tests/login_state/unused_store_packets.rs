@@ -15,6 +15,14 @@ async fn unused_store_packets_are_counted_without_interrupting_receivers() {
                 ..Script::default()
             })
             .await;
+            // Raw `recv` rejects the scripted out-of-bounds LevelChunk that world ingress skips,
+            // so consume the scripted play traffic before the store packets.
+            while !matches!(
+                session.recv_world_event(0).await.unwrap(),
+                WorldEvent::SetTime(protocol::SetTimeEvent {
+                    time: SCRIPTED_PLAY_END_TIME
+                })
+            ) {}
             core.send_batch(&[
                 Packet::new(ShowStoreOffer::default()),
                 Packet::new(PurchaseReceipt::default()),

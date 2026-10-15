@@ -1,5 +1,6 @@
 //! Retained dimension buckets and transactional dirty-page write planning.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{
         BindGroup, Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
@@ -70,14 +71,14 @@ impl TextureUploadState {
                 identity: catalog.static_identity(),
             });
         }
+        // One plan comparison serves every page; a changed plan rewrites them all.
+        let replanned = self.plan.as_ref().is_none_or(|plan| plan != catalog.plan());
         Ok(catalog
             .pages()
             .iter()
             .enumerate()
             .filter_map(|(index, page)| {
-                (self.plan.as_ref().is_none_or(|plan| plan != catalog.plan())
-                    || self.uploaded.get(index) != Some(&page.identity()))
-                .then_some(index)
+                (replanned || self.uploaded.get(index) != Some(&page.identity())).then_some(index)
             })
             .collect())
     }
@@ -101,7 +102,9 @@ impl TextureUploadState {
         self.uploaded
             .extend(catalog.pages().iter().map(UiTexturePage::identity));
         self.static_identity = Some(catalog.static_identity());
-        self.plan = Some(catalog.plan().clone());
+        if self.plan.as_ref() != Some(catalog.plan()) {
+            self.plan = Some(catalog.plan().clone());
+        }
         Ok(())
     }
 }
@@ -267,7 +270,7 @@ impl UiGpuTextures {
                     page.pixels().len() as u64,
                 );
             }
-            queue.write_texture(
+            queue.profiled_write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
                     mip_level: 0,
@@ -311,9 +314,6 @@ pub(super) fn prepare_ui_bind_group(
     if gpu.accepted_revision.is_none() || &gpu.device != render_device.wgpu_device() {
         return;
     }
-    let viewport = gpu.viewport_buffer.clone();
-    let sampler = gpu.sampler.clone();
-    let linear_sampler = gpu.linear_sampler.clone();
     let changed = gpu.item_glint.prepare(
         &render_device,
         &render_queue,
@@ -331,9 +331,18 @@ pub(super) fn prepare_ui_bind_group(
             );
         });
     }
-    let glint_view = gpu.item_glint.view.clone();
-    let glint_sampler = gpu.item_glint.sampler.clone();
-    for bucket in &mut gpu.textures.buckets {
+    // Disjoint field borrows let unchanged frames skip cloning the shared bindings.
+    let UiGpu {
+        viewport_buffer: viewport,
+        sampler,
+        linear_sampler,
+        item_glint,
+        textures,
+        ..
+    } = &mut *gpu;
+    let (viewport, sampler, linear_sampler) = (&*viewport, &*sampler, &*linear_sampler);
+    let (glint_view, glint_sampler) = (&item_glint.view, &item_glint.sampler);
+    for bucket in &mut textures.buckets {
         if bucket.bind_group.is_some() && !changed {
             continue;
         }
@@ -351,11 +360,11 @@ pub(super) fn prepare_ui_bind_group(
                 },
                 BindGroupEntry {
                     binding: 2,
-                    resource: BindingResource::Sampler(&sampler),
+                    resource: BindingResource::Sampler(sampler),
                 },
                 BindGroupEntry {
                     binding: 3,
-                    resource: BindingResource::Sampler(&linear_sampler),
+                    resource: BindingResource::Sampler(linear_sampler),
                 },
                 BindGroupEntry {
                     binding: 4,
@@ -363,11 +372,11 @@ pub(super) fn prepare_ui_bind_group(
                 },
                 BindGroupEntry {
                     binding: 5,
-                    resource: BindingResource::TextureView(&glint_view),
+                    resource: BindingResource::TextureView(glint_view),
                 },
                 BindGroupEntry {
                     binding: 6,
-                    resource: BindingResource::Sampler(&glint_sampler),
+                    resource: BindingResource::Sampler(glint_sampler),
                 },
             ],
         ));

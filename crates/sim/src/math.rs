@@ -59,12 +59,15 @@ impl Vec3 {
 }
 
 const TRIG_INDEX_SCALE: f32 = 10_430.378;
+/// Smallest direction length accepted by the float normalization guard.
+pub(crate) const MIN_DIRECTION_LENGTH: f32 = 0.0001;
 
 /// Normalizes a ray in float precision, rejecting nonfinite and near-zero directions.
 pub fn normalize_direction(direction: [f32; 3]) -> Option<[f32; 3]> {
     let [x, y, z] = direction;
     let length = (y * y + x * x + z * z).sqrt();
-    (length.is_finite() && length >= 0.0001).then(|| direction.map(|axis| axis / length))
+    (length.is_finite() && length >= MIN_DIRECTION_LENGTH)
+        .then(|| direction.map(|axis| axis / length))
 }
 
 /// Samples the native float table, including float division during initialization.

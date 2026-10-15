@@ -1,12 +1,10 @@
 //! A plain actor double for unit tests; actor authority's own derivations are tested where they live.
+use protocol_ids::{ActorDataKey, ActorFlag};
 use std::{collections::HashMap, sync::Arc};
 
 use protocol::{ActorAttribute, ActorKind, ActorMetadataValue, GameModeUpdate};
 
-use super::{AnimatedActor, query};
-
-pub(super) const EXTENDED_FLAGS_METADATA_KEY: u32 = 92;
-pub(super) const SCALE_METADATA_KEY: u32 = 38;
+use super::AnimatedActor;
 
 #[derive(Clone, Debug)]
 pub(super) struct TestActor {
@@ -14,6 +12,7 @@ pub(super) struct TestActor {
     pub runtime_id: u64,
     pub spawn_revision: u64,
     pub kind: ActorKind,
+    pub entity_fact_override: Option<assets::facts::entity::EntityFact>,
     pub position: [f32; 3],
     pub previous_position: [f32; 3],
     pub velocity: [f32; 3],
@@ -87,6 +86,7 @@ impl Default for TestActor {
             kind: ActorKind::Entity {
                 identifier: "minecraft:test".into(),
             },
+            entity_fact_override: None,
             position: [0.0; 3],
             previous_position: [0.0; 3],
             velocity: [0.0; 3],
@@ -115,6 +115,16 @@ impl TestActor {
 }
 
 impl AnimatedActor for TestActor {
+    fn entity_fact(&self) -> assets::facts::entity::EntityFact {
+        if let Some(fact) = self.entity_fact_override {
+            return fact;
+        }
+        let facts = assets::facts::entity::EntityFacts::pinned();
+        match self.kind() {
+            ActorKind::Player { .. } => facts.player(),
+            ActorKind::Entity { identifier } => facts.get(identifier),
+        }
+    }
     fn runtime_id(&self) -> u64 {
         self.runtime_id
     }
@@ -187,7 +197,7 @@ impl AnimatedActor for TestActor {
         let (key, bit) = if bit < 64 {
             (0, bit)
         } else {
-            (EXTENDED_FLAGS_METADATA_KEY, bit - 64)
+            (ActorDataKey::FlagsTwo.wire_value(), bit - 64)
         };
         matches!(
             self.metadata.get(&key),
@@ -220,7 +230,7 @@ impl AnimatedActor for TestActor {
     }
 
     fn is_using_item(&self) -> bool {
-        self.flag(query::FLAG_USING_ITEM)
+        self.flag(ActorFlag::UsingItem.wire_value())
     }
 
     fn is_dead(&self) -> bool {
@@ -232,7 +242,7 @@ impl AnimatedActor for TestActor {
     }
 
     fn render_scale(&self) -> f32 {
-        match self.metadata.get(&SCALE_METADATA_KEY) {
+        match self.metadata.get(&ActorDataKey::Scale.wire_value()) {
             Some(ActorMetadataValue::Float(scale)) if scale.is_finite() && *scale >= 0.0 => *scale,
             _ => 1.0,
         }

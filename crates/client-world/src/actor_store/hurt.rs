@@ -1,4 +1,6 @@
+use assets::facts::entity::NativeEntityClass;
 use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use protocol_ids::Attribute;
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -8,6 +10,8 @@ pub const HURT_DURATION_TICKS: u8 = render_api::BEDROCK_112.hurt_ticks;
 pub const HURT_OVERLAY_ALPHA: f32 = 0.4;
 /// Ticks a dying actor takes to tip fully over; needs independent measurement.
 pub const DEATH_DURATION_TICKS: u8 = 20;
+/// Squared tip-over fraction gained per death tick after the first.
+const DEATH_TIP_RATE: f32 = 0.08;
 
 /// Ticks a picked-up item presentation takes to reach its collector.
 pub const PICKUP_DURATION_TICKS: u8 = 3;
@@ -134,14 +138,15 @@ impl ActorStatus {
         (self.hurt_time > 0 && !self.skip_red_flash) || self.dead
     }
 
-    /// Death tip-over progress in `0..=1` at `partial_tick`, or `None` while alive.
+    /// Fraction of the 90° death tip-over at `partial_tick`, or `None` while alive.
+    /// It eases out as `√((ticks − 1) · 0.08)` and lands during the fourteenth tick.
     #[must_use]
     pub fn death_progress(&self, partial_tick: f32) -> Option<f32> {
         if !self.dead {
             return None;
         }
         let ticks = f32::from(self.death_time) + partial_tick.clamp(0.0, 1.0);
-        Some((ticks / f32::from(DEATH_DURATION_TICKS)).clamp(0.0, 1.0))
+        Some(((ticks - 1.0).max(0.0) * DEATH_TIP_RATE).sqrt().min(1.0))
     }
 
     pub(super) fn tick(&mut self) {
@@ -203,7 +208,7 @@ impl ActorSnapshot {
 
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
     pub(super) fn sync_status_from_health(&mut self) {
-        let Some(health) = self.attributes.get("minecraft:health") else {
+        let Some(health) = self.attributes.get(Attribute::Health.wire_name()) else {
             return;
         };
         if !health.current.is_finite() {
@@ -247,8 +252,7 @@ impl ActorStore {
                 self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
-                if matches!(&actor.kind, super::ActorKind::Entity { identifier } if identifier.as_ref() == "minecraft:ender_dragon")
-                {
+                if actor.entity_fact.native_class == NativeEntityClass::EnderDragon {
                     actor.status.dead = true;
                     actor.status.dragon_death_time = 1;
                 } else if !actor.status.dead {
@@ -359,6 +363,26 @@ mod tests {
         assert_eq!(status.death_time, DEATH_DURATION_TICKS);
         assert_eq!(status.death_progress(0.9), Some(1.0));
         assert!(status.overlay_active());
+    }
+
+    /// The tip-over starts after one tick, eases out and lies flat from 13.5 ticks.
+    #[test]
+    fn death_tip_over_eases_out_and_lands_mid_fourteenth_tick() {
+        let mut status = ActorStatus::default();
+        status.die();
+        let mut samples = Vec::new();
+        for _ in 0..14 {
+            status.tick();
+            samples.push((status.death_time, status.death_progress(0.5).unwrap()));
+        }
+        for (ticks, progress) in samples {
+            let expected = ((f32::from(ticks) - 0.5).max(0.0) * 0.08).sqrt().min(1.0);
+            assert!(
+                (progress - expected).abs() < 1.0e-6,
+                "tick {ticks}: {progress} vs {expected}"
+            );
+        }
+        assert_eq!(status.death_progress(0.4), Some(1.0));
     }
 
     #[test]

@@ -1,5 +1,7 @@
 //! Client admission, movement rules and production registry carriers.
 
+use assets::facts::block::RESERVED_BLOCK_NAME;
+use assets::facts::rules::{Rule, Scalar};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -11,11 +13,19 @@ use std::{
 };
 
 mod biomes;
+pub mod block_entities;
+mod block_rules;
 mod carriers;
+pub mod entities;
+pub mod events;
 mod format_generated;
+pub mod identities;
+pub mod items;
 mod light;
 mod manifest;
 mod movement;
+mod placement;
+pub mod presentation;
 mod projection;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -53,6 +63,18 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    runtime_identifiers: BTreeMap<String, BTreeMap<String, String>>,
+    presentation: presentation::Rules,
+    entity_compatibility: Vec<String>,
+    entity_rules: Vec<entities::Rule>,
+    model_family_rules: Vec<Rule>,
+    block_rules: Vec<Rule>,
+    placement_rules: Vec<Rule>,
+    block_entity_rules: Vec<block_entities::Rule>,
+    item_rules: Vec<items::ItemRule>,
+    #[serde(default)]
+    visual_events: events::Rules,
+    pack_rules: assets::facts::pack::PackRules,
     twins: BTreeMap<String, Twin>,
     unresolved_retail: Vec<String>,
     movement: Vec<Movement>,
@@ -82,17 +104,21 @@ struct MovementCensus {
     /// Identifiers whose movement classification is not established.
     unresolved: Vec<String>,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Scalar {
-    #[serde(rename = "type")]
-    kind: String,
-    value: serde_json::Value,
-}
-
-const RESERVED: &str = "cinnabar:reserved";
-const POLICY: &[u8] = include_bytes!("../data/registry-policy.json");
+const POLICY: &[u8] = assets::facts::rules::BLOCK_POLICY_BYTES;
 const MAX_INPUT_BYTES: u64 = 128 * 1024 * 1024;
+
+/// Resolves geometry memberships while retaining the decoded block traits.
+pub(crate) fn block_shape_facts(
+    record: &assets::RegistryRecord,
+) -> (
+    assets::registry::BlockTraits,
+    assets::facts::shape::ShapeTraits,
+) {
+    static RULES: std::sync::OnceLock<Policy> = std::sync::OnceLock::new();
+    let policy =
+        RULES.get_or_init(|| serde_json::from_slice(POLICY).expect("valid registry policy"));
+    block_rules::for_record(record, &policy.block_rules)
+}
 
 /// Reads a bounded source export without fetching or changing its catalog.
 pub fn read_facts(path: &Path) -> Result<Facts> {
@@ -182,7 +208,8 @@ pub fn blocks(
     }
     let legacy = assets::read_registry(&read(legacy)?)?;
     let policy: Policy = serde_json::from_slice(POLICY)?;
-    let (records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
+    let (mut records, stats) = projection::project(&facts.blocks, &legacy, &allowed, &policy)?;
+    let expansion = block_rules::compile(&facts.blocks, &mut records, &policy, &legacy)?;
     let encoded = carriers::blocks(facts.protocol, &records)?;
     let lights = light::compile(&records, &facts.blocks)?;
     let light_bytes = carriers::lights(
@@ -193,10 +220,21 @@ pub fn blocks(
         manifest.light.format.as_bytes(),
     )?;
     manifest.projection = stats;
+    manifest.output.format = String::from_utf8(format_generated::REGISTRY_MAGIC.to_vec())?;
     manifest.output.sha256 = digest(&encoded);
     manifest.light.sha256 = digest(&light_bytes);
     manifest::write_blob(out, &encoded, true)?;
     manifest::write_blob(light_out, &light_bytes, true)?;
+    let data = out.parent().ok_or("block output has no parent")?;
+    manifest::write(&data.join("facts-expansion-v2193.tsv"), &expansion)?;
+    manifest::write(
+        &data.join("block-placement-v2193.tsv"),
+        &placement::compile(&facts.blocks, &records, &policy)?,
+    )?;
+    manifest::write(
+        &data.join("vocabulary-v2193.txt"),
+        &block_rules::vocabulary(root, &facts.blocks)?,
+    )?;
     manifest::write_json(report, &manifest)
 }
 
@@ -215,8 +253,17 @@ pub fn physics(
     let bytes = read(breg)?;
     let target: serde_json::Value =
         serde_json::from_slice(&read(&root.join("assets/bedrock-target.json"))?)?;
+    let expected = if let Some(path) = report {
+        let manifest: manifest::BlockManifest = serde_json::from_slice(&read(path)?)?;
+        manifest.output.sha256
+    } else {
+        target["hashes"]["block_registry"]
+            .as_str()
+            .ok_or("missing block registry hash")?
+            .to_owned()
+    };
     check(
-        target["hashes"]["block_registry"].as_str() == Some(digest(&bytes).as_str()),
+        expected == digest(&bytes),
         "pinned protocol-2193 block registry SHA-256 does not match",
     )?;
     if let Some(path) = report {

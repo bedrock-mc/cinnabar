@@ -279,6 +279,9 @@ impl NetworkSession for TraceOrderingFailSession {
         }))
     }
 
+    /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+    async fn drain_to_boundary(&mut self) {}
+
     fn decode_error_count(&self) -> u64 {
         0
     }
@@ -312,6 +315,9 @@ impl NetworkSession for FailingSendSession {
             future::ready(Err("socket write failed"))
         }))
     }
+
+    /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+    async fn drain_to_boundary(&mut self) {}
 
     fn decode_error_count(&self) -> u64 {
         0
@@ -778,7 +784,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             death_rules: protocol::DeathRules::default(),
             packs: (),
             terrain_before_spawn: true,
-            level_identity: 0,
+            level_identity: None,
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),

@@ -3,6 +3,7 @@ use crate::{
     ActorEquipmentSnapshot, RemoteActionSnapshot, RemoteActionStats, item::ActorArmorSnapshot,
 };
 use actor_animation::{ActorAnimationStats, ActorRigSnapshot};
+use protocol_ids::{ActorDataKey, Attribute};
 
 impl ActorStore {
     /// The newest sequence the store applied; it rejects anything at or below it.
@@ -35,7 +36,8 @@ impl ActorStore {
         let name = match &actor.kind {
             ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
             ActorKind::Entity { .. } => {
-                let ActorMetadataValue::String(name) = actor.metadata.get(&NAMETAG_METADATA_KEY)?
+                let ActorMetadataValue::String(name) =
+                    actor.metadata.get(&ActorDataKey::Name.wire_value())?
                 else {
                     return None;
                 };
@@ -49,7 +51,7 @@ impl ActorStore {
     /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
     pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         let actor = self.snapshot_by_unique(unique_id)?;
-        let name = match actor.metadata.get(&NAMETAG_METADATA_KEY) {
+        let name = match actor.metadata.get(&ActorDataKey::Name.wire_value()) {
             Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
             _ => match &actor.kind {
                 ActorKind::Player { username, .. } => std::sync::Arc::clone(username),
@@ -143,7 +145,7 @@ impl ActorStore {
             .actors
             .get(runtime_id)?
             .attributes
-            .get("minecraft:health")?;
+            .get(Attribute::Health.wire_name())?;
         let (current, maximum) = (health.current, health.max);
         if !current.is_finite() || !maximum.is_finite() || maximum <= 0.0 || current < 0.0 {
             return None;
@@ -198,6 +200,11 @@ impl ActorStore {
 
     pub(crate) fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.items.apply_registry(registry)
+    }
+
+    /// Retains the identity of the facts used to resolve item presentation.
+    pub(crate) fn item_presentation_generation(&self) -> &std::sync::Arc<()> {
+        self.items.presentation_generation()
     }
 
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {

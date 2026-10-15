@@ -9,8 +9,6 @@ use actor_animation::ActorLifetimeId;
 const MAX_SOUNDS_PER_ACTOR: usize = 9;
 const FIRE_POSITION_DISTANCE_SQUARED: f32 = 0.25;
 
-/// Wire actor identity that owns the first-tick rocket launch request.
-pub const FIREWORK_ROCKET_IDENTIFIER: &str = "minecraft:fireworks_rocket";
 /// Pack event shared by rocket lifecycle and explicit level-sound routing.
 pub const ROCKET_LAUNCH_EVENT: &str = "launch";
 
@@ -49,8 +47,8 @@ impl ActorStore {
     /// Reserves the spawn's audio admission credit until the rocket's first actor tick.
     pub(super) fn queue_rocket_launch_audio(&mut self, runtime_id: u64) {
         let actor = &self.actors[&runtime_id];
-        if !matches!(&actor.kind, protocol::ActorKind::Entity { identifier }
-            if identifier.as_ref() == FIREWORK_ROCKET_IDENTIFIER)
+        if actor.entity_fact.native_class
+            != assets::facts::entity::NativeEntityClass::FireworksRocket
         {
             return;
         }
@@ -92,7 +90,7 @@ impl ActorStore {
             let previous = self.synchronized_audio.skipped;
             self.synchronized_audio.skipped = previous.saturating_add(1);
             if previous == 0 || self.synchronized_audio.skipped / 64 > previous / 64 {
-                eprintln!(
+                tracing::warn!(
                     "skipped synchronized audio for unavailable actor (total {})",
                     self.synchronized_audio.skipped
                 );

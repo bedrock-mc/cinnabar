@@ -1,5 +1,6 @@
 use super::*;
 use protocol::{ActorEvent, ActorMetadata, ActorMetadataValue, ActorSpawnEvent, NetworkItemStack};
+use protocol_ids::ActorDataKey;
 use std::sync::Arc;
 
 #[test]
@@ -230,11 +231,11 @@ fn spawn_absolute_and_partial_move_keep_feet_and_restore_the_same_native_origin(
     };
     spawn.metadata = Arc::from([
         ActorMetadata {
-            key: super::super::BOUNDING_BOX_WIDTH_METADATA_KEY,
+            key: ActorDataKey::Width.wire_value(),
             value: ActorMetadataValue::Float(0.25),
         },
         ActorMetadata {
-            key: super::super::BOUNDING_BOX_HEIGHT_METADATA_KEY,
+            key: ActorDataKey::Height.wire_value(),
             value: ActorMetadataValue::Float(0.25),
         },
     ]);

@@ -2,6 +2,7 @@ use super::*;
 use crate::pose::quat_from_euler;
 use crate::test_support::scalar;
 use assets::*;
+use protocol_ids::{ActorDataKey, ActorFlag};
 
 fn fixture() -> Arc<RuntimeEntityAssets> {
     Arc::new(RuntimeEntityAssets::from_compiled(crate::test_support::compiled_fixture()).unwrap())
@@ -135,7 +136,7 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
         assert_eq!(state.history.back().unwrap().arm_height, 1.0);
-        assert_eq!(state.equipped_off, context.off_hand);
+        assert_eq!(state.equipped_off.0, context.off_hand);
     }
     context.main_hand = Some(Arc::from("minecraft:dirt"));
     advance_motion(&mut state, &owner, &context, false);
@@ -145,11 +146,11 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
     for expected in [0.6, 0.2] {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
-        assert_eq!(state.equipped_off.as_deref(), Some("minecraft:shield"));
+        assert_eq!(state.equipped_off.0.as_deref(), Some("minecraft:shield"));
     }
     advance_motion(&mut state, &owner, &context, false);
     assert_eq!(state.off_hand_animation[1].arm_height, 0.0);
-    assert_eq!(state.equipped_off, context.off_hand);
+    assert_eq!(state.equipped_off.0, context.off_hand);
     for expected in [0.4, 0.8, 1.0] {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
@@ -167,7 +168,7 @@ fn offhand_equip_clock_starts_low_and_swaps_independently_of_the_main_hand() {
         advance_motion(&mut state, &owner, &context, false);
         assert!((state.off_hand_animation[1].arm_height - expected).abs() < 1e-6);
     }
-    assert!(state.equipped_off.is_none());
+    assert!(state.equipped_off.0.is_none());
     assert!(
         state
             .off_hand_animation
@@ -492,7 +493,7 @@ fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
     let mut runtime = AttachablesRuntime::new(Arc::new(
         RuntimeEntityAssets::from_compiled(compiled).unwrap(),
     ));
-    let key = crate::test_actor::EXTENDED_FLAGS_METADATA_KEY;
+    let key = ActorDataKey::FlagsTwo.wire_value();
     let shield = Some("minecraft:shield");
     for (is_blocking, off_hand, expected) in [
         (false, None, 0.0),
@@ -502,11 +503,14 @@ fn shield_predicate_reads_blocking_metadata_and_both_owner_hands() {
     ] {
         let owner = crate::tests::actor_with_metadata(HashMap::from([
             // Sneak alone never overrides the authoritative q.blocking callback.
-            (0, ActorMetadataValue::Flags(1 << query::FLAG_SNEAKING)),
+            (
+                0,
+                ActorMetadataValue::Flags(1 << ActorFlag::Sneaking.wire_value()),
+            ),
             (
                 key,
                 ActorMetadataValue::FlagsExtended(
-                    u64::from(is_blocking) << (query::FLAG_BLOCKING - 64),
+                    u64::from(is_blocking) << (ActorFlag::Blocking.wire_value() - 64),
                 ),
             ),
         ]));
@@ -827,8 +831,10 @@ fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
     let mut sample = |blocking: bool, off_hand: bool, other_shield: bool| {
         runtime.clear();
         owner.metadata.insert(
-            crate::test_actor::EXTENDED_FLAGS_METADATA_KEY,
-            ActorMetadataValue::FlagsExtended(u64::from(blocking) << (query::FLAG_BLOCKING - 64)),
+            ActorDataKey::FlagsTwo.wire_value(),
+            ActorMetadataValue::FlagsExtended(
+                u64::from(blocking) << (ActorFlag::Blocking.wire_value() - 64),
+            ),
         );
         let mut pose = Vec::new();
         for completed_tick in 1..=4 {

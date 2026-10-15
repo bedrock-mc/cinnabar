@@ -12,7 +12,7 @@ use client_presentation::actor_publication::ActorFramePartialTick;
 use client_presentation::actor_publication::{ActorFrameInput, ActorWorld};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use {
-    crate::runtime::world::ClientWorld,
+    crate::runtime::{shutdown::FatalError, world::ClientWorld},
     client_interaction::movement::{
         LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
     },
@@ -23,6 +23,7 @@ use launcher::menu::settings_options::SettingId;
 /// Projects local damage only after actor ticking, clearing it when the session leaves gameplay.
 pub(crate) fn publish_local_actor_damage(
     world: Res<ClientWorld>,
+    fatal_error: Res<FatalError>,
     mut ui: Option<ResMut<UiRuntimeResource>>,
 ) {
     let Some(ui) = ui.as_deref_mut() else {
@@ -31,7 +32,7 @@ pub(crate) fn publish_local_actor_damage(
     let actor = world
         .stream
         .as_ref()
-        .filter(|_| world.fatal_error.is_none() && world.transfer_notice.is_none())
+        .filter(|_| fatal_error.0.is_none() && world.transfer_notice.is_none())
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
     ui.publish_local_actor_health(actor);
 }
@@ -249,6 +250,21 @@ pub(crate) struct ActorFinalObservations<'w> {
 }
 
 /// Consumes admitted local ticks and builds their final poses with the pre-send capture.
+/// Lets the actor geometry catalog grow to this device's memory-tier budget, within what one
+/// storage binding of its GPU holds.
+pub(crate) fn initialize_actor_geometry_budget(
+    device: Option<Res<bevy::render::renderer::RenderDevice>>,
+    scene: Option<ResMut<render_scene::ActorRenderScene>>,
+) {
+    let (Some(device), Some(mut scene)) = (device, scene) else {
+        return;
+    };
+    scene.set_geometry_budget(
+        resource_pack::subpacks::device_memory_tier(launcher_host::memory::physical_bytes()),
+        render::actor_storage_binding_bytes(&device),
+    );
+}
+
 pub(crate) fn prepare_actor_render_frame(
     observations: ActorFinalObservations,
     params: client_presentation::actor_publication::ActorFramePublication,

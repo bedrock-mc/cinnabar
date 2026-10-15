@@ -167,6 +167,158 @@ pub(crate) mod unix {
         }
     }
 
+    /// Frames read ahead come out of `recv` in order, and reading ahead stops at the byte bound
+    /// and at a terminal message without consuming anything after it.
+    #[tokio::test]
+    async fn read_ahead_keeps_order_and_stops_at_its_bound_and_the_terminal() {
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("read-ahead", &[]).await;
+        let time = |time| {
+            batch_frame(&[Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })])
+            .unwrap()
+        };
+        for frame in [time(1), time(2)] {
+            write_frame(peer, &frame).await;
+        }
+        transport.read_ahead(1).await;
+        assert_eq!(transport.ahead.len(), 1, "the bound stops the read-ahead");
+        let mut transfer = vec![5u8];
+        transfer.extend_from_slice(
+            br#"{"address":"play.example.test","port":19134,"reload_world":false}"#,
+        );
+        write_frame(peer, &transfer).await;
+        write_frame(peer, &time(3)).await;
+        transport.read_ahead(usize::MAX).await;
+        assert_eq!(transport.ahead.len(), 3, "the terminal ends the read-ahead");
+
+        let mut times = Vec::new();
+        for _ in 0..2 {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("both packets precede the terminal")
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("only the written packets arrive")
+            };
+            times.push(time.time.0);
+        }
+        assert_eq!(times, [1, 2]);
+        assert!(matches!(
+            transport.recv().await.unwrap(),
+            Inbound::Terminal(Terminal::Transfer(_))
+        ));
+        assert_eq!(transport.ahead_bytes, 0);
+    }
+
+    /// A single step cannot consume siblings, and another wait shares the current byte charge.
+    #[tokio::test]
+    async fn read_ahead_steps_stage_one_frame_and_share_the_existing_cap() {
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("read-ahead-step", &[]).await;
+        let first = batch_frame(&[Packet::new(SetTime {
+            time: wire::ZigZag32(1),
+        })])
+        .unwrap();
+        let second = batch_frame(&[Packet::new(SetTime {
+            time: wire::ZigZag32(2),
+        })])
+        .unwrap();
+        write_frame(peer, &first).await;
+        write_frame(peer, &second).await;
+        assert!(poll_fn(|cx| transport.poll_read_ahead_one(usize::MAX, cx)).await);
+        assert_eq!(transport.ahead.len(), 1);
+        assert_eq!(transport.ahead_bytes, first.len());
+        assert!(!poll_fn(|cx| transport.poll_read_ahead_one(first.len(), cx)).await);
+        assert_eq!(
+            transport.ahead.len(),
+            1,
+            "a fresh wait cannot reset the shared charge"
+        );
+        assert!(!poll_fn(|cx| transport.poll_read_ahead_one(first.len() + 1, cx)).await);
+        assert_eq!(transport.ahead.len(), 2);
+        assert_eq!(
+            transport.ahead_bytes,
+            first.len() + second.len(),
+            "whole-frame overshoot stays charged"
+        );
+        for expected in [1, 2] {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("packet")
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("time")
+            };
+            assert_eq!(time.time.0, expected);
+        }
+        assert_eq!(transport.ahead_bytes, 0);
+    }
+
+    /// Cancelling an incomplete frame keeps prior frames and the terminal in their original order.
+    #[tokio::test]
+    async fn cancelled_partial_read_ahead_preserves_frames_and_the_terminal() {
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("read-ahead-partial", &[]).await;
+        let first = batch_frame(&[Packet::new(SetTime {
+            time: wire::ZigZag32(1),
+        })])
+        .unwrap();
+        let second = batch_frame(&[Packet::new(SetTime {
+            time: wire::ZigZag32(2),
+        })])
+        .unwrap();
+        write_frame(peer, &first).await;
+        assert!(poll_fn(|cx| transport.poll_read_ahead_one(usize::MAX, cx)).await);
+        peer.write_u32(second.len() as u32).await.unwrap();
+        let split = second.len() / 2;
+        peer.write_all(&second[..split]).await.unwrap();
+        {
+            let mut read = std::pin::pin!(transport.read_ahead(usize::MAX));
+            let waker = noop_waker();
+            assert!(
+                read.as_mut()
+                    .poll(&mut Context::from_waker(&waker))
+                    .is_pending()
+            );
+        }
+        assert_eq!(transport.ahead.len(), 1);
+        assert_eq!(transport.ahead_bytes, first.len());
+        peer.write_all(&second[split..]).await.unwrap();
+        let mut terminal = vec![bridge::contract::KIND_DISCONNECT];
+        terminal.extend_from_slice(
+            br#"{"reason":0,"message":"fixture","filtered_message":"","hide_screen":false}"#,
+        );
+        write_frame(peer, &terminal).await;
+        write_frame(peer, &first).await;
+        transport.read_ahead(usize::MAX).await;
+        assert_eq!(
+            transport.ahead.len(),
+            3,
+            "no frame after the terminal is staged"
+        );
+        for expected in [1, 2] {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("packet")
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("time")
+            };
+            assert_eq!(time.time.0, expected);
+        }
+        assert!(matches!(
+            transport.recv().await.unwrap(),
+            Inbound::Terminal(Terminal::Disconnect(_))
+        ));
+        assert_eq!(transport.ahead_bytes, 0);
+        assert!(matches!(
+            transport.recv().await,
+            Err(SessionError(SessionFailure::ConnectionClosed))
+        ));
+    }
+
     /// A setup message after the handoff is a malformed session, not a packet.
     #[tokio::test]
     async fn setup_messages_after_the_handoff_are_rejected() {

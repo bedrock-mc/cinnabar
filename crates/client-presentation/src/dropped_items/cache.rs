@@ -1,7 +1,11 @@
 //! Bounded CPU models and atlas slots for current item consumers.
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use render_model::{DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS};
+use bevy::platform::collections::HashMap;
+
+use render_model::{
+    DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS, dropped_item::DroppedItemBounds,
+};
 
 mod publication;
 
@@ -72,6 +76,8 @@ struct Resident {
     /// Last frame that wanted this model for speculative animation residency.
     warmed: u64,
     layers: usize,
+    /// Uninspected until a dropped consumer needs bounds; an inspected unknown stays unknown.
+    bounds: Option<Option<DroppedItemBounds>>,
 }
 
 struct RejectedModel {
@@ -98,6 +104,20 @@ fn pixel_cost(model: &DroppedItemModel) -> usize {
 }
 
 impl ModelCache {
+    /// Reuses a successfully admitted model while preserving current-consumer protection.
+    pub(super) fn resident(&mut self, key: &ModelKey) -> Option<u32> {
+        self.request(key);
+        self.index.get(key).map(|slot| *slot as u32)
+    }
+
+    /// Derives bounds once per slot occupant, without inspecting geometry for other consumers.
+    pub(super) fn bounds(&mut self, model: u32) -> Option<DroppedItemBounds> {
+        let entry = self.residents.get_mut(model as usize)?.as_mut()?;
+        *entry
+            .bounds
+            .get_or_insert_with(|| DroppedItemBounds::from_model(&self.models[model as usize]))
+    }
+
     /// Drops models from another session, block texture set or icon generation.
     pub(super) fn sync(
         &mut self,
@@ -325,6 +345,7 @@ impl ModelCache {
             requested: if reclaim { self.frame } else { 0 },
             warmed: if reclaim { 0 } else { self.frame },
             layers: cost,
+            bounds: None,
         });
         self.layers += cost;
         self.pixel_bytes += pixel_bytes;

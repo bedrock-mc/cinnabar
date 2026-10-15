@@ -118,8 +118,15 @@ impl WorldStream {
         // An evicted key's removal ack must not re-enter the map its eviction just pruned.
         if self.resident.contains(&key) || self.known_air.contains(&key) {
             self.applied_mesh_generations.insert(key, generation);
+            // A column that wants no mesh was meshed as a removal.
+            if self.wants_mesh(key.chunk()) {
+                self.withdrawn_meshes.remove(&key);
+            } else {
+                self.withdrawn_meshes.insert(key);
+            }
         } else {
             self.applied_mesh_generations.remove(&key);
+            self.withdrawn_meshes.remove(&key);
         }
         self.revisions.clear_if_current(key, generation);
         self.note_near_drawn(key.chunk());
@@ -303,6 +310,12 @@ impl WorldStream {
         >,
     ) {
         self.authority.set_item_attack_timings(timings)
+    }
+    /// Pending and in-flight mesh job counts, the `pending_mesh_jobs` and `in_flight_mesh_jobs`
+    /// of [`Self::stats`] without its request-queue walks, for per-frame callers.
+    #[must_use]
+    pub fn mesh_job_counts(&self) -> (usize, usize) {
+        (self.mesh_jobs.pending.len(), self.mesh_jobs.in_flight.len())
     }
     pub fn stats(&self) -> WorldStreamStats {
         let completed_decode_results = self

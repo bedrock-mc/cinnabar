@@ -24,6 +24,7 @@ impl CollisionWorld for SurfaceWorld {
                     aabb,
                     block: Some([0, 0, 0]),
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
             identity: boxes.identity,
@@ -187,10 +188,110 @@ fn cobweb_zeroes_post_move_velocity_before_vertical_effect_precedence() {
 }
 
 #[test]
+fn bounce_gravity_uses_the_distance_travelled_before_impact() {
+    for (response, expected) in [
+        (
+            SurfaceResponse::Slime,
+            [0.421_303_93, 0.449_346_15, 0.475_971_67],
+        ),
+        (
+            SurfaceResponse::Bed,
+            [0.298_803_93, 0.326_846_15, 0.353_471_67],
+        ),
+    ] {
+        let world = surface(response);
+        for (gap, expected) in [0.0625, 0.25, 0.4375].into_iter().zip(expected) {
+            let mut state = PlayerState::new(Vec3::new(0.0, 1.0 + gap, 0.0));
+            state.velocity.y = -0.5;
+            let simulator = Simulator::default();
+            let landing = simulator
+                .tick(&mut state, MovementInput::default(), &world)
+                .unwrap();
+            assert!(landing.collisions.y);
+            assert_eq!(landing.position.y, 1.0);
+            assert_eq!(landing.movement.y, -gap);
+            assert!(
+                (landing.velocity.y - expected).abs() <= f64::from(f32::EPSILON),
+                "{response:?}, gap {gap}: expected {expected}, got {}",
+                landing.velocity.y,
+            );
+            let rising = simulator
+                .tick(&mut state, MovementInput::default(), &world)
+                .unwrap();
+            assert!(!rising.collisions.y);
+            assert_eq!(rising.movement.y, landing.velocity.y);
+            assert_eq!(
+                rising.velocity.y,
+                f64::from((landing.velocity.y as f32 - sim::NORMAL_GRAVITY as f32) * 0.98_f32),
+            );
+        }
+    }
+}
+
+#[test]
+fn bounce_gravity_keeps_custom_vertical_drag_and_disabled_gravity() {
+    for (response, rebound, corrected) in [
+        (SurfaceResponse::Slime, 0.5, 0.458_516_48_f32),
+        (SurfaceResponse::Bed, 0.375, 0.333_516_48_f32),
+    ] {
+        for (vertical_physics, expected) in [
+            (
+                sim::VerticalPhysics {
+                    has_gravity: false,
+                    ..Default::default()
+                },
+                rebound,
+            ),
+            (
+                sim::VerticalPhysics {
+                    air_drag_modifier: Some(2.0),
+                    ..Default::default()
+                },
+                f64::from(corrected * 0.96_f32),
+            ),
+        ] {
+            let mut state = PlayerState::new(Vec3::new(0.0, 1.25, 0.0));
+            state.velocity.y = -0.5;
+            let landing = Simulator::default()
+                .tick(
+                    &mut state,
+                    MovementInput {
+                        vertical_physics,
+                        ..Default::default()
+                    },
+                    &surface(response),
+                )
+                .unwrap();
+            assert!((landing.velocity.y - expected).abs() <= f64::from(f32::EPSILON));
+        }
+    }
+}
+
+#[test]
+fn a_bounce_with_negligible_resolved_movement_uses_full_gravity() {
+    for gap in [0.0, f64::from(f32::EPSILON)] {
+        let mut state = PlayerState::new(Vec3::new(0.0, 1.0 + gap, 0.0));
+        state.velocity.y = -0.5;
+        let landing = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput::default(),
+                &surface(SurfaceResponse::Slime),
+            )
+            .unwrap();
+        assert!(landing.collisions.y);
+        assert_eq!(
+            landing.velocity.y,
+            f64::from((0.5_f32 - 0.08_f32) * 0.98_f32)
+        );
+    }
+}
+
+#[test]
 fn slime_and_bed_bounce_while_sneaking_suppresses_both() {
     for (response, expected) in [
-        (SurfaceResponse::Slime, 0.6076),
-        (SurfaceResponse::Bed, 0.4361),
+        (SurfaceResponse::Slime, 0.629_645_7),
+        (SurfaceResponse::Bed, 0.458_145_7),
     ] {
         let mut state = PlayerState::new(Vec3::new(0.0, 1.2, 0.0));
         state.velocity.y = -0.7;
@@ -244,7 +345,7 @@ fn bed_restitution_is_uncapped() {
         )
         .unwrap();
     assert!(tick.collisions.y);
-    assert!((state.velocity.y - 1.3916).abs() <= f64::from(f32::EPSILON));
+    assert!((state.velocity.y - 1.399_424_4).abs() <= f64::from(f32::EPSILON));
 }
 
 #[test]

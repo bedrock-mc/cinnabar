@@ -120,8 +120,7 @@ fn unused_swing_geometry_preserves_body_walking_endpoints() {
             let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
             for layer in &layers {
                 assert_eq!(layer.geometry, None);
-                assert_eq!(*layer.previous_pose.first().unwrap_or(&previous), previous);
-                assert_eq!(*layer.pose.first().unwrap_or(&current), current);
+                super::assert_drawn_root(layer, [previous, current], alpha);
             }
         }
         assert_eq!(store.actor_rig(1).unwrap().completed_tick, completed_tick);
@@ -148,7 +147,8 @@ fn selected_swing_geometry_samples_without_replacing_body_walking_endpoints() {
     store.advance_interpolation_frame(0);
     for alpha in [0.0, 0.25, 0.75] {
         let layers = store.render_frame(alpha).layers(1).unwrap().into_owned();
-        assert!(layers[0].pose.is_empty());
+        // The body samples its walk per frame and still draws what its tick endpoints blend to.
+        super::assert_drawn_root(&layers[0], [previous, current], alpha);
         for layer in &layers[1..] {
             assert_eq!(layer.geometry, Some(1));
             assert_rotation(

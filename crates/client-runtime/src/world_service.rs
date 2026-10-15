@@ -8,7 +8,7 @@ use bevy::{
 use chunk_pipeline::WorldStreamService;
 use render::FrameStart;
 
-/// Runs after every other main schedule; nothing later in the frame reads the stream.
+/// Hands the stream to its worker after the frame's stream readers have finished.
 #[derive(ScheduleLabel, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WorldServiceLaunch;
 
@@ -35,8 +35,8 @@ impl WorldServiceSlot {
     }
 }
 
-/// Orders the hand-off schedules: launch after `after`, which must be the frame's final
-/// schedule, and reclaim after frame timing starts but before `First`.
+/// Launches after `after`, which must follow every stream reader, and reclaims after frame
+/// timing starts but before `First`. The final pacing wait may run while the worker owns it.
 pub fn configure_world_service(app: &mut App, after: impl ScheduleLabel) {
     FrameStart::install(app);
     app.init_schedule(WorldServiceLaunch)

@@ -55,6 +55,9 @@ mod block_entities;
 mod block_events;
 mod cave_visibility;
 mod cohort;
+mod column_bookkeeping;
+use column_bookkeeping::{ColumnOwned, ColumnQueue, ColumnRecords};
+mod column_scan;
 mod column_set;
 mod commit_budget;
 mod connectivity;
@@ -66,6 +69,8 @@ mod dirty;
 mod entity_occlusion;
 mod far_summaries;
 mod full_detail;
+#[cfg(feature = "publication-test-support")]
+pub use far_summaries::FarSummaryFixture;
 pub use far_summaries::{FarColumnSummary, FarSummaryInbox};
 pub use full_detail::FULL_DETAIL_HYSTERESIS_CHUNKS;
 mod helpers;
@@ -92,11 +97,15 @@ mod scheduler;
 mod seasonal_foliage;
 mod sequencing;
 mod service;
+#[cfg(all(test, feature = "tracy"))]
+mod trace_test_support;
 pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
-mod workers;
-pub use workers::{on_idle_world_cores, world_worker_threads};
+pub(crate) mod workers;
+#[cfg(not(target_arch = "wasm32"))]
+pub use workers::on_idle_world_cores;
+pub use workers::world_worker_threads;
 
 use client_world::ingestion::{
     BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
@@ -371,6 +380,8 @@ pub struct WorldStream {
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
     applied_mesh_generations: HashMap<SubChunkKey, u64>,
+    /// Sections whose last acknowledged mesh withdrew them, as past full detail, so none is drawn.
+    withdrawn_meshes: HashSet<SubChunkKey>,
     actor_block_syncs: actor_block_sync::ActorBlockSyncs,
     mesh_dependency_masks: HashMap<SubChunkKey, dirty::RegisteredMeshDependencies>,
     mesh_jobs: scheduler::KeyedJobs<PendingMesh, u64, 2>,
@@ -399,7 +410,7 @@ pub struct WorldStream {
     connectivity: crate::culling::ConnectivityGrid,
     connectivity_generation: u64,
     requests: requests::SubChunkRequests,
-    unsent_column_deadlines: HashMap<ChunkKey, Instant>,
+    unsent_column_deadlines: BTreeMap<ChunkKey, Instant>,
     arrival_cohort: Option<residency::ArrivalCohort>,
     poll_deadline: Option<Instant>,
     /// Test allocation for exercising an expired urgent pass without timing assertions.
@@ -425,6 +436,14 @@ pub struct WorldStream {
     service_window: Duration,
     /// A deferred retention re-evaluation awaits the next poll.
     retention_due: bool,
+    /// Last column visited by the current retention change.
+    retention_cursor: Option<ChunkKey>,
+    /// Maintenance items completed since construction, including interior row skips.
+    maintenance_items: u64,
+    /// Maximum elapsed time of a maintenance item, commit or worker-result acceptance.
+    service_item_max: Duration,
+    /// One maintenance item may progress past the active allocation's deadline.
+    maintenance_guarantee: bool,
     /// This frame poll leaves chunk-data commits to the service.
     chunk_data_offloaded: bool,
     /// Ordered commit steps applied so far, so a poll can report commit progress.

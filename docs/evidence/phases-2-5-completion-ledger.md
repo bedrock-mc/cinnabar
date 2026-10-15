@@ -1,5 +1,29 @@
 # Phases 2-5 Completion Ledger
 
+Settings mod cards now show permission summaries, explicit requested-grant consent
+and a compact customization grid. Capability metadata supplies gameplay warnings;
+batch grant edits preserve the existing registration format and enforcement.
+Owner visual approval and native cross-platform acceptance remain incomplete.
+This changes no broader parity or performance gate.
+
+Single-cell palette edits retain usage counts and patch canonical storage when existing
+indices and width stay valid. Structural changes still rebuild, and equality ignores only
+derived bookkeeping. Regression tests and benchmark fixtures have not been compiled or run;
+broader lazy compaction, output verification and measured performance remain incomplete.
+Single-cell palette edits retain bounded physical slots and live counts while preserving
+canonical palette order. Last-use removal and width shrink defer word packing until an exact
+word view is requested; snapshot-local caches and exact mutation results avoid eager equality
+materialization. Untouched decoded representations, no-ops and snapshot isolation are preserved.
+Memory admission accounts for physical storage, historical slots and possible canonical caches;
+existing process-wide capacity limits are unchanged.
+Regression tests and benchmark fixtures have not been compiled or run. Output verification,
+consumer-cadence, retained-memory and measured performance evidence remain incomplete.
+This change advances no phase completion, parity or hardware performance gate.
+
+Verified chunk blobs now persist through a bounded background store. Restart, corruption,
+miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
+this storage change advances no rendered, live-join or broader parity completion gate.
+
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
@@ -39,6 +63,12 @@ Flight, remote movement/reset, local catch-up and authored-rotation regressions 
 compiled or executed. Rendered-frame validation and the exact Bedrock flap calculation remain
 incomplete. This change closes no parity or performance gate.
 
+Far-summary extraction now has global copied-work admission, a background lane and an
+explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
+sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
+releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
+performance qualification remain incomplete. No phase or performance gate closes here.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |
@@ -74,6 +104,28 @@ incomplete. This change closes no parity or performance gate.
 
 ## P3-MOVEMENT
 
+Riptide releases now carry a level-dependent launch and spin lifetime through fixed ticks,
+correction replay, input start/stop flags and local actor presentation. Charge and admission
+regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
+snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
+release-edge eligibility before waiting for interaction sampling or facing input, including movement
+FIFO backpressure, and retain use slowdown through that tick. An accepted use keeps its facing
+fence while pending inventory gestures hide the selected stack. The first release observation
+retains its selected item, eligibility and effective action facing for the input and launch,
+without replacing later physical look outside that action fence. Release
+sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
+launches survive a snap or replay fallback until their movement input is written, including late
+socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and
+liquid attachment heights from retained eye state. Locomotion selection, travel and replay share
+the preceding spin's compact liquid probe so water sensing also gates glide entry. Respawn search and ready anchors discard old
+releases, temporary use modifiers
+and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
+respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported
+impulses are retired at the
+collision-query budget, a known safety divergence for oversized levels. Exact positional rain eligibility, actor-hit
+termination, server spin metadata, audio and integrated acceptance remain incomplete; this
+change closes no movement parity or performance gate.
+
 Remaining double intermediates in processed controls, block-height contact, support
 offsets, climb requests and fallback travel drag now use f32 operations. Precision
 regressions await CI; full numeric and trajectory parity remains open.
@@ -81,6 +133,10 @@ regressions await CI; full numeric and trajectory parity remains open.
 Spectator regressions cover forced flight without MayFly, solid and unloaded
 terrain traversal, and embedded server anchors. The full native trajectory,
 platform, and performance gates remain open.
+
+Body-contact sampling and retryable query limits now cover fast flight exits.
+The added simulator and controller regressions await CI; live movement and
+performance acceptance remain open.
 
 Server-defined vehicle seats have deterministic coverage for actor-origin conversion,
 yaw, scale, link ordering, updates and removal. Dismount request coverage includes
@@ -170,6 +226,14 @@ and exact native and platform comparison remain open.
 
 ## P4.4-LIVE-ACTOR
 
+Held-sprite edge-mask fixtures include alpha 0/1/2 and 16–128 pixel rasters;
+matched pack frames, authored sword display transforms and first-person face shading
+remain open in `plan.md`.
+
+Full-texture weapon planes use ordinary held-sprite extrusion and stage artwork.
+Focused equipment regressions check contour walls and depth after first- and
+third-person placement. Matched native frames remain open.
+
 Stock wolf texture admission preserves controller-selected adult/baby variants
 and dye-mask alpha bytes. Tamed collar colors follow byte dye metadata and live
 updates. Wet shading, custom-material composition, and exact target-version stock
@@ -215,6 +279,11 @@ Sound engine, session, named playback, local cue and UI sound tests belong to
 `client-audio`; camera publication and actor presentation belong to
 `client-presentation`. App integration tests retain the composed frame-order and
 camera-listener coverage. This ownership change adds no new parity evidence.
+
+The `json_ui::vanilla` contract checks categorized names against the pinned UI
+vocabulary. Screen routing and core form/context consumers use those names;
+remaining controller migrations and stale-name corrections are incomplete.
+This adds no live visual evidence and leaves the UI acceptance gate open.
 
 ## P5.2-HUD
 
@@ -284,6 +353,11 @@ occlusion share rounded intercept distances. CI verification remains pending.
 | Final status | Open |
 
 ## P5.7-PARITY-PERF
+
+Cloud preparation skips hidden geometry, prefetches finite windows on workers and
+retains GPU storage. Regression coverage checks admission frames, exact records,
+bounded caching and buffer reuse. Cold and missed windows still wait for geometry;
+hardware frame-time and capture acceptance remain open.
 
 | Field | Evidence |
 |---|---|
@@ -423,3 +497,10 @@ Window closure and handled SIGINT/SIGTERM cancel unfinished startup and terminat
 later sentinel writes. Panics and native faults remain recoverable. Hardware crash reproduction,
 Android lifecycle and rendered Video acceptance remain incomplete as recorded in `plan.md`.
 No parity or performance completion entry advances.
+
+## Generated block-entity routing
+
+Registry generation now supplies the shared backing and renderer table used by
+block-entity admission, spawner displays, portal scans and visual diagnostics.
+Unsupported and provisional routes remain explicit. This changes no completion
+status; the remaining renderer and live acceptance gates stay open in `plan.md`.

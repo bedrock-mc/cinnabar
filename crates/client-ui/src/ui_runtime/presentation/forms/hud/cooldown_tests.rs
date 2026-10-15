@@ -10,7 +10,10 @@ use ui_screens::hud_renderers::{HudPaint, HudRenderer};
 
 fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
     let mut catalog = Catalog::default();
-    let (namespace, name) = json_ui::CROSSHAIR_SCREEN.split_once('.').unwrap();
+    let (namespace, name) = json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
     catalog.overlay_text(
         "ui/cooldown.json",
         &serde_json::json!({
@@ -50,7 +53,7 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
     let mut next = 1;
     engine
         .render_screen(
-            json_ui::CROSSHAIR_SCREEN,
+            json_ui::vanilla::Reference::HudCrosshairHudCrosshairScreen.as_str(),
             &json_ui::hud_data_source(&json_ui::HudModel {
                 hotbar: vec![json_ui::HudSlot::default(); index + 1],
                 ..Default::default()

@@ -40,19 +40,35 @@ impl PlayerInventoryLedger {
         self.item_registry.as_ref()
     }
 
+    /// Effective facts from the current negotiated item registry.
+    pub fn item_facts(&self) -> &crate::SessionItemFacts {
+        &self.item_facts
+    }
+
     pub fn apply_registry(&mut self, event: &ItemRegistryEvent) {
         let Some(next) = registry_map(event) else {
             return;
         };
+        if self
+            .item_registry
+            .as_ref()
+            .is_some_and(|previous| previous.as_ref() == &next)
+        {
+            return;
+        }
+        let Ok(pinned) = assets::facts::ItemFacts::builtin() else {
+            return;
+        };
+        let Some(facts) = crate::SessionItemFacts::from_registry(pinned, event) else {
+            return;
+        };
+        let facts = std::sync::Arc::new(facts);
         let Some(previous) = self.item_registry.as_ref() else {
             self.item_registry = Some(std::sync::Arc::new(next));
+            self.item_facts = facts;
             self.refresh_fuel_facts();
             return;
         };
-        if previous.as_ref() == &next {
-            return;
-        }
-
         let affected_cells = self.registry_affected_cells(previous, &next);
         let affected_requests: Vec<i32> = self
             .queue
@@ -67,8 +83,8 @@ impl PlayerInventoryLedger {
                         registry_identity_changed(previous, &next, network_id)
                             || (pending.predicted.iter().any(|prediction| {
                                 matches!(prediction.cell, Cell::Armor(_) | Cell::Offhand)
-                            }) && (equipment_admission(previous.get(&network_id))
-                                != equipment_admission(next.get(&network_id))
+                            }) && (equipment_admission(&self.item_facts, network_id)
+                                != equipment_admission(&facts, network_id)
                                 || previous.get(&network_id).and_then(entry_capacity)
                                     != next.get(&network_id).and_then(entry_capacity)))
                             || (pending.registry_bound_merge
@@ -82,6 +98,7 @@ impl PlayerInventoryLedger {
             self.mark_cell_recovery(cell);
         }
         self.item_registry = Some(std::sync::Arc::new(next));
+        self.item_facts = facts;
         self.refresh_fuel_facts();
         self.retire_rerouted_quick_moves();
         self.refold();
@@ -212,6 +229,14 @@ fn effective_merge_binding(entry: Option<&ItemRegistryEntry>) -> Option<(&str, O
 /// DataDriven entries use component capacities even for known names. Other entries keep
 /// the known item's capacity, or use the component flag for an unknown name.
 pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
+    entry_capacity_with_base(entry, protocol::vanilla_item_capacity(&entry.identifier, 0))
+}
+
+/// Resolves negotiated capacity using a caller's admitted base capacity.
+pub(crate) fn entry_capacity_with_base(
+    entry: &ItemRegistryEntry,
+    vanilla: Option<u8>,
+) -> Option<u8> {
     let components = entry.components.as_deref();
     if components.is_some_and(|components| components.stack_capacity_ambiguous)
         || (components.is_none() && !entry.canonical_empty_component_data)
@@ -219,7 +244,6 @@ pub(super) fn entry_capacity(entry: &ItemRegistryEntry) -> Option<u8> {
         // Ambiguous or unavailable facts do not prove that capacity declarations were absent.
         return None;
     }
-    let vanilla = protocol::vanilla_item_capacity(&entry.identifier, 0);
     let item_properties = components.is_some_and(|components| components.item_properties_declared);
     let stack_component =
         components.is_some_and(|components| components.max_stack_size_component_declared);

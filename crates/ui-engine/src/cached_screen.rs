@@ -231,6 +231,6 @@ impl CachedScreen {
     pub fn nodes(&self) -> &[json_ui::DrawNode] {
         self.laid
             .as_ref()
-            .map_or(&[], |laid| laid.render.nodes.as_slice())
+            .map_or(&[], |laid| laid.render.nodes.as_ref())
     }
 }

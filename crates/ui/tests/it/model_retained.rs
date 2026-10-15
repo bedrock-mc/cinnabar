@@ -289,6 +289,60 @@ fn changing_only_a_viewport_clip_refreshes_cached_descendants() {
 }
 
 #[test]
+fn mesh_batch_limit_counts_only_emitted_meshes() {
+    let viewport = viewport();
+    let source = mesh(0.0);
+    for visible in [
+        0,
+        UiLimits::MAX_DRAW_BATCHES,
+        UiLimits::MAX_DRAW_BATCHES + 1,
+    ] {
+        let mut nodes =
+            vec![UiNode::new(id(1), None, rect(0.0, 0.0, 0.0, 0.0)).with_clip_children(true)];
+        nodes.extend((0..=UiLimits::MAX_DRAW_BATCHES).map(|index| {
+            let node = UiNode::new(
+                id(u32::try_from(index + 2).unwrap()),
+                Some(id(1)),
+                rect(0.0, 0.0, 10.0, 10.0),
+            )
+            .with_visual(UiVisual::Mesh(Arc::clone(&source)));
+            if index < visible {
+                node.with_viewport_clip(viewport)
+            } else {
+                node
+            }
+        }));
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
+            .unwrap();
+        let retained = RetainedDraw::build(
+            &nodes,
+            viewport,
+            UiScale::default(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        );
+        for result in [
+            tree.build_draw_list(),
+            retained.map(|draw| draw.draw_list().clone()),
+        ] {
+            if visible <= UiLimits::MAX_DRAW_BATCHES {
+                let draw = result.unwrap();
+                assert_eq!(draw.batches.len(), visible);
+                assert_eq!(draw.vertices.len(), visible * 3);
+                assert_eq!(draw.indices.len(), visible * 3);
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(UiError::DrawBatchLimitExceeded { actual, limit })
+                        if actual == visible && limit == UiLimits::MAX_DRAW_BATCHES
+                ));
+            }
+        }
+    }
+}
+
+#[test]
 fn retained_builds_preserve_the_full_build_clip_depth_limit() {
     for depth in [UiLimits::MAX_CLIP_DEPTH, UiLimits::MAX_CLIP_DEPTH + 1] {
         let nodes: Vec<_> = (0..depth * 2)
@@ -423,6 +477,57 @@ fn an_unchanged_frame_emits_nothing() {
     let mut draw = retained(&nodes);
     let update = redraw(&mut draw, &nodes).expect("same shape");
     assert_eq!(update, ui::DrawUpdate::default());
+}
+
+#[test]
+fn obfuscated_text_is_emitted_again_for_each_seed_like_a_full_build() {
+    let font = font();
+    let pool = ui::ObfuscationGlyphs::from_catalog(&font);
+    let mut nodes = hud(&font);
+    nodes[3] =
+        UiNode::new(id(4), Some(id(1)), rect(0.0, 20.0, 40.0, 30.0)).with_visual(UiVisual::Text {
+            layout: text(&font, "§kAB§rA"),
+            color: [255; 4],
+            shadow: TextShadow::Offset64(64),
+        });
+    let scale = UiScale::new(2.0).unwrap();
+    let effects = |seed| TextEffects {
+        palette: None,
+        obfuscation_seed: seed,
+        obfuscation: Some(&pool),
+    };
+    let full_at = |seed| {
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport(), scale, SafeArea::ZERO).unwrap();
+        tree.build_draw_list_with(effects(seed)).unwrap()
+    };
+    let mut draw =
+        RetainedDraw::build(&nodes, viewport(), scale, SafeArea::ZERO, effects(0)).unwrap();
+    let mut last = nodes.clone();
+    let mut rebuilt = false;
+    for seed in 1..64 {
+        let update = draw
+            .update(
+                &mut last,
+                &nodes,
+                viewport(),
+                scale,
+                SafeArea::ZERO,
+                effects(seed),
+            )
+            .expect("§k text keeps the retained list");
+        assert_eq!(update.emitted, 1, "only the §k label is emitted again");
+        rebuilt |= update.rebuilt;
+        let expected = full_at(seed);
+        let actual = draw.draw_list();
+        assert_eq!(actual.vertices, expected.vertices, "seed {seed}");
+        assert_eq!(actual.indices, expected.indices, "seed {seed}");
+        assert_eq!(actual.batches, expected.batches, "seed {seed}");
+    }
+    assert!(
+        rebuilt,
+        "some seed moves a scrambled glyph to the other page"
+    );
 }
 
 #[test]

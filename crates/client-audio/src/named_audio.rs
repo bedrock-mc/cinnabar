@@ -179,6 +179,13 @@ impl NamedAudio {
             }
         }
     }
+    /// Keeps admitted sources cancellable until opening completes, then submits or retires them.
+    fn flush_device(&mut self, device: &mut AudioDevice) {
+        if !device.is_opening() {
+            self.flush(|source| device.submit(source));
+        }
+    }
+
     fn flush(&mut self, mut submit: impl FnMut(CancelablePcm) -> bool) {
         for slot in 0..VOICE_LIMIT {
             if let Some(source) = self.pending[slot].take() {
@@ -224,12 +231,14 @@ pub fn drain_live_named_audio(
     {
         state.cancel_all();
     }
-    let available = device.as_mut().is_some_and(|value| value.available());
+    let available = device
+        .as_mut()
+        .is_some_and(|value| value.is_opening() || value.available());
     for event in messages.read() {
         state.event(event, camera, available);
     }
     if let Some(device) = device.as_mut() {
-        state.flush(|source| device.submit(source));
+        state.flush_device(device);
     } else {
         state.cancel_all();
     }

@@ -1090,3 +1090,87 @@ fn an_older_tracked_change_never_replaces_a_newer_one() {
         "a new session restarts generations"
     );
 }
+
+#[test]
+fn main_queue_retained_priorities_follow_replacements_and_session_reset() {
+    let mut app = App::new();
+    app.add_plugins(bevy::MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(1));
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let second = SubChunkKey::new(0, 1, 0, 0);
+    {
+        let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+        queue
+            .try_insert(
+                first,
+                solid_test_mesh(),
+                render_scene::ChunkUploadPriority::new(1.0),
+            )
+            .unwrap();
+        queue
+            .try_insert(
+                second,
+                solid_test_mesh(),
+                render_scene::ChunkUploadPriority::new(2.0),
+            )
+            .unwrap();
+    }
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ChunkEntities>()
+            .0
+            .contains_key(&first)
+    );
+    assert!(
+        !app.world()
+            .resource::<ChunkEntities>()
+            .0
+            .contains_key(&second)
+    );
+    {
+        let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+        queue
+            .try_insert(
+                second,
+                solid_test_mesh(),
+                render_scene::ChunkUploadPriority::urgent(),
+            )
+            .unwrap();
+        queue
+            .try_insert(
+                first,
+                solid_test_mesh(),
+                render_scene::ChunkUploadPriority::new(0.0),
+            )
+            .unwrap();
+    }
+    app.update();
+    assert!(
+        app.world()
+            .resource::<ChunkEntities>()
+            .0
+            .contains_key(&second)
+    );
+    assert!(
+        app.world()
+            .resource::<ChunkRenderQueue>()
+            .pending
+            .contains_key(&first)
+    );
+    {
+        let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
+        queue.reset_session();
+        queue
+            .try_insert(
+                second,
+                solid_test_mesh(),
+                render_scene::ChunkUploadPriority::new(3.0),
+            )
+            .unwrap();
+    }
+    app.update();
+    let entities = &app.world().resource::<ChunkEntities>().0;
+    assert_eq!(entities.len(), 1);
+    assert!(entities.contains_key(&second));
+}

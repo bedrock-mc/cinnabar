@@ -1,20 +1,14 @@
 use super::{ActorKind, ActorSnapshot};
 
 impl ActorSnapshot {
+    /// Returns the horse-family behavior cached at admission.
     pub(crate) fn is_horse(&self) -> bool {
-        matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-            "minecraft:horse" | "minecraft:donkey" | "minecraft:mule" |
-            "minecraft:zombie_horse" | "minecraft:skeleton_horse"))
+        self.entity_fact.horse
     }
 
-    /// Built-in living mount types; an unclassified custom entity stays on its own yaw path.
+    /// Returns the living-mount disposition cached at admission.
     pub fn is_known_living_mount(&self) -> bool {
-        self.is_horse()
-            || matches!(self.kind, ActorKind::Player { .. })
-            || matches!(&self.kind, ActorKind::Entity { identifier } if matches!(identifier.as_ref(),
-                "minecraft:pig" | "minecraft:llama" | "minecraft:trader_llama" |
-                "minecraft:camel" | "minecraft:camel_husk" | "minecraft:strider" |
-                "minecraft:happy_ghast"))
+        matches!(self.kind, ActorKind::Player { .. }) || self.entity_fact.living_mount
     }
 }
 

@@ -26,19 +26,19 @@ pub struct DialStrip {
 /// Every dial item the icon carrier bakes frames for.
 pub const DIAL_STRIPS: [DialStrip; 3] = [
     DialStrip {
-        item: "minecraft:compass",
+        item: crate::facts::VanillaItem::Compass.identifier(),
         kind: DialKind::Compass,
         strip_path: "textures/items/compass_atlas.png",
         frames_identifier: "minecraft:compass_atlas",
     },
     DialStrip {
-        item: "minecraft:recovery_compass",
+        item: crate::facts::VanillaItem::RecoveryCompass.identifier(),
         kind: DialKind::RecoveryCompass,
         strip_path: "textures/items/recovery_compass_atlas.png",
         frames_identifier: "minecraft:recovery_compass_atlas",
     },
     DialStrip {
-        item: "minecraft:clock",
+        item: crate::facts::VanillaItem::Clock.identifier(),
         kind: DialKind::Clock,
         strip_path: "textures/items/watch_atlas.png",
         frames_identifier: "minecraft:watch_atlas",

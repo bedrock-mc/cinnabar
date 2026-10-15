@@ -38,6 +38,7 @@ mod actors;
 mod biomes;
 mod block_events;
 mod block_identities;
+pub use block_identities::PreparedBlockIdentities;
 mod combat;
 mod commits;
 mod contracts;
@@ -71,9 +72,7 @@ pub use contracts::{
     CommittedUiEvent, PublisherViewGeometry, ViewCohort,
 };
 pub use map_data::MapImage;
-pub use movement_attribute::{
-    AIR_DRAG_MODIFIER_ATTRIBUTE, MovementSpeedAttribute, SPRINT_SPEED_MODIFIER_ID,
-};
+pub use movement_attribute::MovementSpeedAttribute;
 pub use sign_edit::SignEditRequest;
 
 static NEXT_BIOME_TINT_STREAM_ID: AtomicU64 = AtomicU64::new(1);

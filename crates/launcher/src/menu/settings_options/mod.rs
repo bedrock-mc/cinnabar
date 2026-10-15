@@ -11,6 +11,7 @@ pub mod graphics_api;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
+pub mod macro_modifier;
 pub mod persistence;
 pub mod render_distance;
 pub mod reset;
@@ -83,6 +84,9 @@ pub struct SettingsOptions {
     #[serde(skip)]
     render_distance_defaults: ui::RenderDistanceDefaults,
     keys: BTreeMap<String, u16>,
+    /// Layout labels observed this session, independent of persisted bindings.
+    #[serde(skip)]
+    key_labels: BTreeMap<u16, String>,
     language: Option<String>,
     /// None means no macro command has been stored yet.
     command_macros: Option<[Option<String>; COMMAND_MACRO_COUNT]>,
@@ -100,6 +104,7 @@ impl Default for SettingsOptions {
             anti_aliasing_support: ui::AntiAliasingSupport::default(),
             render_distance_defaults: ui::RenderDistanceDefaults::default(),
             keys: BTreeMap::new(),
+            key_labels: BTreeMap::new(),
             language: None,
             command_macros: None,
             emote_slots: None,

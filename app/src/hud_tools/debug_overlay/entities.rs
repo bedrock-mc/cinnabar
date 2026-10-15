@@ -38,7 +38,9 @@ pub(super) fn append_target_entity(
     };
     lines.right.push("Targeted Entity:");
     let identifier = match &actor.kind {
-        protocol::ActorKind::Player { .. } => "minecraft:player",
+        protocol::ActorKind::Player { .. } => assets::facts::entity::NativeEntityClass::Player
+            .identifier()
+            .expect("pinned player identity"),
         protocol::ActorKind::Entity { identifier } => identifier.as_ref(),
     };
     lines.right.push(identifier);

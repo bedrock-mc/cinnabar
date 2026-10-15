@@ -108,6 +108,79 @@ fn a_different_map_under_the_same_identity_starts_a_fresh_namespace() {
     );
 }
 
+/// A reused server identity cannot establish a map match from columns it never cached.
+#[test]
+fn missing_terrain_non_overlapping_probes_do_not_show_another_world() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let ghost = ColumnPos::new(100, 100);
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    first.admit(0, ghost, flat(80).encode(), now);
+    let previous = first.namespace();
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    second.enter_world(SERVER, 42, 0);
+    for x in 200..200 + WORLD_PROBE_COLUMNS as i32 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_eq!(reload(&mut second, ghost, now), None);
+    assert_ne!(second.namespace(), previous);
+}
+
+/// Shared spawn terrain cannot authorize reuse when the server supplies no world identity.
+#[test]
+fn uncertain_world_does_not_reuse_matching_spawn_columns() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let ghost = ColumnPos::new(100, 100);
+    let mut first = cache(root.path());
+    first.begin_uncertain_visit(SERVER, 0);
+    for x in 0..WORLD_PROBE_COLUMNS as i32 {
+        first.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    first.sync();
+    first.poll(now);
+    first.admit(0, ghost, flat(80).encode(), now);
+    let previous = first.namespace();
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    second.begin_uncertain_visit(SERVER, 0);
+    for x in 0..WORLD_PROBE_COLUMNS as i32 {
+        second.admit(0, ColumnPos::new(x, 0), flat(64).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_eq!(reload(&mut second, ghost, now), None);
+    assert_ne!(second.namespace(), previous);
+}
+
+/// Without disk matching, late work from an earlier visit cannot identify the current map.
+#[test]
+fn memory_only_retirement_does_not_show_the_previous_world() {
+    let now = Instant::now();
+    let mut cache = FarTerrainCache::new(FarTerrainConfig::default(), None, 0);
+    cache.begin_uncertain_visit(SERVER, 0);
+    let previous = cache.retire_session().unwrap();
+    cache.begin_uncertain_visit(SERVER, 0);
+    let ghost = ColumnPos::new(100, 100);
+    cache.persist(previous, [(ghost, flat(80).encode())], now);
+    assert!(!cache.store().contains(ghost));
+
+    let current = cache.retire_session().unwrap();
+    cache.persist(current, [(ghost, flat(90).encode())], now);
+    assert_eq!(
+        cache.store().summary(ghost).map(Result::unwrap),
+        Some(flat(90))
+    );
+}
+
 #[test]
 fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
     let root = tempfile::tempdir().unwrap();
@@ -293,7 +366,11 @@ fn leaving_before_resolution_writes_the_columns() {
     assert_eq!(first.namespace(), None);
     leave(&mut first);
 
-    join(&mut first, 64, now);
+    first.enter_world(SERVER, 42, 0);
+    first.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    first.poll(now + WORLD_PROBE_TIMEOUT);
+    first.sync();
+    first.poll(now + WORLD_PROBE_TIMEOUT);
     assert_eq!(reload(&mut first, pos, now), Some(flat(90)));
 }
 
@@ -403,7 +480,11 @@ fn late_summaries_of_an_unresolved_world_are_written() {
     cache.poll(now);
     leave(&mut cache);
 
-    join(&mut cache, 64, now);
+    cache.enter_world(SERVER, 42, 0);
+    cache.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    cache.poll(now + WORLD_PROBE_TIMEOUT);
+    cache.sync();
+    cache.poll(now + WORLD_PROBE_TIMEOUT);
     assert_eq!(reload(&mut cache, pos, now), Some(flat(90)));
 }
 
@@ -503,4 +584,167 @@ fn late_columns_probe_before_reusing_a_cached_epoch() {
     let mut later = self::cache(root.path());
     join(&mut later, 64, now);
     assert_eq!(later.namespace(), Some(cached), "the first map is intact");
+}
+
+/// Two lobbies under one identity whose probe area matches: the second's live columns
+/// differ from what the first cached, so its visit drops the cached map and takes a new epoch.
+#[test]
+fn a_cached_map_that_differs_from_live_terrain_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    let shared = first.namespace().unwrap();
+    for x in 300..=305 {
+        first.admit(0, ColumnPos::new(x, 0), flat(70).encode(), now);
+    }
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    join(&mut second, 64, now);
+    assert_eq!(second.namespace(), Some(shared), "the probe area matched");
+    assert_eq!(
+        reload(&mut second, ColumnPos::new(305, 0), now),
+        Some(flat(70))
+    );
+    for x in 300..=303 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    assert!(
+        !second.store().contains(ColumnPos::new(305, 0)),
+        "the other lobby's terrain is no longer shown"
+    );
+    assert_eq!(
+        second
+            .store()
+            .summary(ColumnPos::new(300, 0))
+            .map(Result::unwrap),
+        Some(flat(20))
+    );
+    second.sync();
+    second.poll(now);
+    let fresh = second.namespace().expect("a fresh epoch");
+    assert_ne!(fresh, shared);
+}
+
+/// Cached columns stay off screen until the visit's namespace is resolved from live probes.
+#[test]
+fn nothing_cached_shows_before_the_namespace_resolves() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    store_on_disk(root.path(), ColumnPos::new(300, 0), 70, now);
+    let mut cache = cache(root.path());
+    cache.enter_world(SERVER, 42, 0);
+    cache.admit(0, ColumnPos::new(0, 0), flat(64).encode(), now);
+    cache.set_focus(ColumnPos::new(300, 0), 4);
+    cache.sync();
+    cache.poll(now);
+    assert_eq!(cache.namespace(), None);
+    assert!(!cache.store().contains(ColumnPos::new(300, 0)));
+}
+
+/// A transfer to the same address starts a fresh visit: nothing from the last one stays.
+#[test]
+fn a_new_visit_to_the_same_world_starts_empty() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut cache = cache(root.path());
+    join(&mut cache, 64, now);
+    cache.admit(0, ColumnPos::new(300, 0), flat(70).encode(), now);
+    cache.begin_visit(SERVER, 42, 0);
+    assert!(cache.store().is_empty());
+    assert_eq!(cache.namespace(), None, "resolved again from new probes");
+}
+
+/// When a visit turns out to be another map, what it already wrote moves to its fresh epoch,
+/// so its visited terrain stays cached for it and leaves the other map's epoch.
+#[test]
+fn a_diverged_visit_keeps_what_it_already_wrote() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut first = cache(root.path());
+    join(&mut first, 64, now);
+    for x in 300..=305 {
+        first.admit(0, ColumnPos::new(x, 0), flat(70).encode(), now);
+    }
+    leave(&mut first);
+    drop(first);
+
+    let mut second = cache(root.path());
+    join(&mut second, 64, now);
+    let shared = second.namespace().unwrap();
+    assert_eq!(
+        reload(&mut second, ColumnPos::new(305, 0), now),
+        Some(flat(70))
+    );
+    let visited = ColumnPos::new(500, 0);
+    second.admit(0, visited, flat(33).encode(), now);
+    second.flush_all();
+    second.sync();
+    second.poll(now);
+    for x in 300..=303 {
+        second.admit(0, ColumnPos::new(x, 0), flat(20).encode(), now);
+    }
+    second.sync();
+    second.poll(now);
+    assert_ne!(second.namespace(), Some(shared));
+    leave(&mut second);
+    drop(second);
+
+    let mut later = self::cache(root.path());
+    join(&mut later, 64, now);
+    assert_ne!(
+        later.namespace(),
+        Some(shared),
+        "the fresh epoch matches first"
+    );
+    assert_eq!(reload(&mut later, visited, now), Some(flat(33)));
+}
+
+/// A full region arrives over several polls without exceeding the column admission limit.
+#[test]
+fn full_region_completions_are_spread_across_polls() {
+    use far_terrain::{REGION_SIDE, config::SUMMARY_COLUMNS_PER_UPDATE};
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let mut writer = cache(root.path());
+    join(&mut writer, 64, now);
+    let encoded = flat(80).encode();
+    for z in 0..REGION_SIDE {
+        for x in 0..REGION_SIDE {
+            writer.admit(
+                0,
+                ColumnPos::new(10 * REGION_SIDE + x, z),
+                encoded.clone(),
+                now,
+            );
+        }
+    }
+    leave(&mut writer);
+    drop(writer);
+    let mut reader = cache(root.path());
+    join(&mut reader, 64, now);
+    let before = reader.store().len();
+    reader.set_focus(
+        ColumnPos::new(10 * REGION_SIDE + REGION_SIDE / 2, REGION_SIDE / 2),
+        1,
+    );
+    reader.sync();
+    reader.poll(now);
+    assert_eq!(reader.store().len() - before, SUMMARY_COLUMNS_PER_UPDATE);
+    let mut previous = reader.store().len();
+    for _ in 0..REGION_SIDE * REGION_SIDE {
+        reader.poll(now);
+        let current = reader.store().len();
+        assert!(current - previous <= SUMMARY_COLUMNS_PER_UPDATE);
+        previous = current;
+        if current == before + (REGION_SIDE * REGION_SIDE) as usize {
+            break;
+        }
+    }
+    assert_eq!(
+        reader.store().len(),
+        before + (REGION_SIDE * REGION_SIDE) as usize
+    );
 }

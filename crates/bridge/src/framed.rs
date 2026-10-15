@@ -4,16 +4,24 @@ use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
-use bytes::{Bytes, BytesMut};
-use futures::{Sink, SinkExt, Stream};
-use tokio::sync::{mpsc, oneshot};
-use tokio_util::codec::{Decoder, Encoder, Framed, FramedRead, FramedWrite, LengthDelimitedCodec};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+#[cfg(not(target_arch = "wasm32"))]
+use futures::Sink;
+use futures::{SinkExt, Stream};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio_util::codec::Framed;
+use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use crate::BridgeError;
-use crate::endpoint::{PlatformReadHalf, PlatformStream, PlatformWriteHalf};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::endpoint::{PlatformReadHalf, PlatformStream};
+#[cfg(target_arch = "wasm32")]
+use tokio::io::Empty as PlatformReadHalf;
 
-pub(crate) struct BridgeCodec {
-    inner: LengthDelimitedCodec,
+/// Shared u32 big-endian framing, with payload bounds checked before assembly grows.
+pub struct BridgeCodec {
     expected_payload: Option<usize>,
     maximum: usize,
 }
@@ -24,17 +32,9 @@ impl BridgeCodec {
         Self::with_max(crate::MAX_FRAME_LEN)
     }
 
-    pub(crate) fn with_max(maximum: usize) -> Self {
-        let inner = LengthDelimitedCodec::builder()
-            .big_endian()
-            .length_field_offset(0)
-            .length_field_type::<u32>()
-            .length_adjustment(0)
-            .num_skip(4)
-            .max_frame_length(maximum)
-            .new_codec();
+    /// Creates a codec that admits only nonempty payloads up to `maximum` bytes.
+    pub fn with_max(maximum: usize) -> Self {
         Self {
-            inner,
             expected_payload: None,
             maximum,
         }
@@ -54,15 +54,15 @@ impl Decoder for BridgeCodec {
             let length = length as usize;
             validate_frame_length(length, self.maximum)?;
             self.expected_payload = Some(length);
+            source.advance(4);
         }
 
-        match self.inner.decode(source).map_err(BridgeError::Io)? {
-            Some(frame) => {
-                self.expected_payload = None;
-                Ok(Some(frame.freeze()))
-            }
-            None => Ok(None),
+        let length = self.expected_payload.expect("validated header");
+        if source.len() < length {
+            return Ok(None);
         }
+        self.expected_payload = None;
+        Ok(Some(source.split_to(length).freeze()))
     }
 
     fn decode_eof(&mut self, source: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -90,9 +90,13 @@ impl Encoder<Bytes> for BridgeCodec {
 
     fn encode(&mut self, item: Bytes, destination: &mut BytesMut) -> Result<(), Self::Error> {
         validate_frame_length(item.len(), self.maximum)?;
-        self.inner
-            .encode(item, destination)
-            .map_err(BridgeError::Io)
+        let length = u32::try_from(item.len()).map_err(|_| BridgeError::FrameTooLarge {
+            length: item.len(),
+            maximum: u32::MAX as usize,
+        })?;
+        destination.put_u32(length);
+        destination.extend_from_slice(&item);
+        Ok(())
     }
 }
 
@@ -107,10 +111,12 @@ fn validate_frame_length(length: usize, maximum: usize) -> Result<(), BridgeErro
 }
 
 /// A local byte stream framed as unsigned 32-bit big-endian payloads.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct FramedStream {
     inner: Framed<PlatformStream, BridgeCodec>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl FramedStream {
     pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
         Self {
@@ -125,15 +131,38 @@ const QUEUED_FRAMES: usize = 16;
 /// Splits a fresh stream so a spawned writer task owns its write half.
 ///
 /// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
+    let (reader, frames, writer) = crate::tasks::prepare_connection(read, write, maximum);
+    tokio::spawn(writer);
+    (reader, frames)
+}
+
+/// Builds the shared framing task without choosing a host executor or stream implementation.
+pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    read: R,
+    write: W,
+    maximum: usize,
+) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
+    prepare_bounded(read, write, maximum, None)
+}
+
+/// Keeps byte permits until flush, admitting a frame larger than the budget alone.
+pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+    read: R,
+    write: W,
+    maximum: usize,
+    budget: Option<usize>,
+) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
+    assert!(budget.is_none_or(|bytes| bytes > 0 && bytes <= u32::MAX as usize));
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
     let failure = Arc::new(OnceLock::new());
-    tokio::spawn(write_queued_frames(
+    let writer = write_queued_frames(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),
-    ));
+    );
     (
         FramedReader {
             inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
@@ -142,16 +171,19 @@ pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, F
             frames,
             failure,
             maximum,
+            budget: budget.map(|bytes| (Arc::new(Semaphore::new(bytes)), bytes)),
         },
+        writer,
     )
 }
 
-/// The read half of a queued game connection.
-pub struct FramedReader {
-    inner: FramedRead<PlatformReadHalf, BridgeCodec>,
+/// The read half of a queued game connection. Browser callers supply their reader type;
+/// native callers use the default socket read half.
+pub struct FramedReader<R = PlatformReadHalf> {
+    inner: FramedRead<R, BridgeCodec>,
 }
 
-impl Stream for FramedReader {
+impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     type Item = Result<Bytes, BridgeError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -162,6 +194,7 @@ impl Stream for FramedReader {
 struct QueuedFrame {
     frame: Bytes,
     written: oneshot::Sender<Result<(), String>>,
+    bytes: Option<OwnedSemaphorePermit>,
 }
 
 /// Queues whole frames for one connection's writer task; every clone shares one bounded FIFO.
@@ -170,6 +203,7 @@ pub struct FrameQueue {
     frames: mpsc::Sender<QueuedFrame>,
     failure: Arc<OnceLock<String>>,
     maximum: usize,
+    budget: Option<(Arc<Semaphore>, usize)>,
 }
 
 /// Resolves once an accepted frame has been flushed to the socket.
@@ -202,13 +236,27 @@ impl FrameQueue {
     /// Waits for queue capacity, then accepts `frame`; the returned future tracks its write.
     pub async fn accept(&self, frame: Bytes) -> Result<FrameWritten, BridgeError> {
         validate_frame_length(frame.len(), self.maximum)?;
+        let bytes = if let Some((semaphore, budget)) = &self.budget {
+            Some(
+                Arc::clone(semaphore)
+                    .acquire_many_owned(frame.len().min(*budget) as u32)
+                    .await
+                    .map_err(|_| writer_stopped(&self.failure))?,
+            )
+        } else {
+            None
+        };
         let permit = self
             .frames
             .reserve()
             .await
             .map_err(|_| writer_stopped(&self.failure))?;
         let (written, receiver) = oneshot::channel();
-        permit.send(QueuedFrame { frame, written });
+        permit.send(QueuedFrame {
+            frame,
+            written,
+            bytes,
+        });
         Ok(FrameWritten {
             written: receiver,
             failure: Arc::clone(&self.failure),
@@ -230,20 +278,21 @@ fn broken_pipe(reason: &str) -> BridgeError {
 
 /// Writes queued frames in order, coalescing whatever is already queued into one flush, and
 /// acknowledges each frame only after that flush.
-async fn write_queued_frames(
-    mut writer: FramedWrite<PlatformWriteHalf, BridgeCodec>,
+async fn write_queued_frames<W: AsyncWrite + Unpin>(
+    mut writer: FramedWrite<W, BridgeCodec>,
     mut frames: mpsc::Receiver<QueuedFrame>,
     failure: Arc<OnceLock<String>>,
 ) {
     let mut pending = Vec::with_capacity(QUEUED_FRAMES);
     while let Some(first) = frames.recv().await {
         let mut written = writer.feed(first.frame).await;
-        pending.push(first.written);
+        pending.push((first.written, first.bytes));
         while written.is_ok()
+            && pending.len() < QUEUED_FRAMES
             && let Ok(next) = frames.try_recv()
         {
             written = writer.feed(next.frame).await;
-            pending.push(next.written);
+            pending.push((next.written, next.bytes));
         }
         let flushed = match written {
             Ok(()) => writer.flush().await,
@@ -253,7 +302,7 @@ async fn write_queued_frames(
         if let Err(reason) = &result {
             let _ = failure.set(reason.clone());
         }
-        for written in pending.drain(..) {
+        for (written, _bytes) in pending.drain(..) {
             let _ = written.send(result.clone());
         }
         if result.is_err() {
@@ -262,6 +311,7 @@ async fn write_queued_frames(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Stream for FramedStream {
     type Item = Result<Bytes, BridgeError>;
 
@@ -270,6 +320,7 @@ impl Stream for FramedStream {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Sink<Bytes> for FramedStream {
     type Error = BridgeError;
 
@@ -617,5 +668,16 @@ mod tests {
         let mut wire = BytesMut::new();
 
         assert!(codec.decode_eof(&mut wire).expect("clean EOF").is_none());
+    }
+    #[test]
+    fn declared_payload_does_not_allocate_before_bytes_arrive() {
+        let mut header = BytesMut::from(&(MAX_FRAME_LEN as u32).to_be_bytes()[..]);
+        assert!(
+            BridgeCodec::with_max(MAX_FRAME_LEN)
+                .decode(&mut header)
+                .unwrap()
+                .is_none()
+        );
+        assert!(header.capacity() < MAX_FRAME_LEN);
     }
 }

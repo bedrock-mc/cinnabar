@@ -11,6 +11,8 @@ use protocol::{
 use super::{UiPresentationRuntime, UiRuntime, fixture_font};
 use crate::ui_runtime::presentation::publish::capture_hud_frame;
 
+mod empty_ack;
+
 #[test]
 fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
     let mut player = player_state::PlayerState::new(1);
@@ -106,4 +108,119 @@ fn server_menu_title_keeps_actor_formatting_and_clears_empty_names() {
         assert_eq!(text.custom_title.as_deref(), expected);
         assert_eq!(text.title.as_deref(), expected);
     }
+}
+
+#[test]
+fn server_menu_default_zero_descriptor_draws_chest_cells() {
+    assert_rendered_chest(0, "server-chest-default-descriptor", false);
+}
+
+#[test]
+fn repeated_chest_open_keeps_the_rendered_chest_screen() {
+    assert_rendered_chest(20, "server-chest-retried-open", false);
+}
+
+#[test]
+fn server_menu_delivery_ack_keeps_the_menu_open() {
+    assert_rendered_chest(1, "server-chest-delivery-ack", true);
+}
+
+fn assert_rendered_chest(retries: u64, snapshot_name: &str, require_delivery_ack: bool) {
+    use crate::ui_runtime::presentation::{forms, inventory_pointer::InventoryScreen};
+    let Some(mut presentation) =
+        crate::test_support::engine_presentation_with(forms::pack_harness::font())
+    else {
+        eprintln!(
+            "skipping server_menu_default_zero_descriptor_draws_chest_cells: missing local UI carrier; make assets"
+        );
+        return;
+    };
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    let open = ContainerOpenEvent {
+        container: ContainerIdentity::window(4),
+        window_type: protocol::WINDOW_TYPE_CONTAINER,
+        position: [0, 64, 0],
+        runtime_entity_id: -1,
+    };
+    for (sequence, event) in [
+        InventoryEvent::Open(open),
+        InventoryEvent::Content(InventoryContentEvent {
+            container: ContainerIdentity {
+                window_id: Some(4),
+                slot_type: Some(0),
+                dynamic_id: Some(0),
+            },
+            slots: vec![
+                NetworkItemStack::empty();
+                inventory::inventory_ledger::LARGE_STORAGE_SLOT_COUNT
+            ]
+            .into(),
+            storage_item: NetworkItemStack::empty(),
+        }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        runtime
+            .enqueue_inventory_event(&mut player, 1, sequence as u64 + 1, event)
+            .unwrap();
+    }
+    runtime.drain_pending_inventory(&mut player);
+    for retry in 0..retries {
+        runtime
+            .enqueue_inventory_event(&mut player, 1, retry + 3, InventoryEvent::Open(open))
+            .unwrap();
+    }
+    runtime.drain_pending_inventory(&mut player);
+    // A menu dispatcher closes a window whose delivery was never acknowledged.
+    if require_delivery_ack
+        && runtime.inventory_ledger(&player).pending_batch().unwrap()
+            != Some((protocol::repeated_container_open_warning_packet(), 1))
+    {
+        runtime
+            .enqueue_inventory_event(
+                &mut player,
+                1,
+                retries + 3,
+                InventoryEvent::Close(protocol::ContainerCloseEvent {
+                    container: open.container,
+                    window_type: open.window_type,
+                    server_initiated: true,
+                }),
+            )
+            .unwrap();
+        runtime.drain_pending_inventory(&mut player);
+    }
+    for now in [0, 500] {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                now,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+    }
+    let input = presentation
+        .build(
+            &player,
+            &runtime,
+            5_000,
+            [1280, 720],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    forms::snapshot::write(&input, snapshot_name);
+    let screen = InventoryScreen::of_runtime(&player, &runtime);
+    assert_eq!(
+        screen,
+        InventoryScreen::Storage(inventory::inventory_ledger::LARGE_STORAGE_SLOT_COUNT)
+    );
+    let frame = presentation.engine_container_frame().unwrap();
+    let last = frame.hits.iter().find(|hit| {
+        hit.collection.as_deref() == Some("container_items") && hit.collection_index == Some(53)
+    });
+    assert!(last.is_some(), "the last chest cell remains interactive");
 }

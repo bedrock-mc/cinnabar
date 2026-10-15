@@ -196,3 +196,92 @@ async fn review_transfer_after_reserving_the_last_world_slot_does_not_deadlock()
     ));
     task.await.unwrap();
 }
+
+/// An inbound backlog the pump has not read yet, ending in a Transfer the session retains only
+/// once that backlog is read, as a core that closed after the Transfer leaves it.
+struct BehindInboundSession {
+    inbound: VecDeque<WorldEvent>,
+    transfer: Option<protocol::ServerTransferEvent>,
+    retained: Option<protocol::ServerTransferEvent>,
+    reached: Option<oneshot::Sender<()>>,
+}
+
+impl NetworkSession for BehindInboundSession {
+    type Error = &'static str;
+    type Outbound = PacketOutbound<&'static str>;
+
+    async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
+        if let Some(event) = self.inbound.pop_front() {
+            return Ok(event);
+        }
+        self.retained = self.transfer.take();
+        if let Some(reached) = self.reached.take() {
+            let _ = reached.send(());
+        }
+        Err("session boundary")
+    }
+
+    fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
+        Ok(PacketOutbound::new(|_| future::ready(Err("broken pipe"))))
+    }
+
+    fn decode_error_count(&self) -> u64 {
+        0
+    }
+
+    fn take_server_transfer(&mut self) -> Option<protocol::ServerTransferEvent> {
+        self.retained.take()
+    }
+}
+
+/// A write that fails because the core closed after a Transfer still ends the session as
+/// transferred, even while unread world packets sit ahead of that Transfer.
+#[tokio::test]
+async fn a_failed_write_behind_an_unread_transfer_still_transfers() {
+    let (world_tx, mut world_events) = mpsc::channel(1);
+    let (commands, command_rx) = mpsc::channel(COMMAND_CAPACITY);
+    let (control_tx, mut controls) = mpsc::channel(CONTROL_EVENT_CAPACITY);
+    let (_shutdown, shutdown_rx) = watch::channel(false);
+    let (reached, boundary) = oneshot::channel();
+    let task = tokio::spawn(run_network_pump(
+        BehindInboundSession {
+            inbound: (0..8).map(WorldEvent::ChunkRadiusUpdated).collect(),
+            transfer: Some(transferred(transfer_target())),
+            retained: None,
+            reached: Some(reached),
+        },
+        NetworkSequencer::new(SessionGeneration::new(7), 0, 42),
+        command_rx,
+        control_tx,
+        world_tx,
+        shutdown_rx,
+    ));
+    // The full world queue keeps the pump from reading the backlog itself.
+    world_events
+        .recv()
+        .await
+        .expect("the first event is published");
+    commands
+        .send(NetworkCommand::Send {
+            packet: test_packet(),
+            sub_chunk: None,
+            chat: None,
+            physics: None,
+            physics_reanchor: None,
+            interaction: None,
+        })
+        .await
+        .unwrap();
+    commands.send(NetworkCommand::FlushFrame).await.unwrap();
+    tokio::select! {
+        reached = boundary => reached.expect("the drain reached the Transfer"),
+        event = controls.recv() => panic!("the write failure masked the Transfer: {event:?}"),
+    }
+    let drained = tokio::spawn(async move { while world_events.recv().await.is_some() {} });
+    let Some(NetworkControlEvent::Transferred { target, .. }) = controls.recv().await else {
+        panic!("the session must end as transferred");
+    };
+    assert_eq!(target, transfer_target());
+    task.await.unwrap();
+    drained.await.unwrap();
+}

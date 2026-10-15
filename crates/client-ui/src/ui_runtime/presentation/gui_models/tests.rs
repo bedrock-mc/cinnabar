@@ -163,6 +163,7 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
         &BTreeSet::new(),
         player,
         models,
+        super::modulated,
     );
     assert_eq!(builds.get(), 0, "no node shows the preview");
     assert!(
@@ -177,6 +178,7 @@ fn the_player_preview_mesh_is_built_only_for_a_shown_preview() {
         &BTreeSet::new(),
         player,
         models,
+        super::modulated,
     );
     assert_eq!(builds.get(), 1, "one build serves every preview node");
     assert!(

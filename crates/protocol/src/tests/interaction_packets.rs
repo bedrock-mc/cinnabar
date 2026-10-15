@@ -13,6 +13,55 @@ use sha2::{Digest, Sha256};
 
 /// Dismount carries the vehicle identity and rider origin, including unsigned runtime IDs.
 #[test]
+fn item_attack_uses_zero_face_and_preserves_air_use_and_aim_fields() {
+    for on_cooldown in [false, true] {
+        let request = held_request();
+        let position = request.player_position;
+        let direction = [0.25, -0.5, 1.0];
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+            decoded_transaction(
+                protocol::use_item_as_attack_packet(request, direction, on_cooldown).unwrap(),
+            )
+        else {
+            panic!("expected item use");
+        };
+        assert_eq!(
+            transaction.action_type,
+            ItemUseInventoryTransactionActionType::UseAsAttack
+        );
+        assert_eq!(transaction.face.0, 0);
+        assert_eq!(transaction.position, Default::default());
+        assert_eq!(transaction.target_block_id.0, 0);
+        assert_eq!(
+            transaction.trigger_type,
+            ItemUseInventoryTransactionTriggerType::Unknown
+        );
+        assert_eq!(transaction.from_position.to_array(), position);
+        assert_eq!(
+            transaction.click_position.to_array(),
+            std::array::from_fn::<_, 3, _>(|axis| position[axis] + direction[axis])
+        );
+        assert_eq!(
+            transaction.client_cooldown_state,
+            if on_cooldown {
+                ItemUseInventoryTransactionClientCooldownState::On
+            } else {
+                ItemUseInventoryTransactionClientCooldownState::Off
+            }
+        );
+        assert_eq!(transaction.slot.0, i32::from(held_request().selected_slot));
+        let InventoryTransactionPacketData::ItemUseInventoryTransaction(air) =
+            decoded_transaction(click_air_packet(held_request(), None).unwrap())
+        else {
+            panic!("expected air use");
+        };
+        assert_eq!(air.face.0, u8::MAX);
+        assert_eq!(transaction.item, air.item);
+        assert!(transaction.actions.actions.is_empty());
+    }
+}
+
+#[test]
 fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
     use bedrock_protocol_1_26_51::enums::InteractAction;
     let position = [1.0, -2.0, 3.0];
@@ -205,12 +254,28 @@ fn assert_builder_matches_fixture(fixture: &'static [u8], request: BlockUseReque
     assert_eq!(encoded.as_ref(), fixture);
 }
 
-fn assert_destroy_builder_matches_fixture(fixture: &'static [u8], request: BlockUseRequest) {
+/// Destroy keeps the fixture's stack and pose, but clears fields used only for placement.
+fn assert_destroy_builder_clears_placement_fields(
+    fixture: &'static [u8],
+    request: BlockUseRequest,
+) {
+    let mut expected = decode_one(fixture, PacketId::InventoryTransaction);
+    let packets::Packet::InventoryTransaction(packet) = &mut *expected.data else {
+        panic!("expected inventory transaction");
+    };
+    let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
+        &mut packet.transaction
+    else {
+        panic!("expected item-use transaction");
+    };
+    transaction.trigger_type = ItemUseInventoryTransactionTriggerType::Unknown;
+    transaction.click_position = [0.0; 3].into();
+    transaction.target_block_id = wire::VarUInt(0);
     let mut built = destroy_block_packet(request).expect("valid destroy-block request");
     built.header.from_subclient = 1;
     built.header.to_subclient = 2;
     let encoded = encode(&built).expect("encode builder packet");
-    assert_eq!(encoded.as_ref(), fixture);
+    assert_eq!(encoded, encode(&expected).expect("encode expected destroy"));
 }
 
 #[test]
@@ -251,10 +316,10 @@ fn empty_hand_click_block_fixture_cross_decodes_and_builder_matches_exactly() {
 }
 
 #[test]
-fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
+fn destroy_block_decoding_retains_placement_fields_but_builder_clears_them() {
     let filled = decode_one(DESTROY_BLOCK, PacketId::InventoryTransaction);
     assert_block_use_constants(&filled, ItemUseInventoryTransactionActionType::Destroy);
-    assert_destroy_builder_matches_fixture(
+    assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK,
         BlockUseRequest {
             block_position: [24, 68, -41],
@@ -269,7 +334,7 @@ fn destroy_block_fixtures_cross_decode_and_build_byte_exactly() {
 
     let empty = decode_one(DESTROY_BLOCK_EMPTY_HAND, PacketId::InventoryTransaction);
     assert_block_use_constants(&empty, ItemUseInventoryTransactionActionType::Destroy);
-    assert_destroy_builder_matches_fixture(
+    assert_destroy_builder_clears_placement_fields(
         DESTROY_BLOCK_EMPTY_HAND,
         BlockUseRequest {
             block_position: [-17, 92, 6],

@@ -38,7 +38,10 @@ mod tests {
 
     #[test]
     fn changed_screen_context_rejects_prepared_policies() {
-        let (namespace, name) = json_ui::HUD_SCREEN.split_once('.').unwrap();
+        let (namespace, name) = json_ui::vanilla::Reference::HudHudScreen
+            .as_str()
+            .split_once('.')
+            .unwrap();
         let definition = serde_json::to_vec(&serde_json::json!({
             "namespace":namespace,
             name:{"type":"screen", "absorbs_input":"$capture"}
@@ -61,7 +64,7 @@ mod tests {
             prepared
                 .for_inputs(&catalog, &context)
                 .unwrap()
-                .get(json_ui::HUD_SCREEN)
+                .get(json_ui::vanilla::Reference::HudHudScreen.as_str())
                 .unwrap()
                 .absorbs_input
         );
@@ -69,7 +72,7 @@ mod tests {
         assert!(prepared.for_inputs(&catalog, &changed).is_none());
         assert!(
             !ScreenSettingsTable::for_catalog(&catalog, &changed)
-                .get(json_ui::HUD_SCREEN)
+                .get(json_ui::vanilla::Reference::HudHudScreen.as_str())
                 .unwrap()
                 .absorbs_input
         );

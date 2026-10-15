@@ -11,7 +11,11 @@ use super::UseSurroundings;
 /// The Nether's non-glowstone retry at an already-selected spawn needs spawn
 /// authority that the client does not yet retain; the server resolves it.
 pub(super) fn uses_block(surroundings: &UseSurroundings) -> bool {
-    if surroundings.held_block_identifier.as_deref() == Some("minecraft:glowstone") {
+    if surroundings
+        .held
+        .traits
+        .contains(assets::registry::BlockTraits::GLOWSTONE)
+    {
         return true;
     }
     let Some(state) = surroundings
@@ -21,7 +25,7 @@ pub(super) fn uses_block(surroundings: &UseSurroundings) -> bool {
     else {
         return false;
     };
-    let charge = &state["respawn_anchor_charge"];
+    let charge = &state[assets::facts::BlockProperty::RespawnAnchorCharge.name()];
     charge
         .as_i64()
         .or_else(|| charge["value"].as_i64())

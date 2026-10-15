@@ -125,12 +125,12 @@ pub fn load_optional_language(
         _ => None,
     };
     match &loaded {
-        Some(catalog) => eprintln!(
+        Some(catalog) => tracing::info!(
             "loaded {code} localization from {} ({} entries)",
             path.display(),
             catalog.len()
         ),
-        None => eprintln!(
+        None => tracing::warn!(
             "{code} localization unavailable at {}; showing en_US text (build it with `make language-assets`)",
             path.display()
         ),

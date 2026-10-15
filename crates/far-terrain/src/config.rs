@@ -21,6 +21,14 @@ pub const WORLD_PROBE_COLUMNS: usize = 4;
 /// Share of a probe column's cells that must match the cache for the world to be the same.
 pub const WORLD_PROBE_SIMILARITY: f32 = 0.9;
 
+/// Cached columns compared with their live summaries each visit after the namespace resolves,
+/// catching a different map whose probe area matched, such as another lobby instance.
+pub const WORLD_VERIFY_COLUMNS: u32 = 64;
+
+/// Of the cached columns compared, at least this many, and at least a quarter, differing from
+/// what arrives live means the cache holds another map.
+pub const WORLD_DIVERGED_COLUMNS: u32 = 4;
+
 /// Most recent epochs of one world identity compared against the probes.
 pub const WORLD_PROBE_EPOCHS: usize = 3;
 
@@ -41,6 +49,10 @@ pub const LEVEL_COUNT: u8 = 5;
 /// many of its own widths.
 pub const LEVEL_SPLIT_DISTANCE: f32 = 1.0;
 
+/// Finest tiles are kept built this far either side of the near-terrain edge, so a column
+/// changing drawer already has its far tile.
+pub const EDGE_MARGIN_BLOCKS: f32 = 4.0 * 16.0;
+
 /// Blocks tile-edge skirts reach below a tile's lowest surface, hiding cracks between levels.
 pub const SKIRT_DEPTH_BLOCKS: i16 = 16;
 
@@ -52,6 +64,18 @@ pub const MAX_TILE_BUILDS: usize = 4;
 
 /// Columns gathered for new tile builds per update, bounding the owner thread's share.
 pub const TILE_BUILD_COLUMNS_PER_UPDATE: usize = 1024;
+
+/// Encoded bytes retained for tile builds per update.
+pub const TILE_BUILD_BYTES_PER_UPDATE: usize = 1 << 20;
+
+/// Completed summary columns applied per frame, including stale results.
+pub const SUMMARY_COLUMNS_PER_UPDATE: usize = 256;
+
+/// Encoded summary bytes applied per frame. One oversized column may make progress alone.
+pub const SUMMARY_BYTES_PER_UPDATE: usize = 256 << 10;
+
+/// Disk events started per update, including empty and obsolete events.
+pub const CACHE_EVENTS_PER_UPDATE: usize = 32;
 
 /// Water deeper than this many blocks is summarised as open water without a floor.
 pub const MAX_WATER_SCAN_DEPTH: u8 = 32;

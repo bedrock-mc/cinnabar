@@ -40,7 +40,7 @@ fn reads_the_go_wire_contract_without_reinterpreting_fields() {
     assert_eq!(leaf.name.as_ref(), "fixture:leaf");
     assert_eq!(
         leaf.canonical_state.as_ref(),
-        r#"{"color":{"type":"int","value":3}}"#
+        r#"{"growth":{"type":"int","value":3}}"#
     );
     assert_eq!(
         leaf.flags,
@@ -93,6 +93,34 @@ fn reads_the_go_wire_contract_without_reinterpreting_fields() {
 }
 
 #[test]
+fn active_registry_rejects_duplicate_sequential_ids() {
+    let mut bytes = crate::pinned_block_registry_bytes().to_vec();
+    let mut reader = Reader::new(&bytes);
+    reader
+        .read_exact(schema::REGISTRY_MAGIC.len(), "registry magic")
+        .unwrap();
+    let metadata = read_registry_metadata(&mut reader).unwrap();
+    assert!(metadata.canonical_states >= 2);
+    let first = read_record_header(&mut reader, false).unwrap();
+    for _ in 0..first.box_count {
+        read_collision_box(&mut reader).unwrap();
+    }
+    reader
+        .read_exact(usize::from(first.name_len), "first name")
+        .unwrap();
+    reader
+        .read_exact(first.state_len as usize, "first state")
+        .unwrap();
+    let second_prefix = bytes.len() - reader.remaining();
+    bytes[second_prefix..second_prefix + size_of::<u32>()]
+        .copy_from_slice(&first.sequential_id.to_le_bytes());
+    assert!(matches!(
+        read_registry_for_protocol(&bytes, crate::active_content_registry_protocol()),
+        Err(AssetError::DuplicateSequentialId(id)) if id == first.sequential_id
+    ));
+}
+
+#[test]
 fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
     // Fixture offsets are independent of the generated decoder.
     for (offset, value) in [
@@ -103,6 +131,8 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         (50, 0x80),
         (51, 8),
         (92, 0xff),
+        (100, 0x80),
+        (101, 0xff),
     ] {
         let mut bytes = fixture();
         bytes[offset] = value;
@@ -140,7 +170,7 @@ fn accepts_compiled_enrichment_flags_without_using_source_only_mask() {
 }
 
 #[test]
-fn stale_active_registry_requires_rebuilding_and_legacy_facts_stay_unresolved() {
+fn stale_active_registry_requires_rebuilding_and_legacy_beacon_tint_stays_unresolved() {
     let mut stale = fixture();
     stale[..8].copy_from_slice(b"BREG1003");
     let error = read_registry_for_protocol(&stale, 2193).unwrap_err();
@@ -151,4 +181,41 @@ fn stale_active_registry_requires_rebuilding_and_legacy_facts_stay_unresolved() 
             .iter()
             .all(|record| record.beacon_tint == BeaconTint::Unresolved)
     );
+}
+
+#[test]
+fn historical_registry_restores_traits_and_survival_before_admission() {
+    use crate::registry::{BlockTraits as T, SurvivalRule as S};
+    let records = read_registry(include_bytes!("../../data/block-registry-v1001.bin")).unwrap();
+    for (name, trait_, survival) in [
+        ("minecraft:fern", T::REPLACEABLE, S::Unresolved),
+        ("minecraft:water", T::REPLACEABLE | T::WATER, S::None),
+        (
+            "minecraft:dark_oak_button",
+            T::TOGGLES_BY_HAND | T::ORIENTATION_SENSITIVE,
+            S::Button,
+        ),
+        ("minecraft:blue_carpet", T::SURVIVAL_RULE, S::Carpet),
+        ("minecraft:birch_door", T::DOOR | T::MULTIPART, S::Door),
+    ] {
+        let variants: Vec<_> = records
+            .iter()
+            .filter(|record| record.name.as_ref() == name)
+            .collect();
+        assert!(!variants.is_empty(), "missing legacy {name}");
+        for record in variants {
+            assert!(
+                record.traits.contains(trait_),
+                "{name} {}",
+                record.canonical_state
+            );
+            assert_eq!(record.survival, survival, "{name}");
+        }
+    }
+}
+
+#[test]
+fn current_empty_traits_remain_explicit() {
+    let records = read_registry_for_protocol(&fixture(), 2193).unwrap();
+    assert!(records[0].traits.is_empty());
 }

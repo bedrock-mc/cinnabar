@@ -346,7 +346,7 @@ pub(crate) fn synchronize_semantic_input_authority(
     let Some(ui) = ui.filter(|ui| ui.session_id() != 0) else {
         return;
     };
-    let (controls_generation, user_settings) = settings.user_settings_update();
+    let (controls_generation, controls) = settings.controls_update();
     let dimension = client_world
         .as_deref()
         .and_then(|world| world.stream.as_ref())
@@ -359,10 +359,21 @@ pub(crate) fn synchronize_semantic_input_authority(
     let Some(session_generation) = NonZeroU64::new(ui.session_id()) else {
         return;
     };
+    // An unchanged identity is a no-op; skip cloning the bindings for it every frame.
+    if runtime.authority
+        == Some(SemanticInputAuthorityIdentity {
+            context,
+            controls_generation,
+            session_generation,
+            dimension,
+        })
+    {
+        return;
+    }
     match runtime.synchronize_authority(SemanticInputAuthorityFrame {
         context,
         controls_generation,
-        controls: user_settings.controls.clone(),
+        controls: controls.clone(),
         session_generation,
         dimension,
     }) {
@@ -374,6 +385,9 @@ pub(crate) fn synchronize_semantic_input_authority(
         }
     }
 }
+
+#[cfg(test)]
+mod settings_tests;
 
 #[cfg(test)]
 mod tests {

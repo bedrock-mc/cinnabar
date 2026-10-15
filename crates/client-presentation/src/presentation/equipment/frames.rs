@@ -21,6 +21,7 @@ const REST: FirstPersonHand = FirstPersonHand {
     swing: 0.0,
     equip: 1.0,
     consume: None,
+    aspect: 1.0,
 };
 
 enum Held {
@@ -44,6 +45,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         main_hand: Some(Arc::from(main_hand)),
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_slot: 0,
         main_hand_stack_id: None,
@@ -51,6 +53,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
         first_person,

@@ -12,6 +12,15 @@
     },
     {
       "reference": {
+        "file": "facts-expansion-v2193.tsv",
+        "pointer": "/183/0",
+        "domain": "block",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained source-catalog block omitted from the admitted registry and sample block vocabulary; its expanded facts remain provisional."
+    },
+    {
+      "reference": {
         "file": "block-item-routes-v1001.json",
         "pointer": "/routes/11/identifier",
         "domain": "item",
@@ -45,105 +54,6 @@
         "identifier": "minecraft:invisible_bedrock"
       },
       "reason": "Generated block-state route without a corresponding pack item; retain the placeholder route."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:balloon",
-        "domain": "actor",
-        "identifier": "minecraft:balloon"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:chalkboard",
-        "domain": "actor",
-        "identifier": "minecraft:chalkboard"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:elder_guardian_ghost",
-        "domain": "actor",
-        "identifier": "minecraft:elder_guardian_ghost"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:evocation_fang",
-        "domain": "actor",
-        "identifier": "minecraft:evocation_fang"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:falling_block",
-        "domain": "actor",
-        "identifier": "minecraft:falling_block"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:ice_bomb",
-        "domain": "actor",
-        "identifier": "minecraft:ice_bomb"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:item",
-        "domain": "actor",
-        "identifier": "minecraft:item"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:leash_knot",
-        "domain": "actor",
-        "identifier": "minecraft:leash_knot"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:moving_block",
-        "domain": "actor",
-        "identifier": "minecraft:moving_block"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:painting",
-        "domain": "actor",
-        "identifier": "minecraft:painting"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
-    },
-    {
-      "reference": {
-        "file": "entity-interactions.json",
-        "pointer": "/entries/minecraft:shield",
-        "domain": "actor",
-        "identifier": "minecraft:shield"
-      },
-      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
     },
     {
       "reference": {
@@ -351,6 +261,312 @@
         "identifier": "compound"
       },
       "reason": "Retained 26.30 compatibility route outside the current item texture atlas; current default sprite bindings take precedence."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/14/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:fence"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/26/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:carpet"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/28/compatibility_members/0",
+        "domain": "block",
+        "identifier": "minecraft:tall_seagrass"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/model_family_rules/28/compatibility_members/1",
+        "domain": "block",
+        "identifier": "minecraft:kelp_plant"
+      },
+      "reason": "Historical generator alias retained only for compatibility; absent from the active pinned palette."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/0",
+        "domain": "actor",
+        "identifier": "minecraft:balloon"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/1",
+        "domain": "actor",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/2",
+        "domain": "actor",
+        "identifier": "minecraft:elder_guardian_ghost"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/3",
+        "domain": "actor",
+        "identifier": "minecraft:evocation_fang"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/4",
+        "domain": "actor",
+        "identifier": "minecraft:falling_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/5",
+        "domain": "actor",
+        "identifier": "minecraft:ice_bomb"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/6",
+        "domain": "actor",
+        "identifier": "minecraft:item"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/7",
+        "domain": "actor",
+        "identifier": "minecraft:leash_knot"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/8",
+        "domain": "actor",
+        "identifier": "minecraft:moving_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/9",
+        "domain": "actor",
+        "identifier": "minecraft:painting"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_compatibility/10",
+        "domain": "actor",
+        "identifier": "minecraft:shield"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/0/members/28",
+        "domain": "actor",
+        "identifier": "minecraft:elder_guardian_ghost"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/1/members/6",
+        "domain": "actor",
+        "identifier": "minecraft:evocation_fang"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/1/members/8",
+        "domain": "actor",
+        "identifier": "minecraft:falling_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/1/members/12",
+        "domain": "actor",
+        "identifier": "minecraft:item"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/0",
+        "domain": "actor",
+        "identifier": "minecraft:balloon"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/1",
+        "domain": "actor",
+        "identifier": "minecraft:chalkboard"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/3",
+        "domain": "actor",
+        "identifier": "minecraft:ice_bomb"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/4",
+        "domain": "actor",
+        "identifier": "minecraft:leash_knot"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/5",
+        "domain": "actor",
+        "identifier": "minecraft:moving_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/7",
+        "domain": "actor",
+        "identifier": "minecraft:painting"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/2/members/8",
+        "domain": "actor",
+        "identifier": "minecraft:shield"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/19/members/0",
+        "domain": "actor",
+        "identifier": "minecraft:falling_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/23/members/0",
+        "domain": "actor",
+        "identifier": "minecraft:item"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/40/members/10",
+        "domain": "actor",
+        "identifier": "minecraft:leash_knot"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/40/members/14",
+        "domain": "actor",
+        "identifier": "minecraft:falling_block"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/40/members/16",
+        "domain": "actor",
+        "identifier": "minecraft:painting"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/43/members/0",
+        "domain": "actor",
+        "identifier": "minecraft:evocation_fang"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/43/members/1",
+        "domain": "actor",
+        "identifier": "minecraft:ice_bomb"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "pointer": "/entity_rules/47/members/0",
+        "domain": "actor",
+        "identifier": "minecraft:painting"
+      },
+      "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
     }
   ]
 }

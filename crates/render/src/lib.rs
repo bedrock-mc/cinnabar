@@ -1,4 +1,9 @@
 //! Packed chunk meshing and Bevy rendering for the Bedrock client.
+#[cfg(test)]
+use crate as render_api;
+#[cfg(test)]
+#[path = "../tests/it/support/actor_raster.rs"]
+mod actor_raster;
 mod alpha_coverage;
 mod depth_smaa;
 #[cfg(test)]
@@ -40,7 +45,7 @@ pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 mod dropped_item_render;
 mod hand_rig_render;
 mod input_pacing;
-pub use input_pacing::{FramePacing, FrameStart, InputPacingPlugin};
+pub use input_pacing::{FrameEnd, FramePacing, FrameStart, InputPacingPlugin};
 
 mod lightning_render;
 mod media;
@@ -80,6 +85,7 @@ mod runtime_profile_phases;
 mod scene_sampling;
 mod scene_target;
 
+mod queue_writes;
 mod screen_overlay_render;
 mod shader_safety;
 #[cfg(test)]
@@ -106,6 +112,7 @@ use meshing::{
     PackedLiquidQuad, PackedModelDrawRef, PackedModelRef, PackedQuad, PackedQuadLighting,
 };
 
+pub use actor::gpu::storage_binding_bytes as actor_storage_binding_bytes;
 pub use actor::material::blend_state as actor_material_blend_state;
 pub use actor_render::ActorRenderPlugin;
 

@@ -1,6 +1,6 @@
 //! Compiled interaction dispositions resolved once when an actor enters a session.
 
-use std::{borrow::Cow, collections::BTreeMap, sync::OnceLock};
+use std::{borrow::Cow, collections::BTreeMap};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -11,8 +11,7 @@ use super::{
 use crate::AssetError;
 
 pub const SOURCE_PATH: &str = "registry/entity-interactions.json";
-const SOURCE_BYTES: &[u8] = include_bytes!("../../data/entity-interactions.json");
-const CATALOG_VERSION: u32 = 1;
+const SOURCE_BYTES: &[u8] = crate::facts::entity::SOURCE_BYTES;
 
 /// Unsupported identities retain no interaction disposition.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -71,31 +70,12 @@ pub struct EntityInteractionDescriptor {
     pub traits: EntityInteractionTraits,
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Catalog {
-    version: u32,
-    entries: BTreeMap<Box<str>, EntityInteractionTraits>,
-}
-
-/// Parses the embedded compatibility source only during cold admission or compilation.
-fn catalog() -> &'static Catalog {
-    static CATALOG: OnceLock<Catalog> = OnceLock::new();
-    CATALOG.get_or_init(|| {
-        let catalog: Catalog =
-            serde_json::from_slice(SOURCE_BYTES).expect("embedded interaction traits are valid");
-        assert_eq!(
-            catalog.version, CATALOG_VERSION,
-            "unsupported interaction catalog"
-        );
-        catalog
-    })
-}
-
-/// Hashes the canonical source so checkout line endings do not alter carrier compatibility.
+/// Hashes the compiled facts source used by entity carriers.
 pub fn source_identity() -> (u32, [u8; 32]) {
-    let bytes = serde_json::to_vec(catalog()).expect("embedded interaction traits can be encoded");
-    (bytes.len() as u32, Sha256::digest(bytes).into())
+    (
+        SOURCE_BYTES.len() as u32,
+        Sha256::digest(SOURCE_BYTES).into(),
+    )
 }
 
 /// Normalizes a factory identity only at packet or carrier admission.
@@ -110,16 +90,21 @@ fn factory_identifier(identifier: &str) -> Cow<'_, str> {
 
 /// Provides compatibility traits for diagnostics and factory admission, never for frame queries.
 pub fn builtin(identifier: &str) -> EntityInteractionTraits {
-    catalog()
-        .entries
+    crate::facts::entity::EntityFacts::pinned()
         .get(factory_identifier(identifier).as_ref())
-        .copied()
-        .unwrap_or_default()
+        .interactions
 }
 
 /// Checks the independently collected entity symbols, retaining unsupported entries explicitly.
 pub fn compile(symbols: &[EntityAssetSymbol]) -> Box<[EntityInteractionDescriptor]> {
-    inventory(symbols, catalog().entries.clone())
+    inventory(
+        symbols,
+        crate::facts::entity::EntityFacts::pinned()
+            .records
+            .iter()
+            .map(|r| (r.identifier.clone(), r.fact.interactions))
+            .collect(),
+    )
 }
 
 /// Retains explicit unsupported entries for every independently collected entity identity.
@@ -189,23 +174,5 @@ impl RuntimeEntityAssets {
             .ok()
             .map(|index| self.interaction_traits[index].traits)
             .unwrap_or_default()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn interaction_source_identity_ignores_checkout_line_endings() {
-        let crlf = String::from_utf8(SOURCE_BYTES.to_vec())
-            .unwrap()
-            .replace('\n', "\r\n");
-        let decoded: Catalog = serde_json::from_str(&crlf).unwrap();
-        let bytes = serde_json::to_vec(&decoded).unwrap();
-        assert_eq!(
-            source_identity(),
-            (bytes.len() as u32, Sha256::digest(bytes).into())
-        );
     }
 }

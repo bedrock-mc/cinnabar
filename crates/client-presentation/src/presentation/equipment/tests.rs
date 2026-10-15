@@ -1,9 +1,11 @@
 use render_api::PoseGeneration;
 #[path = "runtime/elytra_tests.rs"]
 mod elytra_tests;
+#[path = "runtime/java_grip_facts_tests.rs"]
+mod java_grip_facts_tests;
 
 #[path = "runtime/held_animation_tests.rs"]
-mod held_animation_tests;
+pub(super) mod held_animation_tests;
 
 #[path = "runtime/legacy_combat_tests.rs"]
 mod legacy_combat_tests;
@@ -27,7 +29,7 @@ use {
         display::{FirstPersonHand, FirstPersonShape, first_person_display},
         runtime::{FirstPersonArms, layer_presentation},
     },
-    render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display, is_rod},
+    render_model::equipment::{ItemDisplay, attach_to_bone, held_block_display},
 };
 
 fn sprite(side: u16, fill: u8) -> IconSprite {
@@ -330,6 +332,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         overlay_rgba8: 0,
     };
     let worn = |identifier: &str| WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
         identifier: Arc::from(identifier),
@@ -338,6 +341,7 @@ fn real_carriers_draw_armor_and_report_each_held_item() {
         kind: HeldKind::Sprite,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let armor = ActorEquipmentInput {
         armor: [
@@ -396,6 +400,8 @@ fn real_carriers_hold_block_entity_items_as_their_models() {
     ] {
         let input = ActorEquipmentInput {
             main: Some(WornItem {
+                variant: Default::default(),
+                charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::builtin_item_grip(identifier),
                 identifier: Arc::from(identifier),
@@ -429,7 +435,7 @@ fn png(side: u32) -> Vec<u8> {
 }
 
 /// A player-shaped body submission on a registered skin rig.
-fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmission {
+pub(super) fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmission {
     let names = [
         "root",
         "body",
@@ -480,7 +486,7 @@ fn player_body(runtime: &mut super::runtime::EquipmentRuntime) -> ActorRigSubmis
 }
 
 /// Compiles original equipment sources into the entity and texture catalogs they share.
-fn pack_catalog(
+pub(super) fn pack_catalog(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> (
     Arc<assets::RuntimeEntityAssets>,
@@ -502,7 +508,7 @@ fn pack_catalog(
 }
 
 /// An equipment runtime over synthetic startup attachables, ready for a later pack override.
-fn startup_runtime(
+pub(super) fn startup_runtime(
     files: Vec<(Box<str>, Vec<u8>)>,
 ) -> (super::runtime::EquipmentRuntime, ActorArtworkPages) {
     let (entities, catalog) = pack_catalog(files);
@@ -579,6 +585,21 @@ fn session_items(
     }
 }
 
+/// Declares a custom item's `minecraft:wearable` slot, which is what lets a non-vanilla stack be
+/// worn as armour; vanilla armour takes its slot from the item facts instead.
+pub(super) fn declare_wearable(
+    runtime: &mut super::runtime::EquipmentRuntime,
+    identifier: &str,
+    slot: &str,
+) {
+    let components = protocol::ItemComponents {
+        wearable_slot: Some(slot.into()),
+        ..Default::default()
+    };
+    let items = session_items(vec![(identifier, components)], vec![]);
+    runtime.set_session_items(Some(&items), None, Vec::new());
+}
+
 fn crown_pack() -> Vec<(Box<str>, Vec<u8>)> {
     vec![
         (
@@ -622,6 +643,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
     let (mut runtime, _) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let crown = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:crown"),
         identifier: Arc::from("test:crown"),
@@ -630,6 +652,7 @@ fn wearable_slot_places_an_unnamed_custom_attachable_on_the_body() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let worn = ActorEquipmentInput {
         armor: [Some(crown), None, None, None],
@@ -653,6 +676,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
         identifier: Arc::from("test:gem"),
@@ -661,6 +685,7 @@ fn first_person_session_icon_is_independent_of_avatar_bones_and_keeps_its_atlas(
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
@@ -715,6 +740,8 @@ fn custom_items_hold_their_session_icon_with_the_component_grip() {
     let body = player_body(&mut runtime);
     let held = |identifier: &str| ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: if identifier == "test:blade" {
                 assets::item::grip::ItemGrip::Session {
@@ -776,6 +803,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let item = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:controller"),
         identifier: Arc::from("test:controller"),
@@ -784,6 +812,7 @@ fn custom_block_items_with_a_cube_sheet_are_held_as_blocks() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let mut items = session_items(
         vec![("test:controller", Default::default())],
@@ -827,6 +856,7 @@ const REST: FirstPersonHand = FirstPersonHand {
     swing: 0.0,
     equip: 1.0,
     consume: None,
+    aspect: 1.0,
 };
 
 /// Camera-space position of texel corner `(column, row)` of a 16-texel held sprite.
@@ -877,7 +907,6 @@ fn first_person_equip_dip_and_mirrored_art() {
     let turned = first_person_display(FirstPersonShape::Sprite { mirrored_art: true }, REST);
     let half_turn = rest.rotation.inverse() * turned.rotation;
     assert!(half_turn.angle_between(Quat::IDENTITY) > 3.0);
-    assert!(is_rod("minecraft:fishing_rod") && !is_rod("minecraft:stick"));
     let block = first_person_display(FirstPersonShape::Block, REST);
     assert!((block.scale - 0.4).abs() < 1e-5);
     assert!(
@@ -935,6 +964,8 @@ fn java_grips_ride_the_arm_and_skip_the_hurt_flash() {
     body.overlay_rgba8 = 0x6600_00ff;
     let input = ActorEquipmentInput {
         main: Some(WornItem {
+            variant: Default::default(),
+            charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("test:gem"),
             identifier: Arc::from("test:gem"),
@@ -973,6 +1004,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
     let mut body = player_body(&mut runtime);
     body.overlay_rgba8 = 0x6600_00ff;
     let item = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
         identifier: Arc::from("test:gem"),
@@ -981,6 +1013,7 @@ fn modern_sprite_items_and_worn_attachables_skip_the_hurt_overlay() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(
         vec![
@@ -1053,6 +1086,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
     let (mut runtime, pages) = pack_runtime(crown_pack());
     let body = player_body(&mut runtime);
     let plain = WornItem {
+        charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:gem"),
         identifier: Arc::from("test:gem"),
@@ -1061,6 +1095,7 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
         kind: HeldKind::Other,
         dye_rgb: None,
         enchanted: false,
+        variant: Default::default(),
     };
     let items = session_items(vec![("test:gem", Default::default())], vec!["test:gem"]);
     let staged = StagedSessionIcons::stage(Some(&items)).unwrap();

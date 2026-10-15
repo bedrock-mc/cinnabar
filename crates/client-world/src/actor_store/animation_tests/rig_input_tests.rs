@@ -124,7 +124,7 @@ fn creeper_ignition_advances_and_reverses_swelling_without_swell_metadata() {
 #[test]
 fn thrown_potion_variant_retains_normalized_add_actor_and_metadata_updates() {
     // The potion's auxiliary-value key, which its variant query reads.
-    const AUX: u32 = actor_animation::test_support::POTION_AUX_VALUE_METADATA_KEY;
+    const AUX: u32 = protocol_ids::ActorDataKey::AuxValueData.wire_value();
     let Some(protocol::WorldEvent::Actor(event)) =
         protocol::test_support::packets::add_actor_event(
             -7,
@@ -174,6 +174,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     store.exclude_remote_state_for(1);
     let mut feed = crate::LocalPlayerFeed {
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         game_mode: None,
         prefer_client_skin: false,
         uuid: [1; 16],
@@ -184,6 +185,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw: 90.0,
         head_yaw: 90.0,

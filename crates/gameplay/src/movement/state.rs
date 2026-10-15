@@ -7,6 +7,10 @@
 /// Movement facts produced by one completed simulation tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProcessedMovementState {
+    /// The completed tick retains the spin pose.
+    pub spinning: bool,
+    /// This tick consumed a released Riptide trident, including re-launches during a spin.
+    pub spin_started: bool,
     /// The simulator consumed a jump request from the ground this tick. The
     /// simulator can only act on a jump request while grounded, so an input
     /// edge pressed in mid-air or against a wall never initiates anything.
@@ -28,6 +32,8 @@ pub struct ProcessedMovementState {
     pub forced_sneak: bool,
     /// The ridden mount class while `mode` is `Riding`.
     pub ride: Option<super::RideKind>,
+    /// Double-tap flight start (true) or stop (false); the only source of the wire flight edges.
+    pub flight_request: Option<bool>,
 }
 
 impl ProcessedMovementState {
@@ -47,6 +53,8 @@ impl ProcessedMovementState {
         sprinting: bool,
     ) -> Self {
         Self {
+            spinning: false,
+            spin_started: false,
             jump_initiated,
             jump_arc_active: jump_initiated || (!grounded_after_tick && previous_jump_arc_active),
             sneaking,
@@ -54,6 +62,7 @@ impl ProcessedMovementState {
             mode: sim::MovementMode::Walking,
             forced_sneak: false,
             ride: None,
+            flight_request: None,
         }
     }
 }

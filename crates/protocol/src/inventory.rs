@@ -70,7 +70,7 @@ pub use request::{
     MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
     StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
     item_stack_request_batch, item_stack_request_packet, item_stack_request_packet_filtered,
-    open_inventory_packet,
+    open_inventory_packet, repeated_container_open_warning_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;
@@ -101,6 +101,12 @@ impl ContainerIdentity {
             slot_type: None,
             dynamic_id: None,
         }
+    }
+
+    /// An omitted or zero-filled descriptor; its owning legacy window must disambiguate it.
+    #[must_use]
+    pub const fn has_legacy_default_descriptor(self) -> bool {
+        matches!(self.slot_type, None | Some(0)) && matches!(self.dynamic_id, None | Some(0))
     }
 }
 
@@ -289,8 +295,6 @@ pub enum InventoryPacketError {
     TooManyResponseSlots { count: usize, max: usize },
     #[error("stack response name has {bytes} bytes, exceeding {max}")]
     ResponseNameTooLong { bytes: usize, max: usize },
-    #[error("accepted stack response has no content")]
-    MissingResponseContent,
     #[error("rejected stack response unexpectedly has content")]
     UnexpectedResponseContent,
     #[error("item network ID {0} is invalid")]
@@ -551,9 +555,7 @@ pub(crate) fn normalize_response(
                 }
                 (StackResponseStatus::Accepted, containers)
             }
-            (ItemStackNetResult::Success, None) => {
-                return Err(InventoryPacketError::MissingResponseContent);
-            }
+            (ItemStackNetResult::Success, None) => (StackResponseStatus::Accepted, Vec::new()),
             (ItemStackNetResult::Error, None) => (StackResponseStatus::Rejected, Vec::new()),
             (other, None) => (StackResponseStatus::Unknown(other.to_raw()), Vec::new()),
             (_, Some(_)) => return Err(InventoryPacketError::UnexpectedResponseContent),

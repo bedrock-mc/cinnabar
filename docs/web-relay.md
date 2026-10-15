@@ -69,5 +69,20 @@ Inbound frame buffers grow with received data instead of allocating the full
 advertised payload from its header. The shared bridge frame limit still applies.
 WebSocket messages split larger bridge frames at the shared relay message limit;
 message boundaries do not change the bridge byte stream.
-Separate pack streams, gameplay datagrams, the browser adapter and entry page,
-and deployment/browser acceptance remain future integration work.
+Separate pack streams, gameplay datagrams and deployment/browser acceptance remain future integration work.
+
+## Browser entry preview
+
+Build the wasm entry with `cargo build -p web-client --lib --target wasm32-unknown-unknown`,
+then run `wasm-bindgen --target web --out-dir web/site/pkg target/wasm32-unknown-unknown/debug/web_client.wasm`.
+Generate the delivery index with `cargo run -p web-client --bin manifest -- .local/assets/compiled > .local/assets/compiled/manifest.json`.
+Serve `web/site` and the compiled asset directory through an HTTPS static server; allow the page origin through CORS for assets and the relay.
+Open the page, connect the relay, sign in, enter an HTTPS asset directory, then choose **Verify assets**.
+The preview supports relay account controls and validates the required startup carriers in memory.
+Gameplay startup, server joining, sound-bank range downloads and playback still need client composition.
+There is no persistent pack import or Dressing Room.
+
+Back/forward-cache navigation suspends input and audio while retaining the page's wasm
+objects and canvas listeners. Returning reopens relay control with any unexpired resume
+capability; sign in again if it expired. Audio resumes on the next canvas click. A final
+navigation frees the page, input and listeners and closes audio.

@@ -21,7 +21,8 @@ const HEADER_BYTES: usize = 64;
 const HASH_BYTES: usize = 32;
 
 /// How the client draws one block-entity id.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 #[repr(u8)]
 pub enum BlockEntityRouteKind {
     /// The block state already renders the whole visual.
@@ -32,6 +33,8 @@ pub enum BlockEntityRouteKind {
     TextOverlay = 3,
     /// The block entity carries data only and draws nothing.
     NoDraw = 4,
+    /// The identity is retained but its additional renderer is not implemented.
+    Unsupported = 5,
 }
 
 impl BlockEntityRouteKind {
@@ -42,44 +45,11 @@ impl BlockEntityRouteKind {
             2 => Self::Model,
             3 => Self::TextOverlay,
             4 => Self::NoDraw,
+            5 => Self::Unsupported,
             _ => return None,
         })
     }
 }
-
-/// Block-entity NBT `id` values and their draw route, sorted by id.
-pub const BLOCK_ENTITY_ROUTES: &[(&str, BlockEntityRouteKind)] = &[
-    ("Banner", BlockEntityRouteKind::Model),
-    ("Barrel", BlockEntityRouteKind::ExistingBlockState),
-    ("Beacon", BlockEntityRouteKind::Model),
-    ("Bed", BlockEntityRouteKind::Model),
-    ("Bell", BlockEntityRouteKind::Model),
-    ("BlastFurnace", BlockEntityRouteKind::ExistingBlockState),
-    ("BrewingStand", BlockEntityRouteKind::NoDraw),
-    ("Campfire", BlockEntityRouteKind::Model),
-    ("Chest", BlockEntityRouteKind::Model),
-    ("Conduit", BlockEntityRouteKind::Model),
-    ("CopperGolemStatue", BlockEntityRouteKind::Model),
-    ("DecoratedPot", BlockEntityRouteKind::Model),
-    ("EnchantTable", BlockEntityRouteKind::Model),
-    ("EndGateway", BlockEntityRouteKind::Model),
-    ("EndPortal", BlockEntityRouteKind::Model),
-    ("EnderChest", BlockEntityRouteKind::Model),
-    ("FlowerPot", BlockEntityRouteKind::Model),
-    ("Furnace", BlockEntityRouteKind::ExistingBlockState),
-    ("GlowItemFrame", BlockEntityRouteKind::Model),
-    ("HangingSign", BlockEntityRouteKind::TextOverlay),
-    ("Hopper", BlockEntityRouteKind::NoDraw),
-    ("ItemFrame", BlockEntityRouteKind::Model),
-    ("Jukebox", BlockEntityRouteKind::NoDraw),
-    ("Lectern", BlockEntityRouteKind::Model),
-    ("MobSpawner", BlockEntityRouteKind::Model),
-    ("Note", BlockEntityRouteKind::NoDraw),
-    ("ShulkerBox", BlockEntityRouteKind::Model),
-    ("Sign", BlockEntityRouteKind::TextOverlay),
-    ("Skull", BlockEntityRouteKind::Model),
-    ("Smoker", BlockEntityRouteKind::ExistingBlockState),
-];
 
 /// The pixel rect of one pack texture inside the atlas; `name` is its
 /// pack-relative path without extension.
@@ -253,10 +223,9 @@ impl RuntimeBlockEntityAssets {
 /// The draw route for a block-entity NBT `id`, if it is in the pinned inventory.
 #[must_use]
 pub fn block_entity_route(id: &str) -> Option<BlockEntityRouteKind> {
-    BLOCK_ENTITY_ROUTES
-        .binary_search_by(|(entry, _)| (*entry).cmp(id))
-        .ok()
-        .map(|index| BLOCK_ENTITY_ROUTES[index].1)
+    crate::facts::BlockEntityFacts::pinned()
+        .entry(id)
+        .map(|entry| entry.route)
 }
 
 /// Encodes an atlas and its placements; `placements` must be sorted by name with unique keys.
@@ -369,11 +338,6 @@ mod tests {
 
     #[test]
     fn route_table_is_sorted_and_resolves_ids() {
-        assert!(
-            BLOCK_ENTITY_ROUTES
-                .windows(2)
-                .all(|pair| pair[0].0 < pair[1].0)
-        );
         assert_eq!(
             block_entity_route("Chest"),
             Some(BlockEntityRouteKind::Model)

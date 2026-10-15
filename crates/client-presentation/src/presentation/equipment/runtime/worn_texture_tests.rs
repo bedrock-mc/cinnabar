@@ -1,6 +1,7 @@
 //! Worn pack armour draws the texture its render controller selects from owner state.
 
 use super::{
+    declare_wearable,
     elytra_tests::{layers, owner, owner_rig, selected_pixel},
     pack_catalog, pack_runtime, player_body, startup_runtime,
 };
@@ -29,7 +30,7 @@ fn coat_pack(script: &str) -> Vec<(Box<str>, Vec<u8>)> {
     vec![
         ("attachables/coat_helmet.json".into(), serde_json::to_vec(&serde_json::json!({
             "format_version":"1.10.0","minecraft:attachable":{"description":{
-                "identifier":"test:coat_helmet","materials":{"default":"armor"},
+                "identifier":"minecraft:iron_helmet","materials":{"default":"armor"},
                 "textures":{"default":"textures/models/coat_plain","plain":"textures/models/coat_plain",
                     "painted":"textures/models/coat_painted"},
                 "geometry":{"default":"geometry.test.coat_helmet"},
@@ -56,14 +57,21 @@ fn coat_pack(script: &str) -> Vec<(Box<str>, Vec<u8>)> {
     ]
 }
 
+/// Declares the custom fixture helmet's head slot, as its server's item components would.
+fn wear_helmet(runtime: &mut EquipmentRuntime) {
+    declare_wearable(runtime, "test:coat_helmet", "slot.armor.head");
+}
+
 /// Equips the fixture helmet in its authored armour slot.
 fn helmet() -> ActorEquipmentInput {
     ActorEquipmentInput {
         armor: [
             Some(WornItem {
+                variant: Default::default(),
+                charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
-                grip: assets::item::grip::builtin_item_grip("test:coat_helmet"),
-                identifier: Arc::from("test:coat_helmet"),
+                grip: assets::item::grip::builtin_item_grip("minecraft:iron_helmet"),
+                identifier: Arc::from("minecraft:iron_helmet"),
                 metadata: 0,
                 damage: None,
                 kind: HeldKind::Other,
@@ -82,6 +90,7 @@ fn helmet() -> ActorEquipmentInput {
 fn worn_pack_armour_follows_the_owner_driven_render_controller_texture() {
     let (mut runtime, pages) = pack_runtime(coat_pack("v.coat=c.owning_entity->q.is_charged;"));
     let body = player_body(&mut runtime);
+    wear_helmet(&mut runtime);
     let mut owner = owner();
     let input = helmet();
     let plain = layers(&mut runtime, &body, &owner, &input, 1);
@@ -99,6 +108,7 @@ fn worn_pack_armour_follows_the_owner_driven_render_controller_texture() {
 fn armour_uses_a_controller_alternative_before_startup_fallback() {
     let (mut runtime, base_pages) = startup_runtime(coat_pack("v.coat=0;"));
     let body = player_body(&mut runtime);
+    wear_helmet(&mut runtime);
     let owner = owner();
     let input = helmet();
     let mut files = coat_pack("v.coat=1;");
@@ -117,7 +127,7 @@ fn armour_uses_a_controller_alternative_before_startup_fallback() {
         .unwrap();
     *bytes = serde_json::to_vec(&document).unwrap();
     let (entities, catalog) = pack_catalog(files);
-    let binding = catalog.binding("test:coat_helmet").unwrap();
+    let binding = catalog.binding("minecraft:iron_helmet").unwrap();
     assert!(catalog.texture(&binding.texture.identifier).is_none());
     let (pages, locations) =
         base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
@@ -131,6 +141,7 @@ fn armour_uses_a_controller_alternative_before_startup_fallback() {
 fn armour_uses_the_pack_default_when_it_is_available() {
     let (mut runtime, base_pages) = startup_runtime(coat_pack("v.coat=0;"));
     let body = player_body(&mut runtime);
+    wear_helmet(&mut runtime);
     let owner = owner();
     let input = helmet();
     let mut files = coat_pack("v.coat=0;");
@@ -152,6 +163,7 @@ fn armour_uses_the_pack_default_when_it_is_available() {
 fn worn_pack_armour_observes_owner_item_use() {
     let (mut runtime, pages) = pack_runtime(coat_pack("v.coat=c.owning_entity->q.is_using_item;"));
     let body = player_body(&mut runtime);
+    wear_helmet(&mut runtime);
     let mut owner = owner();
     let input = helmet();
     let idle = layers(&mut runtime, &body, &owner, &input, 1);
@@ -167,6 +179,7 @@ fn worn_pack_armour_receives_the_render_delta() {
     for (delta_seconds, expected) in [(0.01, PAINTED), (0.035, PLAIN)] {
         let (mut runtime, pages) = pack_runtime(coat_pack("v.coat=q.delta_time < 0.02;"));
         let body = player_body(&mut runtime);
+        wear_helmet(&mut runtime);
         let owner = owner();
         let names = [Box::<str>::from("body")];
         let rig = owner_rig(&owner, &names, 1);
@@ -191,6 +204,7 @@ fn worn_pack_armour_receives_the_render_delta() {
 fn worn_pack_armour_receives_its_native_slot_context() {
     let (mut runtime, pages) = pack_runtime(coat_pack("v.coat=c.item_slot == 'head';"));
     let body = player_body(&mut runtime);
+    wear_helmet(&mut runtime);
     let owner = owner();
     let input = helmet();
     let layer = layers(&mut runtime, &body, &owner, &input, 1);

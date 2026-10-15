@@ -4,7 +4,7 @@ use assets::item::armour::{ITEM_ARMOUR_SOURCE_BYTES, ItemArmour, ItemArmourSlot}
 use protocol::{
     ContainerIdentity, ContainerOpenEvent, InventoryContentEvent, InventoryEvent,
     ItemRegistryEntry, ItemRegistryEvent, NetworkItemStack, StackRequestAction,
-    StackRequestContainer, WindowKind,
+    StackRequestContainer,
 };
 use serde::Deserialize;
 
@@ -82,10 +82,10 @@ fn assert_quick_move(
         InventoryTarget::Armor(row) => (StackRequestContainer::Armor, row),
         InventoryTarget::Craft(slot) => (protocol::ui_slot_request_container(slot).unwrap(), slot),
         InventoryTarget::Storage(slot) => {
-            protocol::open_cell_request(WindowKind::Horse, slot, None, None).unwrap()
+            protocol::open_cell_request(ledger.window_kind().unwrap(), slot, None, None).unwrap()
         }
         InventoryTarget::Player(slot) => (StackRequestContainer::PlayerInventory, slot),
-        _ => panic!("unsupported quick-move fixture target"),
+        InventoryTarget::Offhand => (StackRequestContainer::Offhand, 1),
     };
     ledger
         .begin_quick_move(InventoryTarget::Player(SOURCE_SLOT))
@@ -124,6 +124,51 @@ fn registered(identifier: &str) -> ItemRegistryEntry {
         .find(|entry| entry.identifier.as_ref() == identifier)
         .unwrap_or_else(|| panic!("missing pinned item {identifier}"))
         .clone()
+}
+
+#[test]
+fn registered_filled_maps_admit_manual_and_quick_move_offhand_placement() {
+    let identifier = assets::facts::FILLED_MAP_IDENTIFIER;
+    assert!(assets::item::names::serialization_ids(identifier).is_some());
+    assert!(
+        assets::facts::ItemFacts::builtin()
+            .unwrap()
+            .by_identifier(identifier)
+            .is_none()
+    );
+    let mut entry = registered("minecraft:empty_map");
+    entry.identifier = identifier.into();
+    entry.network_id += 10_000;
+    for quick_move in [false, true] {
+        let mut ledger = equipment_ledger(&entry);
+        ledger.apply(&content(
+            ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+            vec![NetworkItemStack::empty()],
+        ));
+        assert_eq!(
+            ledger.item_facts().get(entry.network_id).allow_off_hand,
+            Some(true)
+        );
+        assert!(
+            ledger
+                .item_facts()
+                .get(entry.network_id)
+                .offhand_provisional
+        );
+        if quick_move {
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Offhand);
+        } else {
+            ledger.begin_click(SOURCE_SLOT).unwrap();
+            ledger
+                .begin_target_gesture(InventoryTarget::Offhand, CellGesture::Click)
+                .unwrap();
+            assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+            assert!(ledger.cursor_stack().is_none());
+            let moved = ledger.target_stack(InventoryTarget::Offhand).unwrap();
+            assert_eq!(moved.network_id, entry.network_id);
+            assert_eq!(moved.count, 1);
+        }
+    }
 }
 
 /// Admits a server-defined item with a known role tag and an optional wearable slot.
@@ -275,11 +320,11 @@ fn smithing_tags_use_negotiated_members_and_pinned_fallback() {
 }
 
 #[test]
-fn unrelated_session_tags_preserve_the_pinned_smithing_fallback() {
+fn component_items_do_not_inherit_smithing_roles_from_a_stock_name() {
     let entry = tagged_entry("minecraft:netherite_ingot", "minecraft:is_food", None);
     let mut ledger = ledger(&entry, 0);
     open(&mut ledger, protocol::WINDOW_TYPE_SMITHING_TABLE);
-    assert_quick_move(&mut ledger, &entry, InventoryTarget::Craft(52));
+    assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
 }
 
 #[test]
@@ -468,4 +513,171 @@ fn registry_tag_changes_keep_pending_moves_when_the_destination_is_unchanged() {
         Some(&predicted)
     );
     assert!(ledger.displayed_stack(SOURCE_SLOT).is_none());
+}
+
+#[test]
+fn component_items_do_not_inherit_brewing_or_beacon_roles_from_stock_names() {
+    for (identifier, window) in [
+        (
+            "minecraft:blaze_powder",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+        ),
+        ("minecraft:diamond", protocol::WINDOW_TYPE_BEACON),
+    ] {
+        let mut entry = registered(identifier);
+        entry.component_based = true;
+        entry.version = protocol::ItemRegistryVersion::DataDriven;
+        entry.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+        let mut ledger = ledger(&entry, 0);
+        open(&mut ledger, window);
+        if window == protocol::WINDOW_TYPE_BREWING_STAND {
+            ledger.apply(&content(
+                ContainerIdentity::window(3),
+                vec![NetworkItemStack::empty(); 5],
+            ));
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Storage(0));
+        } else {
+            assert_quick_move(&mut ledger, &entry, InventoryTarget::Player(0));
+        }
+    }
+}
+
+/// Opens a station with the content length declared by the protocol policy.
+fn station_ledger(entry: &ItemRegistryEntry, window_type: i8) -> PlayerInventoryLedger {
+    let mut ledger = ledger(entry, 0);
+    open(&mut ledger, window_type);
+    if let Some(&length) = ledger.window_kind().unwrap().content_lengths().first() {
+        ledger.apply(&content(
+            ContainerIdentity::window(3),
+            vec![NetworkItemStack::empty(); length],
+        ));
+    }
+    ledger
+}
+
+/// Checks rollback and recovery when the same registered identity gains or loses a role.
+fn assert_station_route_refresh(
+    identifier: &str,
+    window_type: i8,
+    native_target: InventoryTarget,
+    component_target: InventoryTarget,
+) {
+    let native = registered(identifier);
+    let mut component = native.clone();
+    component.component_based = true;
+    component.version = protocol::ItemRegistryVersion::DataDriven;
+    component.components = Some(std::sync::Arc::new(protocol::ItemComponents::default()));
+    for restore_native in [false, true] {
+        for transported in [false, true] {
+            let (entry, replacement, old_target, new_target) = if restore_native {
+                (&component, &native, component_target, native_target)
+            } else {
+                (&native, &component, native_target, component_target)
+            };
+            let mut ledger = station_ledger(entry, window_type);
+            let source = ledger.displayed_stack(SOURCE_SLOT).unwrap().clone();
+            assert_quick_move(&mut ledger, entry, old_target);
+            assert!(ledger.pending_batch().unwrap().is_some());
+            if transported {
+                assert!(ledger.mark_transport_enqueued(10));
+            }
+
+            resend(&mut ledger, replacement);
+            assert_eq!(ledger.pending_request_count(), 0, "{identifier}");
+            assert!(ledger.pending_batch().unwrap().is_none());
+            assert!(ledger.target_stack(old_target).is_none());
+            if transported {
+                assert!(ledger.resync_required());
+                assert_eq!(
+                    ledger.begin_quick_move(InventoryTarget::Player(SOURCE_SLOT)),
+                    Err(InventoryGestureError::ResyncRequired),
+                );
+            } else {
+                assert_eq!(ledger.displayed_stack(SOURCE_SLOT), Some(&source));
+                assert!(!ledger.resync_required());
+                assert_quick_move(&mut ledger, replacement, new_target);
+            }
+        }
+    }
+}
+
+#[test]
+fn fact_dependent_beacon_moves_retire_when_registry_routes_change() {
+    assert_station_route_refresh(
+        "minecraft:diamond",
+        protocol::WINDOW_TYPE_BEACON,
+        InventoryTarget::Craft(27),
+        InventoryTarget::Player(0),
+    );
+}
+
+#[test]
+fn fact_dependent_brewing_moves_retire_when_registry_routes_change() {
+    for (identifier, native_slot) in [("minecraft:blaze_powder", 4), ("minecraft:potion", 1)] {
+        assert_station_route_refresh(
+            identifier,
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(native_slot),
+            InventoryTarget::Storage(0),
+        );
+    }
+}
+
+#[test]
+fn fact_dependent_enchanting_moves_retire_when_registry_routes_change() {
+    assert_station_route_refresh(
+        "minecraft:lapis_lazuli",
+        protocol::WINDOW_TYPE_ENCHANTMENT,
+        InventoryTarget::Craft(15),
+        InventoryTarget::Craft(14),
+    );
+}
+
+#[test]
+fn fact_dependent_moves_keep_requests_when_destinations_do_not_change() {
+    for (identifier, window, target) in [
+        (
+            "minecraft:diamond",
+            protocol::WINDOW_TYPE_BEACON,
+            InventoryTarget::Craft(27),
+        ),
+        (
+            "minecraft:diamond",
+            protocol::WINDOW_TYPE_ENCHANTMENT,
+            InventoryTarget::Craft(14),
+        ),
+        (
+            "minecraft:brick",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(0),
+        ),
+        (
+            "minecraft:potion",
+            protocol::WINDOW_TYPE_BREWING_STAND,
+            InventoryTarget::Storage(1),
+        ),
+    ] {
+        let entry = registered(identifier);
+        let mut ledger = station_ledger(&entry, window);
+        assert_quick_move(&mut ledger, &entry, target);
+        let request_id = ledger.pending_request_id().unwrap();
+        let actions = ledger.newest_request().unwrap().actions.clone();
+        let predicted = ledger.target_stack(target).unwrap().clone();
+        let mut replacement = entry.clone();
+        replacement.item_tags = [std::sync::Arc::from("minecraft:is_sword")].into();
+
+        resend(&mut ledger, &replacement);
+        assert!(
+            ledger
+                .item_facts()
+                .get(entry.network_id)
+                .traits
+                .contains(assets::facts::ItemTraits::SWORD)
+        );
+        assert_eq!(ledger.pending_request_count(), 1);
+        assert_eq!(ledger.pending_request_id(), Some(request_id));
+        assert_eq!(ledger.newest_request().unwrap().actions, actions);
+        assert_eq!(ledger.target_stack(target), Some(&predicted));
+        assert!(ledger.pending_batch().unwrap().is_some());
+    }
 }

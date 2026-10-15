@@ -743,30 +743,28 @@ fn normalize_synced_attributes(
     check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
     // Skip individual malformed attributes (over-long name, non-finite bound —
     // servers send INFINITY for "unbounded") rather than dropping the actor.
-    let normalized = attributes
-        .into_iter()
-        .filter_map(|attribute| {
-            if attribute.attribute_name.len() > MAX_ACTOR_NAME_BYTES
-                || [
-                    attribute.min_value.0,
-                    attribute.max_value.0,
-                    attribute.current_value.0,
-                ]
-                .iter()
-                .any(|value| !value.is_finite())
-            {
-                return None;
-            }
-            Some(ActorAttribute {
-                name: Arc::from(attribute.attribute_name.to_string_lossy()),
-                min: attribute.min_value.0,
-                max: attribute.max_value.0,
-                current: attribute.current_value.0,
-                default: None,
-                modifiers: Arc::from([]),
-            })
+    let mut normalized = Vec::with_capacity(attributes.len());
+    normalized.extend(attributes.into_iter().filter_map(|attribute| {
+        if attribute.attribute_name.len() > MAX_ACTOR_NAME_BYTES
+            || [
+                attribute.min_value.0,
+                attribute.max_value.0,
+                attribute.current_value.0,
+            ]
+            .iter()
+            .any(|value| !value.is_finite())
+        {
+            return None;
+        }
+        Some(ActorAttribute {
+            name: Arc::from(attribute.attribute_name.to_string_lossy()),
+            min: attribute.min_value.0,
+            max: attribute.max_value.0,
+            current: attribute.current_value.0,
+            default: None,
+            modifiers: Arc::from([]),
         })
-        .collect::<Vec<_>>();
+    }));
     Ok(Arc::from(normalized))
 }
 
@@ -774,54 +772,49 @@ fn normalize_attribute_data(
     attributes: Vec<AttributeData>,
 ) -> Result<Arc<[ActorAttribute]>, ActorPacketError> {
     check_count("attributes", attributes.len(), MAX_ACTOR_ATTRIBUTES)?;
-    let normalized = attributes
-        .into_iter()
-        .filter_map(|attribute| {
-            if attribute.name.len() > MAX_ACTOR_NAME_BYTES
-                || attribute.modifiers.len() > MAX_ACTOR_ATTRIBUTE_MODIFIERS
-                || [
-                    attribute.min_value.0,
-                    attribute.max_value.0,
-                    attribute.current_value.0,
-                    attribute.default_min_value.0,
-                    attribute.default_max_value.0,
-                    attribute.default_value.0,
-                ]
-                .iter()
-                .any(|value| !value.is_finite())
+    let mut normalized = Vec::with_capacity(attributes.len());
+    normalized.extend(attributes.into_iter().filter_map(|attribute| {
+        if attribute.name.len() > MAX_ACTOR_NAME_BYTES
+            || attribute.modifiers.len() > MAX_ACTOR_ATTRIBUTE_MODIFIERS
+            || [
+                attribute.min_value.0,
+                attribute.max_value.0,
+                attribute.current_value.0,
+                attribute.default_min_value.0,
+                attribute.default_max_value.0,
+                attribute.default_value.0,
+            ]
+            .iter()
+            .any(|value| !value.is_finite())
+        {
+            return None;
+        }
+        let mut modifiers = Vec::with_capacity(attribute.modifiers.len());
+        modifiers.extend(attribute.modifiers.into_iter().filter_map(|modifier| {
+            if modifier.id.len() > MAX_ACTOR_NAME_BYTES
+                || modifier.name.len() > MAX_ACTOR_NAME_BYTES
+                || !modifier.amount.0.is_finite()
             {
                 return None;
             }
-            let modifiers = attribute
-                .modifiers
-                .into_iter()
-                .filter_map(|modifier| {
-                    if modifier.id.len() > MAX_ACTOR_NAME_BYTES
-                        || modifier.name.len() > MAX_ACTOR_NAME_BYTES
-                        || !modifier.amount.0.is_finite()
-                    {
-                        return None;
-                    }
-                    Some(ActorAttributeModifier {
-                        id: Arc::from(modifier.id.to_string_lossy()),
-                        name: Arc::from(modifier.name.to_string_lossy()),
-                        amount: modifier.amount.0,
-                        operation: modifier.operation.0,
-                        operand: modifier.operand.0,
-                        serializable: modifier.is_serializable,
-                    })
-                })
-                .collect::<Vec<_>>();
-            Some(ActorAttribute {
-                name: Arc::from(attribute.name.to_string_lossy()),
-                min: attribute.min_value.0,
-                max: attribute.max_value.0,
-                current: attribute.current_value.0,
-                default: Some(attribute.default_value.0),
-                modifiers: Arc::from(modifiers),
+            Some(ActorAttributeModifier {
+                id: Arc::from(modifier.id.to_string_lossy()),
+                name: Arc::from(modifier.name.to_string_lossy()),
+                amount: modifier.amount.0,
+                operation: modifier.operation.0,
+                operand: modifier.operand.0,
+                serializable: modifier.is_serializable,
             })
+        }));
+        Some(ActorAttribute {
+            name: Arc::from(attribute.name.to_string_lossy()),
+            min: attribute.min_value.0,
+            max: attribute.max_value.0,
+            current: attribute.current_value.0,
+            default: Some(attribute.default_value.0),
+            modifiers: Arc::from(modifiers),
         })
-        .collect::<Vec<_>>();
+    }));
     Ok(Arc::from(normalized))
 }
 
@@ -867,56 +860,51 @@ fn normalize_metadata(
     // 1.26.40 keys every entry with a raw actor-data id and tags the payload
     // with its own value type, so there is no named key enum to normalize and no
     // key-specific value variants: the payload type alone decides the mapping.
-    let entries = metadata
-        .data
-        .into_iter()
-        .filter_map(|entry| {
-            let key = entry.id.0;
-            let value = match entry.payload {
-                DataItemEntryValue::DataItemByte { value, .. } => ActorMetadataValue::Byte(value.0),
-                DataItemEntryValue::DataItemShort { value, .. } => {
-                    ActorMetadataValue::Short(value.0)
+    let mut entries = Vec::with_capacity(metadata.data.len());
+    entries.extend(metadata.data.into_iter().filter_map(|entry| {
+        let key = entry.id.0;
+        let value = match entry.payload {
+            DataItemEntryValue::DataItemByte { value, .. } => ActorMetadataValue::Byte(value.0),
+            DataItemEntryValue::DataItemShort { value, .. } => ActorMetadataValue::Short(value.0),
+            DataItemEntryValue::DataItemInt { value, .. } => ActorMetadataValue::Int(value.0),
+            DataItemEntryValue::DataItemFloat { value, .. } => value
+                .0
+                .is_finite()
+                .then_some(ActorMetadataValue::Float(value.0))?,
+            DataItemEntryValue::DataItemString { value, .. } => {
+                if value.len() > MAX_ACTOR_METADATA_STRING_BYTES {
+                    return None;
                 }
-                DataItemEntryValue::DataItemInt { value, .. } => ActorMetadataValue::Int(value.0),
-                DataItemEntryValue::DataItemFloat { value, .. } => value
-                    .0
-                    .is_finite()
-                    .then_some(ActorMetadataValue::Float(value.0))?,
-                DataItemEntryValue::DataItemString { value, .. } => {
-                    if value.len() > MAX_ACTOR_METADATA_STRING_BYTES {
-                        return None;
-                    }
-                    ActorMetadataValue::String(Arc::from(value.to_string_lossy()))
+                ActorMetadataValue::String(Arc::from(value.to_string_lossy()))
+            }
+            DataItemEntryValue::DataItemCompoundTag { value, .. } => {
+                if value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
+                    return None;
                 }
-                DataItemEntryValue::DataItemCompoundTag { value, .. } => {
-                    if value.0.len() > MAX_ACTOR_METADATA_NBT_BYTES {
-                        return None;
-                    }
-                    ActorMetadataValue::Compound(Arc::from(&value.0[..]))
+                ActorMetadataValue::Compound(Arc::from(&value.0[..]))
+            }
+            DataItemEntryValue::DataItemPos { value, .. } => {
+                ActorMetadataValue::BlockPosition([value.x.0, value.y.0, value.z.0])
+            }
+            // The actor flag words are ordinary Int64 payloads on the wire;
+            // only their id distinguishes them from a plain long.
+            DataItemEntryValue::DataItemInt64 { value, .. } => match key {
+                ACTOR_DATA_ID_FLAGS => ActorMetadataValue::Flags(value.0 as u64),
+                ACTOR_DATA_ID_FLAGS_EXTENDED | ACTOR_DATA_ID_FLAGS_THIRD => {
+                    ActorMetadataValue::FlagsExtended(value.0 as u64)
                 }
-                DataItemEntryValue::DataItemPos { value, .. } => {
-                    ActorMetadataValue::BlockPosition([value.x.0, value.y.0, value.z.0])
+                _ => ActorMetadataValue::Long(value.0),
+            },
+            DataItemEntryValue::DataItemVec3 { value, .. } => {
+                let value = value.to_array();
+                if value.iter().any(|c| !c.is_finite()) {
+                    return None;
                 }
-                // The actor flag words are ordinary Int64 payloads on the wire;
-                // only their id distinguishes them from a plain long.
-                DataItemEntryValue::DataItemInt64 { value, .. } => match key {
-                    ACTOR_DATA_ID_FLAGS => ActorMetadataValue::Flags(value.0 as u64),
-                    ACTOR_DATA_ID_FLAGS_EXTENDED | ACTOR_DATA_ID_FLAGS_THIRD => {
-                        ActorMetadataValue::FlagsExtended(value.0 as u64)
-                    }
-                    _ => ActorMetadataValue::Long(value.0),
-                },
-                DataItemEntryValue::DataItemVec3 { value, .. } => {
-                    let value = value.to_array();
-                    if value.iter().any(|c| !c.is_finite()) {
-                        return None;
-                    }
-                    ActorMetadataValue::Vector(value)
-                }
-            };
-            Some(ActorMetadata { key, value })
-        })
-        .collect::<Vec<_>>();
+                ActorMetadataValue::Vector(value)
+            }
+        };
+        Some(ActorMetadata { key, value })
+    }));
     Ok(Arc::from(entries))
 }
 

@@ -30,7 +30,8 @@ mod respawn;
 mod settings;
 mod skin_change;
 pub use skin_change::{
-    cape_content_id, player_skin_packet, set_skin_packet_engine_version, set_skin_packet_uuid,
+    builtin_skin_id, cape_content_id, custom_skin_id, player_skin_packet,
+    set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
 pub mod session_wire;
@@ -70,12 +71,13 @@ pub use audio::{
 };
 pub use blob_cache::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlobCacheStats,
-    BlobCacheStatus, CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES, CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES,
-    ClientBlobCache, MAX_CLIENT_BLOB_HASHES_PER_PACKET, MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
+    BlobCacheStatus, BlobCacheStore, CLIENT_BLOB_CACHE_TRIM_FLOOR_BYTES,
+    CLIENT_BLOB_CACHE_TRIM_TRIGGER_BYTES, ClientBlobCache, MAX_CLIENT_BLOB_CACHE_ENTRIES,
+    MAX_CLIENT_BLOB_HASHES_PER_PACKET, MAX_CLIENT_BLOB_ORDINARY_READY_BYTES,
     MAX_CLIENT_BLOB_ORDINARY_READY_EVENTS, MAX_CLIENT_BLOB_PENDING_BYTES,
     MAX_CLIENT_BLOB_PENDING_TRANSACTIONS, MAX_CLIENT_BLOB_READY_BYTES,
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
-    MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, client_blob_hash,
+    MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, WeakClientBlobCache, client_blob_hash,
 };
 pub use block_edit::{map_info_request_packet, sign_edit_packet};
 pub use boss::boss_registration_response;
@@ -138,7 +140,7 @@ pub use inventory::{
     item_stack_request_packet_filtered, next_legacy_request_id,
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
-    validate_item_nbt_size,
+    repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -183,7 +185,7 @@ pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
     LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
     PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, login_memory_tier, network_stack_latency_reply,
+    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

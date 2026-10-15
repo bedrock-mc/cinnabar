@@ -54,16 +54,17 @@ pub(super) struct MenuArtworkAtlas {
 }
 
 /// Decoded artwork: straight-alpha RGBA8, which the UI shader premultiplies, and its size.
-struct Artwork {
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
+pub(super) struct Artwork {
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) pixels: Vec<u8>,
 }
 
 /// What an atlas is packed from: the service art at its sides, images held in memory, and the
 /// engine's oversized textures by key.
 #[derive(Clone, Default)]
 pub(super) struct ArtworkSet {
+    pub(super) logo: Option<Arc<Artwork>>,
     pub(super) paths: Vec<(String, u32)>,
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
@@ -75,7 +76,11 @@ pub(super) struct ArtworkSet {
 impl ArtworkSet {
     /// Equality without comparing texture bytes: engine textures by key and payload.
     pub(super) fn same(&self, other: &Self) -> bool {
-        self.paths == other.paths
+        (match (&self.logo, &other.logo) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }) && self.paths == other.paths
             && self.images.len() == other.images.len()
             && self
                 .images
@@ -86,13 +91,20 @@ impl ArtworkSet {
             && self.capes.iter().zip(&other.capes).all(|(a, b)| a.same(b))
             && self.skins.len() == other.skins.len()
             && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
-            && self.oversized.len() == other.oversized.len()
-            && self
-                .oversized
-                .iter()
-                .zip(&other.oversized)
-                .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
+            && same_engine_textures(&self.oversized, &other.oversized)
     }
+}
+
+/// Whether two lists name the same engine textures, by key and payload, in order.
+pub(super) fn same_engine_textures(
+    left: &[(String, Arc<[u8]>)],
+    right: &[(String, Arc<[u8]>)],
+) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(a, b)| a.0 == b.0 && Arc::ptr_eq(&a.1, &b.1))
 }
 
 struct Request {
@@ -414,7 +426,7 @@ fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
 /// Straight-alpha RGBA8 (what the UI shader samples) of an image no larger
 /// than `max_side` on either axis; a downscale filters premultiplied so
 /// transparent texels never bleed into edges.
-fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
+pub(super) fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
     if bytes.is_empty() || bytes.len() > MAX_SOURCE_BYTES || max_side == 0 {
         return None;
     }
@@ -574,7 +586,8 @@ pub fn view_paths(view: &launcher::menu::MenuView) -> Vec<(String, u32)> {
         .collect()
 }
 
-/// The edited world first, or the worlds list's visible rows, within the atlas budget.
+/// The edited world first, the Mods tab's card icons, or the worlds list's visible rows, within
+/// the atlas budget.
 fn view_images(
     view: &launcher::menu::MenuView,
     hits: &[(launcher::menu::MenuAction, ui::UiRect)],
@@ -599,6 +612,20 @@ fn view_images(
             .find(|thumbnail| Some(&thumbnail.key) == edited.as_ref())
             .map(|thumbnail| (thumbnail.key.clone(), Arc::clone(&thumbnail.image)))
             .into_iter()
+            .collect();
+    }
+    if view.screen == MenuScreen::Settings
+        && view.settings_section
+            == launcher::menu::settings_sections::SettingSection::Mods
+                .definition()
+                .index
+    {
+        return view
+            .mods
+            .library
+            .installed
+            .iter()
+            .filter_map(|item| Some((item.icon_key()?, Arc::clone(item.metadata.icon.as_ref()?))))
             .collect();
     }
     if view.screen != MenuScreen::Play || view.local.screen != Screen::List {

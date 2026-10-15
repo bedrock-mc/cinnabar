@@ -1,5 +1,6 @@
 use super::*;
 use protocol::block_state_network_hash;
+use protocol_ids::Attribute;
 
 #[test]
 fn totem_activation_publishes_only_the_local_player_event() {
@@ -53,6 +54,7 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,
         head_yaw: 0.0,
@@ -60,6 +62,7 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
@@ -188,7 +191,7 @@ fn set_health_before_the_first_local_pose_survives_actor_creation() {
                     runtime_id: 1,
                     tick: 5,
                     attributes: Arc::from([protocol::ActorAttribute {
-                        name: "minecraft:health".into(),
+                        name: Attribute::Health.wire_name().into(),
                         min: 0.0,
                         max: 40.0,
                         current: 7.0,
@@ -203,8 +206,8 @@ fn set_health_before_the_first_local_pose_survives_actor_creation() {
     authority.sync_local_player_pose(&local_health_feed());
     let actor = authority.actor(1).unwrap();
     assert!(!actor.status.dead);
-    assert_eq!(actor.attributes["minecraft:health"].current, 7.0);
-    assert_eq!(actor.attributes["minecraft:health"].max, 40.0);
+    assert_eq!(actor.attributes[Attribute::Health.wire_name()].current, 7.0);
+    assert_eq!(actor.attributes[Attribute::Health.wire_name()].max, 40.0);
 }
 
 #[test]
@@ -243,7 +246,7 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
                 held_item: Default::default(),
                 metadata: Arc::from([]),
                 attributes: Arc::from([protocol::ActorAttribute {
-                    name: "minecraft:health".into(),
+                    name: Attribute::Health.wire_name().into(),
                     min: 0.0,
                     max: crate::DEFAULT_PLAYER_HEALTH,
                     current: crate::DEFAULT_PLAYER_HEALTH,
@@ -265,7 +268,10 @@ fn set_health_updates_the_local_actor_death_clock_and_preserves_ui_delivery() {
             .unwrap();
         let actor = authority.actor(1).unwrap();
         assert_eq!(actor.status.dead, health == 0);
-        assert_eq!(actor.attributes["minecraft:health"].current, health as f32);
+        assert_eq!(
+            actor.attributes[Attribute::Health.wire_name()].current,
+            health as f32
+        );
         assert_eq!(actor.status.native_death_ticks(), 0);
         authority.advance_actor_interpolation_ticks(3);
         assert_eq!(

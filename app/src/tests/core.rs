@@ -67,6 +67,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     actor.movement_revision = 23;
     actor.on_ground = Some(true);
     actor.previous_pose = client_world::ActorPose {
+        y_origin: Default::default(),
         position: [8.0, 64.0, -3.0],
         pitch: 10.0,
         yaw: 40.0,

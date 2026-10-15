@@ -232,6 +232,9 @@ fn visual_family_dispatch_uses_explicit_ordered_outcomes() {
 fn synthetic_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {
     RegistryRecord {
         beacon_tint: assets::BeaconTint::Unresolved,
+        traits: assets::registry::BlockTraits::empty(),
+        survival: assets::registry::SurvivalRule::None,
+        properties: Box::new([]),
         sequential_id,
         network_hash,
         name: "minecraft:air".into(),
@@ -328,7 +331,7 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
 }
 
 #[test]
-fn every_current_registry_button_has_a_supported_name() {
+fn every_current_registry_button_uses_the_family_route() {
     let records = assets::read_registry_for_protocol(
         include_bytes!("../../../assets/data/block-registry-v2193.bin"),
         2193,
@@ -337,7 +340,7 @@ fn every_current_registry_button_has_a_supported_name() {
     let unsupported = records
         .iter()
         .filter(|record| record.model_family == assets::ModelFamily::Button)
-        .filter(|record| !super::classification::is_supported_button_name(&record.name))
+        .filter(|record| !super::classification::is_button(record))
         .map(|record| record.name.as_ref())
         .collect::<std::collections::BTreeSet<_>>();
     assert!(unsupported.is_empty(), "{unsupported:?}");

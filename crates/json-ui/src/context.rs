@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use crate::vanilla::Variable;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::Value;
 
@@ -6,9 +7,12 @@ use crate::{Catalog, env::Env};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
 /// extra variables that gate `ignored`/`variables[]` selection and `$var` values.
+///
+/// Clones share the variables, so retained screens compare an unchanged context by
+/// pointer instead of walking every variable each frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Context {
-    pub(crate) vars: BTreeMap<String, Value>,
+    pub(crate) vars: Arc<BTreeMap<String, Value>>,
 }
 
 impl Context {
@@ -22,89 +26,92 @@ impl Context {
     /// A non-touch desktop screen context.
     pub fn desktop() -> Self {
         Self::empty()
-            .with_flag("desktop_screen", true)
-            .with_flag("pocket_screen", false)
-            .with_flag("touch", false)
+            .with_flag(Variable::DesktopScreen.key(), true)
+            .with_flag(Variable::PocketScreen.key(), false)
+            .with_flag(Variable::Touch.key(), false)
     }
 
     /// The desktop context plus the globals a retail, full-game, non-edu desktop
     /// client computes in code, false ones included.
     pub fn retail(macos: bool) -> Self {
         let platform: &[(&str, bool)] = &[
-            ("win10_edition", !macos),
-            ("microsoft_os", !macos),
-            ("ms_platform", !macos),
-            ("osx_edition", macos),
-            ("apple_os", macos),
+            (Variable::Win10Edition.key(), !macos),
+            (Variable::MicrosoftOs.key(), !macos),
+            (Variable::MsPlatform.key(), !macos),
+            (Variable::OsxEdition.key(), macos),
+            (Variable::AppleOs.key(), macos),
         ];
         let constant: &[(&str, bool)] = &[
-            ("is_desktop", true),
+            (Variable::IsDesktop.key(), true),
             ("mouse", true),
-            ("is_publish", true),
-            ("test_infrastructure_disabled", true),
-            ("new_video_settings", true),
-            ("is_improve_input_response_platform_supported", true),
-            ("is_xboxlive_enabled", true),
-            ("is_realms_enabled", true),
-            ("is_seeds_enabled", true),
+            (Variable::IsPublish.key(), true),
+            (Variable::TestInfrastructureDisabled.key(), true),
+            (Variable::NewVideoSettings.key(), true),
+            (
+                Variable::IsImproveInputResponsePlatformSupported.key(),
+                true,
+            ),
+            (Variable::IsXboxliveEnabled.key(), true),
+            (Variable::IsRealmsEnabled.key(), true),
+            (Variable::IsSeedsEnabled.key(), true),
             ("is_creative_enabled", true),
             ("is_multiplayer_enabled", true),
             ("is_packs_enabled", true),
             ("is_server_enabled", true),
             ("is_store_enabled", false),
-            ("file_picking_supported", true),
-            ("supports_clipboard_set", true),
-            ("supports_add_friend", true),
-            ("supports_xbl_achievements", true),
+            (Variable::FilePickingSupported.key(), true),
+            (Variable::SupportsClipboardSet.key(), true),
+            (Variable::SupportsAddFriend.key(), true),
+            (Variable::SupportsXblAchievements.key(), true),
             // Channel flags: this is the release app, not Preview.
-            ("pre_release", false),
-            ("beta_build", false),
-            ("is_preview_app", false),
-            ("trial", false),
-            ("education_edition", false),
-            ("store_disabled", true),
-            ("creator_build", false),
-            ("pocket_edition", false),
-            ("console_edition", false),
-            ("is_console", false),
+            (Variable::PreRelease.key(), false),
+            (Variable::BetaBuild.key(), false),
+            (Variable::IsPreviewApp.key(), false),
+            (Variable::Trial.key(), false),
+            (Variable::EducationEdition.key(), false),
+            (Variable::StoreDisabled.key(), true),
+            (Variable::CreatorBuild.key(), false),
+            (Variable::PocketEdition.key(), false),
+            (Variable::ConsoleEdition.key(), false),
+            (Variable::IsConsole.key(), false),
             ("game_pad", false),
-            ("can_splitscreen", false),
-            ("is_secondary_client", false),
-            ("requires_xbl_signin_to_play", false),
-            ("is_editor_mode_enabled", false),
-            ("can_quit", true),
-            ("world_archive_support", true),
+            (Variable::CanSplitscreen.key(), false),
+            (Variable::IsSecondaryClient.key(), false),
+            (Variable::RequiresXblSigninToPlay.key(), false),
+            (Variable::IsEditorModeEnabled.key(), false),
+            (Variable::CanQuit.key(), true),
+            (Variable::WorldArchiveSupport.key(), true),
             ("is_dynamic_textures_platform_supported", true),
-            ("is_pregame", false),
-            ("screen_transitions_enabled", false),
-            ("use_normalized_font_size", false),
+            (Variable::IsPregame.key(), false),
+            (Variable::ScreenTransitionsEnabled.key(), false),
+            (Variable::UseNormalizedFontSize.key(), false),
             ("image_picking_not_supported", false),
             ("vibration_supported", false),
-            ("supports_share", false),
-            ("hide_xbox_live_icon", false),
-            ("disable_gamertag_controls", false),
+            (Variable::SupportsShare.key(), false),
+            (Variable::HideXboxLiveIcon.key(), false),
+            (Variable::DisableGamertagControls.key(), false),
             ("multiplayer_requires_live_gold", false),
-            ("device_must_be_removed_for_xbl_signin", false),
-            ("is_low_memory_device", false),
-            ("ignore_3rd_party_servers", false),
-            ("ignore_add_servers", false),
-            ("is_on_3p_server", false),
-            ("is_editor_playtest_roundtrip", false),
-            ("edu_save_to_cloud_on", false),
-            ("edu_save_to_cloud_general_toggle_on", false),
-            ("built_with_ore_ui_docs_and_tests", false),
+            (Variable::DeviceMustBeRemovedForXblSignin.key(), false),
+            (Variable::IsLowMemoryDevice.key(), false),
+            (Variable::Ignore3rdPartyServers.key(), false),
+            (Variable::IgnoreAddServers.key(), false),
+            (Variable::IsOn3pServer.key(), false),
+            (Variable::IsEditorPlaytestRoundtrip.key(), false),
+            (Variable::EduSaveToCloudOn.key(), false),
+            (Variable::EduSaveToCloudGeneralToggleOn.key(), false),
+            (Variable::BuiltWithOreUiDocsAndTests.key(), false),
             // Other platforms and devices.
             ("build_platform_UWP", false),
-            ("google_os", false),
-            ("is_ios", false),
-            ("is_android", false),
+            (Variable::GoogleOs.key(), false),
+            (Variable::IsIos.key(), false),
+            (Variable::IsAndroid.key(), false),
             ("is_chromebook", false),
             ("fire_tv", false),
-            ("nx_os", false),
-            ("is_ps4", false),
-            ("is_ps5", false),
-            ("xbox_one", false),
-            ("thirdpartyconsole", false),
+            (Variable::NxOs.key(), false),
+            (Variable::IsPs4.key(), false),
+            (Variable::IsPs5.key(), false),
+            (Variable::XboxOne.key(), false),
+            (Variable::Thirdpartyconsole.key(), false),
             ("is_settopbox", false),
             ("is_win10_arm", false),
             ("is_windows_10_mobile", false),
@@ -112,7 +119,7 @@ impl Context {
             ("gear_vr", false),
             ("oculus_rift", false),
             ("psvr", false),
-            ("is_holographic", false),
+            (Variable::IsHolographic.key(), false),
             ("supports_hand_controllers", false),
             ("is_living_room_mode", false),
             ("is_reality_mode", false),
@@ -128,10 +135,10 @@ impl Context {
         let vertical = || serde_json::json!(["100%", 0]);
         let horizontal = || serde_json::json!([0, "100%"]);
         context
-            .with_var("top_vertical_safezone_size", vertical())
-            .with_var("bottom_vertical_safezone_size", vertical())
-            .with_var("left_horizontal_safezone_size", horizontal())
-            .with_var("right_horizontal_safezone_size", horizontal())
+            .with_var(Variable::TopVerticalSafezoneSize.key(), vertical())
+            .with_var(Variable::BottomVerticalSafezoneSize.key(), vertical())
+            .with_var(Variable::LeftHorizontalSafezoneSize.key(), horizontal())
+            .with_var(Variable::RightHorizontalSafezoneSize.key(), horizontal())
     }
 
     /// The variables set so far, keyed without `$`.
@@ -140,14 +147,16 @@ impl Context {
     }
 
     /// Set a boolean flag (stored under `name`, without a `$`).
-    pub fn with_flag(mut self, name: &str, value: bool) -> Self {
-        self.vars.insert(name.to_owned(), Value::Bool(value));
-        self
+    pub fn with_flag(self, name: &str, value: bool) -> Self {
+        self.with_var(name, Value::Bool(value))
     }
 
-    /// Set an arbitrary variable value.
+    /// Set an arbitrary variable value. Writing the value already held keeps the
+    /// variables shared with every clone.
     pub fn with_var(mut self, name: &str, value: Value) -> Self {
-        self.vars.insert(name.to_owned(), value);
+        if self.vars.get(name) != Some(&value) {
+            Arc::make_mut(&mut self.vars).insert(name.to_owned(), value);
+        }
         self
     }
 
@@ -156,9 +165,47 @@ impl Context {
         for (name, value) in catalog.globals() {
             env.set(name.clone(), value.clone());
         }
-        for (name, value) in &self.vars {
+        for (name, value) in self.vars.iter() {
             env.set(name.clone(), value.clone());
         }
         env
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::Value;
+
+    use super::{Context, Variable};
+
+    #[test]
+    fn clones_share_variables_until_a_write_changes_one() {
+        let base = Context::desktop();
+        let same = base.clone().with_flag(Variable::Touch.key(), false);
+        assert!(Arc::ptr_eq(&base.vars, &same.vars));
+        assert_eq!(base, same);
+        let changed = base.clone().with_flag("cinnabar_chat_top", true);
+        assert!(!Arc::ptr_eq(&base.vars, &changed.vars));
+        assert_eq!(
+            base,
+            Context::desktop(),
+            "the shared variables stay unchanged"
+        );
+        assert_eq!(
+            changed.vars().get("cinnabar_chat_top"),
+            Some(&Value::Bool(true))
+        );
+        assert_ne!(base, changed);
+        let flipped = same.with_flag(Variable::Touch.key(), true);
+        assert_eq!(
+            flipped.vars().get(Variable::Touch.key()),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            base.vars().get(Variable::Touch.key()),
+            Some(&Value::Bool(false))
+        );
     }
 }

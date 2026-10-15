@@ -25,7 +25,7 @@ pub mod entity;
 mod environment_settings;
 pub mod equipment;
 mod error;
-mod family_routing;
+pub mod facts;
 pub mod fire;
 mod fog_layers;
 mod fog_transition;
@@ -82,7 +82,7 @@ pub use atmosphere::{
     BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
     FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_IDENTIFIER_BYTES,
     MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog, RuntimeAtmosphereAssets,
-    composite_celestial, encode_atmosphere_blob,
+    atmosphere_texture_specs, composite_celestial, encode_atmosphere_blob,
 };
 pub use audio::{
     AUDIO_CARRIER_MAGIC, AudioAlternative, AudioCatalogError, AudioDefinition,
@@ -108,9 +108,9 @@ pub use biome::{
 pub use biome_noise::{ClientRandom, GRASS_PERMUTATION_SIZE, grass_noise_permutation};
 pub use blob::{BLOB_MAGIC, BLOB_VERSION, MATERIAL_BYTES, encode_blob, write_blob_atomic};
 pub use block_entity::{
-    BLOCK_ENTITY_ROUTES, BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE,
-    MAX_BLOCK_ENTITY_ATLAS_SIDE, MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS,
-    RuntimeBlockEntityAssets, block_entity_route, encode_block_entity_catalog,
+    BlockEntityPlacement, BlockEntityRouteKind, CRYSTAL_BEAM_TEXTURE, MAX_BLOCK_ENTITY_ATLAS_SIDE,
+    MAX_BLOCK_ENTITY_CARRIER_BYTES, MAX_BLOCK_ENTITY_PLACEMENTS, RuntimeBlockEntityAssets,
+    block_entity_route, encode_block_entity_catalog,
 };
 pub use block_names::{legacy_resource_pack_block_alias, vanilla_skull_type};
 pub use compiled::{
@@ -184,8 +184,6 @@ pub use equipment::{
     encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
 };
 pub use error::AssetError;
-pub use fog_layers::resolve_fog_layers;
-pub use fog_transition::FogTransition;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
     FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS,
@@ -298,3 +296,4 @@ pub use ui::{
     UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
+pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};

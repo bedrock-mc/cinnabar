@@ -23,6 +23,9 @@ use bytes::Bytes;
 #[cfg(test)]
 static RECOVERY_ORDER_COMPARISONS: AtomicUsize = AtomicUsize::new(0);
 
+mod persistence;
+pub use persistence::{BlobCacheStore, WeakClientBlobCache};
+
 mod resolver;
 pub use resolver::{BlobCacheReady, BlobCacheStatus};
 
@@ -199,6 +202,7 @@ struct CacheStore {
 pub struct ClientBlobCache {
     limits: BlobCacheLimits,
     store: Arc<Mutex<CacheStore>>,
+    persistence: Option<Arc<dyn BlobCacheStore>>,
 }
 
 impl Default for ClientBlobCache {
@@ -213,6 +217,7 @@ impl ClientBlobCache {
         Self {
             limits,
             store: Arc::new(Mutex::new(CacheStore::default())),
+            persistence: None,
         }
     }
 
@@ -225,6 +230,11 @@ impl ClientBlobCache {
         let hash = client_blob_hash(payload);
         let mut store = self.lock();
         insert_verified(&mut store, self.limits, hash, payload)?;
+        let payload = store.entries.get(&hash).map(|entry| entry.payload.clone());
+        drop(store);
+        if let Some(payload) = payload {
+            self.persist(hash, payload);
+        }
         Ok(hash)
     }
 
@@ -253,7 +263,10 @@ impl ClientBlobCache {
         let clock = store.clock;
         let entry = store.entries.get_mut(&hash)?;
         entry.last_used = clock;
-        Some(entry.payload.clone())
+        let payload = entry.payload.clone();
+        drop(store);
+        self.touch(&[hash]);
+        Some(payload)
     }
 
     fn classify(&self, hashes: &[u64], pin: bool) -> (Vec<u64>, Vec<u64>, usize) {
@@ -285,6 +298,8 @@ impl ClientBlobCache {
                 *store.pins.entry(hash).or_default() += 1;
             }
         }
+        drop(store);
+        self.touch(&have);
         (have, missing, staged_bytes)
     }
 
@@ -469,6 +484,15 @@ pub struct BlobCacheResolver {
     fast_transfer_reset_armed: bool,
     next_ready_sequence: u64,
     stats: BlobCacheStats,
+    /// Sum of every `pending_by_hash` set's capacity, updated at each index mutation so
+    /// accounting refreshes do not walk the index.
+    pending_hash_set_capacity: usize,
+    /// Sum of `accounted_bytes` across `pending`, updated with every insert, removal and charge.
+    pending_accounted_bytes: usize,
+    /// Sum of `accounted_bytes` across `ready`, updated with every insert and removal.
+    ready_accounted_bytes: usize,
+    /// Sum of `columns.len()` across `pending` and `ready`, the recovery slots they reserve.
+    retained_column_slots: usize,
 }
 
 fn ready_value_accounted_bytes(value: &ResolverReady) -> Result<usize, BlobCacheError> {
@@ -525,7 +549,24 @@ fn insert_verified(
     payload: &[u8],
 ) -> Result<(), BlobCacheError> {
     if let Some(existing) = store.entries.get(&hash) {
-        if existing.payload.as_ref() != payload {
+        return if existing.payload.as_ref() == payload {
+            Ok(())
+        } else {
+            Err(BlobCacheError::ConflictingDuplicate(hash))
+        };
+    }
+    insert_shared(store, limits, hash, Arc::from(payload))
+}
+
+/// Admits a shared verified body under the existing pin and memory limits.
+fn insert_shared(
+    store: &mut CacheStore,
+    limits: BlobCacheLimits,
+    hash: u64,
+    payload: Arc<[u8]>,
+) -> Result<(), BlobCacheError> {
+    if let Some(existing) = store.entries.get(&hash) {
+        if existing.payload.as_ref() != payload.as_ref() {
             return Err(BlobCacheError::ConflictingDuplicate(hash));
         }
         return Ok(());
@@ -555,7 +596,7 @@ fn insert_verified(
     store.entries.insert(
         hash,
         CacheEntry {
-            payload: Arc::from(payload),
+            payload,
             last_used: store.clock,
         },
     );

@@ -27,13 +27,13 @@
     "education_states": 164
   },
   "output": {
-    "format": "BREG1004",
+    "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2193.bin",
-    "sha256": "956914fee95e9a2019ae5ac8b961a12f737f0e1b4919754f7b3bb0f0d8820532"
+    "sha256": "f9ac5559b318fc2395a362e74b3bad9a2cfa0618204cfab47016b63aa048700c"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2193.bin",
-    "sha256": "c2474b7585ebad861a7f4e6a63803a03ae9de3c1611e9cb652f4bd587a3b802e"
+    "sha256": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f"
   }
 }

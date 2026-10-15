@@ -1,4 +1,5 @@
 use super::*;
+use assets::entity::EngineVariable as V;
 
 /// Camera queries affect presentation immediately without changing a clip's clock or state.
 pub(crate) fn needs_camera_sampling(
@@ -35,29 +36,6 @@ pub(crate) fn active_pose_inputs(
         expressions.swing |= inputs.swing;
     }
     expressions
-}
-
-/// Camera-dependent geometry uses the full frame pose; swing is already sampled at both endpoints.
-pub(super) fn layer_motion_isolated(
-    evaluator: &evaluation::Evaluator<'_>,
-    clips: &[tick::WeightedClip],
-    geometry: u32,
-    camera_changed: bool,
-    budget: &mut EvalBudget<'_>,
-) -> Result<bool, EvalError> {
-    if !camera_changed {
-        return Ok(true);
-    }
-    for active in clips {
-        budget.charge_work()?;
-        if let Some(mapped) = render::clip_for_layer(evaluator.assets, *active, geometry) {
-            let reads = evaluator.layout.clip_inputs(mapped.clip);
-            if reads.camera {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
 }
 
 /// Binds rig-level presentation inputs without animation-channel scans during actor ticks.
@@ -305,7 +283,7 @@ pub(crate) fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bo
         .get(symbol as usize)
         .is_some_and(|symbol| {
             if swing {
-                return symbol.identifier.as_ref() == "variable.attack_time"
+                return symbol.identifier.as_ref() == V::AttackTime.name()
                     || symbol.identifier.starts_with("variable.fp_melee_spear_")
                     || symbol.identifier.starts_with("variable.tp_melee_spear_");
             }
@@ -316,11 +294,13 @@ pub(crate) fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bo
                     .identifier
                     .starts_with("variable.tp_melee_spear_use_")
                 || matches!(
-                    symbol.identifier.as_ref(),
-                    "query.camera_distance_range_lerp"
-                        | "query.camera_rotation"
-                        | "query.distance_from_camera"
-                        | "query.rotation_to_camera"
+                    assets::MolangQuery::from_name(&symbol.identifier),
+                    Some(
+                        assets::MolangQuery::CameraDistanceRangeLerp
+                            | assets::MolangQuery::CameraRotation
+                            | assets::MolangQuery::DistanceFromCamera
+                            | assets::MolangQuery::RotationToCamera
+                    )
                 )
         })
 }

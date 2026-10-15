@@ -23,6 +23,13 @@ pub const MAX_MOLANG_OPS_PER_WORLD_TICK: usize = 262_144;
 pub const MAX_MOLANG_OPS_PER_RENDER_FRAME: usize = MAX_MOLANG_OPS_PER_WORLD_TICK;
 pub const MAX_ACTOR_ACTION_HISTORY: usize = 32;
 const MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK: usize = 4_096;
+/// A frame sample replays pre-animation for both tick endpoints besides its own and render pass.
+const FRAME_PASSES_PER_ACTOR: usize = 4;
+/// One actor's frame sample fits any rig whose tick evaluation fits its tick budget.
+const MAX_MOLANG_OPS_PER_ACTOR_FRAME: usize =
+    FRAME_PASSES_PER_ACTOR * MAX_MOLANG_OPS_PER_ACTOR_TICK;
+const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
+    FRAME_PASSES_PER_ACTOR * MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
 mod actor;
@@ -38,13 +45,15 @@ pub use rig::{
 mod state;
 use state::{
     ActorRigState, ActorTickInput, AttachableRootFrame, ControllerState, EvalBudget, EvalError,
-    EvaluatedState, RuntimeBone,
+    EvaluatedState, OperandStack, RuntimeBone,
 };
 mod store;
 pub use store::ActorAnimationStore;
 use store::{PackCatalog, PoseStep, model_scale};
 
 mod attachable;
+mod cape;
+pub use cape::CapePreparationQueue;
 mod clock;
 pub mod custom_emotes;
 pub use custom_emotes::{CustomEmote, CustomEmotePose, sample_custom_emote};
@@ -79,7 +88,8 @@ pub use attachable::{
     AttachableAnimationInput, AttachableBoneParent, AttachableRigSnapshot, AttachablesRuntime,
 };
 pub use evaluation::ActorAnimationVariables;
-use evaluation::{EngineSlots, Evaluator, MolangValue, MolangVariables, VariableLayout};
+use evaluation::variables::{MolangVariables, ScratchVariables};
+use evaluation::{EngineSlots, Evaluator, MolangValue, VariableLayout};
 use geometry::{collect_controllers, resolve_binding, resolve_bones, skeleton};
 pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
@@ -87,7 +97,7 @@ pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::{compose_pose, sample_clips};
 pub use render::RenderTextureLayer;
 pub use skin_layers::SkinRenderLayer;
-pub use tick::{ActorTickContext, WornArmor};
+pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
 pub use view::ActorAnimationView;
 

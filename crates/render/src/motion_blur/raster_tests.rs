@@ -149,13 +149,18 @@ fn stationary_camera_actor_exposure_spreads_colour_into_the_swept_background() {
                 "moving actor must expose background beyond both silhouette edges at {samples}x MSAA"
             );
         }
-        let energy: u32 = row.chunks_exact(4).map(|pixel| u32::from(pixel[0])).sum();
+        let energy: u32 = row
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| u32::from(pixel[0]))
+            .sum();
         let input_energy = bounds.z * 255;
         assert!(
             energy.abs_diff(input_energy) <= input_energy / 20,
             "exposure must conserve actor colour within quantization tolerance: {energy}/{input_energy}/{samples}x MSAA"
         );
-        for pixel in row.chunks_exact(4) {
+        for pixel in row.as_chunks::<4>().0.iter() {
             assert_eq!(pixel[2], 0, "exposure invented a blue component");
             assert_eq!(pixel[3], 255, "opaque scene exposure changed alpha");
             let complementary_green = 128.0 * (1.0 - f32::from(pixel[0]) / 255.0);
@@ -244,7 +249,7 @@ fn actor_streaks_respect_foreground_depth_and_diagonal_reach() {
         return;
     };
     // The rectangle crosses a tile boundary so both neighbour lookup and source reduction matter.
-    let edge = super::footprint::TILE_SIZE;
+    let edge = super::shader::TILE_SIZE;
     let bounds = UVec4::new(edge - 4, edge - 4, 8, 8);
     let input = image(|x, y| {
         if x >= bounds.x && x < bounds.x + bounds.z && y >= bounds.y && y < bounds.y + bounds.w {

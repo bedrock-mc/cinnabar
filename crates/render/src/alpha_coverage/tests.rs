@@ -5,6 +5,8 @@ use wgpu::util::DeviceExt;
 
 #[path = "grid_tests.rs"]
 mod grid_tests;
+#[path = "leaf_mip_tests.rs"]
+mod leaf_mip_tests;
 #[path = "minification_tests.rs"]
 mod minification_tests;
 
@@ -21,6 +23,11 @@ fn alpha_to_coverage_is_limited_to_multisampled_cutout_color_passes() {
             assert_eq!(
                 descriptor.multisample.alpha_to_coverage_enabled,
                 cutout && samples > 1
+            );
+            assert_eq!(
+                descriptor.vertex.shader_defs.contains(&SHADER_DEF.into()),
+                cutout && samples > 1,
+                "coverage varyings require matching vertex specialization",
             );
             assert_eq!(
                 descriptor

@@ -2,6 +2,7 @@
 mod camera;
 use super::*;
 mod block_highlights;
+mod embedded_assets;
 mod fullbright;
 mod gameplay;
 mod hud;
@@ -11,6 +12,7 @@ mod prepared_settings;
 mod render;
 mod screens;
 mod security;
+mod terrain;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.

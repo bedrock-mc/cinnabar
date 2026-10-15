@@ -25,7 +25,10 @@ fn rocket_launch_audio_publication_preserves_spawn_credit_and_current_epoch() {
                 unique_id: 17,
                 runtime_id: 7,
                 kind: ActorKind::Entity {
-                    identifier: crate::FIREWORK_ROCKET_IDENTIFIER.into(),
+                    identifier: assets::facts::entity::NativeEntityClass::FireworksRocket
+                        .identifier()
+                        .unwrap()
+                        .into(),
                 },
                 position: [1.0, 64.0, 3.0],
                 velocity: [0.0; 3],

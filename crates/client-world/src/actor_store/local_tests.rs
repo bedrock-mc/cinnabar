@@ -1,3 +1,4 @@
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 use std::sync::Arc;
 
 use protocol::{ActorEvent, ActorKind, PlayerListEntry, PlayerListUpdateEvent, PlayerSkin};
@@ -48,6 +49,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw,
         head_yaw: yaw,
@@ -55,6 +57,7 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         main_hand: None,
         off_hand: None,
         held_network_ids: [0; 2],
+        held_variants: Default::default(),
         main_hand_metadata: 0,
         main_hand_stack_id: None,
         main_hand_slot: 0,
@@ -67,6 +70,58 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
         sprinting: false,
         item_use: Default::default(),
     }
+}
+
+#[test]
+fn local_pose_feeds_and_identity_filters_refresh_collision_snapshots() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, 10, &feed);
+    store.apply(
+        1,
+        1,
+        ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            metadata: [protocol::ActorMetadata {
+                key: ActorDataKey::FlagsTwo.wire_value(),
+                value: protocol::ActorMetadataValue::FlagsExtended(
+                    1 << (ActorFlag::Collidable.wire_value() - 64),
+                ),
+            }]
+            .into(),
+            properties: [].into(),
+            tick: 0,
+        }),
+    );
+    let excluded = store.movement_collider_snapshot(1, 10);
+    assert!(excluded.is_empty());
+    let original = store.movement_collider_snapshot(2, 20);
+    assert_eq!(original.len(), 1);
+    feed.position[0] = 4.0;
+    feed.teleported = true;
+    store.sync_local_player(1, 10, &feed);
+    let teleported = store.movement_collider_snapshot(2, 20);
+    assert_ne!(original, teleported);
+    assert_eq!(
+        teleported[0],
+        store.get(1).unwrap().movement_collision_bounds().unwrap()
+    );
+    feed.position[0] = 8.0;
+    feed.teleported = false;
+    store.sync_local_player(1, 10, &feed);
+    assert!(Arc::ptr_eq(
+        &teleported,
+        &store.movement_collider_snapshot(2, 20)
+    ));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(
+        store.movement_collider_snapshot(2, 20)[0],
+        store.get(1).unwrap().movement_collision_bounds().unwrap()
+    );
+    assert_ne!(teleported, store.movement_collider_snapshot(2, 20));
+    assert!(store.movement_collider_snapshot(1, 10).is_empty());
+    assert_eq!((original[0].0[0] + original[0].1[0]) * 0.5, 0.0);
 }
 
 #[test]
@@ -205,7 +260,7 @@ fn local_health_pending_a_pose_cannot_cross_sessions() {
     store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
     let actor = store.get(1).unwrap();
     assert!(!actor.status.dead);
-    assert!(!actor.attributes.contains_key("minecraft:health"));
+    assert!(!actor.attributes.contains_key(Attribute::Health.wire_name()));
 }
 
 #[test]
@@ -217,7 +272,7 @@ fn local_health_pending_a_pose_cannot_override_newer_spawn_health() {
         unreachable!();
     };
     spawn.attributes = Arc::from([protocol::ActorAttribute {
-        name: "minecraft:health".into(),
+        name: Attribute::Health.wire_name().into(),
         min: 0.0,
         max: crate::DEFAULT_PLAYER_HEALTH,
         current: 7.0,
@@ -248,7 +303,7 @@ fn spawn_health_initializes_death_time_and_replacement_clears_it() {
             unreachable!();
         };
         spawn.attributes = Arc::from([protocol::ActorAttribute {
-            name: "minecraft:health".into(),
+            name: Attribute::Health.wire_name().into(),
             min: 0.0,
             max: crate::DEFAULT_PLAYER_HEALTH,
             current: 0.0,
@@ -306,7 +361,7 @@ fn local_health_respects_retained_attribute_capacity_and_invalid_ranges() {
         .get_mut(&1)
         .unwrap()
         .attributes
-        .get_mut("minecraft:health")
+        .get_mut(Attribute::Health.wire_name())
         .unwrap()
         .max = f32::NAN;
     store.set_local_health(1, 0);
@@ -329,7 +384,7 @@ fn local_health_skips_values_rejected_by_the_hud_before_mutating_actor_or_pendin
         store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
         let actor = store.get(1).unwrap();
         assert!(!actor.status.dead);
-        assert_eq!(actor.attributes["minecraft:health"].current, 7.0);
+        assert_eq!(actor.attributes[Attribute::Health.wire_name()].current, 7.0);
         assert_eq!(store.local_health_skips(), 4);
     }
 }
@@ -343,14 +398,14 @@ fn local_health_survives_dimension_actor_recreation() {
     assert_eq!(store.reset_dimension(1, 1, 2), ActorApplyResult::Reset);
     store.sync_local_player(1, -1, &local_feed(0.0, 0.0));
     assert_eq!(
-        store.get(1).unwrap().attributes["minecraft:health"].current,
+        store.get(1).unwrap().attributes[Attribute::Health.wire_name()].current,
         7.0
     );
     store.set_local_health(1, 0);
     assert!(store.get(1).unwrap().status.dead);
     store.set_local_health(1, i32::from(u16::MAX));
     assert_eq!(
-        store.get(1).unwrap().attributes["minecraft:health"].current,
+        store.get(1).unwrap().attributes[Attribute::Health.wire_name()].current,
         crate::DEFAULT_PLAYER_HEALTH
     );
     assert!(!store.get(1).unwrap().status.dead);
@@ -492,7 +547,7 @@ fn predicted_item_use_leaves_server_blocking_flag() {
                 dimension: 0,
                 runtime_id: 1,
                 metadata: Arc::from([protocol::ActorMetadata {
-                    key: super::EXTENDED_FLAGS_METADATA_KEY,
+                    key: ActorDataKey::FlagsTwo.wire_value(),
                     value: protocol::ActorMetadataValue::FlagsExtended(1 << (72 - 64)),
                 }]),
                 properties: Arc::from([]),
@@ -560,6 +615,31 @@ fn cape_skin(byte: u8) -> PlayerSkin {
         rgba8: vec![byte; 64 * 32 * 4].into(),
     });
     PlayerSkin::Standard(skin)
+}
+
+#[test]
+fn skin_fingerprint_memo_matches_rehashing_without_keeping_the_cape_alive() {
+    let mut memo = super::profiles::SkinFingerprintMemo::default();
+    let first = cape_skin(2);
+    let hashed = super::profiles::skin_fingerprint(&first);
+    assert_eq!(memo.fingerprint(&first), hashed);
+    assert_eq!(memo.fingerprint(&first.clone()), hashed);
+    let PlayerSkin::Standard(mut changed) = first.clone() else {
+        unreachable!()
+    };
+    let cape = changed.cape.as_mut().unwrap();
+    cape.rgba8 = vec![3; cape.rgba8.len()].into();
+    let changed = PlayerSkin::Standard(changed);
+    let rehashed = super::profiles::skin_fingerprint(&changed);
+    assert_ne!(rehashed, hashed, "same base raster, different cape bytes");
+    assert_eq!(memo.fingerprint(&changed), rehashed);
+    let PlayerSkin::Standard(standard) = &changed else {
+        unreachable!()
+    };
+    let cape = Arc::downgrade(&standard.cape.as_ref().unwrap().rgba8);
+    drop(changed);
+    assert!(cape.upgrade().is_none());
+    assert_eq!(memo.fingerprint(&first), hashed);
 }
 
 #[test]
@@ -845,15 +925,28 @@ fn local_glide_prediction_sets_the_gliding_flag_and_its_ticks() {
 }
 
 #[test]
+fn local_spin_prediction_owns_the_body_and_attachable_spin_flag() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(1);
+    let mut feed = local_feed(0.0, 0.0);
+    feed.spinning = true;
+    store.sync_local_player(1, -100, &feed);
+    assert!(store.get(1).unwrap().is_spinning());
+    feed.spinning = false;
+    store.sync_local_player(1, -100, &feed);
+    assert!(!store.get(1).unwrap().is_spinning());
+}
+
+#[test]
 fn synthetic_show_name_default_survives_prediction_but_not_server_hides() {
     let mut store = ActorStore::new(1, 0);
     let mut feed = local_feed(0.0, 0.0);
     store.exclude_remote_state_for(1);
     store.sync_local_player(1, -100, &feed);
-    assert!(store.get(1).unwrap().flag(super::ACTOR_FLAG_SHOW_NAME));
+    assert!(store.get(1).unwrap().flag(ActorFlag::ShowName.wire_value()));
     feed.sneaking = true;
     store.sync_local_player(1, -100, &feed);
-    assert!(store.get(1).unwrap().flag(super::ACTOR_FLAG_SHOW_NAME));
+    assert!(store.get(1).unwrap().flag(ActorFlag::ShowName.wire_value()));
     assert_eq!(
         store.apply(
             1,
@@ -874,7 +967,7 @@ fn synthetic_show_name_default_survives_prediction_but_not_server_hides() {
     feed.sprinting = true;
     store.sync_local_player(1, -100, &feed);
     let actor = store.get(1).unwrap();
-    assert!(!actor.flag(super::ACTOR_FLAG_SHOW_NAME));
-    assert!(actor.flag(super::ACTOR_FLAG_SNEAKING));
-    assert!(actor.flag(super::ACTOR_FLAG_SPRINTING));
+    assert!(!actor.flag(ActorFlag::ShowName.wire_value()));
+    assert!(actor.flag(ActorFlag::Sneaking.wire_value()));
+    assert!(actor.flag(ActorFlag::Sprinting.wire_value()));
 }

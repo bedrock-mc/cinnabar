@@ -3,11 +3,41 @@ use launcher::menu::view::MenuProfile;
 use launcher::menu::{MenuAction, MenuDialog, MenuScreen};
 use {super::*, launcher::install_layout::InstallLayout, launcher::menu::auth::AuthState};
 
+/// Longest a join waits for the saved account's check before going ahead signed out.
+const JOIN_SIGN_IN_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(super) fn validated_auth_cache(
     layout: &InstallLayout,
     state: Option<&AuthState>,
 ) -> Option<PathBuf> {
     matches!(state, Some(AuthState::Authenticated)).then(|| layout.auth_cache())
+}
+
+/// Coarse account state for automation; it never carries an identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignInStatus {
+    SignedIn,
+    Checking,
+    SignedOut,
+}
+
+impl SignInStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SignedIn => "signed_in",
+            Self::Checking => "checking",
+            Self::SignedOut => "signed_out",
+        }
+    }
+}
+
+/// Where a queued join stands relative to the saved account's check.
+pub(super) enum JoinSignIn {
+    Waiting,
+    /// The check settled, or none was pending; the join's account is final.
+    Settled,
+    /// The wait expired: the join goes ahead signed out while the check keeps running.
+    Expired,
 }
 
 impl MenuRuntime {
@@ -41,14 +71,14 @@ impl MenuRuntime {
     /// process (which would overwrite them with other join addresses) stays off.
     pub fn poll_catalog(&mut self, core_feeds: bool) {
         self.poll_sign_in();
+        self.cancel_join_fallback_prompt();
         // Cached validation also runs when a signed-out account core is already
         // attached, as happens before opening the menu in a direct session.
         if self.visible
             && !self.is_connecting()
             && self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
         {
-            self.start_sign_in();
-            self.sign_in_requested = false;
+            self.start_cached_sign_in();
         }
         self.update_sign_in_browser(false);
         self.poll_catalog_art();
@@ -73,13 +103,112 @@ impl MenuRuntime {
     }
 
     fn apply_catalog(&mut self, catalog: CatalogFile) {
-        self.featured = self.catalog_cards(catalog.featured);
-        self.realms = catalog.realms;
-        self.friends = catalog.friends.into_iter().map(Into::into).collect();
+        let featured = self.catalog_cards(catalog.featured);
+        self.featured.replace(featured);
+        self.realms.replace(catalog.realms);
+        self.friends
+            .replace(catalog.friends.into_iter().map(Into::into).collect());
         // Service errors may contain URLs, response bodies, or account material.
         // Keep successful sections, but expose only controlled recovery copy.
         self.catalog_message =
             (!catalog.errors.is_empty()).then(|| "Social: Refresh to try again.".to_owned());
+    }
+
+    /// Validates the saved account in the background, without taking focus for a prompt.
+    fn start_cached_sign_in(&mut self) {
+        self.start_sign_in();
+        self.sign_in_requested = false;
+    }
+
+    /// The saved account's background check is running, as opposed to an interactive prompt.
+    fn cached_sign_in_checking(&self) -> bool {
+        !self.sign_in_requested
+            && !self.feeds.account_adding
+            && !self.auth_restart_requested
+            && matches!(
+                self.auth_process.as_ref().map(AuthSupervisor::state),
+                Some(AuthState::Checking)
+            )
+    }
+
+    /// A new join waits on the saved account's check instead of cancelling it, starting the
+    /// check if the menu has not yet; interactive sign-in is abandoned as before.
+    pub(super) fn hold_join_for_sign_in(&mut self) {
+        if self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some()) {
+            self.start_cached_sign_in();
+        }
+        if self.cached_sign_in_checking() {
+            self.intents.join_sign_in_deadline =
+                Some(std::time::Instant::now() + JOIN_SIGN_IN_WAIT);
+            self.intents.join_sign_in_check = true;
+        } else {
+            self.stop_sign_in();
+        }
+    }
+
+    /// Gives a held join the account its check settled on, once the check settles and the account
+    /// core serves that account, or the wait expires.
+    pub(super) fn settle_join_sign_in(&mut self, now: std::time::Instant) -> JoinSignIn {
+        let Some(deadline) = self.intents.join_sign_in_deadline else {
+            return JoinSignIn::Settled;
+        };
+        let checking = self.cached_sign_in_checking();
+        if checking && now < deadline {
+            return JoinSignIn::Waiting;
+        }
+        let auth_cache = self.launcher_auth_cache();
+        if !checking && auth_cache.is_none() {
+            // A check that failed or fell back to a prompt is abandoned, as for any join.
+            self.stop_sign_in();
+        }
+        let core_ready = self
+            .account_core
+            .is_none_or(|core| core.ready_for(auth_cache.is_some()));
+        if !checking && !core_ready && now < deadline {
+            return JoinSignIn::Waiting;
+        }
+        self.intents.join_sign_in_deadline = None;
+        if let Some(join) = self.intents.join.as_mut() {
+            join.auth_cache = auth_cache;
+        }
+        if checking {
+            bevy::log::warn!("sign-in check still running; joining signed out");
+            JoinSignIn::Expired
+        } else {
+            JoinSignIn::Settled
+        }
+    }
+
+    /// Cancels a fallback prompt from a check serving a join before any browser opens for it.
+    fn cancel_join_fallback_prompt(&mut self) {
+        if !self.intents.join_sign_in_check {
+            return;
+        }
+        match self.auth_process.as_ref().map(AuthSupervisor::state) {
+            Some(AuthState::Checking) => return,
+            Some(state) if state.awaiting_browser() => self.stop_sign_in(),
+            _ => {}
+        }
+        self.intents.join_sign_in_check = false;
+    }
+
+    /// A join is under way beyond waiting for the saved account, so the account core stays put.
+    pub(super) fn joining_past_sign_in(&self) -> bool {
+        self.is_connecting() && self.intents.join_sign_in_deadline.is_none()
+    }
+
+    /// Whether joins currently use the saved account, are waiting on its check, or go signed out.
+    pub fn sign_in_status(&self) -> SignInStatus {
+        if self.launcher_auth_cache().is_some() {
+            SignInStatus::SignedIn
+        } else if self.auth_restart_requested
+            || self.sign_in_in_flight()
+            || self.should_auto_start_sign_in(auth_cache_path(&self.layout).is_some())
+        {
+            SignInStatus::Checking
+        } else {
+            SignInStatus::SignedOut
+        }
     }
 
     pub(super) fn start_sign_in(&mut self) {

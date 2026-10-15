@@ -9,6 +9,7 @@ mod cape_tests;
 mod creeper_tests;
 mod dragon_tests;
 mod hurt_tests;
+mod registry_tag_tests;
 mod render_frame_tests;
 mod rig_input_tests;
 mod server_tests;
@@ -18,12 +19,14 @@ mod sleeping_motion_tests;
 /// An entity snapshot at the origin with the given metadata.
 fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnapshot {
     let pose = ActorPose {
+        y_origin: Default::default(),
         position: [0.0; 3],
         pitch: 0.0,
         yaw: 0.0,
         head_yaw: 0.0,
     };
     ActorSnapshot {
+        entity_fact: assets::facts::entity::EntityFact::default(),
         painting: None,
         interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
         unique_id: -1,

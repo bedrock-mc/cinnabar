@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use assets::BLOCK_VISUAL_VARIANT_SEASONAL_LEAF;
+use assets::{BLOCK_VISUAL_VARIANT_SEASONAL_LEAF, facts::presentation::AmbientBlock};
 use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
@@ -37,14 +37,6 @@ pub(super) struct AmbientParticles {
     /// the session's palette is fixed, so it is looked up once instead of on every sample.
     kinds: HashMap<u32, AmbientBlock>,
     kinds_mode: Option<assets::NetworkIdMode>,
-}
-
-/// The block kinds whose ambient callbacks need the block's identifier.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AmbientBlock {
-    Fire,
-    Portal,
-    Other,
 }
 
 impl AmbientParticles {
@@ -101,13 +93,10 @@ impl AmbientParticles {
                 let Some(runtime_id) = world.block_runtime_id(block) else {
                     continue;
                 };
-                let kind = *self.kinds.entry(runtime_id).or_insert_with(|| {
-                    match collisions.block_identifier(mode, runtime_id) {
-                        Some("minecraft:fire") => AmbientBlock::Fire,
-                        Some(assets::NETHER_PORTAL_IDENTIFIER) => AmbientBlock::Portal,
-                        _ => AmbientBlock::Other,
-                    }
-                });
+                let kind = *self
+                    .kinds
+                    .entry(runtime_id)
+                    .or_insert_with(|| collisions.block_facts(mode, runtime_id).ambient);
                 if fire_effect_present && kind == AmbientBlock::Fire {
                     self.try_fire(block, stream, world, collisions, system);
                 }

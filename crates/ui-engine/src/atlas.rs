@@ -23,6 +23,7 @@ use render_model::UiTexturePage;
 use crate::sources::{ImageWork, LocalPack, RemoteImage, RemoteSource, is_remote};
 
 mod frame_sidecars;
+pub mod jobs;
 mod local_sources;
 pub mod native_sheets;
 pub mod preread;

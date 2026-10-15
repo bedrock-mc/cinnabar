@@ -18,6 +18,7 @@ use ui::{TextLayoutCache, TextShadow, UiNode, UiNodeId, UiPoint, UiRect, UiVisua
 use {crate::text_metrics::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 
 mod banner_renderer;
+mod dependencies;
 mod fill_renderers;
 mod formatting_colors;
 pub mod host_edit;
@@ -66,6 +67,8 @@ pub struct FormEngine {
     /// Resolve+bind and layout passes run, for cache tests and profiling.
     pub passes: [usize; 2],
     screens: screen_cache::ScreenCache,
+    /// Logical dependencies of recent immutable draw-node snapshots.
+    dependencies: std::sync::Mutex<dependencies::DependencyCache>,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
 }
@@ -96,6 +99,7 @@ struct Art<'a> {
     assets: &'a RuntimeUiAssets,
     set: &'a TextureSet,
     animator: &'a std::sync::Mutex<json_ui::Animator>,
+    dependencies: &'a std::sync::Mutex<dependencies::DependencyCache>,
 }
 
 /// A carrier catalog extended and layered with a registry's built-in screens: the costly part
@@ -169,6 +173,7 @@ impl FormEngine {
             cache: None,
             passes: [0; 2],
             animator: std::sync::Mutex::default(),
+            dependencies: std::sync::Mutex::default(),
         }
     }
 
@@ -177,6 +182,7 @@ impl FormEngine {
             assets: &self.assets,
             set: &self.textures,
             animator: &self.animator,
+            dependencies: &self.dependencies,
         }
     }
 
@@ -289,6 +295,11 @@ impl FormEngine {
         self.cache = None;
         self.screens = screen_cache::ScreenCache::default();
         *self
+            .dependencies
+            .get_mut()
+            .unwrap_or_else(|poison| poison.into_inner()) =
+            dependencies::DependencyCache::default();
+        *self
             .animator
             .get_mut()
             .unwrap_or_else(|poison| poison.into_inner()) = json_ui::Animator::new();
@@ -326,6 +337,7 @@ impl FormEngine {
             assets: &self.assets,
             set: &self.textures,
             animator: &self.animator,
+            dependencies: &self.dependencies,
         };
         let screen_cancel = self
             .cache
@@ -376,6 +388,11 @@ impl FormEngine {
         &self.catalog
     }
 
+    /// The catalog before server UI layers, including registered built-in packs.
+    pub fn base_catalog(&self) -> &Arc<Catalog> {
+        &self.base
+    }
+
     /// Registered built-in screens resolve against the base catalog carrying pack filters;
     /// others use the pack stack.
     pub fn screen_catalog(&self, reference: &str) -> &Arc<Catalog> {
@@ -423,6 +440,7 @@ impl FormEngine {
             assets: &self.assets,
             set: textures,
             animator: &self.animator,
+            dependencies: &self.dependencies,
         };
         render_with(sources, frame, art, draw)
     }
@@ -785,7 +803,7 @@ impl Canvas<'_> {
                 align: *align,
                 scale: *scale,
                 localize: *localize,
-                options: options.clone(),
+                options,
             };
             return self.text(text, dest, clip, style);
         }

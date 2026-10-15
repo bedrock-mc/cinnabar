@@ -2,15 +2,14 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 const FLAME_HEIGHT: f32 = 1.4;
 
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    matches!(
-        record.name.as_ref(),
-        "minecraft:fire" | "minecraft:soul_fire"
-    ) && record.contributor_role == ContributorRole::Primary
+    block_render_fact(&record.name).kind == R::Fire
+        && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
 

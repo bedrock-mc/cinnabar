@@ -1,6 +1,6 @@
 use super::*;
 use crate::ui_runtime::item_activation::ItemActivation;
-use inventory::inventory_ledger::TOTEM_IDENTIFIER;
+use assets::facts::TOTEM_IDENTIFIER;
 
 #[test]
 fn activation_projects_the_full_rotating_quad_and_preserves_icon_uvs() {

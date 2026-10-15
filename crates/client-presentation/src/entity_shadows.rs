@@ -65,8 +65,7 @@ pub fn publish_entity_shadows(
             };
             let actor = stream.authority().actor(caster.runtime_id);
             let item = actor.is_some_and(|actor| {
-                matches!(&actor.kind, protocol::ActorKind::Entity { identifier }
-                    if identifier.as_ref() == "minecraft:item")
+                actor.entity_fact.native_class == assets::facts::entity::NativeEntityClass::Item
             });
             let admitted = if local.is_some() || item {
                 let player = local.is_some();
