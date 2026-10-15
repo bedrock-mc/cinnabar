@@ -56,9 +56,7 @@ fn compiled_headings_match_canonical_states_in_both_identity_spaces() {
         })
         .unwrap();
     let south_fact = registries.hashed_interaction_blocks[&south.network_hash].clone();
-    registries
-        .hashed_interaction_blocks
-        .insert(east.sequential_id, south_fact);
+    Arc::make_mut(&mut registries.hashed_interaction_blocks).insert(east.sequential_id, south_fact);
     assert_eq!(
         registries.bed_rotation_degrees(NetworkIdMode::Sequential, east.sequential_id),
         Some(180.0)

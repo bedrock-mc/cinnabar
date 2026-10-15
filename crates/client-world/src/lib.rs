@@ -36,7 +36,9 @@ pub use item::{
 pub use server_position::{ResolvedServerPosition, SAFE_SERVER_HEIGHT};
 
 mod authority;
-pub use authority::{ActorCombatEvidence, ActorCombatKind, BiomeCommitReport};
+pub use authority::{
+    ActorCombatEvidence, ActorCombatKind, BiomeCommitReport, PreparedBlockIdentities,
+};
 pub use authority::{
     BlockEventCue, COMMITTED_AUDIO_CAPACITY, COMMITTED_CAMERA_CAPACITY, COMMITTED_CONTROL_CAPACITY,
     COMMITTED_PARTICLE_CAPACITY, COMMITTED_UI_CAPACITY, CommittedAudioEvent, CommittedCameraEvent,

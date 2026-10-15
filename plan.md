@@ -1,3 +1,14 @@
+## Prepared session block registries
+
+Session preparation constructs collision registrations, custom state identities and merged
+block artwork before publishing StartGame. Bootstrap checks the session generation, ID mode,
+exact carrier inputs and admitted definitions before installing the prepared bundle.
+Registry snapshots share immutable tables; replaced collision tables retire off the frame.
+Existing shared custom-state enumeration remains the source for registry consumers.
+Regression tests cover cancellation, replacement, palette modes, immutable bases and shared
+identity storage. Incomplete: compilation, executed tests, join captures and performance
+measurements remain pending. No parity or hardware performance gate closes here.
+
 ## Raw intake during blob disk reads
 
 Blob prefetch shares the transport's existing bounded raw-frame storage while its one disk

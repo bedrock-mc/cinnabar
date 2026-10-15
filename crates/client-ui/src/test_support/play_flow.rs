@@ -119,6 +119,7 @@ pub fn fixture_view(dir: &std::path::Path) -> MenuView {
         name: "My World".to_owned(),
         game_mode: "Survival".to_owned(),
         world_type: launcher::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
+        server: launcher::local_worlds::backend_label(bridge::Backend::Dragonfly).to_owned(),
         date: "9/30/2026".to_owned(),
         size: "12 MB".to_owned(),
         thumbnail: None,
