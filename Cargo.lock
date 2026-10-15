@@ -7964,6 +7964,7 @@ dependencies = [
  "oreui",
  "serde_json",
  "tempfile",
+ "tracing-subscriber",
  "ui",
  "ui-engine",
  "ui-screens",

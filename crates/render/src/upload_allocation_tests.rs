@@ -14,7 +14,7 @@ use bevy::{
 use std::sync::Arc;
 
 /// A Metal device whose buffer counters observe every live allocation, including queue staging.
-#[expect(
+#[allow(
     clippy::print_stderr,
     reason = "explains on stderr why the regression skips when the Metal adapter fixture is absent"
 )]

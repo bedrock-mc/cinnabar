@@ -22,7 +22,7 @@ struct Captured {
     pixels: Vec<u8>,
 }
 
-#[expect(
+#[allow(
     clippy::print_stderr,
     reason = "the mob motion report names the GPU adapter it measured on stderr"
 )]

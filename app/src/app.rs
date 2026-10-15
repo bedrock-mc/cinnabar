@@ -368,7 +368,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
-    let mut app = logging::startup_app();
+    let app = logging::startup_app();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -684,6 +684,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
