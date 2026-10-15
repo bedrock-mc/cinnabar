@@ -23,100 +23,43 @@ pub enum HudExtrasError {
     Invalid(&'static str),
 }
 
-/// Hardcore-style heart sprites, one per heart state the HUD can present.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[repr(u8)]
-pub enum HudExtraRole {
-    HeartFull,
-    HeartHalf,
-    HeartFlashFull,
-    HeartFlashHalf,
-    PoisonHeartFull,
-    PoisonHeartHalf,
-    PoisonHeartFlashFull,
-    PoisonHeartFlashHalf,
-    WitherHeartFull,
-    WitherHeartHalf,
-    WitherHeartFlashFull,
-    WitherHeartFlashHalf,
-    FreezeHeartFull,
-    FreezeHeartHalf,
-    FreezeHeartFlashFull,
-    FreezeHeartFlashHalf,
-    AbsorptionHeartFull,
-    AbsorptionHeartHalf,
+macro_rules! hardcore_hearts {
+    ($($role:ident => $path:literal,)+) => {
+        /// Hardcore-style heart sprites in their carrier order.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        #[repr(u8)]
+        pub enum HudExtraRole { $($role,)+ }
+        impl HudExtraRole {
+            pub const ALL: [Self; [$(stringify!($role)),+].len()] = [$(Self::$role),+];
+            /// Pack-relative source PNG.
+            pub const fn source_path(self) -> &'static str { match self { $(Self::$role => $path,)+ } }
+            /// The hardcore counterpart of a standard foreground role.
+            pub const fn for_heart(role: HudTextureRole) -> Option<Self> {
+                match role { $(HudTextureRole::$role => Some(Self::$role),)+ _ => None }
+            }
+        }
+    };
 }
 
-impl HudExtraRole {
-    pub const ALL: [Self; 18] = [
-        Self::HeartFull,
-        Self::HeartHalf,
-        Self::HeartFlashFull,
-        Self::HeartFlashHalf,
-        Self::PoisonHeartFull,
-        Self::PoisonHeartHalf,
-        Self::PoisonHeartFlashFull,
-        Self::PoisonHeartFlashHalf,
-        Self::WitherHeartFull,
-        Self::WitherHeartHalf,
-        Self::WitherHeartFlashFull,
-        Self::WitherHeartFlashHalf,
-        Self::FreezeHeartFull,
-        Self::FreezeHeartHalf,
-        Self::FreezeHeartFlashFull,
-        Self::FreezeHeartFlashHalf,
-        Self::AbsorptionHeartFull,
-        Self::AbsorptionHeartHalf,
-    ];
-
-    /// Pack-relative source PNG.
-    pub const fn source_path(self) -> &'static str {
-        match self {
-            Self::HeartFull => "textures/ui/hardcore/heart.png",
-            Self::HeartHalf => "textures/ui/hardcore/heart_half.png",
-            Self::HeartFlashFull => "textures/ui/hardcore/heart_flash.png",
-            Self::HeartFlashHalf => "textures/ui/hardcore/heart_flash_half.png",
-            Self::PoisonHeartFull => "textures/ui/hardcore/poison_heart.png",
-            Self::PoisonHeartHalf => "textures/ui/hardcore/poison_heart_half.png",
-            Self::PoisonHeartFlashFull => "textures/ui/hardcore/poison_heart_flash.png",
-            Self::PoisonHeartFlashHalf => "textures/ui/hardcore/poison_heart_flash_half.png",
-            Self::WitherHeartFull => "textures/ui/hardcore/wither_heart.png",
-            Self::WitherHeartHalf => "textures/ui/hardcore/wither_heart_half.png",
-            Self::WitherHeartFlashFull => "textures/ui/hardcore/wither_heart_flash.png",
-            Self::WitherHeartFlashHalf => "textures/ui/hardcore/wither_heart_flash_half.png",
-            Self::FreezeHeartFull => "textures/ui/hardcore/freeze_heart.png",
-            Self::FreezeHeartHalf => "textures/ui/hardcore/freeze_heart_half.png",
-            Self::FreezeHeartFlashFull => "textures/ui/hardcore/freeze_heart_flash.png",
-            Self::FreezeHeartFlashHalf => "textures/ui/hardcore/freeze_heart_flash_half.png",
-            Self::AbsorptionHeartFull => "textures/ui/hardcore/absorption_heart.png",
-            Self::AbsorptionHeartHalf => "textures/ui/hardcore/absorption_heart_half.png",
-        }
-    }
-
-    /// The hardcore counterpart of a standard heart foreground role, if one exists.
-    pub const fn for_heart(role: HudTextureRole) -> Option<Self> {
-        Some(match role {
-            HudTextureRole::HeartFull => Self::HeartFull,
-            HudTextureRole::HeartHalf => Self::HeartHalf,
-            HudTextureRole::HeartFlashFull => Self::HeartFlashFull,
-            HudTextureRole::HeartFlashHalf => Self::HeartFlashHalf,
-            HudTextureRole::PoisonHeartFull => Self::PoisonHeartFull,
-            HudTextureRole::PoisonHeartHalf => Self::PoisonHeartHalf,
-            HudTextureRole::PoisonHeartFlashFull => Self::PoisonHeartFlashFull,
-            HudTextureRole::PoisonHeartFlashHalf => Self::PoisonHeartFlashHalf,
-            HudTextureRole::WitherHeartFull => Self::WitherHeartFull,
-            HudTextureRole::WitherHeartHalf => Self::WitherHeartHalf,
-            HudTextureRole::WitherHeartFlashFull => Self::WitherHeartFlashFull,
-            HudTextureRole::WitherHeartFlashHalf => Self::WitherHeartFlashHalf,
-            HudTextureRole::FreezeHeartFull => Self::FreezeHeartFull,
-            HudTextureRole::FreezeHeartHalf => Self::FreezeHeartHalf,
-            HudTextureRole::FreezeHeartFlashFull => Self::FreezeHeartFlashFull,
-            HudTextureRole::FreezeHeartFlashHalf => Self::FreezeHeartFlashHalf,
-            HudTextureRole::AbsorptionHeartFull => Self::AbsorptionHeartFull,
-            HudTextureRole::AbsorptionHeartHalf => Self::AbsorptionHeartHalf,
-            _ => return None,
-        })
-    }
+hardcore_hearts! {
+    HeartFull => "textures/ui/hardcore/heart.png",
+    HeartHalf => "textures/ui/hardcore/heart_half.png",
+    HeartFlashFull => "textures/ui/hardcore/heart_flash.png",
+    HeartFlashHalf => "textures/ui/hardcore/heart_flash_half.png",
+    PoisonHeartFull => "textures/ui/hardcore/poison_heart.png",
+    PoisonHeartHalf => "textures/ui/hardcore/poison_heart_half.png",
+    PoisonHeartFlashFull => "textures/ui/hardcore/poison_heart_flash.png",
+    PoisonHeartFlashHalf => "textures/ui/hardcore/poison_heart_flash_half.png",
+    WitherHeartFull => "textures/ui/hardcore/wither_heart.png",
+    WitherHeartHalf => "textures/ui/hardcore/wither_heart_half.png",
+    WitherHeartFlashFull => "textures/ui/hardcore/wither_heart_flash.png",
+    WitherHeartFlashHalf => "textures/ui/hardcore/wither_heart_flash_half.png",
+    FreezeHeartFull => "textures/ui/hardcore/freeze_heart.png",
+    FreezeHeartHalf => "textures/ui/hardcore/freeze_heart_half.png",
+    FreezeHeartFlashFull => "textures/ui/hardcore/freeze_heart_flash.png",
+    FreezeHeartFlashHalf => "textures/ui/hardcore/freeze_heart_flash_half.png",
+    AbsorptionHeartFull => "textures/ui/hardcore/absorption_heart.png",
+    AbsorptionHeartHalf => "textures/ui/hardcore/absorption_heart_half.png",
 }
 
 /// Decoded 9x9 RGBA8 sprites indexed by `HudExtraRole as usize`.

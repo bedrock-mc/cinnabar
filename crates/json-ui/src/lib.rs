@@ -39,6 +39,7 @@ mod screens;
 mod sidecar;
 mod sprite;
 mod state;
+mod template_equivalence;
 mod tree;
 pub mod vanilla;
 pub mod vector_path;
@@ -78,7 +79,8 @@ pub use form::{
     render_form_with,
 };
 pub use hud::{
-    BossBar, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks, hud_context, hud_data_source,
+    BossBar, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
+    hud_context, hud_data_source,
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,
@@ -108,6 +110,7 @@ pub use sidecar::{
 };
 pub use sprite::nine_slice;
 pub use state::{FocusMemory, LayoutReport, ScrollMetrics, ScrollRetained, ViewState};
+pub use template_equivalence::screen_templates_unchanged;
 pub use tree::{ControlRef, Factory, Properties, ResolvedControl};
 pub use widgets::{Draggable, ScrollMotion};
 

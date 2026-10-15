@@ -147,10 +147,36 @@ mod session {
             ]],
         )
         .await;
-        let spawned = await_spawn(transport).await.expect("repeats stay nonfatal");
+        let mut first = None;
+        let spawned = await_spawn(transport, |_, registry| first = Some(registry))
+            .await
+            .expect("repeats stay nonfatal");
         assert_eq!(spawned.runtime_id, RUNTIME_ID);
-        assert_eq!(spawned.item_registry.item_data.len(), 1);
-        assert_eq!(spawned.item_registry.item_data[0].item_id.0, 355);
+        let first = first.expect("the startup facts were delivered");
+        assert_eq!(first.item_data.len(), 1);
+        assert_eq!(first.item_data[0].item_id.0, 355);
+    }
+
+    /// The startup facts reach the owner while the spawn sequence still waits for PlayerSpawn.
+    #[tokio::test]
+    async fn startup_facts_arrive_before_player_spawn() {
+        let Pair {
+            transport, peer, ..
+        } = &mut handed_off("early-facts", &[vec![registry("minecraft:shield", 355)]]).await;
+        let (delivered, facts) = tokio::sync::oneshot::channel();
+        let spawn = await_spawn(transport, move |start, _| {
+            let _ = delivered.send(start.runtime_id.0);
+        });
+        let core = async {
+            let runtime_id = facts.await.expect("startup facts before PlayerSpawn");
+            write_frame(peer, &batch_frame(&[radius(16), player_spawn()]).unwrap()).await;
+            runtime_id
+        };
+        let joined =
+            tokio::time::timeout(Duration::from_secs(5), async { tokio::join!(spawn, core) }).await;
+        let (spawned, runtime_id) = joined.expect("the facts waited for PlayerSpawn");
+        assert_eq!(runtime_id, RUNTIME_ID);
+        spawned.expect("spawn");
     }
 
     /// Optional packets are deferred to play in order, ahead of a packet the spawning batch
@@ -169,7 +195,7 @@ mod session {
         ]);
         let first = (0..half).map(|time| set_time(time as i32)).collect();
         let Pair { transport, .. } = &mut handed_off("fifo", &[first, second]).await;
-        await_spawn(transport).await.expect("spawn");
+        await_spawn(transport, |_, _| {}).await.expect("spawn");
         for expected in 0..=MAX_RAW_BATCH_PACKETS {
             assert_eq!(next_time(transport).await, expected as i32);
         }
@@ -198,7 +224,7 @@ mod session {
                 player_spawn(),
             ]);
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let spawned = await_spawn(transport).await.expect("spawn");
+            let spawned = await_spawn(transport, |_, _| {}).await.expect("spawn");
             assert_eq!(spawned.terrain_before_spawn, expected);
         }
     }
@@ -219,7 +245,7 @@ mod session {
             ]],
         )
         .await;
-        await_spawn(transport).await.expect("spawn");
+        await_spawn(transport, |_, _| {}).await.expect("spawn");
         let length = peer.read_u32().await.unwrap();
         let mut frame = vec![0; length as usize];
         peer.read_exact(&mut frame).await.unwrap();
@@ -243,7 +269,7 @@ mod session {
             ),
         ] {
             let Pair { transport, .. } = &mut handed_off(name, &[batch]).await;
-            let error = match await_spawn(transport).await {
+            let error = match await_spawn(transport, |_, _| {}).await {
                 Ok(_) => panic!("{name} spawned"),
                 Err(error) => error,
             };
@@ -274,7 +300,7 @@ mod session {
             ];
             write_frame(peer, &batch_frame(&rest).unwrap()).await;
         };
-        let (spawned, ()) = tokio::join!(await_spawn(transport), core);
+        let (spawned, ()) = tokio::join!(await_spawn(transport, |_, _| {}), core);
         assert!(matches!(
             spawned,
             Err(ProtocolError::Session(SessionError(
@@ -306,7 +332,7 @@ mod session {
                 let batch = [transfer(""), transfer("next.example.test")];
                 write_frame(&mut pair.peer, &batch_frame(&batch).unwrap()).await;
             }
-            let target = match await_spawn(&mut pair.transport).await {
+            let target = match await_spawn(&mut pair.transport, |_, _| {}).await {
                 Ok(_) => panic!("a startup transfer spawned"),
                 Err(error) => error.server_transfer().expect("a server transfer"),
             };
@@ -327,7 +353,7 @@ mod session {
                 r#"{{"reason":25,"message":"full","filtered_message":"","hide_screen":{hide_screen}}}"#
             );
             write_frame(&mut pair.peer, &terminal(6, &json)).await;
-            let disconnect = match await_spawn(&mut pair.transport).await {
+            let disconnect = match await_spawn(&mut pair.transport, |_, _| {}).await {
                 Ok(_) => panic!("a startup disconnect spawned"),
                 Err(error) => error.server_disconnect().expect("a server disconnect"),
             };
@@ -341,7 +367,11 @@ mod session {
     #[tokio::test]
     async fn spawn_wait_remains_cancellable() {
         let Pair { transport, .. } = &mut handed_off("cancellable", &[]).await;
-        let wait = tokio::time::timeout(Duration::from_millis(100), await_spawn(transport)).await;
+        let wait = tokio::time::timeout(
+            Duration::from_millis(100),
+            await_spawn(transport, |_, _| {}),
+        )
+        .await;
         assert!(wait.is_err(), "the wait ended without spawn prerequisites");
     }
 
@@ -358,7 +388,7 @@ mod session {
         )
         .await;
         let error =
-            startup_write_failure(transport, write_error(), STARTUP_WRITE_FAILURE_DRAIN).await;
+            startup_write_failure(transport, write_error(), crate::WRITE_FAILURE_DRAIN).await;
         assert!(error.server_disconnect().is_some(), "{error}");
 
         let Pair {
@@ -366,7 +396,7 @@ mod session {
         } = &mut handed_off("write-failure-transfer", &[]).await;
         write_frame(peer, &terminal(5, TRANSFER_JSON)).await;
         let error =
-            startup_write_failure(transport, write_error(), STARTUP_WRITE_FAILURE_DRAIN).await;
+            startup_write_failure(transport, write_error(), crate::WRITE_FAILURE_DRAIN).await;
         assert!(error.server_transfer().is_some(), "{error}");
     }
 
@@ -387,7 +417,7 @@ mod session {
         let mut drain = std::pin::pin!(startup_write_failure(
             transport,
             ProtocolError::from(SessionFailure::ConnectionClosed),
-            STARTUP_WRITE_FAILURE_DRAIN,
+            crate::WRITE_FAILURE_DRAIN,
         ));
         assert!(
             std::future::poll_fn(|cx| std::task::Poll::Ready(drain.as_mut().poll(cx)))

@@ -185,6 +185,8 @@ fn upload_page(
     page: &render_model::ActorTexturePage,
     label: &'static str,
 ) -> Texture {
+    #[cfg(test)]
+    work_tests::record_upload(page.rgba8.len());
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
         "actor.artwork_upload",
@@ -537,3 +539,7 @@ mod tests {
 #[cfg(test)]
 #[path = "artwork_reuse_tests.rs"]
 mod reuse_tests;
+
+#[cfg(test)]
+#[path = "artwork_work_tests.rs"]
+mod work_tests;

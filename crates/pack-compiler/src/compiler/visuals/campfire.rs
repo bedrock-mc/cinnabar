@@ -9,6 +9,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Texture slots supplied by the campfire block graphics.
@@ -317,10 +318,8 @@ const BOXES: [[BoxModel; 5]; 4] = [
 
 /// Identifies both campfire blocks before their provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    matches!(
-        record.name.as_ref(),
-        "minecraft:campfire" | "minecraft:soul_campfire"
-    ) && record.contributor_role == ContributorRole::Primary
+    block_render_fact(&record.name).kind == R::Campfire
+        && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
 
@@ -331,15 +330,19 @@ fn pose(record: &RegistryRecord) -> Option<(bool, u8)> {
     if state.len() != 2 {
         return None;
     }
-    let extinguished = super::state::exact_tagged_byte(state.get("extinguished")?, 1)? != 0;
-    let facing =
-        match super::state::exact_tagged_string(state.get("minecraft:cardinal_direction")?)? {
-            "north" => 0,
-            "west" => 1,
-            "south" => 2,
-            "east" => 3,
-            _ => return None,
-        };
+    let extinguished = super::state::exact_tagged_byte(
+        state.get(assets::facts::BlockProperty::Extinguished.name())?,
+        1,
+    )? != 0;
+    let facing = match super::state::exact_tagged_string(
+        state.get(assets::facts::BlockProperty::MinecraftCardinalDirection.name())?,
+    )? {
+        "north" => 0,
+        "west" => 1,
+        "south" => 2,
+        "east" => 3,
+        _ => return None,
+    };
     Some((extinguished, facing))
 }
 

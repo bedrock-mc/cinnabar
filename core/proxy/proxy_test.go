@@ -778,7 +778,8 @@ func waitForGoroutineStack(t *testing.T, substring string, want bool, timeout ti
 func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	var addresses []string
 	want := newFakeUpstream(nil)
-	got, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", func(_ context.Context, address string) (upstreamSession, error) {
+	var logs bytes.Buffer
+	got, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", slog.New(slog.NewTextHandler(&logs, nil)), func(_ context.Context, address string) (upstreamSession, error) {
 		addresses = append(addresses, address)
 		switch len(addresses) {
 		case 1:
@@ -798,6 +799,9 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	}
 	if joined := strings.Join(addresses, ","); joined != "zeqa.net:19132,na.zeqa.net:19133" {
 		t.Fatalf("dial addresses = %q", joined)
+	}
+	if !strings.Contains(logs.String(), `msg="following pre-login server transfer" from=zeqa.net:19132 to=na.zeqa.net:19133 hop=1`) {
+		t.Fatalf("transfer was not logged through the session logger: %q", logs.String())
 	}
 }
 
@@ -895,7 +899,7 @@ func TestDialFollowingTransfersRejectsCyclesAndInvalidDestinations(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", func(context.Context, string) (upstreamSession, error) {
+			_, err := dialFollowingTransfers(context.Background(), "zeqa.net:19132", slog.New(slog.DiscardHandler), func(context.Context, string) (upstreamSession, error) {
 				return nil, &test.transfer
 			})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -907,7 +911,7 @@ func TestDialFollowingTransfersRejectsCyclesAndInvalidDestinations(t *testing.T)
 
 func TestDialFollowingTransfersBoundsRedirectChain(t *testing.T) {
 	dials := 0
-	_, err := dialFollowingTransfers(context.Background(), "entry.example:19132", func(context.Context, string) (upstreamSession, error) {
+	_, err := dialFollowingTransfers(context.Background(), "entry.example:19132", slog.New(slog.DiscardHandler), func(context.Context, string) (upstreamSession, error) {
 		dials++
 		return nil, &minecraft.TransferError{Address: fmt.Sprintf("hop-%d.example", dials), Port: 19132}
 	})

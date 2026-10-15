@@ -131,7 +131,7 @@ fn compile_atmosphere_textures(
         u32,
     ) -> Result<AtmosphereTexture, AssetError>,
 ) -> Result<Box<[AtmosphereTexture]>, AssetError> {
-    let textures = source_specs()
+    let textures = assets::atmosphere_texture_specs()
         .into_iter()
         .map(|(role, source_path, width, height)| {
             if role == AtmosphereRole::Clouds
@@ -216,24 +216,6 @@ fn safe_component(value: &str) -> bool {
         && Path::new(value)
             .file_name()
             .is_some_and(|name| name == value)
-}
-
-const fn source_specs() -> [(AtmosphereRole, &'static str, u32, u32); 3] {
-    [
-        (AtmosphereRole::Sun, "textures/environment/sun.png", 32, 32),
-        (
-            AtmosphereRole::MoonPhases,
-            "textures/environment/moon_phases.png",
-            128,
-            64,
-        ),
-        (
-            AtmosphereRole::Clouds,
-            "textures/environment/clouds.png",
-            256,
-            256,
-        ),
-    ]
 }
 
 fn read_cloud_override_with_policy(

@@ -1,5 +1,6 @@
 //! Resident far-terrain tiles: quads in one storage buffer, cell colours in one texture array.
 
+use crate::queue_writes::ProfiledQueue as _;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use bevy::{
@@ -230,16 +231,16 @@ impl FarTerrainGpu {
     fn upload(&mut self, queue: &RenderQueue, mesh: &TileMesh, slot: u32, quads: &Range<u32>) {
         if !mesh.quads.is_empty() {
             let bytes: &[u8] = bytemuck::cast_slice(&mesh.quads);
-            queue.write_buffer(&self.quads, u64::from(quads.start) * QUAD_BYTES, bytes);
+            queue.profiled_write_buffer(&self.quads, u64::from(quads.start) * QUAD_BYTES, bytes);
         }
         let [x, z] = mesh.key.origin();
         let record = [x as u32, z as u32, u32::from(mesh.key.level), 0];
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             &self.records,
             u64::from(slot) * TILE_RECORD_BYTES,
             bytemuck::cast_slice(&record),
         );
-        queue.write_texture(
+        queue.profiled_write_texture(
             TexelCopyTextureInfo {
                 texture: &self.colours,
                 mip_level: 0,
@@ -343,7 +344,7 @@ impl FarTerrainGpu {
             self.mask_words = (words.len() as u64).next_power_of_two();
             self.mask = storage_buffer(device, "far terrain near columns", self.mask_words * 4);
         }
-        queue.write_buffer(&self.mask, 0, bytemuck::cast_slice(&words));
+        queue.profiled_write_buffer(&self.mask, 0, bytemuck::cast_slice(&words));
     }
 }
 

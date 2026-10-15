@@ -230,9 +230,11 @@ pub fn update_look(
         .as_deref_mut()
         .and_then(|server| server.apply_look_delta(-turn));
     let (yaw, pitch) = look_angles(yaw, pitch, turn, Vec2::ONE);
-    view.set_look_rotation(
-        server_rotation.unwrap_or_else(|| Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll)),
-    );
+    if let Some(rotation) = server_rotation {
+        view.set_look_rotation(rotation);
+    } else {
+        view.turn_look_rotation(Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll), -turn.x);
+    }
 }
 
 /// Advances acceptance movement or the local non-physics fly camera.

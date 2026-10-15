@@ -29,7 +29,7 @@ func resolveLocalLANTarget(ctx context.Context, target localworld.ConnectionTarg
 		return nil, err
 	}
 	remote := &net.UDPAddr{IP: ip, Port: int(portNumber)}
-	signaling, err := (discovery.ListenConfig{BroadcastAddress: remote, Log: secretSafeResourcePackLogger()}).Listen(net.JoinHostPort(remote.IP.String(), "0"))
+	signaling, err := (discovery.ListenConfig{BroadcastAddress: remote, Log: secretSafeResourcePackLogger(slog.Default())}).Listen(net.JoinHostPort(remote.IP.String(), "0"))
 	if err != nil {
 		return nil, fmt.Errorf("local BDS LAN discovery: %w", err)
 	}

@@ -1,22 +1,16 @@
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 #[cfg(test)]
 #[path = "selector_alias/tests.rs"]
 mod tests;
 
-const SELECTOR_ALIAS_CUBE_NAMES: [&str; 7] = [
-    "minecraft:bone_block",
-    "minecraft:chiseled_quartz_block",
-    "minecraft:hay_block",
-    "minecraft:purpur_block",
-    "minecraft:quartz_block",
-    "minecraft:smooth_quartz",
-    "minecraft:tnt",
-];
-
 pub(in crate::compiler) fn is_selector_alias_cube_name(name: &str) -> bool {
-    SELECTOR_ALIAS_CUBE_NAMES.binary_search(&name).is_ok()
+    matches!(
+        block_render_fact(name).kind,
+        R::SelectorAliasCube | R::Tnt | R::DeprecatedPillar
+    )
 }
 
 /// The record's slot within its block (`explode_bit`, or `axis * 4 + deprecated`), taken
@@ -25,26 +19,27 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
     let state =
         serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&record.canonical_state)
             .ok()?;
-    if record.name.as_ref() == "minecraft:tnt" {
+    if block_render_fact(&record.name).kind == R::Tnt {
         if state.len() != 1 || record.model_state.mask() != 0 {
             return None;
         }
-        return Some(u32::from(exact_tagged_byte(state.get("explode_bit")?, 1)?));
+        return Some(u32::from(exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::ExplodeBit.name())?,
+            1,
+        )?));
     }
 
-    let has_deprecated = matches!(
-        record.name.as_ref(),
-        "minecraft:hay_block" | "minecraft:bone_block"
-    );
+    let has_deprecated = block_render_fact(&record.name).kind == R::DeprecatedPillar;
     if state.len() != if has_deprecated { 2 } else { 1 } {
         return None;
     }
-    let (axis_index, orientation) = match exact_tagged_string(state.get("pillar_axis")?)? {
-        "y" => (0, 1),
-        "x" => (1, 0),
-        "z" => (2, 2),
-        _ => return None,
-    };
+    let (axis_index, orientation) =
+        match exact_tagged_string(state.get(assets::facts::BlockProperty::PillarAxis.name())?)? {
+            "y" => (0, 1),
+            "x" => (1, 0),
+            "z" => (2, 2),
+            _ => return None,
+        };
     let orientation_mask = 1 << (ModelStateField::Orientation as u8 - 1);
     if record.model_state.mask() != orientation_mask
         || record.model_state.get(ModelStateField::Orientation) != Some(orientation)
@@ -52,7 +47,10 @@ pub(in crate::compiler) fn exact_selector_alias_cube_state(record: &RegistryReco
         return None;
     }
     let deprecated = if has_deprecated {
-        exact_tagged_int(state.get("deprecated")?, 3)?
+        exact_tagged_int(
+            state.get(assets::facts::BlockProperty::Deprecated.name())?,
+            3,
+        )?
     } else {
         0
     };
@@ -101,42 +99,13 @@ pub(in crate::compiler) fn selector_alias_cube_material_descriptors(
     record: &RegistryRecord,
 ) -> Option<[(Descriptor, Box<str>); 6]> {
     let block_name = record.name.strip_prefix("minecraft:")?;
-    let exact_route = match block_name {
-        "bone_block" => {
-            pack.blocks.get_exact_pillar(block_name)?
-                == ["bone_block_top", "bone_block_top", "bone_block_side"]
+    let exact_route = match assets::facts::pack::rules().alias_cube(&record.name)? {
+        assets::facts::pack::AliasCubeSource::Pillar(keys) => {
+            pack.blocks.get_exact_pillar(block_name)? == keys.each_ref().map(String::as_str)
         }
-        "chiseled_quartz_block" => {
-            pack.blocks.get_exact_pillar(block_name)?
-                == [
-                    "chiseled_quartz_block_top",
-                    "chiseled_quartz_block_top",
-                    "chiseled_quartz_block_side",
-                ]
+        assets::facts::pack::AliasCubeSource::Scalar(key) => {
+            pack.blocks.get_exact_scalar(block_name)? == key
         }
-        "hay_block" => {
-            pack.blocks.get_exact_pillar(block_name)?
-                == ["hayblock_top", "hayblock_top", "hayblock_side"]
-        }
-        "quartz_block" => {
-            pack.blocks.get_exact_pillar(block_name)?
-                == [
-                    "flattened_quartz_block_top",
-                    "flattened_quartz_block_top",
-                    "flattened_quartz_block_side",
-                ]
-        }
-        "tnt" => {
-            pack.blocks.get_exact_pillar(block_name)?
-                == [
-                    "flattened_tnt_bottom",
-                    "flattened_tnt_top",
-                    "flattened_tnt_side",
-                ]
-        }
-        "purpur_block" => pack.blocks.get_exact_scalar(block_name)? == "flattened_purpur_block",
-        "smooth_quartz" => pack.blocks.get_exact_scalar(block_name)? == "smooth_quartz",
-        _ => false,
     };
     if !exact_route {
         return None;
@@ -147,22 +116,7 @@ pub(in crate::compiler) fn selector_alias_cube_material_descriptors(
         let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
         let key = key?;
         let path = pack.terrain.get_exact_static_no_tint(&key)?;
-        let expected_path = match key.as_ref() {
-            "bone_block_top" => "textures/blocks/bone_block_top",
-            "bone_block_side" => "textures/blocks/bone_block_side",
-            "chiseled_quartz_block_top" => "textures/blocks/quartz_block_chiseled_top",
-            "chiseled_quartz_block_side" => "textures/blocks/quartz_block_chiseled",
-            "hayblock_top" => "textures/blocks/hay_block_top",
-            "hayblock_side" => "textures/blocks/hay_block_side",
-            "flattened_purpur_block" => "textures/blocks/purpur_block",
-            "flattened_quartz_block_top" => "textures/blocks/quartz_block_top",
-            "flattened_quartz_block_side" => "textures/blocks/quartz_block_side",
-            "smooth_quartz" => "textures/blocks/quartz_block_bottom",
-            "flattened_tnt_bottom" => "textures/blocks/tnt_bottom",
-            "flattened_tnt_side" => "textures/blocks/tnt_side",
-            "flattened_tnt_top" => "textures/blocks/tnt_top",
-            _ => return None,
-        };
+        let expected_path = assets::facts::pack::rules().alias_path(&key)?;
         if path != expected_path
             || pack.flipbooks.iter().any(|flipbook| {
                 flipbook.atlas_tile.as_ref() == key.as_ref()

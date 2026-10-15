@@ -25,16 +25,9 @@ pub(super) struct Group {
 
 fn raster(target: Option<&str>, materials: &MaterialStates) -> Raster {
     Raster {
-        material: match target {
-            Some("ender_dragon") => EntityRenderMaterial::Dragon,
-            Some("entity_dissolve_layer0.skinning" | "entity_dissolve_layer0") => {
-                EntityRenderMaterial::DissolveDepth
-            }
-            Some("entity_dissolve_layer1.skinning" | "entity_dissolve_layer1") => {
-                EntityRenderMaterial::DissolveColor
-            }
-            _ => EntityRenderMaterial::Default,
-        },
+        material: target.map_or(EntityRenderMaterial::Default, |name| {
+            assets::facts::pack::rules().raster(name)
+        }),
         state: target.and_then(|target| materials.resolve(target)),
     }
 }

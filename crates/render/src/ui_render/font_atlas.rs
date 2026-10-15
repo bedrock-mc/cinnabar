@@ -1,5 +1,6 @@
 //! Issue the current frame's demand-filled font atlas before drawing.
 
+use crate::queue_writes::ProfiledQueue as _;
 use render_model::{UiRenderInput, UiRenderRejectReason};
 
 impl super::textures::UiGpuTextures {
@@ -25,7 +26,7 @@ impl super::textures::UiGpuTextures {
             if let Some(profile) = profile {
                 profile.record_upload(super::profile::UploadKind::Texture, pixels.len() as u64);
             }
-            queue.write_texture(
+            queue.profiled_write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
                     mip_level: 0,

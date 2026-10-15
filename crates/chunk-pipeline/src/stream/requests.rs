@@ -5,14 +5,14 @@ use super::*;
 #[derive(Default)]
 pub(super) struct SubChunkRequests {
     pub(super) queue: RequestQueue,
-    pub(super) requested: HashMap<ChunkKey, PendingSubChunkColumn>,
-    pub(super) collision_failures: HashSet<ChunkKey>,
+    pub(super) requested: BTreeMap<ChunkKey, PendingSubChunkColumn>,
+    pub(super) collision_failures: BTreeSet<ChunkKey>,
     pub(super) deadlines: BTreeSet<(Instant, SubChunkKey)>,
-    pub(super) correlated_attempts: HashMap<SubChunkKey, CorrelatedSubChunkAttempts>,
-    pub(super) admitted_replies: HashMap<SubChunkKey, u8>,
-    pub(super) deferred_retries: VecDeque<SubChunkKey>,
+    pub(super) correlated_attempts: ColumnRecords<SubChunkKey, CorrelatedSubChunkAttempts>,
+    pub(super) admitted_replies: ColumnRecords<SubChunkKey, u8>,
+    pub(super) deferred_retries: ColumnQueue<SubChunkKey>,
     pub(super) deferred_retry_set: HashSet<SubChunkKey>,
-    pub(super) deferred_recovery: VecDeque<PendingSubChunkRequest>,
+    pub(super) deferred_recovery: ColumnQueue<PendingSubChunkRequest>,
     pub(super) recoveries: BTreeMap<ChunkKey, BTreeMap<i32, SubChunkRecovery>>,
     /// The last recovery column visited, so spent polls resume past it.
     pub(super) recovery_cursor: Option<ChunkKey>,
@@ -84,7 +84,7 @@ impl SubChunkRequests {
             self.deadlines.remove(&(deadline, key));
         }
     }
-    /// Removes request bookkeeping with one scan per shared queue or index.
+    /// Removes request bookkeeping by column, preserving unrelated queue order.
     pub(super) fn purge_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
         for &chunk in chunks {
             if let Some(pending) = self.requested.remove(&chunk) {
@@ -97,19 +97,24 @@ impl SubChunkRequests {
             }
         }
         self.queue.cancel_columns(chunks);
-        self.deferred_retries
-            .retain(|key| !chunks.contains(&key.chunk()));
-        self.deferred_retry_set
-            .retain(|key| !chunks.contains(&key.chunk()));
-        self.deferred_recovery
-            .retain(|request| !chunks.contains(&request.chunk));
-        self.correlated_attempts
-            .retain(|key, _| !chunks.contains(&key.chunk()));
-        self.admitted_replies
-            .retain(|key, _| !chunks.contains(&key.chunk()));
-        for chunk in chunks {
-            self.recoveries.remove(chunk);
+        for &chunk in chunks {
+            for key in self.deferred_retries.remove_column(chunk) {
+                self.deferred_retry_set.remove(&key);
+            }
+            self.deferred_recovery.remove_column(chunk);
+            self.correlated_attempts.remove_column(chunk);
+            self.admitted_replies.remove_column(chunk);
+            self.recoveries.remove(&chunk);
         }
+    }
+    /// Reads and resets record visits made by the shared column cleanup helpers.
+    #[cfg(test)]
+    fn take_cleanup_visits(&mut self) -> usize {
+        self.queue.take_cleanup_visits()
+            + self.deferred_retries.take_cleanup_visits()
+            + self.deferred_recovery.take_cleanup_visits()
+            + self.correlated_attempts.take_cleanup_visits()
+            + self.admitted_replies.take_cleanup_visits()
     }
     pub(super) fn queued_retry_count(&self) -> usize {
         let outbound = self
@@ -486,5 +491,104 @@ impl WorldStream {
     }
     pub(super) fn cancel_request_reservation(&mut self, sequence: u64) {
         self.requests.queue.cancel_reservation(sequence);
+    }
+}
+
+#[cfg(test)]
+mod cleanup_tests {
+    use super::*;
+
+    /// Builds one valid request identity for the populated retirement fixture.
+    fn request(chunk: ChunkKey) -> PendingSubChunkRequest {
+        PendingSubChunkRequest {
+            packet: request_sub_chunk_column(chunk.dimension, chunk.x, chunk.z, 0, 1).unwrap(),
+            dimension: chunk.dimension,
+            chunk,
+            base_sub_chunk_y: 0,
+            count: 1,
+        }
+    }
+
+    /// A disjoint populated retirement visits only records owned by each retired column.
+    #[test]
+    fn column_retirement_visits_only_its_request_records() {
+        let columns = 4096;
+        let mut requests = SubChunkRequests::default();
+        let deadline = Instant::now();
+        for x in 0..columns {
+            let column = ChunkKey::new(0, x, 0);
+            let key = SubChunkKey::from_chunk(column, 0);
+            requests.requested.insert(
+                column,
+                BTreeMap::from([(
+                    0,
+                    PendingSubChunk {
+                        response_deadline: Some(deadline),
+                        ..Default::default()
+                    },
+                )]),
+            );
+            requests.deadlines.insert((deadline, key));
+            requests.correlated_attempts.insert(
+                key,
+                CorrelatedSubChunkAttempts {
+                    confirmed_attempts: 1,
+                    ..Default::default()
+                },
+            );
+            requests.admitted_replies.insert(key, 1);
+            requests
+                .recoveries
+                .insert(column, BTreeMap::from([(0, SubChunkRecovery::default())]));
+            requests.deferred_recovery.push_back(request(column));
+            if x < OUTBOUND_REQUEST_CAPACITY as i32 {
+                requests.queue.push_ready(request(column), false);
+                requests.queue.pop_next(None, &BTreeSet::new()).unwrap();
+            }
+        }
+        for x in 0..OUTBOUND_REQUEST_CAPACITY as i32 {
+            let column = ChunkKey::new(0, x, 0);
+            let key = SubChunkKey::from_chunk(column, 0);
+            requests.deferred_retries.push_back(key);
+            requests.deferred_retry_set.insert(key);
+            requests.queue.push_ready(request(column), true);
+            requests.queue.prioritize_mesh_blocker(column);
+        }
+        let survivor = ChunkKey::new(1, 0, 0);
+        requests.queue.reserve(7);
+        requests.queue.push_ready(request(survivor), false);
+        let (mut total, mut max) = (0, 0);
+        for x in 0..columns {
+            requests.purge_columns(&BTreeSet::from([ChunkKey::new(0, x, 0)]));
+            let visits = requests.take_cleanup_visits();
+            total += visits;
+            max = max.max(visits);
+        }
+        assert!(requests.requested.is_empty());
+        assert!(requests.deadlines.is_empty());
+        assert!(requests.recoveries.is_empty());
+        assert!(requests.deferred_retries.is_empty());
+        assert!(requests.deferred_retry_set.is_empty());
+        assert!(requests.deferred_recovery.is_empty());
+        assert_eq!(requests.correlated_attempts.len(), 0);
+        assert_eq!(requests.admitted_replies.len(), 0);
+        assert!(
+            requests.queue.pop_next(None, &BTreeSet::new()).is_none(),
+            "the reservation survives retirement"
+        );
+        assert!(requests.queue.replace_reservation(7, request(survivor)));
+        for _ in 0..2 {
+            assert_eq!(
+                requests
+                    .queue
+                    .pop_next(None, &BTreeSet::new())
+                    .unwrap()
+                    .chunk,
+                survivor
+            );
+        }
+        eprintln!("request retirement: columns={columns} total_visits={total} max_visits={max}");
+        assert_eq!(max, 6, "retirement visits only its own request records");
+        assert_eq!(total, columns as usize * 3 + OUTBOUND_REQUEST_CAPACITY * 3);
     }
 }

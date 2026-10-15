@@ -3,7 +3,7 @@
 use {super::*, launcher::menu::auth::AuthState, launcher::menu::view::MenuView};
 
 impl MenuRuntime {
-    /// Presents the visible route, modal focus, and current service feeds together.
+    /// Presents current interaction state while retaining each owner's published list storage.
     pub fn view(&self) -> MenuView {
         #[cfg(feature = "developer-control")]
         if let Some(view) = self.fixture_view() {
@@ -124,3 +124,6 @@ impl client_ui::ui_runtime::presentation::forms::scene_policy::MenuScene for Men
         self.uses_panorama()
     }
 }
+
+#[cfg(test)]
+mod tests;

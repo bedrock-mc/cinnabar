@@ -119,7 +119,7 @@ jobs:
           language: go
       - name: Warm Go caches
         run: |
-          go build -trimpath -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
+          go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core" ./core/cmd/bedrock-core
           go test -run '^$' ./core/...
           go -C tools/registrygen test -run '^$' ./...
           for module in chunkfix localserver bedsimtrace; do

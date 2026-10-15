@@ -129,11 +129,3 @@ pub fn held_block_display_for_hand(off_hand: bool) -> ItemDisplay {
             * Mat4::from_scale(Vec3::splat(0.375)),
     )
 }
-
-/// Rods on a stick, whose art both editions turn half a revolution in first person.
-pub fn is_rod(identifier: &str) -> bool {
-    matches!(
-        identifier.strip_prefix("minecraft:").unwrap_or(identifier),
-        "fishing_rod" | "carrot_on_a_stick" | "warped_fungus_on_a_stick"
-    )
-}

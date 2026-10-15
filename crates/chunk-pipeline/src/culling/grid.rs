@@ -1,6 +1,6 @@
 use hashbrown::HashMap;
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -42,11 +42,15 @@ pub(crate) struct ConnectivityGrid {
     y_bits: u32,
     cells: Vec<Cell>,
     overflow: HashMap<SubChunkKey, FaceConnectivity>,
+    /// Derived alongside overflow insertion/removal; orders candidates by home cell.
+    overflow_homes: BTreeSet<(usize, SubChunkKey)>,
     len: usize,
     identity: u64,
     epoch: u64,
     additions: VecDeque<SubChunkKey>,
     additions_start: usize,
+    #[cfg(test)]
+    promotion_visits: usize,
 }
 
 impl Default for ConnectivityGrid {
@@ -57,11 +61,14 @@ impl Default for ConnectivityGrid {
             y_bits: 0,
             cells: Vec::new(),
             overflow: HashMap::new(),
+            overflow_homes: BTreeSet::new(),
             len: 0,
             identity: NEXT_GRID_ID.fetch_add(1, Ordering::Relaxed),
             epoch: 0,
             additions: VecDeque::new(),
             additions_start: 0,
+            #[cfg(test)]
+            promotion_visits: 0,
         }
     }
 }
@@ -187,7 +194,7 @@ impl ConnectivityGrid {
             self.promote_into(index);
             Some(FaceConnectivity::from_bits(cell.bits))
         } else {
-            self.overflow.remove(key)
+            self.remove_overflow(key)
         };
         self.len -= usize::from(removed.is_some());
         if removed.is_some() {
@@ -199,6 +206,8 @@ impl ConnectivityGrid {
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&SubChunkKey) -> bool) {
         let previous_len = self.len;
         self.overflow.retain(|key, _| keep(key));
+        self.overflow_homes
+            .retain(|(_, key)| self.overflow.contains_key(key));
         let mut len = self.overflow.len();
         for cell in &mut self.cells {
             if cell.bits & PRESENT != 0 {
@@ -222,7 +231,7 @@ impl ConnectivityGrid {
             if self.cells[index].bits & PRESENT != 0 {
                 continue;
             }
-            let value = self.overflow.remove(&key).expect("listed overflow key");
+            let value = self.remove_overflow(&key).expect("listed overflow key");
             self.cells[index] = Cell {
                 key,
                 bits: value.bits() | PRESENT,
@@ -255,28 +264,48 @@ impl ConnectivityGrid {
             cell.bits = value.bits() | PRESENT;
             Some(previous)
         } else {
-            self.overflow.insert(key, value)
+            let previous = self.overflow.insert(key, value);
+            if previous.is_none() {
+                self.overflow_homes.insert((index, key));
+            }
+            previous
         }
     }
 
-    /// Restores the invariant after `index` empties by moving one overflow key home.
+    /// Removes an overflow entry and its home index together.
+    fn remove_overflow(&mut self, key: &SubChunkKey) -> Option<FaceConnectivity> {
+        let value = self.overflow.remove(key)?;
+        self.overflow_homes.remove(&(self.index(*key), *key));
+        Some(value)
+    }
+
+    /// Restores an empty cell with one matching overflow key in logarithmic time.
     fn promote_into(&mut self, index: usize) {
-        if self.overflow.is_empty() {
-            return;
+        let first_key = SubChunkKey::new(i32::MIN, i32::MIN, i32::MIN, i32::MIN);
+        let key = self
+            .overflow_homes
+            .range((index, first_key)..)
+            .next()
+            .filter(|(home, _)| *home == index)
+            .map(|(_, key)| *key);
+        #[cfg(test)]
+        {
+            self.promotion_visits += usize::from(key.is_some());
         }
-        let Some(key) = self
-            .overflow
-            .keys()
-            .copied()
-            .find(|key| self.index(*key) == index)
-        else {
+        let Some(key) = key else {
             return;
         };
-        let value = self.overflow.remove(&key).expect("found overflow key");
+        let value = self.remove_overflow(&key).expect("indexed overflow key");
         self.cells[index] = Cell {
             key,
             bits: value.bits() | PRESENT,
         };
+    }
+
+    /// Counts candidate keys inspected by promotions since the last test observation.
+    #[cfg(test)]
+    pub(super) fn take_promotion_visits(&mut self) -> usize {
+        std::mem::take(&mut self.promotion_visits)
     }
 
     /// Doubles the axis most overflow keys collide on, while the cell budget allows.
@@ -322,6 +351,7 @@ impl ConnectivityGrid {
         self.y_bits = y_bits;
         self.cells = vec![EMPTY; 1 << (2 * xz_bits + y_bits)];
         self.overflow.clear();
+        self.overflow_homes.clear();
     }
 }
 
@@ -343,4 +373,48 @@ pub(super) fn cell_index(xz_bits: u32, y_bits: u32, key: SubChunkKey) -> usize {
     let z = key.z as u32 & xz_mask;
     let y = key.y as u32 & y_mask;
     (x | (z << xz_bits) | (y << (2 * xz_bits))) as usize
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Compares the derived home index with its authoritative overflow entries.
+    fn assert_home_index(grid: &ConnectivityGrid) {
+        assert_eq!(
+            grid.overflow_homes,
+            grid.overflow
+                .keys()
+                .map(|key| (grid.index(*key), *key))
+                .collect()
+        );
+    }
+
+    /// Insertions, replacements, promotion, retain and growth cannot leave a stale home index.
+    #[test]
+    fn overflow_home_index_tracks_mutations() {
+        let mut grid = ConnectivityGrid::default();
+        let keys: Vec<_> = (0..96)
+            .flat_map(|x| (0..2).map(move |dimension| SubChunkKey::new(dimension, x, 0, x)))
+            .collect();
+        for key in &keys {
+            grid.insert(*key, FaceConnectivity::all());
+            assert_home_index(&grid);
+        }
+        for key in &keys {
+            grid.insert(*key, FaceConnectivity::none());
+        }
+        assert_home_index(&grid);
+        for key in keys.iter().step_by(3) {
+            grid.remove(key);
+            assert_home_index(&grid);
+        }
+        grid.retain(|key| key.x % 2 == 0);
+        assert_home_index(&grid);
+        for key in keys {
+            grid.remove(&key);
+        }
+        assert_home_index(&grid);
+        assert_eq!(grid.len(), 0);
+    }
 }

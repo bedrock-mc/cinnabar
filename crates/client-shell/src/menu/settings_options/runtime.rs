@@ -1,18 +1,18 @@
 //! One handoff applies menu edits to the camera, input, window and sound authorities.
 
 use launcher::menu::settings_options::SettingId;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
+use std::{sync::Arc, time::Instant};
+
+use bevy::prelude::{AppExit, MessageReader, ResMut};
+
+use launcher::menu::settings_options::{
+    SettingsOptions,
+    persistence::{
+        SETTINGS_FILE,
+        writer::{RETRY_DELAY, Writer},
+    },
 };
-
-use bevy::prelude::ResMut;
-
-use launcher::menu::settings_options::{SettingsOptions, persistence::SETTINGS_FILE};
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
-
-/// Limits disk retries after a failed write without discarding pending preferences.
-const SETTINGS_RETRY: Duration = Duration::from_secs(1);
 
 impl MenuRuntime {
     /// Refreshes untouched render distance from the selected device before settings publication.
@@ -70,7 +70,7 @@ impl MenuRuntime {
         }
     }
 
-    /// Loads one snapshot into the subsystem authorities and flushes pending edits.
+    /// Applies edits to runtime authorities immediately and queues their disk snapshot.
     pub fn sync_user_settings(&mut self, runtime: Option<ResMut<RuntimeSettings>>) {
         launcher_host::lifecycle::update::configure(self.settings_options.update_preferences());
         if self.settings_apply
@@ -84,24 +84,51 @@ impl MenuRuntime {
             runtime.replace_user_settings(user);
             self.settings_apply = false;
         }
+        if let Some(Err(error)) = self
+            .settings_writer
+            .as_mut()
+            .and_then(|writer| writer.poll())
+        {
+            self.message = Some(format!("Could not save settings: {error}"));
+        }
         if self.settings_dirty
             && self
                 .settings_retry_at
                 .is_none_or(|due| Instant::now() >= due)
         {
-            let path = self.config_path.with_file_name(SETTINGS_FILE);
-            let saved = self.persistent_settings();
-            match saved.save(&path) {
-                Ok(()) => {
-                    self.settings_dirty = false;
-                    self.settings_retry_at = None;
-                }
+            match self.queue_user_settings() {
+                Ok(()) => self.settings_retry_at = None,
                 Err(error) => {
-                    self.settings_retry_at = Some(Instant::now() + SETTINGS_RETRY);
+                    self.settings_retry_at = Some(Instant::now() + RETRY_DELAY);
                     self.message = Some(format!("Could not save settings: {error}"));
                 }
             }
         }
+    }
+
+    /// Transfers the newest persistent snapshot to the sole disk owner.
+    fn queue_user_settings(&mut self) -> std::io::Result<()> {
+        if self.settings_writer.is_none() {
+            self.settings_writer = Some(Writer::new()?);
+        }
+        let saved = self.persistent_settings();
+        self.settings_writer
+            .as_mut()
+            .expect("settings writer started")
+            .submit(self.config_path.with_file_name(SETTINGS_FILE), saved)?;
+        self.settings_dirty = false;
+        Ok(())
+    }
+
+    /// Flushes even edits made after the last frame, waiting only during orderly shutdown.
+    pub(in crate::menu) fn flush_user_settings(&mut self) -> std::io::Result<()> {
+        if self.settings_dirty {
+            self.queue_user_settings()?;
+        }
+        if let Some(mut writer) = self.settings_writer.take() {
+            writer.finish()?;
+        }
+        Ok(())
     }
 
     /// Returns preferences for saves and backups without including session-only overrides.
@@ -159,5 +186,15 @@ impl MenuRuntime {
                 self.set_session_option(option, None);
             }
         }
+    }
+}
+
+/// Drains settings before normal exit starts tearing down rendering and other resources.
+pub(crate) fn flush_on_exit(mut exits: MessageReader<AppExit>, menu: Option<ResMut<MenuRuntime>>) {
+    if exits.read().next().is_some()
+        && let Some(mut menu) = menu
+        && let Err(error) = menu.flush_user_settings()
+    {
+        eprintln!("Could not save settings at shutdown: {error}");
     }
 }

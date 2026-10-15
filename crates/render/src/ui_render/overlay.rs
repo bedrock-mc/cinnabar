@@ -1,9 +1,12 @@
 //! Ordered world-projected UI and depth-free HUD overlay with exact hand coverage.
 use super::pipeline::{UiPipeline, UiPipelineKey};
+#[cfg(test)]
+use super::segments::UiSegment;
+use super::segments::plan_ui_passes;
 use super::*;
 use super::{
     damage::UiDamage,
-    layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
+    layer::{UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
 };
 #[path = "world.rs"]
 mod world;
@@ -477,37 +480,11 @@ pub(crate) fn ui_overlay(
     let model_depth = world
         .get_resource::<super::model_depth::UiModelDepths>()
         .and_then(|depths| depths.compatible(view_entity, layer));
-    let layer_draw = UiLayerDraw {
-        world,
-        gpu,
-        pipeline_cache,
-        alpha: layer_pipeline,
-        vertices,
-        indices,
-        owner: view_entity,
-        layer,
-        model_depth,
-        viewport: viewport.as_ref(),
-        skip: skip.as_ref(),
-        clear: composite.clear_pipeline(pipeline_cache),
-    };
     let mut model_lifetime = super::model_depth::ModelDepthLifetime::default();
     let plan = plan_ui_passes(
         &batches,
         world.contains_resource::<super::composite::UiPresentInstalled>(),
     );
-    // Only a frame's single layer survives to the next frame; animated glint never does.
-    let content = (plan.retainable && !gpu.animated)
-        .then_some(gpu.accepted_revision)
-        .flatten()
-        .map(|revision| super::composite::UiLayerContent {
-            revision,
-            skip: skip.clone(),
-            viewport: viewport
-                .as_ref()
-                .map(|viewport| (viewport.physical_position, viewport.physical_size)),
-            model_depth: model_depth.is_some(),
-        });
     let publication = gpu
         .last_admitted_publication
         .upgrade()
@@ -515,14 +492,65 @@ pub(crate) fn ui_overlay(
     let profile = world.get_resource::<super::profile::UiProfile>();
     // Alpha batches blend in the gamma-space layer; an invert batch (the
     // crosshair) must see the scene, so the layer composites before it.
-    for segment in plan.segments {
-        let layered = &batches[segment.layered];
+    let raster_count = plan.layer_count();
+    let mut raster_index = 0;
+    for segment in &plan.segments {
+        let layered = &batches[segment.layered.clone()];
+        let retained = if layered.is_empty() {
+            None
+        } else {
+            let retained = layer.segment(raster_index, raster_count);
+            raster_index += 1;
+            retained
+        };
+        let raster = retained.unwrap_or(layer);
         let inverted = segment.inverted.map(|index| &batches[index]);
-        let held = content.as_ref().and_then(|content| layer.holds(content));
+        let layer_draw = UiLayerDraw {
+            world,
+            gpu,
+            pipeline_cache,
+            alpha: layer_pipeline,
+            vertices,
+            indices,
+            owner: view_entity,
+            layer: raster,
+            model_depth,
+            viewport: viewport.as_ref(),
+            skip: skip.as_ref(),
+            clear: composite.clear_pipeline(pipeline_cache),
+        };
+        let content = retained
+            .filter(|_| segment.independent_depth(&batches))
+            .and(gpu.accepted_revision)
+            .map(|revision| super::composite::UiLayerContent {
+                revision,
+                skip: skip.clone(),
+                viewport: viewport
+                    .as_ref()
+                    .map(|viewport| (viewport.physical_position, viewport.physical_size)),
+                model_depth: model_depth.is_some(),
+                segment: segment.publication_range(&batches),
+                inverted: inverted.map(|(index, _, _)| *index),
+            });
+        let held = content.as_ref().and_then(|content| raster.holds(content));
+        let animation = layered
+            .iter()
+            .fold(UiDamage::Unchanged, |damage, (index, _, _)| {
+                damage.union(
+                    gpu.animation_damage
+                        .get(*index)
+                        .copied()
+                        .unwrap_or(UiDamage::Full),
+                )
+            })
+            .for_projection(
+                viewport.is_none()
+                    && [raster.texture.width(), raster.texture.height()] == gpu.viewport_size,
+            );
         let proposed = match (content.as_ref(), publication.as_ref()) {
-            _ if held.is_some() => UiDamage::Unchanged,
             _ if profile.is_some_and(|profile| profile.baseline_replay) => UiDamage::Full,
-            (Some(content), Some(input)) => layer.damage(content, input),
+            _ if held.is_some() => animation,
+            (Some(content), Some(input)) => raster.damage(content, input).union(animation),
             _ => UiDamage::Full,
         };
         let damage = super::layer::damage_for_passes(
@@ -534,46 +562,52 @@ pub(crate) fn ui_overlay(
                     .iter()
                     .all(|(_, batch, _)| layer_draw.pipeline(batch).is_some()),
         );
-        if let Some(profile) = profile {
+        if let Some(profile) = profile.filter(|_| !layered.is_empty()) {
             profile.record_layer(
                 damage != UiDamage::Unchanged,
-                [layer.texture.width(), layer.texture.height()],
-                layer.texture.format(),
-                layer.texture.sample_count(),
+                [raster.texture.width(), raster.texture.height()],
+                raster.texture.format(),
+                raster.texture.sample_count(),
             );
             if let UiDamage::Rect(rect) = damage {
                 profile.record_damage(rect);
             }
         }
-        let encoded = match held {
-            Some(encoded) => encoded,
-            None => {
-                let drawn = match damage {
-                    UiDamage::Unchanged => LayerDrawn {
-                        encoded: true,
-                        complete: true,
-                    },
-                    redraw => draw_ui_layer(
-                        context,
-                        &layer_draw,
-                        layered,
-                        &mut model_lifetime,
-                        if let UiDamage::Rect(rect) = redraw {
-                            Some(rect)
-                        } else {
-                            None
-                        },
-                    ),
-                };
-                layer.hold_publication(
-                    content
-                        .clone()
-                        .filter(|_| drawn.complete)
-                        .map(|content| (content, drawn.encoded)),
+        let encoded = if layered.is_empty() {
+            false
+        } else if damage == UiDamage::Unchanged {
+            // Color reuse must still advance scope transitions before the next invert.
+            for (_, batch, _) in layered {
+                model_lifetime.enter(batch.isolated_depth_scope);
+            }
+            let encoded = held.unwrap_or(!layered.is_empty());
+            if held.is_none() {
+                raster.hold_publication(
+                    content.clone().map(|content| (content, encoded)),
                     publication.clone(),
                 );
-                drawn.encoded
             }
+            encoded
+        } else {
+            let drawn = draw_ui_layer(
+                context,
+                &layer_draw,
+                layered,
+                &mut model_lifetime,
+                if let UiDamage::Rect(rect) = damage {
+                    Some(rect)
+                } else {
+                    None
+                },
+            );
+            raster.hold_publication(
+                content
+                    .clone()
+                    .filter(|_| drawn.complete)
+                    .map(|content| (content, drawn.encoded)),
+                publication.clone(),
+            );
+            drawn.encoded
         };
         if encoded {
             if segment.present {
@@ -583,7 +617,7 @@ pub(crate) fn ui_overlay(
                     context,
                     world,
                     target,
-                    &layer.view,
+                    &raster.view,
                     composite_pipeline,
                     &composite_layout,
                 );
@@ -653,52 +687,6 @@ pub(crate) fn ui_overlay(
         }
     }
     Ok(())
-}
-
-/// One gamma-layer draw: its layered batch range, then an optional invert batch.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct UiSegment {
-    pub(crate) layered: Range<usize>,
-    pub(crate) inverted: Option<usize>,
-    /// The layer composites in the output pass instead of over the main texture.
-    pub(crate) present: bool,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct UiPassPlan {
-    pub(crate) segments: Vec<UiSegment>,
-    /// One layer per frame, so it can be kept for the next frame.
-    pub(crate) retainable: bool,
-}
-
-/// Splits the HUD into layer and invert passes; the last layer waits for the output pass.
-pub(crate) fn plan_ui_passes<T: std::borrow::Borrow<UiRenderBatch>, L>(
-    batches: &[(usize, T, L)],
-    deferred_present: bool,
-) -> UiPassPlan {
-    let mut segments = Vec::new();
-    let mut start = 0;
-    for (index, (_, batch, _)) in batches.iter().enumerate() {
-        if batch.borrow().blend_mode == UI_BLEND_INVERT {
-            segments.push(UiSegment {
-                layered: start..index,
-                inverted: Some(index),
-                present: false,
-            });
-            start = index + 1;
-        }
-    }
-    if start < batches.len() {
-        segments.push(UiSegment {
-            layered: start..batches.len(),
-            inverted: None,
-            present: deferred_present,
-        });
-    }
-    UiPassPlan {
-        retainable: segments.len() == 1,
-        segments,
-    }
 }
 
 pub(crate) fn overlay_viewport(

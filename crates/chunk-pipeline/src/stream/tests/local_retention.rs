@@ -235,24 +235,36 @@ fn server_position_retention_replaces_a_stale_local_grid() {
     assert!(!stream.retain_for_server_position());
 }
 
-/// A stream lent to a between-frames service evicts at its next poll, which the service runs
-/// off the frame thread, instead of inside the frame's retention call.
+/// Serviced retention starts at the next poll and resumes within later allocations.
 #[test]
-fn serviced_streams_evict_at_the_next_poll() {
+fn serviced_retention_resumes_across_bounded_polls() {
     let mut stream = stream();
     let original = populate_view(&mut stream, [0, 0]);
     stream.between_frames_service = true;
+    let before = stream.maintenance_items;
     assert!(stream.retain_local([320.5, 70.0, 0.5]));
+    assert_eq!(stream.maintenance_items, before, "the request does no work");
     assert_eq!(
         stream.loaded_columns.len(),
         original,
         "the request evicts nothing"
     );
-    let leaving = ChunkKey::new(0, -2, 0);
-    assert!(stream.loaded_columns.contains(&leaving));
+    let leaving = *stream.loaded_columns.first().unwrap();
 
+    stream.poll_deadline = Some(Instant::now());
     stream.poll([320.5, 70.0, 0.5], 0);
+    assert_eq!(stream.maintenance_items - before, 1);
     assert!(!stream.loaded_columns.contains(&leaving));
+    assert_eq!(stream.loaded_columns.len(), original - 1);
+    assert!(stream.retention_due, "remaining eviction resumes later");
+
+    test_time::eventually("bounded retention completion", || {
+        stream.poll_deadline = Some(Instant::now());
+        let before = stream.maintenance_items;
+        stream.poll([320.5, 70.0, 0.5], 0);
+        assert!(stream.maintenance_items - before <= 1);
+        !stream.retention_due
+    });
     assert!(
         stream
             .tracked_columns()
@@ -292,4 +304,52 @@ fn serviced_retention_evicts_before_a_later_commit() {
             "serviced: {serviced}"
         );
     }
+}
+
+/// Discovering a moved boundary skips the unchanged interior and keeps the exact grid.
+#[test]
+fn large_grid_crossings_visit_rows_and_leaving_columns() {
+    for radius in [16, 64] {
+        let mut stream = stream();
+        stream.chunk_radius = Some(radius);
+        stream.reevaluate_chunk_retention();
+        populate_view(&mut stream, [0, 0]);
+        let before = stream.maintenance_items;
+        assert!(stream.retain_local([16.5, 70.0, 0.5]));
+        let items = stream.maintenance_items - before;
+        assert!(
+            items <= (8 * (radius + world::CHUNK_VIEW_SLACK)) as u64,
+            "{items} items at radius {radius}"
+        );
+        assert!(
+            stream
+                .tracked_columns()
+                .into_iter()
+                .all(|key| chunk_in_view(radius, [key.x, key.z], [1, 0]))
+        );
+    }
+}
+
+/// Outlying arrivals and metadata are retired too, including columns never inside the old grid.
+#[test]
+fn boundary_retention_also_retires_outliers() {
+    let mut stream = stream();
+    populate_view(&mut stream, [0, 0]);
+    let outlier = ChunkKey::new(0, 100, -100);
+    stream.record_known_air(SubChunkKey::from_chunk(outlier, 0));
+    stream.publisher.required_columns.insert(outlier);
+    stream
+        .unsent_column_deadlines
+        .insert(outlier, Instant::now());
+    let wrong_dimension = ChunkKey::new(1, 0, 0);
+    stream.loaded_columns.insert(wrong_dimension);
+    assert!(stream.retain_local([16.5, 70.0, 0.5]));
+    assert!(
+        !stream
+            .resident
+            .contains(&SubChunkKey::from_chunk(outlier, 0))
+    );
+    assert!(!stream.publisher.required_columns.contains(&outlier));
+    assert!(!stream.unsent_column_deadlines.contains_key(&outlier));
+    assert!(!stream.loaded_columns.contains(&wrong_dimension));
 }

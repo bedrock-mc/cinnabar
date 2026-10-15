@@ -139,7 +139,7 @@ pub use inventory::{
     item_stack_request_packet_filtered, next_legacy_request_id,
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
-    validate_item_nbt_size,
+    repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
     CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
@@ -184,7 +184,7 @@ pub use login::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, GameData,
     LoginSequence, LoginSettings, PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound,
     PlaySession, ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff, StartupItems,
-    StartupSettings, login_memory_tier, network_stack_latency_reply,
+    StartupSettings, WRITE_FAILURE_DRAIN, login_memory_tier, network_stack_latency_reply,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,

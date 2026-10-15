@@ -11,6 +11,8 @@ pub(super) mod potion;
 pub(super) mod wolf;
 
 #[cfg(test)]
+mod facts_tests;
+#[cfg(test)]
 mod item_use_tests;
 
 #[cfg(test)]
@@ -81,7 +83,7 @@ pub(super) fn query(
         ),
         Q::OwnerIdentifier => text(evaluator.context.attachable.map(
             |_| match evaluator.actor.kind() {
-                ActorKind::Player { .. } => "minecraft:player",
+                ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
                 ActorKind::Entity { identifier } => identifier.as_ref(),
             },
         )),
@@ -281,12 +283,16 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             _ => 0.0,
         }),
         // Native actor-state position, before the actor store removes collision offsets.
-        Q::Position if arguments.len() == 1 => argument(0).filter(|axis| axis.is_finite()).map_or(0.0, |axis| match axis as i32 {
-            0 => input.position[0],
-            1 => input.position[1] + actor.network_position_offset(),
-            2 => input.position[2],
-            _ => 0.0,
-        }),
+        Q::Position if arguments.len() == 1 => {
+            argument(0)
+                .filter(|axis| axis.is_finite())
+                .map_or(0.0, |axis| match axis as i32 {
+                    0 => input.position[0],
+                    1 => input.position[1] + actor.network_position_offset(),
+                    2 => input.position[2],
+                    _ => 0.0,
+                })
+        }
         Q::Position => 0.0,
         Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
             rotation_to_camera(input.position, context.camera_position, axis)
@@ -307,18 +313,17 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0) != 0.0),
+        Q::IsCarryingBlock => truth(
+            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
+                != 0.0,
+        ),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
-        Q::ItemRemainingUseDuration => {
-            item_use::remaining(evaluator, arguments)
-        }
+        Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
         Q::BaseSwingDuration if arguments.is_empty() => context
             .main_hand_swing_seconds
             .unwrap_or(super::motion::ACTOR_SWING_TICKS as f32 * ACTOR_TICK_DURATION.as_secs_f32()),
-        Q::EquippedItemAnyTag => truth(context.main_hand_is_spear
-            && matches!(arguments.first(), Some(MolangValue::String(slot)) if slot.as_ref() == "slot.weapon.mainhand")
-            && arguments.iter().skip(1).any(|tag| matches!(tag, MolangValue::String(tag) if tag.as_ref() == "minecraft:is_spear"))),
+        Q::EquippedItemAnyTag => truth(equipped_item_any_tag(context, arguments)),
         Q::KineticWeaponDelay => context
             .main_hand_kinetic
             .map_or(0.0, |timing| timing.delay_ticks as f32),
@@ -333,9 +338,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             .map_or(0.0, |timing| timing.damage_ticks as f32),
         Q::TicksSinceLastKineticWeaponHit => {
             if input.item_use_ticks > 0 {
-                actor
-                    .kinetic_hit_ticks()
-                    .map_or(-1.0, |ticks| ticks as f32)
+                actor.kinetic_hit_ticks().map_or(-1.0, |ticks| ticks as f32)
             } else {
                 -1.0
             }
@@ -397,7 +400,9 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::BodyYRotation => input.body_yaw,
         Q::BodyXRotation | Q::TargetXRotation => input.pitch,
         Q::TargetYRotation => {
-            if input.placement_frame.target_rotation() == Some(assets::placement::ActorYawFrame::Absolute) {
+            if input.placement_frame.target_rotation()
+                == Some(assets::placement::ActorYawFrame::Absolute)
+            {
                 input.yaw
             } else {
                 head_relative_yaw(input, TARGET_YAW_LIMIT)
@@ -466,7 +471,12 @@ fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::Wor
 
 /// Elytra suppresses the player's cape and outer chest skin layer while equipped.
 pub(super) fn wearing_elytra(context: &ActorTickContext) -> bool {
-    worn_armor(context, 1.0).is_some_and(|armor| item_name(&armor.item) == "elytra")
+    worn_armor(context, 1.0).is_some_and(|armor| {
+        armor
+            .fact
+            .traits
+            .contains(assets::facts::ItemTraits::GLIDER)
+    })
 }
 
 // Material indices follow the order of the pack's armor texture arrays (none, leather, iron, gold,
@@ -475,21 +485,10 @@ fn armor_texture_slot(context: &ActorTickContext, slot: f32) -> f32 {
     let Some(armor) = worn_armor(context, slot) else {
         return 0.0;
     };
-    let name = item_name(&armor.item);
-    // The chest slot reads 5 for an elytra, which hides the cape.
     if slot == 1.0 && wearing_elytra(context) {
         return 5.0;
     }
-    let material = name.split('_').next().unwrap_or("");
-    match material {
-        "leather" => 1.0,
-        "iron" => 2.0,
-        "golden" | "gold" => 3.0,
-        "diamond" => 4.0,
-        "copper" => 5.0,
-        "netherite" => 6.0,
-        _ => 0.0,
-    }
+    armor.fact.armor_texture_index() as f32
 }
 
 // Undyed leather tints with the public default colour; every other stack tints white.
@@ -503,15 +502,30 @@ fn armor_color_slot(context: &ActorTickContext, slot: Option<f32>, channel: Opti
     let Some(armor) = worn_armor(context, slot) else {
         return 1.0;
     };
-    let rgb = armor.dye_rgb.or_else(|| {
-        item_name(&armor.item)
-            .starts_with("leather_")
-            .then_some(DEFAULT_LEATHER_RGB)
-    });
+    let rgb = armor
+        .dye_rgb
+        .or_else(|| armor.fact.is_leather().then_some(DEFAULT_LEATHER_RGB));
     match (channel as i32, rgb) {
         (0..=2, Some(rgb)) => ((rgb >> (16 - 8 * channel as u32)) & 0xff) as f32 / 255.0,
         _ => 1.0,
     }
+}
+
+/// Tests admitted tag masks for the slot named by this Molang query.
+fn equipped_item_any_tag(context: &ActorTickContext, arguments: &[MolangValue]) -> bool {
+    let Some(MolangValue::String(slot)) = arguments.first() else {
+        return false;
+    };
+    let fact = match slot.as_ref() {
+        "slot.weapon.mainhand" => &context.held_item_facts[0],
+        "slot.weapon.offhand" => &context.held_item_facts[1],
+        _ => return false,
+    };
+    let facts = assets::facts::ItemFacts::builtin().expect("valid pinned item facts");
+    arguments.iter().skip(1).any(|argument| match argument {
+        MolangValue::String(name) => facts.tag(name).is_some_and(|tag| fact.tags.contains(tag)),
+        _ => false,
+    })
 }
 
 /// The equipped item a hand argument names: 0 or `'main_hand'` (the default), 1 or

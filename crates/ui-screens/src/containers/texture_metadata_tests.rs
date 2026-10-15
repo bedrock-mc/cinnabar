@@ -40,7 +40,7 @@ fn texture_refresh_remeasures_inventory_and_preserves_once_bindings() {
         ScreenCache::render(
             cache,
             &catalog,
-            false,
+            &catalog,
             "chest.small_chest_screen",
             &context,
             data,
@@ -120,7 +120,7 @@ fn inventory_data_refresh_keeps_unrelated_controls_bound() {
         let rendered = ScreenCache::render(
             &mut cache,
             &catalog,
-            false,
+            &catalog,
             "chest.small_chest_screen",
             &context,
             &data,

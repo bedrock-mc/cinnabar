@@ -1,6 +1,8 @@
 //! Ordinary indexed unit draws must keep the exact sealed direct-path pixels and depth ties.
 use super::*;
-use render_model::terrain_units::{QUADS_PER_UNIT, TerrainUnit, VisibleTerrainUnit, shards};
+use render_model::terrain_units::{
+    IndexedUnitPage, QUADS_PER_UNIT, TerrainUnit, VisibleTerrainUnit, shards,
+};
 
 /// Adds T junctions, alpha-tested two-sided faces, a long stream and coincident depth ties.
 fn fixture() -> Terrain {
@@ -72,10 +74,24 @@ fn draw_units(
         page_units * size_of::<VisibleTerrainUnit>() as u64,
     )
     .map(|range| {
-        let buffer = gpu.words(
-            bytemuck::cast_slice(&units[range.clone()]),
-            wgpu::BufferUsages::STORAGE,
-        );
+        // Reverse physical slots, then recover the original draw order through references.
+        let layout = IndexedUnitPage {
+            capacity: range.len(),
+        };
+        let mut words = vec![0; layout.byte_size() as usize / size_of::<u32>()];
+        words[..4].copy_from_slice(&layout.header());
+        let descriptors = units[range.clone()]
+            .iter()
+            .rev()
+            .copied()
+            .collect::<Vec<_>>();
+        let descriptor_words: &[u32] = bytemuck::cast_slice(&descriptors);
+        words[4..4 + descriptor_words.len()].copy_from_slice(descriptor_words);
+        let start = layout.reference_offset() as usize / size_of::<u32>();
+        for (index, slot) in (0..range.len() as u32).rev().enumerate() {
+            words[start + index] = slot;
+        }
+        let buffer = gpu.words(&words, wgpu::BufferUsages::STORAGE);
         (
             gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,

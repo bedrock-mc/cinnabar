@@ -64,6 +64,7 @@ impl CompletedMotionTick {
                 walks: sample.vertical_collision
                     && !sample.processed.sneaking
                     && !frame.input.immobile
+                    && !frame.input.skip_travel
                     && !matches!(
                         sample.processed.mode,
                         sim::MovementMode::Flying | sim::MovementMode::Riding

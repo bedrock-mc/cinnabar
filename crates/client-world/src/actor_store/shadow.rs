@@ -51,12 +51,18 @@ impl ActorSnapshot {
         relative * height * self.render_scale()
     }
 
+    /// Uses scaled collision width; only players supply a default for omitted bounds.
     fn collision_width(&self) -> f32 {
-        match self.metadata.get(&ActorDataKey::Width.wire_value()) {
-            Some(ActorMetadataValue::Float(width)) if width.is_finite() && *width > 0.0 => *width,
-            _ if matches!(self.kind, ActorKind::Player { .. }) => DEFAULT_ACTOR_COLLISION_WIDTH,
-            _ => 0.0,
+        if !matches!(self.kind, ActorKind::Player { .. })
+            && !matches!(
+                self.metadata.get(&ActorDataKey::Width.wire_value()),
+                Some(ActorMetadataValue::Float(width)) if width.is_finite()
+            )
+        {
+            return 0.0;
         }
+        self.scaled_collision_dimension(ActorDataKey::Width, DEFAULT_ACTOR_COLLISION_WIDTH)
+            .unwrap_or(0.0)
     }
 
     fn variant(&self) -> i32 {

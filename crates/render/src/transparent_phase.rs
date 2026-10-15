@@ -35,9 +35,22 @@ fn install_sorting(world: &mut World) {
 }
 
 /// Sorts by the queued distance, preserving insertion order for ties.
-fn sort(mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>) {
-    for phase in phases.values_mut() {
-        phase.sort();
+pub(crate) fn sort(
+    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
+    mut particles: Option<ResMut<crate::particle_render::ParticlePhase>>,
+) {
+    if let Some(particles) = particles.as_mut() {
+        particles.retain_views(&phases);
+    }
+    for (view, phase) in phases.iter_mut() {
+        if let Some(draws) = particles
+            .as_mut()
+            .and_then(|pending| pending.0.get_mut(view))
+        {
+            draws.merge(phase);
+        } else {
+            phase.sort();
+        }
     }
 }
 
@@ -45,17 +58,26 @@ fn sort(mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>) {
 pub(crate) fn add(phase: &mut SortedRenderPhase<Transparent3d>, item: Transparent3d) {
     let mut index =
         u32::try_from(phase.items.len()).expect("transparent phase exceeds entity index capacity");
+    add_with_cursor(phase, item, &mut index);
+}
+
+/// Adds a transient draw, advancing `index` past every occupied key.
+pub(crate) fn add_with_cursor(
+    phase: &mut SortedRenderPhase<Transparent3d>,
+    item: Transparent3d,
+    index: &mut u32,
+) {
     let key = loop {
         let slot =
-            Entity::from_raw_u32(index).expect("transparent phase exceeds entity index capacity");
+            Entity::from_raw_u32(*index).expect("transparent phase exceeds entity index capacity");
+        *index = index
+            .checked_add(1)
+            .expect("transparent phase exceeds entity index capacity");
         // Bevy hashes the last entity in the pair, so that part must vary per draw.
         let key = (Entity::PLACEHOLDER, MainEntity::from(slot));
         if !phase.items.contains_key(&key) {
             break key;
         }
-        index = index
-            .checked_add(1)
-            .expect("transparent phase exceeds entity index capacity");
     };
     phase.items.insert(key, item);
     phase.transient_items.push(key);

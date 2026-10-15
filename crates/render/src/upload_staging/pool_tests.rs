@@ -233,3 +233,107 @@ fn growth_follows_misses_up_to_the_ceiling() {
             .all(|slot| slot.state.load(Ordering::Acquire) == READY)
     );
 }
+
+/// Allocates the production frame shape and a destination large enough for one full frame.
+fn frame_pool() -> (RenderDevice, RenderQueue, Pool, wgpu::Buffer) {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let target = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+        label: Some("maximum particle frame destination"),
+        size: PARTICLE_FRAME_BYTES + FRAME_OTHER_BYTES,
+        usage: wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let pool = Pool::new(&device, FRAME);
+    (device, queue, pool, target)
+}
+
+/// Splits the particle cap across all material lists, with disjoint hand/UI data and alignment gaps.
+fn frame_payloads() -> Vec<(u64, Vec<u8>)> {
+    let instance_bytes = std::mem::size_of::<particles::ParticleInstance>();
+    let opaque = particles::MAX_LIVE_PARTICLES / 3;
+    let blend = particles::MAX_LIVE_PARTICLES / 5;
+    let add = particles::MAX_LIVE_PARTICLES - opaque - blend;
+    let mut offset = FRAME_OTHER_BYTES;
+    let mut writes = vec![
+        (0, vec![7; 4092]),
+        (4096, vec![8; FRAME_OTHER_BYTES as usize - 4112]),
+    ];
+    for (index, count) in [opaque, blend, add].into_iter().enumerate() {
+        let bytes = vec![index as u8 + 1; count * instance_bytes];
+        writes.push((offset, bytes));
+        offset += (count * instance_bytes) as u64;
+    }
+    assert_eq!(offset - FRAME_OTHER_BYTES, PARTICLE_FRAME_BYTES);
+    writes
+}
+
+#[test]
+fn maximum_particle_frames_stage_while_four_frames_await_completion_then_reuse() {
+    let (device, queue, mut pool, target) = frame_pool();
+    let retained = buffers(&pool);
+    let payloads = frame_payloads();
+    let writes: Vec<_> = payloads
+        .iter()
+        .map(|(offset, bytes)| (&target, *offset, bytes.as_slice()))
+        .collect();
+    let mut commands = Vec::new();
+    let frames = FRAME.slots / FRAME_SLOTS_PER_FRAME as usize;
+    for _ in 0..frames {
+        assert_eq!(pool.stage_prefix(&writes), None);
+        let mut expected = vec![0; (PARTICLE_FRAME_BYTES + FRAME_OTHER_BYTES) as usize];
+        for (offset, bytes) in &payloads {
+            expected[*offset as usize..*offset as usize + bytes.len()].copy_from_slice(bytes);
+        }
+        let mut staged = vec![0; expected.len()];
+        for copy in &pool.copies {
+            let offset = copy.offset as usize;
+            staged[offset..offset + copy.bytes as usize].copy_from_slice(&source(&pool, copy));
+            assert_eq!(copy.source % wgpu::COPY_BUFFER_ALIGNMENT, 0);
+        }
+        assert_eq!(staged, expected);
+        assert!(pool.copies.len() <= FRAME.max_copies);
+        let mut encoder = device.create_command_encoder(&Default::default());
+        pool.encode(&mut encoder);
+        commands.push(encoder.finish());
+    }
+    assert_eq!(pool.diagnostic_counts(), ([0, 0, FRAME.slots, 0], 0));
+    assert_eq!(pool.stage_prefix(&writes), Some((0, 0)));
+    queue.submit(commands);
+    device.poll(wgpu::PollType::Poll).unwrap();
+    assert_eq!(pool.stage_prefix(&writes), None);
+    assert_eq!(buffers(&pool), retained);
+    assert_eq!(pool.stats.grown_slots, 0);
+    assert_eq!(
+        pool.stats.staged_writes,
+        ((frames + 1) * writes.len()) as u64
+    );
+}
+
+#[test]
+fn maximum_frame_uses_ready_slots_and_keeps_failed_and_pending_storage_quarantined() {
+    let (_, _, mut pool, target) = frame_pool();
+    let unavailable = FRAME.slots - FRAME_SLOTS_PER_FRAME as usize;
+    for (index, slot) in pool.slots.iter().take(unavailable).enumerate() {
+        slot.state.store(
+            if index % 2 == 0 { FAILED } else { PENDING },
+            Ordering::Release,
+        );
+    }
+    let payloads = frame_payloads();
+    let writes: Vec<_> = payloads
+        .iter()
+        .map(|(offset, bytes)| (&target, *offset, bytes.as_slice()))
+        .collect();
+    assert_eq!(pool.stage_prefix(&writes), None);
+    assert!(pool.copies.iter().all(|copy| copy.slot >= unavailable));
+    let Some((index, staged)) = pool.stage_prefix(&writes) else {
+        panic!("a second maximum frame must exceed the remaining capacity");
+    };
+    assert_eq!(index, 2, "hand/UI writes fit before particle overflow");
+    assert!(staged > 0 && staged < payloads[index].1.len() as u64);
+    assert_eq!(staged % wgpu::COPY_BUFFER_ALIGNMENT, 0);
+    assert!(pool.copies.iter().all(|copy| copy.slot >= unavailable));
+    assert!(pool.stats.staged_bytes <= FRAME_SLOT_BYTES * FRAME_SLOTS_PER_FRAME);
+}

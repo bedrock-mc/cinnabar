@@ -1,4 +1,5 @@
 use assets::RegistryRecord;
+use assets::facts::pack::{TextureSelector as S, rules};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -31,26 +32,24 @@ pub(super) enum ModelTextureSelector {
 impl ModelTextureSelector {
     /// Admits a static array or an existing selector with its full output range.
     pub(super) fn admit(key: &str, count: usize) -> Self {
-        let selector = match key {
-            "door_lower" | "door_upper" => Self::Door,
-            "red_flower" => Self::Flower,
-            "sapling" => Self::Sapling,
-            "repeater_up" | "comparator_up" => Self::Powered,
-            "frosted_ice" => Self::Index {
-                property: "age",
+        let selector = match rules().selector(key) {
+            Some(S::Door) => Self::Door,
+            Some(S::Flower) => Self::Flower,
+            Some(S::Sapling) => Self::Sapling,
+            Some(S::Powered) => Self::Powered,
+            Some(S::FrostedIce) => Self::Index {
+                property: assets::facts::BlockProperty::Age.name(),
                 count: 4,
             },
-            "wheat" => Self::Index {
-                property: "growth",
+            Some(S::Wheat) => Self::Index {
+                property: assets::facts::BlockProperty::Growth.name(),
                 count: 8,
             },
-            "melon_stem" | "pumpkin_stem" => Self::Stem,
-            "carrots" | "potatoes" | "beetroot" => Self::CropStages,
-            "torchflower_crop" => Self::Torchflower,
-            _ => match Self::mushroom_block(key) {
+            Some(S::Stem) => Self::Stem,
+            Some(S::CropStages) => Self::CropStages,
+            Some(S::Torchflower) => Self::Torchflower,
+            None => match Self::mushroom_block(key) {
                 Some(block) => Self::Mushroom { block },
-                // A legacy array no state selects from draws its first entry, as vanilla
-                // draws stone brick stairs, firefly bushes and stone buttons.
                 None => return Self::Single,
             },
         };
@@ -82,18 +81,7 @@ impl ModelTextureSelector {
 
     /// Identifies only the retained huge-mushroom face bindings.
     pub(super) fn mushroom_block(key: &str) -> Option<&'static str> {
-        for (prefix, block) in [
-            ("mushroom_brown_", "minecraft:brown_mushroom_block"),
-            ("mushroom_red_", "minecraft:red_mushroom_block"),
-            ("mushroom_stem_", "minecraft:mushroom_stem"),
-        ] {
-            if key.strip_prefix(prefix).is_some_and(|face| {
-                matches!(face, "west" | "east" | "bottom" | "top" | "north" | "south")
-            }) {
-                return Some(block);
-            }
-        }
-        None
+        rules().mushroom_block(key)
     }
 
     /// Returns the array width required by this selector's declared outputs.
@@ -114,10 +102,6 @@ impl ModelTextureSelector {
     /// Resolves only the state properties and range declared by this binding.
     pub(super) fn select(self, record: &RegistryRecord) -> Option<usize> {
         let count = self.variant_count();
-        let name = record
-            .name
-            .strip_prefix("minecraft:")
-            .unwrap_or(&record.name);
         let selected = match self {
             Self::Mushroom { block } => {
                 if record.name.as_ref() != block {
@@ -130,56 +114,49 @@ impl ModelTextureSelector {
                 let charge = crate::respawn_anchor::charge(record)?;
                 if charge < count { charge } else { 0 }
             }
-            Self::Door => match name {
-                "wooden_door" => 0,
-                "spruce_door" => 1,
-                "birch_door" => 2,
-                "jungle_door" => 3,
-                "acacia_door" => 4,
-                "dark_oak_door" => 5,
-                "iron_door" => 6,
-                _ => return None,
-            },
-            Self::Flower => match name {
-                "poppy" => 0,
-                "blue_orchid" => 1,
-                "allium" => 2,
-                "azure_bluet" => 3,
-                "red_tulip" => 4,
-                "orange_tulip" => 5,
-                "white_tulip" => 6,
-                "pink_tulip" => 7,
-                "oxeye_daisy" => 8,
-                "cornflower" => 9,
-                "lily_of_the_valley" => 10,
-                _ => canonical_u32(&record.canonical_state, "flower_type")? as usize,
-            },
-            Self::Sapling => match name {
-                "oak_sapling" => 0,
-                "spruce_sapling" => 1,
-                "birch_sapling" => 2,
-                "jungle_sapling" => 3,
-                "acacia_sapling" => 4,
-                "dark_oak_sapling" => 5,
-                _ => sapling_variant(canonical_string(&record.canonical_state, "sapling_type")?)?,
-            },
+            Self::Door => rules().variant(S::Door, &record.name)?,
+            Self::Flower => rules().variant(S::Flower, &record.name).or_else(|| {
+                canonical_u32(
+                    &record.canonical_state,
+                    assets::facts::BlockProperty::FlowerType.name(),
+                )
+                .map(|value| value as usize)
+            })?,
+            Self::Sapling => rules().variant(S::Sapling, &record.name).or_else(|| {
+                sapling_variant(canonical_string(
+                    &record.canonical_state,
+                    assets::facts::BlockProperty::SaplingType.name(),
+                )?)
+            })?,
             Self::Powered => usize::from(
-                name.starts_with("powered")
-                    || canonical_u32(&record.canonical_state, "output_lit_bit") == Some(1),
+                rules().is_powered(&record.name)
+                    || canonical_u32(
+                        &record.canonical_state,
+                        assets::facts::BlockProperty::OutputLitBit.name(),
+                    ) == Some(1),
             ),
             Self::Index { property, .. } => {
                 canonical_u32(&record.canonical_state, property)? as usize
             }
-            Self::Stem => {
-                usize::from(canonical_u32(&record.canonical_state, "facing_direction")? != 0)
-            }
+            Self::Stem => usize::from(
+                canonical_u32(
+                    &record.canonical_state,
+                    assets::facts::BlockProperty::FacingDirection.name(),
+                )? != 0,
+            ),
             Self::CropStages => {
                 const STAGES: [usize; 8] = [0, 0, 1, 1, 2, 2, 2, 3];
-                *STAGES.get(canonical_u32(&record.canonical_state, "growth")? as usize)?
+                *STAGES.get(canonical_u32(
+                    &record.canonical_state,
+                    assets::facts::BlockProperty::Growth.name(),
+                )? as usize)?
             }
-            Self::Torchflower => {
-                usize::from(canonical_u32(&record.canonical_state, "growth")? >= 4)
-            }
+            Self::Torchflower => usize::from(
+                canonical_u32(
+                    &record.canonical_state,
+                    assets::facts::BlockProperty::Growth.name(),
+                )? >= 4,
+            ),
             Self::Single => 0,
             Self::Unresolved => return None,
         };

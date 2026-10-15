@@ -310,3 +310,24 @@ func TestSecretSafeResourcePackHandlerRedactsURLsEverywhere(t *testing.T) {
 		}
 	}
 }
+
+// The upstream dialer logs through the session's logger, keeping its attributes and dropping pack secrets.
+func TestUpstreamDialerLogsThroughTheSessionLogger(t *testing.T) {
+	var logs bytes.Buffer
+	connections := newPreparedConnections("unused.invalid:19132", nil, slog.New(slog.NewTextHandler(&logs, nil)).With("process", "game"))
+	connections.resolveTarget = func(context.Context) (*resolvedUpstreamTarget, error) {
+		return &resolvedUpstreamTarget{address: "unused.invalid:19132", network: minecraft.RakNet{}}, nil
+	}
+	dialErr := errors.New("dial failed")
+	connections.dialTarget = func(_ context.Context, _ *resolvedUpstreamTarget, dialer minecraft.Dialer) (upstreamSession, error) {
+		dialer.ErrorLog.Warn("pack fetch failed", "pack_url", "https://cdn.example/pack?sig=secret-sentinel")
+		return nil, dialErr
+	}
+	if _, err := connections.connect(context.Background(), dialerTestDownstream{protocol: minecraft.DefaultProtocol}); !errors.Is(err, dialErr) {
+		t.Fatalf("connect error = %v, want %v", err, dialErr)
+	}
+	output := logs.String()
+	if !strings.Contains(output, `level=WARN msg="pack fetch failed" process=game component=upstream-dialer`) || strings.Contains(output, "secret-sentinel") {
+		t.Fatalf("dialer log = %q", output)
+	}
+}

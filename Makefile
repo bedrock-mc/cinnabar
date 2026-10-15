@@ -132,7 +132,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
-	$(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
+	$(GO) build -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 
@@ -153,6 +153,8 @@ else
 unexport UPDATE_TRUSTED_KEYS
 endif
 PKG_CORE_LDFLAGS = -s -w
+# Shell expansion stamping bedrock-core with the workspace version and the selected build commit.
+CORE_STAMP = $$(CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" bash packaging/common/core-ldflags.sh)
 # Optional diagnostics for the release Rust build, such as --timings.
 PACKAGE_CARGO_FLAGS ?=
 # The runtime table owns Rust package/bin pairs; Go integrations retain their module-specific builds.
@@ -160,7 +162,7 @@ PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, 
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin assetc
-	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 package-macos: package-binaries $(FONT_SOURCE)

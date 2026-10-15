@@ -1,13 +1,15 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn is_resin_clump(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::ResinClump)
-        && record.name.as_ref() == "minecraft:resin_clump"
+        && block_render_fact(&record.name).kind == R::ResinClump
 }
 
 pub(in crate::compiler) fn is_resin_clump_name(name: &str) -> bool {
-    name == "minecraft:resin_clump"
+    block_render_fact(name).kind == R::ResinClump
 }
 
 pub(in crate::compiler) fn exact_resin_clump_state(record: &RegistryRecord) -> Option<u32> {
@@ -17,7 +19,10 @@ pub(in crate::compiler) fn exact_resin_clump_state(record: &RegistryRecord) -> O
     if state.len() != 1 {
         return None;
     }
-    let connections = exact_tagged_int(state.get("multi_face_direction_bits")?, 63)?;
+    let connections = exact_tagged_int(
+        state.get(assets::facts::BlockProperty::MultiFaceDirectionBits.name())?,
+        63,
+    )?;
     let mask = 1 << (ModelStateField::Connections as u8 - 1);
     if record.model_state.mask() != mask
         || record.model_state.get(ModelStateField::Connections) != Some(connections)
@@ -65,8 +70,8 @@ pub(in crate::compiler) fn resin_clump_inventory_is_exact(records: &[RegistryRec
 pub(in crate::compiler) fn resin_clump_material_descriptor(
     pack: &PackSources,
 ) -> Option<(Descriptor, Box<str>)> {
-    let key = pack.blocks.get_exact_scalar("resin_clump")?;
-    if key != "resin_clump" {
+    let key = pack.blocks.get_exact_scalar(B::ResinClump.bare())?;
+    if key != T::ResinClump.key() {
         return None;
     }
     let path = pack.terrain.get_exact_static_no_tint(key)?;

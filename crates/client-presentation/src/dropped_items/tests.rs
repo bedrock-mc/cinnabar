@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "culling_tests.rs"]
+mod culling;
+
 #[test]
 fn potted_models_sample_the_exposed_server_texture_grid() {
     let side = 64;

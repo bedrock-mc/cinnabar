@@ -1,5 +1,9 @@
-use bedrock_protocol_1_26_51::enums::{InteractAction, TextProcessingEventOrigin};
-use bedrock_protocol_1_26_51::packets::{ContainerClose, Interact, ItemStackRequest};
+use bedrock_protocol_1_26_51::enums::{
+    InteractAction, PacketViolationSeverity, PacketViolationType, TextProcessingEventOrigin,
+};
+use bedrock_protocol_1_26_51::packets::{
+    ContainerClose, Interact, ItemStackRequest, PacketViolationWarning,
+};
 use bedrock_protocol_1_26_51::types::{
     ActorRuntimeID, ItemStackRequestID, ItemStackRequestPacketData,
 };
@@ -19,6 +23,17 @@ pub use actions::{
 
 /// Actions one request may carry.
 pub const MAX_STACK_REQUEST_ACTIONS: usize = 100;
+
+/// Reports an excess container open while the same window is already open.
+pub fn repeated_container_open_warning_packet() -> crate::Packet {
+    crate::Packet::new(PacketViolationWarning {
+        violation_type: PacketViolationType::Unknown,
+        violation_severity: PacketViolationSeverity::Warning,
+        // Bedrock names the warning packet itself in this acknowledgement.
+        violation_packet_id: wire::ZigZag32(PacketViolationWarning::ID as i32),
+        violation_context: wire::Str::from("Container is already open"),
+    })
+}
 
 pub fn open_inventory_packet(
     target_runtime_id: u64,
@@ -167,6 +182,22 @@ mod tests {
     use bedrock_protocol_1_26_51::wire::{Decode, Encode};
 
     use super::*;
+
+    #[test]
+    fn repeated_open_warning_round_trips_with_the_menu_acknowledgement_fields() {
+        let packet = repeated_container_open_warning_packet();
+        let packets::Packet::PacketViolationWarning(warning) = *packet.data else {
+            panic!("expected a packet violation warning");
+        };
+        let decoded =
+            PacketViolationWarning::decode_exact(&warning.encode_to_vec().unwrap()).unwrap();
+        assert_eq!(decoded.violation_type, PacketViolationType::Unknown);
+        assert_eq!(decoded.violation_severity, PacketViolationSeverity::Warning);
+        assert_eq!(
+            decoded.violation_packet_id.0,
+            PacketViolationWarning::ID as i32
+        );
+    }
 
     #[test]
     fn client_close_uses_native_unspecified_type() {

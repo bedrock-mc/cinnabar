@@ -177,6 +177,11 @@ impl InventorySession {
         self.crafting_authority.preview()
     }
 
+    /// Retains the available recipe catalog for presentation invalidation.
+    pub fn crafting_catalog_snapshot(&self) -> Option<std::sync::Arc<protocol::RecipeCatalog>> {
+        self.crafting_authority.catalog_snapshot()
+    }
+
     /// The recipe the presented crafting grid forms against the committed
     /// catalog; `Unavailable` without a catalog or known grid identities.
     #[must_use]

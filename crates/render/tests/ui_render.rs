@@ -1,3 +1,9 @@
+#[path = "../src/queue_writes.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures exercise a subset of queue upload entry points"
+)]
+mod queue_writes;
 use bevy::ecs::system::RunSystemOnce;
 #[path = "../src/render_test_support.rs"]
 #[allow(

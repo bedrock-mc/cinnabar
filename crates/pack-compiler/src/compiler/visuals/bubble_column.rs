@@ -4,11 +4,12 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies primary columns before the provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:bubble_column"
+    block_render_fact(&record.name).kind == R::BubbleColumn
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -20,7 +21,12 @@ fn drag_down(record: &RegistryRecord) -> Option<bool> {
     if state.len() != 1 {
         return None;
     }
-    Some(super::state::exact_tagged_byte(state.get("drag_down")?, 1)? != 0)
+    Some(
+        super::state::exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::DragDown.name())?,
+            1,
+        )? != 0,
+    )
 }
 
 /// Resolves four outer sprites, one inner sprite and four directional surface sprites.

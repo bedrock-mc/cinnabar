@@ -117,6 +117,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
         self.observe_dismount(&frame, movement_ticker.session_generation);
         let PhysicsFrameInput {
@@ -162,7 +163,8 @@ impl LocomotionState {
             if !active {
                 self.controls.suspend(input_mode.persists_sneak());
             }
-            if let Some(server) = physics.take_server_control_flags() {
+            let server = physics.take_server_control_flags();
+            if let Some(server) = server {
                 movement_speed.adopt_server_sprinting(server.sprinting);
                 self.controls
                     .adopt_server_flags(server.sprinting, server.sneaking);
@@ -241,12 +243,14 @@ impl LocomotionState {
                         sprint_start_blocked: facts.sprint_start_blocked,
                         stop_sprinting: controlled.stop_sprinting,
                     },
+                    release_use_modifier: movement_ticker.release_use_modifier(),
                     input: super::TickInput {
                         movement_buttons: frame.movement_buttons,
                         jump,
                         sneak,
                         sprint_down: controlled.sprint_down,
                         sneak_down: controlled.sneaking,
+                        server_sprinting: server.and_then(|flags| flags.sprinting),
                     },
                 },
                 world,

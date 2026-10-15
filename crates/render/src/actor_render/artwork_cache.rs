@@ -16,6 +16,8 @@ pub(super) struct TextureKey {
 impl TextureKey {
     /// Hashes content only when a publication introduces a different source allocation.
     pub(super) fn new(page: &ActorTexturePage, hasher: &RandomState) -> Self {
+        #[cfg(test)]
+        super::work_tests::record_hash(page.rgba8.len());
         Self {
             page: page.clone(),
             fingerprint: hasher.hash_one((page.width, page.height, page.layers, &page.rgba8)),

@@ -287,6 +287,15 @@ impl ActorStore {
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
                     hand_charged,
                     main_hand,
+                    held_item_facts: [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]
+                        .map(|hand| {
+                            let network_id = if is_local {
+                                local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
+                            } else {
+                                items.get_in_hand(lifetime, hand).map_or(0, |equipment| equipment.item.identity.network_id)
+                            };
+                            items.animation_fact(network_id)
+                        }),
                     main_hand_metadata,
                     held_variants: if is_local {
                         local_held_variants
@@ -342,7 +351,7 @@ impl ActorStore {
                         .get(&actor.unique_id)
                         .and_then(kind_of)
                         .map(|kind| match kind {
-                            ActorKind::Player { .. } => std::sync::Arc::from("minecraft:player"),
+                            ActorKind::Player { .. } => std::sync::Arc::from(assets::facts::entity::NativeEntityClass::Player.identifier().expect("pinned player identity")),
                             ActorKind::Entity { identifier } => std::sync::Arc::clone(identifier),
                         }),
                     has_rider,
@@ -357,7 +366,7 @@ impl ActorStore {
                     is_in_ui: false,
                     camera_rotation,
                     camera_position,
-                    armor: worn_armor(items.armor(actor.runtime_id)),
+                    armor: worn_armor(items, items.armor(actor.runtime_id)),
                     properties: property_registry.for_kind(&actor.kind),
                     skin_geometry: match &actor.kind {
                         ActorKind::Player { uuid, .. } => players.get(uuid).or_else(|| unlisted.get(uuid)).and_then(|profile| {
@@ -397,11 +406,13 @@ impl ActorStore {
 
 /// Worn stacks in helmet, chestplate, leggings, boots, body order.
 fn worn_armor(
+    items: &crate::item::ItemStateStore,
     snapshot: Option<&crate::item::ActorArmorSnapshot>,
 ) -> [Option<actor_animation::WornArmor>; 5] {
     let piece = |piece: &crate::item::ActorArmorPiece| {
         Some(actor_animation::WornArmor {
             item: piece.item.identifier.clone()?,
+            fact: items.animation_fact(piece.item.identity.network_id),
             dye_rgb: piece.dye_rgb,
         })
     };

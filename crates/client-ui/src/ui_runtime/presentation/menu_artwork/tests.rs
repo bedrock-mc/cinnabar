@@ -384,7 +384,8 @@ fn world_thumbnails_are_packed_from_memory_on_the_worlds_tab() {
             Arc::from(&b"jpeg"[..]),
         )),
         ..Default::default()
-    }];
+    }]
+    .into();
     let set = ArtworkSet {
         images: view_images(&view, &[]),
         ..Default::default()

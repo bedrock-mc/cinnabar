@@ -129,6 +129,7 @@ pub trait CollisionWorld {
                     aabb,
                     block: None,
                     runtime_id: None,
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
         })

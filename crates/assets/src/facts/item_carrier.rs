@@ -133,6 +133,13 @@ impl ItemFacts {
             .map(|&index| &self.payload.records[index].fact)
     }
 
+    /// Resolves compiled book forms and the read-only identity missing from the retail census.
+    pub fn book_editable(&self, identifier: &str) -> Option<bool> {
+        self.by_identifier(identifier)
+            .and_then(|fact| fact.book_editable)
+            .or_else(|| (identifier == super::item::WRITTEN_BOOK_IDENTIFIER).then_some(false))
+    }
+
     /// Returns the pinned ID for cold repair-material admission.
     pub fn network_id(&self, identifier: &str) -> Option<i32> {
         self.names

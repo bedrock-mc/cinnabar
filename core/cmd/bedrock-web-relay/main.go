@@ -10,19 +10,24 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
 	"github.com/hashimthearab/rust-mcbe/core/webrelay"
 )
 
 // main composes the relay without changing the native core command or serving assets.
 func main() {
 	var cfg webrelay.ListenConfig
+	var level slog.Level
 	flag.StringVar(&cfg.Hostname, "hostname", "", "relay TLS hostname")
 	flag.StringVar(&cfg.UDPAddress, "udp", "", "HTTP/3 UDP listen address")
 	flag.StringVar(&cfg.TCPAddress, "tcp", "", "HTTPS WebSocket TCP listen address")
 	flag.StringVar(&cfg.CertificateFile, "tls-cert", "", "PEM certificate chain path")
 	flag.StringVar(&cfg.KeyFile, "tls-key", "", "PEM private key path")
 	origins := flag.String("origins", "", "comma-separated allowed page origins; empty requires relay host")
+	corelog.LevelFlag(flag.CommandLine, &level)
 	flag.Parse()
+	logger := corelog.New(os.Stderr, "bedrock-web-relay", level)
+	slog.SetDefault(logger)
 	var allowed []string
 	for _, origin := range strings.Split(*origins, ",") {
 		if origin = strings.TrimSpace(origin); origin != "" {
@@ -31,11 +36,11 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	relay := webrelay.New(webrelay.Config{AllowedOrigins: allowed})
+	relay := webrelay.New(webrelay.Config{AllowedOrigins: allowed, Logger: logger})
 	defer relay.Close()
 	go relay.Run(ctx)
 	if err := relay.Serve(ctx, cfg); err != nil {
-		slog.Error("relay listener failed", "error", err)
+		logger.Error("relay listener failed", "error", err)
 		os.Exit(1)
 	}
 }

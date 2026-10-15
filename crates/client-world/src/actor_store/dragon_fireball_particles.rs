@@ -5,7 +5,7 @@ use protocol::SpawnParticleEffectEvent;
 
 use super::ActorStore;
 
-const TRAIL_EFFECT: &str = "minecraft:dragon_breath_trail";
+const TRAIL_EFFECT: &str = assets::facts::ParticleEffect::DragonBreathTrail.identifier();
 const TRAIL_HEIGHT: f32 = 0.5;
 
 impl ActorStore {

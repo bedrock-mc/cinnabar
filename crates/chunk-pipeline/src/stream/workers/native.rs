@@ -44,12 +44,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
             return;
         }
         let Some(job) = queues.take(background, now()) else {
-            #[cfg(feature = "tracy")]
-            let _zone = tracing::info_span!("stream.worker_wait").entered();
-            queues = shared
-                .ready
-                .wait(queues)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            queues = shared.wait(queues);
             continue;
         };
         drop(queues);

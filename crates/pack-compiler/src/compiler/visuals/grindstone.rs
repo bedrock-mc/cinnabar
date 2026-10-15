@@ -4,11 +4,12 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies the terrain-owned model before the provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:grindstone"
+    block_render_fact(&record.name).kind == R::Grindstone
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -20,13 +21,18 @@ fn pose(record: &RegistryRecord) -> Option<(u8, u8)> {
     if state.len() != 2 {
         return None;
     }
-    let attachment = match super::state::exact_tagged_string(state.get("attachment")?)? {
+    let attachment = match super::state::exact_tagged_string(
+        state.get(assets::facts::BlockProperty::Attachment.name())?,
+    )? {
         "standing" | "multiple" => 0,
         "hanging" => 1,
         "side" => 2,
         _ => return None,
     };
-    let direction = super::state::exact_tagged_int(state.get("direction")?, 3)? as u8;
+    let direction = super::state::exact_tagged_int(
+        state.get(assets::facts::BlockProperty::Direction.name())?,
+        3,
+    )? as u8;
     Some((attachment, direction))
 }
 

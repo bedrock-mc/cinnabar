@@ -1,10 +1,7 @@
 //! CPU-side particle texture atlas: static particle textures shelf-packed once, plus a
 //! bounded dynamic region for per-block terrain tiles uploaded on demand.
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use assets::RuntimeParticleAssets;
 
@@ -65,7 +62,7 @@ pub struct ParticleAtlas {
     seq: u64,
     placements: HashMap<Box<str>, Placement>,
     tiles: HashMap<u64, (usize, u64)>,
-    pinned: HashSet<usize>,
+    pinned: HashMap<usize, usize>,
     next_slot: usize,
     tick: u64,
 }
@@ -80,7 +77,7 @@ impl Default for ParticleAtlas {
             seq: 0,
             placements: HashMap::new(),
             tiles: HashMap::new(),
-            pinned: HashSet::new(),
+            pinned: HashMap::new(),
             next_slot: 0,
             tick: 0,
         }
@@ -209,20 +206,46 @@ impl ParticleAtlas {
         &self.pixels
     }
 
-    /// Prevents recycling slots retained by emitters or their live particles.
-    pub(super) fn set_live_placements(&mut self, placements: impl Iterator<Item = Placement>) {
-        self.pinned.clear();
-        for placement in placements {
-            if placement.y >= self.static_rows()
-                && placement.width == TILE_SLOT
-                && placement.height == TILE_SLOT
-            {
-                let slot = ((placement.y - self.static_rows()) / TILE_SLOT
-                    * (self.side / TILE_SLOT)
-                    + placement.x / TILE_SLOT) as usize;
-                self.pinned.insert(slot);
+    /// Returns the dynamic slot covered by a tile placement; static textures have no pin.
+    fn dynamic_slot(&self, placement: Placement) -> Option<usize> {
+        (placement.y >= self.static_rows()
+            && placement.width == TILE_SLOT
+            && placement.height == TILE_SLOT)
+            .then(|| {
+                ((placement.y - self.static_rows()) / TILE_SLOT * (self.side / TILE_SLOT)
+                    + placement.x / TILE_SLOT) as usize
+            })
+    }
+
+    /// Protects one emitter's placement, including owners sharing the same slot.
+    pub(super) fn retain_placement(&mut self, placement: Placement) {
+        if let Some(slot) = self.dynamic_slot(placement) {
+            *self.pinned.entry(slot).or_default() += 1;
+        }
+    }
+
+    /// Releases exactly one owner; a slot stays protected until its last owner leaves.
+    pub(super) fn release_placement(&mut self, placement: Placement) {
+        if let Some(slot) = self.dynamic_slot(placement) {
+            let count = self.pinned.get_mut(&slot).expect("placement has an owner");
+            *count -= 1;
+            if *count == 0 {
+                self.pinned.remove(&slot);
             }
         }
+    }
+
+    /// Releases all owners on disconnect while retaining the reusable tile cache.
+    pub(super) fn clear_placements(&mut self) {
+        self.pinned.clear();
+    }
+
+    /// Reports owners for comparison against an independent emitter walk.
+    #[cfg(test)]
+    pub(super) fn placement_references(&self, placement: Placement) -> usize {
+        self.dynamic_slot(placement)
+            .and_then(|slot| self.pinned.get(&slot).copied())
+            .unwrap_or(0)
     }
 
     /// Returns the slot for a caller-keyed tile, uploading `pixels` (`size * size * 4`,
@@ -245,7 +268,7 @@ impl ParticleAtlas {
                 let (&victim, &(slot, _)) = self
                     .tiles
                     .iter()
-                    .filter(|(_, (slot, _))| !self.pinned.contains(slot))
+                    .filter(|(_, (slot, _))| !self.pinned.contains_key(slot))
                     .min_by_key(|(_, (_, used))| *used)?;
                 self.tiles.remove(&victim);
                 slot
@@ -384,6 +407,34 @@ mod tests {
             assert!(atlas.tile(key, 16, &pixels).is_some());
         }
         assert_eq!(atlas.tiles.len(), MAX_SLOTS);
+    }
+
+    #[test]
+    fn shared_references_prevent_recycling_until_the_last_release() {
+        let mut atlas = ParticleAtlas::default();
+        let mut placements = Vec::new();
+        for key in 1..=MAX_SLOTS as u64 {
+            let placement = atlas.tile(key, 1, &[key as u8; 4]).unwrap();
+            atlas.retain_placement(placement);
+            placements.push(placement);
+        }
+        let first = placements[0];
+        atlas.retain_placement(first);
+        atlas.release_placement(first);
+        let seq = atlas.patch_seq();
+        assert!(atlas.tile(MAX_SLOTS as u64 + 1, 1, &[99; 4]).is_none());
+        assert_eq!(atlas.patch_seq(), seq, "live pixels cannot be replaced");
+        let at = ((first.y * atlas.side() + first.x) * 4) as usize;
+        assert_eq!(&atlas.pixels()[at..at + 4], &[1; 4]);
+        atlas.release_placement(first);
+        assert_eq!(atlas.tile(MAX_SLOTS as u64 + 1, 1, &[99; 4]), Some(first));
+        atlas.retain_placement(first);
+        atlas.clear_placements();
+        assert_eq!(
+            atlas.tile(MAX_SLOTS as u64 + 2, 1, &[88; 4]),
+            Some(placements[1])
+        );
+        assert!(atlas.pinned.is_empty());
     }
 
     #[test]

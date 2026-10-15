@@ -33,6 +33,8 @@ path = "src/main.rs"
 test = false
 
 [features]
+# Counts allocation requests and labelled GPU writes for diagnostic runs.
+alloc-stats = ["dep:test-alloc", "test-alloc/global-stats", "render/alloc-stats", "render-scene/alloc-stats"]
 # Developer runs and client MCP keep acceptance; packaging opts out with --no-default-features.
 default = ["acceptance"]
 acceptance = ["dep:acceptance"]
@@ -51,6 +53,7 @@ reports = []
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
+test-alloc = { path = "../crates/test-alloc", optional = true }
 protocol-ids = { path = "../crates/protocol-ids" }
 mimalloc = { workspace = true, optional = true }
 pack-json = { path = "../crates/pack-json" }
@@ -148,6 +151,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+mimalloc.workspace = true
 wat = "1"
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }

@@ -24,12 +24,20 @@ pub(super) struct NativeArtwork {
 impl NativeItem {
     /// Limits the presentation choice to the supported built-in weapon families.
     fn from_identifier(identifier: &str) -> Option<Self> {
-        match identifier.strip_prefix("minecraft:")? {
-            "bow" => Some(Self::Bow),
-            "crossbow" => Some(Self::Crossbow),
-            "trident" => Some(Self::Spear),
-            name if name.ends_with("_spear") => Some(Self::Spear),
-            _ => None,
+        let traits = assets::facts::ItemFacts::builtin()
+            .ok()?
+            .by_identifier(identifier)?
+            .traits;
+        if traits.contains(assets::facts::ItemTraits::BOW) {
+            Some(Self::Bow)
+        } else if traits.contains(assets::facts::ItemTraits::CROSSBOW) {
+            Some(Self::Crossbow)
+        } else if traits.contains(assets::facts::ItemTraits::TRIDENT)
+            || traits.contains(assets::facts::ItemTraits::SPEAR)
+        {
+            Some(Self::Spear)
+        } else {
+            None
         }
     }
 
@@ -456,7 +464,7 @@ impl EquipmentRuntime {
         };
         let Some(hand) = hand else { return };
         let display = if java.is_some() {
-            let grip = if item.identifier.as_ref() == "minecraft:bow" {
+            let grip = if item.identifier.as_ref() == assets::facts::VanillaItem::Bow.identifier() {
                 render_model::java_animation::JavaHeldItem::Bow
             } else {
                 render_model::java_animation::JavaHeldItem::Flat

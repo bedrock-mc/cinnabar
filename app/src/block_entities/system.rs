@@ -358,14 +358,12 @@ pub(crate) fn update_block_entity_scene(
     profiler: Option<Res<render_scene::RuntimeStageProfiler>>,
     cave: Option<Res<CaveVisibilityCache>>,
 ) {
+    let camera = camera.single().ok();
     if !scene.has_assets() {
         dragon_death::update_without_atlas(
             client_world.stream.as_ref(),
             actor_partial_tick.0,
-            camera
-                .single()
-                .ok()
-                .map(|(transform, _)| transform.translation),
+            camera.map(|(transform, _)| transform.translation),
             &mut scene,
             &mut frame,
         );
@@ -406,10 +404,10 @@ pub(crate) fn update_block_entity_scene(
     let eye = view.eye_translation();
     let delta = time.delta_secs();
     let daylight = atmosphere.daylight();
-    let camera_position = camera
-        .single()
-        .ok()
-        .map(|(transform, _)| transform.translation);
+    let camera_position = camera.map(|(transform, _)| transform.translation);
+    let clip_from_world = camera.map(|(transform, projection)| {
+        projection.get_clip_from_view() * transform.to_matrix().inverse()
+    });
     let culling = cave
         .as_deref()
         .zip(camera_position)
@@ -423,16 +421,17 @@ pub(crate) fn update_block_entity_scene(
         });
     let mut work = culling::BlockEntityWork::default();
     let mut occlusion_budget = meshing::occlusion::OcclusionBudget::default();
-    let occlusion_eye = camera.single().ok().and_then(|(transform, projection)| {
-        let eye = transform.translation.to_array();
-        let matrix = projection.get_clip_from_view() * transform.to_matrix().inverse();
-        render_model::visibility_bounds::perspective_supports_occlusion(
-            matrix,
-            eye,
-            f64::from(meshing::occlusion::OCCLUSION_EYE_GAP_BLOCKS),
-        )
-        .then_some(eye)
-    });
+    let occlusion_eye = camera
+        .zip(clip_from_world)
+        .and_then(|((transform, _), matrix)| {
+            let eye = transform.translation.to_array();
+            render_model::visibility_bounds::perspective_supports_occlusion(
+                matrix,
+                eye,
+                f64::from(meshing::occlusion::OCCLUSION_EYE_GAP_BLOCKS),
+            )
+            .then_some(eye)
+        });
 
     let cracks = ui
         .block_crack_snapshot()
@@ -556,7 +555,8 @@ pub(crate) fn update_block_entity_scene(
                     continue;
                 }
                 // Hidden entities keep animations, map requests and canvases without geometry.
-                let mut hidden = !work.admit(culling.as_ref(), template, [x, y, z]);
+                let mut hidden =
+                    !work.admit(culling.as_ref(), clip_from_world, template, [x, y, z]);
                 if !hidden
                     && let Some((low, high)) = culling::bounds(template, [x, y, z])
                     && let Some(eye) = occlusion_eye
@@ -676,7 +676,7 @@ pub(crate) fn update_block_entity_scene(
         "block_entity.scene_update",
         candidates = work.candidates,
         prepared = work.prepared,
-        hidden_by_occlusion = work.candidates - work.prepared,
+        hidden_by_visibility = work.candidates - work.prepared,
         probes = meshing::occlusion::ENTITY_OCCLUSION_PROBES - occlusion_budget.remaining(),
         submitted = submissions.len()
     )
