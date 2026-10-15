@@ -152,7 +152,9 @@ impl ModUi {
         }
         let mut data = editor.data();
         if let Some(surface) = &editor.draft.surface {
-            editor.transitions.advance(surface, paint_frame.now);
+            editor
+                .transitions
+                .advance(surface, paint_frame.now, !self.reduced_motion);
             editor.transitions.write(&mut data);
         }
         let mut icons = Vec::<IconRef>::new();

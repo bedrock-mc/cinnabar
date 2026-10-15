@@ -45,12 +45,15 @@ impl Tween {
 pub(crate) struct SurfaceTransitions {
     now: f64,
     tweens: HashMap<String, Tween>,
+    /// Bindings that declare an `exit` value ease toward it instead of their current value.
+    exiting: bool,
 }
 
 impl SurfaceTransitions {
     /// Retargets changed bindings from their displayed values and reports whether any
-    /// displayed value differs from the last [`Self::write`].
-    pub(crate) fn advance(&mut self, surface: &Surface, now: f64) -> bool {
+    /// displayed value differs from the last [`Self::write`]. Without `animate`, every value,
+    /// including one already moving, changes at once.
+    pub(crate) fn advance(&mut self, surface: &Surface, now: f64, animate: bool) -> bool {
         if !now.is_finite() {
             return false;
         }
@@ -66,18 +69,32 @@ impl SurfaceTransitions {
                     .is_some()
         });
         let mut changed = false;
+        if !animate {
+            for tween in self.tweens.values_mut() {
+                if !tween.settled(now) {
+                    tween.from.clone_from(&tween.to);
+                    changed = true;
+                }
+            }
+        }
         for (name, transition) in &surface.transitions {
             let Some(binding) = surface.bindings.get(name) else {
                 continue;
             };
-            let Some(target) = binding.numbers() else {
+            let Some(current) = binding.numbers() else {
                 continue;
             };
+            let target = transition
+                .exit
+                .as_ref()
+                .and_then(SurfaceValue::numbers)
+                .filter(|exit| self.exiting && exit.len() == current.len())
+                .unwrap_or(current);
             let retarget = |from: Vec<f64>| Tween {
                 from,
                 to: target.to_vec(),
                 began: now,
-                duration: transition.duration,
+                duration: if animate { transition.duration } else { 0.0 },
                 easing: transition.easing,
                 vector: matches!(binding, SurfaceValue::Vector(_)),
             };
@@ -87,7 +104,7 @@ impl SurfaceTransitions {
                         .from
                         .as_ref()
                         .and_then(SurfaceValue::numbers)
-                        .filter(|from| from.len() == target.len())
+                        .filter(|from| animate && from.len() == target.len())
                         .unwrap_or(target);
                     self.tweens.insert(name.clone(), retarget(from.to_vec()));
                     changed = true;
@@ -105,6 +122,36 @@ impl SurfaceTransitions {
             }
         }
         changed
+    }
+
+    /// Starts easing each displayed binding that declares an `exit` value toward it from the
+    /// next [`Self::advance`]. Reports whether any value would move; when none would, nothing
+    /// changes and the caller can remove the surface at once.
+    pub(crate) fn begin_exit(&mut self, surface: &Surface) -> bool {
+        let moves = surface.transitions.iter().any(|(name, transition)| {
+            let exit = transition.exit.as_ref().and_then(SurfaceValue::numbers);
+            match (self.tweens.get(name), exit) {
+                (Some(tween), Some(exit)) => {
+                    transition.duration > 0.0
+                        && exit.len() == tween.to.len()
+                        && tween.sample(self.now) != exit
+                }
+                _ => false,
+            }
+        });
+        self.exiting = moves;
+        moves
+    }
+
+    /// Returns bindings easing toward their exit values to their current values, continuing
+    /// from what is displayed.
+    pub(crate) fn cancel_exit(&mut self) {
+        self.exiting = false;
+    }
+
+    /// Whether bindings are easing toward their exit values.
+    pub(crate) fn exiting(&self) -> bool {
+        self.exiting
     }
 
     /// Overwrites each transitioned binding with its displayed value.
@@ -145,12 +192,21 @@ mod tests {
         }
     }
 
+    /// A linear transition with an optional opening value and no exit value.
     fn linear(duration: f64, from: Option<SurfaceValue>) -> SurfaceTransition {
         SurfaceTransition {
             duration,
             easing: TransitionEasing::Named(Easing::Linear),
             from,
+            exit: None,
         }
+    }
+
+    /// A linear one-second transition of `#value` from 1 that exits toward `exit`.
+    fn exiting(exit: SurfaceValue) -> Surface {
+        let mut transition = linear(1.0, None);
+        transition.exit = Some(exit);
+        surface(SurfaceValue::Number(1.0), transition)
     }
 
     /// The bindings the transitions publish.
@@ -171,28 +227,28 @@ mod tests {
     fn retargeting_mid_transition_continues_from_the_displayed_value() {
         let mut surface = surface(SurfaceValue::Number(0.0), linear(1.0, None));
         let mut transitions = SurfaceTransitions::default();
-        assert!(transitions.advance(&surface, 10.0));
+        assert!(transitions.advance(&surface, 10.0, true));
         assert_eq!(written(&transitions), value(Scalar::Num(0.0)));
         assert!(!transitions.active());
 
         surface
             .bindings
             .insert("#value".into(), SurfaceValue::Number(1.0));
-        assert!(transitions.advance(&surface, 10.0));
-        assert!(transitions.advance(&surface, 10.5));
+        assert!(transitions.advance(&surface, 10.0, true));
+        assert!(transitions.advance(&surface, 10.5, true));
         assert_eq!(written(&transitions), value(Scalar::Num(0.5)));
 
         surface
             .bindings
             .insert("#value".into(), SurfaceValue::Number(0.0));
-        assert!(transitions.advance(&surface, 10.5));
+        assert!(transitions.advance(&surface, 10.5, true));
         assert_eq!(written(&transitions), value(Scalar::Num(0.5)));
-        assert!(transitions.advance(&surface, 11.0));
+        assert!(transitions.advance(&surface, 11.0, true));
         assert_eq!(written(&transitions), value(Scalar::Num(0.25)));
-        assert!(transitions.advance(&surface, 12.0));
+        assert!(transitions.advance(&surface, 12.0, true));
         assert_eq!(written(&transitions), value(Scalar::Num(0.0)));
         assert!(!transitions.active());
-        assert!(!transitions.advance(&surface, 13.0));
+        assert!(!transitions.advance(&surface, 13.0, true));
     }
 
     #[test]
@@ -202,18 +258,18 @@ mod tests {
             linear(0.25, Some(SurfaceValue::Vector(vec![0.0, 6.0]))),
         );
         let mut transitions = SurfaceTransitions::default();
-        assert!(transitions.advance(&surface, 1.0));
+        assert!(transitions.advance(&surface, 1.0, true));
         assert_eq!(
             written(&transitions),
             value(Scalar::Json(json!([0.0, 6.0])))
         );
         assert!(transitions.active());
-        transitions.advance(&surface, 1.125);
+        transitions.advance(&surface, 1.125, true);
         assert_eq!(
             written(&transitions),
             value(Scalar::Json(json!([0.0, 3.0])))
         );
-        transitions.advance(&surface, 1.25);
+        transitions.advance(&surface, 1.25, true);
         assert_eq!(
             written(&transitions),
             value(Scalar::Json(json!([0.0, 0.0])))
@@ -228,13 +284,13 @@ mod tests {
             linear(1.0, Some(SurfaceValue::Vector(vec![0.0, 0.0]))),
         );
         let mut transitions = SurfaceTransitions::default();
-        transitions.advance(&surface, 0.0);
+        transitions.advance(&surface, 0.0, true);
         assert_eq!(written(&transitions), value(Scalar::Num(1.0)));
 
         surface
             .bindings
             .insert("#value".into(), SurfaceValue::Vector(vec![4.0, 2.0]));
-        transitions.advance(&surface, 0.1);
+        transitions.advance(&surface, 0.1, true);
         assert_eq!(
             written(&transitions),
             value(Scalar::Json(json!([4.0, 2.0])))
@@ -243,8 +299,84 @@ mod tests {
         surface
             .bindings
             .insert("#value".into(), SurfaceValue::Text("idle".into()));
-        transitions.advance(&surface, 0.2);
+        transitions.advance(&surface, 0.2, true);
         assert_eq!(written(&transitions), DataSource::new());
+        assert!(!transitions.active());
+    }
+
+    #[test]
+    fn exits_ease_to_their_declared_value_and_reopening_continues_from_the_display() {
+        let surface = exiting(SurfaceValue::Number(0.0));
+        let mut transitions = SurfaceTransitions::default();
+        transitions.advance(&surface, 1.0, true);
+        assert!(transitions.begin_exit(&surface));
+        assert!(transitions.advance(&surface, 1.0, true));
+        assert_eq!(written(&transitions), value(Scalar::Num(1.0)));
+        transitions.advance(&surface, 1.5, true);
+        assert_eq!(written(&transitions), value(Scalar::Num(0.5)));
+
+        transitions.cancel_exit();
+        assert!(transitions.advance(&surface, 1.5, true));
+        assert_eq!(written(&transitions), value(Scalar::Num(0.5)));
+        transitions.advance(&surface, 2.0, true);
+        assert_eq!(written(&transitions), value(Scalar::Num(0.75)));
+
+        assert!(transitions.begin_exit(&surface));
+        transitions.advance(&surface, 2.0, true);
+        assert!(transitions.active());
+        transitions.advance(&surface, 3.0, true);
+        assert_eq!(written(&transitions), value(Scalar::Num(0.0)));
+        assert!(!transitions.active());
+        assert!(transitions.exiting());
+    }
+
+    #[test]
+    fn exits_that_would_not_move_report_nothing_to_animate() {
+        let mut unpainted = SurfaceTransitions::default();
+        assert!(!unpainted.begin_exit(&exiting(SurfaceValue::Number(0.0))));
+        for surface in [
+            surface(SurfaceValue::Number(1.0), linear(1.0, None)),
+            exiting(SurfaceValue::Number(1.0)),
+            exiting(SurfaceValue::Vector(vec![0.0, 0.0])),
+            {
+                let mut instant = exiting(SurfaceValue::Number(0.0));
+                instant.transitions.get_mut("#value").unwrap().duration = 0.0;
+                instant
+            },
+        ] {
+            let mut transitions = SurfaceTransitions::default();
+            transitions.advance(&surface, 1.0, true);
+            assert!(!transitions.begin_exit(&surface));
+            assert!(!transitions.exiting());
+        }
+    }
+
+    #[test]
+    fn without_animation_values_change_at_once_and_moving_values_settle() {
+        let mut surface = surface(
+            SurfaceValue::Number(1.0),
+            linear(1.0, Some(SurfaceValue::Number(0.0))),
+        );
+        let mut transitions = SurfaceTransitions::default();
+        assert!(transitions.advance(&surface, 1.0, false));
+        assert_eq!(written(&transitions), value(Scalar::Num(1.0)));
+        assert!(!transitions.active());
+
+        surface
+            .bindings
+            .insert("#value".into(), SurfaceValue::Number(3.0));
+        transitions.advance(&surface, 1.0, true);
+        transitions.advance(&surface, 1.5, true);
+        assert_eq!(written(&transitions), value(Scalar::Num(2.0)));
+        assert!(transitions.advance(&surface, 1.6, false));
+        assert_eq!(written(&transitions), value(Scalar::Num(3.0)));
+        assert!(!transitions.active());
+
+        surface
+            .bindings
+            .insert("#value".into(), SurfaceValue::Number(5.0));
+        assert!(transitions.advance(&surface, 1.7, false));
+        assert_eq!(written(&transitions), value(Scalar::Num(5.0)));
         assert!(!transitions.active());
     }
 }

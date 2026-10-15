@@ -296,7 +296,7 @@ immediate. Authored surfaces can bind `#row_N_hover` and
 `#row_N_toggle_progress` (numbers from 0 to 1), `#row_N_toggle_color` and
 `#row_N_knob_color` (RGBA arrays), and `#row_N_knob_offset` (logical coordinates
 from `[2, 2]` to `[12, 2]`). These values follow native input without waiting for a
-component update. `ModUi::mod_panel_motion_active` reports unsettled feedback for
+component update. Turning off the Screen animations setting makes them change at once. `ModUi::mod_panel_motion_active` reports unsettled feedback for
 callers that suspend idle drawing. Arbitrary authored animation graphs remain
 unsupported.
 
@@ -338,12 +338,12 @@ Bindings update without rebuilding unchanged catalog geometry.
 
 An optional `transitions` map eases numeric bindings instead of replacing them at
 once, like CSS transitions. Each key names a binding; its value has `duration`
-(seconds, 0–5), optional `easing` and optional `from`:
+(seconds, 0–5), optional `easing`, optional `from` and optional `exit`:
 
 ```json
 "transitions": {
-  "#drawer_offset": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6] },
-  "#drawer_alpha": { "duration": 0.18, "easing": "out_cubic", "from": 0 }
+  "#drawer_offset": { "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6], "exit": [0, 6] },
+  "#drawer_alpha": { "duration": 0.18, "easing": "out_cubic", "from": 0, "exit": 0 }
 }
 ```
 
@@ -357,7 +357,24 @@ route changes; without it the first value appears at once. Text, Boolean values
 and a change of array length apply at once. A transition may name a binding that
 a later update supplies. Bind eased values to any numeric property, such as
 `#offset`, `#alpha`, `#color` or `#size_binding_x_absolute`.
-`ModUi::mod_panel_motion_active` reports transitions still in progress.
+
+`exit`, a number or 2–4-number array of the binding's length, is where the
+binding eases when the personal panel closes. Input, pointer capture and
+gameplay focus are released at once, while the surface keeps drawing with the
+same duration and easing until every transition settles, then disappears.
+Bindings without `exit` keep their values. Reopening during an exit eases back
+from the values on screen. A panel with no `exit` values, or whose exit would
+not move anything, closes at once as before. Exits play only for the panel's
+own close, not when the HUD editor owned the surface, when the extension clears
+its panel, or when rendering fails. An update with the same route continues the
+exit with its new bindings; a route change while closing ends it at once, and a
+route change while open swaps surfaces at once, easing the new route in from its
+`from` values. `ModUi::mod_panel_motion_active` reports transitions and exits
+still in progress, and `ModUi::mod_panel_painting` reports a closed panel that is
+still drawing.
+
+When the player turns off the Screen animations setting, transitions, exits
+and `motion: true` feedback change at once, including values already moving.
 
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has

@@ -12,8 +12,8 @@ use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use mod_ui::test_support::sample_panel as panel;
 
 /// One button whose `#slide` offset eases in from `[0, 20]` and toward each new value over
-/// a quarter second.
-fn sliding_panel(x: f64) -> Panel {
+/// a quarter second, and to `exit` when the panel closes.
+fn sliding_panel(x: f64, exit: Option<f64>) -> Panel {
     let mut panel = panel();
     let button = json!({"type":"button","size":[40,20],"offset":[0,20],
         "anchor_from":"top_left","anchor_to":"top_left",
@@ -32,6 +32,7 @@ fn sliding_panel(x: f64) -> Panel {
                 duration: 0.25,
                 easing: TransitionEasing::default(),
                 from: Some(SurfaceValue::Vector(vec![0.0, 20.0])),
+                exit: exit.map(|x| SurfaceValue::Vector(vec![x, 20.0])),
             },
         )]),
     });
@@ -71,7 +72,7 @@ fn surface_bindings_ease_in_on_open_and_retarget_from_their_displayed_value() {
     let owner = PanelUiOwner::Environment(0);
     presentation
         .mod_ui_mut()
-        .set_mod_panel(owner, Some(&sliding_panel(100.0)))
+        .set_mod_panel(owner, Some(&sliding_panel(100.0, None)))
         .unwrap();
     presentation.mod_ui_mut().set_mod_panel_open(true);
     let moved = |presentation: &mut UiPresentationRuntime, millis, origin: f64| {
@@ -88,13 +89,13 @@ fn surface_bindings_ease_in_on_open_and_retarget_from_their_displayed_value() {
 
     presentation
         .mod_ui_mut()
-        .set_mod_panel(owner, Some(&sliding_panel(0.0)))
+        .set_mod_panel(owner, Some(&sliding_panel(0.0, None)))
         .unwrap();
     assert_eq!(moved(&mut presentation, 1_375, origin), 100.0);
     assert_eq!(moved(&mut presentation, 1_500, origin), 50.0);
     presentation
         .mod_ui_mut()
-        .set_mod_panel(owner, Some(&sliding_panel(100.0)))
+        .set_mod_panel(owner, Some(&sliding_panel(100.0, None)))
         .unwrap();
     assert_eq!(moved(&mut presentation, 1_500, origin), 50.0);
     assert_eq!(moved(&mut presentation, 1_625, origin), 75.0);
@@ -104,4 +105,49 @@ fn surface_bindings_ease_in_on_open_and_retarget_from_their_displayed_value() {
     assert_eq!(moved(&mut presentation, 2_000, origin), 0.0);
     assert_eq!(moved(&mut presentation, 2_250, origin), 100.0);
     assert!(!presentation.mod_ui().mod_panel_motion_active());
+}
+
+#[test]
+fn closing_eases_to_exit_values_without_input_and_screen_animations_off_skips_motion() {
+    use launcher::menu::settings_options::{SettingId, SettingsOptions};
+
+    let mut presentation = mini_engine_presentation();
+    let owner = PanelUiOwner::Environment(0);
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel(owner, Some(&sliding_panel(100.0, Some(0.0))))
+        .unwrap();
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    let moved = |presentation: &mut UiPresentationRuntime, millis, origin: f64| {
+        frame_at(presentation, millis);
+        button_x(presentation) - origin
+    };
+    frame_at(&mut presentation, 1_000);
+    let origin = button_x(&presentation);
+    assert_eq!(moved(&mut presentation, 1_250, origin), 100.0);
+
+    presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert!(!presentation.mod_ui().mod_panel_open());
+    assert!(presentation.mod_ui().mod_panel_motion_active());
+    assert_eq!(moved(&mut presentation, 1_250, origin), 100.0);
+    assert_eq!(moved(&mut presentation, 1_375, origin), 50.0);
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    assert_eq!(moved(&mut presentation, 1_375, origin), 50.0);
+    assert_eq!(moved(&mut presentation, 1_500, origin), 75.0);
+    presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert_eq!(moved(&mut presentation, 1_500, origin), 75.0);
+    frame_at(&mut presentation, 1_800);
+    assert!(!presentation.mod_ui().mod_panel_painting());
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    let state = presentation.mod_ui().mod_panel_state().unwrap();
+    assert!(state.frame.is_none());
+
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ScreenAnimations.index(), 0);
+    presentation.set_chat_settings_snapshot((std::sync::Arc::new(options), None));
+    presentation.mod_ui_mut().set_mod_panel_open(true);
+    assert_eq!(moved(&mut presentation, 2_000, origin), 100.0);
+    assert!(!presentation.mod_ui().mod_panel_motion_active());
+    presentation.mod_ui_mut().set_mod_panel_open(false);
+    assert!(!presentation.mod_ui().mod_panel_painting());
 }

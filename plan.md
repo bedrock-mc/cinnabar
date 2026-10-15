@@ -435,15 +435,17 @@ compiled or executed and closes no parity gate.
 
 Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
 from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points
-and an optional opening value (`docs/modding-spike.md`). This is a Cinnabar extension
-for mod surfaces; server-pack JSON-UI is unchanged.
+an optional opening value and an optional exit value that personal-panel surfaces ease to
+when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
+feedback follow the Screen animations setting. This is a Cinnabar extension for mod
+surfaces; server-pack JSON-UI is unchanged.
 
 Incomplete toward expressive mod menus:
 - Transforms that leave layout unchanged (scale with an origin, rotation) and element blur.
 - A shared blurred-world material for glass panels and blurring the world behind an open
   menu, measured against the frame budget.
-- Exit transitions; closing the panel or replacing its surface still removes it at once.
-- Surface transitions and `motion: true` feedback ignore the Screen animations setting.
+- Exits between routes: replacing an open panel's surface swaps it at once without playing
+  the old surface's exit values.
 
 ## Extension crate ownership
 

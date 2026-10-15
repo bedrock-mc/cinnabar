@@ -21,20 +21,31 @@ pub struct SurfaceTransition {
     /// The value shown when the binding first appears, so it eases in when the surface opens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<SurfaceValue>,
+    /// The value the binding eases to when the panel closes; the surface keeps painting,
+    /// without input, until every exit settles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<SurfaceValue>,
 }
 
 impl SurfaceTransition {
-    /// Rejects unbounded durations, curves and non-numeric starting values.
+    /// Rejects unbounded durations, curves and non-numeric starting or exit values.
     pub fn validate(&self) -> Result<(), String> {
         if !(0.0..=MAX_TRANSITION_SECONDS).contains(&self.duration) {
             return Err("surface transition duration exceeds its bounds".into());
         }
         self.easing.validate()?;
-        if self.from.as_ref().is_some_and(|from| {
-            from.numbers()
-                .is_none_or(|numbers| !numbers.iter().all(bounded))
-        }) {
+        let unbounded = |value: &Option<SurfaceValue>| {
+            value.as_ref().is_some_and(|value| {
+                value
+                    .numbers()
+                    .is_none_or(|numbers| !numbers.iter().all(bounded))
+            })
+        };
+        if unbounded(&self.from) {
             return Err("surface transition start must be a bounded number or array".into());
+        }
+        if unbounded(&self.exit) {
+            return Err("surface transition exit must be a bounded number or array".into());
         }
         Ok(())
     }
@@ -166,13 +177,14 @@ mod tests {
     }
 
     #[test]
-    fn transitions_accept_named_curves_bezier_points_and_numeric_starts() {
+    fn transitions_accept_named_curves_bezier_points_and_numeric_starts_and_exits() {
         let named = parse(serde_json::json!({"duration": 0.2, "easing": "Out_Cubic"})).unwrap();
         assert_eq!(named.easing, TransitionEasing::Named(Easing::OutCubic));
         let bezier = parse(serde_json::json!({
-            "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6]
+            "duration": 0.25, "easing": [0.16, 1, 0.3, 1], "from": [0, 6], "exit": [0, -6]
         }))
         .unwrap();
+        assert_eq!(bezier.exit, Some(SurfaceValue::Vector(vec![0.0, -6.0])));
         assert_eq!(
             bezier.easing,
             TransitionEasing::CubicBezier([0.16, 1.0, 0.3, 1.0])
@@ -195,6 +207,8 @@ mod tests {
             serde_json::json!({"duration": 0.2, "easing": [0.5, 9, 0.5, 1]}),
             serde_json::json!({"duration": 0.2, "from": "hidden"}),
             serde_json::json!({"duration": 0.2, "from": [1]}),
+            serde_json::json!({"duration": 0.2, "exit": true}),
+            serde_json::json!({"duration": 0.2, "exit": [0, 2e6]}),
             serde_json::json!({"duration": 0.2, "delay": 1}),
         ] {
             assert!(parse(json.clone()).is_err(), "{json}");
