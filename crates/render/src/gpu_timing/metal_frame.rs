@@ -63,6 +63,7 @@ impl Marker {
         Some((encoder.finish(), Self(raw)))
     }
 
+    /// Reads a completed marker's GPU time without waiting for outstanding work.
     fn read(&self, time: fn(&ProtocolObject<dyn MTLCommandBuffer>) -> f64) -> MarkerState {
         let status = self.0.status();
         if status == MTLCommandBufferStatus::Completed {
@@ -173,6 +174,7 @@ impl MetalFrames {
         }
     }
 
+    /// Returns the slot admitted for this frame, or none when the ring is full.
     fn recording(&mut self) -> Option<&mut FrameSlot> {
         self.recording.map(|slot| &mut self.slots[slot])
     }
