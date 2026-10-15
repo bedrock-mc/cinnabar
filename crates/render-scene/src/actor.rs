@@ -316,7 +316,7 @@ impl ActorRenderScene {
     }
 
     pub fn reset(&mut self) {
-        self.frame.instance_pages = Arc::from([]);
+        republish_if_changed(&mut self.frame.instance_pages, std::iter::empty());
         if !self.frame.instances.is_empty() {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             self.frame.instances = Arc::from([]);
@@ -457,7 +457,11 @@ impl ActorRenderScene {
         }
         self.publish_skins();
         self.frame.rig = self.rig_builder.build(1.0, None, rig_submissions);
-        self.frame.instance_pages = vec![0; self.frame.rig.instances.len()].into();
+        let rig_instances = self.frame.rig.instances.len();
+        republish_if_changed(
+            &mut self.frame.instance_pages,
+            std::iter::repeat_n(0, rig_instances),
+        );
         &self.frame
     }
 
@@ -529,12 +533,6 @@ impl ActorRenderScene {
             .rejects
             .invalid_geometry
             .saturating_add(invalid_references);
-        let instance_pages: Vec<_> = self
-            .rig_builder
-            .instance_locations()
-            .iter()
-            .map(|location| location.map_or(0, |location| location.page))
-            .collect();
         if !skins_are_valid {
             let rejects = rig.rejects;
             self.frame.rig = ActorRigRenderFrame {
@@ -549,33 +547,37 @@ impl ActorRenderScene {
                 ..ActorRigRenderFrame::default()
             };
             self.frame.instances = Arc::from([]);
-            self.frame.instance_pages = Arc::from([]);
+            republish_if_changed(&mut self.frame.instance_pages, std::iter::empty());
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
             return &self.frame;
         }
-        let compatibility_instances = rig
-            .instances
-            .iter()
-            .zip(rig.manifest.iter())
-            .map(|(instance, manifest)| ActorRenderInstance {
-                runtime_id: manifest.identity.runtime_id,
-                position: [
-                    instance.world_from_actor[0][3],
-                    instance.world_from_actor[1][3],
-                    instance.world_from_actor[2][3],
-                ],
-                pitch_radians: 0.0,
-                yaw_radians: 0.0,
-                head_yaw_radians: 0.0,
-                skin_layer: instance.texture_layer,
-            })
-            .collect::<Vec<_>>();
-        if self.frame.instances.as_ref() != compatibility_instances.as_slice() {
+        // Both lists are compared in place and re-allocated only when they changed.
+        let compatibility_instances =
+            rig.instances
+                .iter()
+                .zip(rig.manifest.iter())
+                .map(|(instance, manifest)| ActorRenderInstance {
+                    runtime_id: manifest.identity.runtime_id,
+                    position: [
+                        instance.world_from_actor[0][3],
+                        instance.world_from_actor[1][3],
+                        instance.world_from_actor[2][3],
+                    ],
+                    pitch_radians: 0.0,
+                    yaw_radians: 0.0,
+                    head_yaw_radians: 0.0,
+                    skin_layer: instance.texture_layer,
+                });
+        if republish_if_changed(&mut self.frame.instances, compatibility_instances) {
             self.frame.instance_revision = self.frame.instance_revision.wrapping_add(1);
-            self.frame.instances = Arc::from(compatibility_instances);
         }
+        let instance_pages = self
+            .rig_builder
+            .instance_locations()
+            .iter()
+            .map(|location| location.map_or(0, |location| location.page));
+        republish_if_changed(&mut self.frame.instance_pages, instance_pages);
         self.frame.rig = rig;
-        self.frame.instance_pages = instance_pages.into();
         &self.frame
     }
 
@@ -591,6 +593,19 @@ impl ActorRenderScene {
             self.frame.skin_revision = self.frame.skin_revision.wrapping_add(1);
         }
     }
+}
+
+/// Replaces `published` with `items` only when they differ element-wise, so an unchanged list
+/// keeps its allocation and a changed one is collected straight into its new `Arc`.
+fn republish_if_changed<T: PartialEq + Clone>(
+    published: &mut Arc<[T]>,
+    items: impl Iterator<Item = T> + Clone,
+) -> bool {
+    if items.clone().eq(published.iter().cloned()) {
+        return false;
+    }
+    *published = items.collect();
+    true
 }
 
 fn actor_is_visible(pose: &Pose, view: Option<ActorCullView>) -> bool {

@@ -2,6 +2,7 @@ use super::*;
 
 impl BlobCacheResolver {
     pub(crate) fn retained_cached_bytes(&self) -> Result<usize, BlobCacheError> {
+        self.debug_assert_running_totals();
         self.pending
             .capacity()
             .checked_mul(size_of::<(u64, PendingTransaction)>())
@@ -30,23 +31,51 @@ impl BlobCacheResolver {
                     .and_then(|index| bytes.checked_add(index))
             })
             .and_then(|bytes| {
-                self.pending_by_hash.values().try_fold(bytes, |total, ids| {
-                    ids.capacity()
-                        .checked_mul(size_of::<u64>())
-                        .and_then(|index| total.checked_add(index))
-                })
+                self.pending_hash_set_capacity
+                    .checked_mul(size_of::<u64>())
+                    .and_then(|index| bytes.checked_add(index))
             })
-            .and_then(|bytes| {
-                self.pending.iter().try_fold(bytes, |total, transaction| {
-                    total.checked_add(transaction.1.accounted_bytes)
-                })
-            })
-            .and_then(|bytes| {
-                self.ready.iter().try_fold(bytes, |total, transaction| {
-                    total.checked_add(transaction.1.accounted_bytes)
-                })
-            })
+            .and_then(|bytes| bytes.checked_add(self.pending_accounted_bytes))
+            .and_then(|bytes| bytes.checked_add(self.ready_accounted_bytes))
             .ok_or(BlobCacheError::ByteCountOverflow)
+    }
+
+    /// Checks, in debug builds only, that the running totals equal a full walk of their
+    /// collections; release builds trust the totals maintained at each mutation.
+    pub(super) fn debug_assert_running_totals(&self) {
+        debug_assert_eq!(
+            self.pending_hash_set_capacity,
+            self.pending_by_hash
+                .values()
+                .map(HashSet::capacity)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.pending_accounted_bytes,
+            self.pending
+                .values()
+                .map(|transaction| transaction.accounted_bytes)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.ready_accounted_bytes,
+            self.ready
+                .values()
+                .map(|transaction| transaction.accounted_bytes)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.retained_column_slots,
+            self.pending
+                .values()
+                .map(|transaction| transaction.columns.len())
+                .chain(
+                    self.ready
+                        .values()
+                        .map(|transaction| transaction.columns.len())
+                )
+                .sum::<usize>()
+        );
     }
 
     pub(crate) fn retained_ordinary_bytes(&self) -> Result<usize, BlobCacheError> {
@@ -64,11 +93,8 @@ impl BlobCacheResolver {
     }
 
     pub(super) fn retained_reconstructed_bytes(&self) -> Result<usize, BlobCacheError> {
-        self.ready.values().try_fold(0usize, |total, ready| {
-            total
-                .checked_add(ready.accounted_bytes)
-                .ok_or(BlobCacheError::ByteCountOverflow)
-        })
+        self.debug_assert_running_totals();
+        Ok(self.ready_accounted_bytes)
     }
 
     pub(super) fn refresh_pending_accounting(&mut self) -> Result<(), BlobCacheError> {

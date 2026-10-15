@@ -769,7 +769,7 @@ type RenderPose = Arc<[RenderBoneTransform]>;
 /// tick share it and its bone matrices.
 #[derive(Debug, Default)]
 pub(super) struct PoseMemo {
-    entries: std::collections::HashMap<(u64, u8), ([RenderPose; 2], u64)>,
+    entries: bevy::platform::collections::HashMap<(u64, u8), ([RenderPose; 2], u64)>,
     frame: u64,
 }
 

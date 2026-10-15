@@ -462,15 +462,19 @@ pub fn build_nametag_scene<'p>(
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut records = Vec::new();
     let mut labels = Vec::with_capacity(ordered.len());
+    // One line buffer serves every label.
+    let mut placed = Vec::new();
     for anchor in ordered {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let remaining_lines = (MAX_NAMETAG_RECORDS - records.len()) / records_per_line;
-        let placed: Vec<_> = anchor
-            .lines
-            .iter()
-            .take(remaining_lines)
-            .filter_map(|line| atlas.line(line, font, layouts, pages))
-            .collect();
+        placed.clear();
+        placed.extend(
+            anchor
+                .lines
+                .iter()
+                .take(remaining_lines)
+                .filter_map(|line| atlas.line(line, font, layouts, pages)),
+        );
         if placed.is_empty() {
             continue;
         }

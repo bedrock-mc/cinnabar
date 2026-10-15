@@ -108,6 +108,8 @@ pub struct HudScreens {
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
+    /// The HUD context, kept while the engine context and chat placement stay.
+    context: crate::chat_position::PlacedContext,
 }
 
 /// What one HUD paint reads.
@@ -131,6 +133,14 @@ impl HudScreens {
         self.crosshair.invalidate_textures();
         self.toast.invalidate_textures();
         self.loading.invalidate_textures();
+    }
+
+    /// The HUD screens' context: `base` with the HUD flags and the chat at the top or bottom.
+    /// It is rebuilt only when `base` or the placement changes.
+    pub fn context(&mut self, base: &Context, chat_top: bool) -> Context {
+        self.context.get(base, chat_top, |base, top| {
+            crate::chat_position::placed(json_ui::hud_context(&base), top)
+        })
     }
 
     /// Binds retained semantic components while advancing the live scene and paint clocks.
@@ -158,7 +168,11 @@ impl HudScreens {
                 data
             }
         };
-        self.clocks.extend(scene_clock.clone());
+        self.clocks.extend(
+            scene_clock
+                .iter()
+                .map(|(clock, born)| (clock.clone(), *born)),
+        );
         self.hunger_animation.begin(session, catalog);
         data
     }

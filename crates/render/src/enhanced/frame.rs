@@ -57,16 +57,16 @@ pub(crate) struct CascadeBounds {
 }
 
 impl CascadeBounds {
-    /// Conservative overlap test for a world-space AABB.
+    /// Light-space half extent of any world-space AABB with `half_extent`; it depends only on the
+    /// cascade rotation, so one value serves every box of that size.
     #[must_use]
-    pub(crate) fn intersects_aabb(&self, center: Vec3, half_extent: Vec3) -> bool {
-        let center = self.light_from_world.transform_point3(center);
+    pub(crate) fn rotated_radius(&self, half_extent: Vec3) -> Vec3 {
         let axes = [
             self.light_from_world.x_axis.truncate(),
             self.light_from_world.y_axis.truncate(),
             self.light_from_world.z_axis.truncate(),
         ];
-        let radius = Vec3::new(
+        Vec3::new(
             axes[0].x.abs() * half_extent.x
                 + axes[1].x.abs() * half_extent.y
                 + axes[2].x.abs() * half_extent.z,
@@ -76,7 +76,14 @@ impl CascadeBounds {
             axes[0].z.abs() * half_extent.x
                 + axes[1].z.abs() * half_extent.y
                 + axes[2].z.abs() * half_extent.z,
-        );
+        )
+    }
+
+    /// Conservative overlap test for a world-space AABB centred at `center` whose light-space
+    /// half extent is `radius` from [`Self::rotated_radius`].
+    #[must_use]
+    pub(crate) fn intersects_rotated(&self, center: Vec3, radius: Vec3) -> bool {
+        let center = self.light_from_world.transform_point3(center);
         (center + radius).cmpge(self.min).all() && (center - radius).cmple(self.max).all()
     }
 }
@@ -382,13 +389,19 @@ mod tests {
     fn cascade_bounds_keep_casters_toward_the_light_and_cull_behind() {
         let light = Vec3::Y;
         let fit = fit_cascade(Vec3::ZERO, Vec3::X, 0.1, 16.0, SLOPE, light, 1024);
-        let half = Vec3::splat(8.0);
-        assert!(fit.bounds.intersects_aabb(Vec3::new(8.0, 200.0, 0.0), half));
+        let radius = fit.bounds.rotated_radius(Vec3::splat(8.0));
+        assert!(
+            fit.bounds
+                .intersects_rotated(Vec3::new(8.0, 200.0, 0.0), radius)
+        );
         assert!(
             !fit.bounds
-                .intersects_aabb(Vec3::new(8.0, -200.0, 0.0), half)
+                .intersects_rotated(Vec3::new(8.0, -200.0, 0.0), radius)
         );
-        assert!(!fit.bounds.intersects_aabb(Vec3::new(500.0, 0.0, 0.0), half));
+        assert!(
+            !fit.bounds
+                .intersects_rotated(Vec3::new(500.0, 0.0, 0.0), radius)
+        );
     }
 
     #[cfg(feature = "enhanced-diagnostics")]

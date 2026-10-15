@@ -57,7 +57,12 @@ pub(super) fn query(
     name: Q,
     arguments: &[MolangValue],
 ) -> MolangValue {
-    let text = |value: Option<&str>| MolangValue::String(Arc::from(value.unwrap_or("")));
+    let text = |value: Option<&str>| {
+        MolangValue::String(match value.filter(|value| !value.is_empty()) {
+            Some(value) => Arc::from(value),
+            None => empty_text(),
+        })
+    };
     match name {
         Q::IsSpectator => MolangValue::Number(truth(match evaluator.actor.player_game_mode() {
             Some(protocol::GameModeUpdate::Explicit(mode)) => {
@@ -116,6 +121,12 @@ pub(super) fn query(
         Q::GetDefaultBonePivot => MolangValue::Number(default_bone_pivot(evaluator, arguments)),
         _ => MolangValue::Number(number(evaluator, name, arguments)),
     }
+}
+
+/// The idle `''` every string query without a value shares instead of allocating.
+fn empty_text() -> Arc<str> {
+    static EMPTY: std::sync::LazyLock<Arc<str>> = std::sync::LazyLock::new(|| Arc::from(""));
+    Arc::clone(&EMPTY)
 }
 
 /// The actor's synced property by name: enums read as their value name, everything else as its

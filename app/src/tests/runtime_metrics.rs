@@ -10,7 +10,7 @@ fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {
     assert!(refresh_diagnostic_attribution(&mut revision, &tracker, &mut metrics).is_none());
     tracker.upsert(
         key,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(54),
             537_536_753,
             6,
@@ -26,7 +26,7 @@ fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {
     let unchanged_revision = tracker.revision();
     tracker.upsert(
         key,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(54),
             537_536_753,
             6,
