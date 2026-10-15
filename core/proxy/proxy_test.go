@@ -23,6 +23,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/protocol"
@@ -800,8 +801,9 @@ func TestDialFollowingTransfersRedialsBeforeReturningSession(t *testing.T) {
 	if joined := strings.Join(addresses, ","); joined != "zeqa.net:19132,na.zeqa.net:19133" {
 		t.Fatalf("dial addresses = %q", joined)
 	}
-	if !strings.Contains(logs.String(), `msg="following pre-login server transfer" from=zeqa.net:19132 to=na.zeqa.net:19133 hop=1`) {
-		t.Fatalf("transfer was not logged through the session logger: %q", logs.String())
+	transfer := `msg="following pre-login server transfer" from=` + redact.Private("zeqa.net:19132").String() + ` to=` + redact.Private("na.zeqa.net:19133").String() + ` hop=1`
+	if !strings.Contains(logs.String(), transfer) || strings.Contains(logs.String(), "zeqa") {
+		t.Fatalf("transfer was not logged, addresses hashed, through the session logger: %q", logs.String())
 	}
 }
 
@@ -860,16 +862,20 @@ func TestConnectUpstreamReportsOrderedConnectionState(t *testing.T) {
 	if got != want {
 		t.Fatalf("connectUpstream() session = %p, want %p", got, want)
 	}
+	target := redact.Private("zeqa.net:19132").String()
 	assertProxyTextInOrder(t, output.String(),
-		"msg=\"upstream connection starting\" target=zeqa.net:19132 authentication=microsoft",
-		"msg=\"upstream connected\" target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"upstream connection starting\" target="+target+" authentication=microsoft",
+		"msg=\"upstream connected\" target="+target+" authentication=microsoft",
 	)
+	if strings.Contains(output.String(), "zeqa") {
+		t.Fatalf("connection log names the server: %s", output.String())
+	}
 }
 
 func TestConnectUpstreamReportsConnectionFailure(t *testing.T) {
 	var output lockedBuffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
-	wantErr := errors.New("dial refused")
+	wantErr := errors.New("dial 192.0.2.10:19132 refused")
 	_, err := connectUpstream(
 		context.Background(),
 		"localhost:19132",
@@ -880,10 +886,14 @@ func TestConnectUpstreamReportsConnectionFailure(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("connectUpstream() error = %v, want %v", err, wantErr)
 	}
+	target := redact.Private("localhost:19132").String()
 	assertProxyTextInOrder(t, output.String(),
-		"msg=\"upstream connection starting\" target=localhost:19132 authentication=offline",
-		"level=ERROR msg=\"upstream connection failed\" target=localhost:19132 authentication=offline error=\"dial refused\"",
+		"msg=\"upstream connection starting\" target="+target+" authentication=offline",
+		"level=ERROR msg=\"upstream connection failed\" target="+target+" authentication=offline error=\"dial [redacted] refused\"",
 	)
+	if strings.Contains(output.String(), "localhost") || strings.Contains(output.String(), "192.0.2") {
+		t.Fatalf("connection failure log names the server: %s", output.String())
+	}
 }
 
 func TestDialFollowingTransfersRejectsCyclesAndInvalidDestinations(t *testing.T) {

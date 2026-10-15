@@ -38,3 +38,5 @@ crates/assets/data/facts-expansion-v*.tsv text eol=lf
 crates/assets/data/vocabulary-v*.txt text eol=lf
 crates/assets/data/item-facts-expansion-*.tsv text eol=lf
 crates/assets/data/item-facts-*.bin binary
+crates/crash-report/data/redaction-rules.json text eol=lf
+core/internal/redact/rules.json text eol=lf

@@ -3199,6 +3199,7 @@ name = "crash-report"
 version = "0.1.20"
 dependencies = [
  "libc",
+ "regex",
  "serde",
  "serde_json",
  "tempfile",
