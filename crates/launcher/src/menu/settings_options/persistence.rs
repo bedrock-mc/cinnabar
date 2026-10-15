@@ -1,5 +1,7 @@
 //! Bounded settings loading and atomic replacement keep incomplete writes out of the store.
 
+pub mod writer;
+
 use super::SettingId;
 use std::{
     fs,

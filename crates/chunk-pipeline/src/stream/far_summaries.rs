@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 
 use crossbeam_channel::unbounded;
 use far_terrain::{
-    ColumnSnapshot, EncodedSummary, SurfaceColours, SurfaceContext, summarise_column,
+    ColumnSnapshot, EncodedSummary, SummaryBudget, SurfaceColours, SurfaceContext, summarise_column,
 };
 
 use super::*;
@@ -54,6 +54,7 @@ pub struct FarSummaryInbox {
     rx: Receiver<Finished>,
     issued: HashMap<ChunkKey, Issued>,
     next_generation: u64,
+    deferred: Option<Finished>,
 }
 
 impl Default for FarSummaryInbox {
@@ -64,6 +65,7 @@ impl Default for FarSummaryInbox {
             rx,
             issued: HashMap::new(),
             next_generation: 0,
+            deferred: None,
         }
     }
 }
@@ -87,7 +89,18 @@ impl FarSummaryInbox {
 
     /// Appends the newest summary of each column finished since the last call.
     pub fn drain(&mut self, out: &mut Vec<FarColumnSummary>) {
-        while let Ok(finished) = self.rx.try_recv() {
+        while let Some(finished) = self.deferred.take().or_else(|| self.rx.try_recv().ok()) {
+            self.accept(finished, out);
+        }
+    }
+
+    /// Appends finished summaries within both limits, counting stale results as work too.
+    pub fn drain_budgeted(&mut self, out: &mut Vec<FarColumnSummary>, budget: &mut SummaryBudget) {
+        while let Some(finished) = self.deferred.take().or_else(|| self.rx.try_recv().ok()) {
+            if !budget.take(finished.summary.bytes.len()) {
+                self.deferred = Some(finished);
+                return;
+            }
             self.accept(finished, out);
         }
     }
@@ -95,7 +108,8 @@ impl FarSummaryInbox {
     /// Like [`Self::drain`], first blocking until `deadline` for one summary while work is
     /// issued and none has finished.
     pub fn drain_waiting(&mut self, out: &mut Vec<FarColumnSummary>, deadline: Instant) {
-        if self.rx.is_empty()
+        if self.deferred.is_none()
+            && self.rx.is_empty()
             && !self.is_idle()
             && let Ok(finished) = self.rx.recv_deadline(deadline)
         {
@@ -126,7 +140,7 @@ impl FarSummaryInbox {
     /// True when finished summaries wait to be drained.
     #[must_use]
     pub fn has_finished(&self) -> bool {
-        !self.rx.is_empty()
+        self.deferred.is_some() || !self.rx.is_empty()
     }
 
     /// True once every issued summary has been drained.
@@ -264,6 +278,20 @@ impl WorldStream {
     pub fn drain_far_summaries(&mut self, out: &mut Vec<FarColumnSummary>) {
         let start = out.len();
         self.far_terrain.inbox.drain(out);
+        for summary in &mut out[start..] {
+            summary.resident = self.far_column_resident(summary.column);
+        }
+        self.note_far_summaries_delivered(&out[start..]);
+    }
+
+    /// Delivers a bounded share of summaries, acknowledging only those delivered now.
+    pub fn drain_far_summaries_budgeted(
+        &mut self,
+        out: &mut Vec<FarColumnSummary>,
+        budget: &mut SummaryBudget,
+    ) {
+        let start = out.len();
+        self.far_terrain.inbox.drain_budgeted(out, budget);
         for summary in &mut out[start..] {
             summary.resident = self.far_column_resident(summary.column);
         }
@@ -439,3 +467,6 @@ impl PendingContext {
         }
     }
 }
+
+#[cfg(test)]
+mod delivery_tests;

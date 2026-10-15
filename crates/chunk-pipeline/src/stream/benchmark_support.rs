@@ -64,3 +64,58 @@ pub mod biomes;
 
 mod mutations;
 pub use mutations::MutationBurstFixture;
+
+/// A resident grid for measuring retention discovery and retirement without worker timing.
+pub struct RetentionFixture {
+    stream: WorldStream,
+}
+
+impl RetentionFixture {
+    /// Populates one air section in every retained column around the origin.
+    pub fn new(radius: i32) -> Self {
+        let mut stream = WorldStream::new(WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        stream.chunk_radius = Some(radius);
+        stream.reevaluate_chunk_retention();
+        let reach = radius + world::CHUNK_VIEW_SLACK;
+        for x in -reach..=reach {
+            for z in -reach..=reach {
+                if chunk_in_view(radius, [x, z], [0, 0]) {
+                    let column = ChunkKey::new(0, x, z);
+                    stream.loaded_columns.insert(column);
+                    stream.record_known_air(SubChunkKey::from_chunk(column, 0));
+                }
+            }
+        }
+        Self { stream }
+    }
+
+    /// Uses non-air resident markers to exercise neighbour invalidation during retirement.
+    pub fn with_connectivity(radius: i32) -> Self {
+        let mut fixture = Self::new(radius);
+        for column in fixture.stream.loaded_columns.iter().copied() {
+            let key = SubChunkKey::from_chunk(column, 0);
+            fixture.stream.known_air.remove(&key);
+            fixture.stream.resident.insert(key);
+            fixture
+                .stream
+                .connectivity
+                .insert(key, FaceConnectivity::all());
+        }
+        fixture
+    }
+
+    /// Retires the trailing boundary after a one-column crossing.
+    pub fn cross(&mut self) {
+        self.stream.local_player_chunk = Some(ChunkKey::new(0, 1, 0));
+        assert!(self.stream.reevaluate_chunk_retention());
+        std::hint::black_box(self.stream.loaded_column_count());
+    }
+}

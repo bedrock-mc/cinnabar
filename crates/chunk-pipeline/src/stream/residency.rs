@@ -25,14 +25,9 @@ impl WorldStream {
         self.arrival_cohort = None;
         self.requests.transport_pending = 0;
         self.publisher.center = Some(center);
-        self.prune_column_deadlines();
-        let stale = self
-            .tracked_columns()
-            .into_iter()
-            .chain(self.requests.collision_failures.iter().copied())
-            .filter(|column| !self.column_is_data_interesting(*column))
-            .collect::<BTreeSet<_>>();
-        self.evict_columns(stale.into_iter().collect());
+        // The same resumable scan retires the old view before the next ordered commit.
+        self.retention_due = true;
+        self.retention_cursor = None;
         self.publisher.begin_local_rebase();
     }
 
@@ -63,10 +58,12 @@ impl WorldStream {
         if columns.is_empty() {
             return;
         }
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("stream.evict_columns", columns = columns.len()).entered();
         let far_retiring = self.far_retiring_snapshots(&columns);
         self.actor_block_syncs.remove_columns(&columns);
         self.forget_near_drawn(&columns);
-        self.forget_full_detail_handoffs(&columns);
+        self.forget_full_detail_columns(&columns);
         self.note_far_unloaded(&columns);
         for &column in &columns {
             self.light_diagnostics.remove_column(column);
@@ -89,13 +86,17 @@ impl WorldStream {
                 }
             }
         }
-        let (removed, retired) = self.authority.detach_chunks(&columns);
+        let (removed, retired) = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.retire_authority").entered();
+            self.authority.detach_chunks(&columns)
+        };
         changed.extend(removed);
         let old_connectivity_len = self.connectivity.len();
         let retired_indexes = removing_all.then(|| {
             (
-                std::mem::take(&mut self.resident),
-                std::mem::take(&mut self.known_air),
+                self.resident.retire(),
+                self.known_air.retire(),
                 std::mem::take(&mut self.applied_mesh_generations),
                 std::mem::take(&mut self.withdrawn_meshes),
                 std::mem::take(&mut self.mesh_dependency_masks),
@@ -116,10 +117,15 @@ impl WorldStream {
                 self.applied_mesh_generations.remove(key);
                 self.withdrawn_meshes.remove(key);
                 self.mesh_dependency_masks.remove(key);
+                if columns.len() == 1 {
+                    self.connectivity.remove(key);
+                }
             }
-            // One cell sweep beats per-key removal, which rescans overflow keys each time.
-            self.connectivity
-                .retain(|key| !columns.contains(&key.chunk()));
+            // Bulk retirement sweeps once; a resumable column avoids a whole-grid sweep.
+            if columns.len() != 1 {
+                self.connectivity
+                    .retain(|key| !columns.contains(&key.chunk()));
+            }
         }
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
@@ -145,7 +151,13 @@ impl WorldStream {
             self.mark_dirty_exact(key, now);
         }
         if !retired.is_empty() || retired_indexes.is_some() {
-            rayon::spawn(move || drop((retired, retired_indexes)));
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.retire_drop_dispatch").entered();
+            rayon::spawn(move || {
+                #[cfg(feature = "tracy")]
+                let _zone = tracing::info_span!("stream.retired_drop").entered();
+                drop((retired, retired_indexes));
+            });
         }
         self.far_terrain.retiring.extend(far_retiring);
     }
@@ -243,43 +255,127 @@ impl WorldStream {
         })
     }
 
-    /// Re-evaluates chunk-grid retention against the local player's current
-    /// chunk and the retained radius, evicting every tracked column and
-    /// pruning every announced requirement the grid no longer keeps. Cheap to
-    /// call on every player move: it only rescans when the player's chunk or
-    /// the retained radius changes.
+    /// Retires columns outside the player grid, skipping each retained row interior.
+    /// Polls resume between columns; no later ordered commit passes unfinished retention.
     pub(super) fn reevaluate_chunk_retention(&mut self) -> bool {
-        let Some(radius) = self.retained_radius() else {
+        let grid_radius = self.retained_radius();
+        if grid_radius.is_none() && !self.retention_due {
             return false;
+        }
+        let radius = grid_radius.unwrap_or_else(|| self.active_radius_chunks());
+        let center = if grid_radius.is_some() {
+            self.player_chunk()
+        } else {
+            let center = self
+                .publisher
+                .center
+                .expect("an unconfirmed rebase has a publisher centre");
+            ChunkKey::new(
+                self.current_dimension(),
+                center[0].div_euclid(16),
+                center[2].div_euclid(16),
+            )
         };
-        let center = self.player_chunk();
-        if self.last_retention_center == Some(center) && self.last_retention_radius == Some(radius)
-        {
+        let changed =
+            self.last_retention_center != Some(center) || self.last_retention_radius != grid_radius;
+        if !changed && !self.retention_due {
             return false;
         }
         #[cfg(feature = "tracy")]
         let _zone = tracing::info_span!("stream.retention").entered();
-        self.last_retention_center = Some(center);
-        self.last_retention_radius = Some(radius);
-        let center_xz = [center.x, center.z];
-        let current_dimension = self.authority.current_dimension();
-        let is_retained = |key: &ChunkKey| {
-            key.dimension == current_dimension && chunk_in_view(radius, [key.x, key.z], center_xz)
-        };
-        // Failed requests can leave diagnostic evidence without any resident terrain.
-        self.light_diagnostics
-            .columns
-            .retain(|key, _| is_retained(key));
-        self.publisher.required_columns.retain(is_retained);
-        self.unsent_column_deadlines
-            .retain(|key, _| is_retained(key));
-        let stale = self
-            .tracked_columns()
-            .into_iter()
-            .filter(|key| !is_retained(key))
-            .collect::<Vec<_>>();
-        self.evict_columns(stale.into_iter().collect());
-        true
+        if changed {
+            self.last_retention_center = Some(center);
+            self.last_retention_radius = grid_radius;
+            self.retention_cursor = None;
+            self.retention_due = true;
+        }
+        let mut items = 0;
+        while !self.maintenance_should_yield(items) {
+            let started = Instant::now();
+            #[cfg(feature = "tracy")]
+            let _item =
+                tracing::info_span!("stream.service_item_max", kind = "retention").entered();
+            let Some(column) = self.next_retention_column() else {
+                self.retention_due = false;
+                self.retention_cursor = None;
+                break;
+            };
+            let retained = |column: ChunkKey| {
+                column.dimension == center.dimension
+                    && if grid_radius.is_some() {
+                        chunk_in_view(radius, [column.x, column.z], [center.x, center.z])
+                    } else {
+                        self.column_is_data_interesting(column)
+                    }
+            };
+            if retained(column) {
+                let (_, last) = column_scan::row_span(
+                    center,
+                    radius + world::CHUNK_VIEW_SLACK,
+                    column.x,
+                    retained,
+                )
+                .expect("a retained column has a retained row");
+                self.retention_cursor = Some(ChunkKey::new(column.dimension, column.x, last));
+            } else {
+                self.retention_cursor = Some(column);
+                self.light_diagnostics.columns.remove(&column);
+                self.publisher.required_columns.remove(&column);
+                self.unsent_column_deadlines.remove(&column);
+                self.requests.collision_failures.remove(&column);
+                if self.loaded_columns.contains(&column)
+                    || self.requests.requested.contains_key(&column)
+                    || self.resident.column(column).next().is_some()
+                    || self.known_air.column(column).next().is_some()
+                {
+                    #[cfg(feature = "tracy")]
+                    let _zone = tracing::info_span!("stream.retention_item", ?column).entered();
+                    self.evict_column(column);
+                }
+            }
+            self.record_service_item(started);
+            self.maintenance_guarantee = false;
+            items += 1;
+            self.maintenance_items += 1;
+        }
+        changed
+    }
+
+    /// Merges live column indexes without allocating a union or visiting resident sections.
+    fn next_retention_column(&self) -> Option<ChunkKey> {
+        let bounds = column_scan::after(self.retention_cursor);
+        [
+            self.loaded_columns.range(bounds).next().copied(),
+            self.publisher
+                .required_columns
+                .range(bounds)
+                .next()
+                .copied(),
+            self.requests
+                .requested
+                .range(bounds)
+                .next()
+                .map(|(key, _)| *key),
+            self.requests
+                .collision_failures
+                .range(bounds)
+                .next()
+                .copied(),
+            self.unsent_column_deadlines
+                .range(bounds)
+                .next()
+                .map(|(key, _)| *key),
+            self.light_diagnostics
+                .columns
+                .range(bounds)
+                .next()
+                .map(|(key, _)| *key),
+            self.resident.next_column(self.retention_cursor),
+            self.known_air.next_column(self.retention_cursor),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
     /// Retains terrain around completed local physics without changing the last server position.
     /// Rejects stale owners and any physics that has not yet applied a committed spatial control.
@@ -357,7 +453,7 @@ impl WorldStream {
 
     /// Runs a retention re-evaluation deferred by [`Self::request_chunk_retention`].
     pub(super) fn apply_due_chunk_retention(&mut self) {
-        if std::mem::take(&mut self.retention_due) {
+        if self.retention_due {
             self.reevaluate_chunk_retention();
         }
     }

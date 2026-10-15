@@ -39,6 +39,7 @@ fn server_list_actions_save_preferences_without_changing_selection_or_gameplay()
     assert_eq!(menu.feeds.selected_saved, Some(2));
     menu.sync_user_settings(None);
     assert!(!menu.settings_dirty);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(&menu.config_path.with_file_name(SETTINGS_FILE));
     assert!(saved.server_list().collapsed(ServerGroup::Featured));
     assert_eq!(
@@ -306,65 +307,44 @@ fn settings_handoff_preserves_native_window_and_viewport_preferences() {
 }
 
 #[test]
-fn a_failed_settings_save_remains_pending_until_storage_recovers() {
-    let root = std::env::temp_dir().join(format!(
-        "cinnabar-settings-retry-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    std::fs::create_dir_all(&root).unwrap();
-    let blocked = root.join("config");
+fn a_failed_settings_save_is_reported_and_shutdown_saves_latest_edits_after_recovery() {
+    let layout = launcher::test_support::scratch("settings-retry");
+    let blocked = layout.user_config_root.join("config");
+    std::fs::create_dir_all(&layout.user_config_root).unwrap();
     std::fs::write(&blocked, b"blocked").unwrap();
     let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
     menu.config_path = blocked.join("servers.json");
+    menu.message = None;
     menu.set_option(index("gamma") as u16, 70);
     menu.sync_user_settings(None);
-    assert!(menu.settings_dirty);
+    test_time::eventually("settings write failure", || {
+        menu.sync_user_settings(None);
+        menu.message
+            .as_deref()
+            .is_some_and(|message| message.starts_with("Could not save settings:"))
+    });
     std::fs::remove_file(&blocked).unwrap();
-    menu.settings_retry_at = Some(std::time::Instant::now());
+    menu.set_option(index("gamma") as u16, 80);
     menu.sync_user_settings(None);
-    assert!(!menu.settings_dirty);
+    menu.flush_user_settings().unwrap();
     assert_eq!(
         SettingsOptions::load(&blocked.join(SETTINGS_FILE)).value(SettingId::Gamma),
-        70
+        80
     );
-    std::fs::remove_dir_all(root).unwrap();
+    drop(menu);
+    std::fs::remove_dir_all(layout.user_config_root).unwrap();
 }
 
 #[test]
-fn review_ui_failed_settings_save_does_not_retry_on_the_next_frame() {
-    let root = std::env::temp_dir().join(format!(
-        "cinnabar-settings-backoff-{}-{:?}",
-        std::process::id(),
-        std::thread::current().id()
-    ));
-    let path = root.join(SETTINGS_FILE);
-    std::fs::create_dir_all(&path).unwrap();
-    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Steve".into());
-    menu.config_path = root.join("servers.json");
+fn shutdown_saves_the_latest_edit_even_without_another_frame() {
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Shutdown".into());
+    let path = menu.config_path.with_file_name(SETTINGS_FILE);
     menu.set_option(index("gamma") as u16, 70);
-    let attempted_at = std::time::Instant::now();
     menu.sync_user_settings(None);
-    assert!(menu.settings_dirty);
-    let retry_at = menu
-        .settings_retry_at
-        .expect("a failed save schedules a retry");
-    assert!(retry_at > attempted_at);
-    // Hold the deadline ahead of this check even if the test thread is delayed.
-    menu.settings_retry_at = Some(retry_at + std::time::Duration::from_secs(60));
-    std::fs::remove_dir(&path).unwrap();
-    // Even recovered storage must wait: this frame must not perform another write.
     menu.set_option(index("gamma") as u16, 80);
-    menu.sync_user_settings(None);
-    assert!(menu.settings_dirty);
-    assert!(!path.exists());
-    // Advance the retry deadline without sleeping, and persist the latest edit.
-    menu.settings_retry_at = Some(std::time::Instant::now());
-    menu.sync_user_settings(None);
-    assert!(!menu.settings_dirty);
-    assert!(menu.settings_retry_at.is_none());
+    drop(menu);
     assert_eq!(SettingsOptions::load(&path).value(SettingId::Gamma), 80);
-    std::fs::remove_dir_all(root).unwrap();
+    std::fs::remove_file(path).unwrap();
 }
 
 #[test]
@@ -380,6 +360,7 @@ fn session_overrides_apply_in_memory_but_are_never_saved() {
     // A real edit elsewhere saves the file without the overrides.
     menu.set_option(index("main_volume") as u16, 30);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(&settings_path);
     assert_eq!(saved.value(SettingId::HideHud), 0);
     assert_eq!(saved.value(SettingId::HideHand), 0);
@@ -435,4 +416,21 @@ fn inventory_hotbar_controls_follow_saved_keyboard_and_mouse_remaps() {
             vec![slot as u8 + 1]
         );
     }
+}
+
+#[test]
+fn exit_message_flushes_edits_before_the_menu_is_dropped() {
+    use bevy::prelude::{App, AppExit, Last};
+    let mut menu = crate::menu::MenuRuntime::new(true, 2, "Exit".into());
+    let path = menu.config_path.with_file_name(SETTINGS_FILE);
+    menu.set_option(index("gamma") as u16, 80);
+    let mut app = App::new();
+    app.add_message::<AppExit>()
+        .insert_resource(menu)
+        .add_systems(Last, super::flush_on_exit);
+    app.world_mut().write_message(AppExit::Success);
+    app.update();
+    assert_eq!(SettingsOptions::load(&path).value(SettingId::Gamma), 80);
+    drop(app);
+    std::fs::remove_file(path).unwrap();
 }

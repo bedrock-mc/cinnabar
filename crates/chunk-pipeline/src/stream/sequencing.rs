@@ -146,9 +146,7 @@ impl WorldStream {
                 self.loaded_columns.insert(key);
                 self.note_far_column_complete(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
-                for old in &old_keys {
-                    self.resident.remove(old);
-                }
+                self.resident.replace_column(key, new_keys.iter().copied());
                 for old in &old_air {
                     self.known_air.remove(old);
                 }
@@ -158,7 +156,6 @@ impl WorldStream {
                 for no_longer_air in old_air.difference(&air_keys) {
                     self.set_connectivity(*no_longer_air, None);
                 }
-                self.resident.extend(new_keys.iter().copied());
                 for air in air_keys {
                     self.record_known_air(air);
                 }
@@ -649,6 +646,9 @@ impl WorldStream {
         decoded: (DecodedBiomeColumn, DecodedBlockEntities),
         sequence: Option<u64>,
     ) {
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.request_column", x = event.x, z = event.z).entered();
         let key = ChunkKey::new(event.dimension, event.x, event.z);
         if !self.column_is_data_interesting(key) {
             self.record_normalization_error(NormalizationErrorReason::InactiveLevelChunk);
@@ -672,15 +672,19 @@ impl WorldStream {
             }
         };
         let (biomes, block_entities) = decoded;
-        if self.authority.terrain().biome_column_matches(key, &biomes) {
-            self.loaded_columns.remove(&key);
-            self.requests.collision_failures.remove(&key);
-            self.requests.purge_columns(&BTreeSet::from([key]));
-        } else {
-            self.evict_column(key);
-        }
-        self.diagnose_request_column(&event);
-        let biome_dirty = self.authority.commit_biome_column(key, biomes);
+        let biome_dirty = {
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!("stream.request_column_replace").entered();
+            if self.authority.terrain().biome_column_matches(key, &biomes) {
+                self.loaded_columns.remove(&key);
+                self.requests.collision_failures.remove(&key);
+                self.requests.purge_columns(&BTreeSet::from([key]));
+            } else {
+                self.evict_column(key);
+            }
+            self.diagnose_request_column(&event);
+            self.authority.commit_biome_column(key, biomes)
+        };
         let now = Instant::now();
         for dirty in biome_dirty {
             if self.resident.contains(&dirty) && self.authority.terrain().sub_chunk(dirty).is_some()
@@ -705,6 +709,12 @@ impl WorldStream {
             let end_y = range.base_sub_chunk_y.saturating_add(
                 i32::try_from(range.sub_chunk_count).expect("vanilla subchunk count fits i32"),
             );
+            #[cfg(feature = "tracy")]
+            let _zone = tracing::info_span!(
+                "stream.request_upper_air",
+                sections = end_y.saturating_sub(first_air_y),
+            )
+            .entered();
             let mut changed = BTreeSet::new();
             for y in first_air_y..end_y {
                 let air = SubChunkKey::from_chunk(key, y);

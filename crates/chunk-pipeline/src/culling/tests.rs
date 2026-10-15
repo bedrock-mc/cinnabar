@@ -654,3 +654,34 @@ fn camera_boundary_preserves_the_existing_search() {
         &mut replacement
     ));
 }
+
+/// Retiring a populated radius-128 boundary never searches unrelated overflow homes.
+#[test]
+fn radius_128_retirement_only_visits_matching_overflow_homes() {
+    let radius = 128;
+    let mut grid = ConnectivityGrid::default();
+    for x in -radius..=radius {
+        for z in -radius..=radius {
+            grid.insert(SubChunkKey::new(0, x, 0, z), FaceConnectivity::all());
+        }
+    }
+    grid.take_promotion_visits();
+    for z in -radius..=radius {
+        let key = SubChunkKey::new(0, -radius, 0, z);
+        assert_eq!(grid.remove(&key), Some(FaceConnectivity::all()));
+        assert!(grid.get(&key).is_none());
+    }
+    assert!(
+        grid.take_promotion_visits() <= (2 * radius + 1) as usize,
+        "one retired section inspects at most one matching overflow candidate"
+    );
+    for x in -radius + 1..=radius {
+        for z in -radius..=radius {
+            assert_eq!(
+                grid.get(&SubChunkKey::new(0, x, 0, z)),
+                Some(FaceConnectivity::all())
+            );
+        }
+    }
+    assert_eq!(grid.len(), (2 * radius * (2 * radius + 1)) as usize);
+}

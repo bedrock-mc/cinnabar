@@ -7,7 +7,7 @@ use mod_host::{
 };
 use simulation_clock::identity::SessionGeneration;
 use std::{
-    collections::VecDeque,
+    collections::{BinaryHeap, VecDeque},
     path::PathBuf,
     sync::{Mutex, mpsc},
     time::{Duration, Instant},
@@ -238,6 +238,66 @@ impl PingPoll {
     }
 }
 
+/// A borrowed actor ordered by distance, then runtime identity, with the furthest first in a heap.
+struct NearbyActor<'a> {
+    distance: f32,
+    actor: &'a client_world::ActorSnapshot,
+}
+
+impl PartialEq for NearbyActor<'_> {
+    /// Uses the same distance and runtime identity order as selection.
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
+    }
+}
+impl Eq for NearbyActor<'_> {}
+impl PartialOrd for NearbyActor<'_> {
+    /// Provides a total order for heap comparisons.
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NearbyActor<'_> {
+    /// Breaks equal-distance ties by runtime identity, independent of arrival order.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.distance
+            .total_cmp(&other.distance)
+            .then(self.actor.runtime_id.cmp(&other.actor.runtime_id))
+    }
+}
+
+/// Returns the nearest in-range actors in order, retaining only the observation limit.
+fn nearest_observed_actors<'a>(
+    actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
+    origin: [f32; 3],
+) -> impl ExactSizeIterator<Item = &'a client_world::ActorSnapshot> {
+    let mut nearby = BinaryHeap::new();
+    for actor in actors {
+        let distance = actor
+            .position
+            .iter()
+            .zip(origin)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f32>();
+        if !distance.is_finite() || distance > 128. * 128. {
+            continue;
+        }
+        let candidate = NearbyActor { distance, actor };
+        if nearby.len() < mod_api::MAX_OBSERVED_ACTORS {
+            if nearby.is_empty() {
+                nearby.reserve_exact(mod_api::MAX_OBSERVED_ACTORS);
+            }
+            nearby.push(candidate);
+        } else if nearby.peek().is_some_and(|furthest| candidate < *furthest) {
+            *nearby.peek_mut().expect("nonempty bounded heap") = candidate;
+        }
+    }
+    nearby
+        .into_sorted_vec()
+        .into_iter()
+        .map(|candidate| candidate.actor)
+}
+
 impl ModuleObserver {
     /// Appends retained facts with a monotonic cursor, allowing independent incremental consumers.
     fn push(&mut self, mut event: CombatObservation) {
@@ -328,26 +388,8 @@ impl ModuleObserver {
         });
         let origin = [world.position.0, world.position.1, world.position.2];
         let target = current_target(gameplay, ui, interaction);
-        let mut nearby: Vec<_> = authority
-            .remote_actors()
-            .filter_map(|actor| {
-                let distance = actor
-                    .position
-                    .iter()
-                    .zip(origin)
-                    .map(|(a, b)| (a - b).powi(2))
-                    .sum::<f32>();
-                (distance.is_finite() && distance <= 128. * 128.).then_some((distance, actor))
-            })
-            .collect();
-        nearby.sort_by(|a, b| {
-            a.0.total_cmp(&b.0)
-                .then(a.1.runtime_id.cmp(&b.1.runtime_id))
-        });
-        let actors = nearby
-            .into_iter()
-            .take(mod_api::MAX_OBSERVED_ACTORS)
-            .map(|(_, actor)| {
+        let actors = nearest_observed_actors(authority.remote_actors(), origin)
+            .map(|actor| {
                 let position = actor
                     .interpolated_position(
                         gameplay.actor_partial.as_ref().map_or(0., |tick| tick.0),
@@ -482,6 +524,234 @@ impl ModuleObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Creates a packet-admitted player snapshot without local carriers.
+    fn actor_template() -> client_world::ActorSnapshot {
+        let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+            dimension: 0,
+            local_player_runtime_id: 1,
+            local_player_unique_id: 1,
+            player_position: [0.; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        stream
+            .submit(
+                1,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(
+                    protocol::ActorSpawnEvent {
+                        dimension: 0,
+                        unique_id: 2,
+                        runtime_id: 2,
+                        kind: protocol::ActorKind::Player {
+                            uuid: [0; 16],
+                            username: "selection-fixture".into(),
+                        },
+                        position: [0.; 3],
+                        velocity: [0.; 3],
+                        pitch: 0.,
+                        yaw: 0.,
+                        head_yaw: 0.,
+                        body_yaw: 0.,
+                        held_item: Default::default(),
+                        metadata: [].into(),
+                        attributes: [].into(),
+                        properties: [].into(),
+                        links: [].into(),
+                    },
+                )),
+            )
+            .unwrap();
+        stream.authority().remote_actors().next().unwrap().clone()
+    }
+
+    /// Retains the full-sort selection as a behavior and allocation reference.
+    fn full_sort_nearest<'a>(
+        actors: impl Iterator<Item = &'a client_world::ActorSnapshot>,
+        origin: [f32; 3],
+    ) -> impl ExactSizeIterator<Item = &'a client_world::ActorSnapshot> {
+        let mut nearby: Vec<_> = actors
+            .filter_map(|actor| {
+                let distance = actor
+                    .position
+                    .iter()
+                    .zip(origin)
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f32>();
+                (distance.is_finite() && distance <= 128. * 128.).then_some((distance, actor))
+            })
+            .collect();
+        nearby.sort_by(|a, b| {
+            a.0.total_cmp(&b.0)
+                .then(a.1.runtime_id.cmp(&b.1.runtime_id))
+        });
+        nearby
+            .into_iter()
+            .take(mod_api::MAX_OBSERVED_ACTORS)
+            .map(|(_, actor)| actor)
+    }
+
+    /// Makes a repeatable shuffled crowd with distance ties and unique runtime identities.
+    fn crowd(
+        template: &client_world::ActorSnapshot,
+        count: usize,
+    ) -> Vec<client_world::ActorSnapshot> {
+        let mut state = 7_u32;
+        let mut actors: Vec<_> = (0..count)
+            .map(|index| {
+                let mut actor = template.clone();
+                actor.runtime_id = index as u64;
+                actor.position = [(index % 127) as f32, 0., 0.];
+                actor
+            })
+            .collect();
+        for index in (1..count).rev() {
+            state = state.wrapping_mul(1664525).wrapping_add(1013904223);
+            actors.swap(index, state as usize % (index + 1));
+        }
+        actors
+    }
+
+    /// Checks identities and borrowed payloads against the previous full-sort behavior.
+    fn assert_selection_matches(actors: &[client_world::ActorSnapshot], origin: [f32; 3]) {
+        let expected: Vec<_> = full_sort_nearest(actors.iter(), origin).collect();
+        let actual: Vec<_> = nearest_observed_actors(actors.iter(), origin).collect();
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.into_iter().zip(expected) {
+            assert!(std::ptr::eq(actual, expected));
+        }
+    }
+
+    #[test]
+    fn nearest_observations_match_full_sort_for_crowds_and_input_orders() {
+        let template = actor_template();
+        for count in [
+            0,
+            1,
+            mod_api::MAX_OBSERVED_ACTORS - 1,
+            mod_api::MAX_OBSERVED_ACTORS,
+            100,
+            1000,
+        ] {
+            let mut actors = crowd(&template, count);
+            for origin in [[0.; 3], [10., -2., 4.], [128., 0., 0.]] {
+                assert_selection_matches(&actors, origin);
+                actors.reverse();
+                assert_selection_matches(&actors, origin);
+                actors.sort_by_key(|actor| actor.runtime_id);
+                assert_selection_matches(&actors, origin);
+                actors.reverse();
+                assert_selection_matches(&actors, origin);
+            }
+        }
+    }
+
+    #[test]
+    fn nearest_observations_replace_cutoff_ties_by_runtime_identity() {
+        let template = actor_template();
+        let mut actors = crowd(&template, mod_api::MAX_OBSERVED_ACTORS + 8);
+        for actor in &mut actors {
+            actor.position = [1., 0., 0.];
+        }
+        actors.sort_by_key(|actor| std::cmp::Reverse(actor.runtime_id));
+        let ids: Vec<_> = nearest_observed_actors(actors.iter(), [0.; 3])
+            .map(|actor| actor.runtime_id)
+            .collect();
+        assert_eq!(
+            ids,
+            (0..mod_api::MAX_OBSERVED_ACTORS as u64).collect::<Vec<_>>()
+        );
+        actors[0].position = [0.; 3];
+        assert_eq!(
+            nearest_observed_actors(actors.iter(), [0.; 3])
+                .next()
+                .unwrap()
+                .runtime_id,
+            actors[0].runtime_id
+        );
+        assert_selection_matches(&actors, [0.; 3]);
+    }
+
+    #[test]
+    fn nearest_observations_preserve_range_and_invalid_distance_handling() {
+        let template = actor_template();
+        let positions = [
+            [0.; 3],
+            [128., 0., 0.],
+            [-128., 0., 0.],
+            [f32::from_bits(128_f32.to_bits() + 1), 0., 0.],
+            [128., 1., 0.],
+            [f32::NAN, 0., 0.],
+            [0., f32::INFINITY, 0.],
+            [0., 0., f32::NEG_INFINITY],
+            [f32::MAX, 0., 0.],
+        ];
+        let actors: Vec<_> = positions
+            .into_iter()
+            .enumerate()
+            .map(|(index, position)| {
+                let mut actor = template.clone();
+                actor.runtime_id = index as u64;
+                actor.position = position;
+                actor
+            })
+            .collect();
+        let ids: Vec<_> = nearest_observed_actors(actors.iter(), [0.; 3])
+            .map(|actor| actor.runtime_id)
+            .collect();
+        assert_eq!(ids, [0, 1, 2]);
+        for origin in [
+            [0.; 3],
+            [f32::NAN, 0., 0.],
+            [f32::INFINITY, 0., 0.],
+            [f32::MAX; 3],
+        ] {
+            assert_selection_matches(&actors, origin);
+        }
+    }
+
+    #[test]
+    fn nearest_observations_do_not_allocate_without_eligible_actors() {
+        let (empty, allocations) =
+            test_alloc::measure(|| nearest_observed_actors(std::iter::empty(), [0.; 3]));
+        assert_eq!(empty.len(), 0);
+        assert_eq!(allocations.calls, 0);
+        let mut actor = actor_template();
+        for position in [[129., 0., 0.], [f32::NAN, 0., 0.], [f32::MAX; 3]] {
+            actor.position = position;
+            let (empty, allocations) =
+                test_alloc::measure(|| nearest_observed_actors(std::iter::once(&actor), [0.; 3]));
+            assert_eq!(empty.len(), 0);
+            assert_eq!(allocations.calls, 0);
+        }
+    }
+
+    #[test]
+    fn nearest_observations_allocation_benchmark() {
+        let template = actor_template();
+        let mut bounded_bytes = None;
+        for count in [16, 100, 1000] {
+            let actors = crowd(&template, count);
+            let (old, before) = test_alloc::measure(|| full_sort_nearest(actors.iter(), [0.; 3]));
+            let (new, after) =
+                test_alloc::measure(|| nearest_observed_actors(actors.iter(), [0.; 3]));
+            assert!(old.zip(new).all(|(old, new)| std::ptr::eq(old, new)));
+            assert!(after.calls > 0, "allocation counter must be active");
+            assert!(after.bytes <= before.bytes);
+            if let Some(bytes) = bounded_bytes {
+                assert_eq!(
+                    after.bytes, bytes,
+                    "selection storage must not grow with the crowd"
+                );
+            }
+            bounded_bytes = Some(after.bytes);
+            if count > mod_api::MAX_OBSERVED_ACTORS {
+                assert!(after.bytes < before.bytes);
+            }
+            eprintln!("nearest actors={count}: before={before:?} after={after:?}");
+        }
+    }
+
     #[test]
     fn ping_keeps_unknown_distinct_and_rejects_old_connections() {
         let mut poll = PingPoll::default();

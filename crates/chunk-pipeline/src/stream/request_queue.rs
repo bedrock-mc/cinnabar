@@ -2,12 +2,19 @@ use super::*;
 
 const MAX_PRIORITY_BYPASSES: u8 = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RequestIdentity {
     dimension: i32,
     chunk: ChunkKey,
     base_sub_chunk_y: i32,
     count: usize,
+}
+
+impl ColumnOwned for RequestIdentity {
+    /// Dispatched identities retain their request column.
+    fn column(&self) -> Option<ChunkKey> {
+        Some(self.chunk)
+    }
 }
 
 impl From<&PendingSubChunkRequest> for RequestIdentity {
@@ -56,10 +63,20 @@ enum Slot {
     },
 }
 
+impl ColumnOwned for Slot {
+    /// Unfilled reservations have no column and survive column eviction.
+    fn column(&self) -> Option<ChunkKey> {
+        match self {
+            Self::Ready { request, .. } => Some(request.chunk),
+            Self::Reserved { .. } => None,
+        }
+    }
+}
+
 /// The request `pop_next` would dispatch, and why.
 #[derive(Clone, Copy)]
 struct Selection {
-    index: usize,
+    index: i128,
     class: RequestClass,
     transport_retry: bool,
     starved: bool,
@@ -67,9 +84,9 @@ struct Selection {
 
 #[derive(Default)]
 pub(super) struct RequestQueue {
-    slots: VecDeque<Slot>,
+    slots: ColumnQueue<Slot>,
     /// Dispatched priorities kept until transport confirms, so a transport retry keeps its age.
-    popped: HashMap<RequestIdentity, RequestPriority>,
+    popped: ColumnRecords<RequestIdentity, RequestPriority>,
     next_sequence: u64,
     mesh_blockers: BTreeSet<ChunkKey>,
     last_popped_class: Option<RequestClass>,
@@ -101,7 +118,7 @@ impl RequestQueue {
         required_columns: &BTreeSet<ChunkKey>,
     ) -> RequestQueueEvidence {
         let mut evidence = RequestQueueEvidence::default();
-        for slot in &self.slots {
+        for slot in self.slots.iter() {
             match slot {
                 Slot::Reserved { .. } => evidence.reservations += 1,
                 Slot::Ready { request, priority } => {
@@ -150,13 +167,17 @@ impl RequestQueue {
         let Some(index) = self.reservation_index(world_sequence) else {
             return false;
         };
-        let Slot::Reserved { queue_sequence, .. } = self.slots[index] else {
+        let Slot::Reserved { queue_sequence, .. } = self.slots.get(index).expect("a reserved slot")
+        else {
             unreachable!("reservation index names a reservation");
         };
-        self.slots[index] = Slot::Ready {
-            request,
-            priority: RequestPriority::new(queue_sequence, false),
-        };
+        self.slots.replace(
+            index,
+            Slot::Ready {
+                request,
+                priority: RequestPriority::new(*queue_sequence, false),
+            },
+        );
         true
     }
 
@@ -181,10 +202,10 @@ impl RequestQueue {
         required_columns: &BTreeSet<ChunkKey>,
     ) -> Option<PendingSubChunkRequest> {
         let selected = self.select(player_chunk, required_columns)?;
-        for (index, slot) in self.slots.iter_mut().enumerate() {
+        for (position, slot) in self.slots.entries_mut() {
             match slot {
                 Slot::Reserved { .. } => break,
-                Slot::Ready { priority, .. } if index != selected.index => {
+                Slot::Ready { priority, .. } if position != selected.index => {
                     priority.bypasses = priority.bypasses.saturating_add(1);
                 }
                 Slot::Ready { .. } => {}
@@ -219,11 +240,17 @@ impl RequestQueue {
         base_sub_chunk_y: i32,
         count: usize,
     ) {
-        self.popped.retain(|identity, _| {
-            identity.chunk != chunk
-                || identity.base_sub_chunk_y != base_sub_chunk_y
-                || identity.count != count
-        });
+        let identities: Vec<_> = self
+            .popped
+            .keys_in_column(chunk)
+            .filter(|identity| {
+                identity.base_sub_chunk_y == base_sub_chunk_y && identity.count == count
+            })
+            .copied()
+            .collect();
+        for identity in identities {
+            self.popped.remove(&identity);
+        }
     }
 
     pub(super) fn cancel_reservation(&mut self, world_sequence: u64) {
@@ -238,12 +265,19 @@ impl RequestQueue {
             .retain(|slot| !matches!(slot, Slot::Ready { request, .. } if cancel(request)));
     }
 
-    /// Drops retired columns' ready work and request identities in one pass each.
+    /// Retires indexed ready work and dispatched identities without visiting other columns.
     pub(super) fn cancel_columns(&mut self, chunks: &BTreeSet<ChunkKey>) {
-        self.cancel_ready(|request| chunks.contains(&request.chunk));
-        self.mesh_blockers.retain(|chunk| !chunks.contains(chunk));
-        self.popped
-            .retain(|identity, _| !chunks.contains(&identity.chunk));
+        for &chunk in chunks {
+            self.slots.remove_column(chunk);
+            self.mesh_blockers.remove(&chunk);
+            self.popped.remove_column(chunk);
+        }
+    }
+
+    /// Reads and resets visits made by column retirement of ready and popped requests.
+    #[cfg(test)]
+    pub(super) fn take_cleanup_visits(&mut self) -> usize {
+        self.slots.take_cleanup_visits() + self.popped.take_cleanup_visits()
     }
 
     /// Gives requested neighbours preference within their existing request class.
@@ -256,9 +290,9 @@ impl RequestQueue {
         self.mesh_blockers.remove(&chunk);
     }
 
-    fn reservation_index(&self, world_sequence: u64) -> Option<usize> {
-        self.slots.iter().position(|slot| {
-            matches!(slot, Slot::Reserved { world_sequence: reserved, .. } if *reserved == world_sequence)
+    fn reservation_index(&self, world_sequence: u64) -> Option<i128> {
+        self.slots.entries().find_map(|(position, slot)| {
+            matches!(slot, Slot::Reserved { world_sequence: reserved, .. } if *reserved == world_sequence).then_some(position)
         })
     }
 
@@ -270,13 +304,10 @@ impl RequestQueue {
         required_columns: &BTreeSet<ChunkKey>,
     ) -> Option<Selection> {
         let eligible = || {
-            self.slots
-                .iter()
-                .enumerate()
-                .map_while(|(index, slot)| match slot {
-                    Slot::Ready { request, priority } => Some((index, request, *priority)),
-                    Slot::Reserved { .. } => None,
-                })
+            self.slots.entries().map_while(|(index, slot)| match slot {
+                Slot::Ready { request, priority } => Some((index, request, *priority)),
+                Slot::Reserved { .. } => None,
+            })
         };
         let oldest = |pick: fn(RequestPriority) -> bool| {
             eligible()
@@ -370,6 +401,34 @@ mod tests {
             base_sub_chunk_y: y,
             count: 1,
         }
+    }
+
+    /// Reservation replacement and transport retries preserve the derived column index.
+    #[test]
+    fn column_index_tracks_request_queue_mutations_and_order() {
+        let a = ChunkKey::new(0, 0, 0);
+        let b = ChunkKey::new(0, 4, 0);
+        let mut queue = RequestQueue::default();
+        queue.reserve(7);
+        queue.push_ready(request(b, 0), false);
+        queue.slots.assert_consistent();
+        assert!(queue.replace_reservation(7, request(a, 0)));
+        queue.slots.assert_consistent();
+        let popped = queue.pop_next(None, &BTreeSet::new()).unwrap();
+        queue.slots.assert_consistent();
+        queue.retry_front(popped);
+        queue.slots.assert_consistent();
+        queue.reserve(8);
+        queue.cancel_reservation(8);
+        queue.slots.assert_consistent();
+        queue.cancel_ready(|request| request.chunk == b);
+        queue.slots.assert_consistent();
+        queue.push_ready(request(b, 1), false);
+        queue.cancel_columns(&BTreeSet::from([a]));
+        queue.slots.assert_consistent();
+        assert_eq!(queue.pop_next(None, &BTreeSet::new()).unwrap().chunk, b);
+        queue.slots.assert_consistent();
+        assert!(queue.is_empty());
     }
 
     #[test]

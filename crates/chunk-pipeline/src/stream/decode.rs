@@ -69,6 +69,9 @@ impl WorldStream {
             .min(MAX_IN_FLIGHT_DECODE_JOBS.saturating_sub(self.in_flight_decode_jobs));
         // Enqueueing is count-bounded; spent commit time must not idle the decode lane.
         for _ in 0..budget {
+            if self.service_yield_requested() {
+                break;
+            }
             let Some(QueuedDecodeJob { queued_at, job }) = self.pending_decode.pop_front() else {
                 break;
             };

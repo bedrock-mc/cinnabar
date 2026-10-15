@@ -1,7 +1,7 @@
 use crate::chunk::*;
-use bevy::math::FloatOrd;
 use render_scene::{ChunkRenderInstance, ChunkUploadPriority};
-use std::cmp::Reverse;
+
+mod priority;
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkGpuUploadStats {
@@ -299,6 +299,8 @@ pub(in crate::chunk) struct GpuUpdateFairness {
     pub(in crate::chunk) last_tint_identity: Option<ChunkBiomeTintIdentity>,
     pub(in crate::chunk) model_validation: super::upload::model_validation::ModelValidationCache,
     examination_cursor: usize,
+    priority_frame: u64,
+    priorities: Mutex<priority::GpuUpdatePriorities>,
 }
 
 impl Default for GpuUpdateFairness {
@@ -317,6 +319,8 @@ impl GpuUpdateFairness {
             limit,
             model_validation: Default::default(),
             examination_cursor: 0,
+            priority_frame: 0,
+            priorities: Mutex::default(),
         }
     }
 
@@ -351,6 +355,7 @@ impl GpuUpdateFairness {
         successful: &[Entity],
         urgent: &[Entity],
     ) {
+        self.priority_frame = self.priority_frame.saturating_add(1);
         let active_set = active.iter().copied().collect::<HashSet<_>>();
         let successful = successful.iter().copied().collect::<HashSet<_>>();
         self.wait_ages
@@ -387,6 +392,8 @@ impl GpuUpdateFairness {
         self.recover_untracked = false;
         self.model_validation = Default::default();
         self.examination_cursor = 0;
+        self.priority_frame = 0;
+        self.priorities = Mutex::default();
     }
 
     #[cfg(test)]
@@ -407,40 +414,21 @@ pub(in crate::chunk) const fn chunk_tint_identity_is_active(
     record.stream() == active.stream() && record.revision() == active.revision()
 }
 
+/// Reconciles retained priorities without changing admission or the bounded examination order.
 pub(in crate::chunk) fn plan_gpu_chunk_updates(
-    mut candidates: Vec<GpuUpdateCandidate>,
+    candidates: Vec<GpuUpdateCandidate>,
     allocations: &HashMap<Entity, ArenaAllocation>,
     camera_position: Vec3,
     active_tint_identity: ChunkBiomeTintIdentity,
     fairness: &GpuUpdateFairness,
 ) -> Vec<Entity> {
-    candidates.retain(|candidate| {
-        chunk_tint_identity_is_active(candidate.tint_identity, active_tint_identity)
-            && allocations.get(&candidate.entity).is_none_or(|allocation| {
-                allocation.generation != candidate.generation
-                    || allocation.tint_identity != candidate.tint_identity
-            })
-    });
-    candidates.sort_by_cached_key(|candidate| {
-        let age = fairness.wait_age(candidate.entity);
-        (
-            Reverse(candidate.priority.is_urgent() || fairness.is_urgent(candidate.entity)),
-            Reverse(if age >= GPU_UPDATE_STARVED_FRAMES {
-                age
-            } else {
-                0
-            }),
-            Reverse(age >= GPU_UPDATE_OVERDUE_FRAMES),
-            FloatOrd(
-                ChunkUploadPriority::from_camera(candidate.key, camera_position).distance_squared(),
-            ),
-            candidate.key,
-        )
-    });
-    candidates
-        .into_iter()
-        .map(|candidate| candidate.entity)
-        .collect()
+    priority::plan_updates(
+        candidates,
+        allocations,
+        camera_position,
+        active_tint_identity,
+        fairness,
+    )
 }
 
 /// Ranges for a fresh allocation, found without copying the free lists; the

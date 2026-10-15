@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 
 use crate::UiScale;
 
+mod cache;
+pub use cache::TextLayoutCache;
 mod colors;
 #[cfg(test)]
 mod colors_tests;
@@ -49,9 +51,9 @@ pub const TEXT_BOLD_OFFSET_64: u32 = FONT_DESIGN_PIXEL_TEXELS * 64;
 const FIXED_POINT_DENOMINATOR: i64 = 64;
 const REPLACEMENT_CODEPOINT: char = '\u{fffd}';
 // A std B-tree node currently holds several keys, values, and edge pointers.
-// Charging a full 4 KiB node to every retained entry deliberately overcounts
+// Charging a full 8 KiB node to every retained entry deliberately overcounts
 // shared and partially occupied nodes, keeping the public byte cap conservative.
-const CONSERVATIVE_BTREE_NODE_BYTES: usize = 4_096;
+const CONSERVATIVE_BTREE_NODE_BYTES: usize = 8_192;
 const ALLOCATOR_METADATA_BYTES: usize = 2 * size_of::<usize>();
 const CONSERVATIVE_ALLOCATION_GRANULARITY: usize = 4_096;
 
@@ -431,153 +433,6 @@ impl fmt::Display for TextError {
 
 impl std::error::Error for TextError {}
 
-#[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
-enum CacheKey {
-    Wrapped(TextLayoutKey),
-    SingleLine(TextLayoutKey, u32),
-}
-
-struct CacheEntry {
-    layout: Arc<TextLayout>,
-    retained_bytes: usize,
-    last_used: u64,
-}
-
-pub struct TextLayoutCache {
-    entry_cap: usize,
-    byte_cap: usize,
-    retained_bytes: usize,
-    next_id: u64,
-    clock: u64,
-    visual_overflows: u64,
-    entries: BTreeMap<CacheKey, CacheEntry>,
-}
-
-impl TextLayoutCache {
-    pub fn new(entry_cap: usize, byte_cap: usize) -> Self {
-        Self {
-            entry_cap,
-            byte_cap,
-            retained_bytes: 0,
-            next_id: 1,
-            clock: 0,
-            visual_overflows: 0,
-            entries: BTreeMap::new(),
-        }
-    }
-
-    pub fn layout(&mut self, request: TextLayoutRequest<'_>) -> Result<Arc<TextLayout>, TextError> {
-        validate_request(request)?;
-        let layout_key = layout_key(request);
-        let key = CacheKey::Wrapped(layout_key.clone());
-        let now = self.advance_clock()?;
-        if let Some(entry) = self.entries.get_mut(&key) {
-            entry.last_used = now;
-            return Ok(Arc::clone(&entry.layout));
-        }
-
-        let id = self.next_id;
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .ok_or(TextError::CacheCounterOverflow)?;
-        let layout = Arc::new(build_layout(id, layout_key, request)?);
-        if layout.size_64()[0] > request.width_64 {
-            self.visual_overflows = self.visual_overflows.saturating_add(1);
-        }
-        self.retain(key, layout, now)
-    }
-
-    /// Counts newly shaped layouts with ink wider than their wrapping control.
-    pub const fn visual_overflow_count(&self) -> u64 {
-        self.visual_overflows
-    }
-
-    /// Counts shaping attempts, including failed and uncached layouts.
-    pub const fn built_layout_count(&self) -> u64 {
-        self.next_id - 1
-    }
-
-    /// Both wrapping and ellipsis results share the same bounded retention budget.
-    fn retain(
-        &mut self,
-        key: CacheKey,
-        layout: Arc<TextLayout>,
-        now: u64,
-    ) -> Result<Arc<TextLayout>, TextError> {
-        let retained_bytes = retained_layout_bytes(&layout)?;
-        if self.entry_cap == 0 || retained_bytes > self.byte_cap {
-            return Ok(layout);
-        }
-
-        while self.entries.len() >= self.entry_cap
-            || self
-                .retained_bytes
-                .checked_add(retained_bytes)
-                .is_none_or(|bytes| bytes > self.byte_cap)
-        {
-            if !self.evict_lru() {
-                return Ok(layout);
-            }
-        }
-        let new_retained_bytes = self
-            .retained_bytes
-            .checked_add(retained_bytes)
-            .ok_or(TextError::FixedPointOverflow)?;
-        self.entries.insert(
-            key,
-            CacheEntry {
-                layout: Arc::clone(&layout),
-                retained_bytes,
-                last_used: now,
-            },
-        );
-        self.retained_bytes = new_retained_bytes;
-        Ok(layout)
-    }
-
-    pub const fn retained_bytes(&self) -> usize {
-        self.retained_bytes
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn advance_clock(&mut self) -> Result<u64, TextError> {
-        self.clock = self
-            .clock
-            .checked_add(1)
-            .ok_or(TextError::CacheCounterOverflow)?;
-        Ok(self.clock)
-    }
-
-    fn evict_lru(&mut self) -> bool {
-        let Some(key) = self
-            .entries
-            .iter()
-            .min_by(|(left_key, left), (right_key, right)| {
-                (left.last_used, left.layout.id(), *left_key).cmp(&(
-                    right.last_used,
-                    right.layout.id(),
-                    *right_key,
-                ))
-            })
-            .map(|(key, _)| key.clone())
-        else {
-            return false;
-        };
-        if let Some(removed) = self.entries.remove(&key) {
-            self.retained_bytes -= removed.retained_bytes;
-        }
-        true
-    }
-}
-
 /// Rejects malformed requests before lookup or single-line normalization allocates.
 fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
     if request.width_64 == 0 {
@@ -601,9 +456,10 @@ fn validate_request(request: TextLayoutRequest<'_>) -> Result<(), TextError> {
     Ok(())
 }
 
-fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
+/// Qualifies a content digest with every layout-affecting request parameter.
+fn layout_key(request: TextLayoutRequest<'_>, content_sha256: [u8; 32]) -> TextLayoutKey {
     TextLayoutKey {
-        content_sha256: Sha256::digest(request.text.as_bytes()).into(),
+        content_sha256,
         style: request.style,
         width_64: request.width_64,
         line_height_64: request.line_height_64,
@@ -614,40 +470,7 @@ fn layout_key(request: TextLayoutRequest<'_>) -> TextLayoutKey {
     }
 }
 
-fn retained_layout_bytes(layout: &TextLayout) -> Result<usize, TextError> {
-    let glyph_bytes = layout
-        .glyphs
-        .len()
-        .checked_mul(size_of::<GlyphQuad>())
-        .ok_or(TextError::FixedPointOverflow)?;
-    let arc_allocation = conservative_allocation_bytes(
-        size_of::<TextLayout>()
-            .checked_add(2 * size_of::<usize>())
-            .ok_or(TextError::FixedPointOverflow)?,
-    )?;
-    let glyph_allocation = conservative_allocation_bytes(glyph_bytes)?;
-    [
-        arc_allocation,
-        glyph_allocation,
-        conservative_allocation_bytes(
-            layout
-                .source_indices
-                .len()
-                .checked_mul(size_of::<Option<usize>>())
-                .ok_or(TextError::FixedPointOverflow)?,
-        )?,
-        // BTreeMap duplicates the key and retains a CacheEntry value.
-        size_of::<CacheKey>(),
-        size_of::<CacheEntry>(),
-        CONSERVATIVE_BTREE_NODE_BYTES,
-        // Node allocator metadata is charged separately from its full page.
-        ALLOCATOR_METADATA_BYTES,
-    ]
-    .into_iter()
-    .try_fold(0usize, |total, bytes| total.checked_add(bytes))
-    .ok_or(TextError::FixedPointOverflow)
-}
-
+/// Rounds retained allocations up and includes allocator metadata.
 fn conservative_allocation_bytes(payload_bytes: usize) -> Result<usize, TextError> {
     payload_bytes
         .checked_add(ALLOCATOR_METADATA_BYTES)

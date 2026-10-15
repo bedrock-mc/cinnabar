@@ -49,47 +49,79 @@ impl BackingBlockIdentity {
 
 #[derive(Debug, Default)]
 pub struct BlockEntityVisualDiagnostics {
-    routes: BTreeMap<BlockEntityKey, BlockEntityVisualRoute>,
+    routes: BTreeMap<ChunkKey, BTreeMap<BlockEntityKey, BlockEntityVisualRoute>>,
     counts: [usize; 4], // maintained on every mutation; read every frame
+    #[cfg(test)]
+    removal_visits: usize,
 }
 
 impl BlockEntityVisualDiagnostics {
     pub fn upsert(&mut self, key: BlockEntityKey, route: BlockEntityVisualRoute) {
         debug_assert_ne!(route.route_digest(), [0; 32]);
-        if let Some(previous) = self.routes.insert(key, route) {
+        if let Some(previous) = self
+            .routes
+            .entry(key.chunk())
+            .or_default()
+            .insert(key, route)
+        {
             self.counts[previous.count_index()] -= 1;
         }
         self.counts[route.count_index()] += 1;
     }
 
+    /// Removes one route and its maintained count.
     pub fn remove(&mut self, key: BlockEntityKey) {
-        if let Some(previous) = self.routes.remove(&key) {
+        let Some(routes) = self.routes.get_mut(&key.chunk()) else {
+            return;
+        };
+        if let Some(previous) = routes.remove(&key) {
             self.counts[previous.count_index()] -= 1;
+        }
+        if routes.is_empty() {
+            self.routes.remove(&key.chunk());
         }
     }
 
+    /// Removes a section's routes by scanning only its owning column.
     pub fn remove_sub_chunk(&mut self, key: SubChunkKey) {
-        self.retain(|entity| entity.sub_chunk() != key);
-    }
-
-    pub fn remove_chunk(&mut self, key: ChunkKey) {
-        self.retain(|entity| entity.chunk() != key);
-    }
-
-    /// Removes visual routes for a retired batch of columns.
-    pub fn remove_chunks(&mut self, keys: &std::collections::BTreeSet<ChunkKey>) {
-        self.retain(|entity| !keys.contains(&entity.chunk()));
-    }
-
-    fn retain(&mut self, keep: impl Fn(&BlockEntityKey) -> bool) {
-        let counts = &mut self.counts;
-        self.routes.retain(|entity, route| {
-            let kept = keep(entity);
-            if !kept {
-                counts[route.count_index()] -= 1;
+        let Some(routes) = self.routes.get_mut(&key.chunk()) else {
+            return;
+        };
+        routes.retain(|entity, route| {
+            #[cfg(test)]
+            {
+                self.removal_visits += 1;
             }
-            kept
+            if entity.sub_chunk() == key {
+                self.counts[route.count_index()] -= 1;
+                false
+            } else {
+                true
+            }
         });
+        if routes.is_empty() {
+            self.routes.remove(&key.chunk());
+        }
+    }
+
+    /// Removes only the retired column's routes and counts.
+    pub fn remove_chunk(&mut self, key: ChunkKey) {
+        if let Some(routes) = self.routes.remove(&key) {
+            for route in routes.into_values() {
+                #[cfg(test)]
+                {
+                    self.removal_visits += 1;
+                }
+                self.counts[route.count_index()] -= 1;
+            }
+        }
+    }
+
+    /// Removes visual routes for a retired batch without visiting other columns.
+    pub fn remove_chunks(&mut self, keys: &std::collections::BTreeSet<ChunkKey>) {
+        for &key in keys {
+            self.remove_chunk(key);
+        }
     }
 
     pub fn clear(&mut self) {
@@ -266,12 +298,41 @@ mod tests {
         diagnostics.remove_sub_chunk(key(2, 20).sub_chunk());
         diagnostics.remove_chunk(key(3, 1).chunk());
         let mut recount = [0; 4];
-        for route in diagnostics.routes.values() {
+        for route in diagnostics.routes.values().flat_map(BTreeMap::values) {
             recount[route.count_index()] += 1;
         }
         assert_eq!(diagnostics.counts(), recount);
         diagnostics.clear();
         assert_eq!(diagnostics.counts(), [0; 4]);
+    }
+
+    /// A populated disjoint retirement examines each retired route exactly once.
+    #[test]
+    fn column_retirement_visits_only_its_visual_routes() {
+        let columns = 4096;
+        let mut diagnostics = BlockEntityVisualDiagnostics::default();
+        let route = BlockEntityVisualRoute::Deferred {
+            route_digest: [1; 32],
+        };
+        for x in 0..columns {
+            diagnostics.upsert(BlockEntityKey::new(0, x * 16, 1, 0), route);
+            diagnostics.upsert(BlockEntityKey::new(0, x * 16, 20, 0), route);
+        }
+        let survivor = BlockEntityKey::new(1, 0, 1, 0);
+        diagnostics.upsert(survivor, route);
+        let (mut total, mut max) = (0, 0);
+        for x in 0..columns {
+            diagnostics.remove_chunks(&std::collections::BTreeSet::from([ChunkKey::new(0, x, 0)]));
+            let visits = std::mem::take(&mut diagnostics.removal_visits);
+            total += visits;
+            max = max.max(visits);
+        }
+        assert_eq!(diagnostics.counts(), [0, 0, 1, 0]);
+        eprintln!("visual retirement: columns={columns} total_visits={total} max_visits={max}");
+        assert_eq!(max, 2, "retirement visits only its own visual records");
+        assert_eq!(total, columns as usize * 2);
+        diagnostics.remove(survivor);
+        assert!(diagnostics.routes.is_empty());
     }
 
     /// Run: `cargo test -p client-world --lib route_count_cost -- --ignored --nocapture`.
@@ -291,7 +352,7 @@ mod tests {
         let started = std::time::Instant::now();
         for _ in 0..calls {
             let mut recount = [0_usize; 4];
-            for route in diagnostics.routes.values() {
+            for route in diagnostics.routes.values().flat_map(BTreeMap::values) {
                 recount[route.count_index()] += 1;
             }
             std::hint::black_box(recount);

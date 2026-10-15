@@ -13,6 +13,7 @@ fn preset_action_replaces_controlled_session_overrides_and_saves_the_applied_val
     let mut menu = MenuRuntime::new_with_layout(true, Some(2), "Presets".into(), layout, skin);
     menu.set_named_option(SettingId::Gamma, 70);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     menu.settings_apply = false;
     menu.set_session_option(SettingId::Msaa, Some(8));
     menu.set_session_option(SettingId::HideHud, Some(1));
@@ -26,6 +27,7 @@ fn preset_action_replaces_controlled_session_overrides_and_saves_the_applied_val
     assert_eq!(menu.settings_options.value(SettingId::Gamma), 70);
     assert_eq!(menu.gui_scale_preference(), Some(2));
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let loaded = SettingsOptions::load(&path);
     assert_eq!(loaded.video_preset(), Some(VideoPreset::Quality));
     assert_eq!(loaded.value(SettingId::Gamma), 70);
@@ -44,6 +46,7 @@ fn preset_action_replaces_controlled_session_overrides_and_saves_the_applied_val
     );
     assert_eq!(menu.settings_options.value(SettingId::HideHud), 1);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     assert_eq!(
         SettingsOptions::load(&path).video_preset(),
         Some(VideoPreset::Balanced)

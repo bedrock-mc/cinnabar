@@ -189,6 +189,7 @@ impl MenuRuntime {
             settings_dropdown: initial.settings_dropdown,
             settings_scale_picker: initial.settings_scale_picker,
             settings_dirty: false,
+            settings_writer: None,
             settings_retry_at: None,
             settings_apply: true,
             session_overrides: Vec::new(),
