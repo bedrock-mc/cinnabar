@@ -16,6 +16,8 @@ pub(super) const RESERVED_CAPACITY: usize = 1024;
 const SHARED_BYTES: usize = SHARED_CAPACITY * 2048;
 /// Byte reserve kept for warnings and errors, separate from normal writes.
 const RESERVED_BYTES: usize = RESERVED_CAPACITY * 2048;
+/// Pending flush and redirect requests, independent of write capacity.
+pub(super) const CONTROL_CAPACITY: usize = 64;
 /// Longest an error waits for space once even the reserve is full.
 pub(super) const ERROR_WAIT: Duration = Duration::from_millis(50);
 
@@ -154,10 +156,10 @@ impl Queue {
         }
     }
 
-    /// Queues a control message regardless of capacity; it occupies no write slot.
+    /// Queues a bounded control request without consuming a write slot.
     pub(super) fn push_control(&self, message: Message) -> Result<(), Message> {
         let state = self.lock();
-        if state.closed {
+        if state.closed || state.items.len() - state.writes >= CONTROL_CAPACITY {
             return Err(message);
         }
         self.enqueue(state, message, false);
@@ -295,6 +297,20 @@ mod tests {
         let result = queue.push(write("error", Priority::Error));
         assert!(matches!(result, Err(Rejected::Full)));
         assert_eq!(*clock.now.lock().unwrap() - clock.start, ERROR_WAIT);
+    }
+
+    #[test]
+    fn stalled_writers_cannot_accumulate_unlimited_control_requests() {
+        let (queue, _clock) = queue_with_jumping_clock();
+        let mut admitted = 0;
+        for _ in 0..CONTROL_CAPACITY + 1 {
+            let (done, _flushed) = std::sync::mpsc::sync_channel(1);
+            admitted += usize::from(queue.push_control(Message::Flush(done)).is_ok());
+        }
+        assert_eq!(admitted, CONTROL_CAPACITY);
+        drop(queue.pop());
+        let (done, _flushed) = std::sync::mpsc::sync_channel(1);
+        assert!(queue.push_control(Message::Flush(done)).is_ok());
     }
 
     #[test]

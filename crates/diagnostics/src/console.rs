@@ -287,7 +287,7 @@ impl Console {
         }
     }
 
-    /// Waits until every write queued before this call has reached its stream.
+    /// Waits for queued output unless its bounded flush request cannot be admitted.
     pub fn flush(&self) {
         let Some(queue) = &self.queue else {
             return;
@@ -315,7 +315,7 @@ impl Console {
         }
         let (done, flushed) = sync_channel(1);
         if queue.push_control(Message::Flush(done)).is_err() {
-            return true;
+            return false;
         }
         flushed
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
