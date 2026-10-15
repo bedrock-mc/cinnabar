@@ -15,6 +15,8 @@ pub mod catalog;
 /// never echoes the local player onto the player list.
 #[derive(Debug, Clone, Resource)]
 pub struct LocalPlayerSkin {
+    /// The selected pack and skin name sent at login and on appearance updates.
+    pub skin_id: String,
     pub rgba8: render_api::SkinRgba8,
     pub width: u32,
     pub height: u32,
@@ -62,6 +64,7 @@ impl LocalPlayerSkin {
             let mut active = selected.skin.clone();
             active.cape = catalog.selected_cape().map(|entry| entry.cape.clone());
             skin.set_selection(&active, selected.model);
+            skin.skin_id = selected_skin_id(selected);
             skin.engine_version = selected.engine_version.clone();
         }
         skin
@@ -91,6 +94,7 @@ impl LocalPlayerSkin {
             }
         }
         Self {
+            skin_id: protocol::builtin_skin_id("Custom"),
             rgba8: rgba8.into(),
             width: side as u32,
             height: side as u32,
@@ -151,6 +155,7 @@ impl LocalPlayerSkin {
     #[must_use]
     pub fn to_client_skin(&self) -> protocol::ClientSkin {
         protocol::ClientSkin {
+            id: self.skin_id.clone(),
             geometry: self
                 .geometry
                 .as_ref()
@@ -175,6 +180,18 @@ impl LocalPlayerSkin {
                 }),
         }
     }
+}
+
+/// Maps catalog selection to its pack identity using the persisted image name for imports.
+pub(crate) fn selected_skin_id(selected: &launcher::dressing_room::DressingRoomSkin) -> String {
+    if let Some(name) = selected.id.strip_prefix("vanilla:") {
+        return protocol::builtin_skin_id(name);
+    }
+    let image_name = Path::new(&selected.path)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&selected.id);
+    protocol::custom_skin_id(image_name)
 }
 
 /// Packs supported source pixels, retaining a legal classic size for the login upload.
@@ -212,6 +229,42 @@ fn stable_local_uuid(display_name: &str) -> [u8; 16] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Catalog keys and local paths resolve to one stable upload ID across joins and updates.
+    #[test]
+    fn selected_skin_identity_uses_the_pack_and_persisted_image_name() {
+        let mut local = LocalPlayerSkin::generated_default("fixture");
+        for (id, path, expected) in [
+            (
+                "vanilla:Steve",
+                "/fixture/starter.bin",
+                protocol::builtin_skin_id("Steve"),
+            ),
+            (
+                "imported:first",
+                "/fixture/first.png",
+                protocol::custom_skin_id("first"),
+            ),
+            (
+                "imported:second",
+                "/fixture/second.png",
+                protocol::custom_skin_id("second"),
+            ),
+        ] {
+            let selected = launcher::dressing_room::DressingRoomSkin {
+                id: id.into(),
+                name: "Fixture".into(),
+                path: path.into(),
+                imported: !id.starts_with("vanilla:"),
+                model: launcher::dressing_room::SkinModel::Classic,
+                engine_version: render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION.into(),
+                skin: local.standard_skin(),
+            };
+            local.skin_id = selected_skin_id(&selected);
+            assert_eq!(local.to_client_skin().id, expected);
+            assert_eq!(selected_skin_id(&selected), expected);
+        }
+    }
 
     /// An HD classic upload keeps every texel without acquiring the GPU array dimensions.
     #[test]

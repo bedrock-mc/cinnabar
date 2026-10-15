@@ -1,10 +1,12 @@
 mod bodies;
 mod commit;
+mod flames;
 mod geometry;
 mod hand_frame;
 mod layers;
 mod occlusion;
 mod paintings;
+pub use flames::WorldActorFlames;
 mod views;
 use geometry::{SessionGeometryReady, apply_session_pack, register_geometries};
 mod preparation;
@@ -110,6 +112,7 @@ pub struct ActorFramePublication<'w, 's> {
     dropped_items: DroppedItemPublisher<'w, 's>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     partial_tick: ResMut<'w, ActorFramePartialTick>,
+    flames: Option<ResMut<'w, WorldActorFlames>>,
 }
 
 /// Builds final actor and hand poses after admission, without advancing remote actor ticks.
@@ -256,6 +259,17 @@ pub fn prepare_actor_render_frame(
     state
         .body_scratch
         .recycle(bodies.java_posed, bodies.remote_skin_layers);
+    if let Some(flames) = params.flames.as_deref_mut()
+        && let Ok((camera, _)) = params.presentation.camera.single()
+    {
+        let (yaw, _, _) = camera.rotation.to_euler(bevy::math::EulerRot::YXZ);
+        flames.append(
+            stream.map(WorldStream::authority),
+            yaw,
+            step.partial_tick,
+            &mut batch,
+        );
+    }
     if let Some(equipment) = params.equipment.as_deref_mut() {
         new_geometries.extend(equipment.take_pending_geometries());
     }

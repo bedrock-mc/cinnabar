@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "devtool commands report selections, summaries and replayed command output on the terminal"
+)]
+
 mod baseline;
 mod capture;
 mod cargo_failures;
@@ -7,6 +13,7 @@ mod commands;
 mod diagnostic_bundle;
 mod metadata;
 mod selection;
+mod symbolicate;
 mod worktrees;
 
 use std::{io, path::PathBuf};
@@ -30,7 +37,7 @@ pub enum DevtoolError {
     #[error("workspace package manifest `{0}` has no parent directory")]
     ManifestWithoutParent(PathBuf),
     #[error(
-        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>]"
+        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>] | symbolicate <crash folder|minidump> [--symbols <dir|zip>]"
     )]
     Usage(String),
     #[error("failed to run `{command}`: {source}")]
@@ -43,6 +50,9 @@ pub enum DevtoolError {
     },
     #[error("`{command}` produced non-UTF-8 output")]
     NonUtf8 { command: String },
+    /// A crash input or symbol source that `symbolicate` cannot read.
+    #[error("{0}")]
+    Symbolicate(String),
 }
 
 /// Dispatches repository commands without requiring a Git base for utility commands.
@@ -52,6 +62,7 @@ pub fn dispatch(args: Vec<String>) -> Result<(), DevtoolError> {
         Some("capture") => capture::run(&args[1..], false),
         Some("trace-summary") => capture::run(&args[1..], true),
         Some("wt-gc") => worktrees::run(&args[1..]),
+        Some("symbolicate") => symbolicate::run(&args[1..]),
         _ => parse_args(args).and_then(|options| run(&options)),
     }
 }

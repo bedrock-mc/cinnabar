@@ -435,6 +435,10 @@ impl BundleHost {
 
     /// Replaces the instance with a fresh one after a failed callback, or quarantines the bundle
     /// when that fails. Either way it says so on stderr, which the client logs.
+    #[expect(
+        clippy::print_stderr,
+        reason = "the server helper's stderr lines are drained into the client's log"
+    )]
     fn restart(&mut self) {
         let state = self.store.data();
         let (owner, capabilities, epoch) =

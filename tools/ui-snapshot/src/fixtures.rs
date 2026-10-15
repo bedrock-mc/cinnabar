@@ -57,6 +57,29 @@ pub const STATES: &[State] = &[
         fixture: || chat_background(100),
     },
     State {
+        name: "chat-command-background-transparent",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat_command_background,
+    },
+    State {
+        name: "chat-command-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_completion("/give @", &["@a", "@e", "@p"]),
+    },
+    State {
+        name: "chat-command-completion-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || {
+            chat_completion(
+                "/tell ExamplePlayer AnotherPlayerWithALongName @",
+                &["@Alex", "@ExamplePlayerWithALongName", "@Bo"],
+            )
+        },
+    },
+    State {
         name: "import-confirmation",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -140,6 +163,42 @@ pub const STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: mods::undeclared,
     },
+    State {
+        name: "settings-mods-permissions-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::collapsed,
+    },
+    State {
+        name: "settings-mods-permissions-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::consent,
+    },
+    State {
+        name: "settings-mods-permissions-requested",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::requested_only,
+    },
+    State {
+        name: "settings-mods-permissions-all",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: mods::show_all,
+    },
+    State {
+        name: "settings-mods-permissions-undeclared-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::undeclared_permissions,
+    },
 ];
 
 /// Exercises the native chat collection with an unfinished mention.
@@ -186,6 +245,25 @@ fn chat_background(percent: i32) -> Fixture {
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
+        options: Arc::new(options),
+    }
+}
+
+/// Shows the command input and suggestions with chat backgrounds set to zero percent.
+fn chat_command_background() -> Fixture {
+    chat_completion("/", &["/give", "/help", "/say"])
+}
+
+/// Shows completions after an anonymous draft with transparent message backgrounds.
+fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
+    use launcher::menu::settings_options::SettingsOptions;
+
+    let mut options = SettingsOptions::default();
+    options.set(SettingId::ChatBackgroundOpacity.index(), 0);
+    Fixture::Chat {
+        draft,
+        suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
+        messages: Default::default(),
         options: Arc::new(options),
     }
 }

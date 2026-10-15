@@ -260,6 +260,7 @@ impl ActorStore {
                 actor.set_current_pose(pose);
                 self.animation.mark_reset(runtime_id);
             }
+            self.effect_members.collidable.update(actor);
             return;
         }
         let mut actor =
@@ -483,7 +484,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(1);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored unsupported actor movement duration (total {})",
                             self.ignored_movement_components
                         );
@@ -540,7 +541,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(ignored);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored non-finite actor movement components: {}",
                             self.ignored_movement_components
                         );
@@ -582,6 +583,7 @@ impl ActorStore {
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
                 actor.source_tick = movement.source_tick;
+                self.effect_members.collidable.update(actor);
                 if movement.teleported {
                     self.animation.mark_reset(movement.runtime_id);
                     if let Some(lifetime) = self.lifetime(movement.runtime_id) {

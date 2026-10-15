@@ -238,6 +238,29 @@ fn ui_index_loads_custom_paths_and_extensions() {
 }
 
 #[test]
+fn ui_index_in_higher_pack_selects_lower_at_prefixed_document() {
+    let path = "@behub/components/label.json";
+    let lower = archive(
+        1,
+        &[(path, br#"{"namespace":"custom","label":{"type":"label"}}"#)],
+    );
+    let upper = archive(
+        2,
+        &[(
+            json_ui::UI_DEFS_PATH,
+            br#"{"ui_defs":["@behub/components/label.json"]}"#,
+        )],
+    );
+    let stack =
+        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
+            upper, lower,
+        ]));
+    let view = resource_pack::LayeredPackView::tracked(stack);
+    let pack = super::collect_server_ui(&view).unwrap();
+    assert!(pack.ui_layers[0].iter().any(|(name, _)| name == path));
+}
+
+#[test]
 fn root_splashes_load_without_ui_definitions_and_track_removal() {
     use assets::SPLASH_RESOURCE_PATH;
     use ui_screens::menu_renderers::splashes::select_splash;

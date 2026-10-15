@@ -20,6 +20,8 @@ mod capture;
 /// Everything the session applies from its server pack stack.
 #[derive(Clone, Debug)]
 pub struct PackApplication {
+    /// One-shot block state prepared after reusable pack compilation.
+    pub(super) registries: Option<super::session_registries::PreparedSessionRegistries>,
     pub(super) dependencies: pack_runtime::reload_diff::Dependencies,
     /// Inert metadata only; accepting a pack does not authorize execution.
     pub(crate) extension_marker: Option<Arc<[u8]>>,
@@ -47,6 +49,7 @@ pub struct PackApplication {
 impl Default for PackApplication {
     fn default() -> Self {
         Self {
+            registries: None,
             dependencies: Default::default(),
             extension_marker: None,
             admission: PackAdmission::None,
@@ -488,6 +491,7 @@ fn compile_application(
         ),
     };
     Some(PackApplication {
+        registries: None,
         extension_marker,
         property_defaults,
         prepared_actor_artwork: previous.and_then(|old| old.prepared_actor_artwork.clone()),

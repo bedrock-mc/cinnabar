@@ -31,6 +31,7 @@ impl ActorStore {
                 }
             }
             actor.painting = Some(painting);
+            self.effect_members.collidable.update(actor);
         }
         result
     }

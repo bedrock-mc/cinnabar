@@ -115,6 +115,7 @@ pub(crate) struct TransferNotice {
 #[derive(Resource)]
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
+    pub(crate) movement_colliders: crate::movement::MovementColliderCache,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
@@ -145,6 +146,7 @@ impl ClientWorld {
     pub(crate) fn new(runtime_assets: Arc<RuntimeAssets>) -> Self {
         Self {
             stream: None,
+            movement_colliders: Default::default(),
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
@@ -366,6 +368,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
     } = state;
     let ClientWorld {
         stream,
+        movement_colliders,
         pending_surface_spawn,
         dimension_transfer,
         respawn,
@@ -519,8 +522,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 time.elapsed(),
             );
         }
-        let world =
-            crate::movement::collision_world(stream, collisions.registry(stream.network_id_mode()));
+        let world = crate::movement::collision_world(
+            stream,
+            collisions.registry(stream.network_id_mode()),
+            movement_colliders,
+        );
         let disposition = gameplay::committed_control::CommittedGameplayState {
             movement: &mut movement,
             physics: &mut local_physics,

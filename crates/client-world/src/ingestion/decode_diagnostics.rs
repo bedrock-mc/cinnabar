@@ -52,6 +52,10 @@ pub(crate) struct DecodeDiagnostics {
 }
 
 impl DecodeDiagnostics {
+    #[expect(
+        clippy::print_stderr,
+        reason = "INVALID_PERSISTENT_BLOCK_STATE is a stderr marker line read during live session runs"
+    )]
     pub(crate) fn observe_invalid_persistent(&self, session: u64) {
         let previous = self.invalid_persistent.fetch_add(1, Ordering::Relaxed);
         if previous < MAX_UNRESOLVED_SAMPLES {
@@ -68,6 +72,10 @@ impl DecodeDiagnostics {
     }
 
     /// Logs the first distinct wire identities and unresolved identities for one session.
+    #[expect(
+        clippy::print_stderr,
+        reason = "BLOCK_PALETTE_SAMPLE and UNRESOLVED_BLOCK_ID are stderr marker lines read during live session runs"
+    )]
     pub(crate) fn observe(
         &self,
         wire: u32,

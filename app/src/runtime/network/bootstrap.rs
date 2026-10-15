@@ -110,7 +110,10 @@ pub(super) fn apply(
         session_generation,
     ) {
         BootstrapGenerationDisposition::Expected => {}
-        BootstrapGenerationDisposition::Stale => return,
+        BootstrapGenerationDisposition::Stale => {
+            client_runtime::session::release_off_frame(packs);
+            return;
+        }
         BootstrapGenerationDisposition::Unexpected => {
             record_fatal_error(
                 &mut fatal_error.0,
@@ -122,6 +125,27 @@ pub(super) fn apply(
             );
             return;
         }
+    }
+    let Some(registries) = packs.registries.take() else {
+        record_fatal_error(
+            &mut client_world.fatal_error,
+            "StartGame block registries were not prepared".to_owned(),
+        );
+        return;
+    };
+    if !registries.matches(
+        SessionGeneration::new(session_generation),
+        bootstrap.block_network_ids_are_hashes,
+        &client_world.runtime_assets,
+        collisions,
+        &custom_blocks,
+    ) {
+        client_runtime::session::release_off_frame(registries);
+        record_fatal_error(
+            &mut client_world.fatal_error,
+            "StartGame block registries do not match the active session inputs".to_owned(),
+        );
+        return;
     }
     ui_runtime.set_server_lang(None);
     player_runtime.facts.clear_block_breaking_mode();
@@ -147,6 +171,7 @@ pub(super) fn apply(
     client_runtime::item_diagnostics::session_registry(item_registry.as_ref());
     let world_item_registry = item_registry.clone();
     if !publish_bootstrap_inventory(&mut player_runtime, ui_runtime, item_registry, inventory) {
+        client_runtime::session::release_off_frame(registries);
         record_fatal_error(
             &mut fatal_error.0,
             "StartGame inventory fanout was not an authority event".to_owned(),
@@ -193,6 +218,7 @@ pub(super) fn apply(
             terrain_before_spawn,
         },
         &packs,
+        registries,
         current,
         super::bootstrap_world::StreamResources {
             client_world,

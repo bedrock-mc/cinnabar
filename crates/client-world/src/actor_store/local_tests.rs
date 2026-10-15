@@ -72,6 +72,58 @@ fn local_feed(x: f32, yaw: f32) -> LocalPlayerFeed {
 }
 
 #[test]
+fn local_pose_feeds_and_identity_filters_refresh_collision_snapshots() {
+    let mut store = ActorStore::new(1, 0);
+    let mut feed = local_feed(0.0, 0.0);
+    store.sync_local_player(1, 10, &feed);
+    store.apply(
+        1,
+        1,
+        ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+            dimension: 0,
+            runtime_id: 1,
+            metadata: [protocol::ActorMetadata {
+                key: ActorDataKey::FlagsTwo.wire_value(),
+                value: protocol::ActorMetadataValue::FlagsExtended(
+                    1 << (ActorFlag::Collidable.wire_value() - 64),
+                ),
+            }]
+            .into(),
+            properties: [].into(),
+            tick: 0,
+        }),
+    );
+    let excluded = store.movement_collider_snapshot(1, 10);
+    assert!(excluded.is_empty());
+    let original = store.movement_collider_snapshot(2, 20);
+    assert_eq!(original.len(), 1);
+    feed.position[0] = 4.0;
+    feed.teleported = true;
+    store.sync_local_player(1, 10, &feed);
+    let teleported = store.movement_collider_snapshot(2, 20);
+    assert_ne!(original, teleported);
+    assert_eq!(
+        teleported[0],
+        store.get(1).unwrap().movement_collision_bounds().unwrap()
+    );
+    feed.position[0] = 8.0;
+    feed.teleported = false;
+    store.sync_local_player(1, 10, &feed);
+    assert!(Arc::ptr_eq(
+        &teleported,
+        &store.movement_collider_snapshot(2, 20)
+    ));
+    store.advance_interpolation_ticks(1);
+    assert_eq!(
+        store.movement_collider_snapshot(2, 20)[0],
+        store.get(1).unwrap().movement_collision_bounds().unwrap()
+    );
+    assert_ne!(teleported, store.movement_collider_snapshot(2, 20));
+    assert!(store.movement_collider_snapshot(1, 10).is_empty());
+    assert_eq!((original[0].0[0] + original[0].1[0]) * 0.5, 0.0);
+}
+
+#[test]
 fn local_cape_flap_survives_frames_that_advance_multiple_actor_ticks() {
     for ticks in [1, 2, 3, 5] {
         let assets = actor_animation::test_support::counting_random_assets_for("minecraft:player");

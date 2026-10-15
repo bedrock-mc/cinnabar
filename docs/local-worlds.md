@@ -18,6 +18,7 @@ The create screen defaults to Dragonfly and Normal (Vanilla). Backend and genera
 both backends accept Normal or Flat. Selecting unavailable BDS shows its runtime warning. Creation then offers
 Get Docker / Retry or Dragonfly, preserving the chosen generator, name and seed.
 A world created without a backend takes the machine's default: BDS where it can run, else Dragonfly.
+Each Worlds-tab row tags its server (Dragonfly or BDS) after its game mode and generator.
 `docker_missing` / `docker_not_running` are reported as `backend_unavailable_reason` in status.
 
 ## BDS acquisition

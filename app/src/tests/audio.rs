@@ -367,6 +367,7 @@ fn add_audio_teardown_resources(app: &mut App, client_world: ClientWorld, menu: 
         .insert_resource(crate::session::SessionController::default())
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
         .insert_resource(client_interaction::movement::MovementTicker::default())

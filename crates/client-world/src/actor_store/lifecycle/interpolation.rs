@@ -102,6 +102,9 @@ impl ActorStore {
             let mut state = actor.motion_state();
             state.tick();
             actor.apply_motion_state(state);
+            if actor.position.map(f32::to_bits) != actor.previous_pose.position.map(f32::to_bits) {
+                self.effect_members.collidable.update(actor);
+            }
             actor.advance_creeper_swell();
             actor.status.tick();
             let using_item = actor.is_using_item();

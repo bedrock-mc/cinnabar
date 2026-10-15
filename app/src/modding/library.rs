@@ -54,7 +54,7 @@ pub(super) fn configure(
             )
         });
     if let Err(error) = spawned {
-        eprintln!("Mod library unavailable: {error}");
+        warn!("Mod library unavailable: {error}");
         return;
     }
     app.insert_resource(ModLibrary {
@@ -166,6 +166,12 @@ fn perform(
             selection::permission(registration, &path(id)?, capability, enabled, request())
                 .map(|()| String::new())
         }
+        Action::AllowRequested(id) => {
+            selection::allow_requested(registration, &path(id)?, request()).map(|()| String::new())
+        }
+        Action::RevokeAll(id) => {
+            selection::revoke_all(registration, &path(id)?, request()).map(|()| String::new())
+        }
         Action::Remove(id) => {
             let path = path(id)?;
             let request_id = request();
@@ -192,7 +198,11 @@ fn perform(
             )
             .map(|()| String::new())
         }
-        Action::ReadMore(_) | Action::ToggleActive | Action::ToggleAvailable => Ok(String::new()),
+        Action::ReadMore(_)
+        | Action::ToggleActive
+        | Action::ToggleAvailable
+        | Action::Customize(_)
+        | Action::ShowAllPermissions(_) => Ok(String::new()),
     }
 }
 
@@ -372,10 +382,14 @@ fn scan(mods: &Path, registration: &Path, message: String) -> Library {
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {
-                name: capability.name.replace('_', " "),
+                name: capability.label.into(),
                 description: capability.description.trim().into(),
                 enabled: grants.is_some_and(capability.enabled),
                 requested: requested.as_ref().map(capability.enabled),
+                requested_allowed: requested.as_ref().is_some_and(|requested| {
+                    grants.is_some_and(|grants| (capability.requested_allowed)(grants, requested))
+                }),
+                sensitive: capability.sensitive,
             })
             .collect();
     }

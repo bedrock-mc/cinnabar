@@ -1,3 +1,21 @@
+## Held input across HUD toggles
+
+Display-setting replacements retain the controls revision when controls are unchanged.
+Gameplay input uses that revision, so hiding and showing the HUD or paper doll preserves
+held movement, jump and attack. Changed controls still release held input until it is
+pressed again. Regression tests are written but unrun; compilation and live acceptance
+remain pending. No parity gate closes here.
+## Prepared session block registries
+
+Session preparation constructs collision registrations, custom state identities and merged
+block artwork before publishing StartGame. Bootstrap checks the session generation, ID mode,
+exact carrier inputs and admitted definitions before installing the prepared bundle.
+Registry snapshots share immutable tables; replaced collision tables retire off the frame.
+Existing shared custom-state enumeration remains the source for registry consumers.
+Regression tests cover cancellation, replacement, palette modes, immutable bases and shared
+identity storage. Incomplete: compilation, executed tests, join captures and performance
+measurements remain pending. No parity or hardware performance gate closes here.
+
 ## Raw intake during blob disk reads
 
 Blob prefetch shares the transport's existing bounded raw-frame storage while its one disk
@@ -8,6 +26,16 @@ Incomplete: controlled-future and framing regressions are written but unrun. Com
 version-matched protocol evidence and measured receive gaps remain pending. Status-writer
 restructuring is separate; no performance or parity gate closes here.
 
+## Shared solid-actor collision snapshots
+
+Actor state retains ordered solid bounds as poses, metadata and membership change. Movement
+and correction adapters share their converted bounds until the source changes. Mover and
+mount filters refresh before queries, and historical prediction readers keep their old bounds.
+Effect-driven pose changes, including the dragon death lift, refresh bounds at the mutation.
+Incomplete: behavior, query and allocation-work regressions are written but unrun.
+Compilation, live comparisons and performance measurements remain pending; no behavior or
+performance acceptance gate closes here.
+
 ## Shared menu list snapshots
 
 Menu views share saved servers, featured cards, realms, friends and local worlds with their
@@ -15,7 +43,14 @@ semantic owners. Vector edits detach retained views, and equal feed deliveries p
 current list storage. Interaction state and service details still publish independently.
 Incomplete: behavioral and copy-count regressions are written but unrun. Compilation,
 rendered comparisons and measured menu publication cost remain pending; no performance or
-output-parity gate closes here. Form texture-dependency caching remains separate.
+output-parity gate closes here.
+
+Published form draw nodes share immutable snapshots. A bounded engine cache retains logical
+base texture paths and renderer names for the exact snapshot and omission values; overlays,
+renderer callbacks, source resolution and atlas residency still update every prepare.
+Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
+rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
+edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
@@ -23,18 +58,21 @@ Actor ingress retains sleeping actors and their streamed bed positions. Presenta
 only those beds, clears unavailable headings, and reads direction facts compiled with each
 runtime-ID registry. Wake-up, bed changes, replacement and reset discard stale samples.
 Incomplete: regression tests are written but unrun; rendered comparisons and performance
-measurements remain pending. Collider snapshot caching remains separate. No parity or
-performance acceptance gate closes here.
+measurements remain pending. No parity or performance acceptance gate closes here.
 
 ## Single-cell palette edits
 
-Paletted block storage retains usage counts after its first changed edit or batch rebuild.
-Canonical edits to an existing value, and insertions that fit the same width, patch one
-packed word while the source value remains used. Width changes, last-use removal and
-noncanonical inputs keep the full canonical rebuild. Decoder repair discards cached counts;
-clones own their counts, and equality still compares the exact packed representation.
-Regression tests and single-cell preparation benchmarks are written but unrun.
-Incomplete: broader lazy compaction, executed verification and performance measurements.
+Paletted block storage retains live counts and bounded reusable physical slots. Single-cell
+edits patch packed words while the logical palette preserves exact survivor/insertion order.
+Last-use removal and width shrink defer canonical word packing until a consumer requests it;
+thread-safe snapshot-local caches preserve the exact public palette, width, words and equality.
+Physical width growth, noncanonical first edits and larger batches retain canonical rebuilds.
+Mutation results prove store changes without immediately materializing words through equality.
+Untouched decoded representations and no-ops remain unchanged; snapshots stay independent.
+Memory accounting charges physical words, historical slots and canonical caches without packing.
+Slice admission reserves possible cache growth within the existing process-wide byte limits.
+Regression tests and preparation benchmarks are written but unrun. Incomplete: executed
+verification, consumer-cadence measurements and retained-memory/performance measurements.
 No output-parity or hardware performance gate closes here.
 
 ## Incremental persona artwork pages
@@ -275,6 +313,13 @@ animation parity gate closes.
   The app composes the camera motion-blur plugin with the other GPU plugins.
 - Existing behavior tests are retained. Compilation and execution of these moves
   remain unverified; behavior and performance acceptance gates stay open.
+
+Actor commands collect receipts only after encoding draws and publish them against the
+immutable queued batch once per command. Existing ordered-set membership, complete-span
+coverage and GPU-completion acknowledgement stay in their current owners. The local receipt
+vector adds transient allocation and copying; fragmented commands can still publish once per
+span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
+Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
 
 ## Player interaction ownership
 
@@ -542,8 +587,11 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
+  image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
+- Persona and platform-specific imported-skin behavior remain incomplete.
 
 ## Client-side chunk generation
 
@@ -2938,7 +2986,7 @@ latency acceptance. Offline drains do not close those gates.
 the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
 match exactly as the client's asset index does; an unresolved one draws the
 default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
-live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+live-accepted. Provisional, labeled incomplete: native-pack chat autocomplete rows sit at
 the top of their grid because the client answers no `#get_grid_size`, so whatever pads them is unidentified; `size`
 animations scale draws at paint time instead of relaying out each tick.
 
@@ -2953,6 +3001,10 @@ names when needed, and includes `@n` in command targets. Suggestion rows highlig
 the typed match and translate built-in descriptions. Incomplete: Education
 selectors, selector-expansion permission and cheat gating, selector argument
 completion, and live visual acceptance. This does not close the chat parity gate.
+
+The built-in Java-look chat input spans the viewport with two GUI pixels of side
+padding. Completion rows share the longest text width and sit at the replaced
+token, shifting left near the right edge. History retains its configured width.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
@@ -3069,7 +3121,11 @@ consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
 Active/My mods groups and animations now manage an ordered native mod list. Enable,
 Disable and Remove affect each card's identity independently. Active cards can reorder,
 reload individually or reload all; failed reloads preserve the running instance.
-Per-card permission toggles are derived from the host grant declaration and default off.
+Per-card permissions are derived from the host grant declaration and default off.
+Collapsed cards show requested-grant counts and allowed gameplay-sensitive capabilities.
+Consent grants exactly declared requests; customization uses a requested-first grid,
+hover/focus descriptions, Show all permissions and Revoke all. Batch edits save once
+through the existing registration path. Owner visual approval remains incomplete.
 The original single registration migrates with its grants, font and UI intact. Each guest
 keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
 with bounded event and session-loading lanes preserving their full guest limits. Deferred
@@ -7191,10 +7247,13 @@ gates.
 - [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
-  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
+  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer indexed documents
   merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
+  UI document paths are relative to the pack root and selected by the stack's merged indexes,
+  including custom folders and extensions. The web editor uses the same selection for imports,
+  previews, diagnostics, and exports, and shows complete paths in its file list.
   Form display fields now retain structured text for language and live-state resolution,
   including metadata, component precedence, nested text, and scalar display fallbacks.
   Custom forms include multiselect checkboxes, ordered index-array responses, and slider
@@ -7884,6 +7943,12 @@ The client reads them under its configured cache directory and rejects invalid
 paths or bytes during the join. Cache misses retain the streamed archive fallback;
 pack order, required flags, sub-packs and content keys remain unchanged. Live
 performance acceptance of the cache-reference handoff remains incomplete.
+
+Pack admission and join-stage logging declare static packet interests. Unrelated streaming
+bodies skip observer copies when no unrestricted payload observer is installed. Stage timing,
+offer admission and legacy callback ownership retain their existing contracts. Regression
+fixtures are written but unrun; compilation and measured performance acceptance remain open.
+
 The Rust `bedrock-replay` tool uses the protocol crate's session messages and keeps
 the raw capture and report formats. Acceptance endpoint waiters use the session
 endpoint. The real core-session test covers large binary frames in both directions.
@@ -7952,6 +8017,20 @@ the rebuilt ordinary-mode Mac client (Apple M3 Pro/Metal, Retina display,
 defect. The installed native app is a near-version witness, not an exact-version
 capture; broad rendering, persona and live HUD pack-refresh parity remain open.
 World fire is tracked separately below.
+
+### Burning world actors (fix; parity incomplete)
+
+World mobs and third-person players now draw animated flame billboards when their
+authoritative on-fire metadata is set. The layer follows interpolated feet and scaled
+collision dimensions, faces the current camera, and disappears on extinguishing or
+invisibility. Optional original flame art, geometry and draw-clock rules are shared
+with the HUD doll. No client-side daylight or damage inference is introduced.
+
+World billboard placement and playback reuse the HUD contract provisionally;
+matched-version native world captures remain incomplete and no parity gate closes.
+Headless Linux/Vulkan frames at 1280×720, scale 1 show front and side flames and
+their removal after an authoritative extinguishing update. Four world-flame and
+nine existing HUD flame regressions pass.
 
 ### Pack masks, End sky and title text (acceptance incomplete)
 
@@ -9231,3 +9310,9 @@ projection or pipeline states use conservative full replay.
 Incomplete validation: the focused segment/lifetime and shader pixel fixtures
 are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
 captures and measured renderer work remain outstanding; no speedup is claimed.
+
+## Custom block component bounds
+
+Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
+
+Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.

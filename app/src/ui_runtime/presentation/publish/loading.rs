@@ -21,6 +21,10 @@ pub(super) struct LoadingObservation {
     pub now: Duration,
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the CINNABAR_LOADING_MILESTONE marker line is emitted on stderr"
+)]
 pub(super) fn prepare_loading(
     client_world: &mut ClientWorld,
     fatal_error: &mut Option<String>,

@@ -131,6 +131,10 @@ impl QueryHealth {
     }
 
     /// Records a frame attempt and emits at most once a second without blocking the GPU.
+    #[expect(
+        clippy::print_stderr,
+        reason = "opaque-overdraw-capture.py parses CINNABAR_GPU_QUERY_HEALTH lines from stderr"
+    )]
     pub(super) fn frame(&mut self, skipped: bool) {
         self.interval.frames += 1;
         self.interval.ring_skips += u64::from(skipped);

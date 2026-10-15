@@ -1,5 +1,8 @@
 use super::*;
 
+mod lazy_compaction;
+mod memory;
+
 /// Column decoding agrees with per-block lookup at every width, including truncated words.
 #[test]
 fn column_indices_match_block_lookup() {
@@ -95,17 +98,28 @@ fn assert_storage_matches(actual: &PalettedStorage, expected: &PalettedStorage) 
         counts[actual.palette_index(linear).unwrap()] += 1;
         *runtime_counts.entry(value).or_default() += 1;
     }
-    if let Some(usage) = &actual.usage {
-        assert_eq!(usage.counts.as_ref(), counts);
+    if let Some(edits) = &actual.edits {
+        let mut retained = vec![0_u16; actual.palette.len()];
+        let mut physical_counts = vec![0_u16; edits.slots.len()];
+        for linear in 0..BLOCKS_PER_SUB_CHUNK {
+            physical_counts[actual.physical_index(linear).unwrap()] += 1;
+        }
+        for (slot, &count) in edits.slots.iter().zip(&physical_counts) {
+            assert_eq!(slot.count, count);
+            if count != 0 {
+                retained[usize::from(slot.palette_index)] += count;
+            }
+        }
+        assert_eq!(retained, counts);
         assert_eq!(
-            usage.counts.iter().map(|&n| usize::from(n)).sum::<usize>(),
+            retained.iter().map(|&n| usize::from(n)).sum::<usize>(),
             BLOCKS_PER_SUB_CHUNK
         );
+        assert!(edits.slots.len() <= BLOCKS_PER_SUB_CHUNK);
         let mut aggregated = HashMap::<u32, usize>::new();
-        for (&value, &count) in actual.palette.values.iter().zip(usage.counts.iter()) {
+        for (&value, &count) in actual.palette.values.iter().zip(&retained) {
             *aggregated.entry(value).or_default() += usize::from(count);
         }
-        aggregated.retain(|_, count| *count != 0);
         assert_eq!(aggregated, runtime_counts);
     }
 }
@@ -154,7 +168,7 @@ fn same_width_edits_retain_words_and_snapshot_isolation() {
             &snapshot,
             &packed(bits, (0..len as u32).collect(), |i| i % len),
         );
-        assert!(snapshot.usage.is_none());
+        assert!(snapshot.edits.is_none());
         let mut clone = storage.clone();
         compare_edit(&mut clone, &mut batch, 31, len as u32 + 10);
         assert_ne!(clone, storage);
@@ -279,38 +293,44 @@ fn noncanonical_inputs_cannot_take_a_word_patch() {
             assert!(!single.apply_runtime_update(0, value));
             assert_storage_matches(&single, &original);
         }
-        single.usage = Some(single.count_usage());
-        assert!(!single.usage.as_ref().unwrap().canonical);
+        assert!(single.canonical_counts().is_none());
+        assert!(single.edits.is_none());
         assert_storage_matches(&single, &original);
         let mut batch = original;
         compare_edit(&mut single, &mut batch, 0, 99);
-        assert!(single.usage.as_ref().unwrap().canonical);
+        assert!(single.edits.is_some());
     }
 }
 
 /// Decoder repair discards old counts and initializes them from repaired cells on the next edit.
 #[test]
 fn index_repair_invalidates_counts_without_changing_equality() {
-    let mut storage = packed(2, vec![7, 8], |i| i % 4);
-    storage.usage = Some(storage.count_usage());
-    assert_eq!(
-        storage.usage.as_ref().unwrap().counts.as_ref(),
-        &[1024, 1024]
+    let mut storage = packed(2, vec![7, 8, 9], |i| if i < 2 { i + 1 } else { 0 });
+    assert!(storage.apply_runtime_update(0, 10));
+    assert!(storage.edits.is_some());
+    // Repair must first resolve physical slots into the currently exposed logical order.
+    let mut expected = PalettedStorage::new(
+        storage.bits_per_index(),
+        storage.words().to_vec(),
+        storage.palette.values.to_vec(),
     );
     storage.zero_indices_at_or_above(2);
-    assert!(storage.usage.is_none());
-    let mut cold = storage.clone();
-    storage.usage = Some(storage.count_usage());
-    assert_storage_matches(&storage, &cold);
-    assert_eq!(
-        storage.usage.as_ref().unwrap().counts.as_ref(),
-        &[3072, 1024]
-    );
-    assert_eq!(
-        storage.apply_runtime_update(0, 8),
-        cold.apply_runtime_update(0, 8)
-    );
-    assert_storage_matches(&storage, &cold);
+    expected.zero_indices_at_or_above(2);
+    assert!(storage.edits.is_none());
+    assert_storage_matches(&storage, &expected);
+    compare_edit(&mut storage, &mut expected, 9, 8);
+    assert!(storage.edits.is_some());
+
+    let mut malformed = packed(2, vec![7, 8], |i| i % 4);
+    assert!(malformed.canonical_counts().is_none());
+    malformed.zero_indices_at_or_above(2);
+    assert!(malformed.edits.is_none());
+    for linear in 0..BLOCKS_PER_SUB_CHUNK {
+        assert_eq!(
+            malformed.palette_index(linear),
+            Some(if linear % 4 == 1 { 1 } else { 0 })
+        );
+    }
 }
 
 /// Cache warmth is ignored while distinct palettes, words and widths remain structurally unequal.
@@ -318,8 +338,8 @@ fn index_repair_invalidates_counts_without_changing_equality() {
 fn equality_ignores_only_derived_counts() {
     let cold = packed(1, vec![7, 8], |i| i % 2);
     let mut warm = cold.clone();
-    warm.usage = Some(warm.count_usage());
-    assert!(warm.usage.as_ref().unwrap().canonical);
+    warm.edits = warm.canonical_counts().map(PaletteEdits::new);
+    assert!(warm.edits.is_some());
     assert_storage_matches(&warm, &cold);
     assert_ne!(warm, packed(1, vec![7, 8], |i| (i + 1) % 2));
     assert_ne!(warm, packed(1, vec![8, 7], |i| i % 2));

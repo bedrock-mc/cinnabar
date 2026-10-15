@@ -5,6 +5,11 @@ use cinnabar::{
 use std::io::Write;
 
 /// Dispatches client startup and reports failures before the process exits.
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "--query-build and --help answer on stdout; argument errors precede logging setup"
+)]
 pub(crate) fn dispatch() {
     if std::env::args_os()
         .nth(1)

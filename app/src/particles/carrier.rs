@@ -20,6 +20,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
     let file = match File::open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // The client logging test reads this line from a process without a tracing subscriber.
             diagnostics::log_stderr!(
                 "particle carrier not found at {}; particles are disabled (build with: make particle-assets)",
                 path.display()
@@ -27,7 +28,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
             return None;
         }
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "could not open particle carrier {}: {error}; particles are disabled",
                 path.display()
             );
@@ -39,7 +40,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
         .take(MAX_PARTICLE_CARRIER_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
     {
-        diagnostics::log_stderr!(
+        bevy::log::warn!(
             "could not read particle carrier {}: {error}; particles are disabled",
             path.display()
         );
@@ -47,7 +48,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
     }
     match RuntimeParticleAssets::decode(&bytes) {
         Ok(assets) => {
-            diagnostics::log_stderr!(
+            bevy::log::info!(
                 "loaded particle carrier from {} ({} effects, {} textures)",
                 path.display(),
                 assets.effects().len(),
@@ -56,7 +57,7 @@ pub(crate) fn load_optional_carrier(world_asset_path: &Path) -> Option<Arc<Runti
             Some(Arc::new(assets))
         }
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "invalid particle carrier {}: {error}; particles are disabled (rebuild with: make particle-assets)",
                 path.display()
             );
