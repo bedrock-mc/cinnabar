@@ -239,6 +239,60 @@ pub(in crate::modding) fn permission(
     enabled: bool,
     request_id: String,
 ) -> Result<(), String> {
+    change_grants(directory, component, request_id, |grants| {
+        let descriptor = ModGrants::CAPABILITIES
+            .get(capability)
+            .ok_or("Unknown capability.")?;
+        let requested = if enabled {
+            mod_host::declarations(component)
+                .and_then(|declared| declared.requested)
+                .map_err(|error| error.to_string())?
+        } else {
+            None
+        };
+        (descriptor.set)(grants, enabled, requested.as_ref());
+        if enabled && !(descriptor.enabled)(grants) {
+            return Err("This component does not declare requested command names.".into());
+        }
+        Ok(())
+    })
+}
+
+/// Grants exactly the component's declared requests in one registration write.
+pub(in crate::modding) fn allow_requested(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let requested = mod_host::declarations(component)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?
+        .ok_or("This mod doesn't declare its permissions.")?;
+    change_grants(directory, component, request_id, |grants| {
+        *grants = requested;
+        Ok(())
+    })
+}
+
+/// Clears every capability in one write, even when the source cannot be read.
+pub(in crate::modding) fn revoke_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    change_grants(directory, component, request_id, |grants| {
+        *grants = ModGrants::default();
+        Ok(())
+    })
+}
+
+/// Applies a permission edit to the component's retained grants and persists it once.
+fn change_grants(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+    change: impl FnOnce(&mut ModGrants) -> Result<(), String>,
+) -> Result<(), String> {
     edit(directory, request_id, |registration| {
         let position = registration
             .mods
@@ -251,22 +305,7 @@ pub(in crate::modding) fn permission(
             });
             registration.mods.len() - 1
         });
-        let entry = &mut registration.mods[position];
-        let descriptor = ModGrants::CAPABILITIES
-            .get(capability)
-            .ok_or("Unknown capability.")?;
-        let requested = if enabled {
-            mod_host::declarations(component)
-                .and_then(|declared| declared.requested)
-                .map_err(|error| error.to_string())?
-        } else {
-            None
-        };
-        (descriptor.set)(&mut entry.grants, enabled, requested.as_ref());
-        if enabled && !(descriptor.enabled)(&entry.grants) {
-            return Err("This component does not declare requested command names.".into());
-        }
-        Ok(())
+        change(&mut registration.mods[position].grants)
     })
     .map(|_| ())
 }

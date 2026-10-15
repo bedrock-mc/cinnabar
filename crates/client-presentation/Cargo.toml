@@ -25,6 +25,7 @@ chunk-pipeline = { path = "../chunk-pipeline" }
 client-world = { path = "../client-world" }
 actor-animation = { path = "../actor-animation" }
 client-ui = { path = "../client-ui" }
+diagnostics = { path = "../diagnostics" }
 inventory = { path = "../inventory" }
 launcher = { path = "../launcher" }
 player-state = { path = "../player-state" }

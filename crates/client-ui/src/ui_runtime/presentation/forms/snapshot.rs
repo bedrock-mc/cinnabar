@@ -241,6 +241,10 @@ pub fn write(input: &UiRenderInput, name: &str) {
 }
 
 /// Saves an already checked raster only when the local snapshot directory is configured.
+#[expect(
+    clippy::print_stderr,
+    reason = "names the written snapshot on stderr for local visual inspection"
+)]
 pub(in crate::ui_runtime::presentation) fn write_image(image: &RgbaImage, name: &str) {
     let Ok(dir) = std::env::var(SNAPSHOT_ENV) else {
         return;

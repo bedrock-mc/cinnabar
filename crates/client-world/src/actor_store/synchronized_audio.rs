@@ -90,7 +90,7 @@ impl ActorStore {
             let previous = self.synchronized_audio.skipped;
             self.synchronized_audio.skipped = previous.saturating_add(1);
             if previous == 0 || self.synchronized_audio.skipped / 64 > previous / 64 {
-                eprintln!(
+                tracing::warn!(
                     "skipped synchronized audio for unavailable actor (total {})",
                     self.synchronized_audio.skipped
                 );

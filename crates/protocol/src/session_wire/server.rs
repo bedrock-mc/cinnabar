@@ -88,6 +88,28 @@ pub fn captured_packet_kind(id: u32) -> CapturedPacketKind {
     }
 }
 
+/// Rejects terrain that offline replay cannot deliver without the original client's blob store.
+/// Malformed terrain is also rejected when its cache mode cannot be validated.
+pub fn validate_replay_cache_mode(id: u32, body: &Bytes) -> Result<(), BridgeError> {
+    use bedrock_protocol_1_26_51::packets::Packet;
+    let Some(id @ (PacketId::LevelChunk | PacketId::SubChunk)) = PacketId::from_raw(id) else {
+        return Ok(());
+    };
+    let packet = crate::codec::decode_body(id, body)
+        .map_err(|_| invalid("cannot validate terrain blob-cache mode for offline replay"))?;
+    let cached = match packet {
+        Packet::LevelChunk(packet) => packet.cache_enabled,
+        Packet::SubChunk(packet) => packet.cache_enabled,
+        _ => unreachable!("the terrain ID selects a terrain payload"),
+    };
+    if cached {
+        return Err(invalid(
+            "blob-cache terrain is unsupported in offline replay",
+        ));
+    }
+    Ok(())
+}
+
 /// Rebuilds a captured packet header with zero subclient IDs while retaining its opaque body.
 pub fn packet_from_body(id: u32, body: &[u8]) -> Result<Bytes, BridgeError> {
     if id > 0x3ff {

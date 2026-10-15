@@ -70,6 +70,10 @@ pub struct ActorRuntimeWitness {
     state: Arc<Mutex<ActorRuntimeWitnessState>>,
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "actor witness lines are marker output on raw stderr, read during live render investigations"
+)]
 impl ActorRuntimeWitness {
     fn changed<T: Copy + Eq>(
         &self,

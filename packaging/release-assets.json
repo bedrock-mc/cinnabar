@@ -13,6 +13,10 @@
       "x86_64": "Cinnabar-x86_64.dmg"
     }
   },
+  "symbols": {
+    "archive": "cinnabar-symbols-{version}-{platform}-{arch}.zip",
+    "manifest": "manifest.json"
+  },
   "install_script": "install.sh",
   "update_payload_prefix": "update-payload-",
   "update_channels": {

@@ -114,60 +114,6 @@ fn size_text(bytes: u64, translate: &dyn Fn(&str) -> String) -> String {
     format!("{:.2} {}", bytes as f64 / divisor as f64, translate(key))
 }
 
-/// Uses the pinned delete prompt, or shows a concrete disk error without hiding failure.
-pub(super) fn dialog_model(
-    view: &MenuView,
-    dialog: launcher::menu::MenuDialog,
-    translate: ui_engine::engine::screen::Translate<'_>,
-) -> (json_ui::FormModel, MenuAction) {
-    use ui_engine::engine::screen::translated;
-    let words = |key, fallback| translated(translate, key, fallback);
-    let (title, body, button1, confirm) = if dialog == launcher::menu::MenuDialog::StorageError {
-        (
-            words("menu.storageManagement", "Storage"),
-            view.storage.error.clone().unwrap_or_default(),
-            words("gui.ok", "OK"),
-            MenuAction::DismissDialog,
-        )
-    } else if view.storage.deleting_screenshots {
-        (
-            words(
-                "options.dev_deleteLocalScreenshots",
-                "Delete Local Screenshots",
-            ),
-            words(
-                "storageManager.delete.content.screenshots",
-                "Delete all local screenshots?",
-            ),
-            words("storageManager.delete.confirm", "Delete"),
-            MenuAction::SettingsStorage(StorageAction::ConfirmDelete),
-        )
-    } else {
-        (
-            words("storageManager.delete.title", "Delete %s permanently?").replace(
-                "%s",
-                &words("storageManager.contentType.cachedData", "Cached Data"),
-            ),
-            words(
-                "storageManager.delete.content",
-                "Are you sure you want to delete the selected items? %s%s%s",
-            )
-            .replace("%s", ""),
-            words("storageManager.delete.confirm", "Delete"),
-            MenuAction::SettingsStorage(StorageAction::ConfirmDelete),
-        )
-    };
-    (
-        json_ui::FormModel::Modal(json_ui::ModalForm {
-            title,
-            body,
-            button1,
-            button2: words("storageManager.delete.cancel", "Cancel"),
-        }),
-        confirm,
-    )
-}
-
 /// Only existing mutable categories expose the authored delete tray.
 fn selected(view: &MenuView, category: &str, index: usize) -> bool {
     match category {

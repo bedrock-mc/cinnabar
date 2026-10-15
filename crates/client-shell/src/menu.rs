@@ -915,7 +915,7 @@ impl MenuRuntime {
 impl Drop for MenuRuntime {
     fn drop(&mut self) {
         if let Err(error) = self.flush_user_settings() {
-            eprintln!("Could not save settings at shutdown: {error}");
+            bevy::log::warn!("could not save settings at shutdown: {error}");
         }
         self.stop_sign_in();
         self.stop_catalog();

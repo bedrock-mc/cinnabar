@@ -207,7 +207,8 @@ impl ActorRigFrameBuilder {
         let drawn_rigs = &mut self.staged.drawn;
         drawn_rigs.clear();
         drawn_rigs.extend(drawn.filter_map(|submission| {
-            let (id, geometry) = eligibility::geometry(geometries, submission).ok()?;
+            let (id, geometry) =
+                eligibility::geometry(geometries, &self.matrices, submission).ok()?;
             (u32::try_from(submission.input.reset_generation).is_ok()
                 && self.matrices.pose_is_valid(
                     &submission.input.previous_bones,

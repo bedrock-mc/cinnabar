@@ -1,4 +1,8 @@
 //! Small SDK tools; none of these commands starts a client or network session.
+#![expect(
+    clippy::print_stdout,
+    reason = "SDK tool commands report probe and benchmark results as key=value lines on stdout"
+)]
 
 use anyhow::{Result, bail, ensure};
 use mod_host::{ModGrants, ModHost};

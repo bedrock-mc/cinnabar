@@ -1,9 +1,10 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
 use crate::runtime::network::resource_packs::PackApplication;
+use bevy::platform::collections::HashMap;
 use bevy::prelude::IntoScheduleConfigs;
 use client_runtime::network::NetworkHandle;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
 use bevy::prelude::{
@@ -49,6 +50,8 @@ mod beacon;
 #[cfg(test)]
 mod beacon_tests;
 mod bed;
+mod bell_rings;
+use bell_rings::{BELL_RING_EVENT_TYPE, bell_elapsed, prune_bell_rings};
 pub(super) mod columns;
 mod crystal_beams;
 mod culling;
@@ -70,7 +73,7 @@ pub(crate) fn load_block_entity_carrier(
     ) {
         Ok(bytes) => bytes,
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
@@ -79,7 +82,7 @@ pub(crate) fn load_block_entity_carrier(
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
         Ok(assets) => {
-            diagnostics::log_stderr!(
+            bevy::log::info!(
                 "loaded block-entity carrier from {} ({} textures, atlas {:?})",
                 path.display(),
                 assets.placements().len(),
@@ -88,7 +91,7 @@ pub(crate) fn load_block_entity_carrier(
             Some(Arc::new(assets))
         }
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
@@ -137,6 +140,8 @@ pub(crate) struct BlockEntityRuntime {
     beam_source: Option<(Arc<assets::RuntimeAssets>, Option<protocol::DimensionRange>)>,
     /// Enchanting-table books, ticked like the native block actor.
     books: books::TableBooks,
+    /// This frame's submissions, kept empty between frames so their buffer is reused.
+    submissions: Vec<BlockEntitySubmission>,
 }
 
 impl BlockEntityRuntime {
@@ -156,6 +161,7 @@ impl BlockEntityRuntime {
             session: None,
             beam_source: None,
             books: books::TableBooks::default(),
+            submissions: Vec::new(),
         }
     }
 
@@ -463,12 +469,13 @@ pub(crate) fn update_block_entity_scene(
 
     runtime.books.begin(clock.ticks);
     let readers = book_readers(stream, eye);
-    let mut submissions: Vec<BlockEntitySubmission> = Vec::new();
+    let mut submissions = std::mem::take(&mut runtime.submissions);
     runtime.frame = runtime.frame.wrapping_add(1);
     let frame_stamp = runtime.frame;
     // Moved out so `resolve` can borrow a template while mutating the rest of the runtime.
     let mut scans = std::mem::take(&mut runtime.columns);
-    let mut held: Vec<StaticItemPlacement> = Vec::new();
+    let mut held = std::mem::take(&mut placements.0.0);
+    held.clear();
     runtime.lids.begin();
     let mut rescans_left = columns::MAX_COLUMN_RESCANS_PER_FRAME;
     let eye_column = [eye.x, eye.z].map(|axis| (axis / SUB_CHUNK_SIDE as f32).floor() as i32);
@@ -682,6 +689,8 @@ pub(crate) fn update_block_entity_scene(
     )
     .entered();
     frame.0 = scene.update(clock, &cracks, &submissions).clone();
+    submissions.clear();
+    runtime.submissions = submissions;
 }
 
 struct FrameContext<'a> {
@@ -939,7 +948,7 @@ fn resolve(
                 })?;
                 Some(SignFace {
                     rect,
-                    glowing: spec.glowing,
+                    glowing: spec.glowing(),
                 })
             };
             let front = face(front);
@@ -953,40 +962,6 @@ fn resolve(
             ))
         }
     }
-}
-
-/// The `BlockEventPacket` type a bell ring arrives as.
-/// Starts each newly observed ring once and reports its elapsed animation time.
-fn bell_elapsed(
-    rings: &mut HashMap<[i32; 3], (u64, f64)>,
-    position: [i32; 3],
-    sequence: Option<u64>,
-    now: f64,
-) -> f32 {
-    if let Some(sequence) = sequence {
-        let entry = rings.entry(position).or_insert((sequence, now));
-        if entry.0 != sequence {
-            *entry = (sequence, now);
-        }
-    }
-    rings
-        .get(&position)
-        .map_or(f32::INFINITY, |(_, start)| (now - start) as f32)
-}
-
-const BELL_RING_EVENT_TYPE: i32 = 1;
-/// Seconds after a ring when the swing has visibly settled and its state can go.
-const BELL_RING_RETAIN_SECONDS: f64 = 10.0;
-
-/// Keeps a latched cue's sequence so an expired swing cannot restart; evicted cues age out.
-fn prune_bell_rings(
-    rings: &mut HashMap<[i32; 3], (u64, f64)>,
-    now_seconds: f64,
-    mut cue: impl FnMut(&[i32; 3]) -> Option<u64>,
-) {
-    rings.retain(|position, (sequence, start)| {
-        cue(position) == Some(*sequence) || now_seconds - *start < BELL_RING_RETAIN_SECONDS
-    });
 }
 
 #[cfg(test)]

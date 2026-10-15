@@ -142,14 +142,14 @@ pub struct AuthSupervisor {
 
 impl AuthSupervisor {
     pub fn spawn(executable: &Path, cache: &Path) -> Result<Self> {
-        let child = crate::lifecycle::children::spawn(
+        let child = crate::lifecycle::core_output::spawn(
             Command::new(executable)
                 .arg("-auth-events")
                 .arg("-auth-cache")
                 .arg(cache)
                 .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null()),
+                .stdout(Stdio::piped()),
+            crate::lifecycle::core_output::CoreRole::SignIn,
         )
         .with_context(|| format!("start sign-in helper {}", executable.display()))?;
         Self::from_child(child)

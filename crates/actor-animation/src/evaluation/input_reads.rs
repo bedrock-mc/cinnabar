@@ -111,3 +111,26 @@ impl VariableLayout {
             .unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebinding_input_reads_retires_rig_plans_and_disables_admission() {
+        let assets = crate::test_support::counting_random_assets();
+        let mut layout = VariableLayout::new(&assets);
+        let original = layout.rig_plan(&assets, 0, 0).unwrap();
+        assert!(Arc::ptr_eq(
+            &original,
+            &layout.rig_plan(&assets, 0, 0).unwrap()
+        ));
+        layout.bind_input_reads(&assets);
+        let rebuilt = layout.rig_plan(&assets, 0, 0).unwrap();
+        assert!(!Arc::ptr_eq(&original, &rebuilt));
+        assert!(!Arc::ptr_eq(
+            &rebuilt,
+            &layout.rig_plan(&assets, 0, 0).unwrap()
+        ));
+    }
+}

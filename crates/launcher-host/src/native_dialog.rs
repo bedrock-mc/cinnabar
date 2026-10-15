@@ -56,6 +56,10 @@ impl Prompter for NativePrompter {
         })
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the terminal is the user-facing fallback when no notification or dialog surface exists"
+    )]
     fn info(&self, title: &str, body: &str) {
         let surfaces = commands(Kind::Info, title, body);
         let title = title.to_owned();
@@ -67,6 +71,10 @@ impl Prompter for NativePrompter {
         });
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the terminal is the user-facing fallback when no dialog or notification surface exists"
+    )]
     fn alert(&self, title: &str, body: &str) {
         #[cfg(windows)]
         {
@@ -121,6 +129,151 @@ fn run(argv: &[String]) -> Option<bool> {
     Some(child.wait().is_some_and(|status| status.success()))
 }
 
+/// What the player chose in the crash dialog.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CrashChoice {
+    Restart,
+    OpenFolder,
+    CopyReport,
+    Close,
+    /// No dialog or tool could ask.
+    Unavailable,
+}
+
+/// Asks what to do about a crash with the crash window's actions, for when that window cannot
+/// open; blocks until the player chooses. macOS dialogs hold three buttons, so they offer no
+/// Copy report.
+pub fn crash_choice(title: &str, body: &str) -> CrashChoice {
+    #[cfg(windows)]
+    {
+        crate::desktop::windows::crash_dialog::crash_dialog(title, body)
+    }
+    #[cfg(not(windows))]
+    {
+        crash_tools(title, body)
+            .into_iter()
+            .find_map(|(tool, argv)| run_answer(&argv).map(|answer| tool.choice(&answer)))
+            .unwrap_or(CrashChoice::Unavailable)
+    }
+}
+
+/// A dialog tool's exit code and printed output.
+#[cfg(any(not(windows), test))]
+struct Answer {
+    code: Option<i32>,
+    output: String,
+}
+
+#[cfg(any(not(windows), test))]
+#[derive(Clone, Copy, Debug)]
+enum CrashTool {
+    Osascript,
+    Zenity,
+    Kdialog,
+}
+
+#[cfg(any(not(windows), test))]
+impl CrashTool {
+    /// Reads the tool's answer; anything unrecognized, such as closing the dialog, is Close.
+    fn choice(self, answer: &Answer) -> CrashChoice {
+        let output = answer.output.trim();
+        match self {
+            Self::Osascript => match output.strip_prefix("button returned:") {
+                Some("Restart") => CrashChoice::Restart,
+                Some("Open folder") => CrashChoice::OpenFolder,
+                _ => CrashChoice::Close,
+            },
+            Self::Zenity => match (answer.code, output) {
+                (Some(0), _) => CrashChoice::Restart,
+                (_, "Open folder") => CrashChoice::OpenFolder,
+                (_, "Copy report") => CrashChoice::CopyReport,
+                _ => CrashChoice::Close,
+            },
+            Self::Kdialog => match answer.code {
+                Some(0) => CrashChoice::Restart,
+                Some(1) => CrashChoice::OpenFolder,
+                _ => CrashChoice::Close,
+            },
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn crash_tools(title: &str, body: &str) -> Vec<(CrashTool, Vec<String>)> {
+    if cfg!(target_os = "macos") {
+        let script = format!(
+            "display dialog {} with title {} buttons {{\"Close\", \"Open folder\", \"Restart\"}} default button \"Restart\" with icon stop",
+            applescript_quote(body),
+            applescript_quote(title)
+        );
+        return vec![(
+            CrashTool::Osascript,
+            vec!["osascript".into(), "-e".into(), script],
+        )];
+    }
+    vec![
+        (
+            CrashTool::Zenity,
+            vec![
+                "zenity".into(),
+                "--question".into(),
+                "--no-markup".into(),
+                "--width=560".into(),
+                "--icon-name=dialog-error".into(),
+                "--ok-label=Restart".into(),
+                "--cancel-label=Close".into(),
+                "--extra-button=Open folder".into(),
+                "--extra-button=Copy report".into(),
+                format!("--title={title}"),
+                format!("--text={body}"),
+            ],
+        ),
+        (
+            CrashTool::Kdialog,
+            vec![
+                "kdialog".into(),
+                "--title".into(),
+                title.into(),
+                "--yes-label".into(),
+                "Restart".into(),
+                "--no-label".into(),
+                "Open folder".into(),
+                "--cancel-label".into(),
+                "Close".into(),
+                "--warningyesnocancel".into(),
+                body.into(),
+            ],
+        ),
+    ]
+}
+
+/// Waits for a tracked dialog tool and reads its answer; `None` means it could not launch.
+#[cfg(not(windows))]
+fn run_answer(argv: &[String]) -> Option<Answer> {
+    use std::io::Read;
+
+    let mut command = Command::new(&argv[0]);
+    command
+        .args(&argv[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let child = crate::lifecycle::children::spawn(&mut command).ok()?;
+    let mut output = String::new();
+    if let Some(mut stdout) = child.take_stdout() {
+        let _ = stdout.read_to_string(&mut output);
+    }
+    let status = child.wait()?;
+    Some(Answer {
+        code: status.code(),
+        output,
+    })
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "the consent prompt is written to the terminal the user answers on"
+)]
 fn tty_confirm(title: &str, body: &str) -> Consent {
     if !std::io::stdin().is_terminal() {
         return Consent::Unavailable;
@@ -232,6 +385,48 @@ mod tests {
     #[test]
     fn applescript_quoting_escapes_quotes_backslashes_and_newlines() {
         assert_eq!(applescript_quote("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
+    }
+
+    #[test]
+    fn crash_dialog_answers_map_to_the_window_actions() {
+        let answer = |code: i32, output: &str| Answer {
+            code: Some(code),
+            output: output.to_owned(),
+        };
+        for (tool, answer, choice) in [
+            (
+                CrashTool::Osascript,
+                answer(0, "button returned:Restart\n"),
+                CrashChoice::Restart,
+            ),
+            (
+                CrashTool::Osascript,
+                answer(0, "button returned:Open folder\n"),
+                CrashChoice::OpenFolder,
+            ),
+            (
+                CrashTool::Osascript,
+                answer(0, "button returned:Close\n"),
+                CrashChoice::Close,
+            ),
+            (CrashTool::Zenity, answer(0, ""), CrashChoice::Restart),
+            (
+                CrashTool::Zenity,
+                answer(1, "Open folder\n"),
+                CrashChoice::OpenFolder,
+            ),
+            (
+                CrashTool::Zenity,
+                answer(1, "Copy report\n"),
+                CrashChoice::CopyReport,
+            ),
+            (CrashTool::Zenity, answer(1, ""), CrashChoice::Close),
+            (CrashTool::Kdialog, answer(0, ""), CrashChoice::Restart),
+            (CrashTool::Kdialog, answer(1, ""), CrashChoice::OpenFolder),
+            (CrashTool::Kdialog, answer(2, ""), CrashChoice::Close),
+        ] {
+            assert_eq!(tool.choice(&answer), choice, "{tool:?}");
+        }
     }
 
     #[cfg(unix)]

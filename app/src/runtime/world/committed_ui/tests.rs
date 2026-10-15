@@ -104,6 +104,7 @@ fn fixture_app() -> (App, Entity) {
             stream: Some(stream),
             ..ClientWorld::default()
         })
+        .init_resource::<FatalError>()
         .insert_resource(clock)
         .insert_resource(weather)
         .insert_resource(collisions)
@@ -229,7 +230,7 @@ fn rapid_dimension_return_skips_old_form_but_preserves_new_form_and_non_form_ui(
     assert_eq!(runtime.server_forms().active().unwrap().form_id, 8);
     assert_eq!(runtime.server_forms().queued_busy_count(), 0);
     assert_eq!(runtime.hud().health(), ui::BoundedStat::new(17, 20));
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
 }
 
 #[test]
@@ -472,7 +473,7 @@ fn committed_form_owns_first_visible_frame_and_recovers_each_real_input_consumer
         );
         assert_eq!(cursor.grab_mode, CursorGrabMode::None);
         assert!(
-            app.world().resource::<ClientWorld>().fatal_error.is_none(),
+            app.world().resource::<FatalError>().0.is_none(),
             "real stream drain must succeed"
         );
         let mut runtime = app
@@ -593,7 +594,7 @@ fn committed_hunger_waits_for_fifo_and_rejected_updates_preserve_domain_facts() 
             Some(accepted)
         );
     }
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
 }
 
 /// Committed crack sequences reach frame authority before its consumers run.
@@ -652,8 +653,8 @@ fn committed_block_cracks_reach_frame_authority_once_in_fifo_order() {
     );
     app.update();
     app.update();
+    assert!(app.world().resource::<FatalError>().0.is_none());
     let mut world = app.world_mut().resource_mut::<ClientWorld>();
-    assert!(world.fatal_error.is_none());
     assert!(
         world
             .stream

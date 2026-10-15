@@ -64,6 +64,10 @@ pub(super) fn verify_after_launch(app: &mut App) {
 }
 
 /// Emits a native hidden-mode witness and stops if launch callbacks changed the policy.
+#[expect(
+    clippy::print_stderr,
+    reason = "the DEVELOPER_CONTROL_NATIVE witness line is emitted on stderr for hidden-mode checks"
+)]
 fn verify_hidden_application(_main_thread: NonSendMarker, mut exit: MessageWriter<AppExit>) {
     let main_thread =
         MainThreadMarker::new().expect("native activation checks run on the main thread");
@@ -76,7 +80,7 @@ fn verify_hidden_application(_main_thread: NonSendMarker, mut exit: MessageWrite
         "DEVELOPER_CONTROL_NATIVE prohibited={prohibited} active={active} main_menu={main_menu} services_menu={services_menu}"
     );
     if !prohibited || active || main_menu || services_menu {
-        eprintln!(
+        error!(
             "developer control stopping: macOS hidden application policy was not preserved after launch"
         );
         exit.write(AppExit::error());

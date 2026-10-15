@@ -386,11 +386,11 @@ impl FrameTrace {
                     writer.flush()
                 });
                 if let Err(error) = result {
-                    eprintln!("write stage frame trace {}: {error}", path.display());
+                    bevy::log::warn!("write stage frame trace {}: {error}", path.display());
                 }
             }) {
             Ok(worker) => *export = Some(worker),
-            Err(error) => eprintln!("start stage frame trace export: {error}"),
+            Err(error) => bevy::log::warn!("start stage frame trace export: {error}"),
         }
     }
 

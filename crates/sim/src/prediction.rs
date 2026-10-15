@@ -277,20 +277,23 @@ impl PredictionHistory {
             });
         };
 
-        let mut candidate = self.clone();
-        candidate.frames[index].state = corrected.clone();
-        let mut replayed_state = corrected;
-        let mut ticks = Vec::with_capacity(candidate.frames.len() - index - 1);
-        for frame_index in (index + 1)..candidate.frames.len() {
-            let simulated_tick = candidate.frames[frame_index].state.tick;
+        // Replay into a side buffer and commit only on success, so a failed replay leaves
+        // the history untouched without cloning every retained frame first.
+        let replayed_ticks = self.frames.len() - index - 1;
+        let corrected_tick = corrected.tick;
+        let mut replayed_state = corrected.clone();
+        let mut replayed = Vec::with_capacity(replayed_ticks);
+        let mut ticks = Vec::with_capacity(replayed_ticks);
+        for frame in self.frames.iter().skip(index + 1) {
+            let simulated_tick = frame.state.tick;
             for overlay in overlays
                 .iter()
                 .filter(|overlay| overlay.tick == simulated_tick)
             {
                 replayed_state.velocity = overlay.velocity;
             }
-            let mut input = candidate.frames[frame_index].input;
-            let retained_world: &dyn CollisionWorld = candidate.frames[frame_index]
+            let mut input = frame.input;
+            let retained_world: &dyn CollisionWorld = frame
                 .world
                 .as_ref()
                 .map_or(world as &dyn CollisionWorld, |snapshot| snapshot);
@@ -300,19 +303,20 @@ impl PredictionHistory {
                 retained_world,
                 ticks.last(),
             )?;
-            candidate.frames[frame_index].input = input;
-            let tick = if let Some(snapshot) = &candidate.frames[frame_index].world {
+            let tick = if let Some(snapshot) = &frame.world {
                 simulator.tick_with_controls(&mut replayed_state, input, snapshot)?
             } else {
                 simulator.tick_with_controls(&mut replayed_state, input, world)?
             };
-            candidate.frames[frame_index].state = replayed_state.clone();
+            replayed.push((input, replayed_state.clone()));
             ticks.push(tick);
         }
-        let replayed_ticks = candidate.frames.len() - index - 1;
-        let corrected_tick = candidate.frames[index].state.tick;
+        self.frames[index].state = corrected;
+        for (frame, (input, state)) in self.frames.iter_mut().skip(index + 1).zip(replayed) {
+            frame.input = input;
+            frame.state = state;
+        }
         *current = replayed_state;
-        *self = candidate;
         Ok((
             ReplayResult {
                 corrected_tick,

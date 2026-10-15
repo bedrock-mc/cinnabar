@@ -177,6 +177,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         stream: Some(stream),
         ..Default::default()
     });
+    world.init_resource::<crate::runtime::shutdown::FatalError>();
     world.insert_resource(collisions);
     world.init_resource::<LocalMovementEffectTimeline>();
     world.init_resource::<MeleeRuntime>();

@@ -57,6 +57,12 @@ impl PreviousFragments {
         self.cursor = index + 1;
         Some(found)
     }
+
+    /// The fragment list emptied of every fragment not taken, keeping its allocation for reuse.
+    pub(super) fn into_cleared_list(mut self) -> Vec<Option<Box<CachedSubmission>>> {
+        self.list.clear();
+        self.list
+    }
 }
 
 #[derive(Debug)]

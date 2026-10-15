@@ -18,6 +18,10 @@ pub const ERROR_COUNTERS: &str = "CINNABAR_ERROR_COUNTERS";
 pub const FAST_TRANSFER_PACKET_TRACE: &str = "CINNABAR_FAST_TRANSFER_PACKET_TRACE";
 pub const FORCED_FULL_VIEW_REMESH_SETTLED: &str = "CINNABAR_FORCED_FULL_VIEW_REMESH_SETTLED";
 pub const GALLERY_ANCHOR_READY: &str = "CINNABAR_GALLERY_ANCHOR_READY";
+/// Log filter spec layered over the defaults and `RUST_LOG`; see `crate::logging`.
+pub const LOG: &str = "CINNABAR_LOG";
+/// `1` also writes each log event as JSON Lines beside the session log.
+pub const LOG_JSON: &str = "CINNABAR_LOG_JSON";
 pub const MODEL_WITNESS_COMPLETE: &str = "CINNABAR_MODEL_WITNESS_COMPLETE";
 pub const MOVEMENT_TRACE: &str = "CINNABAR_MOVEMENT_TRACE";
 pub const MOVE_PLAYER_INGRESS: &str = "CINNABAR_MOVE_PLAYER_INGRESS";
@@ -92,6 +96,8 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     ),
     (GALLERY_ANCHOR_READY, MarkerContract::ParsedEvidence),
     (LOADING_MILESTONE, MarkerContract::LogOnlyDiagnostic),
+    (LOG, MarkerContract::EnvironmentVariable),
+    (LOG_JSON, MarkerContract::EnvironmentVariable),
     (MODEL_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (MOVE_PLAYER_INGRESS, MarkerContract::ParsedEvidence),
     (MOVEMENT_TRACE, MarkerContract::EnvironmentVariable),

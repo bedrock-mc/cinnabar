@@ -24,8 +24,12 @@ use ui_engine::engine::screen::{
 use ui_engine::menu_scroll::MenuScrolls;
 use ui_engine::scroll::ScrollArea;
 
-/// Whether OreUI draws `view`'s route; a launcher dialog draws over it instead.
+/// Whether this canvas can paint the requested route; presentation owns renderer selection.
 pub fn draws_menu(view: &MenuView) -> bool {
+    // Out of game, every flow and route is OreUI's, including progress a pending disconnect covers.
+    if view.out_of_game() {
+        return true;
+    }
     let progress = view.connecting || view.local.progress.is_some();
     let covered = view.disconnect_message.is_some();
     !covered
@@ -241,7 +245,15 @@ impl Screen for OreUiScreen {
         let mut character_preview = None;
         let mut focus = None;
         let mut settings_input = false;
-        if sign_in && !progress {
+        if view.out_of_game() && view.flow() == launcher::menu::flow::MenuFlow::Disconnect {
+            let error = view
+                .disconnect_message
+                .as_deref()
+                .expect("disconnect flow has a reason");
+            canvas.capture_focus = true;
+            super::disconnect::draw(&mut canvas, view, size, error, translate)?;
+            focus = Some(focus_actions(&canvas));
+        } else if sign_in && !progress {
             canvas.capture_focus = true;
             modal::draw(
                 &mut canvas,

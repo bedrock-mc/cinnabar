@@ -28,13 +28,72 @@ pub(crate) fn configure(app: &mut App, root: PathBuf, config_root: PathBuf, file
         );
 }
 
+/// Pack-reload status folded into the published snapshot, borrowed for comparison.
+#[derive(Clone, Copy)]
+enum Overlay<'a> {
+    Progress(&'a str),
+    Error(&'a str),
+    Applied,
+    Plain,
+}
+
+impl<'a> Overlay<'a> {
+    /// Classifies the reload status the published snapshot reflects over `message`.
+    fn current(reload: &'a PackReload, message: &str) -> Self {
+        if let Some(progress) = reload.progress() {
+            Self::Progress(progress)
+        } else if let Some(error) = reload.error() {
+            Self::Error(error)
+        } else if message == "Preparing resource packs…" && reload.last_duration().is_some() {
+            Self::Applied
+        } else {
+            Self::Plain
+        }
+    }
+}
+
+/// The overlay last published, retained so unchanged frames skip cloning the snapshot.
+enum PublishedOverlay {
+    Progress(String),
+    Error(String),
+    Applied,
+    Plain,
+}
+
+impl PublishedOverlay {
+    fn matches(&self, overlay: Overlay<'_>) -> bool {
+        match (self, overlay) {
+            (Self::Progress(published), Overlay::Progress(current))
+            | (Self::Error(published), Overlay::Error(current)) => published == current,
+            (Self::Applied, Overlay::Applied) | (Self::Plain, Overlay::Plain) => true,
+            _ => false,
+        }
+    }
+}
+
+impl From<Overlay<'_>> for PublishedOverlay {
+    fn from(overlay: Overlay<'_>) -> Self {
+        match overlay {
+            Overlay::Progress(progress) => Self::Progress(progress.to_owned()),
+            Overlay::Error(error) => Self::Error(error.to_owned()),
+            Overlay::Applied => Self::Applied,
+            Overlay::Plain => Self::Plain,
+        }
+    }
+}
+
 /// Delivers UI/file commands and publishes completed immutable snapshots.
+///
+/// The published snapshot is a function of the worker's snapshot and the reload overlay, so
+/// it is rebuilt only when either changes instead of being cloned every frame.
 fn drive(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
     mut reload: ResMut<PackReload>,
     mut drops: MessageReader<bevy::window::FileDragAndDrop>,
+    mut published: Local<Option<PublishedOverlay>>,
 ) {
+    let mut snapshot_changed = false;
     for request in menu.take_minecraft_import_requests() {
         let action = request.action;
         if !worker.send_minecraft_import(request) {
@@ -64,6 +123,7 @@ fn drive(
                 }
                 worker.awaiting = None;
                 worker.snapshot.busy = false;
+                snapshot_changed = true;
                 break;
             }
         };
@@ -77,7 +137,10 @@ fn drive(
                 worker.minecraft_import_pending |= state.is_some();
                 menu.publish_minecraft_import(snapshot, state.map(|state| *state))
             }
-            worker::Event::Snapshot(snapshot) => worker.snapshot = snapshot,
+            worker::Event::Snapshot(snapshot) => {
+                worker.snapshot = snapshot;
+                snapshot_changed = true;
+            }
             worker::Event::Apply(stack, selection) => {
                 let revision = reload.request_globals(stack);
                 worker.awaiting = Some((revision, selection));
@@ -99,15 +162,24 @@ fn drive(
             menu.publish_minecraft_import_pack_status(progress);
         }
     }
-    let mut snapshot = worker.snapshot.clone();
-    if let Some(progress) = reload.progress() {
-        snapshot.busy = true;
-        snapshot.message = progress.to_owned();
-    } else if let Some(error) = reload.error() {
-        snapshot.message = error.to_owned();
-    } else if snapshot.message == "Preparing resource packs…" && reload.last_duration().is_some()
+    let overlay = Overlay::current(&reload, &worker.snapshot.message);
+    if !snapshot_changed
+        && published
+            .as_ref()
+            .is_some_and(|published| published.matches(overlay))
     {
-        snapshot.message = "Texture packs applied.".into();
+        return;
     }
+    let mut snapshot = worker.snapshot.clone();
+    match overlay {
+        Overlay::Progress(progress) => {
+            snapshot.busy = true;
+            snapshot.message = progress.to_owned();
+        }
+        Overlay::Error(error) => snapshot.message = error.to_owned(),
+        Overlay::Applied => snapshot.message = "Texture packs applied.".into(),
+        Overlay::Plain => {}
+    }
+    *published = Some(overlay.into());
     menu.global_resources = Arc::new(snapshot);
 }

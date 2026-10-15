@@ -49,8 +49,13 @@ pub fn export_warnings(session: &mut Session) -> Vec<Diagnostic> {
         .workspace
         .layers()
         .iter()
-        .flat_map(|layer| layer.edited_paths().map(str::to_owned))
-        .filter(|path| path.starts_with("ui/") && !path.starts_with("ui/_"))
+        .flat_map(|layer| {
+            layer
+                .ui_paths()
+                .filter(|path| layer.is_edited(path))
+                .map(str::to_owned)
+        })
+        .filter(|path| path != json_ui::UI_DEFS_PATH && path != json_ui::GLOBAL_VARIABLES_PATH)
         .collect();
     if edited.is_empty() {
         return Vec::new();

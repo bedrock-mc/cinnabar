@@ -12,11 +12,10 @@ use std::{
 
 use winit::{
     application::ApplicationHandler,
-    dpi::LogicalSize,
     event::{ElementState, KeyEvent, MouseButton, WindowEvent},
     event_loop::ActiveEventLoop,
     keyboard::ModifiersState,
-    window::{Window, WindowAttributes, WindowId},
+    window::{Window, WindowId},
 };
 
 use super::{
@@ -25,17 +24,16 @@ use super::{
         screen::{self, Action, Effect, Meter, Screen},
         status::Status,
     },
-    EXIT_QUIT, EXIT_UNAVAILABLE,
+    EXIT_QUIT, EXIT_UNAVAILABLE, view,
+};
+use bootstrap_ui::{
+    OVERLAY_INTERVAL, PANORAMA_TINT, Preferences,
     canvas::{Canvas, Image, Rect, Text},
     gpu,
-    input::{Command, Input, Source, pointer::Pointer},
-    view,
+    input::{self, Command, Input, Source, pointer::Pointer},
 };
 use launcher::install_layout::InstallLayout;
 
-const PANORAMA_TINT: [f32; 4] = [0.0, 0.0, 0.0, 0.3];
-/// Progress repaints at most this often; the panorama animates every frame.
-const OVERLAY_INTERVAL: Duration = Duration::from_millis(66);
 /// How long "Starting Cinnabar" stays up before the game window replaces it.
 const DONE_LINGER: Duration = Duration::from_millis(700);
 /// How long a cancelled worker gets to kill its step before the process exits anyway.
@@ -64,12 +62,10 @@ pub(super) struct SetupApp {
     hits: Vec<(Action, Rect)>,
     pointer: Pointer,
     hovered: Option<Action>,
-    input: Input,
+    input: Input<Action>,
     controllers: Option<gilrs::Gilrs>,
-    settings: launcher::menu::settings_options::SettingsOptions,
+    preferences: Preferences,
     modifiers: ModifiersState,
-    appearance: ui::oreui_theme::Appearance,
-    gui_scale_offset: i8,
     overlay_dirty: bool,
     overlay_at: Option<Instant>,
     done_at: Option<Instant>,
@@ -95,20 +91,8 @@ impl SetupApp {
         };
         let mut input = Input::default();
         input.reset(&screen);
-        let settings = launcher::menu::settings_options::SettingsOptions::load(
-            &layout
-                .server_file()
-                .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
-        );
-        let appearance = ui::oreui_theme::Appearance::from_dark(settings.oreui_dark_mode());
-        let gui_scale_offset = launcher_host::video_settings::load(&layout.user_config_root)
-            .unwrap_or_default()
-            .gui_scale_offset;
-        let controllers = gilrs::Gilrs::new()
-            .map_err(|error| {
-                eprintln!("setup controller input unavailable: {error}");
-            })
-            .ok();
+        let preferences = Preferences::load(&layout);
+        let controllers = bootstrap_ui::controllers();
         Self {
             layout,
             text,
@@ -127,10 +111,8 @@ impl SetupApp {
             hovered: None,
             input,
             controllers,
-            settings,
+            preferences,
             modifiers: ModifiersState::default(),
-            appearance,
-            gui_scale_offset,
             overlay_dirty: true,
             overlay_at: None,
             done_at: None,
@@ -218,11 +200,8 @@ impl SetupApp {
             &mut self.text,
             &self.screen,
             &view::Style {
-                rem: f32::from(
-                    ui::DesktopGuiScale::for_window([size.width, size.height])
-                        .scale_for_offset(self.gui_scale_offset),
-                ) * ui::oreui_theme::GUI_PIXELS_PER_REM,
-                appearance: self.appearance,
+                rem: self.preferences.rem(size),
+                appearance: self.preferences.appearance,
                 hovered: self.hovered,
                 focused: self.input.focused.filter(|_| self.input.focus_visible),
                 pressed: self.input.pressed(self.hovered),
@@ -239,21 +218,16 @@ impl SetupApp {
     }
 }
 
-fn setup_window_attributes(title: Option<&str>) -> WindowAttributes {
-    Window::default_attributes()
-        .with_title(launcher::window_title(title))
-        .with_window_icon(Some(crate::window_icon::icon()))
-        .with_inner_size(LogicalSize::new(1024.0, 640.0))
-        .with_min_inner_size(LogicalSize::new(560.0, 420.0))
-}
-
 impl ApplicationHandler for SetupApp {
+    #[expect(
+        clippy::print_stderr,
+        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+    )]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
-        let attributes =
-            setup_window_attributes(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
+        let attributes = bootstrap_ui::window::attributes(super::SETUP_SIZE);
         let Ok(window) = event_loop.create_window(attributes) else {
             self.finish(EXIT_UNAVAILABLE, event_loop);
             return;
@@ -276,6 +250,10 @@ impl ApplicationHandler for SetupApp {
         }
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+    )]
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested if self.screen == Screen::Done => {
@@ -380,7 +358,7 @@ impl ApplicationHandler for SetupApp {
             if !self.pointer.active {
                 continue;
             }
-            if let Some(command) = super::input::controller(event.event, &self.settings) {
+            if let Some(command) = input::controller(event.event, &self.preferences.settings) {
                 let (action, changed) =
                     self.input
                         .apply(&self.screen, Source::Controller, command, None);
@@ -415,23 +393,6 @@ impl ApplicationHandler for SetupApp {
         }
         if let Some(window) = &self.window {
             window.request_redraw();
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn setup_window_uses_embedding_title_and_keeps_default_for_blank_values() {
-        assert_eq!(
-            super::setup_window_attributes(Some("Zeno Client")).title,
-            "Zeno Client"
-        );
-        for title in [None, Some(""), Some("  ")] {
-            assert_eq!(
-                super::setup_window_attributes(title).title,
-                launcher::PRODUCT_NAME
-            );
         }
     }
 }

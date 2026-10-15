@@ -13,6 +13,7 @@ const SERVER_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 /// Transfer control packets keep progressing when the window cannot present.
 pub(crate) fn advance_dimension_transfer(
     mut client_world: bevy::prelude::ResMut<super::ClientWorld>,
+    mut fatal_error: bevy::prelude::ResMut<super::FatalError>,
     network: bevy::prelude::Res<NetworkHandle<PackApplication>>,
     clock: bevy::prelude::Res<crate::environment::WorldClock>,
     time: bevy::prelude::Res<bevy::prelude::Time<bevy::time::Real>>,
@@ -56,10 +57,7 @@ pub(crate) fn advance_dimension_transfer(
             .queue_switch(time.elapsed(), destination_ready, &network)
     {
         if error.is_closed() {
-            super::record_fatal_error(
-                &mut client_world.fatal_error,
-                format!("dimension transfer: {error}"),
-            );
+            super::record_fatal_error(&mut fatal_error.0, format!("dimension transfer: {error}"));
         }
         return;
     }
@@ -68,10 +66,7 @@ pub(crate) fn advance_dimension_transfer(
         .queue_completion(|packet| network.send_dimension_packet(packet))
         && error.is_closed()
     {
-        super::record_fatal_error(
-            &mut client_world.fatal_error,
-            format!("respawn completion: {error}"),
-        );
+        super::record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
     }
 }
 

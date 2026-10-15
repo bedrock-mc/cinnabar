@@ -75,7 +75,7 @@ fn append(images: &mut OreUiImages, directory: &Path) {
                     },
                 );
             }
-            Err(reason) => eprintln!(
+            Err(reason) => tracing::warn!(
                 "Dimension backdrop {} unavailable ({reason})",
                 path.display()
             ),

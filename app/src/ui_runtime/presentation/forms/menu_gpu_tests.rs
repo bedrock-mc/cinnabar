@@ -319,7 +319,8 @@ fn zeqa_late_pages_match_the_published_frame_on_gpu() {
     for phase in 0..3 {
         if phase != 0 {
             presentation.set_menu_view(None);
-            presentation.set_loading_stage(Some(super::LoadingStage::BuildingTerrain));
+            // Pack pages draw only behind the in-session dimension change.
+            presentation.set_loading_stage(Some(super::LoadingStage::ChangingDimension));
             client_runtime::session::begin_session(&mut runtime, &mut player_runtime, phase + 1);
             runtime.set_server_ui(Some(Arc::new(super::loading_sequence_tests::lazy(
                 pack.clone(),

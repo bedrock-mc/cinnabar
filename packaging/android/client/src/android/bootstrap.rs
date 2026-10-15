@@ -32,6 +32,10 @@ static SETUP: Mutex<()> = Mutex::new(());
 /// # Safety
 /// Android passes its live VM while loading this library.
 #[unsafe(no_mangle)]
+#[expect(
+    clippy::print_stderr,
+    reason = "the library loads before any logging exists, so stderr is the only sink"
+)]
 pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_void) -> jint {
     let registered = unsafe { JavaVM::from_raw(vm) }.and_then(|vm| {
         let class = format!(

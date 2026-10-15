@@ -2,6 +2,7 @@ use super::*;
 
 impl BlobCacheResolver {
     pub(crate) fn retained_cached_bytes(&self) -> Result<usize, BlobCacheError> {
+        self.debug_assert_running_totals();
         self.pending
             .capacity()
             .checked_mul(size_of::<(u64, PendingTransaction)>())
@@ -30,23 +31,51 @@ impl BlobCacheResolver {
                     .and_then(|index| bytes.checked_add(index))
             })
             .and_then(|bytes| {
-                self.pending_by_hash.values().try_fold(bytes, |total, ids| {
-                    ids.capacity()
-                        .checked_mul(size_of::<u64>())
-                        .and_then(|index| total.checked_add(index))
-                })
+                self.pending_hash_set_capacity
+                    .checked_mul(size_of::<u64>())
+                    .and_then(|index| bytes.checked_add(index))
             })
-            .and_then(|bytes| {
-                self.pending.iter().try_fold(bytes, |total, transaction| {
-                    total.checked_add(transaction.1.accounted_bytes)
-                })
-            })
-            .and_then(|bytes| {
-                self.ready.iter().try_fold(bytes, |total, transaction| {
-                    total.checked_add(transaction.1.accounted_bytes)
-                })
-            })
+            .and_then(|bytes| bytes.checked_add(self.pending_accounted_bytes))
+            .and_then(|bytes| bytes.checked_add(self.ready_accounted_bytes))
             .ok_or(BlobCacheError::ByteCountOverflow)
+    }
+
+    /// Checks, in debug builds only, that the running totals equal a full walk of their
+    /// collections; release builds trust the totals maintained at each mutation.
+    pub(super) fn debug_assert_running_totals(&self) {
+        debug_assert_eq!(
+            self.pending_hash_set_capacity,
+            self.pending_by_hash
+                .values()
+                .map(HashSet::capacity)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.pending_accounted_bytes,
+            self.pending
+                .values()
+                .map(|transaction| transaction.accounted_bytes)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.ready_accounted_bytes,
+            self.ready
+                .values()
+                .map(|transaction| transaction.accounted_bytes)
+                .sum::<usize>()
+        );
+        debug_assert_eq!(
+            self.retained_column_slots,
+            self.pending
+                .values()
+                .map(|transaction| transaction.columns.len())
+                .chain(
+                    self.ready
+                        .values()
+                        .map(|transaction| transaction.columns.len())
+                )
+                .sum::<usize>()
+        );
     }
 
     pub(crate) fn retained_ordinary_bytes(&self) -> Result<usize, BlobCacheError> {
@@ -64,11 +93,8 @@ impl BlobCacheResolver {
     }
 
     pub(super) fn retained_reconstructed_bytes(&self) -> Result<usize, BlobCacheError> {
-        self.ready.values().try_fold(0usize, |total, ready| {
-            total
-                .checked_add(ready.accounted_bytes)
-                .ok_or(BlobCacheError::ByteCountOverflow)
-        })
+        self.debug_assert_running_totals();
+        Ok(self.ready_accounted_bytes)
     }
 
     pub(super) fn refresh_pending_accounting(&mut self) -> Result<(), BlobCacheError> {
@@ -161,5 +187,63 @@ impl BlobCacheResolver {
             .and_then(|bytes| bytes.checked_add(size_of::<packets::Packet>()))
             .and_then(|bytes| retained.checked_add(bytes))
             .is_some_and(|bytes| bytes <= MAX_CLIENT_BLOB_PENDING_BYTES)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blob_cache::tests::cached_level_chunk;
+
+    /// Abandoning waiters one at a time leaves every running total equal to a full walk,
+    /// including hash-index capacity that a removal can reclaim as a tombstone.
+    #[test]
+    fn abandoning_individual_waiters_keeps_running_totals_exact() {
+        let shared = client_blob_hash(b"shared waiter blob");
+        let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());
+        for x in 0..96 {
+            let own = client_blob_hash(format!("own blob {x}").as_bytes());
+            resolver
+                .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![shared, own])))
+                .expect("admit a waiter on the shared blob");
+        }
+        let mut sequences = resolver.pending.keys().copied().collect::<Vec<_>>();
+        sequences.sort_unstable();
+        // Interleaved removal leaves deleted slots between live entries of the shared set.
+        let (evens, odds): (Vec<_>, Vec<_>) = sequences
+            .into_iter()
+            .partition(|sequence| sequence % 2 == 0);
+        for sequence in evens.into_iter().chain(odds) {
+            resolver
+                .abandon_pending_transaction(sequence)
+                .expect("abandon one waiter");
+            assert_eq!(
+                resolver.pending_hash_set_capacity,
+                resolver
+                    .pending_by_hash
+                    .values()
+                    .map(HashSet::capacity)
+                    .sum::<usize>(),
+                "hash-index capacity after abandoning {sequence}"
+            );
+            assert_eq!(
+                resolver.pending_accounted_bytes,
+                resolver
+                    .pending
+                    .values()
+                    .map(|transaction| transaction.accounted_bytes)
+                    .sum::<usize>()
+            );
+            assert_eq!(
+                resolver.retained_column_slots,
+                resolver
+                    .pending
+                    .values()
+                    .map(|transaction| transaction.columns.len())
+                    .chain(resolver.ready.values().map(|ready| ready.columns.len()))
+                    .sum::<usize>()
+            );
+        }
+        assert!(resolver.pending.is_empty());
     }
 }

@@ -102,7 +102,7 @@ pub(crate) fn flush_chat_network(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<UiRuntimeResource>,
     network: Res<NetworkHandle<PackApplication>>,
-    mut client_world: ResMut<crate::runtime::world::ClientWorld>,
+    mut fatal_error: ResMut<crate::runtime::shutdown::FatalError>,
 ) {
     runtime.service_pending_chat_autocomplete(&player_runtime);
     if network.closed_command_has_pending_control() {
@@ -127,19 +127,19 @@ pub(crate) fn flush_chat_network(
         Ok(_) | Err(ChatFlushError::Transport(client_session::PacketSendError::Full(_))) => {}
         Err(ChatFlushError::Transport(client_session::PacketSendError::Closed(_))) => {
             crate::runtime::shutdown::record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 "chat send failed because the network command channel closed".to_owned(),
             );
         }
         Err(ChatFlushError::Packet(error)) => {
             crate::runtime::shutdown::record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 format!("queued chat packet became invalid: {error}"),
             );
         }
         Err(ChatFlushError::SessionChanged { expected, actual }) => {
             crate::runtime::shutdown::record_fatal_error(
-                &mut client_world.fatal_error,
+                &mut fatal_error.0,
                 format!(
                     "queued chat packet crossed a session boundary: expected {expected}, got {actual}"
                 ),

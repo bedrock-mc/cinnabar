@@ -137,7 +137,8 @@ fn zeqa_loading_pixels_survive_artwork_repacking_and_pack_reload() {
             .any(|(key, _)| key == &format!("{}.png", ui_engine::textures::TITLE_KEY))
     );
     presentation.set_server_ui_pack(&pack);
-    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    // Only the in-session dimension change keeps the pack's JSON-UI backdrop.
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     let cold = frame(&player_runtime, &mut presentation);
     let cold_pixels = snapshot::rasterize(&cold);
     assert!(

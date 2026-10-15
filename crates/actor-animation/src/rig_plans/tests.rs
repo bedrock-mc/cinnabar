@@ -12,16 +12,17 @@ fn candidates() -> Arc<RuntimeEntityAssets> {
     let condition = expressions.len() as u32;
     expressions.push(CompiledMolangExpression {
         first_op: ops.len() as u32,
-        op_count: 1,
+        op_count: 2,
         max_stack: 1,
     });
-    ops.push(MolangOp::LoadVariable(7));
+    ops.extend([MolangOp::LoadVariable(7), MolangOp::Truthy]);
     compiled.molang_ops = ops.into();
     compiled.molang_expressions = expressions.into();
     compiled.rig_geometries = vec![
         compiled.rig_geometries[0],
         EntityRigGeometryBinding {
             condition: Some(condition),
+            first_animation: compiled.rig_animations.len() as u32,
             animation_count: 0,
             ..compiled.rig_geometries[0]
         },
@@ -175,7 +176,7 @@ fn selected_candidate_and_preview_restore_do_not_mutate_shared_templates() {
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: OperandStack::lease(),
         static_draw: None,
     };
     let checkpoint = geometry::reselect_geometry_preview(
@@ -189,7 +190,7 @@ fn selected_candidate_and_preview_restore_do_not_mutate_shared_templates() {
     .expect("changed candidate has a checkpoint");
     assert_eq!(state.geometry_binding, 1);
     assert_eq!(
-        budget.used, 1,
+        budget.used, 2,
         "condition evaluation still runs on a cache hit"
     );
     crate::attachable::bind_roots(&mut state.bones, &state.bone_names, &["rightitem".into()]);
@@ -240,9 +241,9 @@ fn motion_keys_include_all_controller_and_remembered_clip_ids_but_not_runtime_st
 }
 
 #[test]
-fn exact_catalog_layout_and_mutation_guards_reject_stale_reuse() {
+fn exact_catalog_layout_and_replacement_guards_reject_stale_reuse() {
     let mut assets = crate::test_support::counting_random_assets();
-    let mut layout = VariableLayout::new(&assets);
+    let layout = VariableLayout::new(&assets);
     let original = layout.rig_plan(&assets, 0, 0).unwrap();
     let foreign = Arc::new(assets.as_ref().clone());
     let first = layout.rig_plan(&foreign, 0, 0).unwrap();
@@ -261,12 +262,6 @@ fn exact_catalog_layout_and_mutation_guards_reject_stale_reuse() {
     );
     let detached = layout.rig_plan(&assets, 0, 0).unwrap();
     assert!(!Arc::ptr_eq(&original, &detached));
-    layout.bind_input_reads(&assets);
-    assert!(layout.plans.cache.lock().unwrap().entries.is_empty());
-    assert!(
-        !layout.plans.matches(&assets),
-        "mutating layout analysis disables admission"
-    );
     let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
     store.insert(1, 0, &TestActor::default());
     let mut replacement = crate::test_support::counting_random_compiled("minecraft:test");
@@ -279,7 +274,7 @@ fn exact_catalog_layout_and_mutation_guards_reject_stale_reuse() {
     assert!(store.rigs.values().next().unwrap().pack);
     assert_eq!(
         store.rigs.values().next().unwrap().bones[0].pivot,
-        [12.0; 3]
+        geometry::resolve_bones(&pack, 0).unwrap().0[0].pivot
     );
     store.clear();
     assert!(store.layout.plans.cache.lock().unwrap().entries.is_empty());

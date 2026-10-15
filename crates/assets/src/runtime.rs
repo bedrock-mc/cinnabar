@@ -209,23 +209,24 @@ impl RuntimeAssets {
 
     #[must_use]
     pub fn resolve(&self, mode: NetworkIdMode, value: u32) -> ResolvedBlock {
+        self.resolve_known(mode, value).unwrap_or_else(|| {
+            self.record_missing();
+            ResolvedBlock::diagnostic()
+        })
+    }
+
+    /// Resolves a registered network value exactly as [`Self::resolve`] does; an unregistered
+    /// value answers `None` without counting a miss.
+    #[must_use]
+    pub fn resolve_known(&self, mode: NetworkIdMode, value: u32) -> Option<ResolvedBlock> {
         let index = match mode {
             NetworkIdMode::Sequential => Some(value),
             NetworkIdMode::Hashed => self.sequential_id_for_hash(value),
-        };
-        let visual = index.and_then(|index| {
-            self.visuals
-                .get(index as usize)
-                .copied()
-                .zip(self.light_properties.get(index as usize).copied())
-        });
-        visual.map_or_else(
-            || {
-                self.record_missing();
-                ResolvedBlock::diagnostic()
-            },
-            |(visual, light)| ResolvedBlock::known(visual, light),
-        )
+        }? as usize;
+        Some(ResolvedBlock::known(
+            *self.visuals.get(index)?,
+            *self.light_properties.get(index)?,
+        ))
     }
 
     /// Mesh reuse requires matching material addresses, flags, and positional variation mode.
