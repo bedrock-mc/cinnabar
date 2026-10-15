@@ -120,6 +120,8 @@ pub(crate) struct ClientWorld {
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
     pub(crate) pack_entities: Option<Arc<assets::SessionEntityPack>>,
+    /// Worker-computed terrain inputs used to select the far-terrain cache namespace.
+    pub(crate) terrain_resource_identity: [u8; 32],
     /// Worker-built pack pages, reused only while their base artwork and pack remain current.
     pub(crate) prepared_actor_artwork:
         Option<Arc<client_presentation::prepared_actor_artwork::PreparedActorArtwork>>,
@@ -150,6 +152,7 @@ impl ClientWorld {
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
+            terrain_resource_identity: [0; 32],
             prepared_actor_artwork: None,
             session_items: None,
             pending_surface_spawn: None,

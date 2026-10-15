@@ -302,6 +302,19 @@ impl Default for FarTerrainFeed {
 }
 
 impl WorldStream {
+    /// Discards old resource or namespace generations and resummarizes complete resident columns.
+    pub fn reload_far_terrain_resources(&mut self) {
+        let feed = &mut self.far_terrain;
+        feed.prepared = None;
+        feed.inbox.cancel_pending();
+        feed.queued.clear();
+        feed.pending.clear();
+        if feed.enabled {
+            feed.queued.extend(self.loaded_columns.iter().copied());
+            feed.pending.extend(self.loaded_columns.iter().copied());
+        }
+    }
+
     /// Starts or stops summarising columns for far terrain; off drops queued work.
     pub fn set_far_terrain_enabled(&mut self, enabled: bool) {
         let was_enabled = self.far_terrain.enabled;

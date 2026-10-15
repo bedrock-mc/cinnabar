@@ -1,6 +1,6 @@
 //! Cache namespaces: a hashed server identity, a dimension and a world identity.
 
-use std::fmt;
+use std::fmt::{self, Write};
 
 use sha2::{Digest, Sha256};
 
@@ -24,18 +24,7 @@ impl ServerKey {
     /// Parses the lowercase hex that [`fmt::Display`] writes.
     #[must_use]
     pub fn from_hex(text: &str) -> Option<Self> {
-        if text.len() != 32
-            || !text
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-        {
-            return None;
-        }
-        let mut key = [0; 16];
-        for (index, byte) in key.iter_mut().enumerate() {
-            *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
-        }
-        Some(Self(key))
+        parse_hex(text).map(Self)
     }
 }
 
@@ -53,6 +42,8 @@ pub struct WorldKey {
     pub server: ServerKey,
     pub dimension: i32,
     pub level: u64,
+    /// Surface resources select a namespace while sharing the destination's disk quota.
+    pub resources: [u8; 32],
 }
 
 impl WorldKey {
@@ -63,6 +54,7 @@ impl WorldKey {
             dimension: self.dimension,
             level: self.level,
             epoch,
+            resources: self.resources,
         }
     }
 }
@@ -75,6 +67,7 @@ pub struct NamespaceKey {
     pub dimension: i32,
     pub level: u64,
     pub epoch: u32,
+    pub resources: [u8; 32],
 }
 
 impl NamespaceKey {
@@ -84,13 +77,21 @@ impl NamespaceKey {
             server: self.server,
             dimension: self.dimension,
             level: self.level,
+            resources: self.resources,
         }
     }
 
     /// Directory name below the server's directory.
     #[must_use]
     pub fn directory(self) -> String {
-        format!("{}.{:016x}.{}", self.dimension, self.level, self.epoch)
+        let mut directory = format!("{}.{:016x}.{}", self.dimension, self.level, self.epoch);
+        if self.resources != [0; 32] {
+            directory.push('.');
+            for byte in self.resources {
+                write!(directory, "{byte:02x}").expect("writing to a string");
+            }
+        }
+        directory
     }
 
     /// Parses [`NamespaceKey::directory`] output for `server`.
@@ -102,9 +103,29 @@ impl NamespaceKey {
             dimension: parts.next()?.parse().ok()?,
             level: u64::from_str_radix(parts.next()?, 16).ok()?,
             epoch: parts.next()?.parse().ok()?,
+            resources: match parts.next() {
+                Some(resources) => parse_hex(resources)?,
+                None => [0; 32],
+            },
         };
         parts.next().is_none().then_some(key)
     }
+}
+
+/// Decodes an exact lowercase hexadecimal cache key, rejecting malformed directory names.
+fn parse_hex<const N: usize>(text: &str) -> Option<[u8; N]> {
+    if text.len() != N * 2
+        || !text
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return None;
+    }
+    let mut key = [0; N];
+    for (index, byte) in key.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(key)
 }
 
 /// Share of cells whose surfaces agree within a block, empty cells agreeing only with empty.

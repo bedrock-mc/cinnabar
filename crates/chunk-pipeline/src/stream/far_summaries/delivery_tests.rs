@@ -62,3 +62,29 @@ fn deferred_results_still_obey_generation_order() {
     assert_eq!(out[0].generation, generation);
     assert!(inbox.is_idle());
 }
+
+#[test]
+fn cancelling_a_resource_generation_discards_deferred_and_late_results() {
+    let mut inbox = FarSummaryInbox::default();
+    let column = finish(&mut inbox, 0);
+    let late = inbox.tx.clone();
+    let generation = inbox.issue(column);
+    let mut out = Vec::new();
+    inbox.drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    inbox.cancel_pending();
+    assert!(
+        late.send(Event::Finished(Finished {
+            column,
+            generation,
+            summary: far_terrain::ColumnSummary::default().encode(),
+        }))
+        .is_err()
+    );
+    inbox.drain(&mut out);
+    assert!(out.is_empty());
+    assert!(inbox.is_idle());
+    finish(&mut inbox, 0);
+    inbox.drain(&mut out);
+    assert_eq!(out.len(), 1);
+    assert!(out[0].generation > generation);
+}
