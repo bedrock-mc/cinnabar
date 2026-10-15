@@ -183,6 +183,12 @@ impl Manager {
         }
     }
 
+    /// Deletes imports a killed client left behind; it walks and deletes folders, so it runs on
+    /// the worlds worker.
+    pub fn reclaim_abandoned_imports(&self) {
+        self.inner.store.reclaim_abandoned_imports();
+    }
+
     /// Saved worlds, most recently played first.
     pub fn list(&self) -> Result<Vec<World>, WorldError> {
         self.inner.store.list()

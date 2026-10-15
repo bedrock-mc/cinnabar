@@ -121,7 +121,6 @@ impl Store {
     pub(crate) fn open(root: PathBuf) -> Result<Self, WorldError> {
         create_private_dir(&root)
             .map_err(|error| failed(format!("create worlds directory: {error}")))?;
-        remove_stale_staging(&root);
         Ok(Self {
             root,
             state: Mutex::default(),
@@ -274,6 +273,11 @@ impl Store {
             .map_err(|locked| error(io::Error::other(locked)))?;
         create_private_dir(&staging.dir).map_err(error)?;
         Ok(staging)
+    }
+
+    /// Deletes abandoned imports, which may be whole worlds; blocking, so never on a frame.
+    pub(crate) fn reclaim_abandoned_imports(&self) {
+        reclaim_abandoned_imports(&self.root);
     }
 
     /// Moves the Bedrock world folder `level` into a new world saved as `world`. The world gets a
@@ -447,7 +451,7 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
 
 /// Removes import folders a killed client left behind: those whose lock file is gone or can be
 /// locked. A folder whose lock another client holds is a live import and stays.
-fn remove_stale_staging(root: &Path) {
+fn reclaim_abandoned_imports(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };

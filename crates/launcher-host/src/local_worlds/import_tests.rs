@@ -289,7 +289,9 @@ fn a_starting_client_keeps_a_running_import() {
     let staging = fixture.store.staging().expect("staging");
     let partial = staging.path().join("level.dat");
     fs::write(&partial, b"partial").expect("partial");
-    Store::open(fixture.worlds.clone()).expect("second client");
+    Store::open(fixture.worlds.clone())
+        .expect("second client")
+        .reclaim_abandoned_imports();
     assert!(partial.is_file(), "the running import lost its folder");
     drop(staging);
     assert!(fixture.leftovers().is_empty(), "{:?}", fixture.leftovers());

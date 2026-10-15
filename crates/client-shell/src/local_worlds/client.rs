@@ -101,6 +101,7 @@ impl WorldsClient {
         thread::Builder::new()
             .name("local-worlds".to_owned())
             .spawn(move || {
+                manager.reclaim_abandoned_imports();
                 let mut loaded = HashSet::new();
                 while let Ok(request) = effect_rx.recv() {
                     let effect = match request {

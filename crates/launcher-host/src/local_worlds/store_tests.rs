@@ -335,10 +335,11 @@ fn thumbnails_are_kept_beside_their_world() {
     ));
 }
 
-/// Import folders a killed client left behind, with an unlocked or missing lock file, are
-/// removed on the next open; a live import's folder and lock are not.
+/// Opening the store, which happens on a frame, leaves import folders a killed client left
+/// behind to the worker; reclaiming them removes those with an unlocked or missing lock file but
+/// never a live import's folder and lock.
 #[test]
-fn abandoned_import_folders_are_removed_on_open() {
+fn abandoned_import_folders_are_reclaimed_off_the_open() {
     let dir = scratch();
     let root = dir.path().join("worlds");
     let store = store(&dir);
@@ -354,13 +355,23 @@ fn abandoned_import_folders_are_removed_on_open() {
             .expect("lock file");
         }
     }
-    Store::open(root.clone()).expect("reopen");
-    let mut left: Vec<_> = fs::read_dir(&root)
-        .expect("worlds")
-        .map(|entry| entry.expect("entry").path())
-        .collect();
-    left.sort();
+    let listing = || {
+        let mut left: Vec<_> = fs::read_dir(&root)
+            .expect("worlds")
+            .map(|entry| entry.expect("entry").path())
+            .collect();
+        left.sort();
+        left
+    };
+    let before = listing();
+    let reopened = Store::open(root.clone()).expect("reopen");
+    assert_eq!(
+        listing(),
+        before,
+        "opening must not walk or delete import folders"
+    );
+    reopened.reclaim_abandoned_imports();
     let mut expected = vec![live.path().to_path_buf(), live.lock_path.clone()];
     expected.sort();
-    assert_eq!(left, expected);
+    assert_eq!(listing(), expected);
 }
