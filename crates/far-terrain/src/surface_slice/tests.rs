@@ -186,7 +186,7 @@ fn minimum_slice_progresses_with_maximum_edited_layers_and_materialized_caches()
     }
     let section = store.sub_chunk(key).unwrap();
     for storage in section.storages() {
-        storage.words();
+        let _ = storage.words();
         assert_eq!(
             storage.retained_heap_bytes(),
             PalettedStorage::MAX_RETAINED_HEAP_BYTES
