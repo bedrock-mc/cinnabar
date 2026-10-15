@@ -116,7 +116,11 @@ pub(crate) fn advance_local_physics(
         publish_physics_view(&physics, &mut view);
         return;
     }
-    let world = super::collision_world(stream, collisions.registry(stream.network_id_mode()));
+    let world = super::collision_world(
+        stream,
+        collisions.registry(stream.network_id_mode()),
+        &client_world.movement_colliders,
+    );
     let advanced = locals.advance(
         frame,
         &mut physics,
