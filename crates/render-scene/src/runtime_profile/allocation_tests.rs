@@ -57,10 +57,10 @@ fn system_spans_count_requests_between_boundaries() {
         Option<Res<RuntimeStageProfiler>>,
         Option<ResMut<RuntimeStageSpans>>,
     )>::new(&mut world);
-    let (_, spans) = parameters.get_mut(&mut world);
+    let (_, spans) = parameters.get_mut(&mut world).unwrap();
     begin_stage_span::<STAGE>(spans);
     let bytes = std::hint::black_box(vec![0_u8; 128]);
-    let (profiler_resource, spans) = parameters.get_mut(&mut world);
+    let (profiler_resource, spans) = parameters.get_mut(&mut world).unwrap();
     end_stage_span::<STAGE>(profiler_resource, spans);
     std::hint::black_box(bytes);
     let mut fields = String::new();
