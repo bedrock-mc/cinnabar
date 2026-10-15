@@ -175,7 +175,9 @@ impl SegmentedVertexBuffer {
 #[must_use]
 pub fn storage_binding_bytes(device: &RenderDevice) -> u64 {
     let limits = device.limits();
-    u64::from(limits.max_storage_buffer_binding_size).min(limits.max_buffer_size)
+    limits
+        .max_storage_buffer_binding_size
+        .min(limits.max_buffer_size)
 }
 
 /// Grows with headroom, never past what one storage binding of this device holds.

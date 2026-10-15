@@ -358,3 +358,22 @@ fn an_unfittable_rig_does_not_starve_smaller_ones() {
     assert_eq!(frame.rejects.missing_geometry, 1);
     assert!(builder.contains_geometry(small));
 }
+
+/// A rig whose vertices are already resident under another rig adds no storage.
+#[test]
+fn a_rig_sharing_a_resident_page_is_admitted_into_a_full_catalog() {
+    let (first, twin) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+    let pack = vec![
+        pack_geometry(0, 12),
+        distinct(twin, 1.0, 12),
+        pack_geometry(2, 12),
+    ];
+    assert_eq!(builder.replace_pack_geometries(pack), Ok(()));
+    let _ = builder.build(0.5, None, [draws(1, first)]);
+
+    let frame = builder.build(0.5, None, [draws(1, first), draws(2, twin)]);
+    assert_eq!(frame.instances.len(), 2);
+    assert_eq!(frame.rejects.missing_geometry, 0);
+}

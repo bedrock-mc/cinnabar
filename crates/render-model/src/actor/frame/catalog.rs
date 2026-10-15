@@ -97,6 +97,19 @@ impl ActorRigVertexSegments {
     }
 }
 
+/// Outcome of [`GeometryCatalog::plan_admission`].
+#[derive(Debug, Default)]
+pub(super) struct AdmissionPlan {
+    /// Candidate indices that fit, in order.
+    pub(super) admitted: Vec<usize>,
+    /// Length of the `evictable` prefix to evict.
+    pub(super) evicted: usize,
+    /// Some candidate cannot fit even after every eviction.
+    pub(super) denied: bool,
+    /// Some candidate waits for a later frame's budget.
+    pub(super) deferred: bool,
+}
+
 #[derive(Debug)]
 pub(super) struct GeometryCatalog {
     pub(super) geometries: BTreeMap<EntityRigId, ActorRigGeometry>,
@@ -169,6 +182,69 @@ impl GeometryCatalog {
             maximum_vertices,
             live_vertices: len,
         })
+    }
+
+    /// Plans admitting `candidates` in order, evicting a prefix of `evictable` (least valuable
+    /// first) as needed. Charges only storage a rig adds: a page already resident or claimed by
+    /// an earlier candidate costs nothing, and evicting frees a page once no rig uses it. Past
+    /// the first admission, a rig adding more than `budget` remaining vertices is deferred.
+    pub(super) fn plan_admission(
+        &self,
+        candidates: &[ActorRigGeometry],
+        evictable: &[EntityRigId],
+        budget: usize,
+    ) -> AdmissionPlan {
+        let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
+        let mut users = vec![0_usize; pages.pages.len()];
+        let mut rig_pages = BTreeMap::new();
+        for (id, geometry) in &self.geometries {
+            let page = pages.intern(&mut geometry.clone());
+            users[page] += 1;
+            rig_pages.insert(*id, page);
+        }
+        let mut free = self.maximum_vertices.saturating_sub(self.live_vertices);
+        let mut remaining = budget;
+        let mut plan = AdmissionPlan::default();
+        for (index, geometry) in candidates.iter().enumerate() {
+            let page = pages.intern(&mut geometry.clone());
+            if page >= users.len() {
+                users.resize(page + 1, 0);
+            }
+            let cost = if users[page] == 0 {
+                pages.pages[page].len()
+            } else {
+                0
+            };
+            if !plan.admitted.is_empty() && cost > remaining {
+                plan.deferred = true;
+                continue;
+            }
+            users[page] += 1;
+            let (mut available, mut through, mut released) = (free, plan.evicted, Vec::new());
+            while available < cost && through < evictable.len() {
+                if let Some(&evicted) = rig_pages.get(&evictable[through]) {
+                    users[evicted] -= 1;
+                    released.push(evicted);
+                    if users[evicted] == 0 {
+                        available += pages.pages[evicted].len();
+                    }
+                }
+                through += 1;
+            }
+            if available < cost {
+                for evicted in released {
+                    users[evicted] += 1;
+                }
+                users[page] -= 1;
+                plan.denied = true;
+                continue;
+            }
+            free = available - cost;
+            plan.evicted = through;
+            remaining = remaining.saturating_sub(cost);
+            plan.admitted.push(index);
+        }
+        plan
     }
 
     /// Reuses vacant addresses; capacity fragmentation changes only page addresses.

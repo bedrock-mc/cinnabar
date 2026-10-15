@@ -130,10 +130,10 @@ impl ActorRigFrameBuilder {
     }
 
     /// Makes staged rigs that `drawn` (the frame's surviving, visible submissions) needs
-    /// resident: smallest first, up to [`STAGED_ADMISSION_VERTICES_PER_FRAME`] per frame
-    /// (always at least one), evicting the least recently drawn staged rigs the frame does not
-    /// draw. Evicted pages are vacated in place, so retained GPU pages are not re-uploaded. A
-    /// rig that cannot fit is skipped until the catalog or the drawn set changes.
+    /// resident: smallest first, adding up to [`STAGED_ADMISSION_VERTICES_PER_FRAME`] vertices
+    /// per frame (always at least one rig), evicting the least recently drawn staged rigs the
+    /// frame does not draw. Evicted pages are vacated in place, so retained GPU pages are not
+    /// re-uploaded. A rig that cannot fit waits until the catalog or the drawn set changes.
     pub(super) fn admit_staged<'a>(
         &mut self,
         drawn: impl Iterator<Item = &'a ActorRigSubmission>,
@@ -170,48 +170,29 @@ impl ActorRigFrameBuilder {
             return;
         }
         missing.sort_by_key(|geometry| (geometry.vertices.len(), geometry.id));
+        let candidates: Vec<_> = missing.into_iter().cloned().collect();
         let mut evictable: Vec<_> = self
             .catalog
             .geometries
-            .iter()
-            .filter(|(id, _)| self.staged.geometries.contains_key(id) && !drawn.contains(id))
-            .map(|(id, geometry)| {
-                let last = self.staged.last_drawn.get(id).copied().unwrap_or(0);
-                (last, *id, geometry.vertices.len())
-            })
+            .keys()
+            .filter(|id| self.staged.geometries.contains_key(id) && !drawn.contains(id))
+            .map(|id| (self.staged.last_drawn.get(id).copied().unwrap_or(0), *id))
             .collect();
         evictable.sort_unstable();
-        let mut free = self
-            .catalog
-            .maximum_vertices
-            .saturating_sub(self.catalog.live_vertices);
-        let mut evicted = 0;
-        let mut budget = STAGED_ADMISSION_VERTICES_PER_FRAME;
-        let mut admitted = Vec::new();
-        let mut denied = false;
-        for geometry in missing {
-            let count = geometry.vertices.len();
-            if !admitted.is_empty() && count > budget {
-                break;
-            }
-            let (mut available, mut through) = (free, evicted);
-            while available < count && through < evictable.len() {
-                available += evictable[through].2;
-                through += 1;
-            }
-            if available < count {
-                // Later candidates are no smaller, so none of them fits either.
-                denied = true;
-                break;
-            }
-            free = available - count;
-            evicted = through;
-            budget = budget.saturating_sub(count);
-            admitted.push(geometry.clone());
-        }
-        if !admitted.is_empty() {
-            let evict: BTreeSet<_> = evictable[..evicted].iter().map(|entry| entry.1).collect();
-            let ids: Vec<_> = admitted.iter().map(|geometry| geometry.id).collect();
+        let evictable: Vec<_> = evictable.into_iter().map(|(_, id)| id).collect();
+        let plan = self.catalog.plan_admission(
+            &candidates,
+            &evictable,
+            STAGED_ADMISSION_VERTICES_PER_FRAME,
+        );
+        let mut denied = plan.denied;
+        if !plan.admitted.is_empty() {
+            let evict: BTreeSet<_> = evictable[..plan.evicted].iter().copied().collect();
+            let admitted: Vec<_> = plan
+                .admitted
+                .iter()
+                .map(|&index| candidates[index].clone())
+                .collect();
             let revision = self.appended_revision(&admitted);
             if self
                 .catalog
@@ -219,15 +200,18 @@ impl ActorRigFrameBuilder {
                 .is_ok()
             {
                 self.staged.last_drawn.retain(|id, _| !evict.contains(id));
-                self.staged
-                    .last_drawn
-                    .extend(ids.into_iter().map(|id| (id, frame_generation)));
+                self.staged.last_drawn.extend(
+                    plan.admitted
+                        .iter()
+                        .map(|&index| (candidates[index].id, frame_generation)),
+                );
             } else {
-                // Shared pages make the vertex estimate approximate; wait for a change.
+                // Fragmentation cannot refuse a planned fit, so this is defensive only.
                 denied = true;
             }
         }
-        if denied {
+        // A deferred rig retries next frame; only a pure denial waits for a change.
+        if denied && !plan.deferred {
             self.staged.denied = Some((self.catalog.revision, key.1));
         }
     }
