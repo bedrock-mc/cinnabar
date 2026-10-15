@@ -964,6 +964,11 @@ these changes do not close the movement, camera, or actor parity gates.
   bell rings and map requests still advance, and beacon beams are exempt. Regression tests
   count prepared candidates and bound authored model reach. Incomplete: no hardware capture
   yet measures the gain.
+- Nametag atlas admission counts misses and reserves cells before rasterizing. Pressure
+  reclaims unused shelf cells while preserving requested lines, and selection retention
+  checks each cached actor identity once. The overall nametag performance package remains
+  partial: this covers its atlas and selection portion. Regression tests are unrun;
+  paired captures, pixel acceptance and hardware frame-time measurements remain open.
 
 ## Camera packets and aim assist
 

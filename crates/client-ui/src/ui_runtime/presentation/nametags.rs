@@ -80,6 +80,8 @@ impl NametagAnchor {
 #[derive(Default)]
 pub struct NametagTextCache {
     entries: HashMap<(u64, i64), CachedNametagText>,
+    #[cfg(test)]
+    retention_checks: usize,
 }
 
 struct CachedNametagText {
@@ -90,6 +92,21 @@ struct CachedNametagText {
 }
 
 impl NametagTextCache {
+    /// Checks each cached identity once against the selected actor identities.
+    fn retain_selected(&mut self, selected: &HashSet<(u64, i64)>) {
+        #[cfg(test)]
+        {
+            self.retention_checks = 0;
+        }
+        self.entries.retain(|identity, _| {
+            #[cfg(test)]
+            {
+                self.retention_checks += 1;
+            }
+            selected.contains(identity)
+        });
+    }
+
     /// Reuses unchanged text while recomputing visibility, pose and viewer distance.
     fn extract(
         &mut self,
@@ -403,11 +420,11 @@ pub fn project_nametags(
             .then(a.runtime_id.cmp(&b.runtime_id))
     });
     candidates.truncate(MAX_PRESENTED_NAMETAGS);
-    cache.entries.retain(|&(runtime_id, unique_id), _| {
-        candidates
-            .iter()
-            .any(|(actor, _, _)| actor.runtime_id == runtime_id && actor.unique_id == unique_id)
-    });
+    let selected: HashSet<_> = candidates
+        .iter()
+        .map(|(actor, _, _)| (actor.runtime_id, actor.unique_id))
+        .collect();
+    cache.retain_selected(&selected);
     candidates
         .into_iter()
         .filter_map(|(actor, name, _)| {
@@ -433,14 +450,13 @@ pub fn build_nametag_scene<'p>(
             .total_cmp(&a.view_depth)
             .then(a.runtime_id.cmp(&b.runtime_id))
     });
-    let requested_lines = ordered
-        .iter()
-        .map(|anchor| anchor.lines.len())
-        .sum::<usize>()
-        .min(MAX_NAMETAG_LINES);
-    if !atlas.has_room_for(requested_lines) {
-        atlas.reset();
-    }
+    let mut available_records = MAX_NAMETAG_RECORDS;
+    atlas.begin_frame(ordered.iter().flat_map(|anchor| {
+        let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
+        let count = anchor.lines.len().min(available_records / records_per_line);
+        available_records -= count * records_per_line;
+        anchor.lines.iter().take(count)
+    }));
     let side = NAMETAG_ATLAS_SIDE as f32;
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut records = Vec::new();
@@ -595,5 +611,55 @@ pub(super) fn style_scene(
             scene.records.extend(extra);
             scene.records.push(record);
         }
+    }
+}
+
+#[cfg(test)]
+mod selection_work_tests {
+    use super::*;
+
+    #[test]
+    fn retention_checks_each_identity_once_and_preserves_selected_text() {
+        let mut cache = NametagTextCache::default();
+        let lines: Arc<[Arc<str>]> = vec![Arc::from("cached")].into();
+        for runtime_id in 0..MAX_PRESENTED_NAMETAGS as u64 {
+            cache.entries.insert(
+                (runtime_id, runtime_id as i64),
+                CachedNametagText {
+                    name: Arc::from("cached"),
+                    score: None,
+                    scoreboard_revision: None,
+                    lines: Arc::clone(&lines),
+                },
+            );
+        }
+        let selected: HashSet<_> = cache.entries.keys().copied().collect();
+        let mut previous_checks = 0;
+        for identity in cache.entries.keys() {
+            assert!(selected.iter().any(|candidate| {
+                previous_checks += 1;
+                candidate == identity
+            }));
+        }
+        assert_eq!(
+            previous_checks,
+            MAX_PRESENTED_NAMETAGS * (MAX_PRESENTED_NAMETAGS + 1) / 2
+        );
+        cache.retain_selected(&selected);
+        assert_eq!(cache.retention_checks, MAX_PRESENTED_NAMETAGS);
+        assert_eq!(cache.entries.len(), selected.len());
+        assert!(
+            cache
+                .entries
+                .values()
+                .all(|entry| Arc::ptr_eq(&entry.lines, &lines))
+        );
+        // Reusing a runtime ID with a different unique ID must retire the old identity.
+        cache.retain_selected(&HashSet::from([(0, -1), (1, 1)]));
+        assert_eq!(cache.retention_checks, MAX_PRESENTED_NAMETAGS);
+        assert_eq!(cache.entries.keys().copied().collect::<Vec<_>>(), [(1, 1)]);
+        cache.retain_selected(&HashSet::new());
+        assert_eq!(cache.retention_checks, 1);
+        assert!(cache.entries.is_empty());
     }
 }

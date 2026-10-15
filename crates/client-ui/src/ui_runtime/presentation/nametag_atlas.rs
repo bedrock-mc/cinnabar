@@ -1,12 +1,16 @@
 //! Name-tag lines rasterized at font resolution into the shared atlas the tag billboards sample.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+    sync::Arc,
+};
 
 use assets::RuntimeFontCatalog;
 use render_model::{NAMETAG_ATLAS_SIDE, NametagAtlasRect};
 use ui::{
     FONT_DESIGN_PIXEL_TEXELS, TEXT_BASELINE_64, TEXT_BOLD_OFFSET_64, TEXT_LINE_HEIGHT_64,
-    TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiScale,
+    TextLayout, TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiScale,
 };
 
 /// Widest line laid out before it would wrap, in font texels.
@@ -59,16 +63,36 @@ pub(super) struct AtlasLine {
     pub(super) top_px: f32,
 }
 
-/// Shelf-packed line cells, rebuilt from scratch when a frame's lines no longer fit.
+/// Shelf-packed cells with unused lines reclaimed only when a miss needs room.
 #[derive(Default)]
 pub struct NametagAtlas {
-    rectangles: Vec<NametagAtlasRect>,
-    lines: HashMap<Arc<str>, AtlasLine>,
-    shelf: [u32; 3],
+    cells: Vec<AtlasCell>,
+    lines: HashMap<Arc<str>, usize>,
+    shelves: Vec<AtlasShelf>,
+    requested: HashSet<Arc<str>>,
+    reclamation: Option<Vec<ShelfReclamation>>,
     exhausted: bool,
     published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
     palette: ui::FormattingPalette,
+}
+
+struct AtlasCell {
+    text: Arc<str>,
+    line: AtlasLine,
+    rgba8: Arc<[u8]>,
+    shelf: usize,
+}
+
+struct ShelfReclamation {
+    shelves: Range<usize>,
+    free: Vec<Range<u32>>,
+}
+
+struct AtlasShelf {
+    y: u32,
+    height: u32,
+    free: Vec<Range<u32>>,
 }
 
 impl NametagAtlas {
@@ -80,7 +104,15 @@ impl NametagAtlas {
         }
     }
 
-    /// The cell of `text`, rasterizing it on first use; `None` when the font cannot lay it out.
+    /// Protects every requested hit before any miss can reclaim unused shelf cells.
+    pub(super) fn begin_frame<'a>(&mut self, texts: impl Iterator<Item = &'a Arc<str>>) {
+        self.requested.clear();
+        self.requested.extend(texts.cloned());
+        self.reclamation = None;
+        self.exhausted = false;
+    }
+
+    /// Returns cached pixels or reserves a cell before rasterizing a new line.
     pub(super) fn line<'p>(
         &mut self,
         text: &Arc<str>,
@@ -88,45 +120,73 @@ impl NametagAtlas {
         layouts: &mut TextLayoutCache,
         pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
     ) -> Option<AtlasLine> {
-        if let Some(line) = self.lines.get(text) {
-            return Some(*line);
+        if !self.requested.is_empty() && self.requested.insert(Arc::clone(text)) {
+            // Rejected earlier lines can leave budget for a later, initially unpinned line.
+            self.reclamation = None;
         }
-        let (width, height, top, rgba8, advance) =
-            rasterize(text, font, layouts, pages, &self.palette)?;
-        let origin = self.allocate(width, height)?;
-        self.rectangles.push(NametagAtlasRect {
-            cell: [origin[0], origin[1], width, height],
-            rgba8: rgba8.into(),
-        });
+        if let Some(&index) = self.lines.get(text) {
+            return Some(self.cells[index].line);
+        }
+        let measured = measure_line(text, font, layouts)?;
+        let [width, height] = measured.size;
+        if !self.has_room_for(1) && !self.reclaim_shelf(None) {
+            return None;
+        }
+        let placement = self.allocate(width, height);
+        let (shelf, origin) = match placement {
+            Some(placement) => placement,
+            None if self.reclaim_shelf(Some([width, height])) => self.allocate(width, height)?,
+            None => return None,
+        };
+        let rgba8 = rasterize_line(&measured, pages, &self.palette);
         let line = AtlasLine {
             cell: [origin[0], origin[1], width, height],
-            width_px: advance as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
-            top_px: top as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
+            width_px: measured.advance as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
+            top_px: measured.top as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
         };
-        self.lines.insert(Arc::clone(text), line);
+        self.reclamation = None;
+        self.lines.insert(Arc::clone(text), self.cells.len());
+        self.cells.push(AtlasCell {
+            text: Arc::clone(text),
+            line,
+            rgba8: rgba8.into(),
+            shelf,
+        });
         self.published = None;
         Some(line)
     }
 
-    /// Forgets every line so the next frame packs only what it draws.
+    /// Invalidates all cells when font or palette identity changes.
     pub(super) fn reset(&mut self) {
         self.lines.clear();
-        self.shelf = [0; 3];
+        self.cells.clear();
+        self.shelves.clear();
+        self.requested.clear();
+        self.reclamation = None;
         self.exhausted = false;
-        self.rectangles.clear();
         self.published = None;
     }
 
-    /// Checks both retained line count and whether shelf space was exhausted.
-    pub(super) fn has_room_for(&self, texts: usize) -> bool {
-        !self.exhausted && self.lines.len().saturating_add(texts) < MAX_ATLAS_LINES
+    /// Checks capacity for uncached lines only; callers must exclude their hits.
+    pub(super) fn has_room_for(&self, misses: usize) -> bool {
+        // Callers without frame liveness still need their explicit pixel-exhaustion reset.
+        let exhausted = self.exhausted && self.requested.is_empty();
+        misses == 0 || (!exhausted && self.lines.len().saturating_add(misses) <= MAX_ATLAS_LINES)
     }
 
     /// Retains immutable line pixels so skipped extractions can recover every update.
     pub(super) fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
         if self.published.is_none() {
             self.revision += 1;
-            self.published = Some(self.rectangles.clone().into());
+            self.published = Some(
+                self.cells
+                    .iter()
+                    .map(|cell| NametagAtlasRect {
+                        cell: cell.line.cell,
+                        rgba8: Arc::clone(&cell.rgba8),
+                    })
+                    .collect(),
+            );
         }
         (
             Arc::clone(self.published.as_ref().expect("just published")),
@@ -134,37 +194,183 @@ impl NametagAtlas {
         )
     }
 
-    /// Reserves a non-overlapping shelf cell.
-    fn allocate(&mut self, width: u32, height: u32) -> Option<[u32; 2]> {
-        let side = NAMETAG_ATLAS_SIDE;
-        if width > side || height > side {
+    /// Reserves a non-overlapping span in an existing shelf or appends a new shelf.
+    fn allocate(&mut self, width: u32, height: u32) -> Option<(usize, [u32; 2])> {
+        if width > NAMETAG_ATLAS_SIDE || height > NAMETAG_ATLAS_SIDE {
             return None;
         }
-        let [mut x, mut y, mut shelf_height] = self.shelf;
-        if x + width > side {
-            (x, y, shelf_height) = (0, y + shelf_height, 0);
+        for (index, shelf) in self.shelves.iter_mut().enumerate() {
+            if shelf.height < height {
+                continue;
+            }
+            if let Some(span) = shelf
+                .free
+                .iter_mut()
+                .find(|span| span.end - span.start >= width)
+            {
+                let x = span.start;
+                span.start += width;
+                return Some((index, [x, shelf.y]));
+            }
         }
-        if y + height > side {
+        let y = self
+            .shelves
+            .last()
+            .map_or(0, |shelf| shelf.y + shelf.height);
+        if y + height > NAMETAG_ATLAS_SIDE {
             self.exhausted = true;
             return None;
         }
-        self.shelf = [x + width, y, shelf_height.max(height)];
-        Some([x, y])
+        let index = self.shelves.len();
+        self.shelves.push(AtlasShelf {
+            y,
+            height,
+            free: Vec::from([width..NAMETAG_ATLAS_SIDE]),
+        });
+        Some((index, [0, y]))
+    }
+
+    /// Reclaims unused lines from one shelf, or adjoining empty shelves for taller ink.
+    /// A missing size only asks for a free line slot, independently of pixel placement.
+    fn reclaim_shelf(&mut self, size: Option<[u32; 2]>) -> bool {
+        if self.requested.is_empty() {
+            // Retained debug text has no frame-wide liveness set and must keep its cells.
+            return false;
+        }
+        if self.reclamation.is_none() {
+            self.reclamation = Some(self.unused_shelf_space());
+        }
+        let candidates = self.reclamation.as_ref().expect("prepared reclamation");
+        let candidate = candidates
+            .iter()
+            .find(|candidate| {
+                size.is_none_or(|[width, height]| {
+                    self.shelves[candidate.shelves.start].height >= height
+                        && candidate
+                            .free
+                            .iter()
+                            .any(|span| span.end - span.start >= width)
+                })
+            })
+            .map(|candidate| ShelfReclamation {
+                shelves: candidate.shelves.clone(),
+                free: candidate.free.clone(),
+            })
+            .or_else(|| {
+                let [_, height] = size?;
+                // Several wholly unused neighboring shelves can become one taller shelf.
+                for first in candidates {
+                    let start = first.shelves.start;
+                    let mut end = start;
+                    let mut available = 0;
+                    for next in candidates.iter().filter(|next| next.shelves.start >= start) {
+                        if self.shelves[end..next.shelves.start]
+                            .iter()
+                            .any(|shelf| shelf.height != 0)
+                            || next.free != [0..NAMETAG_ATLAS_SIDE]
+                        {
+                            break;
+                        }
+                        end = next.shelves.start;
+                        available += self.shelves[end].height;
+                        end += 1;
+                        if available >= height {
+                            return Some(ShelfReclamation {
+                                shelves: start..end,
+                                free: Vec::from([0..NAMETAG_ATLAS_SIDE]),
+                            });
+                        }
+                    }
+                }
+                None
+            });
+        let Some(candidate) = candidate else {
+            return false;
+        };
+        let shelf = candidate.shelves.start;
+        let mut index = 0;
+        while index < self.cells.len() {
+            let cell = &self.cells[index];
+            if !candidate.shelves.contains(&cell.shelf) || self.requested.contains(&cell.text) {
+                index += 1;
+                continue;
+            }
+            let removed = self.cells.swap_remove(index);
+            self.lines.remove(&removed.text);
+            if let Some(moved) = self.cells.get(index) {
+                *self.lines.get_mut(&moved.text).expect("retained cell") = index;
+            }
+        }
+        let end_y = self.shelves[candidate.shelves.end - 1].y
+            + self.shelves[candidate.shelves.end - 1].height;
+        self.shelves[shelf].height = end_y - self.shelves[shelf].y;
+        self.shelves[shelf].free = candidate.free;
+        for index in shelf + 1..candidate.shelves.end {
+            self.shelves[index].y = end_y;
+            self.shelves[index].height = 0;
+            self.shelves[index].free.clear();
+        }
+        self.reclamation = None;
+        self.exhausted = false;
+        self.published = None;
+        true
+    }
+
+    /// Plans reusable shelf spans in one pass over the bounded cache, then sorts each shelf.
+    fn unused_shelf_space(&self) -> Vec<ShelfReclamation> {
+        let mut occupied = vec![Vec::new(); self.shelves.len()];
+        let mut unused = vec![false; self.shelves.len()];
+        for cell in &self.cells {
+            if self.requested.contains(&cell.text) {
+                occupied[cell.shelf].push(cell.line.cell);
+            } else {
+                unused[cell.shelf] = true;
+            }
+        }
+        occupied
+            .into_iter()
+            .enumerate()
+            .filter_map(|(shelf, mut cells)| {
+                if !unused[shelf] {
+                    return None;
+                }
+                cells.sort_unstable_by_key(|cell| cell[0]);
+                let mut free = Vec::new();
+                let mut x = 0;
+                for [left, _, width, _] in cells {
+                    if x < left {
+                        free.push(x..left);
+                    }
+                    x = left + width;
+                }
+                if x < NAMETAG_ATLAS_SIDE {
+                    free.push(x..NAMETAG_ATLAS_SIDE);
+                }
+                Some(ShelfReclamation {
+                    shelves: shelf..shelf + 1,
+                    free,
+                })
+            })
+            .collect()
     }
 }
 
-/// Lines kept before the atlas is rebuilt, far above any frame's visible tags.
+/// Retained line bound, far above any frame's visible tags.
 const MAX_ATLAS_LINES: usize = 4096;
 
-/// Rasterizes one width-bounded line, clipping oversized ink to the atlas cell.
-/// Glyph texels keep their own colour times the `§` colour, white when unset.
-fn rasterize<'p>(
+struct LineLayout {
+    layout: Arc<TextLayout>,
+    size: [u32; 2],
+    top: i32,
+    advance: u32,
+}
+
+/// Measures width-bounded ink before any atlas placement or pixel allocation.
+fn measure_line(
     text: &str,
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
-    pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
-    palette: &ui::FormattingPalette,
-) -> Option<(u32, u32, i32, Vec<u8>, u32)> {
+) -> Option<LineLayout> {
     let layout = layouts
         .layout(TextLayoutRequest {
             text,
@@ -213,6 +419,29 @@ fn rasterize<'p>(
         (right as u32).min(MAX_LINE_TEXELS),
         ((bottom - top) as u32).min(NAMETAG_ATLAS_SIDE),
     );
+    Some(LineLayout {
+        layout,
+        size: [width, height],
+        top,
+        advance,
+    })
+}
+
+/// Rasterizes admitted ink with the glyph colors and active formatting palette.
+fn rasterize_line<'p>(
+    measured: &LineLayout,
+    pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
+    palette: &ui::FormattingPalette,
+) -> Vec<u8> {
+    let [width, height] = measured.size;
+    let top = measured.top;
+    let glyphs = || {
+        measured
+            .layout
+            .glyphs()
+            .iter()
+            .filter(|glyph| glyph.line == 0)
+    };
     let mut canvas = vec![0u8; (width * height * 4) as usize];
     for glyph in glyphs() {
         let Some(page) = pages(usize::from(glyph.page)) else {
@@ -247,9 +476,10 @@ fn rasterize<'p>(
             );
         }
     }
-    Some((width, height, top, canvas, advance))
+    canvas
 }
 
+/// Samples one glyph into its clipped destination bounds.
 fn rasterize_glyph(
     canvas: &mut [u8],
     [width, height]: [u32; 2],
@@ -297,6 +527,7 @@ fn rasterize_glyph(
     }
 }
 
+/// Composites straight-alpha glyph coverage without losing partially covered ink.
 fn blend_glyph_texel(target: &mut [u8], texel: [u8; 4], tint: [u8; 3]) {
     let source_alpha = u32::from(texel[3]);
     let target_alpha = u32::from(target[3]);
@@ -316,10 +547,31 @@ mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
 
+    /// Rasterizes measured ink for the glyph-coverage assertions below.
+    fn rasterize<'p>(
+        text: &str,
+        font: &RuntimeFontCatalog,
+        layouts: &mut TextLayoutCache,
+        pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
+        palette: &ui::FormattingPalette,
+    ) -> Option<(u32, u32, i32, Vec<u8>, u32)> {
+        let measured = measure_line(text, font, layouts)?;
+        let pixels = rasterize_line(&measured, pages, palette);
+        Some((
+            measured.size[0],
+            measured.size[1],
+            measured.top,
+            pixels,
+            measured.advance,
+        ))
+    }
+
+    /// Supplies a small font with predictable stem coverage.
     fn stem_font() -> RuntimeFontCatalog {
         stem_font_with_uv([0, 0, 4, 8], 6 * 64)
     }
 
+    /// Supplies a small font with chosen glyph bounds and advance.
     fn stem_font_with_uv(uv: [u16; 4], advance_64: i16) -> RuntimeFontCatalog {
         let mut pixels = vec![0; 5 * 8 * 4];
         for row in 0..8 {
@@ -559,7 +811,7 @@ mod tests {
     }
 
     /// Applies the same dirty rectangles submitted by the renderer.
-    fn apply_rectangles(
+    pub(super) fn apply_rectangles(
         pixels: &mut [u8],
         current: &[NametagAtlasRect],
         previous: &[NametagAtlasRect],
@@ -658,7 +910,7 @@ mod review_tests {
     use super::*;
 
     #[test]
-    fn review_pixel_exhaustion_requests_a_clean_atlas_on_the_next_frame() {
+    fn retained_text_without_liveness_keeps_the_explicit_reset_fallback() {
         let mut atlas = NametagAtlas::default();
         assert!(
             atlas
@@ -672,3 +924,7 @@ mod review_tests {
         assert!(atlas.allocate(1, 1).is_some());
     }
 }
+
+#[cfg(test)]
+#[path = "nametag_atlas/eviction_tests.rs"]
+mod eviction_tests;
