@@ -796,3 +796,80 @@ fn capture_charges_the_body_while_disk_output_is_blocked() {
         ]
     ));
 }
+
+/// A closed capture must leave no packet-copying overhead on the network producer.
+#[test]
+fn an_exited_capture_writer_stops_allocating_packet_bodies() {
+    let started = Instant::now();
+    let body = Bytes::from(vec![7; 4096]);
+    for limited in [false, true] {
+        let (feed, queue, _stop) = channel(8, started);
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+        if limited {
+            let writer = CaptureWriter::with_limit(
+                Vec::new(),
+                header(3),
+                CAPTURE_HEADER_BYTES + RECORD_HEADER_BYTES,
+            )
+            .unwrap();
+            queue.drain(writer).unwrap();
+        } else {
+            drop(queue);
+        }
+        let (_, allocations) = test_alloc::count(|| {
+            feed.packet(
+                PacketDirection::Clientbound,
+                9,
+                started,
+                PacketBody::whole(&body),
+            );
+        });
+        assert_eq!(allocations, 0, "the stopped writer must skip body copies");
+    }
+}
+
+/// A disk error disables copying just like a size-limit or normal writer exit.
+#[test]
+fn a_failed_capture_write_stops_allocating_packet_bodies() {
+    struct HeaderOnly(usize);
+    impl std::io::Write for HeaderOnly {
+        /// Accepts the file header, then simulates a full disk on the first record.
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.0 {
+                return Err(std::io::Error::other("disk full"));
+            }
+            self.0 -= bytes.len();
+            Ok(bytes.len())
+        }
+
+        /// The unbuffered fixture has nothing left to flush.
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let started = Instant::now();
+    let body = Bytes::from(vec![7; 4096]);
+    let (feed, queue, _stop) = channel(8, started);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    let writer = CaptureWriter::new(HeaderOnly(CAPTURE_HEADER_BYTES as usize), header(3)).unwrap();
+    assert!(queue.drain(writer).is_err());
+    let (_, allocations) = test_alloc::count(|| {
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+    });
+    assert_eq!(allocations, 0, "a failed writer must skip body copies");
+}

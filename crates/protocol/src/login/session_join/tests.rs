@@ -559,3 +559,67 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         Ok(_) => panic!("a corrupt cached archive joined"),
     }
 }
+
+/// Decoded startup packets that invalidate the join retain their rejection evidence.
+#[tokio::test]
+async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
+    use crate::packet_tap::PacketOutcome;
+    use crate::session_transport::tests::{RecordingTap, TapEvent};
+    use std::sync::Arc;
+
+    for (name, invalid) in [
+        (
+            "zero-radius",
+            Packet::new(ChunkRadiusUpdated {
+                chunk_radius: wire::ZigZag32(0),
+            }),
+        ),
+        (
+            "conflicting-id",
+            Packet::new(StartGame {
+                runtime_id: ActorRuntimeID(RUNTIME_ID + 1),
+                ..Default::default()
+            }),
+        ),
+    ] {
+        let dir = SocketDir::new(name);
+        let listener = listen(dir.path());
+        let settings = LoginSettings::default();
+        let tap = Arc::new(RecordingTap::default());
+        let expected = packet_bytes(&invalid);
+        let mut body = expected.clone();
+        wire::Reader::new(&mut body).read_var_u32().unwrap();
+        let core = async {
+            let mut core = FakeCore::accept(&listener).await;
+            core.receive().await;
+            core.send(handoff_frame(
+                serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs": []}),
+                &[start_game()],
+            )).await;
+            core.receive_packets().await;
+            core.send(batch_frame(&[invalid])).await;
+            core
+        };
+        let (result, _core) = tokio::join!(
+            LoginSequence::connect_session(
+                dir.path(),
+                "Fixture",
+                crate::ClientRandomId::new(-7).unwrap(),
+                None,
+                None,
+                &settings,
+                Some(tap.clone()),
+                keep_prepared,
+            ),
+            core,
+        );
+        assert!(matches!(result, Err(ProtocolError::Session(ref error))
+            if matches!(error.0, SessionFailure::UnexpectedStartup(_))));
+        assert!(
+            tap.events().iter().any(|event| matches!(event,
+                TapEvent::Reject(_, _, PacketOutcome::Failed, rejected) if rejected == body.as_ref()
+            )),
+            "{name} lost its rejection evidence"
+        );
+    }
+}

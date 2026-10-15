@@ -58,3 +58,42 @@ async fn a_malformed_world_packet_is_reported_failed_with_its_body() {
         )]
     );
 }
+
+/// Once accepted, the observer releases the batch even while the caller holds admission work.
+#[tokio::test]
+async fn accepted_packets_release_the_observers_batch_storage() {
+    for (name, cache, world) in [
+        ("ordinary", None, false),
+        ("world", None, true),
+        (
+            "cached-world",
+            Some(crate::ClientBlobCache::default()),
+            true,
+        ),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
+        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
+        let (_peer, _) = listener.accept().await.unwrap();
+        let tap = Arc::new(RecordingTap::default());
+        let packet = crate::session_transport::tests::packet_bytes(&Packet::new(SetTime {
+            time: wire::ZigZag32(5),
+        }));
+        let mut transport = SessionTransport::new(reader, frames, &[packet]).with_tap(Some(tap));
+        let crate::session_transport::Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+            panic!("startup contains a packet");
+        };
+        let backing = raw.body().clone();
+        transport.prepend(vec![raw]);
+        let mut session = PlaySession::new(transport, cache, 1, false);
+        if world {
+            session
+                .recv_world_event_mapped(0, |_| (), |_, _| ())
+                .await
+                .unwrap();
+        } else {
+            session.recv().await.unwrap();
+        }
+        assert!(backing.is_unique(), "{name} kept accepted packet storage");
+    }
+}

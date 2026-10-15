@@ -17,7 +17,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,7 @@ impl PacketCaptureRequest {
 pub(crate) struct CaptureFeed {
     sender: Sender<QueuedRecord>,
     retained: Arc<AtomicUsize>,
+    stopped: Arc<AtomicBool>,
     started: Instant,
     dropped: Arc<AtomicU64>, // packets dropped since the last gap record
 }
@@ -78,6 +79,7 @@ pub(crate) struct CaptureFeed {
 /// The writer side of a capture: queued records, the stop request and the drop count.
 pub(crate) struct CaptureQueue {
     records: Receiver<QueuedRecord>,
+    stopped: Arc<AtomicBool>,
     stop: Receiver<()>,
     started: Instant,
     dropped: Arc<AtomicU64>,
@@ -134,14 +136,17 @@ pub(crate) fn channel(
     let (sender, records) = crossbeam_channel::bounded(capacity);
     let (stop_sender, stop) = crossbeam_channel::bounded(1);
     let dropped = Arc::new(AtomicU64::new(0));
+    let stopped = Arc::new(AtomicBool::new(false));
     let feed = CaptureFeed {
         sender,
         retained: Arc::new(AtomicUsize::new(0)),
+        stopped: Arc::clone(&stopped),
         started,
         dropped: Arc::clone(&dropped),
     };
     let queue = CaptureQueue {
         records,
+        stopped,
         stop,
         started,
         dropped,
@@ -187,6 +192,9 @@ impl CaptureFeed {
         now: Instant,
         body: PacketBody<'_>,
     ) {
+        if self.stopped.load(Ordering::Acquire) {
+            return;
+        }
         let elapsed_us = micros(now.saturating_duration_since(self.started));
         let dropped = self.dropped.swap(0, Ordering::Relaxed);
         if dropped != 0 {
@@ -262,9 +270,16 @@ impl CaptureQueue {
     }
 }
 
+impl Drop for CaptureQueue {
+    /// Disables producer copies on every writer exit, including write failures.
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+    }
+}
+
 impl CaptureFinisher {
     /// Asks the writer to finish the file and waits at most `within` for it; returns whether
-    /// it finished. Feeds still held elsewhere may keep queuing, but nothing more is written.
+    /// it finished. Feeds stop copying bodies when the writer exits.
     pub(crate) fn finish(self, within: Duration) -> bool {
         let _ = self.stop.try_send(());
         matches!(

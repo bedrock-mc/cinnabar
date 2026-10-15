@@ -222,6 +222,7 @@ impl PlaySession {
             ) {
                 self.reset_blob_cache_pending();
             }
+            self.transport.accept_current();
             return Ok(packet);
         }
     }
@@ -260,7 +261,20 @@ impl PlaySession {
         })
     }
 
+    /// Settles accepted packets before the caller can pause world admission.
     async fn recv_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> Result<WorldIngress, ProtocolError> {
+        let result = self.recv_world_ingress_inner(current_dimension).await;
+        if result.is_ok() {
+            self.transport.accept_current();
+        }
+        result
+    }
+
+    /// Routes raw world packets through the enabled cache and decoding lanes.
+    async fn recv_world_ingress_inner(
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldIngress, ProtocolError> {

@@ -215,6 +215,11 @@ impl SessionTransport {
         self.received = restored;
     }
 
+    /// Releases the observed body once decoding and validation have succeeded.
+    pub(crate) fn accept_current(&mut self) {
+        self.current = None;
+    }
+
     /// Reports `outcome` for the packet the session is processing: the one [`Self::recv`]
     /// returned last. Only the first report after each delivery counts.
     pub(crate) fn reject_current(&mut self, outcome: PacketOutcome) {
