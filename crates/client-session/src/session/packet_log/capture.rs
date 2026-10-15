@@ -99,7 +99,7 @@ impl ByteReservation {
     /// Claims room before copying; concurrent producers share the same byte budget.
     fn try_new(retained: &Arc<AtomicUsize>, bytes: usize) -> Option<Self> {
         retained
-            .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
                 current
                     .checked_add(bytes)
                     .filter(|total| *total <= CAPTURE_QUEUE_BYTES)
