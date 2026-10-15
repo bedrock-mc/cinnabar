@@ -70,8 +70,8 @@ macro_rules! grants {
 }
 
 grants! {
-
     /// Allows bounded read-only regions and resolved block properties.
+    #[permission("Terrain", false)]
     pub terrain: bool,
     /// Allows read-only current-session local inventory and status effect snapshots.
     #[permission("Player status", false)]
