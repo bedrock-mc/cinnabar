@@ -23,6 +23,12 @@ pub const CORE_LOG_FILE: &str = "core.log";
 pub const DUMP_FILE: &str = "crash.dmp";
 /// The Go core's runtime crash output (panic and goroutine traces), in `core` reports.
 pub const CORE_CRASH_FILE: &str = "core-crash.txt";
+/// The packet header ring at the crash as a table, oldest first, with packet names.
+pub const PACKETS_FILE: &str = "packets.txt";
+/// The last log lines the flight recorder kept, including levels the session files leave out.
+pub const FLIGHT_LOG_FILE: &str = "flight.log";
+/// Bodies of packets the crashing session rejected, with an `index.txt` describing them.
+pub const DECODE_SAMPLES_DIR: &str = "decode-samples";
 /// Largest `report.json` that [`read`] accepts.
 const MAX_REPORT_BYTES: u64 = 16 << 20;
 /// Same-second folders with one id before a write gives up.
