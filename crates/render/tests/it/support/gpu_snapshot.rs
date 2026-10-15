@@ -78,6 +78,10 @@ fn finish<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
+#[allow(
+    clippy::print_stderr,
+    reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
+)]
 fn fixture_adapter<T>(name: &str, result: Result<T, wgpu::RequestAdapterError>) -> Option<T> {
     match result {
         Ok(adapter) => Some(adapter),
@@ -106,6 +110,10 @@ impl Gpu {
     }
 
     /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
+    #[allow(
+        clippy::print_stderr,
+        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
+    )]
     pub fn for_fixture_with_limits(
         name: &str,
         features: wgpu::Features,

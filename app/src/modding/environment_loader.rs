@@ -196,7 +196,7 @@ fn apply(world: &mut World, update: Update) -> Option<ModHost> {
     let mut prepared = match update.result {
         Ok(prepared) => prepared,
         Err(error) => {
-            eprintln!(
+            warn!(
                 "Cinnabar environment component reload rejected; previous guest retained: {error}"
             );
             return None;

@@ -30,7 +30,8 @@ mod respawn;
 mod settings;
 mod skin_change;
 pub use skin_change::{
-    cape_content_id, player_skin_packet, set_skin_packet_engine_version, set_skin_packet_uuid,
+    builtin_skin_id, cape_content_id, custom_skin_id, player_skin_packet,
+    set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
 pub mod session_wire;

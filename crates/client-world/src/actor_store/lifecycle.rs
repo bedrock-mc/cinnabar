@@ -479,7 +479,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(1);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored unsupported actor movement duration (total {})",
                             self.ignored_movement_components
                         );
@@ -536,7 +536,7 @@ impl ActorStore {
                     let previous = self.ignored_movement_components;
                     self.ignored_movement_components = previous.saturating_add(ignored);
                     if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        eprintln!(
+                        tracing::warn!(
                             "ignored non-finite actor movement components: {}",
                             self.ignored_movement_components
                         );

@@ -60,7 +60,7 @@ impl MapImages {
         {
             self.invalid_rectangles = self.invalid_rectangles.saturating_add(1);
             if self.invalid_rectangles.is_power_of_two() {
-                eprintln!(
+                tracing::warn!(
                     "ignored invalid map rectangles: {}",
                     self.invalid_rectangles
                 );

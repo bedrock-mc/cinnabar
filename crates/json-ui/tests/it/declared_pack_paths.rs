@@ -40,6 +40,31 @@ fn declared_custom_extension_resolves_inventory_content() {
 }
 
 #[test]
+fn at_prefixed_directory_resolves_from_pack_root() {
+    let mut catalog = base();
+    catalog.apply_pack([
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["@behub/components/slot.json"]}"#.as_slice(),
+        ),
+        (
+            "@behub/components/slot.json",
+            br#"{"namespace":"behub","slot":{"type":"label","text":"Custom directory"}}"#
+                .as_slice(),
+        ),
+        (
+            "ui/inventory.json",
+            br#"{"screen":{"controls":[{"slot@behub.slot":{}}]}}"#.as_slice(),
+        ),
+    ]);
+    let root = json_ui::resolve(&catalog, "crafting.screen", &Context::empty())
+        .control
+        .unwrap();
+    assert_eq!(root.children[0].properties["text"], "Custom directory");
+    assert!(catalog.diagnostics().is_empty());
+}
+
+#[test]
 fn later_layer_overrides_inherited_custom_path_without_repeating_index_or_namespace() {
     let mut catalog = base();
     catalog.apply_pack([

@@ -589,8 +589,11 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
+  image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
+- Persona and platform-specific imported-skin behavior remain incomplete.
 
 ## Client-side chunk generation
 
@@ -2986,7 +2989,7 @@ latency acceptance. Offline drains do not close those gates.
 the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
 match exactly as the client's asset index does; an unresolved one draws the
 default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
-live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+live-accepted. Provisional, labeled incomplete: native-pack chat autocomplete rows sit at
 the top of their grid because the client answers no `#get_grid_size`, so whatever pads them is unidentified; `size`
 animations scale draws at paint time instead of relaying out each tick.
 
@@ -3001,6 +3004,10 @@ names when needed, and includes `@n` in command targets. Suggestion rows highlig
 the typed match and translate built-in descriptions. Incomplete: Education
 selectors, selector-expansion permission and cheat gating, selector argument
 completion, and live visual acceptance. This does not close the chat parity gate.
+
+The built-in Java-look chat input spans the viewport with two GUI pixels of side
+padding. Completion rows share the longest text width and sit at the replaced
+token, shifting left near the right edge. History retains its configured width.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled
@@ -7243,10 +7250,13 @@ gates.
 - [ ] **5.6 Server forms.** `P5.6-FORMS` Implement modal/menu/custom JSON forms, validation, cancellation,
   keyboard/controller/touch navigation, and response routing. This is the prerequisite for
   Lunar ClickUI compatibility.
-  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer `ui/*.json`
+  Status: server resource-pack UI now reaches the JSON-UI form engine (per-layer indexed documents
   merge, `$screen_content` routing, expression, view-binding, and vanilla factory rules), with a resolve/layout cache and raw-edge pointer input. Checked only in
   tests against local pack fixtures, not against a live vanilla capture; the virtual-root scale
   constants, per-visual-line label alignment, and image aspect defaults remain unconfirmed.
+  UI document paths are relative to the pack root and selected by the stack's merged indexes,
+  including custom folders and extensions. The web editor uses the same selection for imports,
+  previews, diagnostics, and exports, and shows complete paths in its file list.
   Form display fields now retain structured text for language and live-state resolution,
   including metadata, component precedence, nested text, and scalar display fallbacks.
   Custom forms include multiselect checkboxes, ordered index-array responses, and slider
@@ -8010,6 +8020,20 @@ the rebuilt ordinary-mode Mac client (Apple M3 Pro/Metal, Retina display,
 defect. The installed native app is a near-version witness, not an exact-version
 capture; broad rendering, persona and live HUD pack-refresh parity remain open.
 World fire is tracked separately below.
+
+### Burning world actors (fix; parity incomplete)
+
+World mobs and third-person players now draw animated flame billboards when their
+authoritative on-fire metadata is set. The layer follows interpolated feet and scaled
+collision dimensions, faces the current camera, and disappears on extinguishing or
+invisibility. Optional original flame art, geometry and draw-clock rules are shared
+with the HUD doll. No client-side daylight or damage inference is introduced.
+
+World billboard placement and playback reuse the HUD contract provisionally;
+matched-version native world captures remain incomplete and no parity gate closes.
+Headless Linux/Vulkan frames at 1280×720, scale 1 show front and side flames and
+their removal after an authoritative extinguishing update. Four world-flame and
+nine existing HUD flame regressions pass.
 
 ### Pack masks, End sky and title text (acceptance incomplete)
 
@@ -9289,3 +9313,9 @@ projection or pipeline states use conservative full replay.
 Incomplete validation: the focused segment/lifetime and shader pixel fixtures
 are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
 captures and measured renderer work remain outstanding; no speedup is claimed.
+
+## Custom block component bounds
+
+Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
+
+Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.

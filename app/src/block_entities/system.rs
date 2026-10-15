@@ -70,7 +70,7 @@ pub(crate) fn load_block_entity_carrier(
     ) {
         Ok(bytes) => bytes,
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "block-entity carrier {} unavailable ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );
@@ -79,7 +79,7 @@ pub(crate) fn load_block_entity_carrier(
     };
     match RuntimeBlockEntityAssets::decode(&bytes) {
         Ok(assets) => {
-            diagnostics::log_stderr!(
+            bevy::log::info!(
                 "loaded block-entity carrier from {} ({} textures, atlas {:?})",
                 path.display(),
                 assets.placements().len(),
@@ -88,7 +88,7 @@ pub(crate) fn load_block_entity_carrier(
             Some(Arc::new(assets))
         }
         Err(error) => {
-            diagnostics::log_stderr!(
+            bevy::log::warn!(
                 "block-entity carrier {} is invalid ({error}); block-entity models, sign text, break cracks and worn heads are not drawn; rebuild with: make block-entity-assets",
                 path.display()
             );

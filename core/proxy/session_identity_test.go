@@ -140,6 +140,8 @@ func assertSessionDialerSelfSignedID(t *testing.T, downstream *sessionDownstream
 			defer upstream.Close()
 			if upstream.ClientData().SelfSignedID != want {
 				err = errors.New("upstream SelfSignedId differs from the regression vector")
+			} else if upstream.ClientData().SkinID != downstream.ClientData().SkinID {
+				err = errors.New("upstream login changed the session skin ID")
 			} else if upstream.ClientData().PlatformType != downstream.ClientData().PlatformType {
 				err = errors.New("upstream login changed the session platform type")
 			} else {
@@ -166,7 +168,7 @@ func assertSessionDialerSelfSignedID(t *testing.T, downstream *sessionDownstream
 	}
 	wantData := downstream.ClientData()
 	identityChanged := got.ClientRandomID != wantData.ClientRandomID || got.DeviceID != wantData.DeviceID
-	if got.SelfSignedID != want || identityChanged || got.PlatformType != wantData.PlatformType {
+	if got.SelfSignedID != want || identityChanged || got.PlatformType != wantData.PlatformType || got.SkinID != wantData.SkinID {
 		t.Fatal("upstream login changed the session identity inputs or derived a different SelfSignedId")
 	}
 }

@@ -191,7 +191,9 @@ impl AudioDevice {
                 ..Self::disabled()
             },
             Err(error) => {
-                eprintln!("named audio disabled: audio output thread failed to start: {error}");
+                bevy::log::warn!(
+                    "named audio disabled: audio output thread failed to start: {error}"
+                );
                 Self::disabled()
             }
         }
@@ -339,7 +341,7 @@ impl AudioDevice {
 fn open_default_stream() -> Option<(OutputStream, (OutputStreamHandle, u32))> {
     use rodio::cpal::traits::{DeviceTrait, HostTrait};
     let Some(device) = rodio::cpal::default_host().default_output_device() else {
-        eprintln!("named audio disabled: no default output device");
+        bevy::log::warn!("named audio disabled: no default output device");
         return None;
     };
     // Rodio may negotiate formats on this same device, never another device.
@@ -350,7 +352,7 @@ fn open_default_stream() -> Option<(OutputStream, (OutputStreamHandle, u32))> {
     match OutputStream::try_from_device(&device) {
         Ok((stream, handle)) => Some((stream, (handle, sample_rate))),
         Err(error) => {
-            eprintln!("named audio disabled: default output initialization failed: {error}");
+            bevy::log::warn!("named audio disabled: default output initialization failed: {error}");
             None
         }
     }

@@ -2,14 +2,25 @@
 
 use std::time::{Duration, Instant};
 
-use diagnostics::metrics::{DiagnosticQuadTracker, MetricsCollector};
+use diagnostics::{
+    metrics::{DiagnosticQuadTracker, MetricsCollector},
+    rate::LogBudget,
+};
 
 const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
-#[derive(Default)]
 pub(super) struct DiagnosticAttributionLogState {
-    last_emitted: Option<Instant>,
+    budget: LogBudget,
     pending: Option<String>,
+}
+
+impl Default for DiagnosticAttributionLogState {
+    fn default() -> Self {
+        Self {
+            budget: LogBudget::new(LOG_INTERVAL),
+            pending: None,
+        }
+    }
 }
 
 impl DiagnosticAttributionLogState {
@@ -18,15 +29,7 @@ impl DiagnosticAttributionLogState {
         if let Some(fresh) = fresh {
             self.pending = Some(fresh);
         }
-        if self
-            .last_emitted
-            .is_some_and(|last| now.duration_since(last) < LOG_INTERVAL)
-        {
-            return None;
-        }
-        let marker = self.pending.take()?;
-        self.last_emitted = Some(now);
-        Some(marker)
+        self.pending.take_if(|_| self.budget.admit(now).is_some())
     }
 }
 

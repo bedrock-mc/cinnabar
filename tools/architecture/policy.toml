@@ -287,7 +287,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-presentation"
 path = "crates/client-presentation"
-allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "actor-animation", "assets", "chunk-pipeline", "client-ui", "client-world", "diagnostics", "inventory", "launcher", "player-state", "protocol", "render-scene", "render-api", "render-model", "resource-pack", "semantic-input", "sim", "ui", "world", "meshing", "test-time", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler"]
 forbidden_transitive_dependencies = ["render", "app", "cinnabar", "gameplay", "client-session", "acceptance", "asset-compiler", "client-audio"]
 test_support_features = ["test-support"]
@@ -1146,6 +1146,14 @@ exports = [
 path = "crates/client-ui/src/ui_runtime/interaction.rs"
 exports = [
     "protocol::FastTransferAction",
+]
+
+# Macro support: `diagnostics::log_every!` and `log_once!` expand through `$crate`, so callers
+# need no direct `tracing` dependency.
+[[reexport_allowances]]
+path = "crates/diagnostics/src/rate.rs"
+exports = [
+    "tracing",
 ]
 
 [[reexport_allowances]]

@@ -469,6 +469,13 @@ fn chat_data(
     }
     content.push_str(&editor.as_str()[editor.cursor_byte()..]);
     data.set_global("#message_text_box_content", Scalar::Text(content));
+    let before = &editor.as_str()[..editor.cursor_byte()];
+    let completion_start = protocol::ChatAutocompleteCatalog::replacement_start(before)
+        .max(usize::from(before.starts_with('/')));
+    data.set_global(
+        "#cinnabar_chat_completion_prefix",
+        Scalar::Text(before[..completion_start].to_owned()),
+    );
     for flag in ["#send_button_visible", "#chat_title_visible"] {
         data.set_global(flag, Scalar::Bool(true));
     }
@@ -584,5 +591,7 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
     }
 }
 
+#[cfg(test)]
+mod geometry_tests;
 #[cfg(test)]
 mod tests;

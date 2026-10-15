@@ -2394,6 +2394,7 @@ dependencies = [
  "chunk-pipeline",
  "client-ui",
  "client-world",
+ "diagnostics",
  "glam",
  "image",
  "inventory 0.1.20",
@@ -3216,6 +3217,7 @@ dependencies = [
  "rustix 1.1.4",
  "serde",
  "serde_json",
+ "tracing",
  "windows-sys 0.61.2",
  "world",
 ]
@@ -7963,6 +7965,7 @@ dependencies = [
  "render-model",
  "serde_json",
  "tempfile",
+ "tracing-subscriber",
  "ui",
  "ui-engine",
  "ui-screens",

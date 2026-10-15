@@ -177,3 +177,6 @@ lto = false
 incremental = true
 
 [workspace.lints.clippy]
+# Diagnostics go through `tracing`; stdout/stderr contracts carry a reasoned `#[expect]`.
+print_stderr = "warn"
+print_stdout = "warn"

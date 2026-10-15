@@ -18,14 +18,17 @@ pub(super) fn collision_enabled(component: Option<&Nbt>) -> bool {
 pub(super) fn selection_component(component: Option<&Nbt>) -> CustomSelection {
     match component {
         Some(Nbt::Byte(0)) => CustomSelection::Disabled,
+        Some(Nbt::Byte(_)) => CustomSelection::Box(CustomBox::FULL),
         Some(compound @ Nbt::Compound(_))
             if matches!(compound.field("enabled"), Some(Nbt::Byte(0))) =>
         {
             CustomSelection::Disabled
         }
-        Some(compound @ Nbt::Compound(_)) => {
-            box_component(compound).map_or(CustomSelection::Default, CustomSelection::Box)
-        }
+        Some(compound @ Nbt::Compound(_)) => box_component(compound)
+            .or_else(|| {
+                matches!(compound.field("enabled"), Some(Nbt::Byte(_))).then_some(CustomBox::FULL)
+            })
+            .map_or(CustomSelection::Default, CustomSelection::Box),
         _ => CustomSelection::Default,
     }
 }
@@ -132,9 +135,18 @@ pub(super) fn collision_components(component: Option<&Nbt>) -> (Option<Arc<[Cust
                 .collect::<Arc<[CustomBox]>>();
             ((!boxes.is_empty()).then_some(boxes), skipped)
         }
-        Some(Nbt::List(_)) => (None, 0),
+        Some(Nbt::List(_)) => (Some(Arc::from([CustomBox::FULL])), 0),
         Some(_) => (None, 1),
-        None => (box_component(component).map(|shape| Arc::from([shape])), 0),
+        None => (
+            origin_size_box(component, 1.5)
+                .or_else(|| {
+                    (matches!(component, Nbt::Byte(_))
+                        || matches!(component.field("enabled"), Some(Nbt::Byte(_))))
+                    .then_some(CustomBox::FULL)
+                })
+                .map(|shape| Arc::from([shape])),
+            0,
+        ),
     }
 }
 
@@ -170,8 +182,13 @@ fn native_collision_box(entry: &Nbt) -> Option<CustomBox> {
 }
 
 /// Reads a `{origin, size}` box given in sixteenths from the block's bottom
-/// centre, clamped to the block; `None` for anything malformed or empty.
+/// centre, clamped to the block; empty bounds remain explicit.
 pub(super) fn box_component(component: &Nbt) -> Option<CustomBox> {
+    origin_size_box(component, 1.0)
+}
+
+/// Normalizes finite pixel endpoints, preserving zero volume and reflecting authored X.
+fn origin_size_box(component: &Nbt, max_y: f32) -> Option<CustomBox> {
     let triple = |name: &str| -> Option<[f32; 3]> {
         let values = component.list(name);
         if values.len() != 3 {
@@ -198,12 +215,13 @@ pub(super) fn box_component(component: &Nbt) -> Option<CustomBox> {
         if !low.is_finite() || !high.is_finite() {
             return None;
         }
-        min[axis] = (low / 16.0).clamp(0.0, 1.0);
-        max[axis] = (high / 16.0).clamp(0.0, 1.0);
-        if max[axis] <= min[axis] {
-            return None;
-        }
+        let ceiling = if axis == 1 { max_y } else { 1.0 };
+        let first = (low / 16.0).clamp(0.0, ceiling);
+        let second = (high / 16.0).clamp(0.0, ceiling);
+        min[axis] = first.min(second);
+        max[axis] = first.max(second);
     }
+    (min[0], max[0]) = (1.0 - max[0], 1.0 - min[0]);
     Some(CustomBox { min, max })
 }
 

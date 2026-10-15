@@ -1,4 +1,8 @@
 //! Generates update signing keys and signs release manifests (CI only).
+#![expect(
+    clippy::print_stderr,
+    reason = "release-manifest reports usage and command failures on stderr"
+)]
 
 use std::{
     collections::{BTreeMap, BTreeSet},

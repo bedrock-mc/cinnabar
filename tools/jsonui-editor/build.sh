@@ -30,7 +30,7 @@ rm -rf "$out"
 mkdir -p "$out/pkg" "$out/examples"
 wasm-bindgen --target web --no-typescript --out-dir "$out/pkg" \
     "$target_dir/wasm32-unknown-unknown/release/jsonui_editor.wasm"
-cp "$here/web/index.html" "$here/web/style.css" "$here/web/app.js" "$out/"
+cp -R "$here/web/." "$out/"
 touch "$out/.nojekyll"
 
 # The authored example packs, plus the listing the page fetches them by.
