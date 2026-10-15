@@ -54,7 +54,12 @@ pub fn icons(pages: &mut Vec<Page>) -> Result<[IconRef; session::ITEMS.len()], E
         }
         IconRef {
             page,
-            uv: [index as u16 * ICON_SIZE, 0, ICON_SIZE, ICON_SIZE],
+            uv: [
+                index as u16 * ICON_SIZE,
+                0,
+                (index as u16 + 1) * ICON_SIZE,
+                ICON_SIZE,
+            ],
             glint: false,
         }
     });
