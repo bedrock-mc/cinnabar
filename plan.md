@@ -511,6 +511,23 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   CI; the window and native dialog are not visually verified on macOS or Linux; dumps are not
   yet walked with `minidump-stackwalk`; next-launch notices for unshown reports and the optional
   user comment remain open.
+- Diagnostics Phase 4, hang watchdog: the client maps a small heartbeat file in its crash
+  directory that the monitor also maps; the main thread ticks a frame counter once per frame in
+  `First` (one relaxed load and store), and a loading count covers each world join until two
+  in-world frames finished. Nothing counts before the first frame, so carrier loading, first-run
+  preparation and renderer setup are never hangs; pack compilation runs off the main thread and
+  needs no loading phase. The monitor samples ten times per 10 s window; no progress outside
+  loading writes one `kind: hang` folder (report, log sections, minidump of every thread taken
+  from the monitor side) and keeps the client running, without a window. Progress then a new
+  stall writes a new folder; killing a hung client shows its hang folder instead of an abort
+  folder. A client in a debugger, one being dumped for a crash, and gaps in the monitor's own
+  sampling (system sleep) are not hangs. Verified locally on Windows: detection unit tests on a
+  manual clock, and fixture clients where a stall then kill gives exactly one hang folder with a
+  dump holding the watched thread, a loading stall gives none, and recovery then a second stall
+  gives two. Incomplete: Linux (`ptrace` dump after `PR_SET_PTRACER`) and macOS (report without
+  a dump; the task port needs privileges) fixtures run only in CI; a real client hang has not
+  been reproduced; a Windows title-bar drag or resize that blocks frames for 10 s would be
+  reported as a hang.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel

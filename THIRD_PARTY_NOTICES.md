@@ -391,6 +391,9 @@ SOFTWARE.
 - Copyright: Copyright (c) 2022 Embark Studios; rust-minidump contributors.
 - `minidump` (https://github.com/rust-minidump/rust-minidump), MIT, reads the fault location
   from each dump for the crash window.
+- `memmap2` (https://github.com/RazrFalcon/memmap2-rs), MIT OR Apache-2.0 under the MIT
+  option, Copyright (c) 2020 Yevhenii Reizner and Copyright (c) 2015 Dan Burkert, maps the
+  heartbeat file the client and its crash monitor share for hang detection.
 
 ## Gophertunnel numeric contracts
 
