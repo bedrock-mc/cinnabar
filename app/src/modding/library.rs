@@ -54,7 +54,7 @@ pub(super) fn configure(
             )
         });
     if let Err(error) = spawned {
-        eprintln!("Mod library unavailable: {error}");
+        warn!("Mod library unavailable: {error}");
         return;
     }
     app.insert_resource(ModLibrary {

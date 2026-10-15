@@ -61,6 +61,10 @@ fn outcome(code: Option<i32>) -> ChildOutcome {
 }
 
 /// The child-process entry point; returns its exit code.
+#[expect(
+    clippy::print_stderr,
+    reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
+)]
 pub fn run_setup_process() -> i32 {
     let Ok(layout) = InstallLayout::discover() else {
         return EXIT_UNAVAILABLE;

@@ -18,7 +18,7 @@ impl ActorStore {
             );
         }
         if self.actor_identifier_skips != previous_skips {
-            eprintln!(
+            tracing::warn!(
                 "ignored unsupported actor identifiers (total {})",
                 self.actor_identifier_skips
             );
@@ -80,7 +80,7 @@ impl ActorStore {
                 | protocol::GameModeUpdate::Explicit(protocol::PlayerGameMode::Unknown)
         ) {
             self.player_game_mode_skips += 1;
-            eprintln!(
+            tracing::warn!(
                 "ignored unsupported player game mode (total {})",
                 self.player_game_mode_skips
             );

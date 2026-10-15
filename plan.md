@@ -402,7 +402,9 @@ This move has not been compiled or executed and closes no parity gate.
 
 ## OreUI crate
 
-`oreui` owns the OreUI screens, their presentation state, artwork loading and shipped fonts.
+`oreui` owns client-owned out-of-game screens, including disconnect reasons, join progress and
+launcher popups, with their presentation state, artwork loading and shipped fonts. In-game
+screens retain their existing renderer and server-pack behavior.
 It depends on `ui-engine` and lower crates, never on `client-ui` or a sibling screen crate.
 `client-ui` adapters project menu, loading and bed state into its typed inputs. Shared pieces
 moved down: menu schemas and view projections to `launcher`, `LoadingStage` to `ui`, and
@@ -591,8 +593,11 @@ Values are unchanged; compilation and test execution remain unverified until CI.
 - New core-owned logins pass the full stored ClientRandomId and existing install device
   ID to gophertunnel, which derives SelfSignedId. Unchanged inputs produce the same
   identifier across joins.
+- Rust leaves SelfSignedId to the core. Skin uploads reuse the selected pack and
+  image name at login and on skin updates, independently of authentication identity.
 - Authentication-state reuse transitions and full platform device lifecycle parity remain
   incomplete. Skin, account and device claims retain their existing owners.
+- Persona and platform-specific imported-skin behavior remain incomplete.
 
 ## Client-side chunk generation
 
@@ -1886,6 +1891,7 @@ keeps its own binding.
 ## Remote session reconnect
 
 - Reconnect is a requested menu extension on remote disconnect and connection-failure screens.
+  Its OreUI panel preserves formatted, wrapped reasons and pins Reconnect and OK.
   It retries the selected destination through the normal join route and retains the originating
   page. OK and Escape dismiss the failure. Account changes and local-world exits clear retry.
 - Behavioral regressions cover repeated attempts, teardown, transfers and account ownership.
@@ -8019,6 +8025,20 @@ defect. The installed native app is a near-version witness, not an exact-version
 capture; broad rendering, persona and live HUD pack-refresh parity remain open.
 World fire is tracked separately below.
 
+### Burning world actors (fix; parity incomplete)
+
+World mobs and third-person players now draw animated flame billboards when their
+authoritative on-fire metadata is set. The layer follows interpolated feet and scaled
+collision dimensions, faces the current camera, and disappears on extinguishing or
+invisibility. Optional original flame art, geometry and draw-clock rules are shared
+with the HUD doll. No client-side daylight or damage inference is introduced.
+
+World billboard placement and playback reuse the HUD contract provisionally;
+matched-version native world captures remain incomplete and no parity gate closes.
+Headless Linux/Vulkan frames at 1280×720, scale 1 show front and side flames and
+their removal after an authoritative extinguishing update. Four world-flame and
+nine existing HUD flame regressions pass.
+
 ### Pack masks, End sky and title text (acceptance incomplete)
 
 Active packs now prepare pumpkin and spyglass masks, End-sky pixels and layered
@@ -9297,3 +9317,9 @@ projection or pipeline states use conservative full replay.
 Incomplete validation: the focused segment/lifetime and shader pixel fixtures
 are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
 captures and measured renderer work remain outstanding; no speedup is claimed.
+
+## Custom block component bounds
+
+Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
+
+Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.

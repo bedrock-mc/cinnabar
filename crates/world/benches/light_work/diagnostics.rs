@@ -1,4 +1,9 @@
 //! CSV timing and allocation diagnostics for the synthetic lighting scenes.
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the diagnostics write help and per-solve CSV on stdout and percentile summaries on stderr"
+)]
 
 use std::{hint::black_box, time::Instant};
 

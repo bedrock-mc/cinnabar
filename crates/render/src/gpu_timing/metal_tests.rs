@@ -10,6 +10,10 @@ fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
 }
 
 /// Requests only the features needed by the hardware regression being run.
+#[allow(
+    clippy::print_stderr,
+    reason = "explains on stderr why the regression skips when the Metal timestamp fixture is absent"
+)]
 pub(super) fn metal_device_with_features(
     features: wgpu::Features,
 ) -> Option<(RenderDevice, RenderQueue)> {

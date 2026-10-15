@@ -84,7 +84,10 @@ fn native_collision_boxes_clamp_and_order_endpoints_with_taller_y_bounds() {
 fn native_collision_boxes_default_empty_lists_and_missing_coordinates() {
     let empty = definition(component(Vec::new()));
     assert!(empty.collides);
-    assert!(empty.collision_boxes.is_none());
+    assert_eq!(
+        empty.collision_boxes.as_deref(),
+        Some([CustomBox::FULL].as_slice())
+    );
     let missing_enabled = definition(Nbt::Compound(vec![("boxes".into(), Nbt::List(Vec::new()))]));
     assert!(!missing_enabled.collides);
     let zero = definition(component(vec![Nbt::Compound(Vec::new())]));
@@ -160,6 +163,118 @@ fn native_collision_boxes_default_wrong_typed_coordinates_to_zero() {
             }]
             .as_slice()
         )
+    );
+}
+
+/// Builds the origin/size form used by selection and older collision definitions.
+fn pixel_box(origin: [f64; 3], size: [f64; 3]) -> Nbt {
+    Nbt::Compound(vec![
+        ("origin".into(), Nbt::List(origin.map(Nbt::Float).into())),
+        ("size".into(), Nbt::List(size.map(Nbt::Float).into())),
+    ])
+}
+
+#[test]
+fn custom_box_keeps_empty_and_reversed_bounds_instead_of_defaulting_to_a_cube() {
+    for (origin, size, expected) in [
+        (
+            [0.0; 3],
+            [0.0; 3],
+            CustomBox {
+                min: [0.5, 0.0, 0.5],
+                max: [0.5, 0.0, 0.5],
+            },
+        ),
+        (
+            [20.0; 3],
+            [2.0; 3],
+            CustomBox {
+                min: [0.0, 1.0, 1.0],
+                max: [0.0, 1.0, 1.0],
+            },
+        ),
+        (
+            [-2.0, 8.0, 2.0],
+            [-4.0, -8.0, -8.0],
+            CustomBox {
+                min: [0.625, 0.0, 0.125],
+                max: [0.875, 0.5, 0.625],
+            },
+        ),
+    ] {
+        assert_eq!(
+            super::box_component(&pixel_box(origin, size)),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn custom_box_reflects_asymmetric_pixel_bounds_on_x() {
+    let parsed = definition(pixel_box([-6.0, 0.0, -2.0], [4.0, 8.0, 8.0]));
+    assert_eq!(
+        parsed.collision_boxes.as_deref(),
+        Some(
+            [CustomBox {
+                min: [0.625, 0.0, 0.375],
+                max: [0.875, 0.5, 0.875],
+            }]
+            .as_slice()
+        )
+    );
+}
+
+#[test]
+fn custom_box_clamps_selection_to_one_block_and_collision_to_its_taller_limit() {
+    let component = pixel_box([-20.0, -4.0, -20.0], [40.0, 40.0, 40.0]);
+    assert_eq!(super::box_component(&component), Some(CustomBox::FULL));
+    assert_eq!(
+        definition(component).collision_boxes.as_deref(),
+        Some(
+            [CustomBox {
+                min: [0.0; 3],
+                max: [1.0, 1.5, 1.0],
+            }]
+            .as_slice()
+        )
+    );
+}
+
+#[test]
+fn custom_box_defaults_and_disabled_components_are_independent() {
+    use super::CustomSelection;
+    let absent = parse_definition(&Nbt::Compound(Vec::new())).unwrap();
+    assert!(absent.collides);
+    assert!(absent.collision_boxes.is_none());
+    assert_eq!(absent.selection, CustomSelection::Default);
+    for collision in [
+        Nbt::Byte(0),
+        Nbt::Compound(vec![("enabled".into(), Nbt::Byte(0))]),
+    ] {
+        let parsed = definition(collision);
+        assert!(!parsed.collides);
+        assert_eq!(parsed.selection, CustomSelection::Default);
+    }
+    let parsed = parse_definition(&Nbt::Compound(vec![(
+        "components".into(),
+        Nbt::Compound(vec![
+            (
+                "minecraft:collision_box".into(),
+                pixel_box([-4.0, 0.0, -4.0], [8.0, 8.0, 8.0]),
+            ),
+            ("minecraft:selection_box".into(), Nbt::Byte(1)),
+            (
+                "minecraft:geometry".into(),
+                Nbt::String("geometry.small".into()),
+            ),
+        ]),
+    )]))
+    .unwrap();
+    assert_eq!(parsed.selection, CustomSelection::Box(CustomBox::FULL));
+    assert_eq!(parsed.collision_boxes.as_deref().unwrap()[0].max[1], 0.5);
+    assert_eq!(
+        super::physical::selection_component(Some(&Nbt::Byte(0))),
+        CustomSelection::Disabled
     );
 }
 

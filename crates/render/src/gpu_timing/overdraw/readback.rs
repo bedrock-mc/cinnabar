@@ -68,6 +68,10 @@ impl Target {
     }
 
     /// Reports only completed readbacks; no frame waits for the GPU or saves image data.
+    #[expect(
+        clippy::print_stderr,
+        reason = "opaque-overdraw-capture.py parses CINNABAR_OPAQUE_LAYERS lines from stderr"
+    )]
     pub(super) fn report(&self) {
         match self.state.load(Ordering::Acquire) {
             MAPPED => {

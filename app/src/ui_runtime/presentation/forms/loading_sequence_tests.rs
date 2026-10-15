@@ -75,7 +75,8 @@ fn zeqa_lazy_pages_survive_menu_join_reload_and_cancellation() {
     presentation.finish_menu_artwork();
     frame(&player_runtime, &mut presentation, &runtime);
     presentation.set_menu_view(None);
-    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    // Only the in-session dimension change keeps the pack's JSON-UI backdrop.
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     client_runtime::session::begin_session(&mut runtime, &mut player_runtime, 2);
     runtime.set_server_ui(Some(Arc::new(lazy(pack.clone()))));
     let glyphs = client_ui::test_support::pack_harness::env_glyphs();
@@ -164,7 +165,8 @@ fn vanilla_loading_before_pack_arrival_survives_static_page_insertion() {
             source: None,
         })
         .unwrap();
-    presentation.set_loading_stage(Some(LoadingStage::BuildingTerrain));
+    // Only the in-session dimension change keeps the pack's JSON-UI backdrop.
+    presentation.set_loading_stage(Some(LoadingStage::ChangingDimension));
     let runtime = client_ui::test_support::pack_harness::menu_runtime();
     let input = frame(&player_runtime, &mut presentation, &runtime);
     snapshot::write(&input, "loading-before-pack");

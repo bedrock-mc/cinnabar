@@ -35,7 +35,7 @@ pub fn require_ui_assets(world_asset_path: &Path) -> anyhow::Result<LoadedUiAsse
             path.display()
         )
     })?;
-    eprintln!(
+    tracing::info!(
         "loaded JSON-UI carrier from {} ({} atlas pages, {} textures, {} ui files)",
         path.display(),
         loaded.assets.atlas_pages().len(),
