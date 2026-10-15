@@ -9,7 +9,7 @@ publish = false
 platform-specific = ["macos", "windows"]
 reads = [
     "assets/bedrock-target.json",
-    "core/internal/corelog",
+    "core",
 ]
 
 [features]
