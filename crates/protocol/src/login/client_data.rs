@@ -5,7 +5,6 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bedrock_protocol_1_26_51::enums::InputMode;
 use serde_json::{Value, json};
 use std::num::NonZeroI64;
-use uuid::Uuid;
 
 use crate::PlayerInputMode;
 
@@ -24,6 +23,8 @@ const NON_EDITOR_CONNECTION_INTENT: u32 = 0;
 /// The client's own skin for the login claims; `None` at login uploads a solid-white placeholder.
 #[derive(Debug, Clone)]
 pub struct ClientSkin {
+    /// The selected skin's pack and skin name, independent of authentication identity.
+    pub id: String,
     pub rgba8: Vec<u8>,
     pub width: u32,
     pub height: u32,
@@ -119,7 +120,6 @@ pub(crate) fn login_client_data(
     skin: Option<&ClientSkin>,
     settings: &LoginSettings,
 ) -> Value {
-    let identity = Uuid::new_v4();
     let (skin_data, skin_width, skin_height, arm_size) = match skin {
         Some(skin) => (
             STANDARD.encode(&skin.rgba8),
@@ -158,7 +158,6 @@ pub(crate) fn login_client_data(
         "PlatformOnlineId": "",
         "PlatformType": 0,
         "PlayFabId": "",
-        "SelfSignedId": identity.to_string(),
         "ServerAddress": "",
         "ThirdPartyName": display_name,
         "ThirdPartyNameOnly": false,
@@ -182,7 +181,7 @@ pub(crate) fn login_client_data(
         "SkinData": skin_data,
         "SkinGeometryData": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.geometry_data)),
         "SkinGeometryDataEngineVersion": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.engine_version)),
-        "SkinId": format!("{identity}.Custom"),
+        "SkinId": skin.map_or_else(|| crate::skin_change::classic_skin_id(&arm_size), |skin| skin.id.clone()),
         "SkinImageHeight": skin_height,
         "SkinImageWidth": skin_width,
         "SkinResourcePatch": resource_patch,
@@ -208,6 +207,44 @@ fn input_mode_value(mode: PlayerInputMode) -> u32 {
 mod tests {
     use super::*;
 
+    /// Join requests leave device-derived identity to the core and reuse the selected skin model ID.
+    #[test]
+    fn repeated_logins_keep_skin_identity_separate_from_authentication() {
+        for arm_size in ["wide", "slim"] {
+            let skin = ClientSkin {
+                id: crate::skin_change::classic_skin_id(arm_size),
+                rgba8: vec![255; 64 * 64 * 4],
+                width: 64,
+                height: 64,
+                arm_size: arm_size.into(),
+                cape: None,
+                geometry: None,
+            };
+            for selected_id in [
+                crate::builtin_skin_id("Steve"),
+                crate::custom_skin_id("first"),
+                crate::custom_skin_id("second"),
+            ] {
+                let skin = ClientSkin {
+                    id: selected_id,
+                    ..skin.clone()
+                };
+                for id in [-7, 1] {
+                    for _ in 0..2 {
+                        let claims = login_client_data(
+                            "Fixture",
+                            ClientRandomId::new(id).unwrap(),
+                            Some(&skin),
+                            &LoginSettings::default(),
+                        );
+                        assert!(claims.get("SelfSignedId").is_none());
+                        assert_eq!(claims["SkinId"], skin.id);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn classic_skin_updates_match_login_model_selection() {
         for arm_size in ["slim", "wide"] {
@@ -220,6 +257,7 @@ mod tests {
                 geometry: None,
             };
             let login_skin = ClientSkin {
+                id: crate::skin_change::classic_skin_id(arm_size),
                 width: skin.width,
                 height: skin.height,
                 rgba8: skin.rgba8.to_vec(),
@@ -245,7 +283,7 @@ mod tests {
                 "geometry.humanoid.custom"
             };
             assert_eq!(patch["geometry"]["default"], expected);
-            let packet = crate::player_skin_packet([1; 16], &skin, arm_size, "selected", "");
+            let packet = crate::player_skin_packet([1; 16], &skin, arm_size, &login_skin.id, "");
             let packet = crate::decode_batch(crate::encode(&packet).unwrap())
                 .unwrap()
                 .pop()
@@ -253,6 +291,10 @@ mod tests {
             let bedrock_protocol_1_26_51::packets::Packet::PlayerSkin(packet) = *packet.data else {
                 panic!("skin packet")
             };
+            assert_eq!(
+                packet.serialized_skin.id.to_string_lossy(),
+                claims["SkinId"].as_str().unwrap()
+            );
             let updated: Value =
                 serde_json::from_str(&packet.serialized_skin.resource_patch.to_string_lossy())
                     .unwrap();
@@ -311,6 +353,7 @@ mod tests {
     #[test]
     fn session_claims_decline_chunk_generation_and_preserve_player_data() {
         let skin = ClientSkin {
+            id: crate::custom_skin_id("fixture"),
             rgba8: vec![7; 64 * 32 * 4],
             width: 64,
             height: 32,
@@ -410,6 +453,7 @@ mod tests {
     fn session_logins_report_supported_client_capabilities() {
         let settings = LoginSettings::default();
         let skin = ClientSkin {
+            id: crate::skin_change::classic_skin_id("wide"),
             rgba8: vec![255; 64 * 64 * 4],
             width: 64,
             height: 64,
@@ -528,7 +572,7 @@ mod tests {
             );
         }
         assert!(claims["SkinId"].as_str().unwrap().ends_with(".Custom"));
-        assert!(Uuid::parse_str(claims["SelfSignedId"].as_str().unwrap()).is_ok());
+        assert!(claims.get("SelfSignedId").is_none());
         let mouse = login_client_data(
             "Steve",
             ClientRandomId::new(-7).unwrap(),

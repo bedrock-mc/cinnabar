@@ -43,31 +43,37 @@ impl Index {
         let mut index = Index::default();
         let mut namespaces: HashMap<String, String> = HashMap::new();
         for (layer_index, layer) in workspace.layers().iter().enumerate() {
-            for (order, path) in load_order(layer, layer_index == 0).into_iter().enumerate() {
-                let Some(text) = layer.text(&path) else {
+            for (order, path) in layer
+                .ui_paths()
+                .filter(|path| {
+                    *path != json_ui::UI_DEFS_PATH && *path != json_ui::GLOBAL_VARIABLES_PATH
+                })
+                .enumerate()
+            {
+                let Some(text) = layer.text(path) else {
                     continue;
                 };
                 let root = match outline::parse(&text) {
                     Ok(root) => root,
                     Err(error) => {
-                        index.syntax.push((layer_index, path.clone(), error));
+                        index.syntax.push((layer_index, path.to_owned(), error));
                         continue;
                     }
                 };
                 let namespace = match root.get("namespace").and_then(Spanned::as_str) {
                     Some(namespace) => namespace.to_owned(),
-                    None => match namespaces.get(&path) {
+                    None => match namespaces.get(path) {
                         Some(namespace) => namespace.clone(),
                         None => continue,
                     },
                 };
-                namespaces.insert(path.clone(), namespace.clone());
+                namespaces.insert(path.to_owned(), namespace.clone());
                 index
                     .files
-                    .insert((layer_index, path.clone()), namespace.clone());
+                    .insert((layer_index, path.to_owned()), namespace.clone());
                 let file = FileCtx {
                     layer: layer_index,
-                    path: &path,
+                    path,
                     order,
                 };
                 for member in root.members().iter().filter(|m| m.key != "namespace") {
@@ -224,34 +230,4 @@ fn split_key(key: &str) -> (&str, Option<&str>) {
         Some((name, base)) => (name, Some(base)),
         None => (key, None),
     }
-}
-
-/// The order a layer's ui files apply in: its `_ui_defs.json` list first, then
-/// the rest by path, as the engine loads a pack. A complete bottom layer loads
-/// only what its list names.
-pub fn load_order(layer: &crate::workspace::Layer, bottom: bool) -> Vec<String> {
-    let mut order: Vec<String> = Vec::new();
-    if let Some(text) = layer.text("ui/_ui_defs.json")
-        && let Ok(root) = outline::parse(&text)
-    {
-        for item in root.get("ui_defs").map_or(&[][..], Spanned::items) {
-            if let Some(path) = item.as_str()
-                && layer.file(path).is_some()
-                && !order.iter().any(|known| known == path)
-            {
-                order.push(path.to_owned());
-            }
-        }
-    }
-    let complete = layer.file("ui/_ui_defs.json").is_some()
-        && layer.file("ui/_global_variables.json").is_some();
-    if bottom && complete {
-        return order;
-    }
-    for path in layer.ui_paths() {
-        if !order.iter().any(|known| known == path) && !path.starts_with("ui/_") {
-            order.push(path.to_owned());
-        }
-    }
-    order
 }

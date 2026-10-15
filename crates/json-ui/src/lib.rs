@@ -98,6 +98,7 @@ pub use layout::{
 };
 pub use layout_cache_key::LayoutCacheKey;
 pub use localize::{localize_text, localize_text_prefix};
+pub use pack::{GLOBAL_VARIABLES_PATH, UI_DEFS_PATH};
 pub use predicate::{Bindings, Scalar};
 pub use resolve::Resolver;
 pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
