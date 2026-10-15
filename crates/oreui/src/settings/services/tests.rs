@@ -88,15 +88,16 @@ fn account_settings_follow_profile_saved_account_and_local_fallback() {
 }
 
 #[test]
-fn storage_offers_to_open_the_worlds_and_resource_packs_folders() {
+fn storage_offers_folder_buttons_only_when_the_host_can_open_folders() {
     use launcher::menu::settings_storage::{StorageAction, StorageFolder};
-    let (_, actions) = panel(&MenuView::new(true, launcher::PRODUCT_NAME.into()), storage);
-    for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
-        assert!(
-            actions.contains(&MenuAction::SettingsStorage(StorageAction::OpenFolder(
-                folder
-            )))
-        );
+    let mut view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    for opens_folders in [true, false] {
+        std::sync::Arc::make_mut(&mut view.storage).opens_folders = opens_folders;
+        let (_, actions) = panel(&view, storage);
+        for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
+            let action = MenuAction::SettingsStorage(StorageAction::OpenFolder(folder));
+            assert_eq!(actions.contains(&action), opens_folders, "{folder:?}");
+        }
     }
 }
 

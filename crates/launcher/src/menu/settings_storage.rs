@@ -38,6 +38,7 @@ pub struct StorageView {
     pub pending_delete: Option<(PathBuf, Vec<PathBuf>)>,
     pub return_from_world: bool,
     pub error: Option<String>,
+    pub opens_folders: bool, // the host can show a `StorageFolder` in a file manager
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

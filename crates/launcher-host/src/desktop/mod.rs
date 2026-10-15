@@ -22,8 +22,25 @@ pub fn open_url(url: &str) {
     }
 }
 
+/// Whether `open_folder` has a file manager to hand folders to on this OS.
+pub fn opens_folders() -> bool {
+    has_folder_opener(std::env::consts::OS)
+}
+
+/// Android and other targets without a desktop opener get no folder buttons.
+fn has_folder_opener(os: &str) -> bool {
+    matches!(os, "linux" | "macos" | "windows")
+}
+
 /// Creates `dir` if needed and shows it in the OS file manager on a worker thread.
 pub fn open_folder(dir: PathBuf) {
+    if !opens_folders() {
+        tracing::warn!(
+            "this platform has no file manager to open {}",
+            dir.display()
+        );
+        return;
+    }
     let spawned = std::thread::Builder::new()
         .name("open-folder".into())
         .spawn(move || {
@@ -49,8 +66,10 @@ fn show_folder(dir: &Path) -> bool {
         })
         .is_ok()
         || run_tool(dir);
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(target_os = "macos")]
     return run_tool(dir);
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    return false;
 }
 
 /// Opens `url` in the desktop's default handler; cancellation suppresses further handlers.
@@ -135,6 +154,16 @@ fn opener(argument: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_buttons_exist_only_where_a_file_manager_can_open_them() {
+        for os in ["linux", "macos", "windows"] {
+            assert!(has_folder_opener(os), "{os}");
+        }
+        for os in ["android", "ios", "freebsd"] {
+            assert!(!has_folder_opener(os), "{os}");
+        }
+    }
 
     #[cfg(unix)]
     #[test]
