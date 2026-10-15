@@ -22,7 +22,7 @@ The `website` GitHub environment supplies the `CLOUDFLARE_API_TOKEN` secret and
 serves `dist/` without a Worker script, and disables request logs. The workflow
 follows HTML redirects and byte-compares every deployed file with the build.
 
-The machine's owner must apply `deploy/Caddyfile` by hand to the shared proxy,
-validate the combined configuration, and reload Caddy. It permanently redirects
-the old domain to the Worker, preserving the path and query string. Its redirect
-target is also the source of the workflow's post-deploy check URL.
+The `RestartFU/configurations` repository owns the custom domain's Caddy proxy.
+It forwards requests to the Worker over HTTPS while preserving the public domain,
+path and query string. No local Go server or SSH deployment is needed. The
+workflow's `WEBSITE_URL` selects the destination for post-deploy file checks.

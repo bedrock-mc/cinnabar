@@ -1,3 +1,0 @@
-cinnabar.restartfu.com {
-	redir https://cinnabar.cinnabar-api.workers.dev{uri} permanent
-}
