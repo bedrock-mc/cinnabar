@@ -15,6 +15,21 @@ use bevy::{
 
 use client_state::ConsentInput;
 
+/// Keyboard, mouse button, wheel and touch message queues consent clears when installed.
+type PointerMessages<'w> = (
+    Option<ResMut<'w, Messages<KeyboardInput>>>,
+    Option<ResMut<'w, Messages<MouseButtonInput>>>,
+    Option<ResMut<'w, Messages<MouseWheel>>>,
+    Option<ResMut<'w, Messages<TouchInput>>>,
+);
+
+/// Gamepad button, button-state and axis message queues consent clears when installed.
+type GamepadMessages<'w> = (
+    Option<ResMut<'w, Messages<GamepadButtonChangedEvent>>>,
+    Option<ResMut<'w, Messages<GamepadButtonStateChangedEvent>>>,
+    Option<ResMut<'w, Messages<GamepadAxisChangedEvent>>>,
+);
+
 /// Removes queued physical events after consent reads them and before ordinary UI runs.
 ///
 /// Declares exactly the input it clears instead of taking the whole world, so frames without
@@ -23,17 +38,8 @@ pub fn consume(
     consent: Res<ConsentInput>,
     keys: Option<ResMut<ButtonInput<KeyCode>>>,
     mouse: Option<ResMut<ButtonInput<MouseButton>>>,
-    pointer_messages: (
-        Option<ResMut<Messages<KeyboardInput>>>,
-        Option<ResMut<Messages<MouseButtonInput>>>,
-        Option<ResMut<Messages<MouseWheel>>>,
-        Option<ResMut<Messages<TouchInput>>>,
-    ),
-    gamepad_messages: (
-        Option<ResMut<Messages<GamepadButtonChangedEvent>>>,
-        Option<ResMut<Messages<GamepadButtonStateChangedEvent>>>,
-        Option<ResMut<Messages<GamepadAxisChangedEvent>>>,
-    ),
+    pointer_messages: PointerMessages,
+    gamepad_messages: GamepadMessages,
     touches: Option<ResMut<Touches>>,
     mut gamepads: Query<&mut Gamepad>,
 ) {

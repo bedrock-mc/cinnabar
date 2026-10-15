@@ -246,6 +246,7 @@ pub(crate) fn bedrock_camera_rotation(yaw_degrees: f32, pitch_degrees: f32) -> Q
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn send_player_auth_inputs(
     network: Res<NetworkHandle<PackApplication>>,
     #[cfg(feature = "acceptance")] acceptance: Res<AcceptanceRun>,

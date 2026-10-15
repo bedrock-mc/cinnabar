@@ -40,9 +40,9 @@ pub(super) fn update_overlay(
             std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>(),
         )
     };
-    let before = overlays(&**scene);
+    let before = overlays(scene);
     update(scene.bypass_change_detection());
-    if overlays(&**scene) != before {
+    if overlays(scene) != before {
         scene.set_changed();
     }
 }

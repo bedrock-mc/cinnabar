@@ -124,12 +124,8 @@ impl WorldCollisionIdentity {
         let mut chunks: Vec<ChunkCollisionRevision> = Vec::with_capacity(count);
         let mut left = self.chunks.iter().copied().peekable();
         let mut right = other.chunks.iter().copied().peekable();
-        loop {
-            let order = match (left.peek(), right.peek()) {
-                (Some(a), Some(b)) => a.chunk.cmp(&b.chunk),
-                _ => break,
-            };
-            match order {
+        while let (Some(a), Some(b)) = (left.peek(), right.peek()) {
+            match a.chunk.cmp(&b.chunk) {
                 Ordering::Less => chunks.extend(left.next()),
                 Ordering::Greater => chunks.extend(right.next()),
                 Ordering::Equal => {
