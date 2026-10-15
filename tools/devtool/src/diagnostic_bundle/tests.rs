@@ -669,3 +669,35 @@ fn diagnostics_audit_large_client_logs_keep_their_archive_identity() {
     assert!(text.contains("earlier session event"));
     assert!(text.ends_with("latest event\n"));
 }
+
+/// Legacy append-only logs must keep the latest session's identity outside the retained tail.
+#[test]
+fn oversized_multisession_logs_recover_the_latest_header() {
+    for newline in ["\n", "\r\n"] {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "CLIENT_SESSION_START timestamp_ms=1 session=first";
+        let middle = "CLIENT_SESSION_START timestamp_ms=2 session=middle";
+        let latest = "CLIENT_SESSION_START timestamp_ms=3 session=latest";
+        fs::write(
+            temp.path().join("client.log"),
+            format!("{first}{newline}{}{newline}{middle}{newline}old event{newline}{latest}{newline}{}{newline}latest event{newline}",
+                "old payload".repeat(section::HEADER_BYTES), "x".repeat(LOG_LIMIT as usize)),
+        ).unwrap();
+        fs::write(
+            temp.path().join("client-20260101-000000.log"),
+            format!("{first}{newline}wrong archived event{newline}"),
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("client-20260101-000001.log"),
+            format!("{latest}{newline}latest archived event{newline}"),
+        )
+        .unwrap();
+        let text = client_session_logs(temp.path()).unwrap();
+        assert_eq!(text.lines().next(), Some(latest));
+        assert!(text.contains("latest archived event"));
+        assert!(!text.contains("wrong archived event"));
+        assert!(!text.contains("old event"));
+        assert!(text.ends_with(&format!("latest event{newline}")));
+    }
+}

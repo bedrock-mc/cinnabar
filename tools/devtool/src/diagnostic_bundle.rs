@@ -5,7 +5,7 @@ use crash_report::{folder, redact, section};
 use diagnostics::session_log::{Family, Retention};
 use std::{
     fs,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
@@ -83,7 +83,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     Ok(())
 }
 
-/// Collects the current session's retained log segments, oldest first, with a bounded read
+/// Collects the current session's retained log segments, oldest first, with a bounded tail
 /// per file and at most the configured number of archives. Repeated headers identify segments
 /// from the same session; logs without a header cannot safely select older files.
 fn client_session_logs(log_dir: &Path) -> std::io::Result<String> {
@@ -236,28 +236,55 @@ fn core_session_tail(path: &Path, client: &str) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Keeps the session header even when it falls outside the bounded tail of a large segment.
+/// Keeps the latest session header even when it falls outside a large segment's tail.
 fn session_segment(path: &Path, marker: &str) -> std::io::Result<String> {
     let mut file = fs::File::open(path)?;
-    let mut prefix = [0; section::HEADER_BYTES];
-    let count = file.read(&mut prefix)?;
-    let prefix = String::from_utf8_lossy(&prefix[..count]);
-    let text = tail_file(file)?;
-    if !text.lines().any(|line| line.contains(marker))
-        && let Some(header) = prefix.lines().find(|line| line.starts_with(marker))
-    {
-        return Ok(format!("{header}\n{text}"));
+    let length = file.metadata()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(LOG_LIMIT)))?;
+    let mut bytes = Vec::new();
+    (&mut file)
+        .take(length.min(LOG_LIMIT))
+        .read_to_end(&mut bytes)?;
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    if !text.lines().any(|line| line.contains(marker)) {
+        file.rewind()?;
+        // Match the tail's snapshot: later appends must not change its session identity.
+        if let Some(header) = latest_header(file.take(length), marker)? {
+            return Ok(format!("{header}\n{text}"));
+        }
     }
     Ok(text)
 }
 
-/// Reads a bounded tail from an already open segment, keeping its identity across renames.
-fn tail_file(mut file: fs::File) -> std::io::Result<String> {
-    let length = file.metadata()?.len();
-    file.seek(SeekFrom::Start(length.saturating_sub(LOG_LIMIT)))?;
-    let mut bytes = Vec::new();
-    file.take(LOG_LIMIT).read_to_end(&mut bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+/// Finds the newest line-start header with bounded line prefixes, skipping long payload lines.
+/// A header exceeding the shared header bound clears any older identity.
+fn latest_header(file: impl Read, marker: &str) -> std::io::Result<Option<String>> {
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    let mut latest = None;
+    loop {
+        line.clear();
+        let count = reader
+            .by_ref()
+            .take(section::HEADER_BYTES as u64 + 1)
+            .read_until(b'\n', &mut line)?;
+        if count == 0 {
+            break;
+        }
+        if line.starts_with(marker.as_bytes())
+            && line.get(marker.len()).is_none_or(u8::is_ascii_whitespace)
+        {
+            latest = (line.len() <= section::HEADER_BYTES).then(|| {
+                String::from_utf8_lossy(&line)
+                    .trim_end_matches(['\r', '\n'])
+                    .to_owned()
+            });
+        }
+        if !line.ends_with(b"\n") {
+            reader.skip_until(b'\n')?;
+        }
+    }
+    Ok(latest)
 }
 
 /// Writes only scrubbed text using fixed member names and atomically publishes a completed zip.
