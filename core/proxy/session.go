@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
@@ -70,7 +71,7 @@ func (server *sessionServer) accept(ctx context.Context) {
 				return
 			}
 			retry = min(max(2*retry, 5*time.Millisecond), sessionAcceptRetryLimit)
-			server.logger.Warn("session accept failed; retrying", "error", err, "retry", retry)
+			server.logger.Warn("session accept failed; retrying", "error", redact.Error(err), "retry", retry)
 			select {
 			case <-time.After(retry):
 				continue
@@ -97,7 +98,7 @@ func (server *sessionServer) accept(ctx context.Context) {
 			server.mu.Unlock()
 			_ = conn.Close()
 			if err != nil && !streamnet.IsClosed(err) {
-				server.logger.Warn("session ended", "error", err)
+				server.logger.Warn("session ended", "error", redact.Error(err))
 			}
 		}()
 	}
