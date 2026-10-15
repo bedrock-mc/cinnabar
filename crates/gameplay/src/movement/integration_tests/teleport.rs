@@ -124,6 +124,26 @@ fn snapped_teleport_keeps_travel_suppression_across_a_blocked_tick() {
     assert_ne!(frame.samples[1].position, target);
 }
 
+/// Floor recovery precedes resumed travel even within a multi-tick render frame.
+#[test]
+fn snapped_teleport_recovers_floor_overlap_before_catch_up_travel() {
+    let world = VersionedFloor(1);
+    let (mut physics, mut ticker) = walked_physics(4);
+    let target = [0.5, 0.9 + protocol::PLAYER_NETWORK_OFFSET, 0.5];
+    super::reconcile_move_player_teleport(&mut ticker, &mut physics, target, 0, true, &world)
+        .unwrap();
+    physics.advance(Duration::from_millis(50), MovementInput::default(), &world);
+
+    let frame = physics.advance(Duration::from_millis(150), MovementInput::default(), &world);
+    assert_eq!(frame.samples.len(), 3);
+    assert_eq!(frame.samples[0].position, target);
+    for sample in &frame.samples {
+        assert_eq!(sample.movement, [0.0; 3]);
+        assert!(sample.grounded_after_tick);
+    }
+    assert!((physics.state().unwrap().position.y - 1.0).abs() < 1e-5);
+}
+
 /// Session reanchoring discards a teleport marker belonging to the old timeline.
 #[test]
 fn reanchoring_clears_pending_teleport_travel_suppression() {
