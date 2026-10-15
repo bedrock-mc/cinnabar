@@ -110,11 +110,21 @@ fn write_all(fd: impl rustix::fd::AsFd, mut bytes: &[u8]) {
 mod tests {
     use super::*;
     use rustix::{
+        fd::OwnedFd,
         fs::{OFlags, fcntl_getfl, fcntl_setfl},
         io::Errno,
-        pipe::PipeFlags,
     };
     use std::os::fd::AsRawFd;
+
+    /// Creates fixture pipes with nonblocking ends on every supported Unix platform.
+    fn nonblocking_pipe() -> (OwnedFd, OwnedFd) {
+        let (reader, writer) = rustix::pipe::pipe().unwrap();
+        for fd in [&reader, &writer] {
+            let flags = fcntl_getfl(fd).unwrap();
+            fcntl_setfl(fd, flags | OFlags::NONBLOCK).unwrap();
+        }
+        (reader, writer)
+    }
 
     /// Leaves a blocking launcher pipe full before the fatal path attempts to forward bytes.
     #[test]
@@ -123,7 +133,7 @@ mod tests {
             return;
         };
         let root = std::path::PathBuf::from(root);
-        let (_terminal_reader, terminal) = rustix::pipe::pipe_with(PipeFlags::NONBLOCK).unwrap();
+        let (_terminal_reader, terminal) = nonblocking_pipe();
         let chunk = [b'x'; 4096];
         loop {
             match rustix::io::write(&terminal, &chunk) {
@@ -134,7 +144,7 @@ mod tests {
         }
         let flags = fcntl_getfl(&terminal).unwrap();
         fcntl_setfl(&terminal, flags & !OFlags::NONBLOCK).unwrap();
-        let (reader, writer) = rustix::pipe::pipe_with(PipeFlags::NONBLOCK).unwrap();
+        let (reader, writer) = nonblocking_pipe();
         rustix::io::write(&writer, b"fatal marker\n").unwrap();
         let log = root.join("client.log");
         std::fs::write(&log, b"header\n").unwrap();
