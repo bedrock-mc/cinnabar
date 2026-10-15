@@ -526,3 +526,82 @@ fn evicting_mid_hand_over_withdraws_meshes() {
     assert!(meshing(&stream, 5), "its removal is queued");
     assert!(!drawn(&stream, 5));
 }
+
+/// An interrupted restoration still refreshes far residents admitted by a wider radius.
+#[test]
+fn interrupted_restoration_refreshes_pending_promotions() {
+    let mut stream = stream();
+    stream.set_full_detail_radius(Some(16));
+    stream
+        .submit(1, inline_block_entity_event(40, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(!meshing(&stream, 40));
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(None);
+    stream.service_yield = Some(Arc::new(AtomicBool::new(true)));
+    stream.poll([0.0; 3], 0);
+    assert!(
+        !meshing(&stream, 40),
+        "restoration has not reached the far column"
+    );
+    stream.set_full_detail_radius(Some(64));
+    stream.service_yield = None;
+    test_time::eventually("the wider replacement radius", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(stream.wants_mesh(ChunkKey::new(0, 40, 0)));
+    assert!(
+        meshing(&stream, 40),
+        "pending promotion must queue its mesh"
+    );
+}
+
+/// Complete eviction cannot make new hysteresis-band arrivals inherit old membership.
+#[test]
+fn complete_eviction_preserves_pending_membership_epoch() {
+    let mut stream = stream();
+    let column = ChunkKey::new(0, 2, 0);
+    let key = SubChunkKey::from_chunk(column, 0);
+    stream.resident.insert(key);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(1));
+    assert!(stream.wants_mesh(column));
+    stream.evict_columns(BTreeSet::from([column]));
+    assert!(stream.resident.is_empty());
+    stream.resident.insert(key);
+    assert!(
+        !stream.wants_mesh(column),
+        "a new arrival is outside the base radius"
+    );
+    test_time::eventually("membership after full eviction", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(!stream.wants_mesh(column));
+}
+
+/// A column already demoted by an unfinished first limit still needs a later promotion.
+#[test]
+fn interrupted_initial_limit_restoration_refreshes_demoted_columns() {
+    let mut stream = stream();
+    stream
+        .submit(1, inline_block_entity_event(40, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.between_frames_service = true;
+    stream.set_full_detail_radius(Some(16));
+    stream.frame_deadline = Some(Instant::now());
+    stream.poll([0.0; 3], 0);
+    assert!(stream.has_pending_full_detail());
+    assert!(!stream.wants_mesh(ChunkKey::new(0, 40, 0)));
+    stream.mesh_jobs.pending.clear();
+    stream.set_full_detail_radius(None);
+    stream.set_full_detail_radius(Some(64));
+    test_time::eventually("the replacement of an unfinished first limit", || {
+        stream.poll([0.0; 3], 0);
+        !stream.has_pending_full_detail()
+    });
+    assert!(meshing(&stream, 40));
+}

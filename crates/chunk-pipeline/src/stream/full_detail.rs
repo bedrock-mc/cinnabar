@@ -22,6 +22,8 @@ pub(super) struct FullDetail {
     columns: HashSet<ChunkKey>,
     /// Derived from membership by `insert_column` and `remove_column` only.
     ordered_columns: BTreeSet<ChunkKey>,
+    /// Interrupted restoration keeps cached membership only for columns already resident.
+    columns_generation: Option<u64>,
     /// Near-drawn columns past the band, still meshed until far terrain covers them.
     handoffs: HashMap<ChunkKey, Handoff>,
     scan: Option<DetailScan>,
@@ -29,6 +31,8 @@ pub(super) struct FullDetail {
     scan_residents: bool,
     /// Columns drawn without a limit remain active until the scan reaches them.
     initial_generation: Option<u64>,
+    /// Original unlimited members before this frontier have already been classified.
+    initial_cursor: Option<ChunkKey>,
     demotion_cursor: Option<ChunkKey>,
 }
 
@@ -69,8 +73,11 @@ impl FullDetail {
 
     /// Includes unvisited columns that were full detail when the first limit was requested.
     fn contains_column(&self, column: ChunkKey, resident: &ColumnSubChunkSet) -> bool {
-        self.columns.contains(&column)
-            || (self.demotion_cursor.is_none_or(|cursor| column > cursor)
+        (self.columns.contains(&column)
+            && self
+                .columns_generation
+                .is_none_or(|generation| resident.existed_at(column, generation)))
+            || (self.initial_cursor.is_none_or(|cursor| column > cursor)
                 && self
                     .initial_generation
                     .is_some_and(|generation| resident.existed_at(column, generation)))
@@ -93,15 +100,17 @@ impl WorldStream {
         if self.full_detail.radius == radius {
             return;
         }
-        if self.full_detail.radius.is_none() {
+        if self.full_detail.radius.is_none()
+            && !self.full_detail.scan_residents
+            && self.full_detail.scan.is_none()
+        {
             let retired = std::mem::take(&mut self.full_detail);
             if !retired.columns.is_empty() || !retired.handoffs.is_empty() {
                 rayon::spawn(move || drop(retired));
             }
             self.full_detail.initial_generation = Some(self.resident.column_generation());
-        }
-        if radius.is_none() {
-            self.full_detail.initial_generation = None;
+        } else if self.full_detail.radius.is_none() {
+            self.full_detail.columns_generation = Some(self.resident.column_generation());
         }
         self.full_detail.demotion_cursor = None;
         self.full_detail.scan_residents |= radius.is_none() || self.full_detail.radius.is_none();
@@ -193,20 +202,25 @@ impl WorldStream {
                     scan.demoting = false;
                     self.full_detail.scan_residents = false;
                     self.full_detail.initial_generation = None;
+                    self.full_detail.initial_cursor = None;
+                    self.full_detail.columns_generation = None;
                     self.full_detail.demotion_cursor = None;
                     continue;
                 };
+                let initial_member = self.full_detail.contains_column(column, &self.resident);
                 self.full_detail.demotion_cursor = Some(column);
+                if self.full_detail.initial_generation.is_some() {
+                    self.full_detail.initial_cursor =
+                        self.full_detail.initial_cursor.max(Some(column));
+                }
                 if let Some(radius) = self.full_detail.radius {
                     let disk = column_scan::Disk {
                         centre,
                         radius: radius.saturating_add(FULL_DETAIL_HYSTERESIS_CHUNKS),
                     };
-                    let initial_member = self
-                        .full_detail
-                        .initial_generation
-                        .is_none_or(|generation| self.resident.existed_at(column, generation))
-                        || self.full_detail.columns.contains(&column);
+                    if !initial_member {
+                        self.full_detail.remove_column(column);
+                    }
                     if initial_member && disk.contains(column) {
                         if self.full_detail.scan_residents {
                             self.full_detail.insert_column(column);
@@ -219,10 +233,12 @@ impl WorldStream {
                         self.full_detail.remove_column(column);
                         self.demote_full_detail_column(column);
                     }
-                } else if !self.full_detail.columns.contains(&column)
-                    || self.full_detail.handoffs.contains_key(&column)
-                {
-                    self.refresh_full_detail_column(column);
+                } else {
+                    if !initial_member || self.full_detail.handoffs.contains_key(&column) {
+                        self.refresh_full_detail_column(column);
+                        self.full_detail.handoffs.remove(&column);
+                    }
+                    self.full_detail.insert_column(column);
                 }
             } else if let Some(column) = scan.entering.as_mut().and_then(Iterator::next) {
                 if !self.full_detail.columns.contains(&column) {
