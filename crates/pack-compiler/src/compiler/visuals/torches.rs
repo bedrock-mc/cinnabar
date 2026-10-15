@@ -50,7 +50,10 @@ pub(in crate::compiler) fn compile_rule(
 
 /// Returns `UPRIGHT` or the `BlockFace` index of the supporting wall.
 pub(in crate::compiler) fn torch_mount(record: &RegistryRecord) -> Option<u8> {
-    let direction = canonical_state_str(&record.canonical_state, "torch_facing_direction")?;
+    let direction = canonical_state_str(
+        &record.canonical_state,
+        assets::facts::BlockProperty::TorchFacingDirection.name(),
+    )?;
     Some(match direction.as_ref() {
         "unknown" | "top" => UPRIGHT,
         "west" => 1 + BlockFace::West as u8,

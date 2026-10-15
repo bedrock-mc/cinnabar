@@ -52,14 +52,15 @@ impl Oxidation {
     /// The oxidation of a statue block name such as `minecraft:waxed_exposed_copper_golem_statue`.
     #[must_use]
     pub fn from_block_name(name: &str) -> Option<Self> {
-        let name = name.strip_prefix("minecraft:")?;
-        let name = name.strip_prefix("waxed_").unwrap_or(name);
-        Some(match name {
-            "copper_golem_statue" => Self::Unaffected,
-            "exposed_copper_golem_statue" => Self::Exposed,
-            "weathered_copper_golem_statue" => Self::Weathered,
-            "oxidized_copper_golem_statue" => Self::Oxidized,
-            _ => return None,
+        use assets::facts::{BlockModelVariant, CopperAge};
+        let BlockModelVariant::Statue(age) = assets::facts::block_render_fact(name).variant? else {
+            return None;
+        };
+        Some(match age {
+            CopperAge::Unaffected => Self::Unaffected,
+            CopperAge::Exposed => Self::Exposed,
+            CopperAge::Weathered => Self::Weathered,
+            CopperAge::Oxidized => Self::Oxidized,
         })
     }
 
@@ -141,5 +142,39 @@ mod tests {
             Some(Oxidation::Weathered)
         );
         assert_eq!(Oxidation::from_block_name("minecraft:copper_block"), None);
+    }
+}
+
+#[cfg(test)]
+mod membership_tests {
+    use super::*;
+    /// Retains the old parser as an independent registry-wide membership oracle.
+    fn previous(name: &str) -> Option<Oxidation> {
+        let name = name.strip_prefix("minecraft:")?;
+        let name = name.strip_prefix("waxed_").unwrap_or(name);
+        Some(match name {
+            "copper_golem_statue" => Oxidation::Unaffected,
+            "exposed_copper_golem_statue" => Oxidation::Exposed,
+            "weathered_copper_golem_statue" => Oxidation::Weathered,
+            "oxidized_copper_golem_statue" => Oxidation::Oxidized,
+            _ => return None,
+        })
+    }
+    #[test]
+    fn compiled_model_metadata_matches_previous_pinned_membership() {
+        for record in assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+        {
+            assert_eq!(
+                Oxidation::from_block_name(&record.name),
+                previous(&record.name),
+                "{}",
+                record.name
+            );
+        }
+        assert_eq!(Oxidation::from_block_name("example:chest"), None);
     }
 }

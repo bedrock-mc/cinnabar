@@ -1,5 +1,6 @@
 use super::super::*;
 use super::state::exact_tagged_int;
+use assets::facts::pack::{PackBlock as B, PackTexture as T};
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 pub(in crate::compiler) fn chiseled_bookshelf_quads(
@@ -64,28 +65,28 @@ pub(in crate::compiler) fn chiseled_bookshelf_quads(
 pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
     pack: &PackSources,
 ) -> Option<[(Descriptor, Box<str>); 4]> {
-    let faces = pack.blocks.get_exact_faces("chiseled_bookshelf")?;
+    let faces = pack.blocks.get_exact_faces(B::ChiseledBookshelf.bare())?;
     if faces
         != [
-            "chiseled_bookshelf_side",
-            "chiseled_bookshelf_side",
-            "chiseled_bookshelf_top",
-            "chiseled_bookshelf_top",
-            "chiseled_bookshelf_front",
-            "chiseled_bookshelf_side",
+            T::ChiseledBookshelfSide.key(),
+            T::ChiseledBookshelfSide.key(),
+            T::ChiseledBookshelfTop.key(),
+            T::ChiseledBookshelfTop.key(),
+            T::ChiseledBookshelfFront.key(),
+            T::ChiseledBookshelfSide.key(),
         ]
     {
         return None;
     }
     let front = pack
         .terrain
-        .get_exact_pair_no_tint("chiseled_bookshelf_front")?;
+        .get_exact_pair_no_tint(T::ChiseledBookshelfFront.key())?;
     let side = pack
         .terrain
-        .get_exact_static_no_tint("chiseled_bookshelf_side")?;
+        .get_exact_static_no_tint(T::ChiseledBookshelfSide.key())?;
     let top = pack
         .terrain
-        .get_exact_static_no_tint("chiseled_bookshelf_top")?;
+        .get_exact_static_no_tint(T::ChiseledBookshelfTop.key())?;
     let paths = [front[0], front[1], side, top];
     if paths.into_iter().collect::<BTreeSet<_>>().len() != 4 {
         return None;
@@ -96,40 +97,40 @@ pub(in crate::compiler) fn chiseled_bookshelf_material_descriptors(
                 state_variant: 0,
                 flipbook_selector: None,
                 path: front[0].into(),
-                texture_key: "chiseled_bookshelf_front".into(),
+                texture_key: T::ChiseledBookshelfFront.key().into(),
                 flags: 0,
             },
-            "chiseled_bookshelf_front".into(),
+            T::ChiseledBookshelfFront.key().into(),
         ),
         (
             Descriptor {
                 state_variant: 1,
                 flipbook_selector: None,
                 path: front[1].into(),
-                texture_key: "chiseled_bookshelf_front".into(),
+                texture_key: T::ChiseledBookshelfFront.key().into(),
                 flags: 0,
             },
-            "chiseled_bookshelf_front".into(),
+            T::ChiseledBookshelfFront.key().into(),
         ),
         (
             Descriptor {
                 state_variant: 0,
                 flipbook_selector: None,
                 path: side.into(),
-                texture_key: "chiseled_bookshelf_side".into(),
+                texture_key: T::ChiseledBookshelfSide.key().into(),
                 flags: 0,
             },
-            "chiseled_bookshelf_side".into(),
+            T::ChiseledBookshelfSide.key().into(),
         ),
         (
             Descriptor {
                 state_variant: 0,
                 flipbook_selector: None,
                 path: top.into(),
-                texture_key: "chiseled_bookshelf_top".into(),
+                texture_key: T::ChiseledBookshelfTop.key().into(),
                 flags: 0,
             },
-            "chiseled_bookshelf_top".into(),
+            T::ChiseledBookshelfTop.key().into(),
         ),
     ])
 }
@@ -147,8 +148,14 @@ pub(in crate::compiler) fn exact_chiseled_bookshelf_state(
     if state.len() != 2 {
         return None;
     }
-    let books = exact_tagged_int(state.get("books_stored")?, 63)?;
-    let direction = exact_tagged_int(state.get("direction")?, 3)?;
+    let books = exact_tagged_int(
+        state.get(assets::facts::BlockProperty::BooksStored.name())?,
+        63,
+    )?;
+    let direction = exact_tagged_int(
+        state.get(assets::facts::BlockProperty::Direction.name())?,
+        3,
+    )?;
     let mask = 1 << (ModelStateField::Connections as u8 - 1)
         | 1 << (ModelStateField::Orientation as u8 - 1);
     if record.model_state.mask() != mask

@@ -174,7 +174,13 @@ unsafe fn forward(
             unsafe { (*info).si_code }
         };
         // BSD reserves the high 16 bits for sender codes; Linux uses nonpositive sender codes.
-        let hardware = code > 0
+        // xnu's sendsig gives SIGSEGV, SIGBUS and SIGILL fixed positive fault codes and no sender
+        // pid even when they are raised, so Apple targets cannot tell the two apart and always
+        // re-raise. That is also correct for a real fault: the signal stays blocked until this
+        // handler returns, and its default action then ends the process before the instruction
+        // runs again.
+        let hardware = !cfg!(target_vendor = "apple")
+            && code > 0
             && code < 0x10000
             && matches!(
                 signal,
@@ -257,6 +263,23 @@ impl Buffer {
 mod tests {
     use super::*;
     static FAULT_ADDRESS: AtomicPtr<libc::c_void> = AtomicPtr::new(std::ptr::null_mut());
+    /// Signal the kernel raises for reading a `PROT_NONE` page; macOS reports a bus error.
+    const PROTECTION_FAULT: i32 = if cfg!(target_os = "macos") {
+        libc::SIGBUS
+    } else {
+        libc::SIGSEGV
+    };
+
+    /// Signal a fixture run ends with: a page fault, a raised segmentation fault or an abort.
+    fn fixture_signal(hardware: bool, software_fault: bool) -> i32 {
+        if hardware {
+            PROTECTION_FAULT
+        } else if software_fault {
+            libc::SIGSEGV
+        } else {
+            libc::SIGABRT
+        }
+    }
 
     /// Checks that chaining retains the kernel's fault address, cause and machine context.
     unsafe extern "C" fn previous_siginfo_handler(
@@ -264,7 +287,7 @@ mod tests {
         info: *mut libc::siginfo_t,
         context: *mut libc::c_void,
     ) {
-        let original = signal == libc::SIGSEGV
+        let original = signal == PROTECTION_FAULT
             && !info.is_null()
             && !context.is_null()
             && unsafe {
@@ -290,11 +313,7 @@ mod tests {
         layout.user_data_root = std::path::PathBuf::from(root);
         let hardware = std::env::var_os("CINNABAR_SIGNAL_HARDWARE").is_some();
         let software_fault = std::env::var_os("CINNABAR_SIGNAL_SOFTWARE_FAULT").is_some();
-        let signal = if hardware || software_fault {
-            libc::SIGSEGV
-        } else {
-            libc::SIGABRT
-        };
+        let signal = fixture_signal(hardware, software_fault);
         // SAFETY: This test runs in a disposable subprocess; disable core files and install its handler.
         unsafe {
             let limit = libc::rlimit {
@@ -308,7 +327,7 @@ mod tests {
                     action.sa_sigaction =
                         previous_siginfo_handler as *const () as libc::sighandler_t;
                     action.sa_flags = libc::SA_SIGINFO;
-                    libc::sigaction(libc::SIGSEGV, &action, std::ptr::null_mut());
+                    libc::sigaction(signal, &action, std::ptr::null_mut());
                 } else {
                     libc::signal(signal, previous_handler as *const () as libc::sighandler_t);
                 }
@@ -374,11 +393,7 @@ mod tests {
             if software_fault {
                 command.env("CINNABAR_SIGNAL_SOFTWARE_FAULT", "1");
             }
-            let signal = if hardware || software_fault {
-                libc::SIGSEGV
-            } else {
-                libc::SIGABRT
-            };
+            let signal = fixture_signal(hardware, software_fault);
             let mut child = command.spawn().unwrap();
             let mut status = None;
             let complete = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {

@@ -29,7 +29,9 @@ pub fn dragon_egg_teleport_requests(
                 + if axis == 1 { 0.0 } else { 0.5 }
         });
         SpawnRequest {
-            effect: "minecraft:portal_directional".into(),
+            effect: assets::facts::ParticleEffect::PortalDirectional
+                .identifier()
+                .into(),
             position,
             variables: ["direction.x", "direction.y", "direction.z"]
                 .into_iter()
@@ -61,7 +63,10 @@ mod tests {
             dragon_egg_teleport_requests([10.0, 20.0, 30.0], displacement, 3).collect();
         assert_eq!(requests.len() as u64, PARTICLES);
         for request in &requests {
-            assert_eq!(request.effect, "minecraft:portal_directional");
+            assert_eq!(
+                request.effect,
+                assets::facts::ParticleEffect::PortalDirectional.identifier()
+            );
             assert!((10.0..=16.0).contains(&request.position[0]));
             assert!((16.5..=20.5).contains(&request.position[1]));
             assert!((30.0..=38.0).contains(&request.position[2]));
@@ -99,7 +104,7 @@ mod tests {
         let mut system = ParticleSystem::default();
         // Exercise the pack's one-particle, direction-variable parametric contract.
         let effect = serde_json::json!({"particle_effect": {
-            "description": {"identifier": "minecraft:portal_directional",
+            "description": {"identifier": assets::facts::ParticleEffect::PortalDirectional.identifier(),
                 "basic_render_parameters": {
                     "material": "particles_alpha", "texture": "synthetic_portal"}},
             "components": {

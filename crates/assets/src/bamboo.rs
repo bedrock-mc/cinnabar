@@ -3,7 +3,7 @@ use crate::{BlockFlags, ContributorRole, RegistryRecord};
 use serde::Deserialize;
 
 /// Registered identifier of the built-in stalk block.
-pub const BLOCK_NAME: &str = "minecraft:bamboo";
+pub const BLOCK_NAME: &str = crate::facts::VanillaBlock::Bamboo.identifier();
 
 /// Leaf geometry selected by an admitted stalk state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

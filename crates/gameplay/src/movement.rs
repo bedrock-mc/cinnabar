@@ -163,6 +163,7 @@ pub struct MovementTicker {
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
     next_tick_flags: PlayerInputFlags,
+    next_tick_rotation: Option<(f32, f32)>,
     emote_ticks: u32,
     /// Recent tick-end states, the single source of build actions' pre-tick state.
     tick_ends: outbox::TickEnds,
@@ -212,6 +213,7 @@ impl MovementTicker {
             mining_epoch_publisher,
             held_release: None,
             next_tick_flags: PlayerInputFlags::NONE,
+            next_tick_rotation: None,
             emote_ticks: 0,
             tick_ends: outbox::TickEnds::default(),
         }
@@ -427,6 +429,10 @@ impl MovementTicker {
         } else {
             analogue_move_vector
         };
+        let (pitch, yaw) = self
+            .next_tick_rotation
+            .take()
+            .unwrap_or((sample.pitch, sample.yaw));
         let snapshot = PlayerAuthInputSnapshot {
             tick: self.next_tick,
             position: sample.position,
@@ -435,8 +441,8 @@ impl MovementTicker {
             move_vector,
             analogue_move_vector,
             raw_move_vector,
-            pitch: sample.pitch,
-            yaw: sample.yaw,
+            pitch,
+            yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
             flags: input_flags(sample, self.previous_input)

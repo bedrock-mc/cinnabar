@@ -15,6 +15,9 @@ inputs:
   lane:
     description: ci or release (Rust profiles are kept separate)
     default: ci
+  cargo-outputs:
+    description: Further directories under target/ to cache, such as another profile or a cross target's profile
+    default: ''
   store:
     description: cache (the shared GitHub cache) or artifact (workflow artifacts)
     default: cache
@@ -55,6 +58,7 @@ runs:
         CACHE_WORKSPACE: ${{ inputs.workspace }}
         CACHE_LANGUAGE: ${{ inputs.language }}
         CACHE_LANE: ${{ inputs.lane }}
+        CACHE_CARGO_OUTPUTS: ${{ inputs.cargo-outputs }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" plan
     - uses: actions/cache/restore@v5
       if: inputs.phase == 'restore' && inputs.store == 'cache'
@@ -86,6 +90,14 @@ runs:
       env:
         CACHE_WORKSPACE: ${{ inputs.workspace }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" verify-inputs
+    # Artifact archives leave the same outputs out as they pack.
+    - name: Leave linked executables out of the cache
+      if: inputs.phase == 'save' && inputs.store == 'cache' && inputs.language == 'rust'
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CACHE_PATHS: ${{ inputs.paths }}
+      run: python3 "$GITHUB_ACTION_PATH/cache.py" drop-linked-outputs
     - name: Check the budget and replace this bucket's entries
       if: inputs.phase == 'save' && inputs.store == 'cache'
       shell: bash

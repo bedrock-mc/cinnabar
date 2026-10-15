@@ -549,6 +549,7 @@ impl LocalPhysicsController {
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
+            let mut tick_input = self.input_edges.sample(context.input);
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -686,6 +687,7 @@ impl LocalPhysicsController {
                         requested_sneak: sneak_request,
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
+                        server_sprinting: tick_input.server_sprinting,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
@@ -724,7 +726,6 @@ impl LocalPhysicsController {
                         processed.jump_arc_active = false;
                     }
                     self.processed_jump_arc_active = processed.jump_arc_active;
-                    let mut tick_input = self.input_edges.sample(context.input);
                     tick_input.jump.held |= self.jump_pulse_pending;
                     tick_input.jump.pressed |= self.jump_pulse_pending;
                     tick_input.jump.released |= self.jump_pulse_held && !tick_input.jump.held;

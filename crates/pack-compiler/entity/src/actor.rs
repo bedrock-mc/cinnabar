@@ -137,7 +137,10 @@ fn native_crystal_sources(entities: &CompiledEntityAssets) -> BTreeSet<u32> {
             let rig = &entities.rig_bindings[layer.rig as usize];
             let symbol = &entities.symbols[rig.entity_symbol as usize];
             symbol.kind == assets::EntityAssetKind::Entity
-                && symbol.identifier.as_ref() == "minecraft:ender_crystal"
+                && assets::facts::entity::EntityFacts::pinned()
+                    .get(&symbol.identifier)
+                    .native_class
+                    == assets::facts::entity::NativeEntityClass::EnderCrystal
         })
         .flat_map(|layer| {
             entities.render.slots[layer.first_slot as usize..][..usize::from(layer.slot_count)]
