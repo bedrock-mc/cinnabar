@@ -77,6 +77,10 @@ const LAST_PACKETS: &str = "\
 +12.031s  out  PlayerAuthInput      tick 286  64 B
 +12.044s  in   UpdateSubChunkBlocks  (78, 4, -25) 214 changes  1 712 B";
 
+#[expect(
+    clippy::print_stdout,
+    reason = "the preview reports the chosen action to the developer who launched it"
+)]
 fn main() {
     let folder = sample_folder();
     let summary = CrashSummary {

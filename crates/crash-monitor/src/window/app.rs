@@ -119,7 +119,7 @@ impl CrashApp {
                 let outcome = match super::copy_report(&self.summary) {
                     Ok(()) => Copied::Done,
                     Err(error) => {
-                        eprintln!("copy report failed: {error}");
+                        tracing::warn!("copy report failed: {error}");
                         Copied::Failed
                     }
                 };
@@ -281,7 +281,7 @@ impl ApplicationHandler for CrashApp {
         match gpu::Gpu::new(Arc::clone(&window), &faces) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(error) => {
-                eprintln!("crash window unavailable: {error:#}");
+                tracing::error!("crash window unavailable: {error:#}");
                 self.finish(Choice::Unavailable, event_loop);
                 return;
             }
@@ -410,7 +410,7 @@ impl ApplicationHandler for CrashApp {
                     aspect,
                     PANORAMA_TINT,
                 )) {
-                    eprintln!("crash window display failed: {error}");
+                    tracing::error!("crash window display failed: {error}");
                     self.finish(Choice::Unavailable, event_loop);
                 }
             }
