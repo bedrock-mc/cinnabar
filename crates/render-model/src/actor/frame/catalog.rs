@@ -188,7 +188,18 @@ impl GeometryCatalog {
     /// Admission is transactional and uses live vertices, as with the former full repack.
     pub(super) fn append(
         &mut self,
+        added: Vec<ActorRigGeometry>,
+        revision: u64,
+    ) -> Result<(), ActorRigGeometryError> {
+        self.append_evicting(added, |_| false, revision)
+    }
+
+    /// [`Self::append`] after dropping the `evict` geometries, whose pages become vacant and whose
+    /// span indices stay reserved with empty spans.
+    pub(super) fn append_evicting(
+        &mut self,
         mut added: Vec<ActorRigGeometry>,
+        evict: impl Fn(&EntityRigId) -> bool,
         revision: u64,
     ) -> Result<(), ActorRigGeometryError> {
         let _span = tracing::info_span!("actor.catalog_append", added = added.len()).entered();
@@ -199,12 +210,13 @@ impl GeometryCatalog {
             }
         }
         let mut geometries = self.geometries.clone();
+        geometries.retain(|id, _| !evict(id));
         geometries.extend(added.into_iter().map(|geometry| (geometry.id, geometry)));
         let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
         let retained_count = pages.pages.len();
         let mut spans = self.spans.clone();
         let mut indices = self.indices.clone();
-        let mut route_pages = vec![0; spans.len()];
+        let mut route_pages = vec![None; spans.len()];
         let mut used = BTreeSet::new();
         let mut live_len = 0;
         for (id, geometry) in &mut geometries {
@@ -221,11 +233,11 @@ impl GeometryCatalog {
                     let index = spans.len();
                     indices.insert(*id, index as u32);
                     spans.push(ActorRigGeometrySpan::default());
-                    route_pages.push(page);
+                    route_pages.push(None);
                     index
                 }
             };
-            route_pages[index] = page;
+            route_pages[index] = Some(page);
         }
         let mut fresh: VecDeque<_> = used.range(retained_count..).copied().collect();
         let mut order = Vec::with_capacity(used.len());
@@ -261,11 +273,11 @@ impl GeometryCatalog {
                 offset += pages.pages[page].len();
             }
         }
-        for (span, &page) in spans.iter_mut().zip(&route_pages) {
-            *span = ActorRigGeometrySpan {
+        for (span, page) in spans.iter_mut().zip(&route_pages) {
+            *span = page.map_or_else(ActorRigGeometrySpan::default, |page| ActorRigGeometrySpan {
                 first_vertex: page_offsets[page] as u32,
                 vertex_count: pages.pages[page].len() as u32,
-            };
+            });
         }
         let offsets = order.iter().map(|&page| page_offsets[page]).collect();
         let segments = order

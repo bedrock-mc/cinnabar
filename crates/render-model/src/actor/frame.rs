@@ -266,6 +266,8 @@ impl Default for ActorRigRenderFrame {
 #[derive(Debug)]
 pub struct ActorRigFrameBuilder {
     catalog: GeometryCatalog,
+    /// Session pack ranges too large for the catalog at once; frames admit what they draw.
+    staged: BTreeMap<EntityRigId, ActorRigGeometry>,
     frame_generation: u64,
     matrices: PoseMatrixCache,
     scratch: BuildScratch,
@@ -356,6 +358,7 @@ impl ActorRigFrameBuilder {
         by_id.insert(DIAGNOSTIC_RIG_ID, diagnostic_geometry());
         Ok(Self {
             catalog: GeometryCatalog::layout(by_id)?,
+            staged: BTreeMap::new(),
             frame_generation: 0,
             matrices: PoseMatrixCache::default(),
             scratch: BuildScratch::default(),
@@ -386,19 +389,26 @@ impl ActorRigFrameBuilder {
         {
             return Err(ActorRigGeometryError::DuplicateRig);
         }
-        let mut revision = self.catalog.revision;
-        for geometry in &geometries {
-            revision = revision
-                .rotate_left(5)
-                .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
-        }
-        self.catalog.append(geometries, revision.max(1))?;
+        let revision = self.appended_revision(&geometries);
+        self.catalog.append(geometries, revision)?;
         self.matrices = PoseMatrixCache::default();
         Ok(())
     }
 
+    /// Catalog revision after appending `geometries`.
+    fn appended_revision(&self, geometries: &[ActorRigGeometry]) -> u64 {
+        let mut revision = self.catalog.revision;
+        for geometry in geometries {
+            revision = revision
+                .rotate_left(5)
+                .wrapping_add((u64::from(geometry.id.0) << 24) | geometry.vertices.len() as u64);
+        }
+        revision.max(1)
+    }
+
     /// Replaces every pack-range geometry with `geometries` (empty removes them) and
-    /// republishes the catalog; on error the catalog is unchanged.
+    /// republishes the catalog; a range that does not fit is staged for on-demand admission.
+    /// On error the catalog is unchanged.
     pub fn replace_pack_geometries(
         &mut self,
         geometries: Vec<ActorRigGeometry>,
@@ -419,12 +429,31 @@ impl ActorRigFrameBuilder {
         in_range: fn(EntityRigId) -> bool,
         geometries: Vec<ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
-        if geometries.is_empty() && !self.catalog.geometries.keys().any(|id| in_range(*id)) {
+        if geometries.is_empty()
+            && !self.catalog.geometries.keys().any(|id| in_range(*id))
+            && !self.staged.keys().any(|id| in_range(*id))
+        {
             return Ok(());
         }
         let mut by_id = self.catalog.geometries.clone();
-        pack::replace_range(&mut by_id, in_range, geometries);
-        self.catalog = GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)?;
+        pack::replace_range(&mut by_id, in_range, geometries.iter().cloned());
+        let catalog = match GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)
+        {
+            Err(ActorRigGeometryError::CatalogCapacity) => {
+                let mut by_id = self.catalog.geometries.clone();
+                pack::replace_range(&mut by_id, in_range, []);
+                let catalog =
+                    GeometryCatalog::layout_with_limit(by_id, self.catalog.maximum_vertices)?;
+                pack::replace_range(&mut self.staged, in_range, geometries);
+                catalog
+            }
+            result => {
+                let catalog = result?;
+                pack::replace_range(&mut self.staged, in_range, []);
+                catalog
+            }
+        };
+        self.catalog = catalog;
         self.matrices = PoseMatrixCache::default();
         Ok(())
     }
@@ -539,6 +568,7 @@ impl ActorRigFrameBuilder {
             ordered.push(submission);
             locations.push(location);
         }
+        self.admit_staged(&ordered);
         // Sorting indices with their position as the last tie-break gives exactly the order a
         // stable sort of the submissions themselves would.
         let mut order = std::mem::take(&mut scratch.order);
