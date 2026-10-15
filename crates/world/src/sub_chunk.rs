@@ -207,8 +207,16 @@ impl SubChunk {
         }
     }
 
-    pub(crate) fn apply_block_updates(&mut self, updates: &[BlockUpdate], air_runtime_id: u32) {
+    /// Returns exact representation change without observing lazy canonical words: each layer
+    /// preserves its representation on a no-op, and a changed cell or layer count proves inequality.
+    pub(crate) fn apply_block_updates(
+        &mut self,
+        updates: &[BlockUpdate],
+        air_runtime_id: u32,
+    ) -> bool {
         self.inline_payload.clear();
+        let previous_layers = self.storages.len();
+        let mut changed = false;
         let mut storages = std::mem::take(&mut self.storages).into_vec();
         let mut updates_by_layer: [Vec<(usize, u32)>; MAX_STORAGE_COUNT] =
             std::array::from_fn(|_| Vec::new());
@@ -225,10 +233,10 @@ impl SubChunk {
             match layer_updates.as_slice() {
                 [] => {}
                 &[(linear, runtime_id)] => {
-                    storages[layer].apply_runtime_update(linear, runtime_id);
+                    changed |= storages[layer].apply_runtime_update(linear, runtime_id);
                 }
                 updates => {
-                    storages[layer].apply_runtime_updates(updates);
+                    changed |= storages[layer].apply_runtime_updates(updates);
                 }
             }
         }
@@ -239,6 +247,7 @@ impl SubChunk {
             storages.pop();
         }
         self.storages = storages.into_boxed_slice();
+        changed || self.storages.len() != previous_layers
     }
 }
 

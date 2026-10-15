@@ -143,7 +143,7 @@ fn render(model: &HudModel) -> Option<Vec<DrawNode>> {
 }
 
 fn render_with(model: &HudModel, java: bool) -> Option<Vec<DrawNode>> {
-    render_full(model, java).map(|render| render.nodes)
+    render_full(model, java).map(|render| render.nodes.to_vec())
 }
 
 /// The vanilla UI catalog for the pack's directory, before any overlay.

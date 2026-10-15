@@ -161,7 +161,7 @@ fn pack_overlay_routes_a_marked_title_to_the_pack_layout() {
     eprintln!("layout+emit took {:?}", started.elapsed());
     let _ = render_form;
     let mut texts = 0;
-    for node in &render.nodes {
+    for node in render.nodes.iter() {
         match &node.draw {
             Draw::Text {
                 text, color, scale, ..
