@@ -22,6 +22,13 @@ pub fn selected_riptide_use(
         return None;
     }
     let canonical = stream.authority().canonical_item_stack(stack)?;
+    let damage = player
+        .selected_hotbar_slot()
+        .and_then(|slot| player.inventory.ledger().presented_slot_overlay(slot))
+        .and_then(|overlay| overlay.durability_correction)
+        .and_then(|damage| u32::try_from(damage).ok())
+        .or(canonical.damage)
+        .unwrap_or(0);
     Some(gameplay::item_use::RiptideUse {
         level: protocol::item_enchantment_level(
             &stack.extra_data,
@@ -33,7 +40,7 @@ pub fn selected_riptide_use(
         usable: canonical
             .durability
             .maximum()
-            .is_some_and(|maximum| canonical.damage.unwrap_or(0) < maximum),
+            .is_some_and(|maximum| damage < maximum),
     })
 }
 
