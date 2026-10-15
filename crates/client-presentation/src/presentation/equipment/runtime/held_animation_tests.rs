@@ -1,6 +1,6 @@
 use super::{
-    elytra_tests::selected_pixel, local_carrier, pack_catalog, pack_runtime, player_body,
-    startup_runtime,
+    declare_wearable, elytra_tests::selected_pixel, local_carrier, pack_catalog, pack_runtime,
+    player_body, startup_runtime,
 };
 use crate::presentation::equipment::runtime::*;
 use actor_animation::{ActorLifetimeId, ActorRigSnapshot};
@@ -821,7 +821,11 @@ fn third_person_held_attachable_receives_the_render_delta() {
 
 #[test]
 fn worn_attachable_categories_do_not_become_held_models() {
-    for identifier in ["minecraft:elytra", "minecraft:iron_helmet"] {
+    // Vanilla elytra is worn by its item facts; the custom helmet by its declared wearable slot.
+    for (identifier, wearable) in [
+        ("minecraft:elytra", None),
+        ("test:helmet", Some("slot.armor.head")),
+    ] {
         let mut files = held_pack();
         let (_, attachable) = files
             .iter_mut()
@@ -833,6 +837,9 @@ fn worn_attachable_categories_do_not_become_held_models() {
         *attachable = serde_json::to_vec(&document).unwrap();
         let (mut runtime, _) = pack_runtime(files);
         let body = player_body(&mut runtime);
+        if let Some(slot) = wearable {
+            declare_wearable(&mut runtime, identifier, slot);
+        }
         let owner = owner();
         let names = ["rightItem".into()];
         let rig = owner_rig(&owner, &names);

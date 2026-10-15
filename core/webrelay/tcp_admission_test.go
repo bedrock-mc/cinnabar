@@ -143,7 +143,7 @@ func TestTCPWebSocketUpgradeRetainsOneAdmission(t *testing.T) {
 	}
 	defer socket.CloseNow()
 	conn := websocket.NetConn(ctx, socket, websocket.MessageBinary)
-	if err := writeJSON(conn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl,
+	if err := writeJSON(context.Background(), conn, hello{Version: bridgecontract.RelayVersion, Channel: bridgecontract.RelayChannelControl,
 		Channels: []string{bridgecontract.RelayChannelControl, bridgecontract.RelayChannelPlay}}); err != nil {
 		t.Fatal(err)
 	}
