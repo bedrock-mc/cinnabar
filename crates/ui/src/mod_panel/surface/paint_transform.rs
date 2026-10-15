@@ -2,8 +2,8 @@
 //! rotation cannot draw.
 
 use json_ui::transform::{
-    MAX_ROTATION_DEGREES, MAX_SCALE, ORIGIN_BINDING, ORIGIN_RANGE, ROTATION_BINDING, SCALE_BINDING,
-    TRANSFORM_PROPERTY,
+    MAX_ROTATION_DEGREES, MAX_SCALE, ORIGIN_BINDING, ORIGIN_FIELD, ORIGIN_RANGE, ROTATION_BINDING,
+    ROTATION_FIELD, SCALE_BINDING, SCALE_FIELD, TRANSFORM_PROPERTY,
 };
 use serde_json::{Map, Value};
 
@@ -56,15 +56,15 @@ fn transform_fields(transform: &Value) -> Result<f64, String> {
     let mut rotation = 0.0;
     for (name, value) in fields {
         let valid = match name.as_str() {
-            "scale" => within(value, 0.0, MAX_SCALE).is_some() || pair(value, 0.0, MAX_SCALE),
-            "rotation" => match within(value, -MAX_ROTATION_DEGREES, MAX_ROTATION_DEGREES) {
+            SCALE_FIELD => within(value, 0.0, MAX_SCALE).is_some() || pair(value, 0.0, MAX_SCALE),
+            ROTATION_FIELD => match within(value, -MAX_ROTATION_DEGREES, MAX_ROTATION_DEGREES) {
                 Some(degrees) => {
                     rotation = degrees;
                     true
                 }
                 None => false,
             },
-            "origin" => pair(value, *ORIGIN_RANGE.start(), *ORIGIN_RANGE.end()),
+            ORIGIN_FIELD => pair(value, *ORIGIN_RANGE.start(), *ORIGIN_RANGE.end()),
             _ => return Err(format!("surface {TRANSFORM_PROPERTY} field is unsupported")),
         };
         if !valid {

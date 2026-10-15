@@ -10,6 +10,12 @@ use crate::layout::Rect;
 
 /// The control property a mod surface authors: `{"scale", "rotation", "origin"}`.
 pub const TRANSFORM_PROPERTY: &str = "cinnabar_transform";
+/// The transform field holding a number or an `[x, y]` scale.
+pub const SCALE_FIELD: &str = "scale";
+/// The transform field holding the clockwise rotation in degrees.
+pub const ROTATION_FIELD: &str = "rotation";
+/// The transform field holding the origin as `[x, y]` fractions of the control's box.
+pub const ORIGIN_FIELD: &str = "origin";
 /// Binding target replacing the scale: a number or an `[x, y]` pair.
 pub const SCALE_BINDING: &str = "#cinnabar_scale";
 /// Binding target replacing the clockwise rotation in degrees.
@@ -127,13 +133,13 @@ impl ControlTransform {
     pub fn parse(value: &Value) -> Option<Self> {
         let object = value.as_object()?;
         let mut transform = Self::default();
-        if let Some(scale) = object.get("scale").and_then(scale_pair) {
+        if let Some(scale) = object.get(SCALE_FIELD).and_then(scale_pair) {
             transform.scale = scale;
         }
-        if let Some(rotation) = object.get("rotation").and_then(finite) {
+        if let Some(rotation) = object.get(ROTATION_FIELD).and_then(finite) {
             transform.rotation = rotation.clamp(-MAX_ROTATION_DEGREES, MAX_ROTATION_DEGREES);
         }
-        if let Some(origin) = object.get("origin").and_then(pair) {
+        if let Some(origin) = object.get(ORIGIN_FIELD).and_then(pair) {
             transform.origin =
                 origin.map(|value| value.clamp(*ORIGIN_RANGE.start(), *ORIGIN_RANGE.end()));
         }

@@ -1315,6 +1315,11 @@ literal = "trim_"
 reason = "Recognizes the trim_*_matches Rust string method family."
 
 [[identifier_literal_exceptions]]
+path = "crates/json-ui/src/transform.rs"
+literal = "rotation"
+reason = "Field name of the Cinnabar `cinnabar_transform` surface property, not a vanilla identifier."
+
+[[identifier_literal_exceptions]]
 path = "crates/gameplay/src/placement_state.rs"
 literal = "string"
 reason = "Canonical block-state envelope type keyword; this is a serialization grammar token."
