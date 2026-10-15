@@ -429,6 +429,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
+            player_runtime
+                .facts
+                .apply_input_locks(clock.session_generation(), locks);
+            continue;
+        }
         if let CommittedControlEvent::DimensionChangeAck {
             dimension_epoch, ..
         } = control

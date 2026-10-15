@@ -11,6 +11,10 @@ use client_state::{ClientFrameSet, ModCameraInputSet, RuntimeSettings, SemanticI
 
 pub mod aim_assist;
 
+#[cfg(test)]
+#[path = "camera/input_locks_tests.rs"]
+mod input_locks_tests;
+
 /// Registers camera settings, semantic look and movement input in their existing frame phases.
 #[derive(Default)]
 pub struct CameraInputPlugin;
@@ -67,6 +71,7 @@ pub fn update_perspective(
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub fn update_look(
+    player: Option<Res<client_state::PlayerRuntime>>,
     spyglass: (
         Option<Res<client_state::GameplayScreenControls>>,
         Option<Res<fov::CameraFovInputs>>,
@@ -80,6 +85,15 @@ pub fn update_look(
     view: ResMut<LocalViewPose>,
     server: Option<ResMut<ServerCameraView>>,
 ) {
+    if player.is_some_and(|player| {
+        player
+            .facts
+            .input_locks()
+            .blocks(protocol::ClientInputLock::Camera)
+    }) {
+        smoother.into_inner().reset();
+        return;
+    }
     client_presentation::camera::update_look(
         (
             spyglass.0.as_ref().map_or(0.0, |controls| {
@@ -109,6 +123,7 @@ pub fn update_look(
 /// Borrows current owner facts and forwards them at the existing system boundary.
 #[allow(clippy::too_many_arguments)]
 pub fn update_movement(
+    player: Option<Res<client_state::PlayerRuntime>>,
     input: Res<SemanticInputSnapshot>,
     time: Res<Time>,
     auto_fly: ResMut<AutoFly>,
@@ -118,6 +133,9 @@ pub fn update_movement(
 ) {
     client_presentation::camera::update_movement(
         client_presentation::observations::InputObservation(input.snapshot()),
+        player
+            .as_ref()
+            .map_or(Default::default(), |player| player.facts.input_locks()),
         time,
         auto_fly,
         local_physics

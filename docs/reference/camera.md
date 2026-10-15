@@ -17,6 +17,7 @@ and [third-person placement](third-person-camera.md).
 | Native radii | Third-person rigs default to 4 blocks; follow-orbit and fixed-boom rigs default to 10. | Existing third-person and offset tests. |
 | Target center offset | Rotate the center offset around the target entity's yaw before adding it to the target position; vertical and coincident directions retain undefined axes. | Actor-yaw offset regression test. |
 | Combined options | Packet options produce set, target, remove-target, clear, fade, FOV, spline, attach, then detach events. A later remove or clear wins over an earlier option in the same packet. | Combined-option precedence test. |
+| Attachment ownership | Attach updates boom rigs without selecting a camera. Each rig retains its own attachment; first person follows the local player. Clear and detach release only the selected rig. | Tutorial return, inactive-rig lifetime and attachment activation regressions. |
 | Separate effects | Clear releases the selected server camera and custom FOV while stored spline clocks continue; fade and shake remain separately controlled. | Clear/independent effect tests. |
 | Legacy camera packet | The legacy camera/entity IDs trigger education camera photography rather than a view-camera switch. | Counted unsupported photography; no pose mutation. Photography output is unimplemented. |
 | Easing selectors | The 32 selectors are linear, spring, then in/out/in-out variants of quad, cubic, quart, quint, sine, exponential, circular, bounce, back and elastic. Unknown selectors use linear. | Selector names/endpoints and representative curve goldens. |
@@ -84,6 +85,8 @@ Pass `-camera-test` to the local server to enable these fixture commands:
 - `/cameratest spline`: named Catmull-Rom path with independent progress and rotation.
 - `/cameratest inline`: the same path carried directly by the instruction.
 - `/cameratest aim`: categories, a preset, actor priorities and a nearby target.
+- `/cameratest tutorial`: ease into an actor-attached orbit with a fade.
+- `/cameratest firstperson`: finish that tutorial by selecting first person.
 - `/cameratest clear`: release both systems and remove the target.
 
 The developer `state` response reports semantic skips, camera state, aim target

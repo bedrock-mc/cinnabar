@@ -6,6 +6,7 @@ use super::{
     LocalMovementEffectTimeline, LocalMovementSpeedAuthority, LocalPhysicsController, ModeIntent,
     MovementTicker, PhysicsSampleContext, physics_movement_input,
 };
+use protocol::ClientInputLock;
 use semantic_input::ActionPhase;
 use std::time::Duration;
 use tracing::debug;
@@ -138,6 +139,17 @@ impl LocomotionState {
             self.input_mode = input_mode;
         }
         let input_mode = self.input_mode;
+        let movement = facts.input_locks.movement(movement);
+        let jump = if facts.input_locks.blocks(ClientInputLock::Jump) {
+            ActionPhase::default()
+        } else {
+            jump
+        };
+        let processed_sneak = if facts.input_locks.blocks(ClientInputLock::Sneak) {
+            ActionPhase::default()
+        } else {
+            sneak
+        };
         let head_yaw = wire_head_yaw(yaw);
         let delta = frame.delta.min(MAX_FRAME_ELAPSED);
         let withhold_input = frame.hold.is_some_and(|hold| hold.withhold_input);
@@ -195,7 +207,7 @@ impl LocomotionState {
                 yaw,
                 active,
                 jump.held,
-                controlled.sneaking,
+                controlled.sneaking && !facts.input_locks.blocks(ClientInputLock::Sneak),
                 controlled.sprint_request,
                 frame.item_use_modifier,
             );
@@ -203,7 +215,8 @@ impl LocomotionState {
                 input.sprinting = controlled.sprint_request;
             }
             if !active {
-                input.sneaking = controlled.sneaking;
+                input.sneaking =
+                    controlled.sneaking && !facts.input_locks.blocks(ClientInputLock::Sneak);
             }
             input.immobile = facts.immobile;
             input.vertical_physics = facts.vertical_physics;
@@ -245,11 +258,14 @@ impl LocomotionState {
                     },
                     release_use_modifier: movement_ticker.release_use_modifier(),
                     input: super::TickInput {
-                        movement_buttons: frame.movement_buttons,
+                        movement_buttons: filtered_movement_buttons(
+                            frame.movement_buttons,
+                            facts.input_locks,
+                        ),
                         jump,
-                        sneak,
+                        sneak: processed_sneak,
                         sprint_down: controlled.sprint_down,
-                        sneak_down: controlled.sneaking,
+                        sneak_down: input.sneaking,
                         server_sprinting: server.and_then(|flags| flags.sprinting),
                     },
                 },
@@ -322,6 +338,7 @@ impl LocomotionState {
             .and(frame.facts.mount_runtime_id)
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
+            .filter(|_| !frame.facts.input_locks.blocks(ClientInputLock::Dismount))
             .map(|mount| (session, mount));
         if self.pending_dismount != mount {
             self.pending_dismount = None;
@@ -334,5 +351,18 @@ impl LocomotionState {
         if pressed {
             self.pending_dismount = mount;
         }
+    }
+}
+
+/// Filters digital directions independently of raw and analogue device vectors.
+fn filtered_movement_buttons(
+    buttons: semantic_input::MovementButtons,
+    locks: protocol::ClientInputLocks,
+) -> semantic_input::MovementButtons {
+    semantic_input::MovementButtons {
+        forward: buttons.forward && !locks.blocks(ClientInputLock::MoveForward),
+        backward: buttons.backward && !locks.blocks(ClientInputLock::MoveBackward),
+        left: buttons.left && !locks.blocks(ClientInputLock::MoveLeft),
+        right: buttons.right && !locks.blocks(ClientInputLock::MoveRight),
     }
 }

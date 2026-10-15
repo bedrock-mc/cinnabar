@@ -23,6 +23,14 @@ use protocol::{
 type SetEase = bedrock_protocol_1_26_51::types::CameraEase;
 
 #[test]
+fn client_input_locks_are_admitted_instead_of_ignored() {
+    let event = normalized(packets::UpdateClientInputLocks {
+        input_lock_component_data: wire::VarUInt(6),
+    });
+    assert!(event.is_some());
+}
+
+#[test]
 fn spline_instruction_reaches_camera_presentation() {
     let event = normalized(InstructionPacket {
         camera_instruction: CameraInstructionData {
