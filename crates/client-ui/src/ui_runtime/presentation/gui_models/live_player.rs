@@ -13,6 +13,8 @@ pub(super) struct LivePlayer {
     skin: Option<std::sync::Arc<assets::SkinGeometry>>,
     geometry: Option<ActorRigGeometry>,
     pub(super) vertices: Vec<ActorVertex>,
+    pub(super) cape_vertices: Vec<ActorVertex>,
+    bones: Vec<RenderBoneTransform>,
     pub(super) parts: [Option<Affine3A>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
     pub(super) outer_y: f32,
@@ -38,8 +40,11 @@ impl UiPresentationRuntime {
         emote: Option<(actor_animation::CustomEmote, f64)>,
     ) {
         let fire_frames = self.gui_models.fire.frames.len();
+        let draw_cape =
+            self.menu_preview_model.cape_key.is_some() && !self.gui_models.wearing_elytra;
         let live = &mut self.gui_models.live_player;
         live.vertices.clear();
+        live.cape_vertices.clear();
         live.parts = [None; 6];
         live.fire_size = None;
         live.outer_y = if swimming {
@@ -124,65 +129,55 @@ impl UiPresentationRuntime {
         let Some(geometry) = &live.geometry else {
             return;
         };
-        for vertex in &*geometry.vertices {
-            let index = vertex.bone_index as usize;
-            let Some(bone) = pose.get(index) else {
-                live.vertices.clear();
+        live.bones.clear();
+        for bone in pose {
+            let Some(bone) = render_bone(bone) else {
                 return;
             };
-            let Some(bone) = RenderBoneTransform::from_model_space_scaled(
-                bone.rotation,
-                bone.translation_scale,
-                bone.axis_scale,
-            ) else {
-                live.vertices.clear();
-                return;
-            };
-            let Some(rotation) = Vec4::from_array(bone.rotation)
-                .try_normalize()
-                .map(Quat::from_vec4)
-            else {
-                live.vertices.clear();
-                return;
-            };
-            let pivot = Vec3::from_array(geometry.bone_pivots[index]);
-            let scale = Vec3::from_array(
-                [0, 1, 2].map(|axis| bone.axis_scale[axis] * bone.translation_scale[3]),
+            live.bones.push(bone);
+        }
+        let frame = offset * actor_scale * basis;
+        project_vertices(geometry, &live.bones, frame, &mut live.vertices);
+        if draw_cape && let Some(cape) = &self.gui_models.cape {
+            let pose = cape.pose(
+                rig.bone_names,
+                |index| rig.rest.get(index).and_then(render_bone),
+                &live.bones,
+                None,
             );
-            let origin = Vec3::new(
-                bone.translation_scale[0],
-                bone.translation_scale[1],
-                bone.translation_scale[2],
-            );
-            let point = origin + rotation * ((Vec3::from_array(vertex.position) - pivot) * scale);
-            // Convert the world rig's fixed half-turn to the existing preview basis once.
-            let point = Vec3::new(-point.x, point.y, -point.z)
-                * Vec3::from_array(rig.axis_scale)
-                * (rig.scale / super::super::player_preview::PLAYER_MODEL_SCALE);
-            live.vertices.push(ActorVertex {
-                position: (point + Vec3::Y * swim_offset).to_array(),
-                uv: vertex.uv,
-                part: vertex.bone_index + 6,
-            });
+            project_vertices(&cape.geometry, &pose, frame, &mut live.cape_vertices);
+            discard_collapsed_faces(&mut live.cape_vertices);
         }
     }
 }
 
 /// Converts a validated bone frame to block coordinates for equipment pose deltas.
 fn bone_matrix(bone: &actor_animation::BoneTransform) -> Option<Affine3A> {
-    let bone = RenderBoneTransform::from_model_space_scaled(
-        bone.rotation,
-        bone.translation_scale,
-        bone.axis_scale,
-    )?;
-    let rotation = Vec4::from_array(bone.rotation)
-        .try_normalize()
-        .map(Quat::from_vec4)?;
+    let bone = render_bone(bone)?;
     let scale =
         Vec3::from_array([0, 1, 2].map(|axis| bone.axis_scale[axis] * bone.translation_scale[3]));
     if scale.abs().min_element() < f32::EPSILON {
         return None;
     }
+    render_matrix(&bone)
+}
+
+/// Converts an evaluated model-space bone to the block coordinates shared by both renderers.
+fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransform> {
+    RenderBoneTransform::from_model_space_scaled(
+        bone.rotation,
+        bone.translation_scale,
+        bone.axis_scale,
+    )
+}
+
+/// Builds a render-space frame, retaining zero scales that hide an authored bone.
+fn render_matrix(bone: &RenderBoneTransform) -> Option<Affine3A> {
+    let rotation = Vec4::from_array(bone.rotation)
+        .try_normalize()
+        .map(Quat::from_vec4)?;
+    let scale =
+        Vec3::from_array([0, 1, 2].map(|axis| bone.axis_scale[axis] * bone.translation_scale[3]));
     Some(Affine3A::from_scale_rotation_translation(
         scale,
         rotation,
@@ -194,5 +189,45 @@ fn bone_matrix(bone: &actor_animation::BoneTransform) -> Option<Affine3A> {
     ))
 }
 
+/// Poses one mesh in the shared HUD frame; preposed vertices bypass the preview's part deltas.
+fn project_vertices(
+    geometry: &ActorRigGeometry,
+    pose: &[RenderBoneTransform],
+    frame: Affine3A,
+    output: &mut Vec<ActorVertex>,
+) {
+    for vertex in &*geometry.vertices {
+        let index = vertex.bone_index as usize;
+        let Some(bone) = pose.get(index).and_then(render_matrix) else {
+            output.clear();
+            return;
+        };
+        let pivot = Vec3::from_array(geometry.bone_pivots[index]);
+        let point = frame
+            .transform_point3(bone.transform_point3(Vec3::from_array(vertex.position) - pivot));
+        output.push(ActorVertex {
+            position: point.to_array(),
+            uv: vertex.uv,
+            part: vertex.bone_index + 6,
+        });
+    }
+}
+
+/// Removes cape faces with no lighting normal while preserving any remaining visible faces.
+fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
+    let mut visible = 0;
+    for start in (0..vertices.len()).step_by(3) {
+        let [a, b, c] = [0, 1, 2].map(|corner| Vec3::from_array(vertices[start + corner].position));
+        if (b - a).cross(c - a).length_squared() == 0.0 {
+            continue;
+        }
+        vertices.copy_within(start..start + 3, visible);
+        visible += 3;
+    }
+    vertices.truncate(visible);
+}
+
+#[cfg(test)]
+mod cape_tests;
 #[cfg(test)]
 mod tests;

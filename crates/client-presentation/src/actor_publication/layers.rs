@@ -92,7 +92,7 @@ pub(super) fn attach(
         );
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
-        if !scene.contains_geometry(cape.id) {
+        if !scene.contains_geometry(cape.geometry.id) {
             let _ = scene.insert_geometry(cape.geometry.clone());
         }
         crate::presentation::cape::apply_capes(

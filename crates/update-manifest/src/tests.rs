@@ -284,6 +284,69 @@ fn successive_nightlies_and_numeric_prereleases_are_ordered_correctly() {
 }
 
 #[test]
+fn release_build_order_is_total_across_beta_nightly_and_unnumbered_builds() {
+    use std::cmp::Ordering;
+    // Ascending publication order within a core overrides prerelease names.
+    let releases = [
+        ("0.9.0", 999),
+        ("1.0.0-beta.2", 0),
+        ("1.0.0-beta.10", 0),
+        ("1.0.0", 0),
+        ("1.0.0-nightly", 100),
+        ("1.0.0", 101),
+        ("1.0.0-nightly", 102),
+        ("1.0.1-nightly", 1),
+    ];
+    for (i, &(left, left_build)) in releases.iter().enumerate() {
+        for (j, &(right, right_build)) in releases.iter().enumerate() {
+            assert_eq!(
+                select::compare_builds(left, left_build, right, right_build).unwrap(),
+                i.cmp(&j),
+                "{left}/{left_build} vs {right}/{right_build}"
+            );
+        }
+    }
+    assert_eq!(
+        select::compare_builds("v1.0.0+first", 101, "1.0.0+second", 101).unwrap(),
+        Ordering::Equal
+    );
+    assert!(newer_build("1.0.0", 102, "1.0.0-nightly", 101).unwrap());
+    assert!(newer_build("1.0.0-nightly", 103, "1.0.0", 102).unwrap());
+}
+
+#[test]
+fn nightly_accepts_a_newer_beta_without_changing_other_channel_choices() {
+    let mut release = manifest();
+    release.channel = channel::Channel::Beta.name().into();
+    let check = Check {
+        channel: channel::Channel::Nightly.name(),
+        platform: "macos-arm64",
+        current: "0.2.0-nightly",
+        current_build: 1,
+        switch_now: false,
+    };
+    assert!(evaluate_build(&release, check).unwrap().available);
+    release.build_number = 1;
+    // The same publication number uses SemVer precedence as a deterministic tie break.
+    assert!(evaluate_build(&release, check).unwrap().available);
+    release.build_number = 0;
+    assert!(!evaluate_build(&release, check).unwrap().available);
+    release.channel = channel::Channel::Nightly.name().into();
+    for channel in [channel::Channel::Beta, channel::Channel::Stable] {
+        assert!(
+            evaluate_build(
+                &release,
+                Check {
+                    channel: channel.name(),
+                    ..check
+                }
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn slower_channel_waits_and_only_an_explicit_switch_permits_its_older_build() {
     let release = manifest();
     let check = Check {
