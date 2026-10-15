@@ -116,6 +116,19 @@ fn release_notices_check_only_newer_builds_on_the_selected_channel() {
     assert!(!state.release_published(&hint, ("1.2.3", 42), 1000, 0));
 }
 
+/// Older v1 servers omit build numbers, so their same-version rolling notices still warrant a check.
+#[test]
+fn legacy_release_without_build_still_triggers_a_check() {
+    let mut state = State::new();
+    let release = bridge::CinnabarRelease {
+        channel: "beta".into(),
+        version: "1.2.3".into(),
+        ..Default::default()
+    };
+    assert!(state.release_published(&release, ("1.2.3", 42), 1000, 300));
+    assert_eq!(state.announcement.as_ref().unwrap().not_before, 1300);
+}
+
 /// A verified notice model lets consent tests avoid any network or platform installer.
 fn ready(writable: bool) -> Ready {
     Ready {

@@ -241,7 +241,9 @@ impl State {
             return false;
         }
         let hint = Announcement::new(&release.version, release.build, now, jitter);
-        if !hint.ahead_of(current.0, current.1)
+        // Older v1 notices omit the build; their same-version pushes still request a fresh check.
+        let legacy = release.build == 0 && release.version == current.0;
+        if (!legacy && !hint.ahead_of(current.0, current.1))
             || self
                 .announcement
                 .as_ref()
