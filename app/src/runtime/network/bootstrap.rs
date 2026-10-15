@@ -128,7 +128,7 @@ pub(super) fn apply(
     }
     let Some(registries) = packs.registries.take() else {
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             "StartGame block registries were not prepared".to_owned(),
         );
         return;
@@ -142,7 +142,7 @@ pub(super) fn apply(
     ) {
         client_runtime::session::release_off_frame(registries);
         record_fatal_error(
-            &mut client_world.fatal_error,
+            &mut fatal_error.0,
             "StartGame block registries do not match the active session inputs".to_owned(),
         );
         return;
