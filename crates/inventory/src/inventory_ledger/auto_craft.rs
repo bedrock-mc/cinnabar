@@ -16,7 +16,19 @@ use super::overlay::DeltaGroup;
 use super::registry::{entry_capacity, plain_stack};
 use super::{InventoryGestureError, PLAYER_INVENTORY_SLOT_COUNT, PlayerInventoryLedger};
 
+mod allocation;
+
 impl PlayerInventoryLedger {
+    /// Only plain, settled stacks with a negotiated item binding can supply auto-crafting.
+    fn auto_craft_stack(
+        &self,
+        slot: u8,
+    ) -> Option<(&NetworkItemStack, &protocol::ItemRegistryEntry)> {
+        let held = self.view().get(Cell::Inventory(slot))?;
+        let entry = self.negotiated_item_entry(held.stack.network_id)?;
+        (plain_stack(&held.stack) && !self.awaiting_identity(held)).then_some((&held.stack, entry))
+    }
+
     /// Player cells to draw `ingredient` from: `(cell, amount, stack id)`.
     fn ingredient_sources(
         &self,
@@ -29,7 +41,7 @@ impl PlayerInventoryLedger {
             if needed == 0 {
                 break;
             }
-            let Some(held) = self.view().get(Cell::Inventory(slot)) else {
+            let Some((stack, entry)) = self.auto_craft_stack(slot) else {
                 continue;
             };
             let already: u16 = taken
@@ -37,19 +49,12 @@ impl PlayerInventoryLedger {
                 .filter(|(cell, _)| *cell == slot)
                 .map(|(_, amount)| *amount)
                 .sum();
-            let stack = &held.stack;
-            let Some(entry) = self.negotiated_item_entry(stack.network_id) else {
-                continue;
-            };
-            if !plain_stack(stack)
-                || self.awaiting_identity(held)
-                || !crate::ingredient_accepts(
-                    ingredient,
-                    &entry.identifier,
-                    stack.metadata,
-                    &entry.item_tags,
-                )
-            {
+            if !crate::ingredient_accepts(
+                ingredient,
+                &entry.identifier,
+                stack.metadata,
+                &entry.item_tags,
+            ) {
                 continue;
             }
             let amount = needed.min(stack.count.saturating_sub(already));
@@ -89,15 +94,62 @@ impl PlayerInventoryLedger {
         self.auto_craft_sources(recipe).is_some()
     }
 
+    /// Shares deterministic ingredient allocation between craftability and request construction.
     fn auto_craft_sources(&self, recipe: &RecipeHandle) -> Option<Vec<(u8, u16, i32)>> {
         let mut taken: Vec<(u8, u16)> = Vec::new();
         let mut all = Vec::new();
-        for ingredient in recipe.ingredient_views().iter().flatten() {
-            let sources = self.ingredient_sources(ingredient, &taken)?;
+        let ingredients = recipe.ingredient_views();
+        for ingredient in ingredients.iter().flatten() {
+            let Some(sources) = self.ingredient_sources(ingredient, &taken) else {
+                return self.reassigned_sources(&ingredients);
+            };
             taken.extend(sources.iter().map(|(cell, amount, _)| (*cell, *amount)));
             all.extend(sources);
         }
         Some(all)
+    }
+
+    /// Reassigns quantities only when the ordinary first-choice plan cannot satisfy every input.
+    fn reassigned_sources(
+        &self,
+        views: &[Option<RecipeIngredientView>],
+    ) -> Option<Vec<(u8, u16, i32)>> {
+        let ingredients: Vec<_> = views.iter().flatten().collect();
+        let demands: Vec<_> = ingredients
+            .iter()
+            .map(|ingredient| u16::from(ingredient.count))
+            .collect();
+        let mut counts = [0; PLAYER_INVENTORY_SLOT_COUNT];
+        let mut identities = [0; PLAYER_INVENTORY_SLOT_COUNT];
+        let mut accepts = [[false; PLAYER_INVENTORY_SLOT_COUNT]; protocol::MAX_RECIPE_INGREDIENTS];
+        for slot in 0..PLAYER_INVENTORY_SLOT_COUNT {
+            let Some((stack, entry)) = self.auto_craft_stack(slot as u8) else {
+                continue;
+            };
+            counts[slot] = stack.count;
+            identities[slot] = stack.stack_network_id;
+            for (index, ingredient) in ingredients.iter().enumerate() {
+                accepts[index][slot] = crate::ingredient_accepts(
+                    ingredient,
+                    &entry.identifier,
+                    stack.metadata,
+                    &entry.item_tags,
+                );
+            }
+        }
+        let assigned = allocation::plan(&demands, &counts, &accepts)?;
+        let mut sources = Vec::new();
+        for row in assigned.iter().take(ingredients.len()) {
+            for (slot, amount) in row
+                .iter()
+                .copied()
+                .enumerate()
+                .filter(|(_, amount)| *amount > 0)
+            {
+                sources.push((slot as u8, amount, identities[slot]));
+            }
+        }
+        Some(sources)
     }
 
     /// Crafts `recipe` once from inventory ingredients into an empty cursor.
