@@ -101,7 +101,7 @@ pub use cloud_visibility::CloudVisibility;
 pub use dropped_item::DroppedItemScene;
 pub use enhanced::EnhancedRendering;
 pub use entity_shadow::EntityShadowScene;
-pub use far_terrain::FarTerrainScene;
+pub use far_terrain::{FarTerrainResidency, FarTerrainScene};
 pub use gpu_times::GpuFrameTimes;
 pub use hand_rig::HandRigScene;
 pub use lighting::{WorldFullbright, WorldLighting};

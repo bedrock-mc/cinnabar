@@ -69,6 +69,31 @@ impl FarTerrain {
         }
     }
 
+    /// Rebuilds the near mask when its owning radius or drawable near columns change.
+    fn update_near(
+        &mut self,
+        stream: &WorldStream,
+        centre: ::world::ChunkKey,
+        radius: i32,
+        horizon: i32,
+    ) -> bool {
+        let (revision, drawn) = stream.near_drawn_columns();
+        let view = ([centre.x, centre.z], radius, revision);
+        if self.near_view == Some(view) {
+            return false;
+        }
+        self.near = Arc::new(NearMask::around(
+            view.0,
+            horizon,
+            radius,
+            drawn
+                .filter(|column| column.dimension == centre.dimension)
+                .map(|column| ColumnPos::new(column.x, column.z)),
+        ));
+        self.near_view = Some(view);
+        true
+    }
+
     /// Summarises the stream's resident columns before it is dropped, so this session's
     /// edits reach the cache even though no column retires through eviction.
     pub(crate) fn retire_stream(&mut self, stream: &mut WorldStream) {
@@ -241,6 +266,9 @@ pub(crate) fn feed_far_terrain(
             None => far.cache.leave_world(),
         }
         far.tiles.clear();
+        far.near_view = None;
+        far.published = None;
+        *scene = FarTerrainScene::default();
         active.0 = target.map(|(destination, level, dimension, generation)| {
             (destination.to_owned(), level, dimension, generation)
         });
@@ -318,23 +346,7 @@ pub(crate) fn feed_far_terrain(
     let near_radius = far
         .near_radius
         .update(draining, full_detail.unwrap_or(loaded));
-    let (drawn_revision, _) = stream.near_drawn_columns();
-    let near_view = ([centre.x, centre.z], near_radius, drawn_revision);
-    let near_changed = far.near_view != Some(near_view);
-    if near_changed {
-        let drawn = stream
-            .near_drawn_columns()
-            .1
-            .filter(|column| column.dimension == centre.dimension)
-            .map(|column| ColumnPos::new(column.x, column.z));
-        far.near = Arc::new(NearMask::around(
-            near_view.0,
-            loaded + reach,
-            near_radius,
-            drawn,
-        ));
-        far.near_view = Some(near_view);
-    }
+    let near_changed = far.update_near(stream, centre, near_radius, loaded + reach);
     far.cache
         .set_memory_budget(summary_budget_bytes(loaded + reach));
     far.cache
@@ -349,28 +361,37 @@ pub(crate) fn feed_far_terrain(
         loaded + reach,
     ));
     far.tiles.update(far.cache.store(), now);
-    // Columns leaving full detail keep their meshes until their far tiles are built.
-    let store = far.cache.store();
-    let covered: Vec<_> = stream
-        .far_handoffs()
-        .filter(|column| {
-            let pos = ColumnPos::new(column.x, column.z);
-            store.contains(pos) && far.tiles.ready(pos)
-        })
-        .collect();
     let revision = far.tiles.revision();
     if near_changed || far.published != Some(revision) {
         *scene = FarTerrainScene {
             tiles: far.tiles.drawn().into(),
             near: Arc::clone(&far.near),
+            residency: scene.residency.clone(),
         };
         far.published = Some(revision);
     }
+    // A CPU-ready tile may still be waiting for its upload or a covering GPU fallback.
+    let store = far.cache.store();
+    let covered: Vec<_> = stream
+        .far_handoffs()
+        .filter(|column| {
+            let pos = ColumnPos::new(column.x, column.z);
+            store.contains(pos)
+                && far
+                    .tiles
+                    .ready_mesh(pos)
+                    .is_some_and(|mesh| scene.residency.ready(pos, mesh))
+        })
+        .collect();
     if !covered.is_empty()
         && let Some(stream) = world.stream.as_mut()
     {
         for column in covered {
             stream.finish_far_handoff(column);
+        }
+        // Remove the far mask with the near withdrawal, so the next extraction has a drawer.
+        if far.update_near(stream, centre, near_radius, loaded + reach) {
+            scene.near = Arc::clone(&far.near);
         }
     }
 }

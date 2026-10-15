@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 /// Free ranges kept sorted and coalesced; everything from `end` on is free too.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct QuadRanges {
     free: Vec<Range<u32>>,
     end: u32,

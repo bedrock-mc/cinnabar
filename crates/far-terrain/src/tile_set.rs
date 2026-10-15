@@ -153,24 +153,34 @@ impl FarTiles {
         let selected = self.selected.iter().filter_map(|(key, tile)| {
             let mesh = tile.mesh.as_ref()?;
             let hidden =
-                mesh.quads.is_empty() || self.retired.iter().any(|old| overlaps(old.key, *key));
+                mesh.quads.is_empty() || self.retired.iter().any(|old| old.key.overlaps(*key));
             (!hidden).then(|| Arc::clone(mesh))
         });
         selected.chain(self.retired.iter().cloned()).collect()
     }
 
-    /// True when a selected tile over `column` is drawn from its current summary.
+    /// True when a selected tile over `column` is CPU-ready from its current summary.
     #[must_use]
     pub fn ready(&self, column: ColumnPos) -> bool {
+        self.ready_mesh(column).is_some()
+    }
+
+    /// The current CPU-ready selected mesh over `column`, including an empty tile.
+    /// Renderers must acknowledge its GPU coverage before withdrawing another drawer.
+    #[must_use]
+    pub fn ready_mesh(&self, column: ColumnPos) -> Option<&TileMesh> {
         let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
-        (0..LEVEL_COUNT).any(|level| {
+        (0..LEVEL_COUNT).find_map(|level| {
             let key = TileKey::containing(level, block[0], block[1]);
-            self.selected.get(&key).is_some_and(|tile| {
-                tile.mesh.is_some()
-                    && !tile.dirty
-                    && tile.building.is_none()
-                    // Hidden behind a retained mesh, it is not drawn yet.
-                    && !self.retired.iter().any(|old| overlaps(old.key, key))
+            self.selected.get(&key).and_then(|tile| {
+                if tile.dirty
+                    || tile.building.is_some()
+                    || self.retired.iter().any(|old| old.key.overlaps(key))
+                {
+                    None
+                } else {
+                    tile.mesh.as_deref()
+                }
             })
         })
     }
@@ -240,7 +250,7 @@ impl FarTiles {
         self.retired.retain(|old| {
             selected
                 .iter()
-                .any(|(key, tile)| tile.mesh.is_none() && overlaps(old.key, *key))
+                .any(|(key, tile)| tile.mesh.is_none() && old.key.overlaps(*key))
         });
         if self.retired.len() != before {
             self.revision += 1;
@@ -253,10 +263,4 @@ fn contains(outer: TileKey, inner: TileKey) -> bool {
     let ([ox, oz], ow) = (outer.origin(), outer.width_blocks());
     let ([ix, iz], iw) = (inner.origin(), inner.width_blocks());
     ox <= ix && oz <= iz && ix + iw <= ox + ow && iz + iw <= oz + ow
-}
-
-fn overlaps(a: TileKey, b: TileKey) -> bool {
-    let ([ax, az], aw) = (a.origin(), a.width_blocks());
-    let ([bx, bz], bw) = (b.origin(), b.width_blocks());
-    ax < bx + bw && bx < ax + aw && az < bz + bw && bz < az + aw
 }
