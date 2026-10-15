@@ -342,7 +342,7 @@ fn source_snapshot(
     previous: Option<&UnitSources>,
 ) -> UnitSources {
     let mut state = bevy::ecs::system::SystemState::<Query<&GpuChunkAllocation>>::new(world);
-    let allocations = state.get(world);
+    let allocations = state.get(world).unwrap();
     let drawable = entities
         .iter()
         .map(|&entity| {

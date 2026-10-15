@@ -1,7 +1,7 @@
 use crate::queue_writes::ProfiledQueue as _;
 use std::num::NonZeroU64;
 
-use crate::chunk::gpu::arena::ChunkRangePlan;
+use crate::chunk::gpu::arena::FreshChunkRanges;
 use crate::chunk::*;
 use crate::upload_staging::BufferWrite;
 use meshing::PackedBiomeRecord;
@@ -80,7 +80,7 @@ impl ArenaWrites {
     pub(in crate::chunk) fn collect_chunk(
         &mut self,
         instance: &ChunkRenderInstance,
-        plan: &ChunkRangePlan,
+        plan: &FreshChunkRanges,
         metadata_index: u32,
         biome_words: &[u32],
         origin: GpuChunkOrigin,
