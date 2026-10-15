@@ -1,5 +1,5 @@
 use super::*;
-use assets::block_entity_geometry::HeadModel;
+use assets::block_entity_geometry::heads::HeadModel;
 
 const SOURCE: &str = include_str!("fixtures/cube_defaults.geo.json");
 
