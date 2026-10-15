@@ -35,6 +35,13 @@ pub fn definitions() -> Value {
         "description": "Report the client's log filter as {spec, effective}: spec is the runtime spec last set by log_filter_set (empty when none) and effective is the whole active filter, including the defaults and RUST_LOG.",
         "inputSchema": { "type": "object", "properties": {} }
     });
+    let crash = json!({
+        "name": "crash",
+        "description": "Crash the client on purpose to exercise crash capture: panic, access_violation, stack_overflow or abort. The crash monitor writes a crashes/ folder and shows the crash window unless CINNABAR_CRASH_UI=0; the client is gone afterwards.",
+        "inputSchema": { "type": "object", "properties": {
+            "kind": { "type": "string", "enum": ["panic", "access_violation", "stack_overflow", "abort"] }
+        }, "required": ["kind"], "additionalProperties": false }
+    });
     json!([
         {
             "name": "launch_client",
@@ -134,13 +141,7 @@ pub fn definitions() -> Value {
         },
         log_filter_set,
         log_filter_get,
-        {
-            "name": "crash",
-            "description": "Crash the client on purpose to exercise crash capture: panic, access_violation, stack_overflow or abort. The crash monitor writes a crashes/ folder and shows the crash window unless CINNABAR_CRASH_UI=0; the client is gone afterwards.",
-            "inputSchema": { "type": "object", "properties": {
-                "kind": { "type": "string", "enum": ["panic", "access_violation", "stack_overflow", "abort"] }
-            }, "required": ["kind"], "additionalProperties": false }
-        },
+        crash,
         {
             "name": "state",
             "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, camera and recording status, and game time.",
