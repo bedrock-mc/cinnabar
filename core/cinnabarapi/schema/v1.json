@@ -104,13 +104,23 @@
         "visible": { "type": "boolean" }
       }
     },
+    "Uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
     "Lookup": {
+      "description": "At least one identifier array must be non-empty. Their combined length must not exceed lookup_batch_max (128); the server enforces the combined limit.",
       "type": "object",
-      "required": ["type", "id", "xuids"],
+      "required": ["type", "id"],
+      "anyOf": [
+        { "required": ["xuids"], "properties": { "xuids": { "minItems": 1 } } },
+        { "required": ["uuids"], "properties": { "uuids": { "minItems": 1 } } }
+      ],
       "properties": {
         "type": { "const": "lookup" },
         "id": { "$ref": "#/$defs/U32" },
-        "xuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } }
+        "xuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } },
+        "uuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Uuid" } }
       }
     },
 
@@ -160,12 +170,14 @@
       }
     },
     "LookupResult": {
+      "description": "Each array contains only matches from the corresponding request array. cinnabar_uuids may be omitted when no UUID array was requested.",
       "type": "object",
       "required": ["type", "id", "cinnabar"],
       "properties": {
         "type": { "const": "lookup_result" },
         "id": { "$ref": "#/$defs/U32" },
-        "cinnabar": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } }
+        "cinnabar": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Xuid" } },
+        "cinnabar_uuids": { "type": "array", "maxItems": 128, "items": { "$ref": "#/$defs/Uuid" } }
       }
     },
     "Release": {

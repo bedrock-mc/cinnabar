@@ -165,7 +165,7 @@ var testConfig = Config{ClientVersion: "0.1.18", Channel: "beta", Visible: true}
 func TestNothingConnectsBeforeConfiguration(t *testing.T) {
 	api := newFakeAPI(t)
 	client := newTestClient(t, api, nil)
-	if _, err := client.Lookup(context.Background(), []string{"1"}); !errors.Is(err, ErrUnavailable) {
+	if _, err := client.Lookup(context.Background(), []string{"1"}, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("lookup before configuration: %v", err)
 	}
 	client.Configure(testConfig)
@@ -178,7 +178,7 @@ func TestNothingConnectsBeforeConfiguration(t *testing.T) {
 func TestOfflineClientNeverConnects(t *testing.T) {
 	client := New(context.Background(), Options{Base: "http://127.0.0.1:1"})
 	client.Configure(testConfig)
-	if _, err := client.Lookup(context.Background(), []string{"1"}); !errors.Is(err, ErrUnavailable) {
+	if _, err := client.Lookup(context.Background(), []string{"1"}, nil); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("offline lookup: %v", err)
 	}
 	client.Close()
@@ -197,9 +197,9 @@ func TestLookupReturnsTheServersSubset(t *testing.T) {
 	results := make(chan []string, 1)
 	errs := make(chan error, 2)
 	go func() {
-		found, err := client.Lookup(context.Background(), []string{"11", "22", "33"})
+		found, err := client.Lookup(context.Background(), []string{"11", "22", "33"}, nil)
 		errs <- err
-		results <- found
+		results <- found.Cinnabar
 	}()
 	var lookup lookupMessage
 	session.receive(t, &lookup)
@@ -214,13 +214,46 @@ func TestLookupReturnsTheServersSubset(t *testing.T) {
 		t.Fatalf("found = %v", found)
 	}
 	go func() {
-		_, err := client.Lookup(context.Background(), []string{"44"})
+		_, err := client.Lookup(context.Background(), []string{"44"}, nil)
 		errs <- err
 	}()
 	session.receive(t, &lookup)
 	session.send(t, map[string]any{"type": typeError, "code": codeRateLimited, "id": lookup.ID})
 	if err := receive(t, errs); !errors.Is(err, ErrRateLimited) {
 		t.Fatalf("rate-limited lookup: %v", err)
+	}
+}
+
+// UUIDs travel in their own array and their matches come back separately from XUID matches.
+func TestLookupRoundTripsUUIDs(t *testing.T) {
+	api := newFakeAPI(t)
+	client := newTestClient(t, api, nil)
+	client.Configure(testConfig)
+	session := receive(t, api.sessions)
+	testwait.Eventually(t, testwait.DefaultTimeout, "an authenticated session", func() bool {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		return client.live != nil
+	})
+	uuid := "00112233-4455-6677-8899-aabbccddeeff"
+	results := make(chan LookupResult, 1)
+	errs := make(chan error, 1)
+	go func() {
+		found, err := client.Lookup(context.Background(), []string{"11"}, []string{uuid})
+		errs <- err
+		results <- found
+	}()
+	var lookup lookupMessage
+	session.receive(t, &lookup)
+	if len(lookup.XUIDs) != 1 || len(lookup.UUIDs) != 1 || lookup.UUIDs[0] != uuid {
+		t.Fatalf("lookup = %+v", lookup)
+	}
+	session.send(t, map[string]any{"type": typeLookupResult, "id": lookup.ID, "cinnabar": []string{}, "cinnabar_uuids": []string{uuid}})
+	if err := receive(t, errs); err != nil {
+		t.Fatal(err)
+	}
+	if found := receive(t, results); len(found.Cinnabar) != 0 || len(found.CinnabarUUIDs) != 1 || found.CinnabarUUIDs[0] != uuid {
+		t.Fatalf("found = %+v", found)
 	}
 }
 
@@ -232,9 +265,18 @@ func TestLookupRejectsBatchesTheAPIWouldRefuse(t *testing.T) {
 		tooMany[i] = "1"
 	}
 	for _, xuids := range [][]string{tooMany, {""}, {"12a"}, {"123456789012345678901"}} {
-		if _, err := client.Lookup(context.Background(), xuids); !errors.Is(err, ErrInvalidLookup) {
+		if _, err := client.Lookup(context.Background(), xuids, nil); !errors.Is(err, ErrInvalidLookup) {
 			t.Fatalf("%d XUIDs: %v", len(xuids), err)
 		}
+	}
+	// The bound is combined, UUIDs must be canonical lowercase, and an empty lookup is refused.
+	for _, uuids := range [][]string{{"00112233-4455-6677-8899-aabbccddeeff"}, {"00112233-4455-6677-8899-AABBCCDDEEFF"}, {"00112233445566778899aabbccddeeff"}} {
+		if _, err := client.Lookup(context.Background(), tooMany[1:], uuids); !errors.Is(err, ErrInvalidLookup) {
+			t.Fatalf("UUIDs %v: %v", uuids, err)
+		}
+	}
+	if _, err := client.Lookup(context.Background(), nil, nil); !errors.Is(err, ErrInvalidLookup) {
+		t.Fatalf("empty lookup: %v", err)
 	}
 }
 
@@ -391,7 +433,7 @@ func TestUnknownLookupErrorCompletesPendingRequest(t *testing.T) {
 		return client.live != nil
 	})
 	done := make(chan error, 1)
-	go func() { _, err := client.Lookup(context.Background(), []string{"11"}); done <- err }()
+	go func() { _, err := client.Lookup(context.Background(), []string{"11"}, nil); done <- err }()
 	var lookup lookupMessage
 	session.receive(t, &lookup)
 	session.send(t, map[string]any{"type": typeError, "code": "future_error", "id": lookup.ID})

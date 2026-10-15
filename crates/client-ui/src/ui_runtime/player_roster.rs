@@ -7,7 +7,7 @@ use ui_screens::player_list::RosterRow;
 /// The session's named roster entries and their tab-list rows.
 #[derive(Clone, Debug, Default)]
 pub struct PlayerRoster {
-    entries: Vec<(Arc<str>, Arc<str>)>,
+    entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>,
     revision: u64,
     reported: Arc<HashSet<String>>,
     hide_badges: bool,
@@ -15,14 +15,19 @@ pub struct PlayerRoster {
 }
 
 impl PlayerRoster {
-    /// Replaces the `(username, xuid)` roster; the revision advances only when it changed.
-    pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>)>) {
+    /// Replaces the `(username, xuid, uuid)` roster; the revision advances only when it changed.
+    pub fn set_entries(&mut self, entries: Vec<(Arc<str>, Arc<str>, [u8; 16])>) {
         if self.entries != entries {
             self.entries = entries;
             self.revision = self.revision.wrapping_add(1);
             tracing::debug!(
                 players = self.entries.len(),
                 identities = self.xuids().count(),
+                uuid_keys = self
+                    .entries
+                    .iter()
+                    .filter(|(_, xuid, _)| !bridge::valid_cinnabar_xuid(xuid))
+                    .count(),
                 "Cinnabar UI roster changed"
             );
             self.rebadge();
@@ -38,11 +43,22 @@ impl PlayerRoster {
     pub fn xuids(&self) -> impl Iterator<Item = &str> {
         self.entries
             .iter()
-            .map(|(_, xuid)| &**xuid)
+            .map(|(_, xuid, _)| &**xuid)
             .filter(|xuid| !xuid.is_empty())
     }
 
-    /// Applies the XUIDs the API reported as Cinnabar players.
+    /// Chooses one lookup key per player, preferring a valid XUID over their UUID.
+    pub fn lookup_ids(&self) -> impl Iterator<Item = String> + '_ {
+        self.entries.iter().map(|(_, xuid, uuid)| {
+            if bridge::valid_cinnabar_xuid(xuid) {
+                xuid.to_string()
+            } else {
+                uuid::Uuid::from_bytes(*uuid).to_string()
+            }
+        })
+    }
+
+    /// Applies the XUIDs and UUIDs the API reported as Cinnabar players.
     pub fn set_cinnabar(&mut self, reported: Arc<HashSet<String>>) {
         if !Arc::ptr_eq(&self.reported, &reported) {
             self.reported = reported;
@@ -70,8 +86,14 @@ impl PlayerRoster {
     }
 
     /// Whether this roster identity has a visible, currently reported badge.
-    pub fn has_badge(&self, xuid: &str) -> bool {
-        !self.hide_badges && !xuid.is_empty() && self.reported.contains(xuid)
+    pub fn has_badge(&self, xuid: &str, uuid: &[u8; 16]) -> bool {
+        let mut buffer = [0; 36];
+        let uuid = uuid::Uuid::from_bytes(*uuid);
+        !self.hide_badges
+            && ((!xuid.is_empty() && self.reported.contains(xuid))
+                || self
+                    .reported
+                    .contains(&*uuid.hyphenated().encode_lower(&mut buffer)))
     }
 
     /// Rebuilds tab rows only when roster identities, API answers or display policy change.
@@ -79,9 +101,9 @@ impl PlayerRoster {
         self.rows = self
             .entries
             .iter()
-            .map(|(name, xuid)| RosterRow {
+            .map(|(name, xuid, uuid)| RosterRow {
                 name: Arc::clone(name),
-                badged: self.has_badge(xuid),
+                badged: self.has_badge(xuid, uuid),
             })
             .collect();
     }
@@ -91,10 +113,12 @@ impl PlayerRoster {
 mod tests {
     use super::*;
 
-    fn entry(name: &str, xuid: &str) -> (Arc<str>, Arc<str>) {
-        (name.into(), xuid.into())
+    /// Builds a named roster fixture with a fixed UUID.
+    fn entry(name: &str, xuid: &str) -> (Arc<str>, Arc<str>, [u8; 16]) {
+        (name.into(), xuid.into(), [0; 16])
     }
 
+    /// Reads the rendered badge decision for each tab row.
     fn badges(roster: &PlayerRoster) -> Vec<(&str, bool)> {
         roster
             .rows()
@@ -152,15 +176,33 @@ mod tests {
         let mut roster = PlayerRoster::default();
         roster.set_entries(vec![entry("ExamplePlayer", "11")]);
         roster.set_cinnabar(Arc::new(HashSet::from(["11".to_owned()])));
-        assert!(roster.rows()[0].badged && roster.has_badge("11"));
+        assert!(roster.rows()[0].badged && roster.has_badge("11", &[0; 16]));
         roster.set_show_badges(false);
-        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11", &[0; 16]));
         roster.set_show_badges(true);
-        assert!(roster.rows()[0].badged && roster.has_badge("11"));
+        assert!(roster.rows()[0].badged && roster.has_badge("11", &[0; 16]));
         roster.set_cinnabar(Arc::default());
-        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11", &[0; 16]));
         roster.set_show_badges(false);
         roster.set_cinnabar(Arc::new(HashSet::from(["11".to_owned()])));
-        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11", &[0; 16]));
+    }
+
+    /// Servers that omit XUIDs still badge by UUID, and mixed rosters key each player by XUID first.
+    #[test]
+    fn missing_xuids_fall_back_to_uuid() {
+        let uuid = uuid::Uuid::from_u128(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+        let mut roster = PlayerRoster::default();
+        roster.set_entries(vec![
+            ("Alex".into(), "11".into(), [1; 16]),
+            ("Steve".into(), "".into(), uuid.into_bytes()),
+        ]);
+        assert_eq!(
+            roster.lookup_ids().collect::<Vec<_>>(),
+            ["11", "00112233-4455-6677-8899-aabbccddeeff"]
+        );
+        roster.set_cinnabar(Arc::new(HashSet::from([uuid.to_string()])));
+        assert_eq!(badges(&roster), [("Alex", false), ("Steve", true)]);
+        assert!(roster.has_badge("", uuid.as_bytes()));
     }
 }

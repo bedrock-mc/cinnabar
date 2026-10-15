@@ -59,7 +59,7 @@ fn a_lookup_answer_publishes_without_roster_churn() {
     sender
         .send(Roster {
             session: 1,
-            xuids: vec!["11".into()],
+            identities: vec!["11".into()],
         })
         .unwrap();
     let published = test_time::wait_until(Duration::from_secs(3), || {
