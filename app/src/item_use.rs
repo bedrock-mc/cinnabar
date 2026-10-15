@@ -249,8 +249,8 @@ fn produce_use(
     let Some(sample) = sample else {
         return;
     };
-    // One press resolves once: item use waits while block use still holds it.
-    if context.block_use.press_pending() {
+    // Native item use waits for earlier block and attack presses to resolve.
+    if context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending()) {
         return;
     }
     let frame = UseFrame {

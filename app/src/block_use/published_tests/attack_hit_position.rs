@@ -2,8 +2,8 @@
 use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
-/// Supplies one selectable actor and drains movement before a frame-time attack.
-pub(super) fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
+/// Supplies an actor and admitted movement without publishing a melee pick.
+pub(super) fn unpublished_attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     actor_use_tests::spawn(&mut world, z);
     world.init_resource::<crate::melee::MeleeTarget>();
@@ -20,11 +20,28 @@ pub(super) fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets)
         .unwrap();
     });
     captured.drain();
+    (world, captured)
+}
+
+/// Supplies one selectable actor and publishes the frame before its attack.
+pub(super) fn attack_fixture(z: f32) -> (World, client_session::CapturedPackets) {
+    let (mut world, captured) = unpublished_attack_fixture(z);
     // Publish the frame before the attack without pressing the attack button.
     world
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     (world, captured)
+}
+
+/// Reads the fixture actor's first interaction box for a selected assisted target.
+pub(super) fn actor_pick_bounds(world: &World) -> (Vec3, Vec3) {
+    let client = world.resource::<crate::runtime::world::ClientWorld>();
+    let authority = client.stream.as_ref().unwrap().authority();
+    let (minimum, maximum) = authority
+        .pick_hit_boxes(authority.actor(99).unwrap())
+        .next()
+        .unwrap();
+    (Vec3::from_array(minimum), Vec3::from_array(maximum))
 }
 
 /// Admits a fresh attack through the production pick and packet producers.
@@ -173,14 +190,17 @@ fn attack_hit_position_retires_the_pick_after_a_position_reset() {
 
 #[test]
 fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry() {
-    for moved_off_ray in [false, true] {
+    for moved_x in [None, Some(6.5), Some(60.5)] {
         let (mut world, mut captured) = attack_fixture(7.5);
         let point = Vec3::new(4.5, 2.4, 7.5);
+        let (minimum, maximum) = actor_pick_bounds(&world);
         let direction = (point - Vec3::new(4.5, 2.5, 8.5)).normalize();
         world
             .resource_mut::<client_presentation::aim_assist::AimAssistFrame>()
             .target = Some(client_presentation::aim_assist::AimAssistTarget {
             kind: client_presentation::aim_assist::TargetKind::Actor(99),
+            minimum,
+            maximum,
             point,
             direction,
             score: 0.0,
@@ -189,8 +209,8 @@ fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry()
             .resource_mut::<InteractionOriginSnapshot>()
             .assist_direction(direction);
         assert_ne!(picked_point(&world), point.to_array());
-        if moved_off_ray {
-            move_actor(&mut world, [Some(6.5), None, None], 3);
+        if let Some(x) = moved_x {
+            move_actor(&mut world, [Some(x), None, None], 3);
         }
         world
             .run_system_cached(crate::melee::prepare_melee)

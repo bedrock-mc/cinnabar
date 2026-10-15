@@ -132,6 +132,10 @@ pub(crate) fn prepare_melee(
     let Some(crosshair) = previous.and_then(|pick| pick.crosshair(authority, world)) else {
         drop("no_published_attack_pick");
         runtime.defer(now_millis);
+        runtime.observe_attack_target(
+            crosshair,
+            item_timing.is_some_and(|timing| timing.piercing_weapon),
+        );
         return;
     };
     let crosshair = runtime.observe_attack_target(

@@ -35,6 +35,9 @@ mod attack_hit_position_tests;
 #[path = "published_tests/attack_fields.rs"]
 mod attack_fields_tests;
 
+#[path = "published_tests/attack_admission.rs"]
+mod attack_admission_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 

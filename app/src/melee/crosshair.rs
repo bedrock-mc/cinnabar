@@ -127,6 +127,10 @@ pub(super) fn resolve_crosshair(
                     runtime_id != stream.local_player_runtime_id()
                         && Some(actor.unique_id) != mount
                         && gameplay::melee::actor_is_pickable(actor)
+                        && target.within_pick_range(
+                            bevy::prelude::Vec3::from_array(origin),
+                            actor_reach as f32,
+                        )
                 })
                 .map(|_| gameplay::melee::ActorHit {
                     runtime_id,

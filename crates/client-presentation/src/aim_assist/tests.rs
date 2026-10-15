@@ -261,6 +261,44 @@ fn nearest_box_point_controls_view_and_distance_admission() {
 }
 
 #[test]
+fn assisted_pick_reach_retains_the_selected_box_and_includes_its_boundary() {
+    let frustum = AimAssistFrustum::new(Vec3::ZERO, Vec3::Z, [60.0; 2], 12.0).unwrap();
+    let candidate = AimAssistCandidate {
+        minimum: Vec3::new(-0.5, -0.5, 5.0),
+        maximum: Vec3::new(0.5, 0.5, 6.0),
+        ..candidate(1, Vec3::Z * 5.5, 0)
+    };
+    let target = frustum
+        .select(CameraAimAssistTargetMode::Distance, [candidate])
+        .unwrap();
+    assert_eq!(target.point, candidate.point);
+    assert!(target.within_pick_range(Vec3::ZERO, 5.0));
+    assert!(!target.within_pick_range(Vec3::ZERO, 5.0_f32.next_down()));
+    assert!(target.within_pick_range(target.point, 0.0));
+    for reach in [-1.0, f32::NAN, f32::INFINITY] {
+        assert!(!target.within_pick_range(Vec3::ZERO, reach));
+    }
+    assert!(!target.within_pick_range(Vec3::splat(f32::NAN), 5.0));
+    let invalid = AimAssistTarget {
+        minimum: target.maximum + Vec3::ONE,
+        ..target
+    };
+    assert!(!invalid.within_pick_range(Vec3::ZERO, 5.0));
+}
+
+#[test]
+fn assisted_pick_reach_uses_only_the_winning_candidate_box() {
+    let frustum = AimAssistFrustum::new(Vec3::ZERO, Vec3::Z, [60.0; 2], 12.0).unwrap();
+    let near = candidate(1, Vec3::Z * 2.0, 0);
+    let far = candidate(1, Vec3::Z * 5.5, 100);
+    let target = frustum
+        .select(CameraAimAssistTargetMode::Distance, [near, far])
+        .unwrap();
+    assert_eq!(target.point, far.point);
+    assert!(!target.within_pick_range(Vec3::ZERO, 3.0));
+}
+
+#[test]
 fn priority_changes_winner_and_equal_scores_preserve_candidate_order() {
     let frustum = AimAssistFrustum::new(Vec3::ZERO, Vec3::Z, [60.0; 2], 12.0).unwrap();
     let near = candidate(1, Vec3::Z * 2.0, 0);
