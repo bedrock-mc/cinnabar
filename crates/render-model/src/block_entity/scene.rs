@@ -238,7 +238,8 @@ impl BlockEntityScene {
     /// Installs worker-built artwork for a new session, clearing cached sign and map canvases.
     pub fn install_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         if let Some(text) = self.text.as_mut() {
-            text.reset(artwork.atlas.size()[0]);
+            text.reset(artwork.atlas.size()[0])
+                .expect("prepared artwork admits dynamic atlas rows");
         }
         self.reload_prepared_assets(artwork);
     }
@@ -254,10 +255,11 @@ impl BlockEntityScene {
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
         self.prepared = Some(artwork.clone());
         let mut atlas = artwork.atlas.clone();
-        let text = self
-            .text
-            .get_or_insert_with(|| DynamicCells::new(atlas.size()[0]));
-        text.resize_width(atlas.size()[0]);
+        let text = self.text.get_or_insert_with(|| {
+            DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
+        });
+        text.resize_width(atlas.size()[0])
+            .expect("prepared artwork admits dynamic atlas rows");
         atlas.set_text_pages(text.text_pages());
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));

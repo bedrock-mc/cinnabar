@@ -2,7 +2,7 @@
 
 use std::{collections::BTreeSet, sync::Arc};
 
-use super::atlas::{AtlasRect, BlockEntityAtlas, MAX_TEXT_PAGES, dynamic_height};
+use super::atlas::{AtlasRect, BlockEntityAtlas, DynamicCells, MAX_TEXT_PAGES, dynamic_height};
 
 /// wgpu's default 2D texture side, which every adapter must support.
 pub(super) const MAX_ATLAS_SIDE: u32 = 8192;
@@ -52,8 +52,7 @@ impl BlockEntityArtworkPreparer {
     /// Admits carrier dimensions only when static textures, maps and every text page also fit.
     pub fn accepts_size(&self, [width, height]: [u32; 2]) -> bool {
         let limit = MAX_ATLAS_SIDE;
-        width > 0
-            && width <= limit
+        DynamicCells::accepts_width(width)
             && appended_layout(width, &self.textures, |_| false)
                 .and_then(|(added, _)| height.checked_add(added))
                 .and_then(|height| height.checked_add(dynamic_height(MAX_TEXT_PAGES as u32)))
@@ -122,6 +121,25 @@ pub(super) fn appended_layout(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn carrier_admission_requires_the_dynamic_row_width_before_preparation() {
+        let preparer = BlockEntityArtworkPreparer::default();
+        let minimum = super::super::atlas::MIN_DYNAMIC_ATLAS_WIDTH;
+        for width in [1, minimum - 1, minimum] {
+            let blob = assets::encode_block_entity_catalog(
+                b"{}",
+                width,
+                1,
+                &vec![0; width as usize * 4],
+                &[],
+            )
+            .unwrap();
+            let carrier = assets::RuntimeBlockEntityAssets::decode(&blob).unwrap();
+            assert_eq!(preparer.accepts_size([width, 1]), width == minimum);
+            assert_eq!(preparer.prepare(&carrier).is_some(), width == minimum);
+        }
+    }
 
     #[test]
     fn admission_counts_mob_shelves_and_gutters() {
