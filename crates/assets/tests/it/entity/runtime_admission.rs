@@ -52,7 +52,7 @@ fn optional_geometry_fields_roundtrip_through_strict_preflight_and_admission() {
 
 #[test]
 fn admitted_mixed_case_bone_parents_keep_head_and_full_model_boxes() {
-    use assets::{EntityGeometryScalar, block_entity_geometry::HeadModel};
+    use assets::{EntityGeometryScalar, block_entity_geometry::heads::HeadModel};
 
     let scalar = |value| EntityGeometryScalar::new(value).unwrap();
     let mut compiled = inherited_geometry_fixture();
