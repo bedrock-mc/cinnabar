@@ -1,15 +1,15 @@
 //! Desktop focus arbitration before input sampling and before OS cursor updates.
 #[cfg(test)]
-use bevy::prelude::{Local, MessageWriter, Mut, Time, Update, default};
+use bevy::prelude::{MessageWriter, Mut, Time, Update, default};
 use bevy::{
     input::{
         InputSystems,
         mouse::{AccumulatedMouseMotion, MouseButtonInput},
     },
     prelude::{
-        App, ButtonInput, Entity, Gamepad, IntoScheduleConfigs, KeyCode, MessageReader,
-        MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches, Vec2, Window,
-        With,
+        App, ButtonInput, DetectChangesMut, Entity, Gamepad, IntoScheduleConfigs, KeyCode, Local,
+        MessageReader, MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches,
+        Vec2, Window, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
@@ -105,7 +105,7 @@ pub(crate) fn mouse_input_active(
 /// Samples UI cursor authority immediately before presentation updates capture.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn update_cursor_capture(
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    window: Single<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
@@ -114,6 +114,7 @@ pub(crate) fn update_cursor_capture(
     consent: Option<Res<client_state::ConsentInput>>,
     driven: Option<Res<DrivenInput>>,
     focus: Option<ResMut<client_state::CursorFocus>>,
+    captured_last_frame: Local<bool>,
     #[cfg(all(windows, not(test)))] native: Res<native::NativeCaptureReady>,
 ) {
     let mut policy = client_presentation::observations::CursorPolicy {
@@ -142,7 +143,15 @@ pub(crate) fn update_cursor_capture(
     {
         policy.capture_allowed &= native.0;
     }
-    apply_cursor_policy(policy, window, keys, mouse_buttons, mouse_motion, auto_fly);
+    apply_cursor_policy(
+        policy,
+        window,
+        keys,
+        mouse_buttons,
+        mouse_motion,
+        auto_fly,
+        captured_last_frame,
+    );
 }
 
 /// Whether gameplay holds keyboard and mouse input on a platform without an OS cursor grab:
@@ -177,18 +186,21 @@ fn clear_controller_input(
 }
 
 /// Applies the retained input policy before accepting gameplay pointer motion.
+#[allow(clippy::too_many_arguments)]
 fn apply_cursor_policy(
     policy: client_presentation::observations::CursorPolicy,
-    window: Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
+    window: Single<(&mut Window, &mut CursorOptions), With<PrimaryWindow>>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse_buttons: ResMut<ButtonInput<MouseButton>>,
     mut mouse_motion: ResMut<AccumulatedMouseMotion>,
     mut auto_fly: ResMut<AutoFly>,
+    mut captured_last_frame: Local<bool>,
 ) {
+    let was_captured = std::mem::take(&mut *captured_last_frame);
     if policy.driven {
         return;
     }
-    let (window, mut cursor) = window.into_inner();
+    let (mut window, mut cursor) = window.into_inner();
 
     // Focus loss has priority over every capture request, including auto-fly.
     // The trusted consent popup needs a pointer whatever settings the scene behind it declares.
@@ -215,7 +227,7 @@ fn apply_cursor_policy(
         return;
     }
 
-    let active = client_presentation::camera::input_is_active(window, &cursor);
+    let active = client_presentation::camera::input_is_active(&window, &cursor);
     let recapture_click = !active && mouse_buttons.just_pressed(MouseButton::Left);
     if recapture_click || (steals == Some(true) && !active) || auto_fly.capture_pending() {
         capture_cursor(&mut cursor);
@@ -226,6 +238,16 @@ fn apply_cursor_policy(
         }
         auto_fly.clear_capture_request();
     }
+    let captured = client_presentation::camera::input_is_active(&window, &cursor);
+    if captured && (!was_captured || !active) {
+        let centre = window.size() * 0.5;
+        window.set_cursor_position(Some(centre));
+        // The backend applies position before grab. Warping can release the native lock,
+        // so submit it again even when a screen adapter already requested capture.
+        cursor.set_changed();
+        mouse_motion.delta = Vec2::ZERO;
+    }
+    *captured_last_frame = captured;
 }
 
 /// Prevents any screen or developer adapter from submitting an unauthorized OS grab.
@@ -250,3 +272,6 @@ mod tests;
 
 #[cfg(test)]
 mod high_rate_tests;
+
+#[cfg(test)]
+mod recapture_tests;
