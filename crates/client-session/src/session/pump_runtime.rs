@@ -269,6 +269,13 @@ async fn run_network_pump_with_readiness_ingress_and_trace<S, F, W, P>(
                 if trace_armed {
                     session.cancel_packet_id_trace();
                 }
+                // A core that ended the session closes it, so the write can fail before the
+                // Transfer or Disconnect behind unread packets is read.
+                let _ = tokio::time::timeout(
+                    protocol::WRITE_FAILURE_DRAIN,
+                    session.drain_to_boundary(),
+                )
+                .await;
                 if let Some(transfer) = session.take_server_transfer() {
                     end_pump_with_transfer(
                         &session,

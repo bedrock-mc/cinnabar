@@ -1407,6 +1407,7 @@ acceptance gate.
   instanced draw after opaque geometry; casters and parameters upload only when they change.
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
+- Width-based radii share collision scaling and its minimum size, including player fallback bounds.
 - Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
   drawn; the breathing point, item and local volume culling remain provisional.
 - Volumes containing the camera draw no shadow. Camera-inside and ordinary outside

@@ -241,6 +241,9 @@ mod tests {
             .with_finish_loading(vec![protocol::modal_form_cancel_response(1)]))
         }
 
+        /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+        async fn drain_to_boundary(&mut self) {}
+
         async fn receive_world_event(&mut self, _: i32) -> Result<WorldEvent, Self::Error> {
             std::future::pending().await
         }

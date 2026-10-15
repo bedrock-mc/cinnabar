@@ -2,7 +2,7 @@
 
 use semantic_input::{ActionPhase, MovementButtons};
 
-/// The device/request state consumed by one fixed tick and retained through replay and send retries.
+/// Requests and server control updates retained through fixed ticks, replay and send retries.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TickInput {
     pub movement_buttons: MovementButtons,
@@ -12,30 +12,35 @@ pub struct TickInput {
     pub sprint_down: bool,
     /// Sneak control after the hold/toggle setting, before forced-pose admission.
     pub sneak_down: bool,
+    /// Server sprint state applied before this tick admits local sprint input.
+    pub server_sprinting: Option<bool>,
 }
 
-/// Raw press/release events wait for a completed tick, including events in tickless frames.
+/// Button edges and server sprint updates wait for a completed tick.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PendingInputEdges {
     jump: ActionPhase,
     sneak: ActionPhase,
+    server_sprinting: Option<bool>,
 }
 
 impl PendingInputEdges {
-    /// Accumulates both edges of a tap without changing its current held value.
+    /// Accumulates button edges and keeps the latest server sprint state.
     pub(super) fn observe(&mut self, input: TickInput) {
         self.jump.pressed |= input.jump.pressed;
         self.jump.released |= input.jump.released;
         self.sneak.pressed |= input.sneak.pressed;
         self.sneak.released |= input.sneak.released;
+        self.server_sprinting = input.server_sprinting.or(self.server_sprinting);
     }
 
-    /// Combines retained edges with the latest held/request state for a simulation attempt.
+    /// Combines retained updates with the latest held requests for a simulation attempt.
     pub(super) fn sample(self, mut input: TickInput) -> TickInput {
         input.jump.pressed = self.jump.pressed;
         input.jump.released = self.jump.released;
         input.sneak.pressed = self.sneak.pressed;
         input.sneak.released = self.sneak.released;
+        input.server_sprinting = self.server_sprinting;
         input
     }
 }
