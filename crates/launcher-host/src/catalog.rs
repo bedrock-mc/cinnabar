@@ -47,9 +47,11 @@ impl Catalog {
             .arg("-auth-cache")
             .arg(auth_cache)
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        match crate::lifecycle::children::spawn(&mut command) {
+            .stdout(Stdio::null());
+        match crate::lifecycle::core_output::spawn(
+            &mut command,
+            crate::lifecycle::core_output::CoreRole::Catalog,
+        ) {
             Ok(child) => {
                 self.child = Some(child);
                 Ok(())

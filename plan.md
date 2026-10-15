@@ -528,6 +528,22 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   a dump; the task port needs privileges) fixtures run only in CI; a real client hang has not
   been reproduced; a Windows title-bar drag or resize that blocks frames for 10 s would be
   reported as a hang.
+- Diagnostics Phase 5, core process wiring: every bedrock-core spawn (game, account, sign-in
+  and catalog helpers) gets `-log-level` from the `core` log category (trace and debug map to
+  debug, off to error) and `-crash-output` in the session's crash staging directory (`core/`,
+  pruned with it once the client is gone). A reader thread per process
+  labels stderr lines without a `process=` attribute with role and pid and queues them for one
+  `core.log` writer (a per-session family with the `CORE_SESSION_START` header and the client
+  log's mid-session size cap); a full queue drops and counts lines, never blocking a core.
+  Exit statuses are recorded; an exit nobody asked for other than status 0 or the core's own
+  `core failed` status 1, or any Go crash output, writes a `kind: core` folder with the client
+  and core log sections, the staged packet and flight attachments and `core-crash.txt`, without
+  a crash window; the staged file is
+  deleted afterwards. The account core restarts with `RestartBackoff` (0.5 s doubling to 8 s,
+  giving up after five quick exits until sign-in changes or a refresh). Verified locally on
+  Windows with a Go stand-in core: a panic gives one folder with the traceback, clean and status
+  1 exits and kills give none, helper stderr reaches the log labelled. Incomplete: Linux and
+  macOS run only in CI; no live client run with a crashing real core.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel

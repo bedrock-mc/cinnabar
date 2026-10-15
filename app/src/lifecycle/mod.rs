@@ -75,6 +75,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     };
     client_logs::install_crash_capture(&layout, monitor.as_ref());
     client_logs::capture(&layout);
+    client_logs::capture_core(&layout);
     if !layout.is_installed() {
         return Ok(true);
     }
