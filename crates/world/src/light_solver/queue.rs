@@ -2,22 +2,32 @@ use std::collections::VecDeque;
 
 use super::{
     solve::{IncreaseEntry, enqueue_counted},
-    types::LightSolveError,
+    types::{BlockPos, LightSolveError},
 };
 
 const PENDING: u8 = 1;
 const DIRECT_SKY: u8 = 2;
 
 /// Pending increases merge their latest provenance before the cell visits its neighbours.
+///
+/// Provenance lives in `pending`, so a queued cell is only its position and `u32` dense
+/// index: 16 bytes rather than a whole [`IncreaseEntry`].
 #[derive(Default)]
 pub(super) struct IncreaseQueue {
-    entries: VecDeque<IncreaseEntry>,
+    entries: VecDeque<(BlockPos, u32)>,
     pending: Vec<u8>,
 }
 
 impl IncreaseQueue {
     /// Starts a bounded solve while retaining both queue and membership allocations.
+    ///
+    /// # Panics
+    /// When `volume` exceeds the `u32` dense indices a queued cell records.
     pub(super) fn reset(&mut self, volume: usize) {
+        assert!(
+            volume <= u32::MAX as usize,
+            "light solve volume {volume} exceeds u32 dense indices"
+        );
         self.clear();
         self.pending.resize(volume, 0);
     }
@@ -33,7 +43,8 @@ impl IncreaseQueue {
         let index = entry.index;
         if self.pending[index] == 0 {
             enqueue_counted(queued_total, 1, max)?;
-            self.entries.push_back(entry);
+            // `reset` bounds every index below `u32::MAX`.
+            self.entries.push_back((entry.position, index as u32));
         }
         self.pending[index] |= PENDING | if entry.direct_sky { DIRECT_SKY } else { 0 };
         Ok(())
@@ -42,11 +53,15 @@ impl IncreaseQueue {
     /// Releases membership before propagation so a later increase can revisit the cell.
     #[inline]
     pub(super) fn pop_front(&mut self) -> Option<IncreaseEntry> {
-        let mut entry = self.entries.pop_front()?;
-        let index = entry.index;
-        entry.direct_sky = self.pending[index] & DIRECT_SKY != 0;
+        let (position, index) = self.entries.pop_front()?;
+        let index = index as usize;
+        let direct_sky = self.pending[index] & DIRECT_SKY != 0;
         self.pending[index] = 0;
-        Some(entry)
+        Some(IncreaseEntry {
+            position,
+            index,
+            direct_sky,
+        })
     }
 
     /// Counts pending neighbour visits rather than repeated updates to queued cells.
@@ -65,10 +80,10 @@ impl IncreaseQueue {
     /// Exposes pending entries with merged provenance for seed comparisons.
     #[cfg(test)]
     pub(super) fn iter(&self) -> impl Iterator<Item = IncreaseEntry> + '_ {
-        self.entries.iter().map(|entry| IncreaseEntry {
-            position: entry.position,
-            index: entry.index,
-            direct_sky: self.pending[entry.index] & DIRECT_SKY != 0,
+        self.entries.iter().map(|&(position, index)| IncreaseEntry {
+            position,
+            index: index as usize,
+            direct_sky: self.pending[index as usize] & DIRECT_SKY != 0,
         })
     }
 

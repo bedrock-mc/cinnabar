@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn open_chat_backgrounds_follow_opacity_on_rebind() {
+fn only_chat_history_background_follows_opacity_on_rebind() {
     use json_ui::{BindState, Catalog, EmptyLibrary, bind_stateful};
     use launcher::menu::settings_options::SettingsOptions;
 
@@ -37,10 +37,18 @@ fn open_chat_backgrounds_follow_opacity_on_rebind() {
         clocks: &clocks,
         now_millis: 0,
     };
-    for (reference, panel) in [
-        ("chat.java_chat_content", Some("input_line")),
-        ("chat.messages_text", None),
-        ("chat.auto_complete_panel_contents_with_item", None),
+    for (reference, panel, fixed_alpha) in [
+        (
+            "chat.java_chat_content",
+            Some("input_line"),
+            Some(128.0 / 255.0),
+        ),
+        ("chat.messages_text", None, None),
+        (
+            "chat.auto_complete_panel_contents_with_item",
+            None,
+            Some(208.0 / 255.0),
+        ),
     ] {
         let root = Arc::new(
             json_ui::resolve(&catalog, reference, &context)
@@ -61,7 +69,7 @@ fn open_chat_backgrounds_follow_opacity_on_rebind() {
             let background = panel.find(&|control| control.name == "background").unwrap();
             assert_eq!(
                 background.properties["alpha"].as_f64(),
-                Some(f64::from(percent) / 100.0),
+                Some(fixed_alpha.unwrap_or(f64::from(percent) / 100.0)),
                 "{reference} at {percent}%"
             );
         }

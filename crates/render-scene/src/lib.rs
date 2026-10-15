@@ -80,7 +80,7 @@ pub use chunk::model_witness::{
 };
 pub use chunk::queue::{ChunkRenderQueue, ChunkRenderQueueLimits};
 pub use chunk::schedule::ChunkRenderApplySet;
-pub use chunk::texture_reload::ChunkTextureReload;
+pub use chunk::texture_reload::{ChunkTexturePreparation, ChunkTextureReload};
 pub use chunk::textures::{
     AnimationFrameSample, ChunkAnimationClock, ChunkTextureAssetIdentity, ChunkTextureAssets,
     TextureArrayLimits, TextureLimitError, TextureMipUploadPlan, TexturePageBinding,

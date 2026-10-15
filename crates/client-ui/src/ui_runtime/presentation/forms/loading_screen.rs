@@ -19,6 +19,23 @@ impl UiPresentationRuntime {
         metrics: TextMetrics,
         content: [f32; 2],
     ) -> Result<bool, UiPresentationError> {
+        if stage != LoadingStage::ChangingDimension {
+            self.screens.hud.loading = Default::default();
+            let words = launcher::menu::join_progress::loading_words(stage, &|key, fallback| {
+                runtime
+                    .translation(key)
+                    .map_or_else(|| fallback.to_owned(), |text| text.to_string())
+            });
+            self.append_oreui_loading(
+                stage,
+                [&words[0], &words[1]],
+                nodes,
+                next,
+                metrics,
+                content,
+            )?;
+            return Ok(true);
+        }
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(false);
         };

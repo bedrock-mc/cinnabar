@@ -277,6 +277,28 @@ class ArchiveTests(unittest.TestCase):
             self.assertFalse((source / "home/registry/src/index/serde-1.0.0").exists())
             module.chmod(0o755)
 
+    def test_symlinks_such_as_uplifted_dsym_bundles_are_left_out_so_the_restore_succeeds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source, archive = Path(temp) / "runner", Path(temp) / "cache.tar.gz"
+            target = source / "target/release"
+            bundle = target / "deps/cinnabar-0123.dSYM/Contents/Resources/DWARF"
+            bundle.mkdir(parents=True)
+            (bundle / "cinnabar-0123").write_bytes(b"dwarf")
+            try:
+                (target / "cinnabar.dSYM").symlink_to(target / "deps/cinnabar-0123.dSYM",
+                                                      target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"missing fixture: symbolic link support ({error})")
+            paths = [str(target)]
+            cache.pack(paths, archive)
+            shutil.rmtree(source)
+
+            with open(archive, "rb") as stream:
+                cache.unpack(paths, stream)
+
+            self.assertEqual((bundle / "cinnabar-0123").read_bytes(), b"dwarf")
+            self.assertFalse(os.path.lexists(target / "cinnabar.dSYM"))
+
     def test_linked_executables_are_left_out_on_every_platform(self):
         """Test and bin executables would push the Rust archive over its budget; libraries stay."""
         kept = [

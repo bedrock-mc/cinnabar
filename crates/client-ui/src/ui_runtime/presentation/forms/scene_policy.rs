@@ -55,6 +55,12 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
+        if self
+            .loading_stage
+            .is_some_and(ui::LoadingStage::is_world_entry)
+        {
+            return false;
+        }
         let engine = self.engine.as_deref();
         let settings = |reference: &str| {
             engine.map_or_else(ScreenSettings::default, |engine| {
@@ -93,6 +99,9 @@ impl UiPresentationRuntime {
 
     /// Resolves the menu and any popup above it; a popup cannot uncover an opaque parent.
     fn menu_settings(&self, runtime: &UiRuntime, view: &MenuView) -> ScreenSettings {
+        if view.out_of_game() {
+            return ScreenSettings::default();
+        }
         if view.screen == launcher::menu::MenuScreen::Death {
             return crate::ui_runtime::scene_stack::construction::death_settings();
         }

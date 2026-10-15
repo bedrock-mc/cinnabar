@@ -21,6 +21,16 @@ pub enum LoadingStage {
     ChangingDimension,
 }
 
+impl LoadingStage {
+    /// World entry keeps the title background until the world is ready to show.
+    pub const fn is_world_entry(self) -> bool {
+        match self {
+            Self::Connecting | Self::BuildingTerrain => true,
+            Self::ChangingDimension => false,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BoundedStat {
     current: u16,

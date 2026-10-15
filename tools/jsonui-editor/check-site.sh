@@ -5,8 +5,9 @@ set -euo pipefail
 site="$1"
 here="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 expected="$(
-    printf '%s\n' .nojekyll index.html style.css app.js pkg/jsonui_editor.js pkg/jsonui_editor_bg.wasm \
+    printf '%s\n' .nojekyll pkg/jsonui_editor.js pkg/jsonui_editor_bg.wasm \
         cinnangles-sans.mcbefont examples/files.json
+    (cd "$here/web" && find . -type f | sed 's|^\./||')
     (cd "$here/examples" && find . -type f | sed 's|^\./|examples/|')
 )"
 status=0

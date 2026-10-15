@@ -21,6 +21,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let identity = assets.identity();
     let completed = gpu_assets.pending.as_ref().and_then(|pending| {
         match pending
+            .result
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .try_recv()
@@ -31,64 +32,49 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         }
     });
     if let Some(completed) = completed {
-        gpu_assets.pending = None;
-        if let Some((pending, epoch)) = gpu_assets.pending_source.take() {
-            if completed.is_none() {
-                reload.finish(pending, epoch, false);
+        let pending = gpu_assets.pending.take().expect("completed worker");
+        if reload.is_current(&pending.request) {
+            if let Some(replacement) = completed {
+                gpu_assets.staged = Some(StagedTextures {
+                    request: pending.request,
+                    replacement,
+                });
+            } else {
+                reload.finish(&pending.request, false);
             }
         }
-        gpu_assets.staged = completed;
     }
     let requested = reload.preparation();
     let source_epoch = reload.geometry_epoch();
-    if gpu_assets
-        .staged
-        .as_ref()
-        .is_some_and(|(prepared, _, _, _)| {
-            (prepared.identity != identity
-                || gpu_assets
-                    .prepared
-                    .as_ref()
-                    .is_some_and(|active| active.identity == identity))
-                && requested
-                    .as_ref()
-                    .is_none_or(|candidate| candidate.assets.identity() != prepared.identity)
-        })
-    {
+    // A selected snapshot survives superseding requests until the renderer consumes it.
+    if gpu_assets.staged.as_ref().is_some_and(|staged| {
+        staged.replacement.0.identity != identity && !reload.is_current(&staged.request)
+    }) {
         gpu_assets.staged = None;
     }
-    // A reset cancels the unselected request in the mailbox. Retire its old worker
-    // result without overwriting any new preparation started in the next session.
-    if gpu_assets
-        .staged
-        .as_ref()
-        .is_some_and(|(prepared, _, geometry, epoch)| {
-            geometry.is_some() && *epoch != source_epoch && prepared.identity != identity
-        })
-    {
-        gpu_assets.staged = None;
-    }
-    let ready = gpu_assets
-        .staged
-        .as_ref()
-        .is_some_and(|(_, _, geometry, epoch)| {
-            if let Some(geometry) = geometry.as_ref().filter(|_| *epoch == source_epoch) {
-                geometry.ready(&instances, &arena)
-            } else {
-                // Atlas-only publication after a reset waits for every old physical draw.
-                arena.allocations.is_empty() && arena.retired_allocations.is_empty()
-            }
-        });
-    if let Some((prepared, _, _, _)) = gpu_assets.staged.as_ref() {
-        if ready {
-            reload.finish(prepared.identity, source_epoch, true);
+    let ready = gpu_assets.staged.as_ref().is_some_and(|staged| {
+        let geometry = &staged.replacement.2;
+        let epoch = staged.request.geometry_epoch();
+        if let Some(geometry) = geometry.as_ref().filter(|_| epoch == source_epoch) {
+            geometry.ready(&instances, &arena)
+        } else {
+            // Atlas-only publication after a reset waits for every old physical draw.
+            arena.allocations.is_empty() && arena.retired_allocations.is_empty()
         }
-        if prepared.identity == identity {
+    });
+    if let Some(staged) = gpu_assets.staged.as_ref() {
+        if ready {
+            reload.finish(&staged.request, true);
+        }
+        if staged.replacement.0.identity == identity {
             if !ready {
                 return;
             }
-            let (prepared, uploaded, geometry, epoch) =
-                gpu_assets.staged.take().expect("matching staged atlas");
+            let StagedTextures {
+                request,
+                replacement: (prepared, uploaded, geometry),
+            } = gpu_assets.staged.take().expect("matching staged atlas");
+            let epoch = request.geometry_epoch();
             if let Some(geometry) = geometry.filter(|_| epoch == source_epoch) {
                 if let Err(geometry) = geometry.publish(
                     &mut commands,
@@ -96,7 +82,10 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                     &mut arena,
                     coverage.as_deref_mut(),
                 ) {
-                    gpu_assets.staged = Some((prepared, uploaded, Some(geometry), epoch));
+                    gpu_assets.staged = Some(StagedTextures {
+                        request,
+                        replacement: (prepared, uploaded, Some(geometry)),
+                    });
                     return;
                 }
             }
@@ -104,14 +93,14 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             gpu_assets.attempted_identity = Some(identity);
             gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
             *stats = uploaded;
-            reload.published(identity, source_epoch);
+            reload.published(&request);
         }
     }
     // Bootstrap may publish without an optional reload transaction.
     if texture_asset_needs_rebuild(gpu_assets.attempted_identity, identity)
         && requested
             .as_ref()
-            .is_none_or(|candidate| candidate.assets.identity() != identity)
+            .is_none_or(|candidate| candidate.assets().identity() != identity)
         && (gpu_assets.prepared.is_none()
             || arena.allocations.is_empty() && arena.retired_allocations.is_empty())
     {
@@ -129,18 +118,20 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     };
     if gpu_assets.staged.is_some()
         || gpu_assets.pending.is_some()
-        || reload.status(candidate.assets.identity()).is_some()
+        || reload.status(candidate.assets().identity()).is_some()
     {
         return;
     }
     let device = render_device.clone();
     let queue = render_queue.clone();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    gpu_assets.pending_source = Some((candidate.assets.identity(), candidate.epoch));
-    gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
-    let geometry = candidate.geometry;
-    let epoch = candidate.epoch;
-    let candidate = candidate.assets;
+    let geometry = candidate.geometry().cloned();
+    let assets = candidate.assets().clone();
+    gpu_assets.pending = Some(PendingTextures {
+        request: candidate,
+        result: std::sync::Mutex::new(receiver),
+    });
+    let candidate = assets;
     let view = views
         .iter()
         .min_by_key(|(entity, ..)| *entity)
@@ -165,7 +156,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                     }),
                     None => None,
                 };
-                Some((atlas, stats, geometry, epoch))
+                Some((atlas, stats, geometry))
             });
         let _ = sender.send(result);
     });

@@ -348,6 +348,10 @@ pub fn initialized_pose_compiled() -> assets::CompiledEntityAssets {
 }
 
 /// The installed entity carrier, or `None` after naming the missing `fixture`.
+#[expect(
+    clippy::print_stderr,
+    reason = "explains on stderr why a test skips when the installed entity carrier fixture is absent"
+)]
 pub fn installed_entity_assets(fixture: &str) -> Option<Arc<RuntimeEntityAssets>> {
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");

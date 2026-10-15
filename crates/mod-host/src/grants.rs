@@ -4,19 +4,31 @@
 pub struct Capability {
     pub name: &'static str,
     pub description: &'static str,
+    /// Short name shown in permission controls.
+    pub label: &'static str,
+    /// Whether this capability can change combat, movement or gameplay input.
+    pub sensitive: bool,
     pub enabled: fn(&ModGrants) -> bool,
+    /// Whether every requested value for this capability is already granted.
+    pub requested_allowed: fn(&ModGrants, &ModGrants) -> bool,
     pub set: fn(&mut ModGrants, bool, Option<&ModGrants>),
 }
 
 trait GrantValue {
     /// Whether this field grants any authority.
     fn enabled(&self) -> bool;
+    /// Whether this value includes all authority named by the request.
+    fn covers(&self, requested: &Self) -> bool;
     /// Sets only authority explicitly named by the request for non-boolean fields.
     fn set(&mut self, enabled: bool, requested: Option<&Self>);
 }
 impl GrantValue for bool {
     fn enabled(&self) -> bool {
         *self
+    }
+    /// Treats a disabled request as covered, otherwise requires the grant.
+    fn covers(&self, requested: &Self) -> bool {
+        !requested || *self
     }
     fn set(&mut self, enabled: bool, _: Option<&Self>) {
         *self = enabled;
@@ -25,6 +37,10 @@ impl GrantValue for bool {
 impl GrantValue for Vec<String> {
     fn enabled(&self) -> bool {
         !self.is_empty()
+    }
+    /// Requires every requested command name to be present in the retained grant.
+    fn covers(&self, requested: &Self) -> bool {
+        requested.iter().all(|value| self.contains(value))
     }
     fn set(&mut self, enabled: bool, requested: Option<&Self>) {
         *self = if enabled {
@@ -36,7 +52,7 @@ impl GrantValue for Vec<String> {
 }
 
 macro_rules! grants {
-    ($(#[doc = $doc:literal] pub $field:ident: $ty:ty,)* ) => {
+    ($(#[doc = $doc:literal] #[permission($label:literal, $sensitive:literal)] pub $field:ident: $ty:ty,)* ) => {
         /// Explicit per-instance authority; optional capabilities are denied by default.
         #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
         #[serde(default, deny_unknown_fields)]
@@ -44,8 +60,9 @@ macro_rules! grants {
         impl ModGrants {
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
-                name: stringify!($field), description: $doc,
+                name: stringify!($field), description: $doc, label: $label, sensitive: $sensitive,
                 enabled: |grants| GrantValue::enabled(&grants.$field),
+                requested_allowed: |grants, requested| GrantValue::covers(&grants.$field, &requested.$field),
                 set: |grants, enabled, requested| GrantValue::set(&mut grants.$field, enabled, requested.map(|grants| &grants.$field)),
             },)*];
         }
@@ -53,50 +70,71 @@ macro_rules! grants {
 }
 
 grants! {
-
     /// Allows bounded read-only regions and resolved block properties.
+    #[permission("Terrain", false)]
     pub terrain: bool,
     /// Allows read-only current-session local inventory and status effect snapshots.
+    #[permission("Player status", false)]
     pub player_state: bool,
     /// Allows this instance to replace visual time and local menu branding.
+    #[permission("Environment", false)]
     pub environment: bool,
     /// Allows current-frame remote player and camera pose reads.
+    #[permission("Player poses", false)]
     pub players: bool,
     /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
+    #[permission("Camera rotation", true)]
     pub camera: bool,
     /// Allows one immediate air use after each slot change and air use while attacking.
+    #[permission("Item use", true)]
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
+    #[permission("Controls", true)]
     pub controls: bool,
     /// Allows bounded host-rendered HUD cards and a local custom crosshair.
+    #[permission("HUD", false)]
     pub hud: bool,
     /// Allows bounded actor attack range and held-attack press requests.
+    #[permission("Attack reach", true)]
     pub interaction: bool,
     /// Allows local physics snapshots and ordinary one-shot jump input requests.
+    #[permission("Movement", true)]
     pub movement: bool,
     /// Allows the selected component's bounded companion settings file.
+    #[permission("Settings file", false)]
     pub settings: bool,
     /// Allows sandboxed post passes and bounded world primitives.
+    #[permission("Rendering", false)]
     pub render: bool,
     /// Lets render passes read scene depth.
+    #[permission("Scene depth", false)]
     pub render_depth: bool,
     /// Allows current-frame reads of nearby non-player actors.
+    #[permission("Entities", false)]
     pub entities: bool,
     /// Command names this instance may request; empty denies command requests.
+    #[permission("Commands", true)]
     pub commands: Vec<String>,
     /// Allows bounded post-login packet delay through the private core endpoint.
+    #[permission("Packet delay", true)]
     pub packet_delay: bool,
     /// Allows a package's overlay and view beside the container screens.
+    #[permission("Screens", false)]
     pub screen: bool,
     /// Allows reading the session's items.
+    #[permission("Items", false)]
     pub items: bool,
     /// Allows reading the session's recipes.
+    #[permission("Recipes", false)]
     pub recipes: bool,
     /// Allows delivering a package's declared keys.
+    #[permission("Keys", true)]
     pub keys: bool,
     /// Allows retained full-block highlights of matching loaded blocks.
+    #[permission("Block highlights", false)]
     pub block_highlights: bool,
     /// Allows retained local fullbright lighting, without altering server light data.
+    #[permission("Fullbright", false)]
     pub fullbright: bool,
 }
 
@@ -112,7 +150,37 @@ mod tests {
         for capability in ModGrants::CAPABILITIES {
             assert!(fields.contains_key(capability.name));
             assert!(!(capability.enabled)(&grants));
+            assert!(!capability.label.is_empty());
         }
+    }
+    #[test]
+    fn gameplay_authority_is_marked_in_its_capability_definition() {
+        for name in [
+            "camera",
+            "item_use",
+            "interaction",
+            "packet_delay",
+            "controls",
+            "movement",
+            "commands",
+            "keys",
+        ] {
+            assert!(
+                ModGrants::CAPABILITIES
+                    .iter()
+                    .find(|capability| capability.name == name)
+                    .unwrap()
+                    .sensitive,
+                "{name}"
+            );
+        }
+        assert!(
+            !ModGrants::CAPABILITIES
+                .iter()
+                .find(|capability| capability.name == "settings")
+                .unwrap()
+                .sensitive
+        );
     }
     #[test]
     fn command_toggle_grants_only_declared_names() {
@@ -129,6 +197,12 @@ mod tests {
         };
         (descriptor.set)(&mut grants, true, Some(&requested));
         assert_eq!(grants.commands, ["ability"]);
+        assert!((descriptor.requested_allowed)(&grants, &requested));
+        let updated = ModGrants {
+            commands: vec!["ability".into(), "say".into()],
+            ..Default::default()
+        };
+        assert!(!(descriptor.requested_allowed)(&grants, &updated));
         (descriptor.set)(&mut grants, false, Some(&requested));
         assert!(grants.commands.is_empty());
     }

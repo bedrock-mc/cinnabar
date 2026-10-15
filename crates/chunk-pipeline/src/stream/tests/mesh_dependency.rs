@@ -490,3 +490,126 @@ fn block_changes_two_cells_from_a_face_remesh_the_neighbour_across_it() {
     stream.mark_block_mutation_changed(source, now, false, NeighbourReach::of_cell(14, 8, 8), &[]);
     assert!(stream.mesh_jobs.pending.contains_key(&east));
 }
+
+/// Air (0), twin cubes 1 and 2 with identical visuals and light, and a visibly different cube 3.
+fn twin_cube_assets() -> assets::RuntimeAssets {
+    use assets::{BlockFlags, BlockVisual, NO_ANIMATION, NO_MODEL_TEMPLATE, VisualKind};
+    let visual = |faces, flags, kind, contributor_role| BlockVisual {
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+        support: assets::VisualSupport::Exact,
+        faces,
+        flags,
+        kind,
+        contributor_role,
+        model_template: NO_MODEL_TEMPLATE,
+        animation: NO_ANIMATION,
+        variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+    };
+    let cube = |material| {
+        visual(
+            [material; 6],
+            BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
+            VisualKind::Cube,
+            assets::ContributorRole::Primary,
+        )
+    };
+    let air = visual(
+        [0; 6],
+        BlockFlags::AIR,
+        VisualKind::Invisible,
+        assets::ContributorRole::Air,
+    );
+    let material = assets::Material {
+        texture: assets::TextureRef::DIAGNOSTIC,
+        flags: 0,
+        animation: NO_ANIMATION,
+        ..assets::Material::unvaried()
+    };
+    let mips = [16_u32, 8, 4, 2, 1]
+        .map(|size| assets::TextureMip {
+            size,
+            rgba8: vec![0xff; size as usize * size as usize * 4].into_boxed_slice(),
+        })
+        .into();
+    let compiled = assets::CompiledAssets {
+        visuals: vec![air, cube(1), cube(1), cube(2)].into_boxed_slice(),
+        light_properties: vec![assets::LightProperties::default(); 4].into_boxed_slice(),
+        hashed: Box::new([]),
+        materials: vec![material; 3].into_boxed_slice(),
+        model_templates: Box::new([]),
+        model_quads: Box::new([]),
+        animations: Box::new([]),
+        animation_frames: Box::new([]),
+        texture_pages: vec![assets::TexturePage::new(assets::TextureArray {
+            layers: 1,
+            mips,
+        })]
+        .into_boxed_slice(),
+        biomes: assets::CompiledBiomeAssets::diagnostic(),
+        provenance: assets::BlobProvenance {
+            source_manifest_sha256: [0xA5; 32],
+            block_registry_sha256: [0x5A; 32],
+            light_registry_sha256: [0x33; 32],
+            biome_registry_sha256: [0x3C; 32],
+        },
+    };
+    assets::RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap()
+}
+
+/// A server state change between visually identical states keeps every mesh; a visible one
+/// still remeshes the section and the neighbour its cell borders.
+#[test]
+fn mesh_neutral_block_changes_keep_their_meshes() {
+    let mut stream = WorldStream::new_with_assets(
+        WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        },
+        std::sync::Arc::new(twin_cube_assets()),
+        [0.0; 3],
+        None,
+    );
+    let source = SubChunkKey::new(0, 0, 0, 0);
+    let east = SubChunkKey::new(0, 1, 0, 0);
+    for (key, id) in [(source, 1), (east, 3)] {
+        stream
+            .authority
+            .commit_sub_chunk(key, super::uniform_sub_chunk(id))
+            .unwrap();
+        stream.resident.insert(key);
+    }
+    let update = |stream: &mut WorldStream, id| {
+        let mutation = world::ChunkStore::prepare_sub_chunk_blocks(
+            source,
+            stream.authority.terrain().sub_chunk(source).as_deref(),
+            &[world::BlockUpdate::new(15, 0, 0, 0, id)],
+            0,
+        )
+        .unwrap();
+        assert!(stream.commit_block_mutations(vec![mutation]));
+        assert_eq!(
+            stream
+                .authority
+                .terrain()
+                .sub_chunk(source)
+                .unwrap()
+                .runtime_id(0, 15, 0, 0),
+            Some(id)
+        );
+    };
+
+    update(&mut stream, 2);
+    assert!(stream.mesh_jobs.pending.is_empty());
+    assert!(stream.revisions.dirty(source).is_none());
+    assert!(stream.revisions.dirty(east).is_none());
+
+    update(&mut stream, 3);
+    assert!(stream.mesh_jobs.pending.contains_key(&source));
+    assert!(stream.mesh_jobs.pending.contains_key(&east));
+}

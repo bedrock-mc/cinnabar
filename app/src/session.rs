@@ -24,7 +24,7 @@ use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::runtime::{
         network::{CompiledStacks, session::NetworkConfig},
-        shutdown::record_fatal_error,
+        shutdown::{FatalError, record_fatal_error},
         world::{ClientWorld, TransferNotice},
     },
     client_interaction::movement::{LocalPhysicsController, MovementTicker},
@@ -277,6 +277,7 @@ pub(crate) struct SessionResources<'w> {
     runtime: ResMut<'w, UiRuntimeResource>,
     player_runtime: ResMut<'w, PlayerRuntime>,
     client_world: ResMut<'w, ClientWorld>,
+    fatal_error: ResMut<'w, FatalError>,
     collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
     movement: ResMut<'w, MovementTicker>,
     local_physics: ResMut<'w, LocalPhysicsController>,
@@ -325,7 +326,7 @@ impl SessionResources<'_> {
             self.client_world.session_items.take(),
         ));
         self.client_world.pending_surface_spawn = None;
-        self.client_world.fatal_error = None;
+        self.fatal_error.0 = None;
         self.client_world.transfer_notice = None;
         quiesce_local_player(
             &mut self.movement,
@@ -373,15 +374,13 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
-    session.controller.destination_identity = Some(format!(
-        "{}:{}",
-        if local_world { "local" } else { "remote" },
-        if local_world {
-            menu.local_world_identity().unwrap_or(&address).to_owned()
+    session.controller.destination_identity = Some(
+        if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
+            format!("local:{id}")
         } else {
-            address.trim().to_lowercase()
-        }
-    ));
+            format!("remote:{}", address.trim().to_lowercase())
+        },
+    );
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,
@@ -652,7 +651,7 @@ pub(crate) fn recover_session_failure(
     mut menu: ResMut<MenuRuntime>,
     mut session: SessionResources,
 ) {
-    let Some(error) = session.client_world.fatal_error.clone() else {
+    let Some(error) = session.fatal_error.0.clone() else {
         return;
     };
     if !menu.absorb_session_failure(&error) {
@@ -695,7 +694,7 @@ fn follow_transfer(
         // the server-directed move named explicitly instead of followed.
         session.leave();
         record_fatal_error(
-            &mut session.client_world.fatal_error,
+            &mut session.fatal_error.0,
             format!(
                 "server transferred to {}",
                 format_transfer_address(&notice.host, notice.port)

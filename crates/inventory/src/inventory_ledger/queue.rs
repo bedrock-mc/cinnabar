@@ -120,16 +120,22 @@ impl PlayerInventoryLedger {
         self.view.as_ref().unwrap_or(&self.confirmed)
     }
 
+    /// Rebuilds the predicted view over confirmed cells; with no active prediction the view
+    /// is confirmed truth itself, so nothing is cloned.
     pub(super) fn refold(&mut self) {
-        let mut view = self.confirmed.clone();
-        let mut active = false;
-        for prediction in self.queue.iter().flat_map(|request| &request.predicted) {
-            if prediction.active {
-                active = true;
+        let mut predictions = self
+            .queue
+            .iter()
+            .flat_map(|request| &request.predicted)
+            .filter(|prediction| prediction.active)
+            .peekable();
+        self.view = predictions.peek().is_some().then(|| {
+            let mut view = self.confirmed.clone();
+            for prediction in predictions {
                 view.set(prediction.cell, prediction.held.clone());
             }
-        }
-        self.view = active.then_some(view);
+            view
+        });
         self.observe_furnace_cells();
     }
 

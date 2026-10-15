@@ -88,16 +88,21 @@ impl FarTerrain {
         radius: i32,
         horizon: i32,
     ) -> bool {
-        let (revision, drawn) = stream.near_drawn_columns();
+        let (revision, _) = stream.near_drawn_columns();
         let view = ([centre.x, centre.z], radius, revision);
         if self.near_view == Some(view) {
             return false;
         }
-        self.near = Arc::new(NearMask::around(
+        self.near = Arc::new(NearMask::around_with_empty(
             view.0,
             horizon,
             radius,
-            drawn
+            stream
+                .near_geometry_columns()
+                .filter(|column| column.dimension == centre.dimension)
+                .map(|column| ColumnPos::new(column.x, column.z)),
+            stream
+                .near_empty_columns()
                 .filter(|column| column.dimension == centre.dimension)
                 .map(|column| ColumnPos::new(column.x, column.z)),
         ));
@@ -300,7 +305,7 @@ impl NearRadius {
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, u64, i32, u64)>);
+pub(crate) struct ActiveWorld(Option<(String, Option<u64>, i32, u64)>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -382,7 +387,14 @@ pub(crate) fn feed_far_terrain(
     if current != target {
         match target {
             Some((destination, level, dimension, _)) => {
-                far.cache.begin_visit(destination, level, dimension);
+                if let Some(level) = level {
+                    far.cache.begin_visit(destination, level, dimension);
+                } else if destination.starts_with("local:") {
+                    // The launcher supplies a stable local-world ID independently of StartGame.
+                    far.cache.begin_visit(destination, 0, dimension);
+                } else {
+                    far.cache.begin_uncertain_visit(destination, dimension);
+                }
             }
             None => far.cache.leave_world(),
         }
@@ -471,8 +483,8 @@ pub(crate) fn feed_far_terrain(
         tier,
     ) as i32;
     // Near terrain owns everything within the full-detail radius, or all it is sent without
-    // one, even before its meshes load; past that far terrain hides under the columns near
-    // terrain draws, such as those handing over to it.
+    // one, even before its meshes load; past that, delivered air or published near geometry
+    // hides far terrain, including columns still handing over to it.
     let near_radius = far
         .near_radius
         .update(draining, full_detail.unwrap_or(loaded));
@@ -613,6 +625,126 @@ mod tests {
         cache.sync();
         cache.poll(now);
         assert!(cache.namespace().is_some());
+    }
+
+    /// Builds an empty session with far terrain on and the minimum full-detail radius.
+    fn far_terrain_app(render_distance: u8) -> App {
+        let mut settings = RuntimeSettings::default();
+        let mut user = settings.user_settings_update().1.clone();
+        user.video.far_terrain = render_api::far_terrain::FarTerrainMode::On;
+        user.video.render_distance_chunks = render_distance;
+        user.video.full_detail_distance_chunks = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS;
+        settings.replace_user_settings(user);
+        let world = ClientWorld {
+            level_identity: Some(42),
+            stream: Some(WorldStream::new(protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            })),
+            ..ClientWorld::default()
+        };
+        let mut app = App::new();
+        app.insert_resource(settings)
+            .insert_resource(world)
+            .insert_resource(SessionController::default().with_address(Some("example.net:19132")))
+            .insert_resource(FarTerrain::new(None))
+            .init_resource::<FarTerrainScene>()
+            .add_systems(bevy::prelude::Update, feed_far_terrain);
+        app
+    }
+
+    /// A new world rebuilds coverage even when its position, radius and revision coincide.
+    #[test]
+    fn world_switch_drops_the_previous_visibility_mask() {
+        let mut app = far_terrain_app(64);
+        app.update();
+        let previous = ColumnPos::new(30, 0);
+        {
+            let mut far = app.world_mut().resource_mut::<FarTerrain>();
+            far.near = Arc::new(NearMask::around(
+                [0, 0],
+                64,
+                render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32,
+                [previous],
+            ));
+            assert!(far.near.contains(previous));
+        }
+        app.world_mut().resource_mut::<ClientWorld>().level_identity = Some(43);
+        app.update();
+        assert!(
+            !app.world()
+                .resource::<FarTerrainScene>()
+                .near
+                .contains(previous)
+        );
+    }
+
+    /// Distant delivered air hides old terrain without refining unrelated far tiles.
+    #[test]
+    fn distant_air_does_not_refine_the_far_ring() {
+        let horizon = 160;
+        let near_radius = render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32;
+        let mut app = far_terrain_app(horizon as u8);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(1, protocol::WorldEvent::ChunkRadiusUpdated(horizon))
+            .unwrap();
+        app.update();
+        let before = TileView::around(
+            [0, 0],
+            &app.world().resource::<FarTerrainScene>().near,
+            near_radius,
+            horizon,
+        );
+        let empty = ColumnPos::new(128, 0);
+        let mut payload = vec![1, 0];
+        let sections = protocol::vanilla_dimension_range(0)
+            .unwrap()
+            .sub_chunk_count;
+        payload.extend(std::iter::repeat_n(0xff, sections - 1));
+        payload.push(0);
+        app.world_mut()
+            .resource_mut::<ClientWorld>()
+            .stream
+            .as_mut()
+            .unwrap()
+            .submit(
+                2,
+                protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                    dimension: 0,
+                    x: empty.x,
+                    z: empty.z,
+                    mode: protocol::LevelChunkMode::Inline { count: 0 },
+                    payload,
+                }),
+            )
+            .unwrap();
+        test_time::eventually("distant air column committed", || {
+            let mut world = app.world_mut().resource_mut::<ClientWorld>();
+            let stream = world.stream.as_mut().unwrap();
+            stream.poll([0.0; 3], 0);
+            stream
+                .near_drawn_columns()
+                .1
+                .any(|column| column.x == empty.x && column.z == empty.z)
+        });
+        app.update();
+        let scene = app.world().resource::<FarTerrainScene>();
+        assert!(scene.near.contains(empty));
+        let after = TileView::around([0, 0], &scene.near, near_radius, horizon);
+        assert_eq!(
+            far_terrain::select_tiles(after).len(),
+            far_terrain::select_tiles(before).len(),
+            "air coverage must not increase the tile count"
+        );
     }
 
     /// Summaries a retiring session collected reach disk when the app exits that frame.

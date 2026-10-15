@@ -8,8 +8,8 @@ pub(in crate::chunk) use reload::prepare_chunk_texture_assets;
 
 use render_scene::{
     BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, TextureArrayLimits,
-    TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
+    TextureArrayLimits, TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
     plan_texture_mip_uploads, plan_texture_page_bindings, texture_asset_needs_rebuild,
 };
 
@@ -18,6 +18,9 @@ mod water_tint_tests;
 
 #[cfg(test)]
 mod clock_tests;
+
+#[cfg(test)]
+mod reload_tests;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
@@ -234,10 +237,19 @@ type PreparedReplacement = (
     PreparedChunkTextureAssets,
     ChunkTextureUploadStats,
     Option<PreparedResourceGeometry>,
-    u64,
 );
 
-type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
+/// One render worker and the immutable request whose completion it may acknowledge.
+struct PendingTextures {
+    request: ChunkTexturePreparation,
+    result: std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>,
+}
+
+/// GPU resources retained for publication of the request that prepared them.
+struct StagedTextures {
+    request: ChunkTexturePreparation,
+    replacement: PreparedReplacement,
+}
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
@@ -245,8 +257,7 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
-    pending_source: Option<(ChunkTextureAssetIdentity, u64)>,
-    staged: Option<PreparedReplacement>,
+    staged: Option<StagedTextures>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]

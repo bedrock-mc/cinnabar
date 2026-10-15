@@ -1,6 +1,10 @@
 use super::super::*;
 
 impl WorldStream {
+    #[allow(
+        clippy::print_stderr,
+        reason = "BIOME_SEASONS is a debug-build stderr marker line for seasonal foliage runs"
+    )]
     pub(in super::super) fn replace_biome_definitions(
         &mut self,
         definitions: Arc<[BiomeDefinitionEvent]>,

@@ -1,13 +1,35 @@
-//! A column is drawn by near terrain only once its meshes are on screen.
+//! Delivered air and published near meshes own coverage over cached far terrain.
 
 use super::*;
 
+/// Whether either kind of near coverage hides this column.
 fn drawn(stream: &WorldStream, column: ChunkKey) -> bool {
     stream.near_drawn_columns().1.any(|drawn| drawn == column)
 }
 
-/// Completing a column is not enough: every section's mesh must upload, and eviction hands
-/// the column back to far terrain.
+/// Publishes every dirty section of a column without running mesh workers.
+fn upload_column(stream: &mut WorldStream, column: ChunkKey) {
+    let keys: Vec<SubChunkKey> = stream
+        .resident
+        .column(column)
+        .chain(stream.known_air.column(column))
+        .copied()
+        .collect();
+    assert!(!keys.is_empty());
+    let now = Instant::now();
+    for key in keys {
+        if let Some((revision, since)) = stream
+            .revisions
+            .dirty(key)
+            .map(|dirty| (dirty.revision, dirty.since))
+        {
+            stream.mesh_jobs.pending.remove(&key);
+            stream.acknowledge_mesh_upload(key, revision, since, now);
+        }
+    }
+}
+
+/// Geometry waits for uploads, air resends change coverage immediately, and eviction clears both.
 #[test]
 fn columns_are_drawn_once_their_meshes_upload() {
     let mut stream = WorldStream::new(WorldBootstrap {
@@ -44,16 +66,7 @@ fn columns_are_drawn_once_their_meshes_upload() {
         Some(&required),
         "the publication boundary carries each pending section generation"
     );
-    let now = Instant::now();
-    for key in keys {
-        if let Some((revision, since)) = stream
-            .revisions
-            .dirty(key)
-            .map(|dirty| (dirty.revision, dirty.since))
-        {
-            stream.acknowledge_mesh_upload(key, revision, since, now);
-        }
-    }
+    upload_column(&mut stream, column);
     assert!(drawn(&stream, column));
     assert_eq!(
         stream.terrain_publication_target(32).near.get(&column),
@@ -61,18 +74,47 @@ fn columns_are_drawn_once_their_meshes_upload() {
         "published sections keep their acknowledged generations"
     );
     let key = *required.keys().next().unwrap();
-    let revision = stream.mark_dirty_exact(key, now);
+    let revision = stream.mark_dirty_exact(key, Instant::now());
     assert_eq!(
         stream.terrain_publication_target(32).near[&column][&key],
-        revision,
-        "a pending replacement supersedes the published generation"
+        revision
     );
+    upload_column(&mut stream, column);
+    assert!(drawn(&stream, column));
+    assert!(stream.near_geometry_columns().any(|key| key == column));
+    assert!(!stream.near_empty_columns().any(|key| key == column));
+    let geometry_revision = stream.near_drawn_columns().0;
+
+    stream.submit(2, inline_air_event(column.x)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.near_empty_columns().any(|key| key == column));
+    assert!(!stream.near_geometry_columns().any(|key| key == column));
+    let air_revision = stream.near_drawn_columns().0;
+    assert!(air_revision > geometry_revision);
+
+    stream.submit(3, inline_air_event(column.x)).unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert_eq!(stream.near_drawn_columns().0, air_revision);
+    upload_column(&mut stream, column);
+    assert!(stream.near_empty_columns().any(|key| key == column));
+    stream
+        .submit(4, inline_block_entity_event(column.x, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    assert!(stream.near_empty_columns().any(|key| key == column));
+    assert!(!stream.near_geometry_columns().any(|key| key == column));
+    upload_column(&mut stream, column);
+    assert!(stream.near_geometry_columns().any(|key| key == column));
+    assert!(!stream.near_empty_columns().any(|key| key == column));
+    assert!(stream.near_drawn_columns().0 > air_revision);
 
     stream.evict_column(column);
     assert!(!drawn(&stream, column));
+    assert!(stream.near_geometry_columns().next().is_none());
+    assert!(stream.near_empty_columns().next().is_none());
 }
 
-/// Near-drawn columns are loaded and every section they hold has a published mesh.
+/// Covered columns are loaded and either empty or backed by published meshes.
 fn assert_near_drawn_invariant(stream: &WorldStream) {
     for column in stream.near_drawn_columns().1 {
         assert!(
@@ -85,7 +127,19 @@ fn assert_near_drawn_invariant(stream: &WorldStream) {
             .chain(stream.known_air.column(column))
             .copied()
             .collect();
-        assert!(!keys.is_empty(), "{column:?} holds no sections");
+        if stream
+            .authority
+            .terrain()
+            .chunk(column)
+            .is_none_or(|chunk| {
+                chunk
+                    .sub_chunks()
+                    .all(|(_, section)| stream.classifier.is_sub_chunk_air(&section))
+            })
+        {
+            continue;
+        }
+        assert!(!keys.is_empty(), "{column:?} holds no tracked sections");
         for key in keys {
             assert!(
                 stream.applied_mesh_generations.contains_key(&key),
@@ -95,10 +149,9 @@ fn assert_near_drawn_invariant(stream: &WorldStream) {
     }
 }
 
-/// Loads, resends, partial uploads and evictions in a scrambled order never leave a column
-/// near-drawn before its meshes are published.
+/// Loads, resends, partial uploads and evictions retain valid coverage in any order.
 #[test]
-fn near_drawn_columns_always_have_published_meshes() {
+fn covered_columns_are_empty_or_have_published_meshes() {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,
         dimension: 0,

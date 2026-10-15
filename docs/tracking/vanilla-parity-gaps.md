@@ -341,8 +341,9 @@ aim assist, sounds, buoyancy, container data) have no visual effect and are reta
 | 84 score, 140 nameplate_render_distance_max (current target) | yes | synced below-name score inside the native ten-block gate; per-actor tag range |
 | 136 filtered_name (older table's target) | no | filtered tag text — missing; current target key mapping still needs reconciliation |
 
-Missing presentation that the flags drive: the entity flame billboard
-and `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper
+World actors now draw collision-box flame billboards from on-fire metadata;
+matched-version world placement and playback acceptance remain incomplete in `plan.md`.
+Missing presentation that the flags drive: `on_fire_color`, entity ground shadows (none are drawn at any scale), the charged-creeper
 armor layer (needs `uv_anim`), and per-tick Molang `scripts.scale` (only a constant authored scale
 is carried).
 

@@ -24,6 +24,7 @@ enum Control {
     Setting(u16),
     Fullscreen,
     Permission(u64, usize),
+    ShowAllPermissions(u64),
 }
 
 impl Control {
@@ -33,6 +34,9 @@ impl Control {
             MenuAction::SettingsFullscreen(_) => Some(Self::Fullscreen),
             MenuAction::Mods(launcher::mods::Action::Permission(id, capability, _)) => {
                 Some(Self::Permission(id, capability))
+            }
+            MenuAction::Mods(launcher::mods::Action::ShowAllPermissions(id)) => {
+                Some(Self::ShowAllPermissions(id))
             }
             _ => None,
         }

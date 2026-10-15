@@ -218,6 +218,8 @@ pub struct TextLayout {
     id: u64,
     key: TextLayoutKey,
     glyphs: Box<[GlyphQuad]>,
+    /// Some glyph is `§k` text, whose glyphs change every frame.
+    obfuscated: bool,
     source_indices: Box<[Option<usize>]>,
     line_count: u16,
     size_64: [u32; 2],
@@ -250,6 +252,11 @@ impl TextLayout {
 
     pub fn glyphs(&self) -> &[GlyphQuad] {
         &self.glyphs
+    }
+
+    /// Whether any glyph is `§k` text, whose glyphs change every frame.
+    pub const fn obfuscated(&self) -> bool {
+        self.obfuscated
     }
 
     /// Character indices in formatting-stripped text; generated hyphens and ellipses have none.

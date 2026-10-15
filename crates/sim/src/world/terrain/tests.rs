@@ -2,6 +2,8 @@ use super::*;
 use crate::{CollisionRegistry, DoorFacing, DoorState};
 use world::{BlockUpdate, ChunkStore};
 
+use crate::world::section::SectionCache;
+
 const AIR: u32 = 0;
 const STONE: u32 = 1;
 const WATER: u32 = 2;
@@ -127,11 +129,12 @@ fn layers_match_the_block_reader_in_documented_order() {
             for z in min[2]..min[2] + 3 {
                 let index = cell(&sample, min, size, [x, y, z]);
                 assert!(loaded(&sample, index));
-                let expected = world.runtime_ids_at([x, y, z]).unwrap();
+                let mut section = SectionCache::default();
+                let expected = world.layers_at([x, y, z], &mut section).unwrap();
                 for layer_index in 0..2 {
                     let actual = layer(&sample, index, layer_index);
                     if layer_index < expected.len() {
-                        assert_eq!(actual, Some(expected[layer_index]), "{x} {y} {z}");
+                        assert_eq!(actual, expected.get(layer_index), "{x} {y} {z}");
                     } else {
                         assert_eq!(actual, None, "{x} {y} {z} layer {layer_index}");
                     }

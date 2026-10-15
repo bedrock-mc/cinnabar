@@ -43,6 +43,9 @@ class ReleaseDownloadsTests(unittest.TestCase):
             platform: {arch: "fixture-" + name for arch, name in arches.items()}
             for platform, arches in self.config["update_assets"].items()
         }
+        self.config["symbols"] = {**self.config["symbols"],
+                                  "archive": "fixture-" + self.config["symbols"]["archive"]}
+        self.version = "9.8.7"
         (self.tools / "release-assets.json").write_text(json.dumps(self.config))
         self.dist = self.root / "dist"
         self.dist.mkdir()
@@ -53,10 +56,16 @@ class ReleaseDownloadsTests(unittest.TestCase):
             text=True, capture_output=True,
         )
 
+    def symbol_archive(self, platform, arch):
+        return self.config["symbols"]["archive"].format(version=self.version, platform=platform, arch=arch)
+
     def required_assets(self):
         return [
             name for arches in self.config["assets"].values() for name in arches.values()
-        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [self.config["install_script"]]
+        ] + [name for arches in self.config["update_assets"].values() for name in arches.values()] + [
+            self.symbol_archive(platform, arch)
+            for platform, arches in self.config["assets"].items() for arch in arches
+        ] + [self.config["install_script"]]
 
     def populate(self):
         for name in self.required_assets():
@@ -69,7 +78,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 path = self.dist / name
                 payload = path.read_bytes()
                 path.unlink()
-                result = self.run_helper("checksums", self.dist)
+                result = self.run_helper("checksums", self.dist, "--version", self.version)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(name, result.stderr)
                 self.assertFalse((self.dist / self.config["checksums"]).exists())
@@ -80,7 +89,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
         path = self.dist / self.config["install_script"]
         path.unlink()
         path.mkdir()
-        result = self.run_helper("checksums", self.dist)
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(path.name, result.stderr)
         self.assertFalse((self.dist / self.config["checksums"]).exists())
@@ -92,7 +101,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
         (self.dist / "artifact-directory").mkdir()
         checksum = self.dist / self.config["checksums"]
         checksum.write_text("stale checksum content\n")
-        result = self.run_helper("checksums", self.dist)
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
         self.assertEqual(result.returncode, 0, result.stderr)
         first = checksum.read_bytes()
         entries = [line.split("  ", 1) for line in first.decode().splitlines()]
@@ -101,9 +110,33 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual([name for _, name in entries], sorted(files))
         for digest, name in entries:
             self.assertEqual(digest, hashlib.sha256(files[name].read_bytes()).hexdigest())
-        result = self.run_helper("checksums", self.dist)
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(checksum.read_bytes(), first)
+
+    def test_only_a_release_without_split_debug_info_may_omit_symbol_archives(self):
+        self.populate()
+        archives = [self.symbol_archive(platform, arch)
+                    for platform, arches in self.config["assets"].items() for arch in arches]
+        for name in archives:
+            (self.dist / name).unlink()
+        result = self.run_helper("checksums", self.dist, "--version", self.version)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(archives[0], result.stderr)
+        result = self.run_helper("checksums", self.dist, "--version", self.version, "--without-symbols")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.dist / self.config["checksums"]).is_file())
+
+    def test_symbol_archives_are_named_by_version_platform_and_arch(self):
+        names = {self.symbol_archive(platform, arch)
+                 for platform, arches in self.config["assets"].items() for arch in arches}
+        self.assertEqual(len(names), sum(len(arches) for arches in self.config["assets"].values()))
+        for platform, arches in self.config["assets"].items():
+            for arch in arches:
+                with self.subTest(platform=platform, arch=arch):
+                    name = self.symbol_archive(platform, arch)
+                    self.assertIn(self.version, name)
+                    self.assertIn(f"{platform}-{arch}", name)
 
     def test_asset_commands_follow_the_manifest(self):
         for platform, arches in self.config["assets"].items():
@@ -139,14 +172,18 @@ class ReleaseDownloadsTests(unittest.TestCase):
         for platform, arches in self.config["assets"].items():
             for arch, name in arches.items():
                 with self.subTest(platform=platform, arch=arch):
-                    result = self.run_helper("env", platform, arch)
+                    result = self.run_helper("env", platform, arch, "--version", self.version)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    expected = dict(common, RELEASE_ASSET=name)
+                    expected = dict(common, RELEASE_ASSET=name,
+                                    SYMBOLS_ASSET=self.symbol_archive(platform, arch))
                     if platform == "windows":
                         expected["AUXILIARY_ASSET"] = self.config["update_assets"][platform][arch]
                     self.assertEqual(
                         dict(line.split("=", 1) for line in result.stdout.splitlines()), expected,
                     )
+                    without_version = self.run_helper("env", platform, arch)
+                    self.assertNotEqual(without_version.returncode, 0)
+                    self.assertNotIn("RELEASE_ASSET=", without_version.stdout)
 
     def test_each_channel_names_its_manifest_and_release(self):
         for channel, release in self.config["update_channels"].items():

@@ -1,4 +1,5 @@
 use crate::chunk::*;
+use bevy::prelude::DetectChangesMut;
 use render_scene::{
     ChunkAnimationClock, ChunkRenderInstance, ChunkRenderQueue, ChunkTextureReload,
     ChunkUploadAcknowledgements, ChunkUploadBudget, RuntimeStageProfiler,
@@ -140,7 +141,10 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
     reload: Option<Res<ChunkTextureReload>>,
 ) {
     let mut runtime = runtime;
-    if let Some(immediate) = runtime.immediate_terrain.as_deref_mut() {
+    // Clearing an already-empty list would only mark it changed and re-extract nothing new.
+    if let Some(immediate) = runtime.immediate_terrain.as_mut()
+        && !immediate.bypass_change_detection().0.is_empty()
+    {
         immediate.0.clear();
     }
     if !queue.session_reset_pending

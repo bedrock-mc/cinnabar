@@ -4,6 +4,6 @@ use bevy::{
 };
 use render_model::NametagScene;
 /// Main-world holder of this frame's [`NametagScene`], cloned into the render world.
-#[derive(Resource, ExtractResource, Clone, Debug, Default, Deref, DerefMut)]
+#[derive(Resource, ExtractResource, Clone, Debug, Default, PartialEq, Deref, DerefMut)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct NametagSceneResource(pub NametagScene);

@@ -8,11 +8,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 
-use json_ui::Catalog;
+use json_ui::{Catalog, GLOBAL_VARIABLES_PATH as GLOBALS, UI_DEFS_PATH as UI_DEFS};
 use ui_engine::textures::texture_key;
 
-const UI_DEFS: &str = "ui/_ui_defs.json";
-const GLOBALS: &str = "ui/_global_variables.json";
 const LANG: &str = "texts/en_US.lang";
 const SCRATCH: &str = "scratch";
 /// What "New file" starts from; `{namespace}` becomes the file's stem.
@@ -41,6 +39,8 @@ const MAX_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
 pub struct Layer {
     pub name: String,
     files: BTreeMap<String, Arc<[u8]>>,
+    /// Existing documents selected by the stack's merged indexes, plus the index files.
+    ui_paths: BTreeSet<String>,
     /// Files known to exist whose bytes the host has not supplied yet.
     pending: BTreeSet<String>,
     edited: BTreeSet<String>,
@@ -64,12 +64,9 @@ impl Layer {
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
     }
 
-    /// Pack-relative `ui/` json paths, sorted.
+    /// Pack-relative UI document paths selected by the stack's indexes, sorted.
     pub fn ui_paths(&self) -> impl Iterator<Item = &str> {
-        self.files
-            .keys()
-            .map(String::as_str)
-            .filter(|path| is_ui_json(path))
+        self.ui_paths.iter().map(String::as_str)
     }
 
     pub fn is_scratch(&self) -> bool {
@@ -116,7 +113,7 @@ impl Layer {
     fn ui_files(&self) -> impl Iterator<Item = (&str, &[u8])> {
         self.files
             .iter()
-            .filter(|(path, _)| is_ui_json(path))
+            .filter(|(path, _)| self.ui_paths.contains(*path))
             .map(|(path, bytes)| (path.as_str(), bytes.as_ref()))
     }
 
@@ -135,10 +132,6 @@ impl Layer {
         self.files.insert(path.to_owned(), bytes.into());
         true
     }
-}
-
-fn is_ui_json(path: &str) -> bool {
-    path.starts_with("ui/") && path.ends_with(".json")
 }
 
 /// Where a texture resolved: the layer and file, loaded or still wanted.
@@ -238,11 +231,9 @@ impl Workspace {
             text.to_owned()
         };
         self.edit(layer, &path, &text);
-        let listed: Vec<String> = self.layers[layer]
-            .ui_paths()
-            .filter(|p| !p.starts_with("ui/_"))
-            .map(str::to_owned)
-            .collect();
+        let mut listed = self.declared_paths();
+        listed.retain(|path| self.layers[layer].files.contains_key(path));
+        listed.insert(path.clone());
         let defs = serde_json::json!({ "ui_defs": listed });
         self.edit(layer, UI_DEFS, &format!("{defs:#}\n"));
         (layer, path)
@@ -254,12 +245,19 @@ impl Workspace {
             self.structure_generation = self.structure_generation.wrapping_add(1);
             self.prefix = vec![(0, None); self.layers.len()];
             self.lang = None;
+            self.refresh_ui_paths();
         }
     }
 
     /// Add host files to `layer`, stripping the folder that holds the pack.
     /// `pending` paths exist but arrive later through [`Self::supply`].
-    pub fn add_files(&mut self, layer: usize, files: Vec<(String, Vec<u8>)>, pending: Vec<String>) {
+    /// Return each accepted pending path paired with its original host path.
+    pub fn add_files(
+        &mut self,
+        layer: usize,
+        files: Vec<(String, Vec<u8>)>,
+        pending: Vec<String>,
+    ) -> Vec<(String, String)> {
         let all: Vec<&str> = files
             .iter()
             .map(|(path, _)| path.as_str())
@@ -267,7 +265,7 @@ impl Workspace {
             .collect();
         let root = pack_root(&all);
         let Some(target) = self.layers.get_mut(layer) else {
-            return;
+            return Vec::new();
         };
         for (path, bytes) in files {
             if let Some(path) = strip_root(&path, &root) {
@@ -275,17 +273,21 @@ impl Workspace {
                 target.files.insert(path, bytes.into());
             }
         }
-        for path in pending {
-            if let Some(path) = strip_root(&path, &root)
+        let mut host_paths = Vec::new();
+        for host_path in pending {
+            if let Some(path) = strip_root(&host_path, &root)
                 && !target.files.contains_key(&path)
             {
-                target.pending.insert(path);
+                target.pending.insert(path.clone());
+                host_paths.push((path, host_path));
             }
         }
         target.generation += 1;
+        self.refresh_ui_paths();
+        host_paths
     }
 
-    /// Open a zip as `layer`'s contents: ui json and lang load now, the rest on demand.
+    /// Open a zip, reading index-selected UI documents and language files eagerly.
     pub fn add_archive(&mut self, layer: usize, bytes: Vec<u8>) -> Result<(), String> {
         let bytes: Arc<[u8]> = bytes.into();
         let mut archive =
@@ -300,7 +302,11 @@ impl Workspace {
         }
         let mut eager = Vec::new();
         for (path, name) in &paths {
-            if is_ui_json(path) || path.starts_with("texts/") {
+            if path == UI_DEFS
+                || path == GLOBALS
+                || path.starts_with("texts/")
+                || (path.starts_with("textures/") && path.ends_with(".json"))
+            {
                 let file = archive.by_name(name).map_err(|e| e.to_string())?;
                 let contents = read_entry(file, MAX_ENTRY_BYTES).map_err(|e| e.to_string())?;
                 eager.push((path.clone(), contents));
@@ -315,6 +321,7 @@ impl Workspace {
         target.archive = Some(archive);
         target.archive_paths = paths;
         target.generation += 1;
+        self.refresh_ui_paths();
         Ok(())
     }
 
@@ -324,22 +331,81 @@ impl Workspace {
         if let Some(target) = self.layers.get_mut(layer) {
             target.pending.remove(path);
             target.files.insert(path.to_owned(), bytes.into());
+            if target.ui_paths.contains(path) {
+                target.generation += 1;
+            }
+        }
+        if path == UI_DEFS {
+            self.refresh_ui_paths();
         }
     }
 
     /// Replace a file with edited text.
     pub fn edit(&mut self, layer: usize, path: &str, text: &str) {
+        let mut added = false;
         if let Some(target) = self.layers.get_mut(layer) {
             if !target.edited.contains(path) {
                 let before = target.files.get(path).cloned();
                 target.originals.insert(path.to_owned(), before);
             }
-            target
+            added = target
                 .files
-                .insert(path.to_owned(), text.as_bytes().to_vec().into());
+                .insert(path.to_owned(), text.as_bytes().to_vec().into())
+                .is_none();
             target.edited.insert(path.to_owned());
             target.generation += 1;
         }
+        if added || path == UI_DEFS {
+            self.refresh_ui_paths();
+        }
+    }
+
+    /// The sorted union of definition paths declared anywhere in the stack.
+    fn declared_paths(&self) -> BTreeSet<String> {
+        self.layers
+            .iter()
+            .filter_map(|layer| layer.file(UI_DEFS))
+            .filter_map(|bytes| Catalog::declared_paths(bytes).ok())
+            .flatten()
+            .collect()
+    }
+
+    /// Refresh file selection after an index or layer changes, extracting archived UI.
+    fn refresh_ui_paths(&mut self) {
+        let mut declared = self.declared_paths();
+        declared.extend([UI_DEFS.to_owned(), GLOBALS.to_owned()]);
+        for layer in &mut self.layers {
+            let paths: BTreeSet<_> = declared
+                .iter()
+                .filter(|path| layer.has(path))
+                .cloned()
+                .collect();
+            for path in &paths {
+                if !layer.files.contains_key(path) {
+                    layer.extract(path);
+                }
+            }
+            if layer.ui_paths != paths {
+                layer.ui_paths = paths;
+                layer.generation += 1;
+            }
+        }
+        // A new index can select an earlier layer's files even when they were already visible.
+        self.prefix = vec![(0, None); self.layers.len()];
+    }
+
+    /// UI documents announced by the host whose bytes have not arrived yet.
+    pub fn wanted_ui_files(&self) -> Vec<(usize, String)> {
+        self.layers
+            .iter()
+            .enumerate()
+            .flat_map(|(index, layer)| {
+                layer
+                    .ui_paths()
+                    .filter(|path| layer.pending.contains(*path))
+                    .map(move |path| (index, path.to_owned()))
+            })
+            .collect()
     }
 
     pub fn texture_generation(&self) -> u64 {
@@ -383,7 +449,7 @@ impl Workspace {
             return Arc::clone(catalog);
         }
         let catalog = if index == 0 {
-            let (catalog, error) = base_catalog(&self.layers[0]);
+            let (catalog, error) = base_catalog(&self.layers[0], self.declared_paths());
             self.base_error = error;
             catalog
         } else {
@@ -477,9 +543,10 @@ impl Workspace {
     }
 }
 
-fn base_catalog(layer: &Layer) -> (Catalog, Option<String>) {
+/// Loads the bottom layer, retaining overlay fallback for incomplete packs.
+fn base_catalog(layer: &Layer, declared: BTreeSet<String>) -> (Catalog, Option<String>) {
     let error = if layer.files.contains_key(UI_DEFS) && layer.files.contains_key(GLOBALS) {
-        match Catalog::from_files(layer.ui_files()) {
+        match Catalog::from_files_with_paths(layer.ui_files(), declared.clone()) {
             Ok(catalog) => return (catalog, None),
             Err(error) => Some(error.to_string()),
         }
@@ -487,6 +554,7 @@ fn base_catalog(layer: &Layer) -> (Catalog, Option<String>) {
         None
     };
     let mut catalog = Catalog::default();
+    catalog.include_paths(declared);
     catalog.apply_pack(layer.ui_files());
     (catalog, error)
 }
@@ -561,6 +629,47 @@ mod cache_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_host_paths_use_the_loaded_files_pack_root() {
+        let mut workspace = Workspace::default();
+        let layer = workspace.add_layer("pack");
+        let paths = workspace.add_files(
+            layer,
+            vec![("Wrapper/Pack/manifest.json".into(), b"{}".to_vec())],
+            vec![
+                "Wrapper/Pack/custom/ui/screen.json".into(),
+                "Wrapper/Pack/ui/screen.json".into(),
+                "Wrapper\\Pack\\@custom\\screen.uidx".into(),
+                "Wrapper/outside.json".into(),
+            ],
+        );
+        assert_eq!(
+            paths,
+            vec![
+                (
+                    "custom/ui/screen.json".into(),
+                    "Wrapper/Pack/custom/ui/screen.json".into(),
+                ),
+                (
+                    "ui/screen.json".into(),
+                    "Wrapper/Pack/ui/screen.json".into(),
+                ),
+                (
+                    "@custom/screen.uidx".into(),
+                    "Wrapper\\Pack\\@custom\\screen.uidx".into(),
+                ),
+            ]
+        );
+        for (path, _) in paths {
+            workspace.supply(layer, &path, path.as_bytes().to_vec());
+            assert_eq!(
+                workspace.layers()[layer].text(&path).as_deref(),
+                Some(path.as_str())
+            );
+        }
+        assert!(!workspace.layers()[layer].has("Wrapper/outside.json"));
+    }
 
     // A pack dropped inside a wrapper folder still lands at its own root.
     #[test]

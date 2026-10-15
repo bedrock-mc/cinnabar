@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "the benchmark writes per-iteration CSV on stdout and solver stats on stderr"
+)]
+
 #[path = "chunk_costs/lighting_columns.rs"]
 mod lighting_columns;
 

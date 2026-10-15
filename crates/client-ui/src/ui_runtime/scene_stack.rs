@@ -76,8 +76,8 @@ pub struct SceneHost {
     pub menu: Option<MenuScreen>,
     /// The menu opened over the session's world (pause, death) rather than the launcher's.
     pub over_world: bool,
-    /// The world-loading cover is up.
-    pub loading: bool,
+    /// The world-loading cover's stage, while it is up.
+    pub loading: Option<ui::LoadingStage>,
 }
 
 impl SceneHost {
@@ -138,7 +138,11 @@ impl UiRuntime {
     }
 
     /// Takes this frame's loading cover and the presentation catalog's settings.
-    pub fn observe_presentation(&mut self, loading: bool, table: Arc<ScreenSettingsTable>) {
+    pub fn observe_presentation(
+        &mut self,
+        loading: Option<ui::LoadingStage>,
+        table: Arc<ScreenSettingsTable>,
+    ) {
         self.loading_screen = loading;
         if !Arc::ptr_eq(&table, &self.screen_settings) {
             self.screen_settings = table;
@@ -225,7 +229,8 @@ impl SceneClocks {
     /// Notes `stack` (bottom first) as this frame's scenes at `now` seconds.
     pub fn observe(&mut self, stack: &[Scene], now: f64) {
         if !std::mem::replace(&mut self.started, true) {
-            self.previous = stack.to_vec();
+            self.previous.clear();
+            self.previous.extend_from_slice(stack);
             return;
         }
         for (index, scene) in stack.iter().enumerate() {
@@ -253,7 +258,8 @@ impl SceneClocks {
                 None => false,
             }
         });
-        self.previous = stack.to_vec();
+        self.previous.clear();
+        self.previous.extend_from_slice(stack);
     }
 
     /// The event clocks `scene`'s screen reads this frame.

@@ -1,5 +1,152 @@
 use super::*;
 
+/// Writes a binary component with the host's declared-request custom section.
+fn requested_component(path: &Path, request: &mod_host::ModGrants) {
+    /// Appends a section's unsigned LEB128 byte length.
+    fn length(mut value: usize, bytes: &mut Vec<u8>) {
+        loop {
+            let byte = (value & 0x7f) as u8;
+            value >>= 7;
+            bytes.push(byte | if value == 0 { 0 } else { 0x80 });
+            if value == 0 {
+                break;
+            }
+        }
+    }
+    let name = mod_host::REQUESTED_GRANTS_SECTION;
+    let mut section = Vec::new();
+    length(name.len(), &mut section);
+    section.extend_from_slice(name.as_bytes());
+    section.extend_from_slice(&serde_json::to_vec(request).unwrap());
+    let mut bytes = wat::parse_str("(component)").unwrap();
+    bytes.push(0);
+    length(section.len(), &mut bytes);
+    bytes.extend(section);
+    fs::write(path, bytes).unwrap();
+}
+
+#[test]
+fn batch_permission_actions_grant_exact_requests_and_revoke_all() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mods, registration) = (
+        directory.path().join("mods"),
+        directory.path().join("config"),
+    );
+    fs::create_dir_all(&mods).unwrap();
+    let component = mods.join("zoom.wasm");
+    let requested = mod_host::ModGrants {
+        camera: true,
+        settings: true,
+        commands: vec!["ability".into()],
+        ..Default::default()
+    };
+    requested_component(&component, &requested);
+    let other = mods.join("other.wasm");
+    fs::write(&other, b"text fixture").unwrap();
+    select(&registration, &component, true, "enable".into()).unwrap();
+    select(&registration, &other, true, "other".into()).unwrap();
+    selection::permission(&registration, &component, 0, true, "extra".into()).unwrap();
+    let before = registered(&registration);
+    let shown = scan(&mods, &registration, String::new());
+    let id = shown
+        .installed
+        .iter()
+        .find(|item| item.file == "zoom.wasm")
+        .unwrap()
+        .id;
+    let mut requests = 0;
+    perform(
+        Action::AllowRequested(id),
+        &mods,
+        &registration,
+        &mut requests,
+        &mut || Ok(None),
+        &mut |_| Ok(retirement_permit()),
+    )
+    .unwrap();
+    let allowed = registered(&registration);
+    assert_eq!(allowed[0].entry.grants, requested);
+    assert_eq!(allowed[1].entry, before[1].entry);
+    assert_eq!(requests, 1);
+    let scanned = scan(&mods, &registration, String::new());
+    let item = scanned.installed.iter().find(|item| item.id == id).unwrap();
+    for (permission, capability) in item
+        .permissions
+        .iter()
+        .zip(mod_host::ModGrants::CAPABILITIES)
+    {
+        assert_eq!(permission.name, capability.label);
+        assert_eq!(permission.sensitive, capability.sensitive);
+        assert_eq!(permission.requested, Some((capability.enabled)(&requested)));
+    }
+    let updated = mod_host::ModGrants {
+        commands: vec!["ability".into(), "say".into()],
+        ..requested.clone()
+    };
+    requested_component(&component, &updated);
+    let updated_card = scan(&mods, &registration, String::new());
+    let updated_card = updated_card
+        .installed
+        .iter()
+        .find(|item| item.file == "zoom.wasm")
+        .unwrap();
+    assert_eq!(updated_card.requested_counts(), (2, 3));
+    assert!(
+        updated_card
+            .permissions
+            .iter()
+            .find(|permission| permission.name == "Commands")
+            .unwrap()
+            .enabled
+    );
+    fs::remove_file(&component).unwrap();
+    let missing = scan(&mods, &registration, String::new()).active[0].id;
+    perform(
+        Action::RevokeAll(missing),
+        &mods,
+        &registration,
+        &mut requests,
+        &mut || Ok(None),
+        &mut |_| Ok(retirement_permit()),
+    )
+    .unwrap();
+    let revoked = registered(&registration);
+    assert_eq!(revoked[0].entry.grants, mod_host::ModGrants::default());
+    assert!(revoked[0].entry.enabled);
+    assert_eq!(revoked[1].entry, before[1].entry);
+    assert_eq!(requests, 2);
+}
+
+#[test]
+fn undeclared_and_malformed_requests_cannot_get_batch_grants() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mods, registration) = (
+        directory.path().join("mods"),
+        directory.path().join("config"),
+    );
+    fs::create_dir_all(&mods).unwrap();
+    let component = mods.join("mod.wasm");
+    select(&registration, &component, true, "enable".into()).unwrap();
+    let record = registration.join(super::super::registration::REGISTRATION_FILE);
+    let before = fs::read(&record).unwrap();
+    for bytes in [b"undeclared".as_slice(), b"\0asm".as_slice()] {
+        fs::write(&component, bytes).unwrap();
+        let id = scan(&mods, &registration, String::new()).active[0].id;
+        assert!(
+            perform(
+                Action::AllowRequested(id),
+                &mods,
+                &registration,
+                &mut 0,
+                &mut || Ok(None),
+                &mut |_| Ok(retirement_permit())
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(&record).unwrap(), before);
+    }
+}
+
 /// Models a completed retirement whose watcher generation remains current.
 fn retirement_permit() -> removal::Permit {
     removal::Permit::new(

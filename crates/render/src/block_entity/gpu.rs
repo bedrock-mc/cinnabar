@@ -7,7 +7,7 @@ use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::System;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
-use std::mem::size_of;
+use std::{mem::size_of, ops::Range, sync::Arc};
 
 #[cfg(test)]
 use bevy::prelude::IntoSystem;
@@ -64,6 +64,8 @@ use pipeline::{BlockEntityPipeline, BlockEntityPipelineKey, PipelineMode};
 const SHADER_HANDLE: Handle<Shader> = uuid_handle!("6f0c1c1e-3b6d-4a7e-9b1e-2f4f8a1d5c33");
 const VERTEX_BYTES: u64 = (BLOCK_ENTITY_VERTEX_WORDS * size_of::<f32>()) as u64;
 const MIN_BUFFER_VERTICES: u64 = 1024;
+/// Bytes compared per `memcmp` while locating the changed span of a vertex list.
+const COMPARE_BLOCK_BYTES: usize = 4096;
 const PORTAL_PARAMETER_BYTES: u64 = size_of::<[[f32; 4]; 4]>() as u64;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -162,20 +164,25 @@ impl VertexList {
         }
     }
 
+    /// Leaves `vertices` in the buffer's live prefix. `previous` must be the slice passed to
+    /// the last call; only the vertex span whose bytes differ from it is written, and a newly
+    /// allocated buffer is written whole.
     fn upload(
         &mut self,
+        previous: &[BlockEntityVertex],
         vertices: &[BlockEntityVertex],
         render_device: &RenderDevice,
         render_queue: &RenderQueue,
         label: &'static str,
     ) {
         self.count = u32::try_from(vertices.len()).unwrap_or(0);
-        render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
         if vertices.is_empty() {
+            render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
             return;
         }
         let needed = vertices.len() as u64;
-        if self.buffer.is_none() || self.capacity_vertices < needed {
+        let reallocated = self.buffer.is_none() || self.capacity_vertices < needed;
+        if reallocated {
             let capacity = needed.next_power_of_two().max(MIN_BUFFER_VERTICES);
             self.buffer = Some(render_device.create_buffer(&BufferDescriptor {
                 label: Some(label),
@@ -186,10 +193,96 @@ impl VertexList {
             self.capacity_vertices = capacity;
             self.bind_group = None;
         }
-        if let Some(buffer) = &self.buffer {
-            render_queue.profiled_write_buffer(buffer, 0, bytemuck::cast_slice(vertices));
+        let written = if reallocated {
+            0..vertices.len()
+        } else {
+            match changed_span(previous, vertices) {
+                Some(span) => span,
+                // The buffer and the runs built from `previous` already describe `vertices`.
+                None => return,
+            }
+        };
+        render_model::block_entity::draw_ranges::rebuild_runs(&mut self.runs, vertices);
+        if let (Some(buffer), false) = (&self.buffer, written.is_empty()) {
+            render_queue.profiled_write_buffer(
+                buffer,
+                written.start as u64 * VERTEX_BYTES,
+                bytemuck::cast_slice(&vertices[written]),
+            );
         }
     }
+}
+
+/// Vertices of `vertices` that must be written over a buffer holding `previous`, or `None`
+/// when both lists are bytewise identical. Bytes, not float values, are compared, so signed
+/// zeros and NaN payloads are never skipped.
+fn changed_span(
+    previous: &[BlockEntityVertex],
+    vertices: &[BlockEntityVertex],
+) -> Option<Range<usize>> {
+    let start = matching_prefix(previous, vertices);
+    if previous.len() != vertices.len() {
+        return Some(start..vertices.len());
+    }
+    if start == vertices.len() {
+        return None;
+    }
+    let end = vertices.len() - matching_suffix(&previous[start..], &vertices[start..]);
+    Some(start..end)
+}
+
+/// Number of leading vertices whose bytes are equal in both lists.
+fn matching_prefix(left: &[BlockEntityVertex], right: &[BlockEntityVertex]) -> usize {
+    let shared = left.len().min(right.len());
+    let left: &[u8] = bytemuck::cast_slice(&left[..shared]);
+    let right: &[u8] = bytemuck::cast_slice(&right[..shared]);
+    let mut start = 0;
+    while start < left.len() {
+        let end = (start + COMPARE_BLOCK_BYTES).min(left.len());
+        if left[start..end] != right[start..end] {
+            let byte = left[start..end]
+                .iter()
+                .zip(&right[start..end])
+                .position(|(a, b)| a != b)
+                .map_or(end, |offset| start + offset);
+            return byte / VERTEX_BYTES as usize;
+        }
+        start = end;
+    }
+    shared
+}
+
+/// Number of trailing vertices whose bytes are equal in two lists of the same length.
+fn matching_suffix(left: &[BlockEntityVertex], right: &[BlockEntityVertex]) -> usize {
+    debug_assert_eq!(left.len(), right.len());
+    let left: &[u8] = bytemuck::cast_slice(left);
+    let right: &[u8] = bytemuck::cast_slice(right);
+    let mut end = left.len();
+    while end > 0 {
+        let start = end.saturating_sub(COMPARE_BLOCK_BYTES);
+        if left[start..end] != right[start..end] {
+            let byte = left[start..end]
+                .iter()
+                .zip(&right[start..end])
+                .rposition(|(a, b)| a != b)
+                .map_or(start, |offset| start + offset);
+            return (left.len() - byte - 1) / VERTEX_BYTES as usize;
+        }
+        end = start;
+    }
+    left.len() / VERTEX_BYTES as usize
+}
+
+/// The vertex lists last passed to each [`VertexList::upload`], shared rather than copied.
+#[derive(Default)]
+struct UploadedLists {
+    solid: Arc<[BlockEntityVertex]>,
+    overlay: Arc<[BlockEntityVertex]>,
+    portal: Arc<[BlockEntityVertex]>,
+    additive: Arc<[BlockEntityVertex]>,
+    outline: Arc<[BlockEntityVertex]>,
+    /// Frame cracks followed by the selection highlight.
+    crack: Vec<BlockEntityVertex>,
 }
 
 #[derive(Resource)]
@@ -200,6 +293,9 @@ struct BlockEntityGpu {
     crack: VertexList,
     portal: VertexList,
     additive: VertexList,
+    uploaded: UploadedLists,
+    /// Reused to assemble the crack list before it replaces `uploaded.crack`.
+    crack_scratch: Vec<BlockEntityVertex>,
     portal_uniform: Buffer,
     portal_parameters: Option<[[f32; 4]; 4]>,
     #[cfg(test)]
@@ -223,6 +319,8 @@ fn init_gpu(mut commands: Commands, render_device: Res<RenderDevice>) {
         crack: VertexList::new(),
         portal: VertexList::new(),
         additive: VertexList::new(),
+        uploaded: UploadedLists::default(),
+        crack_scratch: Vec::new(),
         portal_uniform: render_device.create_buffer(&BufferDescriptor {
             label: Some("portal projector parameters"),
             size: PORTAL_PARAMETER_BYTES,
@@ -337,57 +435,74 @@ fn prepare_resources(
         }
         gpu.dynamic_revision = frame.dynamic_revision;
     }
-    if gpu.frame_revision != frame.revision {
-        gpu.solid.upload(
-            &frame.solid,
-            &render_device,
-            &render_queue,
-            "block-entity solid vertices",
-        );
-        gpu.portal.upload(
-            &frame.portal,
-            &render_device,
-            &render_queue,
-            "portal encoded plane vertices",
-        );
-        gpu.additive.upload(
-            &frame.additive,
-            &render_device,
-            &render_queue,
-            "dragon death additive vertices",
-        );
+    let BlockEntityGpu {
+        solid,
+        overlay,
+        outline,
+        crack,
+        portal,
+        additive,
+        uploaded,
+        crack_scratch,
+        frame_revision,
+        selection_revision,
+        ..
+    } = &mut *gpu;
+    if *frame_revision != frame.revision {
+        for (list, previous, vertices, label) in [
+            (
+                &mut *solid,
+                &mut uploaded.solid,
+                &frame.solid,
+                "block-entity solid vertices",
+            ),
+            (
+                &mut *portal,
+                &mut uploaded.portal,
+                &frame.portal,
+                "portal encoded plane vertices",
+            ),
+            (
+                &mut *additive,
+                &mut uploaded.additive,
+                &frame.additive,
+                "dragon death additive vertices",
+            ),
+            (
+                &mut *overlay,
+                &mut uploaded.overlay,
+                &frame.overlay,
+                "block-entity overlay vertices",
+            ),
+        ] {
+            list.upload(previous, vertices, &render_device, &render_queue, label);
+            *previous = Arc::clone(vertices);
+        }
     }
-    if gpu.frame_revision != frame.revision {
-        gpu.overlay.upload(
-            &frame.overlay,
-            &render_device,
-            &render_queue,
-            "block-entity overlay vertices",
-        );
-    }
-    if gpu.selection_revision != selection.revision {
-        gpu.outline.upload(
+    if *selection_revision != selection.revision {
+        outline.upload(
+            &uploaded.outline,
             &selection.outline,
             &render_device,
             &render_queue,
             "block selection line vertices",
         );
+        uploaded.outline = Arc::clone(&selection.outline);
     }
-    if gpu.frame_revision != frame.revision || gpu.selection_revision != selection.revision {
-        let crack = frame
-            .crack
-            .iter()
-            .chain(selection.highlight.iter())
-            .copied()
-            .collect::<Vec<_>>();
-        gpu.crack.upload(
-            &crack,
+    if *frame_revision != frame.revision || *selection_revision != selection.revision {
+        crack_scratch.clear();
+        crack_scratch.extend_from_slice(&frame.crack);
+        crack_scratch.extend_from_slice(&selection.highlight);
+        crack.upload(
+            &uploaded.crack,
+            crack_scratch,
             &render_device,
             &render_queue,
             "block-entity crack vertices",
         );
-        gpu.frame_revision = frame.revision;
-        gpu.selection_revision = selection.revision;
+        std::mem::swap(crack_scratch, &mut uploaded.crack);
+        *frame_revision = frame.revision;
+        *selection_revision = selection.revision;
     }
 }
 

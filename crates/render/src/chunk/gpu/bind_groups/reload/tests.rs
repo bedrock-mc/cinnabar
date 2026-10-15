@@ -66,18 +66,17 @@ fn complete_worker(
     .unwrap();
     let (prepared, stats) = build_chunk_texture_assets(candidate, &device, &queue).unwrap();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let epoch = app
+    let request = app
         .world()
         .resource::<ChunkTextureReload>()
-        .geometry_epoch();
-    assert!(
-        sender
-            .send(Some((prepared, stats, Some(geometry), epoch)))
-            .is_ok()
-    );
+        .preparation()
+        .unwrap();
+    assert!(sender.send(Some((prepared, stats, Some(geometry)))).is_ok());
     let mut gpu = app.world_mut().resource_mut::<ChunkGpuTextureAssets>();
-    gpu.pending_source = Some((candidate.identity(), epoch));
-    gpu.pending = Some(std::sync::Mutex::new(receiver));
+    gpu.pending = Some(PendingTextures {
+        request,
+        result: std::sync::Mutex::new(receiver),
+    });
 }
 
 /// Returns the actual material-table and geometry identities used by terrain draw preparation.

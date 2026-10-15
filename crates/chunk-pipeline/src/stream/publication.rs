@@ -326,6 +326,12 @@ impl WorldStream {
     ) {
         self.authority.set_item_attack_timings(timings)
     }
+    /// Pending and in-flight mesh job counts, the `pending_mesh_jobs` and `in_flight_mesh_jobs`
+    /// of [`Self::stats`] without its request-queue walks, for per-frame callers.
+    #[must_use]
+    pub fn mesh_job_counts(&self) -> (usize, usize) {
+        (self.mesh_jobs.pending.len(), self.mesh_jobs.in_flight.len())
+    }
     pub fn stats(&self) -> WorldStreamStats {
         let completed_decode_results = self
             .order

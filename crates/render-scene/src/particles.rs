@@ -32,13 +32,26 @@ impl ParticleGpuFrame {
         self.opaque.len() + self.blend.len() + self.add.len()
     }
 
-    /// Publishes the current camera-sorted instance lists for extraction.
-    fn set_lists(&mut self, lists: DrawLists) {
+    /// Publishes the current camera-sorted instance lists for extraction, keeping each
+    /// published list whose bytes are unchanged; returns whether anything changed.
+    fn set_lists(&mut self, lists: DrawLists) -> bool {
+        let mut changed = self.cave_hidden != lists.cave_hidden;
         self.cave_hidden = lists.cave_hidden;
-        self.blend = lists.blend.into();
-        self.add = lists.add.into();
-        self.opaque = lists.opaque.into();
+        changed |= republish(&mut self.blend, lists.blend);
+        changed |= republish(&mut self.add, lists.add);
+        changed |= republish(&mut self.opaque, lists.opaque);
+        changed
     }
+}
+
+/// Replaces `published` with `list` unless their bytes are identical, so an unchanged list keeps
+/// its allocation; bytewise equality also distinguishes `-0.0` and NaN payloads from `0.0`.
+fn republish(published: &mut Arc<[ParticleInstance]>, list: Vec<ParticleInstance>) -> bool {
+    if bytemuck::cast_slice::<_, u8>(published) == bytemuck::cast_slice::<_, u8>(&list) {
+        return false;
+    }
+    *published = list.into();
+    true
 }
 
 /// Camera frustum basis from a Bevy camera transform and projection.
@@ -63,7 +76,9 @@ pub fn particle_view(transform: &GlobalTransform, projection: &Projection) -> Pa
 }
 
 /// Ticks the simulation and refreshes draw data, using the caller's conservative
-/// world-box visibility test only for instance building; call once per frame.
+/// world-box visibility test only for instance building; call once per frame. Returns whether
+/// `frame` changed, so callers can mark it for extraction only then.
+#[must_use]
 pub fn update_particle_frame(
     system: &mut ParticleSystem,
     frame: &mut ParticleGpuFrame,
@@ -71,7 +86,7 @@ pub fn update_particle_frame(
     view: &ParticleView,
     world: &dyn ParticleWorld,
     hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
-) {
+) -> bool {
     system.set_camera(view.position);
     system.tick(dt, world);
     let lists = {
@@ -93,7 +108,7 @@ pub fn update_particle_frame(
         );
         lists
     };
-    frame.set_lists(lists);
+    let mut changed = frame.set_lists(lists);
     let base = system.atlas_base();
     if frame
         .base
@@ -104,12 +119,15 @@ pub fn update_particle_frame(
         frame.atlas_side = system.atlas().side();
         frame.patch_seq = 0;
         frame.patches = Arc::default();
+        changed = true;
     }
     let seq = system.atlas().patch_seq();
     if seq != frame.patch_seq {
         frame.patches = system.atlas().patches().into();
         frame.patch_seq = seq;
+        changed = true;
     }
+    changed
 }
 
 #[cfg(test)]

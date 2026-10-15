@@ -214,7 +214,7 @@ impl Plugin for ChunkRenderPlugin {
                         .in_set(RenderSystems::Queue)
                         .before(queue_chunks),
                     queue_chunks
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .run_if(opaque_terrain_passes_enabled)
                         .in_set(RenderSystems::Queue),
                     queue_transparent_chunks
                         .run_if(render_scene::panorama::world_passes_enabled)
@@ -246,4 +246,12 @@ impl Plugin for ChunkRenderPlugin {
         }
         gpu_cull::install(app);
     }
+}
+
+/// Startup needs real opaque submissions even while a replacement background covers the world.
+fn opaque_terrain_passes_enabled(
+    scene: Option<Res<render_scene::PanoramaScene>>,
+    diagnostics: Res<VisibilityDiagnosticsInput>,
+) -> bool {
+    diagnostics.startup_probe_enabled() || render_scene::panorama::world_passes_enabled(scene)
 }

@@ -1,0 +1,305 @@
+//! Crash folders under `crashes/`: `<UTC yyyymmdd-hhmmss>-<id>/` with fixed member files.
+
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::{Path, PathBuf},
+};
+
+use crate::{
+    report::{Report, SCHEMA},
+    utc,
+};
+
+/// Crash folders kept on disk, so a crash loop cannot fill it.
+pub const MAX_REPORTS: usize = 8;
+/// The report inside each folder.
+pub const REPORT_FILE: &str = "report.json";
+/// The crashing session's section of `client.log`.
+pub const CLIENT_LOG_FILE: &str = "client.log";
+/// The crashing session's section of `core.log`.
+pub const CORE_LOG_FILE: &str = "core.log";
+/// The native fault's minidump, written by the crash monitor.
+pub const DUMP_FILE: &str = "crash.dmp";
+/// Largest `report.json` that [`read`] accepts.
+const MAX_REPORT_BYTES: u64 = 16 << 20;
+/// Same-second folders with one id before a write gives up.
+const MAX_COLLISIONS: usize = 1024;
+
+/// Log sections stored beside a report; empty sections are written as empty files.
+#[derive(Clone, Debug, Default)]
+pub struct Logs {
+    pub client: Vec<u8>,
+    pub core: Vec<u8>,
+}
+
+/// Names the folder for a crash at `now_ms` (Unix milliseconds); `id` keeps `[0-9a-z-]` only.
+pub fn name(now_ms: u64, id: &str) -> String {
+    let id: String = id
+        .chars()
+        .filter(|character| {
+            character.is_ascii_digit() || character.is_ascii_lowercase() || *character == '-'
+        })
+        .collect();
+    let id = if id.is_empty() {
+        "unknown"
+    } else {
+        id.as_str()
+    };
+    format!("{}-{id}", utc::stamp(now_ms))
+}
+
+/// Unix milliseconds of the UTC second a crash folder's name starts with.
+pub fn created_at_ms(folder: &Path) -> Option<u64> {
+    let name = folder.file_name()?.to_str()?;
+    let stamp = name.get(..utc::STAMP_LEN)?;
+    if name.as_bytes().get(utc::STAMP_LEN) != Some(&b'-') {
+        return None;
+    }
+    utc::parse(stamp)
+}
+
+/// Writes `report` and `logs` into a new folder named by `now_ms` and the report's session id.
+///
+/// Prunes first so the directory holds at most [`MAX_REPORTS`] folders afterwards. A folder
+/// that already exists gets a `-N` suffix, so simultaneous writers never share one. Every file
+/// is synced before this returns its folder.
+pub fn write(crash_dir: &Path, report: &Report, logs: &Logs, now_ms: u64) -> io::Result<PathBuf> {
+    prune(crash_dir, MAX_REPORTS - 1);
+    fs::create_dir_all(crash_dir)?;
+    let base = name(now_ms, &report.session_id);
+    let folder = create_unique(crash_dir, &base)?;
+    write_new(
+        &folder.join(REPORT_FILE),
+        &serde_json::to_vec_pretty(report)?,
+    )?;
+    write_new(&folder.join(CLIENT_LOG_FILE), &logs.client)?;
+    write_new(&folder.join(CORE_LOG_FILE), &logs.core)?;
+    Ok(folder)
+}
+
+/// Reads a folder's report, rejecting other schema versions.
+pub fn read(folder: &Path) -> io::Result<Report> {
+    let mut bytes = Vec::new();
+    fs::File::open(folder.join(REPORT_FILE))?
+        .take(MAX_REPORT_BYTES)
+        .read_to_end(&mut bytes)?;
+    let report: Report = serde_json::from_slice(&bytes)?;
+    if report.schema != SCHEMA {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("crash report schema {} is not {SCHEMA}", report.schema),
+        ));
+    }
+    Ok(report)
+}
+
+/// Crash folders in `crash_dir`, oldest first; other entries are ignored.
+pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = fs::read_dir(crash_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .filter(|path| created_at_ms(path).is_some())
+        .collect();
+    folders.sort();
+    folders
+}
+
+/// Deletes legacy `crash-*.json` report files, then the oldest folders beyond `keep`.
+pub fn prune(crash_dir: &Path, keep: usize) {
+    for entry in fs::read_dir(crash_dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let legacy = name
+            .to_str()
+            .is_some_and(|name| name.starts_with("crash-") && name.ends_with(".json"));
+        if legacy && entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+    let folders = list(crash_dir);
+    let excess = folders.len().saturating_sub(keep);
+    for folder in &folders[..excess] {
+        let _ = fs::remove_dir_all(folder);
+    }
+}
+
+/// Creates and returns `crash_dir/base`, or the first free `base-N` when other writers already
+/// hold it; fails after [`MAX_COLLISIONS`] taken names or on any other I/O error.
+fn create_unique(crash_dir: &Path, base: &str) -> io::Result<PathBuf> {
+    for suffix in 0..MAX_COLLISIONS {
+        let folder = if suffix == 0 {
+            crash_dir.join(base)
+        } else {
+            crash_dir.join(format!("{base}-{suffix}"))
+        };
+        match fs::create_dir(&folder) {
+            Ok(()) => return Ok(folder),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "too many crash folders share one second",
+    ))
+}
+
+/// Writes `bytes` to a file that must not exist yet and syncs it to disk before returning.
+fn write_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = fs::File::options()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::report::{Identity, Kind};
+
+    const NOW_MS: u64 = 1_760_443_200_000;
+
+    /// Creates a report for the fixture session at its fixed timestamp.
+    fn report(message: &str) -> Report {
+        let identity = Identity {
+            session_id: "0123456789abcdef".into(),
+            started_at_ms: NOW_MS - 5_000,
+            release: "1.2.3".into(),
+            commit: "abc123".into(),
+            build_profile: "debug".into(),
+        };
+        Report::new(Kind::Panic, message.into(), &identity, NOW_MS)
+    }
+
+    /// Lists retained folder names in their chronological order.
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn write_creates_a_dated_folder_that_reads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let crash_dir = dir.path().join("crashes");
+        let logs = Logs {
+            client: b"CLIENT_SESSION_START\nclient\n".to_vec(),
+            core: b"CORE_SESSION_START\ncore\n".to_vec(),
+        };
+        let folder = write(&crash_dir, &report("boom"), &logs, NOW_MS).unwrap();
+        assert_eq!(
+            folder.file_name().unwrap(),
+            "20251014-120000-0123456789abcdef"
+        );
+        assert_eq!(created_at_ms(&folder), Some(NOW_MS));
+        assert_eq!(read(&folder).unwrap(), report("boom"));
+        assert_eq!(fs::read(folder.join(CLIENT_LOG_FILE)).unwrap(), logs.client);
+        assert_eq!(fs::read(folder.join(CORE_LOG_FILE)).unwrap(), logs.core);
+        assert_eq!(list(&crash_dir), [folder]);
+    }
+
+    #[test]
+    fn simultaneous_writes_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let crash_dir = dir.path().join("crashes");
+        let target = crash_dir.as_path();
+        let folders: Vec<PathBuf> = std::thread::scope(|scope| {
+            let writers: Vec<_> = (0..4)
+                .map(|index| {
+                    scope.spawn(move || {
+                        write(
+                            target,
+                            &report(&format!("crash {index}")),
+                            &Logs::default(),
+                            NOW_MS,
+                        )
+                        .unwrap()
+                    })
+                })
+                .collect();
+            writers
+                .into_iter()
+                .map(|writer| writer.join().unwrap())
+                .collect()
+        });
+        let mut messages: Vec<String> = folders
+            .iter()
+            .map(|folder| read(folder).unwrap().message)
+            .collect();
+        messages.sort();
+        assert_eq!(messages, ["crash 0", "crash 1", "crash 2", "crash 3"]);
+        assert_eq!(list(&crash_dir).len(), 4);
+    }
+
+    #[test]
+    fn prune_keeps_the_newest_folders_and_removes_legacy_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let crash_dir = dir.path();
+        for second in 0..10_u64 {
+            fs::create_dir(crash_dir.join(name(NOW_MS + second * 1000, "a"))).unwrap();
+        }
+        for legacy in [
+            "crash-1-00000000000000000000.json",
+            "crash-2-native.json",
+            "crash-3-4-unix.json",
+        ] {
+            fs::write(crash_dir.join(legacy), "{}").unwrap();
+        }
+        fs::write(crash_dir.join("notes.txt"), "keep").unwrap();
+        fs::create_dir(crash_dir.join("unrelated")).unwrap();
+        prune(crash_dir, MAX_REPORTS);
+        let mut expected: Vec<String> = (2..10_u64)
+            .map(|second| name(NOW_MS + second * 1000, "a"))
+            .collect();
+        expected.extend(["notes.txt".to_owned(), "unrelated".to_owned()]);
+        expected.sort();
+        assert_eq!(names(crash_dir), expected);
+    }
+
+    #[test]
+    fn writing_keeps_at_most_the_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        for second in 0..12_u64 {
+            write(
+                dir.path(),
+                &report("loop"),
+                &Logs::default(),
+                NOW_MS + second * 1000,
+            )
+            .unwrap();
+        }
+        let folders = list(dir.path());
+        assert_eq!(folders.len(), MAX_REPORTS);
+        assert_eq!(created_at_ms(&folders[0]), Some(NOW_MS + 4_000));
+    }
+
+    #[test]
+    fn read_rejects_other_schema_versions() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = write(dir.path(), &report("boom"), &Logs::default(), NOW_MS).unwrap();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(folder.join(REPORT_FILE)).unwrap()).unwrap();
+        value["schema"] = 2.into();
+        fs::write(folder.join(REPORT_FILE), value.to_string()).unwrap();
+        assert_eq!(
+            read(&folder).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn names_keep_only_safe_id_characters() {
+        assert_eq!(name(0, ""), "19700101-000000-unknown");
+        assert_eq!(name(0, "../AB-c1"), "19700101-000000--c1");
+        assert_eq!(created_at_ms(Path::new("19700101-000000")), None);
+        assert_eq!(created_at_ms(Path::new("crash-1.json")), None);
+    }
+}

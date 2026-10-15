@@ -6,7 +6,7 @@ fn atlas(side: u32) -> BlockEntityAtlas {
         .into_iter()
         .enumerate()
         .map(|(index, pattern)| assets::BlockEntityPlacement {
-            name: format!("textures/entity/banner/banner_{pattern}").into(),
+            name: format!("{BANNER_PATTERN_TEXTURE_PREFIX}{pattern}").into(),
             x: index as u32 * side,
             y: 0,
             width: side,

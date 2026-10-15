@@ -204,9 +204,7 @@ impl TransparentModelDrawOrders {
             .map(|entry| entry.words.len())
             .sum::<usize>();
         for (&entity, resident) in &arena.allocations {
-            if self.entries.contains_key(&entity) || self.unwitnessed.contains_key(&entity) {
-                continue;
-            }
+            // Most residents have no transparent models; reject them before any map lookup.
             let gpu = &resident.gpu;
             let (Some(model_range), Some(draw_range)) = (
                 gpu.model_range.as_ref(),
@@ -214,6 +212,9 @@ impl TransparentModelDrawOrders {
             ) else {
                 continue;
             };
+            if self.entries.contains_key(&entity) || self.unwitnessed.contains_key(&entity) {
+                continue;
+            }
             let Ok(instance) = instances.get(entity) else {
                 continue;
             };

@@ -283,9 +283,12 @@ fn restore_view_samples(mut withheld: ResMut<WithheldSamples>, mut views: Query<
 }
 
 /// The AA-off path transfers encoded bytes into Bevy's post-processing image.
+/// Only cameras still missing the usage are written, so settled cameras are not marked changed.
 fn admit_copy_destination(mut cameras: Query<&mut CameraMainTextureUsages, With<Camera3d>>) {
     for mut usages in &mut cameras {
-        usages.0 |= TextureUsages::COPY_DST;
+        if !usages.0.contains(TextureUsages::COPY_DST) {
+            usages.0 |= TextureUsages::COPY_DST;
+        }
     }
 }
 

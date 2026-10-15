@@ -484,7 +484,7 @@ fn a_launcher_session_failure_returns_to_the_menu_instead_of_exiting() {
         .disconnect_message
         .expect("the launcher must explain the failure");
     let words = launcher::menu::disconnect::describe(&error);
-    assert_eq!(words.title, "connect.failed", "got {words:?}");
+    assert_eq!(words.title.0, "connect.failed", "got {words:?}");
 }
 
 #[test]
