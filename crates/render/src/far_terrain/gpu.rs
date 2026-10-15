@@ -229,6 +229,7 @@ impl FarTerrainGpu {
         let mut uploaded_tiles = 0;
         let mut uploaded_bytes = 0;
         let mut complete = true;
+        let mut allocation_failed = false;
         for (index, rank) in order {
             let mesh = &tiles[index];
             if self.current(mesh) {
@@ -247,6 +248,7 @@ impl FarTerrainGpu {
             let Some((slot, quads)) =
                 self.allocate_tile(device, queue, mesh, tiles, &priority, rank)
             else {
+                allocation_failed = true;
                 // A later coarser replacement may free space without uncovering a fallback.
                 complete &= !self
                     .resident
@@ -254,6 +256,9 @@ impl FarTerrainGpu {
                     .any(|key| !wanted.contains_key(key) || *key == mesh.key);
                 continue;
             };
+            // Earlier misses need another pass after this allocation changes free
+            // space or makes a retained fallback reclaimable.
+            complete &= !allocation_failed;
             self.upload(queue, mesh, slot, &quads);
             uploaded_tiles += 1;
             uploaded_bytes += bytes;

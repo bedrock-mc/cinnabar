@@ -44,7 +44,7 @@ impl WorldStream {
                             .unwrap_or(0);
                         (key, generation)
                     })
-                    .collect::<HashMap<_, _>>();
+                    .collect::<std::collections::HashMap<_, _>>();
                 (!keys.is_empty()).then_some((column, keys))
             })
             .collect();

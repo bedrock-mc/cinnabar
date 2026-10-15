@@ -35,6 +35,15 @@ fn columns_are_drawn_once_their_meshes_upload() {
         .copied()
         .collect();
     assert!(!keys.is_empty());
+    let required: std::collections::HashMap<_, _> = keys
+        .iter()
+        .map(|&key| (key, stream.revisions.dirty(key).unwrap().revision))
+        .collect();
+    assert_eq!(
+        stream.terrain_publication_target(32).near.get(&column),
+        Some(&required),
+        "the publication boundary carries each pending section generation"
+    );
     let now = Instant::now();
     for key in keys {
         if let Some((revision, since)) = stream
@@ -46,6 +55,18 @@ fn columns_are_drawn_once_their_meshes_upload() {
         }
     }
     assert!(drawn(&stream, column));
+    assert_eq!(
+        stream.terrain_publication_target(32).near.get(&column),
+        Some(&required),
+        "published sections keep their acknowledged generations"
+    );
+    let key = *required.keys().next().unwrap();
+    let revision = stream.mark_dirty_exact(key, now);
+    assert_eq!(
+        stream.terrain_publication_target(32).near[&column][&key],
+        revision,
+        "a pending replacement supersedes the published generation"
+    );
 
     stream.evict_column(column);
     assert!(!drawn(&stream, column));

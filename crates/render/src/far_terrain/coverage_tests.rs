@@ -205,6 +205,97 @@ fn interleaved_replacements_reclaim_unrelated_completed_cover_at_capacity() {
 }
 
 #[test]
+fn failed_fine_tiles_retry_after_protected_coarse_tiles_shrink() {
+    use bevy::{ecs::system::RunSystemOnce, prelude::World};
+    // Four quads fit every fine tile after the shrink; an oversized tile never fits.
+    let capacity = 64;
+    for fine_quads in [4, capacity as usize + 1] {
+        let (device, queue) = capacity_device(16, Some(capacity));
+        let coarse_count = UPLOAD_TILES_PER_FRAME;
+        let old = sized_meshes(
+            (10..10 + coarse_count as i32).map(|x| TileKey { level: 2, x, z: 0 }),
+            capacity as usize / coarse_count,
+        );
+        let mut world = World::new();
+        world.insert_resource(FarTerrainGpu::new(&device));
+        world.insert_resource(device);
+        world.insert_resource(queue);
+        world.insert_resource(FarTerrainScene {
+            tiles: old.clone().into(),
+            ..Default::default()
+        });
+        world.run_system_once(prepare_far_terrain).unwrap();
+        world
+            .resource_mut::<FarTerrainGpu>()
+            .protect_coverage(old.iter().map(|mesh| mesh.key.columns().next().unwrap()));
+        let smaller_quads = capacity as usize / coarse_count / 2;
+        let mut smaller = sized_meshes(old.iter().map(|mesh| mesh.key), smaller_quads);
+        for mesh in &mut smaller {
+            Arc::get_mut(mesh).unwrap().revision += 100;
+        }
+        let mut desired = sized_meshes(
+            (0..coarse_count as i32).map(|x| TileKey { level: 0, x, z: 0 }),
+            fine_quads,
+        );
+        desired.extend(smaller);
+        let desired: Arc<[Arc<TileMesh>]> = desired.into();
+        world.resource_mut::<FarTerrainScene>().tiles = desired.clone();
+
+        let (_, (writes, bytes)) = render_scene::runtime_profile_uploads::measure(|| {
+            world.run_system_once(prepare_far_terrain).unwrap();
+        });
+        let gpu = world.resource::<FarTerrainGpu>();
+        assert_eq!(writes, 3 * UPLOAD_TILES_PER_FRAME as u64);
+        assert!(bytes <= UPLOAD_BYTES_PER_FRAME);
+        assert!(
+            desired[..coarse_count]
+                .iter()
+                .all(|mesh| !gpu.current(mesh))
+        );
+        assert!(desired[coarse_count..].iter().all(|mesh| gpu.current(mesh)));
+        assert_covered(gpu, &old);
+        assert!(
+            gpu.applied_tiles.is_none(),
+            "the early misses must retry the space freed by the later replacements"
+        );
+
+        let (_, (writes, bytes)) = render_scene::runtime_profile_uploads::measure(|| {
+            world.run_system_once(prepare_far_terrain).unwrap();
+        });
+        let admitted =
+            ((capacity as usize - coarse_count * smaller_quads) / fine_quads).min(coarse_count);
+        let gpu = world.resource::<FarTerrainGpu>();
+        assert_eq!(writes, 3 * admitted as u64);
+        assert!(bytes <= UPLOAD_BYTES_PER_FRAME);
+        assert_eq!(gpu.resident.len(), coarse_count + admitted);
+        assert_covered(gpu, &old);
+        assert_covered(gpu, &desired[..admitted]);
+        let scene = world.resource::<FarTerrainScene>();
+        for (index, mesh) in desired[..coarse_count].iter().enumerate() {
+            assert_eq!(gpu.current(mesh), index < admitted);
+            assert_eq!(
+                scene
+                    .residency
+                    .ready(mesh.key.columns().next().unwrap(), mesh),
+                index < admitted,
+                "receipts include only drawable fine tiles"
+            );
+        }
+        assert!(Arc::ptr_eq(gpu.applied_tiles.as_ref().unwrap(), &desired));
+        let publication = gpu.publication_revision();
+        let (_, writes) = render_scene::runtime_profile_uploads::measure(|| {
+            world.run_system_once(prepare_far_terrain).unwrap();
+        });
+        assert_eq!(writes, (0, 0));
+        assert_eq!(
+            world.resource::<FarTerrainGpu>().publication_revision(),
+            publication,
+            "an unchanged scene stops retrying tiles that cannot fit"
+        );
+    }
+}
+
+#[test]
 fn insufficient_replacement_capacity_keeps_partial_children_hidden_and_old_coverage_drawn() {
     for (layers, capacity, quads) in [(11, None, 1), (64, Some(44), 4)] {
         let (device, queue) = capacity_device(layers, capacity);
