@@ -9286,3 +9286,9 @@ projection or pipeline states use conservative full replay.
 Incomplete validation: the focused segment/lifetime and shader pixel fixtures
 are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
 captures and measured renderer work remain outstanding; no speedup is claimed.
+
+## Custom block component bounds
+
+Explicit default collision and selection components retain their bounds before state transformations. Empty pixel boxes remain empty instead of becoming full cubes, asymmetric X bounds follow the block coordinate convention, and collision boxes retain their supported taller Y range. Movement, targeting and outlines keep their independent component bounds in both palette modes.
+
+Incomplete parity: the original report does not identify the affected block definitions. In-world acceptance of the component cases remains open.
