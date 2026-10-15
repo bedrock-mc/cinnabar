@@ -16,7 +16,9 @@ pub(super) fn installed_target() -> Result<PathBuf> {
     update_installer::target::resolve(
         std::env::consts::OS,
         &std::env::current_exe()?,
-        std::env::var_os("APPIMAGE").map(PathBuf::from).as_deref(),
+        std::env::var_os(update_installer::startup::APPIMAGE)
+            .map(PathBuf::from)
+            .as_deref(),
     )
 }
 
@@ -86,7 +88,7 @@ fn spawn_with_args(layout: &InstallLayout, args: &[OsString]) -> Result<()> {
         .stdout(Stdio::null())
         .stderr(fs::File::create(directory.join("apply.log"))?);
     #[cfg(target_os = "linux")]
-    for name in ["APPIMAGE", "APPDIR", "OWD", "LD_LIBRARY_PATH", "LD_PRELOAD"] {
+    for name in update_installer::startup::APPIMAGE_RUNTIME_ENV {
         command.env_remove(name);
     }
     #[cfg(windows)]

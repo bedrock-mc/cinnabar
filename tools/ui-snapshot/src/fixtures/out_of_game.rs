@@ -146,3 +146,30 @@ pub(super) fn reset_settings() -> Fixture {
         launcher::menu::settings_options::SettingsGroup::Video,
     ))
 }
+
+/// Shows the Worlds tab with one saved world under its create and import buttons.
+pub(super) fn play_worlds() -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Play;
+    view.local_worlds = vec![launcher::menu::LocalWorldCard {
+        name: "My World".to_owned(),
+        game_mode: "Survival".to_owned(),
+        world_type: launcher::local_worlds::NORMAL_WORLD_LABEL.to_owned(),
+        server: String::new(),
+        date: "9/30/2026".to_owned(),
+        size: "12.0 MB".to_owned(),
+        thumbnail: None,
+    }]
+    .into();
+    Fixture::Menu(Box::new(view))
+}
+
+/// Shows the modal over the Worlds tab while a world file is copied in.
+pub(super) fn play_worlds_importing() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!()
+    };
+    view.local.screen = launcher::local_worlds::Screen::Importing;
+    view.local.busy = true;
+    Fixture::Menu(view)
+}

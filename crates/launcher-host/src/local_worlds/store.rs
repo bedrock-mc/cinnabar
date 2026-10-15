@@ -17,8 +17,44 @@ use super::{
 
 const META_FILE: &str = "world.json";
 const PREFS_FILE: &str = "prefs.json";
+/// The Bedrock world folder (`level.dat`, `db/`) inside a world's directory.
+pub(crate) const LEVEL_DIR: &str = "db";
 /// A world's menu thumbnail, beside its metadata, named as vanilla names its world icon.
 const THUMBNAIL_FILE: &str = "world_icon.jpeg";
+/// Scratch folders of imports in progress; ids never start with it, so listings skip them.
+const STAGING_PREFIX: &str = ".import-";
+/// Beside each scratch folder, a file its importer holds locked until the folder is gone.
+const STAGING_LOCK_SUFFIX: &str = ".lock";
+/// Where an archive unpacks inside its scratch folder, beside the world being assembled.
+const UNPACKED_DIR: &str = "unpacked";
+
+/// An import's scratch folder, removed when dropped. Its lock file stays locked until then, so
+/// other clients sharing the worlds folder leave it alone.
+pub(crate) struct Staging {
+    dir: PathBuf,
+    lock_path: PathBuf,
+    lock: fs::File,
+}
+
+impl Staging {
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Where the archive unpacks.
+    pub(crate) fn unpacked(&self) -> PathBuf {
+        self.dir.join(UNPACKED_DIR)
+    }
+}
+
+impl Drop for Staging {
+    /// Removes the folder while still locked, then the lock file; the lock ends with the handle.
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+        let _ = fs::remove_file(&self.lock_path);
+    }
+}
 /// Largest thumbnail read back; one is a few tens of kilobytes.
 const MAX_THUMBNAIL_BYTES: u64 = 1024 * 1024;
 
@@ -195,45 +231,90 @@ impl Store {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        let raw = serde_json::to_vec_pretty(&Record {
-            id: &world.id,
-            name: &world.name,
-            game_mode: world.game_mode,
-            generator: world.generator,
-            difficulty: world.difficulty,
-            backend: world.backend,
-            seed: world.seed,
-            created_unix: world.created_unix,
-            last_played_unix: world.last_played_unix,
-        })
-        .map_err(|error| failed(error.to_string()))?;
-        write_atomic(&dir, META_FILE, &raw)
-            .map_err(|error| failed(format!("write world metadata: {error}")))
+        write_record(&dir, world)
     }
 
     /// Validates `world` and saves it with a fresh id.
     pub(crate) fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
-        let name = validate_name(&world.name)?;
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
-        let seed = match world.seed {
-            Some(seed) => seed,
-            None => i64::from_be_bytes(random_bytes()?),
-        };
         let state = self.lock();
-        let now = state.now();
-        let world = World {
-            id,
-            name,
-            game_mode: world.game_mode,
-            generator: world.generator,
-            difficulty: world.difficulty,
-            backend: world.backend.unwrap_or_else(|| state.default_backend()),
-            seed,
-            created_unix: now,
-            last_played_unix: now,
-            size_bytes: 0,
-        };
+        let world = new_record(&state, id, world)?;
         self.write(&world)?;
+        Ok(world)
+    }
+
+    /// A scratch folder beside the worlds, so publishing from it is a rename. Its lock is taken
+    /// before the folder exists, so no other client ever sees it unlocked.
+    pub(crate) fn staging(&self) -> Result<Staging, WorldError> {
+        let error = |error: io::Error| failed(format!("create import folder: {error}"));
+        let name = format!(
+            "{STAGING_PREFIX}{:016x}",
+            u64::from_be_bytes(random_bytes()?)
+        );
+        let lock_path = self.root.join(format!("{name}{STAGING_LOCK_SUFFIX}"));
+        let lock = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .map_err(error)?;
+        let staging = Staging {
+            dir: self.root.join(name),
+            lock_path,
+            lock,
+        };
+        staging
+            .lock
+            .try_lock()
+            .map_err(|locked| error(io::Error::other(locked)))?;
+        create_private_dir(&staging.unpacked()).map_err(error)?;
+        Ok(staging)
+    }
+
+    /// Deletes abandoned imports, which may be whole worlds; blocking, so never on a frame.
+    pub(crate) fn reclaim_abandoned_imports(&self) {
+        reclaim_abandoned_imports(&self.root);
+    }
+
+    /// Publishes the Bedrock world folder `level`, unpacked inside `staging`, as a new world.
+    /// Its metadata and thumbnail are written inside the staging folder, which then becomes the
+    /// world in one rename, so no world folder ever lacks its metadata. A cancelled import never
+    /// publishes; its staging folder is removed with the [`Staging`].
+    pub(crate) fn publish(
+        &self,
+        staging: &Staging,
+        level: &Path,
+        world: &NewWorld,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<World, WorldError> {
+        let prepare = |error: io::Error| failed(format!("prepare imported world: {error}"));
+        fs::rename(level, staging.dir.join(LEVEL_DIR)).map_err(prepare)?;
+        if let Err(error) = fs::remove_dir_all(staging.unpacked())
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(prepare(error));
+        }
+        let icon = staging.dir.join(LEVEL_DIR).join(THUMBNAIL_FILE);
+        if fs::metadata(&icon).is_ok_and(|icon| icon.is_file() && icon.len() <= MAX_THUMBNAIL_BYTES)
+        {
+            let _ = fs::copy(icon, staging.dir.join(THUMBNAIL_FILE));
+        }
+        // Listings take the same lock, so once a detach cancels, no later listing can miss a
+        // world this import still publishes.
+        let state = self.lock();
+        if cancelled() {
+            return Err(WorldError::Cancelled);
+        }
+        let mut id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
+        while fs::exists(self.root.join(&id)).map_err(prepare)? {
+            id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
+        }
+        let mut world = new_record(&state, id, world)?;
+        write_record(&staging.dir, &world)?;
+        let dir = self.root.join(&world.id);
+        fs::rename(&staging.dir, &dir)
+            .map_err(|error| failed(format!("publish imported world: {error}")))?;
+        drop(state);
+        world.size_bytes = dir_size(&dir);
         Ok(world)
     }
 
@@ -339,6 +420,76 @@ fn valid_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Writes `world.json` for `world` into `dir`.
+fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
+    let raw = serde_json::to_vec_pretty(&Record {
+        id: &world.id,
+        name: &world.name,
+        game_mode: world.game_mode,
+        generator: world.generator,
+        difficulty: world.difficulty,
+        backend: world.backend,
+        seed: world.seed,
+        created_unix: world.created_unix,
+        last_played_unix: world.last_played_unix,
+    })
+    .map_err(|error| failed(error.to_string()))?;
+    write_atomic(dir, META_FILE, &raw)
+        .map_err(|error| failed(format!("write world metadata: {error}")))
+}
+
+/// A new world's record, stamped now; a missing seed or backend gets a random seed or the default.
+fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World, WorldError> {
+    let seed = match world.seed {
+        Some(seed) => seed,
+        None => i64::from_be_bytes(random_bytes()?),
+    };
+    let now = state.now();
+    Ok(World {
+        id,
+        name: validate_name(&world.name)?,
+        game_mode: world.game_mode,
+        generator: world.generator,
+        difficulty: world.difficulty,
+        backend: world.backend.unwrap_or_else(|| state.default_backend()),
+        seed,
+        created_unix: now,
+        last_played_unix: now,
+        size_bytes: 0,
+    })
+}
+
+/// Removes import folders a killed client left behind: those whose lock file is gone or can be
+/// locked. A folder whose lock another client holds is a live import and stays.
+fn reclaim_abandoned_imports(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with(STAGING_PREFIX)
+            || name.ends_with(STAGING_LOCK_SUFFIX)
+            || !entry.file_type().is_ok_and(|kind| kind.is_dir())
+        {
+            continue;
+        }
+        let lock_path = root.join(format!("{name}{STAGING_LOCK_SUFFIX}"));
+        // Held until both are removed, so a racing cleanup skips this folder too.
+        let lock = match fs::OpenOptions::new().write(true).open(&lock_path) {
+            Ok(lock) if lock.try_lock().is_ok() => Some(lock),
+            Ok(_) => continue,
+            // Importers lock before creating their folder, so a folder without one is abandoned.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(_) => continue,
+        };
+        let _ = fs::remove_dir_all(entry.path());
+        if lock.is_some() {
+            let _ = fs::remove_file(&lock_path);
+        }
+    }
 }
 
 fn random_bytes() -> Result<[u8; 8], WorldError> {

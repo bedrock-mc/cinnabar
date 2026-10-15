@@ -29,6 +29,15 @@ pub(crate) mod unix {
     }
 
     pub(crate) async fn pair(name: &str, startup: &[Bytes]) -> Pair {
+        tapped_pair(name, startup, None).await
+    }
+
+    /// [`pair`] whose transport reports to `tap`.
+    pub(crate) async fn tapped_pair(
+        name: &str,
+        startup: &[Bytes],
+        tap: Option<Arc<dyn PacketTap>>,
+    ) -> Pair {
         let dir =
             std::env::temp_dir().join(format!("cinnabar-session-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -37,7 +46,7 @@ pub(crate) mod unix {
         let (reader, frames) = bridge::connect_session(&dir).await.unwrap();
         let (peer, _) = listener.accept().await.unwrap();
         Pair {
-            transport: SessionTransport::new(reader, frames, startup),
+            transport: SessionTransport::new(reader, frames, startup).with_tap(tap),
             peer,
             dir,
         }
@@ -332,6 +341,157 @@ pub(crate) mod unix {
                 BridgeError::InvalidSessionMessage { .. }
             )))
         ));
+    }
+
+    /// The tap sees each packet once, in order, in both directions; an outcome names only the
+    /// packet the session is processing, and a prepended packet is not recorded again.
+    #[tokio::test]
+    async fn the_tap_records_each_packet_once_and_outcomes_name_the_current_packet() {
+        let time = |time| {
+            Packet::new(SetTime {
+                time: wire::ZigZag32(time),
+            })
+        };
+        let body = |packet: &Packet| packet_bytes(packet).slice(1..).to_vec();
+        let tap = Arc::new(RecordingTap::default());
+        let Pair {
+            transport, peer, ..
+        } = &mut tapped_pair("tap", &[packet_bytes(&time(1))], Some(tap.clone())).await;
+        write_frame(peer, &batch_frame(&[time(2), time(3)]).unwrap()).await;
+
+        next(transport).await;
+        transport.reject_current(PacketOutcome::Skipped);
+        transport.reject_current(PacketOutcome::Failed);
+        let second = next(transport).await;
+        next(transport).await;
+        transport.reject_current(PacketOutcome::Accepted);
+        transport.prepend(vec![second.into_compact()]);
+        next(transport).await;
+        transport.reject_current(PacketOutcome::Failed);
+        transport.send(&[time(4)]).await.unwrap();
+
+        let set_time = PacketId::SetTime as u32;
+        assert_eq!(
+            tap.events(),
+            [
+                TapEvent::Record(PacketDirection::Clientbound, set_time, body(&time(1))),
+                TapEvent::Reject(0, set_time, PacketOutcome::Skipped, body(&time(1))),
+                TapEvent::Record(PacketDirection::Clientbound, set_time, body(&time(2))),
+                TapEvent::Record(PacketDirection::Clientbound, set_time, body(&time(3))),
+                TapEvent::Reject(3, set_time, PacketOutcome::Accepted, body(&time(3))),
+                TapEvent::Reject(2, set_time, PacketOutcome::Failed, body(&time(2))),
+                TapEvent::Record(PacketDirection::Serverbound, set_time, body(&time(4))),
+            ]
+        );
+    }
+
+    /// A detached in-flight packet must not keep unrelated batch siblings through its observer.
+    #[tokio::test]
+    async fn detaching_the_current_packet_releases_its_old_batch_before_settlement() {
+        let time = |value| {
+            Packet::new(SetTime {
+                time: wire::ZigZag32(value),
+            })
+        };
+        let tap = Arc::new(RecordingTap::default());
+        let Pair { transport, .. } = &mut tapped_pair(
+            "compact-current",
+            &[packet_bytes(&time(1)), packet_bytes(&time(2))],
+            Some(tap.clone()),
+        )
+        .await;
+        drop(next(transport).await);
+        let raw = next(transport).await;
+        let backing = raw.body().clone();
+        let raw = raw.into_retention_bounded();
+        transport.compact_current(&raw);
+        assert!(backing.is_unique(), "the observer kept the unrelated batch");
+        let expected = raw.body().to_vec();
+        drop(raw);
+        transport.reject_current(PacketOutcome::Failed);
+        assert!(matches!(tap.events().last(), Some(TapEvent::Reject(
+            _, _, PacketOutcome::Failed, body,
+        )) if body == &expected));
+    }
+
+    async fn next(transport: &mut SessionTransport) -> RawPacket {
+        match transport.recv().await.unwrap() {
+            Inbound::Packet(raw) => raw,
+            Inbound::Terminal(_) => panic!("a packet arrives before any terminal message"),
+        }
+    }
+
+    /// A batch that cannot be split reaches the tap as one failed batch, not as packets.
+    #[tokio::test]
+    async fn an_unsplittable_batch_is_reported_once() {
+        let tap = Arc::new(RecordingTap::default());
+        let Pair {
+            transport, peer, ..
+        } = &mut tapped_pair("tap-batch", &[], Some(tap.clone())).await;
+        // The entry declares five bytes but carries one.
+        write_frame(peer, &[bridge::contract::KIND_BATCH, 5, 1]).await;
+        assert!(transport.recv().await.is_err());
+        assert_eq!(tap.events(), [TapEvent::RejectBatch(2)]);
+    }
+}
+
+/// What a [`RecordingTap`] saw; a record's handle is its index in the event list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum TapEvent {
+    Record(PacketDirection, u32, Vec<u8>),
+    Reject(u64, u32, PacketOutcome, Vec<u8>),
+    RejectBatch(usize),
+}
+
+/// Keeps every tap call for inspection.
+#[derive(Default)]
+pub(crate) struct RecordingTap(Mutex<Vec<TapEvent>>);
+
+impl RecordingTap {
+    pub(crate) fn events(&self) -> Vec<TapEvent> {
+        self.lock().clone()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<TapEvent>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl PacketTap for RecordingTap {
+    fn record(
+        &self,
+        direction: PacketDirection,
+        packet_id: u32,
+        body: PacketBody<'_>,
+    ) -> PacketRecordId {
+        let mut events = self.lock();
+        events.push(TapEvent::Record(
+            direction,
+            packet_id,
+            body.as_slice().to_vec(),
+        ));
+        PacketRecordId(events.len() as u64 - 1)
+    }
+
+    fn reject(
+        &self,
+        record: PacketRecordId,
+        packet_id: u32,
+        outcome: PacketOutcome,
+        body: PacketBody<'_>,
+    ) {
+        self.lock().push(TapEvent::Reject(
+            record.0,
+            packet_id,
+            outcome,
+            body.as_slice().to_vec(),
+        ));
+    }
+
+    fn reject_batch(&self, len: usize) {
+        self.lock().push(TapEvent::RejectBatch(len));
     }
 }
 

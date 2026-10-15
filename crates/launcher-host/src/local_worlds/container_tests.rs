@@ -73,7 +73,7 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
         format!("-v {}:/data ", install.display()),
         format!(
             "-v {}:/data/worlds/{}",
-            world_dir.join("db").display(),
+            world_dir.join(LEVEL_DIR).display(),
             spec.world.id
         ),
         "-e EULA=TRUE".to_owned(),

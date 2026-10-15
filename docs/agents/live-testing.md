@@ -126,6 +126,45 @@ Metal pass queries appear as delayed `elapsed ms (readback)` plots, not GPU time
 zones; they overlap and cannot be added or matched to the receipt frame. Clock
 anchor zones bound the sampled wall/game-clock relationship for trace comparison.
 
+## Client logs
+
+Each launch writes `logs/client.log` (`.local/logs/` in a checkout), starting with a
+`CLIENT_SESSION_START` header that names the version, commit, build profile and session
+ID. Raw stderr and panics reach it in terminal launches too. The previous session moves to
+`client-<UTC yyyymmdd-hhmmss>.log`; the newest 10 archives, up to 64 MiB, are kept, and a
+session past 8 MiB continues in a fresh file under the same header. Warnings and errors
+keep reserved console queue space, so a flood of lower-level lines cannot drop them; dropped
+lines are counted in the log.
+
+`CINNABAR_LOG` layers comma-separated directives over the defaults and `RUST_LOG`: a
+category with a level (`net=debug`), a bare category for every level, or any `RUST_LOG`
+directive (`wgpu_core=warn`). Invalid directives are skipped with a warning in the log. The
+client MCP `log_filter_set` and `log_filter_get` tools change and report the same spec at
+runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per line to
+`logs/client.jsonl`. Settings → General → Advanced → Verbose logging applies
+`net=debug,session=debug,core=debug,packs=debug` at launch and when toggled, unless
+`CINNABAR_LOG` or `RUST_LOG` is set. F3 shows the active filter.
+
+Every client also starts a `--crash-monitor` process that exits with it and logs to
+`logs/crash-monitor.log`. A crash, abort or kill opens the crash window once the client is gone;
+a panic the client survives only writes its folder. A main loop that finishes no frame for 10 s
+outside a world join writes a `kind: hang` folder while the client keeps running; a client paused
+in a debugger is exempt. Set `CINNABAR_CRASH_UI=0` for scripted and
+headless sessions so a crash only writes its `crashes/` folder, and `CINNABAR_FULL_DUMP=1` for a
+full-memory `crash.dmp` (Windows).
+
+| Category | Covers |
+| --- | --- |
+| `net` | Protocol, web transport and client network runtime |
+| `world` | World data, chunk streaming, meshing, simulation and local player |
+| `render` | Renderer, wgpu, presentation, camera, particles and environment |
+| `ui` | JSON-UI, OreUI, HUD and screens |
+| `packs` | Assets, resource packs, pack runtime and extensions |
+| `audio` | Audio playback and decoding |
+| `input` | Input mapping, gamepads and windowing input |
+| `core` | Go core bridge, launcher, lifecycle, crash monitor and diagnostics |
+| `session` | Client session, join, rich presence and telemetry |
+
 ## Native and performance evidence
 
 Use native Bedrock/BDS comparison when it decides a contract or closes an explicit
@@ -254,8 +293,9 @@ upper bound on drawable acquisition, not proof that macOS caused a stall.
 
 Build with the `cinnabar/frame-trace` feature for named Bevy schedules,
 systems, graph nodes, command generation, queue submission and presentation spans.
-Chrome tracing writes through Bevy's trace writer and changes the workload; use a
-short diagnostic run, separate from the matched long captures.
+The client's subscriber writes the Chrome trace to `TRACE_CHROME`, or a timestamped
+file in the working directory, and changes the workload; use a short diagnostic run,
+separate from the matched long captures.
 
 `CINNABAR_STAGE_PROFILE_EVENTS` sets the bounded event budget (default 131,072;
 maximum 2,097,152). Invalid values retain the default. Exported traces include the
@@ -271,3 +311,32 @@ and unavailable GPU categories must be reported separately.
 
 Developer client builds include the default `acceptance` feature. Packaging opts out explicitly;
 use a developer build for acceptance evidence, even when testing with the release profile.
+
+## Packet capture
+
+The client keeps the last 4,096 packet headers of its sessions in both directions (ID, length,
+the time the client read it and whether ingress accepted, skipped or failed the packet) and up
+to four raw bodies of each rejected packet ID, 1 MiB in total, from the latest session that
+rejected one. Beside them a log flight recorder keeps the last 2,000 log lines its own filter
+passes: `debug` for the `net`, `session`, `core` and `packs` categories and the default level
+elsewhere, whatever `CINNABAR_LOG` sets for the session file. All three live in the session's
+crash staging directory, `crashes/.live-<session id>/` (the header and log rings as mapped
+files, the samples as written), so every crash folder gets `packets.txt` (the header table with
+packet names), `decode-samples/` and `flight.log`, even after a native fault or an external
+kill. Staging directories of clients that are gone are deleted at the next startup.
+
+Set `CINNABAR_PACKET_CAPTURE=1` (or turn on Settings → General → Advanced → Record network
+session) to record each session in full to `logs/packets-<session start unix ms>.cnbrcap`, or
+set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
+never replaced; the start time is added to the name instead. Before each capture into `logs/`, the
+oldest `packets-*.cnbrcap` there are deleted so the folder keeps at most 10 captures and 2 GiB,
+counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the v2 format that
+`tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
+when the client read each batch, which trails socket arrival while ingress is backlogged. It
+stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
+slowing the network thread. Session teardown finishes the file, waiting at most 2 s; a crash
+loses at most the queued packets and 64 KiB of written ones and leaves a capture that
+`bedrock-replay` reports as truncated. Login, handshake and resource-pack offer packets are left
+out of captures and rejected-body samples, keeping only their ring header, so neither holds
+credentials or content keys; captures still hold chat and world data, so keep them outside git
+and delete them after use.

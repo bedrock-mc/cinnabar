@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     report::{Report, SCHEMA},
-    utc,
+    section, utc,
 };
 
 /// Crash folders kept on disk, so a crash loop cannot fill it.
@@ -21,6 +21,14 @@ pub const CLIENT_LOG_FILE: &str = "client.log";
 pub const CORE_LOG_FILE: &str = "core.log";
 /// The native fault's minidump, written by the crash monitor.
 pub const DUMP_FILE: &str = "crash.dmp";
+/// The Go core's runtime crash output (panic and goroutine traces), in `core` reports.
+pub const CORE_CRASH_FILE: &str = "core-crash.txt";
+/// The packet header ring at the crash as a table, oldest first, with packet names.
+pub const PACKETS_FILE: &str = "packets.txt";
+/// The last log lines the flight recorder kept, including levels the session files leave out.
+pub const FLIGHT_LOG_FILE: &str = "flight.log";
+/// Bodies of packets the crashing session rejected, with an `index.txt` describing them.
+pub const DECODE_SAMPLES_DIR: &str = "decode-samples";
 /// Largest `report.json` that [`read`] accepts.
 const MAX_REPORT_BYTES: u64 = 16 << 20;
 /// Same-second folders with one id before a write gives up.
@@ -31,6 +39,56 @@ const MAX_COLLISIONS: usize = 1024;
 pub struct Logs {
     pub client: Vec<u8>,
     pub core: Vec<u8>,
+}
+
+/// Where a crashing session's logs live.
+#[derive(Clone, Copy, Debug)]
+pub struct LogSources<'a> {
+    /// The reporting client session; absent for logs without session identities.
+    pub session_id: Option<&'a str>,
+    pub client: &'a Path,
+    pub core: &'a Path,
+    /// Unix milliseconds when the session began; `core.log` sections from before it belong to
+    /// an earlier session and are left out.
+    pub started_at_ms: u64,
+}
+
+impl Logs {
+    /// Reads the crashing session's sections of both logs; an unreadable log gives an empty
+    /// section.
+    pub fn read(sources: &LogSources<'_>) -> Self {
+        Self {
+            client: match sources.session_id {
+                Some(session_id) => section::session::read(
+                    sources.client,
+                    section::CLIENT_SESSION_START,
+                    session_id,
+                    section::MAX_SECTION_BYTES,
+                ),
+                None => section::read(
+                    sources.client,
+                    section::CLIENT_SESSION_START,
+                    section::MAX_SECTION_BYTES,
+                ),
+            }
+            .unwrap_or_default(),
+            core: match sources.session_id {
+                Some(session_id) => section::session::core(
+                    sources.core,
+                    session_id,
+                    section::MAX_SECTION_BYTES,
+                    sources.started_at_ms,
+                ),
+                None => section::read_since(
+                    sources.core,
+                    section::CORE_SESSION_START,
+                    section::MAX_SECTION_BYTES,
+                    sources.started_at_ms,
+                ),
+            }
+            .unwrap_or_default(),
+        }
+    }
 }
 
 /// Names the folder for a crash at `now_ms` (Unix milliseconds); `id` keeps `[0-9a-z-]` only.
@@ -59,12 +117,54 @@ pub fn created_at_ms(folder: &Path) -> Option<u64> {
     utc::parse(stamp)
 }
 
-/// Writes `report` and `logs` into a new folder named by `now_ms` and the report's session id.
+/// Writes `report` and `logs` into a new folder named by `now_ms` and the report's session id,
+/// moving the minidump at `dump`, when given, in as [`DUMP_FILE`].
 ///
 /// Prunes first so the directory holds at most [`MAX_REPORTS`] folders afterwards. A folder
 /// that already exists gets a `-N` suffix, so simultaneous writers never share one. Every file
 /// is synced before this returns its folder.
-pub fn write(crash_dir: &Path, report: &Report, logs: &Logs, now_ms: u64) -> io::Result<PathBuf> {
+pub fn write(
+    crash_dir: &Path,
+    report: &Report,
+    logs: &Logs,
+    dump: Option<&Path>,
+    now_ms: u64,
+) -> io::Result<PathBuf> {
+    write_with(crash_dir, report, logs, dump, &[], now_ms)
+}
+
+/// An extra member of a crash folder, such as [`CORE_CRASH_FILE`].
+#[derive(Clone, Copy, Debug)]
+pub struct Attachment<'a> {
+    /// A relative path of normal components, such as `core-crash.txt` or `samples/index.txt`;
+    /// it may not name one of the fixed members.
+    pub name: &'a str,
+    pub bytes: &'a [u8],
+}
+
+/// [`write`] plus `attachments`, each written beside the fixed members with its parent
+/// directories created inside the folder.
+///
+/// Every attachment name is checked before anything is written: an absolute path, a `..` or
+/// other non-normal component, a duplicate, or a fixed member's name fails with
+/// [`io::ErrorKind::InvalidInput`].
+pub fn write_with(
+    crash_dir: &Path,
+    report: &Report,
+    logs: &Logs,
+    dump: Option<&Path>,
+    attachments: &[Attachment<'_>],
+    now_ms: u64,
+) -> io::Result<PathBuf> {
+    for (index, attachment) in attachments.iter().enumerate() {
+        check_attachment(attachment.name)?;
+        if attachments[..index]
+            .iter()
+            .any(|earlier| Path::new(earlier.name) == Path::new(attachment.name))
+        {
+            return Err(invalid_attachment(attachment.name));
+        }
+    }
     prune(crash_dir, MAX_REPORTS - 1);
     fs::create_dir_all(crash_dir)?;
     let base = name(now_ms, &report.session_id);
@@ -75,7 +175,54 @@ pub fn write(crash_dir: &Path, report: &Report, logs: &Logs, now_ms: u64) -> io:
     )?;
     write_new(&folder.join(CLIENT_LOG_FILE), &logs.client)?;
     write_new(&folder.join(CORE_LOG_FILE), &logs.core)?;
+    if let Some(dump) = dump {
+        move_file(dump, &folder.join(DUMP_FILE))?;
+    }
+    for attachment in attachments {
+        let path = folder.join(attachment.name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        write_new(&path, attachment.bytes)?;
+    }
     Ok(folder)
+}
+
+/// Accepts relative paths of normal components whose first component is not a fixed member.
+fn check_attachment(name: &str) -> io::Result<()> {
+    let mut components = Path::new(name).components();
+    let first = components.next();
+    let normal = first.is_some()
+        && first
+            .into_iter()
+            .chain(components)
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    let fixed = first.is_some_and(|first| {
+        [REPORT_FILE, CLIENT_LOG_FILE, CORE_LOG_FILE, DUMP_FILE]
+            .iter()
+            .any(|member| first.as_os_str() == *member)
+    });
+    if normal && !fixed {
+        Ok(())
+    } else {
+        Err(invalid_attachment(name))
+    }
+}
+
+fn invalid_attachment(name: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("crash folder attachment `{name}` is not a free relative member path"),
+    )
+}
+
+/// Renames `from` to `to`, copying across volumes.
+fn move_file(from: &Path, to: &Path) -> io::Result<()> {
+    if fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    fs::copy(from, to)?;
+    fs::remove_file(from)
 }
 
 /// Reads a folder's report, rejecting other schema versions.
@@ -95,6 +242,8 @@ pub fn read(folder: &Path) -> io::Result<Report> {
 }
 
 /// Crash folders in `crash_dir`, oldest first; other entries are ignored.
+/// Within a UTC second, directory modification times order completed writes rather than ids
+/// or reusable collision suffixes. The path breaks ties when filesystem times are equal.
 pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = fs::read_dir(crash_dir)
         .into_iter()
@@ -104,7 +253,15 @@ pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| created_at_ms(path).is_some())
         .collect();
-    folders.sort();
+    folders.sort_by_cached_key(|path| {
+        (
+            created_at_ms(path),
+            fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .ok(),
+            path.clone(),
+        )
+    });
     folders
 }
 
@@ -194,7 +351,10 @@ mod tests {
             client: b"CLIENT_SESSION_START\nclient\n".to_vec(),
             core: b"CORE_SESSION_START\ncore\n".to_vec(),
         };
-        let folder = write(&crash_dir, &report("boom"), &logs, NOW_MS).unwrap();
+        fs::create_dir_all(&crash_dir).unwrap();
+        let dump = crash_dir.join("pending.dmp");
+        fs::write(&dump, b"MDMP").unwrap();
+        let folder = write(&crash_dir, &report("boom"), &logs, Some(&dump), NOW_MS).unwrap();
         assert_eq!(
             folder.file_name().unwrap(),
             "20251014-120000-0123456789abcdef"
@@ -203,7 +363,117 @@ mod tests {
         assert_eq!(read(&folder).unwrap(), report("boom"));
         assert_eq!(fs::read(folder.join(CLIENT_LOG_FILE)).unwrap(), logs.client);
         assert_eq!(fs::read(folder.join(CORE_LOG_FILE)).unwrap(), logs.core);
+        assert_eq!(fs::read(folder.join(DUMP_FILE)).unwrap(), b"MDMP");
+        assert!(!dump.exists());
         assert_eq!(list(&crash_dir), [folder]);
+    }
+
+    #[test]
+    fn attachments_land_inside_the_folder_in_their_subdirectories() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = write_with(
+            dir.path(),
+            &report("core"),
+            &Logs::default(),
+            None,
+            &[
+                Attachment {
+                    name: CORE_CRASH_FILE,
+                    bytes: b"panic: boom\n",
+                },
+                Attachment {
+                    name: "samples/index.txt",
+                    bytes: b"index\n",
+                },
+            ],
+            NOW_MS,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(folder.join(CORE_CRASH_FILE)).unwrap(),
+            b"panic: boom\n"
+        );
+        assert_eq!(
+            fs::read(folder.join("samples").join("index.txt")).unwrap(),
+            b"index\n"
+        );
+        assert_eq!(read(&folder).unwrap(), report("core"));
+    }
+
+    #[test]
+    fn attachments_cannot_escape_or_replace_fixed_members() {
+        let dir = tempfile::tempdir().unwrap();
+        let absolute = dir.path().join("outside.txt");
+        let absolute = absolute.to_str().unwrap();
+        for name in [
+            "",
+            "../outside.txt",
+            "samples/../../outside.txt",
+            "./core-crash.txt",
+            absolute,
+            REPORT_FILE,
+            CORE_LOG_FILE,
+            "crash.dmp/inner.txt",
+        ] {
+            let error = write_with(
+                dir.path(),
+                &report("core"),
+                &Logs::default(),
+                None,
+                &[Attachment { name, bytes: b"x" }],
+                NOW_MS,
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{name}");
+        }
+        let twice = [Attachment {
+            name: "a.txt",
+            bytes: b"x",
+        }; 2];
+        let error = write_with(
+            dir.path(),
+            &report("core"),
+            &Logs::default(),
+            None,
+            &twice,
+            NOW_MS,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            list(dir.path()).is_empty(),
+            "a rejected write creates no folder"
+        );
+        assert!(!dir.path().join("outside.txt").exists());
+    }
+
+    #[test]
+    fn logs_read_this_sessions_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("client.log");
+        let core = dir.path().join("core.log");
+        fs::write(
+            &client,
+            "CLIENT_SESSION_START session=old\nold\nCLIENT_SESSION_START session=new\nnew\n",
+        )
+        .unwrap();
+        fs::write(&core, "CORE_SESSION_START timestamp_ms=5\nearlier core\n").unwrap();
+        let logs = Logs::read(&LogSources {
+            session_id: None,
+            client: &client,
+            core: &core,
+            started_at_ms: 10,
+        });
+        assert_eq!(logs.client, b"CLIENT_SESSION_START session=new\nnew\n");
+        assert!(logs.core.is_empty());
+        let missing = dir.path().join("missing.log");
+        let logs = Logs::read(&LogSources {
+            session_id: None,
+            client: &missing,
+            core: &missing,
+            started_at_ms: 0,
+        });
+        assert!(logs.client.is_empty() && logs.core.is_empty());
     }
 
     #[test]
@@ -219,6 +489,7 @@ mod tests {
                             target,
                             &report(&format!("crash {index}")),
                             &Logs::default(),
+                            None,
                             NOW_MS,
                         )
                         .unwrap()
@@ -272,6 +543,7 @@ mod tests {
                 dir.path(),
                 &report("loop"),
                 &Logs::default(),
+                None,
                 NOW_MS + second * 1000,
             )
             .unwrap();
@@ -281,10 +553,46 @@ mod tests {
         assert_eq!(created_at_ms(&folders[0]), Some(NOW_MS + 4_000));
     }
 
+    /// Same-second crash loops retain the latest writes even when folder names are reused.
+    #[test]
+    fn same_second_crashes_are_pruned_in_write_order() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..24_u64 {
+            let folder = write(
+                dir.path(),
+                &report(&format!("crash {index}")),
+                &Logs::default(),
+                None,
+                NOW_MS,
+            )
+            .unwrap();
+            let modified = std::time::UNIX_EPOCH + std::time::Duration::from_millis(NOW_MS + index);
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // FILE_FLAG_BACKUP_SEMANTICS opens a directory; FILE_WRITE_ATTRIBUTES sets its times.
+                options.custom_flags(0x02000000).access_mode(0x100);
+            }
+            options
+                .open(folder)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        }
+        let messages: Vec<_> = list(dir.path())
+            .iter()
+            .map(|folder| read(folder).unwrap().message)
+            .collect();
+        let expected: Vec<_> = (16..24).map(|index| format!("crash {index}")).collect();
+        assert_eq!(messages, expected);
+    }
+
     #[test]
     fn read_rejects_other_schema_versions() {
         let dir = tempfile::tempdir().unwrap();
-        let folder = write(dir.path(), &report("boom"), &Logs::default(), NOW_MS).unwrap();
+        let folder = write(dir.path(), &report("boom"), &Logs::default(), None, NOW_MS).unwrap();
         let mut value: serde_json::Value =
             serde_json::from_slice(&fs::read(folder.join(REPORT_FILE)).unwrap()).unwrap();
         value["schema"] = 2.into();
@@ -301,5 +609,34 @@ mod tests {
         assert_eq!(name(0, "../AB-c1"), "19700101-000000--c1");
         assert_eq!(created_at_ms(Path::new("19700101-000000")), None);
         assert_eq!(created_at_ms(Path::new("crash-1.json")), None);
+    }
+}
+
+#[cfg(test)]
+mod session_selection_tests {
+    use super::*;
+
+    #[test]
+    fn a_report_uses_its_own_archived_client_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("client.log");
+        let archived = dir.path().join("client-20260101-000000.log");
+        fs::write(
+            &client,
+            "CLIENT_SESSION_START session=second timestamp_ms=20\nother client\n",
+        )
+        .unwrap();
+        fs::write(
+            &archived,
+            "CLIENT_SESSION_START session=first timestamp_ms=10\nreporting client\n",
+        )
+        .unwrap();
+        let logs = Logs::read(&LogSources {
+            session_id: Some("first"),
+            client: &client,
+            core: &dir.path().join("core.log"),
+            started_at_ms: 10,
+        });
+        assert_eq!(logs.client, fs::read(&archived).unwrap());
     }
 }
