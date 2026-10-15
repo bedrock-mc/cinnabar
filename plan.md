@@ -9032,11 +9032,11 @@ keep, so records about one server still correlate. Upstream targets, transfer ho
 `core starting` upstream, the friend XUID and the raw upstream, session, friend and web-relay
 errors log redacted, with regression tests asserting no address or XUID in the output.
 
-Verified: crash-report, devtool and crash-monitor tests; Go tests for `internal/redact`,
-`control`, `launcher`, `webrelay`, `cmd/bedrock-core` and `proxy`. Incomplete: Rust `\s`-style
-classes are avoided in the rule file and `\b` is ASCII in both languages, but learned-value
-matching is Unicode case-insensitive in Rust only (Go does not learn values). No Rust log site
-was found carrying a credential field, so no `Secret` wrapping was added; the
-`developer-control` and `launcher-host` session tokens sit in `Debug` structs that are not
-logged. The core still logs the socket directory and catalog path in clear; share time
-redacts them.
+Verified: crash-report, devtool diagnostic-bundle and crash-monitor summary tests; Go tests for
+`internal/redact`, `control`, `launcher`, `webrelay`, `cmd/bedrock-core` and `proxy`.
+Incomplete: Go applies only the single pattern pass; learned values and escape decoding are
+Rust share-time only, so an escaped credential in a Go error relies on the JWT and XBL rules.
+No Rust log site was found carrying a credential field, so no `Secret` wrapping was added; the
+`developer-control` and `launcher-host` tokens sit in `Debug` structs that are never logged.
+The core still logs its socket directory and catalog path in clear; share time redacts the
+`endpoint` value whole but only the home folder name in the catalog path.
