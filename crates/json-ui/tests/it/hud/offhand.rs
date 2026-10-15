@@ -69,6 +69,7 @@ fn offhand_nodes(
     )
     .unwrap()
     .nodes
+    .to_vec()
 }
 
 #[test]

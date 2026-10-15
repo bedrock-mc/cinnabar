@@ -1,5 +1,8 @@
 use render_scene::ActorDrawFrame;
-use std::{collections::BTreeSet, sync::Mutex};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
 use bevy::prelude::Resource;
 
@@ -13,14 +16,30 @@ pub use geometry::storage_binding_bytes;
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {
     pending: Mutex<Option<PendingActorDraw>>,
+    #[cfg(test)]
+    publications: std::sync::atomic::AtomicUsize,
 }
 
+/// Immutable identity and expectations shared by one queued draw and its commands.
 #[derive(Clone)]
-struct PendingActorDraw {
+pub(crate) struct ActorDrawBatch(Arc<QueuedActorDraw>);
+
+struct QueuedActorDraw {
     draw: ActorDrawFrame,
     view: u64,
     expected: BTreeSet<ActorDrawSpan>,
+}
+
+struct PendingActorDraw {
+    batch: ActorDrawBatch,
     received: BTreeSet<ActorDrawSpan>,
+}
+
+impl ActorDrawBatch {
+    /// Returns this batch's immutable prepared identity only for its intended view.
+    pub(crate) fn frame(&self, view: u64) -> Option<&ActorDrawFrame> {
+        (self.0.view == view).then_some(&self.0.draw)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -34,6 +53,7 @@ pub(crate) struct ActorDrawSpan {
 }
 
 impl ActorDrawTracker {
+    /// Invalidates the pending draw, including every previously captured batch handle.
     pub(crate) fn clear(&self) {
         *self
             .pending
@@ -41,7 +61,13 @@ impl ActorDrawTracker {
             .unwrap_or_else(|poison| poison.into_inner()) = None;
     }
 
-    pub(crate) fn begin(&self, draw: ActorDrawFrame, view: u64, spans: &[ActorDrawSpan]) -> bool {
+    /// Validates contiguous bounded spans and publishes a fresh immutable batch identity.
+    pub(crate) fn begin(
+        &self,
+        draw: ActorDrawFrame,
+        view: u64,
+        spans: &[ActorDrawSpan],
+    ) -> Option<ActorDrawBatch> {
         let mut next = 0;
         let valid_spans = spans.iter().all(|span| {
             let valid = span.first == next
@@ -59,40 +85,68 @@ impl ActorDrawTracker {
             || next as usize != draw.manifest.len()
         {
             self.clear();
-            return false;
+            return None;
         }
+        let batch = ActorDrawBatch(Arc::new(QueuedActorDraw {
+            draw,
+            view,
+            expected: spans.iter().copied().collect(),
+        }));
         *self
             .pending
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()) = Some(PendingActorDraw {
-            draw,
-            view,
-            expected: spans.iter().copied().collect(),
+            batch: batch.clone(),
             received: BTreeSet::new(),
         });
-        true
+        Some(batch)
     }
 
-    pub(crate) fn record_draw(&self, view: u64, span: ActorDrawSpan) {
-        if let Some(pending) = self
+    /// Publishes only encoded spans for this exact still-pending batch under one lock.
+    /// Wrong-view, empty, oversized or stale batches cannot credit another queued draw.
+    /// Returns whether at least one previously missing expected span was received.
+    pub(crate) fn record_batch(
+        &self,
+        batch: &ActorDrawBatch,
+        view: u64,
+        spans: &[ActorDrawSpan],
+    ) -> bool {
+        if batch.frame(view).is_none()
+            || spans.is_empty()
+            || spans.len() > render_model::MAX_ACTOR_RENDER_INSTANCES
+        {
+            return false;
+        }
+        #[cfg(test)]
+        self.publications
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut state = self
             .pending
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(|poison| poison.into_inner());
+        let Some(pending) = state
             .as_mut()
-            && pending.view == view
-            && pending.expected.contains(&span)
-        {
-            pending.received.insert(span);
+            .filter(|pending| Arc::ptr_eq(&pending.batch.0, &batch.0))
+        else {
+            return false;
+        };
+        let mut changed = false;
+        for span in spans {
+            if batch.0.expected.contains(span) {
+                changed |= pending.received.insert(*span);
+            }
         }
+        changed
     }
 
+    /// Consumes the pending draw only when actual encoding covered every expected full span.
     pub(crate) fn take_drawn(&self) -> Option<ActorDrawFrame> {
         self.pending
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
             .take()
-            .filter(|pending| pending.expected == pending.received)
-            .map(|pending| pending.draw)
+            .filter(|pending| pending.batch.0.expected == pending.received)
+            .map(|pending| pending.batch.0.draw.clone())
     }
 }
 
@@ -109,6 +163,7 @@ mod tests {
     use render_model::{ActorRenderIdentity, ActorRigRoute};
     use render_scene::ActorPresentationGate;
 
+    /// An exact single-instance frame for receipt and GPU-completion regressions.
     fn draw(generation: u64) -> ActorDrawFrame {
         ActorDrawFrame {
             artwork_identity: [0; 32],
@@ -150,10 +205,10 @@ mod tests {
             count: 1,
             vertex_count: 3,
         };
-        assert!(tracker.begin(draw(1), 9, &[span]));
+        let _ = tracker.begin(draw(1), 9, &[span]).unwrap();
         assert!(tracker.take_drawn().is_none());
-        assert!(tracker.begin(draw(2), 9, &[span]));
-        tracker.record_draw(9, span);
+        let batch = tracker.begin(draw(2), 9, &[span]).unwrap();
+        assert!(tracker.record_batch(&batch, 9, &[span]));
         assert_eq!(tracker.take_drawn(), Some(draw(2)));
     }
 
@@ -180,16 +235,176 @@ mod tests {
                 vertex_count: 3,
             },
         ];
-        assert!(tracker.begin(frame.clone(), 8, &spans));
-        tracker.record_draw(8, spans[0]);
-        tracker.record_draw(8, spans[0]);
-        tracker.record_draw(9, spans[1]);
+        let batch = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        assert!(tracker.record_batch(&batch, 8, &[spans[0], spans[0]]));
+        assert!(!tracker.record_batch(&batch, 9, &[spans[1]]));
         assert!(tracker.take_drawn().is_none());
-        assert!(tracker.begin(frame.clone(), 8, &spans));
-        for span in spans {
-            tracker.record_draw(8, span);
-        }
+        let batch = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        assert!(tracker.record_batch(&batch, 8, &spans));
         assert_eq!(tracker.take_drawn(), Some(frame));
+    }
+
+    /// Builds distinct contiguous spans and an exact manifest without needing a GPU.
+    fn many_spans(count: usize) -> (ActorDrawFrame, Vec<ActorDrawSpan>) {
+        let mut frame = draw(1);
+        let entry = frame.manifest[0].clone();
+        frame.manifest = (0..count)
+            .map(|index| {
+                let mut entry = entry.clone();
+                entry.instance_index = index as u32;
+                entry.identity.runtime_id += index as u64;
+                entry
+            })
+            .collect();
+        let spans = (0..count)
+            .map(|index| ActorDrawSpan {
+                material: (index % 2) as u32,
+                page: 0,
+                first: index as u32,
+                count: 1,
+                vertex_count: 3,
+            })
+            .collect();
+        (frame, spans)
+    }
+
+    #[test]
+    fn stale_and_foreign_batch_handles_cannot_credit_an_identical_new_draw() {
+        let tracker = ActorDrawTracker::default();
+        let foreign = ActorDrawTracker::default();
+        let (frame, spans) = many_spans(3);
+        let old = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        let elsewhere = foreign.begin(frame.clone(), 8, &spans).unwrap();
+        let _current = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        assert!(!tracker.record_batch(&old, 8, &spans));
+        assert!(!tracker.record_batch(&elsewhere, 8, &spans));
+        assert!(tracker.take_drawn().is_none());
+
+        let cleared = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        tracker.clear();
+        let current = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        assert!(!tracker.record_batch(&cleared, 8, &spans));
+        assert!(tracker.record_batch(&current, 8, &spans));
+        assert_eq!(tracker.take_drawn(), Some(frame.clone()));
+        assert!(
+            !tracker.record_batch(&current, 8, &spans),
+            "taking retires the batch"
+        );
+
+        let mut newer = frame.clone();
+        newer.draw_generation += 1;
+        let next = tracker.begin(newer.clone(), 8, &spans).unwrap();
+        assert!(!tracker.record_batch(&current, 8, &spans));
+        assert!(tracker.record_batch(&next, 8, &spans));
+        assert_eq!(tracker.take_drawn(), Some(newer));
+    }
+
+    #[test]
+    fn full_span_mismatches_and_omitted_draws_never_fill_missing_coverage() {
+        let tracker = ActorDrawTracker::default();
+        let (frame, spans) = many_spans(3);
+        let batch = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        let expected = spans[1];
+        for bad in [
+            ActorDrawSpan {
+                material: expected.material + 1,
+                ..expected
+            },
+            ActorDrawSpan {
+                page: expected.page + 1,
+                ..expected
+            },
+            ActorDrawSpan {
+                first: expected.first + 10,
+                ..expected
+            },
+            ActorDrawSpan {
+                count: expected.count + 1,
+                ..expected
+            },
+            ActorDrawSpan {
+                vertex_count: expected.vertex_count + 1,
+                ..expected
+            },
+        ] {
+            assert!(!tracker.record_batch(&batch, 8, &[bad]));
+        }
+        assert!(tracker.record_batch(&batch, 8, &[spans[0], spans[2]]));
+        assert!(
+            !tracker.record_batch(&batch, 8, &[spans[0], spans[2]]),
+            "duplicates add no coverage"
+        );
+        assert!(
+            tracker.take_drawn().is_none(),
+            "the skipped middle draw remains missing"
+        );
+        let batch = tracker.begin(frame.clone(), 8, &spans).unwrap();
+        assert!(tracker.record_batch(&batch, 8, &spans[..1]));
+        assert!(tracker.record_batch(&batch, 8, &spans[1..]));
+        assert_eq!(tracker.take_drawn(), Some(frame));
+    }
+
+    #[test]
+    fn publication_lock_count_follows_nonempty_commands_instead_of_span_count() {
+        use std::sync::atomic::Ordering;
+        for count in [1, 32] {
+            for partition in [1, 7, 32] {
+                let tracker = ActorDrawTracker::default();
+                let (frame, spans) = many_spans(count);
+                let batch = tracker.begin(frame.clone(), 8, &spans).unwrap();
+                assert!(!tracker.record_batch(&batch, 8, &[]));
+                assert!(!tracker.record_batch(&batch, 9, &spans));
+                assert_eq!(tracker.publications.load(Ordering::Relaxed), 0);
+                for command in spans.chunks(partition) {
+                    assert!(tracker.record_batch(&batch, 8, command));
+                }
+                assert_eq!(
+                    tracker.publications.load(Ordering::Relaxed),
+                    count.div_ceil(partition)
+                );
+                assert_eq!(tracker.take_drawn(), Some(frame));
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_begin_retires_old_batches_and_oversized_publication_fails_closed() {
+        let tracker = ActorDrawTracker::default();
+        let (frame, spans) = many_spans(1);
+        let mut zero_generation = frame.clone();
+        zero_generation.draw_generation = 0;
+        let mut zero_frame = frame.clone();
+        zero_frame.frame_generation = 0;
+        let mut empty = frame.clone();
+        empty.manifest = Arc::from([]);
+        for (invalid, invalid_spans) in [
+            (zero_generation, spans.clone()),
+            (zero_frame, spans.clone()),
+            (empty, Vec::new()),
+            (
+                frame.clone(),
+                vec![ActorDrawSpan {
+                    count: 0,
+                    ..spans[0]
+                }],
+            ),
+            (
+                frame.clone(),
+                vec![ActorDrawSpan {
+                    first: 1,
+                    ..spans[0]
+                }],
+            ),
+        ] {
+            let old = tracker.begin(frame.clone(), 8, &spans).unwrap();
+            assert!(tracker.begin(invalid, 8, &invalid_spans).is_none());
+            assert!(!tracker.record_batch(&old, 8, &spans));
+            assert!(tracker.take_drawn().is_none());
+        }
+        let batch = tracker.begin(frame, 8, &spans).unwrap();
+        let too_many = vec![spans[0]; render_model::MAX_ACTOR_RENDER_INSTANCES + 1];
+        assert!(!tracker.record_batch(&batch, 8, &too_many));
+        assert!(tracker.take_drawn().is_none());
     }
 
     #[test]

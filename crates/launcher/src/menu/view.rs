@@ -29,6 +29,8 @@ pub struct LocalWorldCard {
     pub game_mode: String,
     /// The saved world generator label.
     pub world_type: String,
+    /// The server hosting the world, so Dragonfly and BDS worlds of one name stay distinct.
+    pub server: String,
     pub date: String,
     pub size: String,
     /// Its last captured view, once one was taken.

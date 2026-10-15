@@ -51,7 +51,7 @@ fn link_hits_follow_the_actual_default_and_named_label_paint_origin() {
                     children: Vec::new(),
                     factory: None,
                 },
-                nodes: vec![node.clone()],
+                nodes: vec![node.clone()].into(),
                 hits: Arc::from([]),
                 report: Default::default(),
                 cancel_target: None,

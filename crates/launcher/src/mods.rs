@@ -22,6 +22,10 @@ pub enum Action {
     MoveUp(u64),
     MoveDown(u64),
     Permission(u64, usize, bool),
+    AllowRequested(u64),
+    RevokeAll(u64),
+    Customize(u64),
+    ShowAllPermissions(u64),
 }
 
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
@@ -31,6 +35,20 @@ pub struct Permission {
     pub description: String,
     pub enabled: bool,
     pub requested: Option<bool>,
+    /// Includes every declared value, such as all requested command names.
+    pub requested_allowed: bool,
+    pub sensitive: bool,
+}
+
+impl Permission {
+    /// Adds the gameplay warning to the short name when the capability requires it.
+    pub fn label(&self) -> String {
+        if self.sensitive {
+            format!("⚠ {}", self.name)
+        } else {
+            self.name.clone()
+        }
+    }
 }
 
 /// A directory component or an enabled registration whose source is unavailable.
@@ -44,6 +62,36 @@ pub struct InstalledMod {
     pub metadata: ui::mod_metadata::ModMetadata,
 }
 impl InstalledMod {
+    /// Whether a valid permission declaration exists, including an empty request.
+    pub fn declares_permissions(&self) -> bool {
+        self.permissions
+            .iter()
+            .any(|permission| permission.requested.is_some())
+    }
+    /// Counts allowed requests and all requests without counting extra grants.
+    pub fn requested_counts(&self) -> (usize, usize) {
+        self.permissions
+            .iter()
+            .filter(|permission| permission.requested == Some(true))
+            .fold((0, 0), |(allowed, total), permission| {
+                (
+                    allowed + usize::from(permission.requested_allowed),
+                    total + 1,
+                )
+            })
+    }
+    /// Supplies stable host capability indices, with requested permissions first.
+    pub fn permission_order(&self, show_all: bool) -> Vec<usize> {
+        let mut indices: Vec<_> = self
+            .permissions
+            .iter()
+            .enumerate()
+            .filter(|(_, permission)| show_all || permission.requested == Some(true))
+            .map(|(index, _)| index)
+            .collect();
+        indices.sort_by_key(|index| self.permissions[*index].requested != Some(true));
+        indices
+    }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {
         self.metadata.name.as_deref().unwrap_or_else(|| {
@@ -112,6 +160,9 @@ pub struct Snapshot {
     pub details_expanded: Option<u64>,
     pub active_expanded: bool,
     pub available_expanded: bool,
+    pub customizing: Option<u64>,
+    pub show_all_permissions: bool,
+    pub consent: Option<u64>,
 }
 impl Default for Snapshot {
     fn default() -> Self {
@@ -120,6 +171,9 @@ impl Default for Snapshot {
             details_expanded: None,
             active_expanded: true,
             available_expanded: true,
+            customizing: None,
+            show_all_permissions: false,
+            consent: None,
         }
     }
 }
@@ -127,6 +181,51 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
+            Action::Customize(id) => {
+                self.customizing = (self.customizing != Some(id)).then_some(id);
+                self.show_all_permissions = false;
+                if self.consent == Some(id) {
+                    self.consent = None;
+                }
+                None
+            }
+            Action::ShowAllPermissions(id) => {
+                if self.customizing == Some(id) {
+                    self.show_all_permissions = !self.show_all_permissions;
+                }
+                None
+            }
+            Action::Enable(id) if !self.library.busy => {
+                if self
+                    .library
+                    .installed
+                    .iter()
+                    .find(|item| item.id == id)
+                    .is_some_and(|item| {
+                        let (allowed, total) = item.requested_counts();
+                        !item.permissions.iter().any(|permission| permission.enabled)
+                            || allowed < total
+                            || !item.declares_permissions()
+                    })
+                {
+                    self.consent = Some(id);
+                }
+                Some(action)
+            }
+            Action::AllowRequested(id) if !self.library.busy => {
+                if !self
+                    .library
+                    .installed
+                    .iter()
+                    .any(|item| item.id == id && item.declares_permissions())
+                {
+                    return None;
+                }
+                if self.consent == Some(id) {
+                    self.consent = None;
+                }
+                Some(action)
+            }
             Action::ReadMore(id) => {
                 self.details_expanded = (self.details_expanded != Some(id)).then_some(id);
                 None
@@ -142,13 +241,26 @@ impl Snapshot {
             _ => (!self.library.busy).then_some(action),
         }
     }
-    /// Closes details when their component leaves the library.
+    /// Retires disclosures for removed components and consent for disabled components.
     pub fn publish(&mut self, library: Library) {
         if self
             .details_expanded
             .is_some_and(|id| !library.installed.iter().any(|item| item.id == id))
         {
             self.details_expanded = None;
+        }
+        if self
+            .customizing
+            .is_some_and(|id| !library.installed.iter().any(|item| item.id == id))
+        {
+            self.customizing = None;
+            self.show_all_permissions = false;
+        }
+        if self
+            .consent
+            .is_some_and(|id| !library.active.iter().any(|item| item.id == id))
+        {
+            self.consent = None;
         }
         self.library = library;
     }
@@ -175,6 +287,70 @@ mod tests {
         item.metadata.icon = Some(std::sync::Arc::from([1u8].as_slice()));
         assert_eq!(item.name(), "Zoom");
         assert!(item.icon_key().is_some());
+    }
+
+    #[test]
+    fn permission_order_and_summary_keep_the_host_indices() {
+        let mut item = installed(1);
+        item.permissions = [false, true, false, true]
+            .into_iter()
+            .enumerate()
+            .map(|(index, requested)| Permission {
+                name: format!("Permission {index}"),
+                description: String::new(),
+                enabled: index < 2,
+                requested: Some(requested),
+                requested_allowed: index < 2,
+                sensitive: index == 1,
+            })
+            .collect();
+        assert_eq!(item.permission_order(false), [1, 3]);
+        assert_eq!(item.permission_order(true), [1, 3, 0, 2]);
+        assert_eq!(item.requested_counts(), (1, 2));
+        assert_eq!(item.permissions[1].label(), "⚠ Permission 1");
+        assert_eq!(item.permissions[0].label(), "Permission 0");
+    }
+
+    #[test]
+    fn undeclared_cards_cannot_forward_one_click_grants() {
+        let mut snapshot = Snapshot::default();
+        snapshot.library.installed.push(installed(1));
+        assert_eq!(snapshot.apply(Action::AllowRequested(1)), None);
+        assert_eq!(snapshot.apply(Action::Customize(1)), None);
+        assert_eq!(snapshot.customizing, Some(1));
+        assert_eq!(snapshot.apply(Action::ShowAllPermissions(1)), None);
+        assert!(snapshot.show_all_permissions);
+        snapshot.publish(Library::default());
+        assert_eq!(snapshot.customizing, None);
+        assert!(!snapshot.show_all_permissions);
+    }
+
+    #[test]
+    fn first_enable_keeps_empty_declaration_consent_until_an_explicit_choice() {
+        let mut item = installed(1);
+        item.permissions.push(Permission {
+            name: "HUD".into(),
+            description: String::new(),
+            enabled: false,
+            requested: Some(false),
+            requested_allowed: true,
+            sensitive: false,
+        });
+        let mut snapshot = Snapshot::default();
+        snapshot.library.installed.push(item);
+        assert_eq!(snapshot.apply(Action::Enable(1)), Some(Action::Enable(1)));
+        let mut active = snapshot.library.clone();
+        active.active.push(ActiveMod {
+            id: 1,
+            status: Status::Running,
+        });
+        snapshot.publish(active);
+        assert_eq!(snapshot.consent, Some(1));
+        assert_eq!(
+            snapshot.apply(Action::AllowRequested(1)),
+            Some(Action::AllowRequested(1))
+        );
+        assert_eq!(snapshot.consent, None);
     }
     #[test]
     fn active_groups_keep_precedence_and_disclosures_stay_local() {
