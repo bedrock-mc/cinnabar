@@ -205,6 +205,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         None,
     )
     .unwrap();
+    let companion = previous.host.settings_path().unwrap().to_owned();
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", None)).unwrap();

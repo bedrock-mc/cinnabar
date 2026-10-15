@@ -377,7 +377,10 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
         .result
         .unwrap()
         .unwrap();
-    assert_eq!(registration.mods[0].component, link);
+    assert_eq!(
+        registration.mods[0].component,
+        root.canonicalize().unwrap().join(link.file_name().unwrap())
+    );
     assert!(source::source_snapshot(registration.mods[0].clone()).is_err());
 }
 
