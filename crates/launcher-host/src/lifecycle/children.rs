@@ -4,7 +4,10 @@
 use std::{
     io,
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{
+        Arc, Mutex, MutexGuard, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -38,6 +41,28 @@ struct Tracked {
     grace: Duration,
     /// Exit sweeps leave it running: it watches this process and ends itself afterwards.
     outlives: bool,
+    /// Set once this process asks the running child to stop: stdin closed by a stop, a signal,
+    /// or a kill. An exit after it was asked for, not the child's own.
+    stop_requested: AtomicBool,
+}
+
+impl Tracked {
+    fn new(child: Child, grace: Duration, outlives: bool) -> Self {
+        Self {
+            child: Mutex::new(child),
+            grace,
+            outlives,
+            stop_requested: AtomicBool::new(false),
+        }
+    }
+
+    /// Records a stop request when the child is still running; one that already exited ended
+    /// on its own.
+    fn request_stop(&self, child: &mut Child) {
+        if running(child) {
+            self.stop_requested.store(true, Ordering::Release);
+        }
+    }
 }
 
 type Entry = Arc<Tracked>;
@@ -92,11 +117,7 @@ impl Children {
 
     /// [`Self::track`] for a child that needs up to `grace` to exit after its stop request.
     fn track_with(&self, child: Child, grace: Duration) -> Spawned {
-        let entry = Arc::new(Tracked {
-            child: Mutex::new(child),
-            grace,
-            outlives: false,
-        });
+        let entry = Arc::new(Tracked::new(child, grace, false));
         let mut live = lock(&self.live);
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
@@ -120,11 +141,7 @@ impl Children {
         seal_inherited_sockets();
         #[cfg(all(windows, not(debug_assertions)))]
         crate::desktop::windows::hide_console(command);
-        let entry = Arc::new(Tracked {
-            child: Mutex::new(command.spawn()?),
-            grace,
-            outlives,
-        });
+        let entry = Arc::new(Tracked::new(command.spawn()?, grace, outlives));
         live.entries
             .retain(|entry| running(&mut lock(&entry.child)));
         live.entries.push(Arc::clone(&entry));
@@ -303,7 +320,14 @@ impl Spawned {
 
     /// Sends SIGKILL without waiting; a no-op once reaped.
     pub fn kill(&self) {
-        let _ = lock(&self.0.child).kill();
+        let mut child = lock(&self.0.child);
+        self.0.request_stop(&mut child);
+        let _ = child.kill();
+    }
+
+    /// A handle a watcher thread uses to see this child's exit, without authority to stop it.
+    pub fn observer(&self) -> ExitObserver {
+        ExitObserver(Arc::clone(&self.0))
     }
 
     /// Waits for exit by polling, so an exit sweep can still lock this child meanwhile.
@@ -322,10 +346,28 @@ impl Spawned {
     }
 }
 
+/// Observes one tracked child's exit from another thread.
+#[derive(Debug)]
+pub struct ExitObserver(Entry);
+
+impl ExitObserver {
+    pub fn try_wait(&self) -> io::Result<Option<ExitStatus>> {
+        lock(&self.0.child).try_wait()
+    }
+
+    /// Whether this process asked the child to stop while it ran (a stop, an exit sweep or a
+    /// kill), so its exit was requested rather than its own.
+    pub fn stop_requested(&self) -> bool {
+        self.0.stop_requested.load(Ordering::Acquire)
+    }
+}
+
 fn escalate(entries: &[Entry], graceful: Duration) -> Vec<StopOutcome> {
     let mut outcomes = vec![StopOutcome::Unreaped; entries.len()];
     for entry in entries {
-        drop(lock(&entry.child).stdin.take());
+        let mut child = lock(&entry.child);
+        entry.request_stop(&mut child);
+        drop(child.stdin.take());
     }
     let steps = [
         (StopOutcome::Exited, graceful),

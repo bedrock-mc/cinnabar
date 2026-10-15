@@ -289,7 +289,8 @@ fn a_core_that_exits_early_fails_the_join_promptly() {
                     .world_mut()
                     .resource_mut::<SessionController>()
                     .core_mut()
-                    .exited()
+                    .exit_status()
+                    .is_some()
         },
     );
     test_time::eventually("the connect attempt to finish", || {

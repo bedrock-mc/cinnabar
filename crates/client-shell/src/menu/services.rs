@@ -28,6 +28,7 @@ impl MenuRuntime {
                 idle,
                 client_cache_enabled,
                 local_worlds.as_deref_mut(),
+                std::time::Instant::now(),
             );
         }
         if std::mem::take(&mut self.accounts.skip_control) {

@@ -5,6 +5,7 @@
 //! process is gone, and tells the player when the client died. Until it is connected, or
 //! without one, the process writes the folder itself.
 
+pub(crate) mod core_exit;
 mod fallback;
 mod handler;
 pub mod monitor;
