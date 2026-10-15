@@ -7897,12 +7897,14 @@ name = "ui"
 version = "0.1.20"
 dependencies = [
  "assets",
+ "criterion",
  "json-ui",
  "render-api",
  "semantic-input",
  "serde",
  "serde_json",
  "sha2",
+ "xxhash-rust",
 ]
 
 [[package]]
