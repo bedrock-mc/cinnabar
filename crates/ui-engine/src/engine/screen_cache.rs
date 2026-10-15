@@ -256,7 +256,7 @@ mod tests {
                 children: Vec::new(),
                 factory: None,
             },
-            nodes: Vec::new(),
+            nodes: Arc::from([]),
             hits: Arc::from([]),
             report: Default::default(),
             cancel_target: None,

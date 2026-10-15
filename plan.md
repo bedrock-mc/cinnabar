@@ -15,7 +15,14 @@ semantic owners. Vector edits detach retained views, and equal feed deliveries p
 current list storage. Interaction state and service details still publish independently.
 Incomplete: behavioral and copy-count regressions are written but unrun. Compilation,
 rendered comparisons and measured menu publication cost remain pending; no performance or
-output-parity gate closes here. Form texture-dependency caching remains separate.
+output-parity gate closes here.
+
+Published form draw nodes share immutable snapshots. A bounded engine cache retains logical
+base texture paths and renderer names for the exact snapshot and omission values; overlays,
+renderer callbacks, source resolution and atlas residency still update every prepare.
+Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
+rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
+edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
