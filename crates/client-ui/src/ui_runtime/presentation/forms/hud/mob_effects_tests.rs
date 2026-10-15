@@ -50,7 +50,8 @@ fn engine(control: serde_json::Value) -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        // Layout assertions need all fixture pixels on the first paint.
+        ui_engine::sources::ImageWork::inline(),
     );
     let files: Vec<_> = std::iter::once((format!("{BACKGROUND}.png"), png(24)))
         .chain(ICONS.iter().map(|icon| (format!("{icon}.png"), png(18))))
