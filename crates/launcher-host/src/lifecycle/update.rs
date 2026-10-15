@@ -1,6 +1,7 @@
 //! One background signed-release check and the launcher's explicit update decisions.
 
 mod handoff;
+mod releases;
 #[cfg(test)]
 mod tests;
 mod worker;
@@ -47,14 +48,13 @@ impl Ready {
         stage: PathBuf,
         reader: std::fs::File,
         selected: update_installer::stage::Selection,
-        channel: Channel,
         switch_now: bool,
         writable: bool,
     ) -> Self {
         Self {
             expires: selected.manifest.expires,
             stage,
-            channel,
+            channel: Channel::parse(&selected.manifest.channel).expect("verified release channel"),
             switch_now,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {

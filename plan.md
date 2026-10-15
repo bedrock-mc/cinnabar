@@ -285,6 +285,12 @@ carry monotonic build numbers, and digest-named partial downloads resume with HT
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
 
+Nightly checks both the nightly and beta signed manifests and offers the newer release while
+keeping the Nightly preference. Release ordering compares the version core, then the shared
+publication number, then SemVer prerelease precedence. An unavailable or invalid beta manifest
+leaves nightly usable. Cached offers and retained stages use the same order to prevent automatic
+downgrades when the winning publishing channel changes. Beta remains the default channel.
+
 Incomplete: CI must compile and run the written regression tests on all platforms. The package
 workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
 the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
