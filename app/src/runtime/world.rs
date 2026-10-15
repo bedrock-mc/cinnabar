@@ -17,6 +17,7 @@ use {
 mod committed_ui;
 mod control_apply;
 mod dimension;
+mod input_locks;
 mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
@@ -432,9 +433,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
         if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
-            player_runtime
-                .facts
-                .apply_input_locks(clock.session_generation(), locks);
+            input_locks::apply_committed_input_locks(
+                clock.session_generation(),
+                locks,
+                &mut player_runtime.facts,
+                &mut local_physics,
+            );
             continue;
         }
         if let CommittedControlEvent::DimensionChangeAck {

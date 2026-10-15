@@ -1,7 +1,7 @@
 //! Permission enforcement for frame input, retained edges and extension jump pulses.
 
 use super::{LocalPhysicsController, PhysicsSampleContext};
-use protocol::ClientInputLock;
+use protocol::{ClientInputLock, ClientInputLocks};
 use sim::MovementInput;
 
 impl LocalPhysicsController {
@@ -29,6 +29,17 @@ impl LocalPhysicsController {
             && !self.dimension_waiting
     }
 
+    /// Revokes unconsumed requests immediately, including while prediction is paused.
+    pub fn apply_input_locks(&mut self, locks: ClientInputLocks) {
+        self.input_edges.apply_input_locks(locks);
+        if locks.blocks(ClientInputLock::Jump) {
+            self.jump_edge_pending = false;
+            self.previous_jump_held = false;
+            self.jump_pulse_pending = false;
+            self.jump_pulse_held = false;
+        }
+    }
+
     /// Revokes blocked requests before observing edges, including frames without a tick.
     pub(super) fn filter_input_requests(
         &mut self,
@@ -36,15 +47,11 @@ impl LocalPhysicsController {
         context: &mut PhysicsSampleContext,
     ) {
         let locks = context.input_locks;
-        self.input_edges.apply_input_locks(locks);
+        self.apply_input_locks(locks);
         if locks.blocks(ClientInputLock::Jump) {
             input.jumping = false;
             input.jump_pressed = false;
             context.input.jump = Default::default();
-            self.jump_edge_pending = false;
-            self.previous_jump_held = false;
-            self.jump_pulse_pending = false;
-            self.jump_pulse_held = false;
         }
         if locks.blocks(ClientInputLock::Sneak) {
             input.sneaking = false;
