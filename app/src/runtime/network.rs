@@ -173,6 +173,7 @@ pub(crate) mod block_entity_art;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;
+pub(crate) mod session_registries;
 pub(crate) use actor_publication::{
     advance_actor_frame, advance_actor_motion, initialize_actor_geometry_budget,
     prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
