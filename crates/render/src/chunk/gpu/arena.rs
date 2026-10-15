@@ -15,6 +15,10 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) total_bytes: u64,
     pub(in crate::chunk) migrations_started: usize,
     pub(in crate::chunk) uploads_waiting_for_growth: usize,
+    pub(in crate::chunk) candidates_examined: usize,
+    pub(in crate::chunk) model_streams_validated: usize,
+    pub(in crate::chunk) range_plans: usize,
+    pub(in crate::chunk) candidates_deferred: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,6 +297,8 @@ pub(in crate::chunk) struct GpuUpdateFairness {
     pub(in crate::chunk) limit: usize,
     pub(in crate::chunk) recover_untracked: bool,
     pub(in crate::chunk) last_tint_identity: Option<ChunkBiomeTintIdentity>,
+    pub(in crate::chunk) model_validation: super::upload::model_validation::ModelValidationCache,
+    examination_cursor: usize,
 }
 
 impl Default for GpuUpdateFairness {
@@ -309,6 +315,8 @@ impl GpuUpdateFairness {
             last_tint_identity: None,
             recover_untracked: false,
             limit,
+            model_validation: Default::default(),
+            examination_cursor: 0,
         }
     }
 
@@ -318,6 +326,23 @@ impl GpuUpdateFairness {
 
     pub(in crate::chunk) fn is_urgent(&self, entity: Entity) -> bool {
         self.urgent_waiters.contains(&entity)
+    }
+
+    /// Examines a priority prefix and a rotating tail, each bounded by the service item ceiling.
+    pub(in crate::chunk) fn examination_order<'a>(
+        &mut self,
+        selected: &'a [Entity],
+    ) -> impl Iterator<Item = Entity> + use<'a> {
+        let limit = PublicationServiceConfig::DEFAULT.maximum_frame_items;
+        let (priority, tail) = selected.split_at(selected.len().min(limit));
+        let start = self.examination_cursor % tail.len().max(1);
+        let count = tail.len().min(limit);
+        self.examination_cursor = (start + count) % tail.len().max(1);
+        let (before, after) = tail.split_at(start);
+        priority
+            .iter()
+            .chain(after.iter().chain(before).take(count))
+            .copied()
     }
 
     pub(in crate::chunk) fn finish_frame(
@@ -351,6 +376,7 @@ impl GpuUpdateFairness {
                 self.urgent_waiters.insert(entity);
             }
         }
+        self.model_validation.retain_waiters(&self.wait_ages);
     }
 
     #[cfg(test)]
@@ -359,6 +385,8 @@ impl GpuUpdateFairness {
         self.urgent_waiters.clear();
         self.last_tint_identity = None;
         self.recover_untracked = false;
+        self.model_validation = Default::default();
+        self.examination_cursor = 0;
     }
 
     #[cfg(test)]

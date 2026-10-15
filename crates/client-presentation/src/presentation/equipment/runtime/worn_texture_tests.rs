@@ -30,7 +30,7 @@ fn coat_pack(script: &str) -> Vec<(Box<str>, Vec<u8>)> {
     vec![
         ("attachables/coat_helmet.json".into(), serde_json::to_vec(&serde_json::json!({
             "format_version":"1.10.0","minecraft:attachable":{"description":{
-                "identifier":"test:coat_helmet","materials":{"default":"armor"},
+                "identifier":"minecraft:iron_helmet","materials":{"default":"armor"},
                 "textures":{"default":"textures/models/coat_plain","plain":"textures/models/coat_plain",
                     "painted":"textures/models/coat_painted"},
                 "geometry":{"default":"geometry.test.coat_helmet"},
@@ -70,8 +70,8 @@ fn helmet() -> ActorEquipmentInput {
                 variant: Default::default(),
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
-                grip: assets::item::grip::builtin_item_grip("test:coat_helmet"),
-                identifier: Arc::from("test:coat_helmet"),
+                grip: assets::item::grip::builtin_item_grip("minecraft:iron_helmet"),
+                identifier: Arc::from("minecraft:iron_helmet"),
                 metadata: 0,
                 damage: None,
                 kind: HeldKind::Other,
@@ -127,7 +127,7 @@ fn armour_uses_a_controller_alternative_before_startup_fallback() {
         .unwrap();
     *bytes = serde_json::to_vec(&document).unwrap();
     let (entities, catalog) = pack_catalog(files);
-    let binding = catalog.binding("test:coat_helmet").unwrap();
+    let binding = catalog.binding("minecraft:iron_helmet").unwrap();
     assert!(catalog.texture(&binding.texture.identifier).is_none());
     let (pages, locations) =
         base_pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));

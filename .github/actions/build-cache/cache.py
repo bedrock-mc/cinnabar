@@ -1,10 +1,11 @@
 """Cache compiler outputs and restore timestamps only for identical tracked inputs."""
 
+from collections import Counter
 import glob
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import shutil
 import stat
 import subprocess
@@ -133,6 +134,8 @@ def plan(root, language, lane, env):
         if target:
             # The first path keeps native build scripts and proc-macros too.
             paths.append(root / "target" / target / profile)
+        # Further profiles or cross targets a job builds alongside, such as a wasm library.
+        paths += [root / "target" / extra for extra in env.get("CACHE_CARGO_OUTPUTS", "").split()]
     elif language == "go":
         if env.get("GOOS") and env.get("GOARCH"):
             target = f"{env['GOOS']}-{env['GOARCH']}"
@@ -219,10 +222,12 @@ def prune(env):
     delete_caches(env, superseded(entries, env["CACHE_KEY"], env["CACHE_BUCKET"], env["GITHUB_REF"]))
     saved = next((entry for entry in entries if entry["key"] == env["CACHE_KEY"]), None)
     limit = budget("cache", env["CACHE_BUCKET"])
+    if saved is not None:
+        print(f"{env['CACHE_KEY']} is {saved['size_in_bytes']} bytes of its {limit}-byte budget")
     if saved is not None and saved["size_in_bytes"] > limit:
         delete_caches(env, [saved["id"]])
-        raise BudgetError(f"{env['CACHE_KEY']} is {saved['size_in_bytes']} bytes, over its "
-                           f"{limit}-byte budget; raise the budget only if the total still fits")
+        raise BudgetError(f"Deleted {env['CACHE_KEY']}: it is {saved['size_in_bytes']} bytes, over "
+                           f"its {limit}-byte budget; raise the budget only if the total still fits")
 
 
 def archive_roots(paths):
@@ -237,14 +242,110 @@ def archive_roots(paths):
         yield index, root, matches
 
 
+# Linked executables and their debug info. Cargo relinks a missing one from the kept
+# libraries and fingerprints, and a test build's executables outweigh everything else.
+LINKED_SUFFIXES = {"", ".exe", ".pdb", ".o", ".dwo", ".dwp"}
+
+
+def linked_output(relative, is_dir):
+    """Whether a path relative to a Cargo profile directory is left out of saved caches."""
+    parts = relative.split("/")
+    if parts[0] in ("examples", "incremental"):
+        return True
+    if len(parts) > (2 if parts[0] == "deps" else 1):
+        return False
+    suffix = PurePosixPath(parts[-1]).suffix
+    return suffix == ".dSYM" if is_dir else suffix in LINKED_SUFFIXES
+
+
+def cache_entries(paths):
+    """Yield (index, root, path, kept) for each planned file and directory, parents first.
+
+    Linked outputs in Cargo profile directories are not kept, and their contents not yielded.
+    """
+    for index, root, matches in archive_roots(paths):
+        for match in matches:
+            yield index, root, match, True
+            # Only Cargo profile directories have fingerprints; Go's cache names have no suffix.
+            profile = (match / ".fingerprint").is_dir()
+            for directory, dirs, files in os.walk(match):
+                for name in sorted(dirs) + sorted(files):
+                    path = Path(directory, name)
+                    relative = path.relative_to(match).as_posix()
+                    kept = not (profile and linked_output(relative, name in dirs))
+                    if not kept and name in dirs:
+                        dirs.remove(name)
+                    yield index, root, path, kept
+                dirs.sort()
+
+
+def entry_size(path):
+    """Bytes of a file, or of the regular files under a directory."""
+    if path.is_symlink() or path.is_file():
+        return path.lstat().st_size
+    return sum(child.lstat().st_size for child in path.rglob("*") if child.is_file())
+
+
+class Sizes:
+    """Uncompressed bytes kept and left out of a cache, by its top two directory levels."""
+
+    def __init__(self):
+        self.kept, self.left_out, self.seen = Counter(), Counter(), set()
+
+    def add(self, root, path, kept):
+        """Count one entry; hard links count once, as archives store them once."""
+        parts = path.relative_to(root).parts
+        group = "/".join(parts[:2]) if len(parts) > 2 or path.is_dir() else parts[0]
+        if not kept:
+            self.left_out[group] += entry_size(path)
+        elif path.is_file() and not path.is_symlink():
+            info = path.stat()
+            if (info.st_dev, info.st_ino) not in self.seen:
+                self.seen.add((info.st_dev, info.st_ino))
+                self.kept[group] += info.st_size
+
+    def report(self):
+        """Print the totals and largest directories, so an overrun names its cause."""
+        def megabytes(size):
+            return f"{size / 1e6:,.0f} MB"
+        print(f"Caching {megabytes(sum(self.kept.values()))} uncompressed; left out "
+              f"{megabytes(sum(self.left_out.values()))} of executables, debug info and incremental state")
+        for title, sizes in (("Largest kept", self.kept.most_common(12)),
+                             ("Left out", self.left_out.most_common())):
+            print(f"{title}:")
+            for group, size in sizes:
+                print(f"  {megabytes(size):>10}  {group}")
+
+
+def drop_linked_outputs(paths):
+    """Delete linked outputs from the planned paths before the shared cache saves them."""
+    sizes = Sizes()
+    for _, root, path, kept in cache_entries(paths):
+        sizes.add(root, path, kept)
+        if not kept:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+    sizes.report()
+    return sizes
+
+
 def pack(paths, archive):
     """Archive planned paths with their exact timestamps, which Cargo freshness depends on."""
+    sizes = Sizes()
     with tarfile.open(archive, "w:gz", compresslevel=1, format=tarfile.PAX_FORMAT) as tar:
-        for index, root, matches in archive_roots(paths):
-            # Hard links may only point within their own root.
-            tar.inodes.clear()
-            for match in matches:
-                tar.add(match, arcname=f"{index}/{match.relative_to(root).as_posix()}")
+        last = None
+        for index, root, path, kept in cache_entries(paths):
+            if index != last:
+                # Hard links may only point within their own root.
+                tar.inodes.clear()
+                last = index
+            sizes.add(root, path, kept)
+            if kept:
+                tar.add(path, arcname=f"{index}/{path.relative_to(root).as_posix()}", recursive=False)
+    sizes.report()
+    return sizes
 
 
 def cache_member(member, root):
@@ -369,6 +470,7 @@ def pack_artifact(env):
     archive = Path(env["RUNNER_TEMP"]) / f"{name}.tar.gz"
     pack(env["CACHE_PATHS"].splitlines(), archive)
     size, limit = archive.stat().st_size, budget("artifact", env["CACHE_BUCKET"])
+    print(f"{archive.name} is {size} bytes of its {limit}-byte budget")
     if size > limit:
         archive.unlink()
         raise BudgetError(f"{name} archive is {size} bytes, over its {limit}-byte budget")
@@ -411,6 +513,8 @@ def main():
         restore_inputs(root)
     elif action == "verify-inputs":
         verify_inputs(root)
+    elif action == "drop-linked-outputs":
+        drop_linked_outputs(env["CACHE_PATHS"].splitlines())
     elif action == "make-room":
         make_room(env)
     elif action == "prune":
@@ -430,4 +534,8 @@ if __name__ == "__main__":
         main()
     except BudgetError as error:
         print(f"::error title=Cache budget::{error}")
+        # A job already failing its tests would otherwise hide the lost cache.
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                summary.write(f"**Build cache discarded:** {error}\n")
         sys.exit(1)

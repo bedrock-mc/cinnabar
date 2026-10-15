@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod cache_tests;
 #[cfg(test)]
+mod large_catalog_tests;
+#[cfg(test)]
 mod tests;
 
 use crate::ui_runtime::UiRuntime;

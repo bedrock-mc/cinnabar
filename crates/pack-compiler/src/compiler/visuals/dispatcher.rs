@@ -4,6 +4,7 @@ use super::context::{
     PressurePlateTemplateKey, RuleInputs, SignTemplateKey, ThinTemplateKey, diagnostic_visual,
 };
 use super::fallback::FallbackInventory;
+use assets::facts::pack::PackBlock as B;
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct ExactAdmissions {
@@ -35,7 +36,7 @@ pub(in crate::compiler) struct CanonicalAirIdentity {
 }
 
 fn air_candidate(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:air"
+    record.name.as_ref() == B::Air.identifier()
         && record.canonical_state.as_ref() == "{}"
         && record.flags.contains(BlockFlags::AIR)
         && record.contributor_role == ContributorRole::Air
@@ -54,7 +55,7 @@ pub(in crate::compiler) fn resolve_canonical_air(
     let mut canonical = None;
     for record in records
         .iter()
-        .filter(|record| record.name.as_ref() == "minecraft:air")
+        .filter(|record| record.name.as_ref() == B::Air.identifier())
     {
         if !air_candidate(record) {
             return Err(AssetError::InvalidCompiledAssets {

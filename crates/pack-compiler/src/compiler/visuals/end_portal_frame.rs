@@ -24,7 +24,12 @@ pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
 }
 
 fn frame_direction(record: &RegistryRecord) -> Option<u32> {
-    match canonical_state_str(&record.canonical_state, "minecraft:cardinal_direction")?.as_ref() {
+    match canonical_state_str(
+        &record.canonical_state,
+        assets::facts::BlockProperty::MinecraftCardinalDirection.name(),
+    )?
+    .as_ref()
+    {
         "south" => Some(0),
         "west" => Some(1),
         "north" => Some(2),
@@ -37,7 +42,11 @@ pub(in crate::compiler) fn eye_descriptor(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
-    if canonical_state_u32(&record.canonical_state, "end_portal_eye_bit") != Some(1) {
+    if canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::EndPortalEyeBit.name(),
+    ) != Some(1)
+    {
         return None;
     }
     // Vanilla overrides every eye face with carried texture (face 1, variant 0).
@@ -69,8 +78,10 @@ pub(in crate::compiler) fn compile_rule(
     let Some(direction) = frame_direction(record) else {
         return Ok(CompileRuleResult::Compiled(visual));
     };
-    let Some(eye @ 0..=1) = canonical_state_u32(&record.canonical_state, "end_portal_eye_bit")
-    else {
+    let Some(eye @ 0..=1) = canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::EndPortalEyeBit.name(),
+    ) else {
         return Ok(CompileRuleResult::Compiled(visual));
     };
     let Some(materials) = inputs.materials(record) else {

@@ -51,6 +51,7 @@ pub enum Status {
 pub struct Rule {
     pub id: String,
     pub fact: String,
+    pub model_variant: Option<super::BlockModelVariant>,
     pub status: Status,
     #[serde(default = "enabled")]
     pub value: bool,
@@ -277,6 +278,8 @@ pub fn evaluate(
         } else if rule.fact.starts_with("render:")
             || rule.fact.starts_with("render_tint:")
             || rule.fact.starts_with("render_flag:")
+            || rule.fact.starts_with("legacy_alias:")
+            || rule.fact == "model_variant"
         {
             continue;
         } else {

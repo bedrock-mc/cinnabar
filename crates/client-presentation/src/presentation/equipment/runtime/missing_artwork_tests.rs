@@ -2,7 +2,7 @@
 
 use super::*;
 
-const ITEM: &str = "fixture:helmet";
+const ITEM: &str = "minecraft:iron_helmet";
 const DEFAULT_PATH: &str = "textures/fixture_armor.png";
 const BASE_PIXEL: [u8; 4] = [22, 33, 44, 255];
 

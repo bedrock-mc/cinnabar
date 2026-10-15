@@ -11,7 +11,7 @@ use {
     render_model::equipment::{ItemDisplay, attach_to_bone},
 };
 
-const BOW: &str = "minecraft:bow";
+const BOW: &str = assets::facts::VanillaItem::Bow.identifier();
 
 fn mesh_kind(block: bool) -> JavaItemMesh {
     if block {

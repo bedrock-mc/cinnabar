@@ -515,11 +515,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
                 time.elapsed(),
             );
         }
-        let world = sim::PaletteWorld::for_movement(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-        );
+        let world =
+            crate::movement::collision_world(stream, collisions.registry(stream.network_id_mode()));
         let disposition = gameplay::committed_control::CommittedGameplayState {
             movement: &mut movement,
             physics: &mut local_physics,

@@ -174,7 +174,10 @@ pub(super) fn player_hands(entities: &RuntimeEntityAssets) -> Option<[[f32; 3]; 
             .get(binding.entity_symbol as usize)
             .is_some_and(|symbol| {
                 symbol.kind == assets::EntityAssetKind::Entity
-                    && &*symbol.identifier == "minecraft:player"
+                    && assets::facts::entity::EntityFacts::pinned()
+                        .get(&symbol.identifier)
+                        .native_class
+                        == assets::facts::entity::NativeEntityClass::Player
             })
     })?;
     let geometry = entities
