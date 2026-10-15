@@ -58,18 +58,16 @@ fn assert_style(
         submission.light,
         render_model::pack_actor_light_without_lightmap()
     );
-    assert_eq!(
-        submission.material.glint.texture,
-        if enchanted {
-            render_model::GlintTexture::Item
-        } else {
-            render_model::GlintTexture::Actor
+    let expected_glint = if enchanted {
+        render_model::ActorGlint {
+            profile: render_api::CombatVisuals::Modern,
+            texture: render_model::GlintTexture::Item,
+            ..Default::default()
         }
-    );
-    assert_eq!(
-        submission.material.glint.profile,
-        render_api::CombatVisuals::Modern
-    );
+    } else {
+        render_model::ActorGlint::default()
+    };
+    assert_eq!(submission.material.glint, expected_glint);
 }
 
 #[test]
