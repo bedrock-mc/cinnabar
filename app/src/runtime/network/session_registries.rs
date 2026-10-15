@@ -8,7 +8,7 @@ use simulation_clock::identity::SessionGeneration;
 use super::resource_packs::{PackApplication, session_runtime_assets};
 
 /// Cheap snapshots of the exact carrier inputs a join will publish over.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct RegistryBase {
     assets: Arc<assets::RuntimeAssets>,
     collisions: PhysicsCollisionRegistries,
@@ -84,7 +84,7 @@ impl RegistryBase {
 }
 
 /// A complete registry bundle awaiting the matching session's atomic bootstrap boundary.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(super) struct PreparedSessionRegistries {
     generation: SessionGeneration,
     hashed: bool,
@@ -118,3 +118,24 @@ impl PreparedSessionRegistries {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+impl std::fmt::Debug for RegistryBase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegistryBase")
+            .field("collisions", &self.collisions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for PreparedSessionRegistries {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedSessionRegistries")
+            .field("generation", &self.generation)
+            .field("hashed", &self.hashed)
+            .field("custom", &self.custom)
+            .field("collisions", &self.collisions)
+            .field("registration", &self.registration)
+            .field("identities", &self.identities)
+            .finish_non_exhaustive()
+    }
+}

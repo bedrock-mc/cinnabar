@@ -65,10 +65,42 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
         }
     }
     #[cfg(not(windows))]
-    run_tools(
-        tool_commands(std::env::consts::OS, filter, multiple),
+    selected(
         filter,
+        run_tools(
+            tool_commands(std::env::consts::OS, filter, multiple),
+            filter,
+        )?,
     )
+}
+
+/// Keeps picked files with an accepted extension; picking only other files is a visible error.
+#[cfg(any(not(windows), test))]
+fn selected(filter: &Filter, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    let picked = !paths.is_empty();
+    let accepted: Vec<PathBuf> = paths
+        .into_iter()
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    filter
+                        .extensions
+                        .iter()
+                        .any(|accepted| extension.eq_ignore_ascii_case(accepted))
+                })
+        })
+        .collect();
+    if picked && accepted.is_empty() {
+        let kinds = filter
+            .extensions
+            .iter()
+            .map(|extension| format!(".{extension}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return Err(format!("Choose a {kinds} file."));
+    }
+    Ok(accepted)
 }
 
 /// Derives every platform's filter from the selected import extensions.
@@ -121,15 +153,11 @@ fn output_paths(output: &[u8]) -> Vec<PathBuf> {
 fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command> {
     let (title, name) = (filter.title, filter.name);
     if platform == "macos" {
-        let types = filter
-            .extensions
-            .iter()
-            .map(|extension| format!("\"{extension}\""))
-            .collect::<Vec<_>>()
-            .join(", ");
+        // `of type` matches only file types Launch Services knows, so `.wasm` and (without
+        // Minecraft installed) `.mcpack` would be greyed out; `selected` checks extensions instead.
         let script = if multiple {
             format!(
-                "set selectedFiles to choose file with prompt \"{title}\" of type {{{types}}} with multiple selections allowed\n\
+                "set selectedFiles to choose file with prompt \"{title}\" with multiple selections allowed\n\
              set selectedPaths to \"\"\n\
              repeat with selectedFile in selectedFiles\n\
              set selectedPaths to selectedPaths & (POSIX path of selectedFile) & linefeed\n\
@@ -137,7 +165,7 @@ fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command
              return selectedPaths"
             )
         } else {
-            format!("POSIX path of (choose file with prompt \"{title}\" of type {{{types}}})")
+            format!("POSIX path of (choose file with prompt \"{title}\")")
         };
         let mut command = Command::new("osascript");
         command.args(["-e", &script]);
@@ -177,23 +205,35 @@ mod tests {
             .collect()
     }
 
+    /// macOS cannot match unregistered types like `.wasm`, so the dialog lists every file.
     #[test]
-    fn macos_picker_filters_pack_archives() {
-        let commands = tool_commands("macos", &PACKS, true);
-        let args = args(&commands[0]);
-        let script = args[1];
-        let (_, types) = script
-            .split_once("of type {")
-            .expect("native file type filter");
-        let (types, _) = types.split_once('}').expect("file type list");
-        for extension in PACK_IMPORT_EXTENSIONS {
-            assert!(
-                types
-                    .split(", ")
-                    .any(|kind| kind == format!("\"{extension}\""))
-            );
+    fn macos_picker_leaves_extension_checks_to_the_selection() {
+        for multiple in [false, true] {
+            let commands = tool_commands("macos", &PACKS, multiple);
+            assert!(!args(&commands[0])[1].contains("of type"));
         }
-        assert_eq!(types.split(", ").count(), PACK_IMPORT_EXTENSIONS.len());
+    }
+
+    #[test]
+    fn selections_keep_only_accepted_extensions() {
+        let picked = vec![
+            PathBuf::from("/packs/Faithful.MCPACK"),
+            PathBuf::from("/packs/notes.txt"),
+            PathBuf::from("/packs/bundle.zip"),
+        ];
+        assert_eq!(
+            selected(&PACKS, picked).unwrap(),
+            [
+                PathBuf::from("/packs/Faithful.MCPACK"),
+                PathBuf::from("/packs/bundle.zip")
+            ]
+        );
+        assert!(
+            selected(&PACKS, Vec::new()).unwrap().is_empty(),
+            "cancelling is not an error"
+        );
+        let error = selected(&PACKS, vec![PathBuf::from("/mods/mod.wasm")]).unwrap_err();
+        assert!(error.contains(".mcpack"), "{error}");
     }
 
     #[test]

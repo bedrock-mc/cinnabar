@@ -2,7 +2,7 @@
 
 use std::{mem::size_of, ops::Bound};
 
-use world::{BLOCKS_PER_SUB_CHUNK, BiomeStorage, MAX_PALETTE_ENTRIES, PalettedStorage};
+use world::{BiomeStorage, PalettedStorage};
 
 use crate::{ColumnSnapshot, extract::SURFACE_LAYERS};
 
@@ -20,14 +20,16 @@ pub(crate) struct SurfaceSection {
 }
 
 impl SurfaceSlice {
-    /// Space sufficient for any decoded section's two visible layers and one biome layer.
-    /// Packed words never exceed one per block; the decoder clamps palette lengths.
+    /// Space sufficient for two decoded or edited visible layers and one biome layer,
+    /// including retained physical slots and a possible canonical word cache.
     pub const MIN_BYTES: usize = size_of::<Self>()
         + size_of::<SurfaceSection>()
-        + SURFACE_LAYERS * size_of::<PalettedStorage>()
-        + (SURFACE_LAYERS + 1) * (BLOCKS_PER_SUB_CHUNK + MAX_PALETTE_ENTRIES) * size_of::<u32>();
+        + SURFACE_LAYERS
+            * (size_of::<PalettedStorage>() + PalettedStorage::MAX_RETAINED_HEAP_BYTES)
+        + BiomeStorage::MAX_RETAINED_HEAP_BYTES;
 
-    /// Copied input bytes, including boxed section metadata and packed palettes, without deduplication.
+    /// Conservative retained input bytes, including metadata, physical storage and lazy caches.
+    /// Shared allocations are charged in full; observing words cannot grow beyond this reservation.
     pub fn retained_bytes(&self) -> usize {
         self.bytes
     }
@@ -57,9 +59,9 @@ impl ColumnSnapshot {
             let payload = storages
                 .iter()
                 .take(SURFACE_LAYERS)
-                .map(storage_bytes)
+                .map(PalettedStorage::retained_heap_bytes_bound)
                 .sum::<usize>()
-                + biome.map_or(0, biome_bytes);
+                + biome.map_or(0, BiomeStorage::retained_heap_bytes_bound);
             let added = size_of::<SurfaceSection>()
                 + storages.len().min(SURFACE_LAYERS) * size_of::<PalettedStorage>()
                 + payload;
@@ -83,7 +85,7 @@ impl ColumnSnapshot {
         slice
     }
 
-    /// Logical retained block/biome payload in the source backlog, counting shared data again.
+    /// Conservative retained block/biome payload in the source backlog, counting shared data again.
     /// Includes all layers, map entries and Arc headers; registry allocations remain owned by
     /// the session context. This is source retention, separate from admitted slice copies.
     pub fn retained_payload_bytes(&self) -> usize {
@@ -97,7 +99,11 @@ impl ColumnSnapshot {
                     16 * size_of::<usize>()
                         + size_of::<world::SubChunk>()
                         + std::mem::size_of_val(section.storages())
-                        + section.storages().iter().map(storage_bytes).sum::<usize>()
+                        + section
+                            .storages()
+                            .iter()
+                            .map(PalettedStorage::retained_heap_bytes_bound)
+                            .sum::<usize>()
                 })
                 .sum::<usize>()
             + self.biomes.capacity() * size_of::<(i32, std::sync::Arc<BiomeStorage>)>()
@@ -105,20 +111,13 @@ impl ColumnSnapshot {
                 .biomes
                 .iter()
                 .map(|(_, biome)| {
-                    2 * size_of::<usize>() + size_of::<BiomeStorage>() + biome_bytes(biome)
+                    2 * size_of::<usize>()
+                        + size_of::<BiomeStorage>()
+                        + biome.retained_heap_bytes_bound()
                 })
                 .sum::<usize>()
     }
 }
 
-/// Heap bytes of a storage's boxed words and palette.
-fn storage_bytes(storage: &PalettedStorage) -> usize {
-    std::mem::size_of_val(storage.packed_words())
-        + std::mem::size_of_val(storage.palette().values())
-}
-
-/// Heap bytes of a biome's boxed words and palette.
-fn biome_bytes(storage: &BiomeStorage) -> usize {
-    std::mem::size_of_val(storage.packed_words())
-        + std::mem::size_of_val(storage.palette().values())
-}
+#[cfg(test)]
+mod tests;

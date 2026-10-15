@@ -62,13 +62,17 @@ measurements remain pending. No parity or performance acceptance gate closes her
 
 ## Single-cell palette edits
 
-Paletted block storage retains usage counts after its first changed edit or batch rebuild.
-Canonical edits to an existing value, and insertions that fit the same width, patch one
-packed word while the source value remains used. Width changes, last-use removal and
-noncanonical inputs keep the full canonical rebuild. Decoder repair discards cached counts;
-clones own their counts, and equality still compares the exact packed representation.
-Regression tests and single-cell preparation benchmarks are written but unrun.
-Incomplete: broader lazy compaction, executed verification and performance measurements.
+Paletted block storage retains live counts and bounded reusable physical slots. Single-cell
+edits patch packed words while the logical palette preserves exact survivor/insertion order.
+Last-use removal and width shrink defer canonical word packing until a consumer requests it;
+thread-safe snapshot-local caches preserve the exact public palette, width, words and equality.
+Physical width growth, noncanonical first edits and larger batches retain canonical rebuilds.
+Mutation results prove store changes without immediately materializing words through equality.
+Untouched decoded representations and no-ops remain unchanged; snapshots stay independent.
+Memory accounting charges physical words, historical slots and canonical caches without packing.
+Slice admission reserves possible cache growth within the existing process-wide byte limits.
+Regression tests and preparation benchmarks are written but unrun. Incomplete: executed
+verification, consumer-cadence measurements and retained-memory/performance measurements.
 No output-parity or hardware performance gate closes here.
 
 ## Incremental persona artwork pages
@@ -3110,7 +3114,11 @@ consent, per-mod overlays, rebinding UI. See `docs/modding-spike.md`.
 Active/My mods groups and animations now manage an ordered native mod list. Enable,
 Disable and Remove affect each card's identity independently. Active cards can reorder,
 reload individually or reload all; failed reloads preserve the running instance.
-Per-card permission toggles are derived from the host grant declaration and default off.
+Per-card permissions are derived from the host grant declaration and default off.
+Collapsed cards show requested-grant counts and allowed gameplay-sensitive capabilities.
+Consent grants exactly declared requests; customization uses a requested-first grid,
+hover/focus descriptions, Show all permissions and Revoke all. Batch edits save once
+through the existing registration path. Owner visual approval remains incomplete.
 The original single registration migrates with its grants, font and UI intact. Each guest
 keeps its execution limits; regular frame callbacks share a deterministic fuel allowance,
 with bounded event and session-loading lanes preserving their full guest limits. Deferred
