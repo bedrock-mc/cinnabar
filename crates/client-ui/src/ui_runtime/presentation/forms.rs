@@ -521,7 +521,7 @@ impl UiPresentationRuntime {
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
     pub fn publish_scene_inputs(&self, runtime: &mut UiRuntime) {
-        runtime.observe_presentation(self.loading_stage.is_some(), self.screen_settings());
+        runtime.observe_presentation(self.loading_stage, self.screen_settings());
     }
 
     fn refresh_screen_settings(&mut self) {

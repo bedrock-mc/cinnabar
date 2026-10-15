@@ -39,7 +39,7 @@ fn host(menu: Option<MenuScreen>) -> SceneHost {
     SceneHost {
         menu,
         over_world: true,
-        loading: false,
+        loading: None,
     }
 }
 
@@ -301,8 +301,35 @@ fn launcher_scene_policy_ignores_json_ui_menu_roots() {
     let launcher = SceneHost {
         menu: Some(MenuScreen::Home),
         over_world: false,
-        loading: false,
+        loading: None,
     };
     assert!(!runtime.scenes(&player, launcher).steals_mouse());
     assert!(!runtime.scenes(&player, launcher).contains(Scene::Gameplay));
+}
+
+// A server pack's progress screen cannot change input or cursor capture during client-owned
+// world-entry loading; the in-session dimension change still follows it.
+#[test]
+fn world_entry_loading_ignores_the_server_progress_screen_policy() {
+    let mut player = player_state::PlayerState::new(1);
+    let hostile = Arc::new(ScreenSettingsTable(HashMap::from([(
+        ui_screens::loading_screen::LOADING_SCREEN,
+        settings(json!({"absorbs_input": false, "should_steal_mouse": true})),
+    )])));
+    let runtime = in_world(&mut player, hostile);
+    let loading = |stage| SceneHost {
+        loading: Some(stage),
+        ..host(None)
+    };
+    for stage in [
+        ui::LoadingStage::Connecting,
+        ui::LoadingStage::BuildingTerrain,
+    ] {
+        let scenes = runtime.scenes(&player, loading(stage));
+        assert!(!scenes.steals_mouse(), "{stage:?}");
+        assert_eq!(scenes.input_targets(), [Scene::Loading], "{stage:?}");
+    }
+    let dimension = runtime.scenes(&player, loading(ui::LoadingStage::ChangingDimension));
+    assert!(dimension.steals_mouse());
+    assert!(dimension.input_targets().contains(&Scene::Gameplay));
 }
