@@ -2,10 +2,14 @@
 
 use super::*;
 use mio::{Events, Interest, Poll, Token, Waker};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    time::{Duration, Instant},
+};
 
 const ACCEPT: Token = Token(0);
 const STOP: Token = Token(1);
+const ACCEPT_RETRY_DELAY: Duration = Duration::from_millis(10);
 
 pub(super) struct ListenerWorker {
     stopped: Arc<AtomicBool>,
@@ -50,7 +54,8 @@ impl Drop for ListenerWorker {
     }
 }
 
-/// Drains ready accepts and exits on shutdown without polling deadlines or a new TCP connection.
+/// Drains ready accepts, retrying undrained errors without another readiness edge.
+/// Normal waiting has no deadline; shutdown always wakes Poll immediately.
 fn accept(
     mut poll: Poll,
     listener: mio::net::TcpListener,
@@ -59,51 +64,96 @@ fn accept(
     stopped: Arc<AtomicBool>,
 ) {
     let mut events = Events::with_capacity(2);
+    let mut retry = AcceptRetry::default();
     while !stopped.load(Ordering::Acquire) {
-        if let Err(error) = poll.poll(&mut events, None) {
+        if let Err(error) = poll.poll(&mut events, retry.poll_timeout(Instant::now())) {
             if error.kind() == io::ErrorKind::Interrupted {
                 continue;
             }
             return;
         }
-        for event in &events {
-            if event.token() == STOP {
-                return;
+        if events.iter().any(|event| event.token() == STOP) {
+            return;
+        }
+        let mut ready = events.iter().any(|event| event.token() == ACCEPT);
+        while let Some(stream) = retry.next(Instant::now(), ready, &stopped, || listener.accept()) {
+            // An accepted stream does not prove the edge-triggered queue is drained.
+            ready = true;
+            let stream = TcpStream::from(stream);
+            if stream.set_nonblocking(false).is_err() {
+                continue;
             }
-            while let Some(stream) = next_connection(&stopped, || listener.accept()) {
-                let stream = TcpStream::from(stream);
-                if stream.set_nonblocking(false).is_err() {
-                    continue;
-                }
-                let (token, sender) = (Arc::clone(&token), sender.clone());
-                let _ = thread::Builder::new()
-                    .name("developer-control-connection".into())
-                    .spawn(move || serve(stream, &token, &sender));
+            let (token, sender) = (Arc::clone(&token), sender.clone());
+            let _ = thread::Builder::new()
+                .name("developer-control-connection".into())
+                .spawn(move || serve(stream, &token, &sender));
+        }
+    }
+}
+
+#[derive(Default)]
+struct AcceptRetry {
+    deadline: Option<Instant>,
+}
+
+impl AcceptRetry {
+    /// Keeps normal polling deadline-free, or waits only until an undrained queue must retry.
+    fn poll_timeout(&self, now: Instant) -> Option<Duration> {
+        self.deadline
+            .map(|deadline| deadline.saturating_duration_since(now))
+    }
+
+    /// Accepts on readiness or a due retry, retaining backoff even if readiness arrives early.
+    fn next<S>(
+        &mut self,
+        now: Instant,
+        ready: bool,
+        stopped: &AtomicBool,
+        accept: impl FnMut() -> io::Result<(S, SocketAddr)>,
+    ) -> Option<S> {
+        if stopped.load(Ordering::Acquire) {
+            self.deadline = None;
+            return None;
+        }
+        let due = self.deadline.map_or(ready, |deadline| now >= deadline);
+        if !due {
+            return None;
+        }
+        match next_connection(stopped, accept) {
+            Ok(stream) => {
+                self.deadline = None;
+                stream
+            }
+            Err(_) => {
+                self.deadline =
+                    (!stopped.load(Ordering::Acquire)).then_some(now + ACCEPT_RETRY_DELAY);
+                None
             }
         }
     }
 }
 
-/// Retries individual connection failures; no ready connection yields control back to Poll.
+/// Retries individual connection failures; only WouldBlock proves readiness was drained.
 /// Shutdown is checked before every retry, including a run of interrupted or aborted accepts.
 fn next_connection<S>(
     stopped: &AtomicBool,
     mut accept: impl FnMut() -> io::Result<(S, SocketAddr)>,
-) -> Option<S> {
+) -> io::Result<Option<S>> {
     while !stopped.load(Ordering::Acquire) {
         match accept() {
-            Ok((stream, peer)) if is_loopback(&peer) => return Some(stream),
+            Ok((stream, peer)) if is_loopback(&peer) => return Ok(Some(stream)),
             Ok(_) => continue,
             Err(error) => match error.kind() {
                 io::ErrorKind::Interrupted
                 | io::ErrorKind::ConnectionAborted
                 | io::ErrorKind::ConnectionReset
                 | io::ErrorKind::ConnectionRefused => continue,
-                _ => return None,
+                io::ErrorKind::WouldBlock => return Ok(None),
+                _ => return Err(error),
             },
         }
     }
-    None
+    Ok(None)
 }
 
 #[cfg(test)]
