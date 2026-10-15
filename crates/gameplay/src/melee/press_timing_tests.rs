@@ -24,7 +24,7 @@ fn block_press_waits_for_older_movement_before_its_current_frame_tick() {
         runtime.synchronize(movement.interaction_authority_identity());
         runtime.observe_input(true, true);
         if recent_ticks == 0 {
-            runtime.rejected_tick = Some(104);
+            runtime.queue.front_pending_mut().unwrap().rejected_tick = Some(104);
         }
         assert!(
             runtime

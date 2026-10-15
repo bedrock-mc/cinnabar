@@ -1,8 +1,5 @@
 //! Attack target selection, local swings and ordered combat admission.
-use crate::{
-    BatchSendError, interaction_authority::MAX_PENDING_INTERACTION_MILLIS,
-    mining::FrozenMiningSelection, movement::MiningEffects,
-};
+use crate::{BatchSendError, mining::FrozenMiningSelection, movement::MiningEffects};
 use protocol::{ActorUseAction, ActorUseRequest, PlayerGameMode, PlayerInputMode, SwingSource};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
@@ -35,6 +32,10 @@ pub fn java_swing_duration(effects: MiningEffects) -> i32 {
         ..effects
     })
 }
+
+mod admission;
+mod queue;
+pub use admission::{AttackAdmission, AttackEffects, AttackFrame, admit_attack_frame};
 
 mod swing;
 pub use swing::SwingTracker;
@@ -78,16 +79,12 @@ pub struct AdmittedActorAttack {
 /// Attack-press state; `actor_in_front` vetoes mining behind a targeted actor.
 #[derive(Debug, Default, Clone)]
 pub struct MeleeRuntime {
-    latched_press: bool,
-    cancelled_press: bool,
+    queue: queue::AttackQueue,
     attack_revision: u64,
     admitted_attack: Option<AdmittedActorAttack>,
     actor_in_front: bool,
     last_attack_millis: Option<u64>,
     position_authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
-    /// Wall-clock millis at which a latched press first waited for admission.
-    deferred_since: Option<u64>,
-    rejected_tick: Option<u64>,
     attack_cooldowns: Vec<(std::sync::Arc<str>, u64)>,
 }
 
@@ -103,13 +100,8 @@ impl MeleeRuntime {
 
     /// An attack press not yet resolved; a use press waits for it, as an attack handled first
     /// holds off the use.
-    pub const fn press_pending(&self) -> bool {
-        self.latched_press
-    }
-
-    /// Whether the last latched press was cancelled instead of resolved.
-    pub const fn press_was_cancelled(&self) -> bool {
-        self.cancelled_press
+    pub fn press_pending(&self) -> bool {
+        self.queue.pending()
     }
 
     /// Whether a recent attack still suppresses block use.
@@ -131,7 +123,8 @@ impl MeleeRuntime {
             .position_authority
             .is_some_and(|previous| previous != authority)
         {
-            self.cancel();
+            self.queue.entries.clear();
+            self.actor_in_front = false;
             self.admitted_attack = None;
             self.last_attack_millis = None;
         }
@@ -141,10 +134,9 @@ impl MeleeRuntime {
     /// Records this frame's attack input; returns whether a press is waiting.
     pub fn observe_input(&mut self, pressed: bool, held: bool) -> bool {
         if pressed {
-            self.cancelled_press = false;
+            self.queue.push();
         }
-        self.latched_press |= pressed;
-        self.latched_press || held
+        self.queue.pending() || held
     }
 
     /// Records whether actor picking consumes the current attack target.
@@ -168,25 +160,15 @@ impl MeleeRuntime {
         target
     }
 
-    /// Discards a pending press and remembers its cancellation until the next press.
+    /// Cancels unadmitted presses without removing an earlier accepted break.
     pub fn cancel(&mut self) {
-        self.cancelled_press |= self.latched_press;
-        self.latched_press = false;
+        self.queue.cancel_pending();
         self.actor_in_front = false;
-        self.deferred_since = None;
-        self.rejected_tick = None;
     }
 
-    /// Bounds waiting on unavailable interaction evidence or simulation ticks in time, so the
-    /// frame rate never shortens it.
+    /// Bounds each pending entry's wait independently; admitted mining never expires.
     pub fn defer(&mut self, now_millis: u64) {
-        if !self.latched_press {
-            return;
-        }
-        let since = *self.deferred_since.get_or_insert(now_millis);
-        if now_millis.saturating_sub(since) > MAX_PENDING_INTERACTION_MILLIS {
-            self.cancel();
-        }
+        self.queue.expire(now_millis);
     }
 
     /// Presses wait behind older inputs. Block presses retain their current-frame or rejected
@@ -202,11 +184,8 @@ impl MeleeRuntime {
             movement
                 .first_unsent_sample_in_frame(recent_ticks)
                 .or_else(|| {
-                    if self.latched_press
-                        && self.position_authority
-                            == Some(movement.interaction_authority_identity())
-                    {
-                        movement.unsent_sample_at(self.rejected_tick?)
+                    if self.position_authority == Some(movement.interaction_authority_identity()) {
+                        movement.unsent_sample_at(self.queue.first_pending()?.rejected_tick?)
                     } else {
                         None
                     }
@@ -230,7 +209,7 @@ impl MeleeRuntime {
         &self,
         movement: &crate::movement::MovementTicker,
     ) -> Option<crate::movement::InteractionSample> {
-        if !self.latched_press {
+        if !self.queue.pending() {
             return None;
         }
         movement.between_ticks_sample()
@@ -244,12 +223,15 @@ impl MeleeRuntime {
         swings: &mut SwingTracker,
     ) -> MeleeOutcome {
         let crosshair = self.observe_attack_target(crosshair, press.item_attack.is_some());
-        self.deferred_since = None;
         let mut outcome = MeleeOutcome::default();
-        if !std::mem::take(&mut self.latched_press) {
+        if self.queue.front_pending().is_none() {
             return outcome;
         }
-        self.rejected_tick = None;
+        if crosshair == Crosshair::Block {
+            self.queue.entries.front_mut().unwrap().work = queue::Work::Block { tick: press.tick };
+        } else {
+            self.queue.entries.pop_front();
+        }
         let mut swing = |outcome: &mut MeleeOutcome, source| {
             if swings.try_attack_swing(press.tick, press.swing_duration) {
                 outcome
@@ -335,9 +317,13 @@ pub fn resolve_and_send(
     now_millis: u64,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
-    if runtime.latched_press
+    if runtime.queue.front_pending().is_some()
         && swings.tick_is_published(press.tick)
-        && (runtime.rejected_tick != Some(press.tick)
+        && (runtime
+            .queue
+            .front_pending()
+            .and_then(|pending| pending.rejected_tick)
+            != Some(press.tick)
             || (crosshair == Crosshair::Block && !swings.tick_is_current_publication(press.tick)))
     {
         runtime.observe_attack_target(crosshair, press.item_attack.is_some());
@@ -371,11 +357,22 @@ pub fn resolve_and_send(
             }
             outcome.missed_swing
         }
-        Err(BatchSendError::Closed) => outcome.missed_swing,
+        Err(BatchSendError::Closed) => {
+            if let Some(id) = saved_runtime.queue.entries.front().map(|entry| entry.id)
+                && runtime
+                    .queue
+                    .entries
+                    .front()
+                    .is_some_and(|entry| entry.id == id)
+            {
+                runtime.queue.entries.pop_front();
+            }
+            outcome.missed_swing
+        }
         Err(BatchSendError::Full) => {
             *runtime = saved_runtime;
-            if runtime.latched_press {
-                runtime.rejected_tick = Some(press.tick);
+            if let Some(pending) = runtime.queue.front_pending_mut() {
+                pending.rejected_tick = Some(press.tick);
             }
             let candidate_swings = std::mem::replace(swings, saved_swings);
             swings.defer_unadmitted_attempt(&candidate_swings);
@@ -399,6 +396,8 @@ pub fn press_admission(
 }
 
 #[cfg(test)]
+use crate::interaction_authority::MAX_PENDING_INTERACTION_MILLIS;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
@@ -412,3 +411,6 @@ mod item_attack_tests;
 #[cfg(test)]
 #[path = "melee/press_timing_tests.rs"]
 mod press_timing_tests;
+
+#[cfg(test)]
+mod queue_tests;

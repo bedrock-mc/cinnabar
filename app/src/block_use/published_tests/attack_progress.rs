@@ -241,10 +241,7 @@ fn attack_progress_cancelled_block_press_discards_its_retained_mining_click() {
                 .run_system_cached(crate::melee::prepare_melee)
                 .unwrap();
             app.world_mut()
-                .run_system_cached(crate::melee::produce_melee)
-                .unwrap();
-            app.world_mut()
-                .run_system_cached(crate::survival_mining::produce_survival_mining)
+                .run_system_cached(crate::melee::produce_attacks)
                 .unwrap();
             assert_eq!(
                 app.world().resource::<MeleeRuntime>().press_pending(),
@@ -258,11 +255,6 @@ fn attack_progress_cancelled_block_press_discards_its_retained_mining_click() {
                 "a cancelled click must never predict a break"
             );
         }
-        assert!(
-            !app.world()
-                .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
-                .latched_press
-        );
         app.world_mut().run_schedule(Update);
         ticks(app.world_mut(), 103, 104);
         buttons(app.world_mut(), vec![]);
@@ -285,6 +277,62 @@ fn attack_progress_cancelled_block_press_discards_its_retained_mining_click() {
             0
         );
     }
+}
+
+#[test]
+fn attack_progress_earlier_predicted_break_reaches_its_tick_while_a_new_press_waits() {
+    let (mut world, mut captured) = fixture();
+    item_use_tests::hold_snowball(&mut world);
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Creative);
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let block = stream
+            .collision_store()
+            .sub_chunk_ref(world::SubChunkKey::new(0, 0, 0, 0))
+            .unwrap()
+            .runtime_id(0, 4, 2, 6)
+            .unwrap();
+        stream.predict_block([4, 2, 5], 0, block);
+    }
+    buttons(&mut world, vec![]);
+    produce_air_use(&mut world);
+    captured.drain();
+    let mut app = interaction_app(world);
+    buttons(app.world_mut(), vec![1]);
+    app.world_mut().run_schedule(Update);
+    assert_eq!(
+        app.world()
+            .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+            .len(),
+        1
+    );
+    captured.drain();
+    buttons(app.world_mut(), vec![]);
+    app.world_mut().run_schedule(Update);
+    ticks(app.world_mut(), 102, 104);
+    app.world_mut()
+        .resource_mut::<LocalMovementEffectTimeline>()
+        .begin_frame();
+    app.world_mut()
+        .resource_mut::<LocalMovementEffectTimeline>()
+        .commit_successful_tick();
+    buttons(app.world_mut(), vec![1]);
+    app.world_mut().run_schedule(Update);
+    assert!(app.world().resource::<MeleeRuntime>().press_pending());
+    let packets = captured.drain();
+    let carrier = packets
+        .iter()
+        .filter_map(protocol::player_auth_input_trace_sample)
+        .find(|sample| sample.tick == 102)
+        .unwrap();
+    assert!(
+        carrier.flag_names.contains(&"PerformBlockActions"),
+        "an earlier predicted break must travel even while the next press waits"
+    );
 }
 
 #[test]

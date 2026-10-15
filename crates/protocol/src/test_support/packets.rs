@@ -297,3 +297,27 @@ pub fn empty_stack_response(request_id: i32, list_present: bool) -> Packet {
         }],
     }))
 }
+
+/// Reads server-authoritative predicted destroys in the order carried by one input packet.
+pub fn predicted_block_breaks(packet: &Packet) -> Vec<[i32; 3]> {
+    let packets::Packet::PlayerAuthInput(input) = &*packet.data else {
+        return Vec::new();
+    };
+    input
+        .player_block_actions
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter(|action| {
+            action.player_action_type
+                == bedrock_protocol_1_26_51::enums::PlayerActionType::Predictdestroyblock
+        })
+        .map(|action| {
+            [
+                action.position.x.0,
+                action.position.y.0,
+                action.position.z.0,
+            ]
+        })
+        .collect()
+}

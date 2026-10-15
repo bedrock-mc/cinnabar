@@ -199,6 +199,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
     world.insert_resource(collisions);
     world.init_resource::<LocalMovementEffectTimeline>();
     world.init_resource::<MeleeRuntime>();
+    world.init_resource::<client_interaction::survival_mining::SurvivalMiningRuntime>();
     world.insert_resource(network);
     world.insert_resource(Time::<Real>::default());
     world.init_resource::<bevy::diagnostic::FrameCount>();

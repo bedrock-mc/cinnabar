@@ -31,10 +31,7 @@ fn produce(world: &mut World) {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
-        .unwrap();
-    world
-        .run_system_cached(crate::survival_mining::produce_survival_mining)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
 }
 
@@ -83,7 +80,7 @@ fn assisted_attack(world: &mut World, mode: semantic_input::InputMode) {
         .run_system_cached(crate::melee::prepare_melee)
         .unwrap();
     world
-        .run_system_cached(crate::melee::produce_melee)
+        .run_system_cached(crate::melee::produce_attacks)
         .unwrap();
 }
 
@@ -142,7 +139,7 @@ fn attack_admission_uncached_actor_press_holds_native_item_use() {
             .unwrap();
         world.run_system_cached(produce_block_use).unwrap();
         world
-            .run_system_cached(crate::melee::produce_melee)
+            .run_system_cached(crate::melee::produce_attacks)
             .unwrap();
         produce_air_use(&mut world);
         let throws = captured
