@@ -23,7 +23,7 @@ pub fn cohort_fixture(mut stream: WorldStream, radius: i32) -> WorldStream {
     stream
 }
 
-/// Bytes of block storage the stream keeps for its loaded columns: palettes and packed words.
+/// Retained block-storage bytes, including edit bookkeeping and materialized canonical caches.
 pub fn terrain_block_bytes(stream: &WorldStream) -> usize {
     stream
         .loaded_columns
@@ -35,10 +35,7 @@ pub fn terrain_block_bytes(stream: &WorldStream) -> usize {
                 + section
                     .storages()
                     .iter()
-                    .map(|storage| {
-                        std::mem::size_of_val(storage)
-                            + 4 * (storage.packed_words().len() + storage.palette().values().len())
-                    })
+                    .map(|storage| std::mem::size_of_val(storage) + storage.retained_heap_bytes())
                     .sum::<usize>()
         })
         .sum()

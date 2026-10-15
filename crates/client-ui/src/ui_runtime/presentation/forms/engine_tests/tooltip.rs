@@ -90,7 +90,8 @@ fn draw(engine: &FormEngine, text: &str, max_width: impl Into<Value>) -> (Vec<Ui
                 .into(),
             },
             gates: vec![],
-        }],
+        }]
+        .into(),
         hits: vec![].into(),
         report: Default::default(),
         cancel_target: None,

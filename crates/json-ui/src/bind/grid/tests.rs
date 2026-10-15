@@ -191,7 +191,7 @@ impl Session {
                         .bound
                         .find(&|control| control.name == "view")
                         .map_or(0, |view| count(view, "label")),
-                    nodes: render.nodes,
+                    nodes: render.nodes.to_vec(),
                     hits: render.hits,
                     scrolls: render.report.scrolls,
                 };

@@ -515,3 +515,89 @@ fn group_wait_sees_deferred_delivery_in_another_inbox() {
     assert_eq!(out.len(), 1);
     assert_eq!(settle(&mut [pending, ready], &manual, &owner).len(), 1);
 }
+
+/// Retains sixteen-bit physical words and old slots after every cell returns to one value.
+fn shrunk_physical_snapshot() -> ColumnSnapshot {
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut store = world::ChunkStore::new();
+    store
+        .commit_sub_chunk(
+            key,
+            SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 }),
+        )
+        .unwrap();
+    let updates = (0..257)
+        .map(|cell| {
+            world::BlockUpdate::new(
+                (cell >> 8) as u8,
+                (cell & 15) as u8,
+                ((cell >> 4) & 15) as u8,
+                0,
+                cell as u32 + 2,
+            )
+        })
+        .collect::<Vec<_>>();
+    store.update_sub_chunk_blocks(key, &updates, 0).unwrap();
+    for update in updates {
+        store
+            .update_block(
+                key,
+                world::BlockUpdate {
+                    runtime_id: 1,
+                    ..update
+                },
+                0,
+            )
+            .unwrap();
+    }
+    let section = store.sub_chunk(key).unwrap();
+    assert_eq!(section.storages()[0].bits_per_index(), 0);
+    ColumnSnapshot::new(
+        Arc::new((0..64).map(|y| (y, Arc::clone(&section))).collect()),
+        Vec::new(),
+    )
+}
+
+/// Shrunk logical palettes still consume the unchanged process-wide copied-work byte budget.
+#[test]
+fn physical_palette_retention_limits_slice_and_global_job_admission() {
+    let policy = admission::POLICY;
+    let owner = Arc::new(Admission::new(policy));
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let source = shrunk_physical_snapshot();
+    let slice = source.surface_slice(None, policy.slice_bytes);
+    assert!(
+        slice.next().is_some(),
+        "physical inputs must split across slices"
+    );
+    assert!(slice.retained_bytes() <= policy.slice_bytes);
+    assert!(source.retained_payload_bytes() > policy.slice_bytes);
+    let mut feeds = (0..policy.jobs + 1)
+        .map(|_| inbox(&owner, &manual))
+        .collect::<Vec<_>>();
+    for (index, feed) in feeds.iter_mut().enumerate() {
+        feed.enqueue(
+            ChunkKey::new(index as i32, 0, 0),
+            source.clone(),
+            context(&assets),
+        );
+    }
+    feeds[0].pump();
+    assert!(manual.run(), "prepare the shared immutable assets first");
+    for feed in &mut feeds {
+        feed.pump();
+    }
+    let reservation = policy.slice_bytes + JOB_OVERHEAD;
+    let admitted = policy.jobs.min(policy.bytes / reservation);
+    assert_eq!(manual.len(), admitted);
+    assert_eq!(owner.usage().jobs, admitted);
+    assert_eq!(owner.usage().bytes, admitted * reservation);
+    assert!(owner.usage().bytes <= policy.bytes);
+    assert!(admitted < feeds.len());
+    assert!(feeds.iter().all(|feed| feed.producer.sources.len() == 1));
+    drop(feeds);
+    manual.0.lock().unwrap().clear();
+    assert_eq!(owner.usage().bytes, 0);
+    assert_eq!(owner.usage().jobs, 0);
+}

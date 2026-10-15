@@ -4,6 +4,7 @@ use super::PhysicsCollisionRegistries;
 use std::ops::Range;
 
 /// The collision registration and wire mapping selected for a session's palette mode.
+#[derive(Clone, Debug)]
 pub struct SessionBlockRegistration {
     pub custom_ids: Option<Range<u32>>,
     pub remap: assets::SequentialIdRemap,

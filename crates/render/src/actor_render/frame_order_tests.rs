@@ -25,7 +25,7 @@ use super::super::{
     prepare_actor_bind_group, prepare_actor_resources, submit_actor_presented_frame,
 };
 use {
-    crate::actor::gpu::ActorDrawTracker,
+    crate::actor::gpu::{ActorDrawBatch, ActorDrawSpan, ActorDrawTracker},
     render_model::{
         ActorDrawManifestEntry, ActorRenderIdentity, ActorRigGeometrySpan, ActorRigRoute,
     },
@@ -34,6 +34,9 @@ use {
 
 #[derive(Resource, Default)]
 struct ExecutedFrames(Vec<(u64, Vec<u32>)>);
+
+#[derive(Resource, Default)]
+struct PreviousReceipt(Option<(ActorDrawBatch, Vec<ActorDrawSpan>)>);
 
 fn reset_phases(
     views: Query<&ExtractedView>,
@@ -46,7 +49,7 @@ fn reset_phases(
     }
 }
 
-// Replay the queued ranges through the same span ledger without a graphics adapter.
+/// Replays queued command partitions and checks their immutable receipt handles without a GPU.
 fn inspect_executed_frame(world: &mut World) {
     let (view_entity, view) = world
         .query::<(Entity, &ExtractedView)>()
@@ -97,13 +100,21 @@ fn inspect_executed_frame(world: &mut World) {
         .non_mesh_items
         .keys()
         .any(|(key, _)| key.draw_function == opaque_draw);
-    let mut executed = gpu
+    let batch = gpu
+        .draw_batch(view_entity.to_bits())
+        .expect("queued identity matches prepared data");
+    let mut commands = Vec::new();
+    let opaque = gpu
         .spans
         .iter()
         .copied()
         .filter(|span| has_opaque && !super::super::phase::sorted(span.material))
         .collect::<Vec<_>>();
+    if !opaque.is_empty() {
+        commands.push(opaque);
+    }
     for range in queued_ranges {
+        let mut executed = Vec::new();
         for draw in &gpu.sorted.ranges[range.start as usize..range.end as usize] {
             executed.extend(
                 gpu.sorted.indices[draw.clone()]
@@ -111,7 +122,9 @@ fn inspect_executed_frame(world: &mut World) {
                     .map(|&index| gpu.spans[index]),
             );
         }
+        commands.push(executed);
     }
+    let executed: Vec<_> = commands.iter().flatten().copied().collect();
     let mut indices = executed
         .iter()
         .flat_map(|span| span.first..span.first + span.count)
@@ -119,8 +132,14 @@ fn inspect_executed_frame(world: &mut World) {
     indices.sort_unstable();
     assert_eq!(indices, (0..gpu.instance_count).collect::<Vec<_>>());
     let tracker = world.resource::<ActorDrawTracker>();
-    for span in executed {
-        tracker.record_draw(view_entity.to_bits(), span);
+    if let Some((old, spans)) = &world.resource::<PreviousReceipt>().0 {
+        assert!(
+            !tracker.record_batch(old, view_entity.to_bits(), spans),
+            "prior commands cannot credit the new queue"
+        );
+    }
+    for command in &commands {
+        assert!(tracker.record_batch(&batch, view_entity.to_bits(), command));
     }
     let drawn = tracker
         .take_drawn()
@@ -128,6 +147,7 @@ fn inspect_executed_frame(world: &mut World) {
     assert_eq!(drawn.frame_generation, frame.rig.frame_generation);
     assert_eq!(drawn.manifest.as_ref(), frame.rig.manifest.as_ref());
     assert!(drawn.is_exact());
+    world.resource_mut::<PreviousReceipt>().0 = Some((batch, executed));
     world
         .resource_mut::<ExecutedFrames>()
         .0
@@ -150,6 +170,7 @@ fn render_app() -> App {
         .init_resource::<render_scene::WorldFullbright>()
         .init_resource::<render_scene::NametagSceneResource>()
         .init_resource::<ExecutedFrames>()
+        .init_resource::<PreviousReceipt>()
         .add_systems(Render, reset_phases.in_set(RenderSystems::PrepareViews))
         .add_systems(
             Render,
@@ -274,6 +295,69 @@ fn actor_render_changed_spans_queue_and_present_the_current_frame() {
     world.run_schedule(Render);
     assert_eq!(world.resource::<ActorGpu>().spans.len(), 3);
     assert_eq!(world.resource::<ExecutedFrames>().0, [(2, vec![0, 1, 2])]);
+}
+
+#[test]
+fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
+    let mut app = render_app();
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut frame = frame(&[false, true]);
+    for generation in [1, 2] {
+        frame.rig.frame_generation = generation;
+        world.insert_resource(frame.clone());
+        world.run_schedule(Render);
+    }
+    assert_eq!(
+        world.resource::<ExecutedFrames>().0,
+        [(1, vec![0, 1]), (2, vec![0, 1])]
+    );
+    let view = world
+        .query_filtered::<Entity, With<ExtractedView>>()
+        .single(world)
+        .unwrap()
+        .to_bits();
+    let mut gpu = world.resource_mut::<ActorGpu>();
+    assert!(gpu.draw_batch(view).is_some());
+    assert!(gpu.draw_batch(view ^ 1).is_none());
+    gpu.artwork_identity[0] ^= 1;
+    assert!(gpu.draw_batch(view).is_none());
+    gpu.artwork_identity[0] ^= 1;
+    gpu.skin_revision += 1;
+    assert!(gpu.draw_batch(view).is_none());
+    gpu.skin_revision -= 1;
+    gpu.geometry_revision += 1;
+    assert!(gpu.draw_batch(view).is_none());
+    gpu.geometry_revision -= 1;
+    gpu.frame_generation += 1;
+    assert!(gpu.draw_batch(view).is_none());
+    gpu.frame_generation -= 1;
+    let manifest = Arc::clone(&gpu.manifest);
+    gpu.manifest = gpu.manifest.to_vec().into();
+    assert!(
+        gpu.draw_batch(view).is_none(),
+        "equal manifest contents are a distinct prepared identity"
+    );
+    gpu.manifest = manifest;
+    assert!(gpu.draw_batch(view).is_some());
+    drop(gpu);
+    world.run_system_once(prepare_actor_resources).unwrap();
+    assert!(
+        world.resource::<ActorGpu>().draw_batch(view).is_none(),
+        "preparation retires the queued handle"
+    );
+
+    let mut state = bevy::ecs::system::SystemState::<(
+        super::super::phase::QueueActorParams<'_, '_>,
+        Local<u64>,
+    )>::new(world);
+    let (params, mut generation) = state.get_mut(world).unwrap();
+    *generation = u64::MAX;
+    super::super::phase::queue_actors(params, generation);
+    assert!(world.resource::<ActorGpu>().draw_batch(view).is_none());
+    assert!(
+        world.resource::<ActorDrawTracker>().take_drawn().is_none(),
+        "saturated queue generation fails closed"
+    );
 }
 
 #[test]

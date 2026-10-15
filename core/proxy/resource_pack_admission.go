@@ -248,18 +248,16 @@ func (budget *resourcePackAcquisitionBudget) admit(_ uuid.UUID, _ string, index,
 }
 
 // withResourcePackAcquisitionBudget routes pack admission, acquisition events and
-// ResourcePacksInfo observation through budget, preserving any existing PacketFunc.
+// ResourcePacksInfo observation through budget, preserving existing observers.
 func withResourcePackAcquisitionBudget(dialer minecraft.Dialer, budget *resourcePackAcquisitionBudget) minecraft.Dialer {
 	dialer.DownloadResourcePack = budget.admit
 	dialer.ResourcePackProgress = budget.event
-	next := dialer.PacketFunc
-	dialer.PacketFunc = func(header packet.Header, payload []byte, source, destination net.Addr) {
-		budget.observe(header, payload)
-		if next != nil {
-			next(header, payload, source, destination)
-		}
-	}
-	return dialer
+	return withPacketObserver(dialer, minecraft.PacketObserver{
+		PacketIDs: []uint32{packet.IDResourcePacksInfo},
+		Func: func(header packet.Header, payload []byte, _, _ net.Addr) {
+			budget.observe(header, payload)
+		},
+	})
 }
 
 // accountTokenSource keeps an offline (nil) account a nil interface.

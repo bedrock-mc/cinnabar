@@ -143,7 +143,8 @@ pub enum CustomElement {
 pub struct FormRender {
     /// The bound tree, for structural inspection.
     pub bound: ResolvedControl,
-    pub nodes: Vec<DrawNode>,
+    /// Immutable emitted nodes; sharing this snapshot preserves its layout identity.
+    pub nodes: Arc<[DrawNode]>,
     /// Immutable input regions shared by redraws of this layout.
     pub hits: Arc<[HitRegion]>,
     pub report: LayoutReport,
@@ -794,7 +795,7 @@ fn lay_out_and_emit(
                     crate::layout::layout_reusing(&bound, root_size, env, state, measures);
                 return FormRender {
                     bound,
-                    nodes: output.nodes,
+                    nodes: output.nodes.into(),
                     hits: output.hits.into(),
                     report,
                     cancel_target: output.cancel,
@@ -825,7 +826,7 @@ fn lay_out_and_emit(
     };
     FormRender {
         bound,
-        nodes,
+        nodes: nodes.into(),
         hits,
         report,
         cancel_target,
