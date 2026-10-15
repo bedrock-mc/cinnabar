@@ -37,8 +37,8 @@ static CONTEXT: OnceLock<Context> = OnceLock::new();
 /// Writes a crash folder for every panic and native fault of this process.
 ///
 /// Each panic captures one backtrace, hands `log_panic` the message and that backtrace, and
-/// flushes the caller's logs before copying this session's log sections; the previous hook
-/// then runs as before. On Unix a fatal signal first calls `drain_on_signal`, which must be
+/// runs the previous hook, then flushes the caller's logs before copying this session's
+/// sections. On Unix a fatal signal first calls `drain_on_signal`, which must be
 /// async-signal-safe, so output still buffered for the client log reaches it before its
 /// section is copied. `identity` names the process in every report; a second call keeps the
 /// first identity.
@@ -63,11 +63,10 @@ pub fn install_panic_hook(
         let message = info.to_string();
         let backtrace = Backtrace::force_capture().to_string();
         log_panic(&format!("{message}\n{backtrace}\n"));
-        // Queued lines must reach `client.log` before its section is copied.
-        flush_logs();
-        let _ = write_panic(context, message, Thread::current(), backtrace, now_ms());
+        // The previous hook emits the raw panic text; capture and flush it before the snapshot.
         previous(info);
         flush_logs();
+        let _ = write_panic(context, message, Thread::current(), backtrace, now_ms());
     }));
 }
 

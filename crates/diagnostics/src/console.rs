@@ -511,8 +511,9 @@ pub fn flush_before_exit() -> bool {
 }
 
 /// For fatal-signal handlers, which must not lock or allocate: copies raw stderr still in the
-/// capture pipe, such as an abort message written just before the signal, to the launcher's
-/// stderr and the end of the session log. Async-signal-safe; acts once, and only on Unix
+/// capture pipe, such as an abort message written just before the signal, to the session log.
+/// It forwards to the launcher's stderr only when that destination already uses
+/// nonblocking I/O. Async-signal-safe; acts once, and only on Unix
 /// once raw stderr is captured. Queued output is not flushed.
 pub fn drain_raw_stderr_on_signal() {
     #[cfg(unix)]

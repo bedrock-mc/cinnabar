@@ -88,6 +88,7 @@ impl RawStderr {
                 return true;
             }
             let count = match reader.read(&mut bytes[..count]) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return true,
                 Ok(0) | Err(_) => return false,
                 Ok(count) => count,
             };
@@ -141,13 +142,15 @@ pub(super) fn original() -> io::Result<Option<File>> {
     ))
 }
 
-/// Creates owned pipe ends; the read side never blocks when queried under the reader lock.
+/// Creates owned pipe ends with a nonblocking reader, including when a signal consumes bytes.
 #[cfg(unix)]
 fn pipe() -> io::Result<(File, File)> {
     let (read, write) = rustix::pipe::pipe()?;
     for fd in [&read, &write] {
         rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::CLOEXEC)?;
     }
+    let flags = rustix::fs::fcntl_getfl(&read)?;
+    rustix::fs::fcntl_setfl(&read, flags | rustix::fs::OFlags::NONBLOCK)?;
     Ok((read.into(), write.into()))
 }
 
@@ -262,5 +265,55 @@ mod tests {
         assert!(capture.drain(&queue, None));
         assert_eq!(capture.dropped.load(Ordering::Relaxed), 1);
         assert_eq!(available(&capture.reader.lock().unwrap()).unwrap(), 0);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod nonblocking_tests {
+    use super::*;
+
+    /// Models a competing reader consuming all bytes before the fatal handler's next read.
+    #[test]
+    fn exhausted_reader_fixture() {
+        if std::env::var_os("CINNABAR_EMPTY_CAPTURE_FIXTURE").is_none() {
+            return;
+        }
+        use std::io::Write;
+        let (mut reader, mut writer) = pipe().unwrap();
+        writer.write_all(b"x").unwrap();
+        let mut byte = [0];
+        reader.read_exact(&mut byte).unwrap();
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    /// An exhausted capture reader returns immediately while its write end remains open.
+    #[test]
+    fn exhausted_capture_pipe_never_waits_for_another_stderr_write() {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "console::raw_stderr::nonblocking_tests::exhausted_reader_fixture",
+            ])
+            .env("CINNABAR_EMPTY_CAPTURE_FIXTURE", "1")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut status = None;
+        let completed = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
+            status = child.try_wait().unwrap();
+            status.is_some()
+        });
+        if !completed {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert!(
+            completed,
+            "capture reader blocked after its last byte was consumed"
+        );
+        assert!(status.unwrap().success());
     }
 }

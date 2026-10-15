@@ -304,7 +304,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "env-compat", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "env-compat", "libc", "meshing", "render-model", "rustix", "test-time", "windows-sys", "world"]
 forbidden_dependencies = ["bevy", "protocol"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 

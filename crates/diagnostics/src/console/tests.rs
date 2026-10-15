@@ -149,8 +149,7 @@ fn signal_drain_child() {
     std::process::abort();
 }
 
-/// Raw stderr still in the capture pipe at a fatal signal reaches the launcher's stderr and the
-/// session log once each.
+/// Fatal output is preserved in the session log without attempting a blocking launcher write.
 #[cfg(unix)]
 #[test]
 fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
@@ -173,7 +172,7 @@ fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
     let text = std::fs::read_to_string(dir.path().join("client.log")).unwrap();
     let launcher = String::from_utf8_lossy(&output.stderr);
     assert_eq!(text.matches(marker).count(), 1, "file: {text}");
-    assert_eq!(launcher.matches(marker).count(), 1, "stderr: {launcher}");
+    assert_eq!(launcher.matches(marker).count(), 0, "stderr: {launcher}");
 }
 
 #[test]

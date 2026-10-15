@@ -112,6 +112,15 @@ fn startup_carrier_and_panic_diagnostics_reach_the_file_without_a_terminal() {
             "lost or repeated file output: {text}"
         );
     }
+    let crashes = crash_report::folder::list(&logging_layout(root.path()).crash_dir());
+    assert_eq!(crashes.len(), 1);
+    let snapshot =
+        fs::read_to_string(crashes[0].join(crash_report::folder::CLIENT_LOG_FILE)).unwrap();
+    assert_eq!(
+        snapshot.matches(PANIC_MARKER).count(),
+        1,
+        "missing or repeated panic in snapshot: {snapshot}"
+    );
 }
 
 #[test]

@@ -155,7 +155,7 @@ unsafe extern "C" fn unhandled(
     // SAFETY: Published snapshots are immutable and retained for the process lifetime.
     let capture = unsafe { &*capture };
     // Raw stderr written just before the fault, such as an abort message, is still in the
-    // caller's capture pipe; it must reach the terminal and the client log before both go.
+    // caller's capture pipe; preserve it in the client log before taking its snapshot.
     (capture.drain_logs)();
     let pending = PENDING.load(Ordering::Acquire);
     if !REPORTING.swap(true, Ordering::AcqRel) && !pending.is_null() {
@@ -166,7 +166,7 @@ unsafe extern "C" fn unhandled(
             libc::mkdir(pending.folder.as_ptr(), 0o700);
             libc::open(
                 pending.report.as_ptr(),
-                libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
+                libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY | libc::O_NONBLOCK,
                 0o600,
             )
         };
@@ -234,32 +234,44 @@ unsafe extern "C" fn unhandled(
     }
 }
 
-/// Copies the latest session of a log, read from at most its final `scratch.len()` bytes, into a
-/// new file with async-signal-safe calls only; a missing log leaves the copy empty. With
-/// `since_ms`, a section whose header predates it belongs to an earlier session and is left out.
+/// Copies at most the final `scratch.len()` bytes of the latest session into a new file with
+/// async-signal-safe calls only; a missing log leaves the copy empty. With `since_ms`, scans
+/// headers before retaining the tail and omits a session that predates that timestamp.
 unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scratch: &mut [u8]) {
     // SAFETY: The paths are prebuilt C strings; open, lseek, read, write, fsync and close are
     // async-signal-safe, and the section helpers neither allocate nor lock.
     unsafe {
         let target = libc::open(
             copy.target.as_ptr(),
-            libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY,
+            libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY | libc::O_NONBLOCK,
             0o600,
         );
         if target < 0 {
             return;
         }
-        let source = libc::open(copy.source.as_ptr(), libc::O_RDONLY);
+        let source = libc::open(copy.source.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK);
         if source >= 0 {
+            let stale = since_ms.is_some_and(|since| {
+                section::header::latest_timestamp(marker, scratch, |bytes| {
+                    let count = libc::read(source, bytes.as_mut_ptr().cast(), bytes.len());
+                    if count < 0 {
+                        Err(())
+                    } else {
+                        Ok(count as usize)
+                    }
+                })
+                .map_or(true, |timestamp| timestamp.is_some_and(|at| at < since))
+            });
             let length = libc::lseek(source, 0, libc::SEEK_END);
             let offset = (length.max(0) as u64).saturating_sub(scratch.len() as u64);
-            if length >= 0 && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0 {
+            if !stale
+                && length >= 0
+                && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0
+            {
                 let filled = read_full(source, scratch);
                 let tail = &scratch[..filled];
                 let part = &tail[section::start(tail, marker, offset > 0)..];
-                if !since_ms.is_some_and(|since| section::is_stale(part, marker, since)) {
-                    write_all(target, part);
-                }
+                write_all(target, part);
             }
             libc::close(source);
         }
@@ -632,6 +644,38 @@ mod tests {
                 std::fs::read_to_string(folders[0].join(folder::CORE_LOG_FILE)).unwrap(),
                 "CORE_SESSION_START timestamp_ms=2\ncore line\n"
             );
+        }
+    }
+
+    /// Signal-time snapshots reject an old session even when its header predates the tail.
+    #[test]
+    fn signal_copy_rejects_an_oversized_previous_core_session() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("core.log");
+        for (timestamp, stale) in [(1, true), (50, false)] {
+            let target = dir.path().join(format!("copy-{timestamp}.log"));
+            std::fs::write(
+                &source,
+                format!(
+                    "{} timestamp_ms={timestamp}\n{}",
+                    section::CORE_SESSION_START,
+                    "old line\n".repeat(128)
+                ),
+            )
+            .unwrap();
+            let copy = LogCopy {
+                source: CString::new(source.as_os_str().as_bytes()).unwrap(),
+                target: CString::new(target.as_os_str().as_bytes()).unwrap(),
+            };
+            let mut scratch = [0; 64];
+            // SAFETY: Fixture-owned paths and scratch remain valid through the synchronous copy.
+            unsafe {
+                copy_section(&copy, section::CORE_SESSION_START, Some(20), &mut scratch);
+            }
+            let copied = std::fs::read(target).unwrap();
+            assert_eq!(copied.is_empty(), stale);
+            assert!(copied.len() <= scratch.len());
         }
     }
 

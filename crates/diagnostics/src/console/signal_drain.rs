@@ -1,5 +1,5 @@
 //! Copies raw stderr still waiting in the capture pipe when a fatal signal arrives, where the
-//! drain thread will never run again: to the launcher's stderr and the end of the session log.
+//! drain thread will never run again: to the session log and an already nonblocking terminal.
 //! Everything here is published before any signal and used without allocation or locks.
 use std::{
     cell::UnsafeCell,
@@ -30,19 +30,26 @@ struct Buffer(UnsafeCell<[u8; CHUNK]>);
 // SAFETY: Only the drain admitted by `DRAINING` touches the buffer.
 unsafe impl Sync for Buffer {}
 
-/// Records where a signal-time drain writes; called once while attaching session files.
+/// Records the log path and an already nonblocking terminal, without changing launcher flags.
 pub(super) fn publish_destinations(terminal: Option<RawFd>, log_path: &std::path::Path) {
     use std::os::unix::ffi::OsStrExt;
     if let Some(terminal) = terminal {
-        TERMINAL.store(terminal, Ordering::Release);
+        // Changing a duplicate's file-status flags would also change the launcher's original.
+        // Only destinations already configured for nonblocking writes are safe in a handler.
+        // SAFETY: The console owns this live destination while attaching its session files.
+        let fd = unsafe { BorrowedFd::borrow_raw(terminal) };
+        if rustix::fs::fcntl_getfl(fd)
+            .is_ok_and(|flags| flags.contains(rustix::fs::OFlags::NONBLOCK))
+        {
+            TERMINAL.store(terminal, Ordering::Release);
+        }
     }
     if let Ok(path) = CString::new(log_path.as_os_str().as_bytes()) {
         let _ = LOG_PATH.set(path);
     }
 }
 
-/// Records the capture pipe's read end once raw stderr is captured; the pipe lives for the
-/// rest of the process.
+/// Records the nonblocking capture reader; its pipe lives for the rest of the process.
 pub(super) fn publish_reader(reader: RawFd) {
     READER.store(reader, Ordering::Release);
 }
@@ -63,7 +70,10 @@ pub(super) fn drain() {
     let log = LOG_PATH.get().and_then(|path| {
         rustix::fs::open(
             path.as_c_str(),
-            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::APPEND | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::OFlags::WRONLY
+                | rustix::fs::OFlags::APPEND
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NONBLOCK,
             rustix::fs::Mode::empty(),
         )
         .ok()
@@ -72,11 +82,7 @@ pub(super) fn drain() {
     let buffer = unsafe { &mut *BUFFER.0.get() };
     let mut copied = 0;
     while copied < LIMIT {
-        let available = match rustix::io::ioctl_fionread(reader) {
-            Ok(0) | Err(_) => break,
-            Ok(count) => usize::try_from(count).unwrap_or(CHUNK).min(CHUNK),
-        };
-        let count = match rustix::io::read(reader, &mut buffer[..available]) {
+        let count = match rustix::io::read(reader, &mut buffer[..CHUNK.min(LIMIT - copied)]) {
             Ok(0) | Err(_) => break,
             Ok(count) => count,
         };
@@ -90,11 +96,83 @@ pub(super) fn drain() {
     }
 }
 
+/// Attempts nonblocking writes until complete, out of room, or an OS error.
 fn write_all(fd: impl rustix::fd::AsFd, mut bytes: &[u8]) {
     while !bytes.is_empty() {
         match rustix::io::write(&fd, bytes) {
             Ok(0) | Err(_) => return,
             Ok(count) => bytes = &bytes[count..],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustix::{
+        fs::{OFlags, fcntl_getfl, fcntl_setfl},
+        io::Errno,
+        pipe::PipeFlags,
+    };
+    use std::os::fd::AsRawFd;
+
+    /// Leaves a blocking launcher pipe full before the fatal path attempts to forward bytes.
+    #[test]
+    fn full_terminal_fixture() {
+        let Some(root) = std::env::var_os("CINNABAR_FULL_TERMINAL_FIXTURE") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let (_terminal_reader, terminal) = rustix::pipe::pipe_with(PipeFlags::NONBLOCK).unwrap();
+        let chunk = [b'x'; 4096];
+        loop {
+            match rustix::io::write(&terminal, &chunk) {
+                Ok(_) => {}
+                Err(Errno::AGAIN) => break,
+                result => panic!("cannot fill fixture pipe: {result:?}"),
+            }
+        }
+        let flags = fcntl_getfl(&terminal).unwrap();
+        fcntl_setfl(&terminal, flags & !OFlags::NONBLOCK).unwrap();
+        let (reader, writer) = rustix::pipe::pipe_with(PipeFlags::NONBLOCK).unwrap();
+        rustix::io::write(&writer, b"fatal marker\n").unwrap();
+        let log = root.join("client.log");
+        std::fs::write(&log, b"header\n").unwrap();
+        publish_destinations(Some(terminal.as_raw_fd()), &log);
+        publish_reader(reader.as_raw_fd());
+        drain();
+    }
+
+    /// A stalled launcher's terminal cannot stop the fatal path from preserving its log bytes.
+    #[test]
+    fn a_full_blocking_terminal_cannot_hold_the_fatal_drain() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "console::signal_drain::tests::full_terminal_fixture",
+            ])
+            .env("CINNABAR_FULL_TERMINAL_FIXTURE", dir.path())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut status = None;
+        let completed = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
+            status = child.try_wait().unwrap();
+            status.is_some()
+        });
+        if !completed {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert!(
+            completed,
+            "fatal drain blocked on the launcher's full terminal"
+        );
+        assert!(status.unwrap().success());
+        assert_eq!(
+            std::fs::read(dir.path().join("client.log")).unwrap(),
+            b"header\nfatal marker\n"
+        );
     }
 }
