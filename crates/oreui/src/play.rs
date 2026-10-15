@@ -169,6 +169,7 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
             subtitle: format!("{}'s world", friend.gamertag),
             tag: "Friend's world",
             world_type: String::new(),
+            server: String::new(),
             meta: [friend.members.clone(), String::new()],
             action: MenuAction::PlayFriend(index),
             edit: None,
@@ -183,6 +184,7 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
                     subtitle: String::new(),
                     tag: game_mode_tag(&world.game_mode),
                     world_type: world.world_type.clone(),
+                    server: world.server.clone(),
                     meta: [world.size.clone(), world.date.clone()],
                     action: MenuAction::PlayLocalWorld(index),
                     edit: Some(MenuAction::LocalWorld(LocalWorldAction::Edit(index))),
@@ -207,6 +209,8 @@ struct WorldEntry {
     tag: &'static str,
     /// A local world's type tag, beside its game mode.
     world_type: String,
+    /// A local world's hosting server tag, after its type.
+    server: String,
     meta: [String; 2],
     action: MenuAction,
     /// The trailing pencil-and-"Edit" action of an owned world.
@@ -268,21 +272,23 @@ fn world_row(
             false,
         )?;
     }
-    let tag_right = tag(
+    let mut tag_right = tag(
         canvas,
         entry.tag,
         [text_left, y + canvas.r(0.4)],
         NEUTRAL80.fill,
         TEXT,
     )?;
-    if !entry.world_type.is_empty() {
-        tag(
-            canvas,
-            &entry.world_type,
-            [tag_right + canvas.r(0.4), y + canvas.r(0.4)],
-            NEUTRAL80.fill,
-            TEXT,
-        )?;
+    for label in [&entry.world_type, &entry.server] {
+        if !label.is_empty() {
+            tag_right = tag(
+                canvas,
+                label,
+                [tag_right + canvas.r(0.4), y + canvas.r(0.4)],
+                NEUTRAL80.fill,
+                TEXT,
+            )?;
+        }
     }
     let meta_right = b[2] - pad - edit_width;
     let mut meta_top = b[1] + pad;
