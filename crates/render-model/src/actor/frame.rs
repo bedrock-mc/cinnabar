@@ -113,6 +113,23 @@ pub struct ActorMaterial {
     pub light_color_multiplier: f32,
 }
 
+impl ActorMaterial {
+    /// Whether color overlays may affect this material's fragment color and vertex lighting.
+    /// Dissolve alpha belongs only to its coverage parameter; authored suppression also wins.
+    #[must_use]
+    pub fn allows_overlay(self) -> bool {
+        match self.kind {
+            assets::EntityRenderMaterial::Default
+            | assets::EntityRenderMaterial::Dragon
+            | assets::EntityRenderMaterial::Glint => {
+                self.state.is_none_or(|state| !state.disable_overlay)
+            }
+            assets::EntityRenderMaterial::DissolveDepth
+            | assets::EntityRenderMaterial::DissolveColor => false,
+        }
+    }
+}
+
 impl Default for ActorMaterial {
     fn default() -> Self {
         Self {

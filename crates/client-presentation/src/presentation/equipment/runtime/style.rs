@@ -38,15 +38,10 @@ impl LayerStyle {
         if self.color != [1.0; 4] {
             submission.tint = render_model::pack_overlay_rgba8(self.color);
         }
-        // Dissolve alpha controls coverage, not the vertex shader's hurt lighting.
-        submission.overlay_rgba8 = if matches!(
-            self.material,
-            assets::EntityRenderMaterial::DissolveDepth
-                | assets::EntityRenderMaterial::DissolveColor
-        ) {
-            0
-        } else {
+        submission.overlay_rgba8 = if submission.material.allows_overlay() {
             render_model::pack_overlay_rgba8(self.overlay)
+        } else {
+            0
         };
         submission.uv_anim = self.uv_anim;
         if self.ignore_lighting {

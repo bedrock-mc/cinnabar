@@ -774,6 +774,43 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
                 &original[index].input.previous_bones
             ));
         }
+        for (kind, disable_overlay, allows_overlay) in [
+            (assets::EntityRenderMaterial::DissolveDepth, false, false),
+            (assets::EntityRenderMaterial::DissolveColor, false, false),
+            (assets::EntityRenderMaterial::Default, true, false),
+            (assets::EntityRenderMaterial::Default, false, true),
+        ] {
+            batch.submissions.clone_from(&original);
+            let armor = &mut batch.submissions[1];
+            armor.material.kind = kind;
+            armor.material.state = Some(assets::EntityRenderMaterialState {
+                disable_overlay,
+                ..Default::default()
+            });
+            armor.material.dissolve_multiplier = 0.4;
+            let material = armor.material;
+            let tint = armor.tint;
+            super::layers::apply_style_and_visibility(&mut batch, Some(&stream), Some(&style));
+            let armor = &batch.submissions[1];
+            assert_eq!(
+                armor.overlay_rgba8,
+                if allows_overlay {
+                    render_model::pack_overlay_rgba8(if hurt {
+                        style.hurt_armor_color.unwrap()
+                    } else {
+                        style.attackable_color.unwrap()
+                    })
+                } else {
+                    0
+                }
+            );
+            assert_eq!(armor.material, material);
+            assert_eq!(armor.tint, tint);
+            assert!(Arc::ptr_eq(
+                &armor.input.current_bones,
+                &original[1].input.current_bones
+            ));
+        }
     }
 }
 

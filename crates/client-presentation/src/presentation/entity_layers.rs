@@ -247,25 +247,15 @@ fn layered(
         submission.texture_layer = location.layer();
     }
     submission.material = layer.material;
-    if matches!(
-        layer.material.kind,
-        assets::EntityRenderMaterial::DissolveDepth | assets::EntityRenderMaterial::DissolveColor
-    ) {
+    if !submission.material.allows_overlay() {
         submission.overlay_rgba8 = 0;
+    } else if let Some(overlay) = layer.overlay {
+        submission.overlay_rgba8 = overlay;
     }
     submission.tint = layer.tint;
     submission.uv_anim = layer.uv_anim;
     if layer.ignore_lighting {
         submission.light = pack_actor_light_without_lightmap();
-    }
-    if let Some(overlay) = layer.overlay
-        && !matches!(
-            layer.material.kind,
-            assets::EntityRenderMaterial::DissolveDepth
-                | assets::EntityRenderMaterial::DissolveColor
-        )
-    {
-        submission.overlay_rgba8 = overlay;
     }
     if !layer.hidden_bones.is_empty() {
         submission.input.previous_bones =
