@@ -20,6 +20,8 @@ use bevy::{
             lifetimeless::{Read, SRes},
         },
     },
+    math::FloatOrd,
+    platform::collections::HashMap,
     prelude::{
         App, BevyError, Commands, Entity, FromWorld, Handle, Msaa, Plugin, Query, Res, ResMut,
         Resource, Result, Shader, Vec3, World, default,
@@ -29,7 +31,8 @@ use bevy::{
         extract_resource::ExtractResourcePlugin,
         render_phase::{
             DrawFunctions, PhaseItem, PhaseItemExtraIndex, RenderCommand, RenderCommandResult,
-            SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
+            SetItemPipeline, SortedPhaseItem, SortedRenderPhase, TrackedRenderPass,
+            ViewSortedRenderPhases,
         },
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
@@ -45,7 +48,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         sync_world::MainEntity,
-        view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
+        view::{ExtractedView, RetainedViewEntity, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
 
@@ -86,6 +89,7 @@ impl Plugin for ParticleRenderPlugin {
         crate::transparent_phase::install(render_app);
         render_app
             .init_resource::<ParticlePipeline>()
+            .init_resource::<ParticlePhase>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Opaque as u8 }>>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Blend as u8 }>>()
             .add_render_command::<Transparent3d, DrawParticles<{ ParticleMode::Add as u8 }>>()
@@ -95,9 +99,6 @@ impl Plugin for ParticleRenderPlugin {
                 (
                     prepare_particle_resources.in_set(RenderSystems::PrepareResources),
                     prepare_particle_bind_group.in_set(RenderSystems::PrepareBindGroups),
-                    coalesce_particle_ranges
-                        .after(RenderSystems::Prepare)
-                        .before(RenderSystems::Render),
                     queue_particles
                         .run_if(render_scene::panorama::world_passes_enabled)
                         .in_set(RenderSystems::Queue),
@@ -484,11 +485,12 @@ fn prepare_particle_bind_group(
     gpu.bound = key;
 }
 
-/// Queues each translucent instance at its view depth using the current extracted frame.
+/// Queues compact translucent streams at their target-view depths from the extracted frame.
 fn queue_particles(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<ParticlePipeline>,
     frame: Res<ParticleGpuFrame>,
+    mut pending: ResMut<ParticlePhase>,
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     draw_functions: Res<DrawFunctions<Transparent3d>>,
     views: Query<(
@@ -499,6 +501,7 @@ fn queue_particles(
         &Msaa,
     )>,
 ) {
+    pending.0.clear();
     let functions = draw_functions.read();
     let draws = [
         functions.id::<DrawParticles<{ ParticleMode::Opaque as u8 }>>(),
@@ -510,6 +513,7 @@ fn queue_particles(
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
+        let mut streams = ParticleViewDraws::default();
         let mut offset = 0;
         for (material, instances, draw_function) in [
             (ParticleMode::Opaque, &frame.opaque, draws[0]),
@@ -550,87 +554,149 @@ fn queue_particles(
                 continue;
             }
             let rangefinder = view.rangefinder3d();
-            for (index, instance) in instances.iter().enumerate() {
-                let position = Vec3::from_slice(&instance.center_light[..3]);
-                let index = first + index as u32;
-                crate::transparent_phase::add(
-                    phase,
-                    item(
-                        rangefinder.distance(&position),
-                        PhaseItemExtraIndex::IndirectParametersIndex {
-                            range: index..index + 1,
-                            batch_set_index: None,
-                        },
-                    ),
-                );
-            }
+            streams.push(
+                phase.items.len(),
+                item(0.0, PhaseItemExtraIndex::None),
+                instances.iter().enumerate().map(|(index, instance)| {
+                    let position = Vec3::from_slice(&instance.center_light[..3]);
+                    (
+                        FloatOrd(rangefinder.distance(&position)),
+                        first + index as u32,
+                    )
+                }),
+            );
+        }
+        if !streams.streams.is_empty() {
+            pending.0.insert(view.retained_view_entity, streams);
         }
     }
 }
 
-/// Joins adjacent instance ranges after sorting, preserving every intervening terrain draw.
-fn coalesce_particle_ranges(
-    mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
-    draw_functions: Res<DrawFunctions<Transparent3d>>,
-) {
-    let functions = draw_functions.read();
-    let blend = functions.id::<DrawParticles<{ ParticleMode::Blend as u8 }>>();
-    let add = functions.id::<DrawParticles<{ ParticleMode::Add as u8 }>>();
-    for phase in phases.values_mut() {
-        let len = phase.items.len();
-        coalesce_ranges(phase.items.as_mut_slice(), len, [blend, add]);
-    }
+/// Per-view particle streams consumed by the shared sort in the same frame.
+#[derive(Resource, Default)]
+pub(crate) struct ParticlePhase(pub(crate) HashMap<RetainedViewEntity, ParticleViewDraws>);
+
+/// Compact instance order and the draw state shared by one material list.
+struct ParticleStream {
+    insertion: usize,
+    template: Transparent3d,
+    instances: std::vec::IntoIter<(FloatOrd, u32)>,
 }
 
-/// Batches contiguous particle instances without crossing a different phase item or pipeline;
-/// `items` holds `len` phase items in sorted order.
-fn coalesce_ranges<Items>(
-    items: &mut Items,
-    len: usize,
-    draws: [bevy::render::render_phase::DrawFunctionId; 2],
-) where
-    Items: std::ops::IndexMut<usize, Output = Transparent3d> + ?Sized,
-{
-    let mut start = 0;
-    while start < len {
-        if !draws.contains(&items[start].draw_function) || items[start].batch_range.len() != 1 {
-            start += 1;
-            continue;
+#[derive(Default)]
+pub(crate) struct ParticleViewDraws {
+    streams: Vec<ParticleStream>,
+}
+
+impl ParticleViewDraws {
+    /// Accepts a material list, checking its order under the target view's phase comparator.
+    fn push(
+        &mut self,
+        insertion: usize,
+        template: Transparent3d,
+        instances: impl Iterator<Item = (FloatOrd, u32)>,
+    ) {
+        let mut instances: Vec<_> = instances.collect();
+        if instances.is_empty() {
+            return;
         }
-        let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &items[start].extra_index
-        else {
-            start += 1;
-            continue;
-        };
-        let first = range.start;
-        let mut end = range.end;
-        let mut next = start + 1;
-        while next < len {
-            let item = &items[next];
-            if item.entity != items[start].entity
-                || item.pipeline != items[start].pipeline
-                || item.draw_function != items[start].draw_function
-                || item.batch_range.len() != 1
-            {
-                break;
-            }
-            let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } = &item.extra_index
-            else {
+        if !instances.is_sorted_by_key(|instance| instance.0) {
+            // Extraction and secondary views need not use the simulation camera's order.
+            instances.sort_by_key(|instance| instance.0);
+        }
+        self.streams.push(ParticleStream {
+            insertion,
+            template,
+            instances: instances.into_iter(),
+        });
+    }
+
+    /// Merges with the sorted phase, materializing only uninterrupted compatible instance runs.
+    pub(crate) fn merge(mut self, phase: &mut SortedRenderPhase<Transparent3d>) {
+        // Original indices preserve queue insertion ties and reserve every non-particle key.
+        let original: HashMap<_, _> = phase
+            .items
+            .keys()
+            .copied()
+            .enumerate()
+            .map(|(index, key)| (key, index))
+            .collect();
+        let mut next_key =
+            u32::try_from(original.len()).expect("transparent phase exceeds entity index capacity");
+        phase.sort();
+        let mut others = std::mem::take(&mut phase.items).into_iter().peekable();
+        let mut run: Option<(usize, Transparent3d)> = None;
+        loop {
+            // Stream order breaks equal-depth ties in the original material queue order.
+            let next = self
+                .streams
+                .iter()
+                .enumerate()
+                .filter_map(|(index, stream)| {
+                    stream
+                        .instances
+                        .as_slice()
+                        .first()
+                        .map(|&(depth, _)| (depth, stream.insertion, index))
+                })
+                .min();
+            let Some((depth, insertion, stream_index)) = next else {
                 break;
             };
-            if range.start != end {
-                break;
+            if others.peek().is_some_and(|(key, item)| {
+                item.sort_key() < depth || (item.sort_key() == depth && original[key] < insertion)
+            }) {
+                flush_particle_run(phase, &mut run, &original, &mut next_key);
+                let (key, item) = others.next().unwrap();
+                phase.items.insert(key, item);
+                continue;
             }
-            end = range.end;
-            items[next].batch_range = 0..0;
-            next += 1;
+            let stream = &mut self.streams[stream_index];
+            let (_, index) = stream.instances.next().unwrap();
+            if let Some((previous, item)) = &mut run
+                && *previous == stream_index
+                && let PhaseItemExtraIndex::IndirectParametersIndex { range, .. } =
+                    &mut item.extra_index
+                && range.end == index
+            {
+                range.end = index + 1;
+                continue;
+            }
+            flush_particle_run(phase, &mut run, &original, &mut next_key);
+            let template = &stream.template;
+            run = Some((
+                stream_index,
+                Transparent3d {
+                    sorting_info: template.sorting_info,
+                    distance: depth.0,
+                    entity: template.entity,
+                    pipeline: template.pipeline,
+                    draw_function: template.draw_function,
+                    batch_range: 0..1,
+                    extra_index: PhaseItemExtraIndex::IndirectParametersIndex {
+                        range: index..index + 1,
+                        batch_set_index: None,
+                    },
+                    indexed: template.indexed,
+                },
+            ));
         }
-        items[start].extra_index = PhaseItemExtraIndex::IndirectParametersIndex {
-            range: first..end,
-            batch_set_index: None,
-        };
-        items[start].batch_range = 0..(next - start) as u32;
-        start = next;
+        flush_particle_run(phase, &mut run, &original, &mut next_key);
+        phase.items.extend(others);
+    }
+}
+
+/// Emits a completed run using a key that cannot displace a non-particle draw.
+fn flush_particle_run(
+    phase: &mut SortedRenderPhase<Transparent3d>,
+    run: &mut Option<(usize, Transparent3d)>,
+    reserved: &HashMap<(Entity, MainEntity), usize>,
+    next_key: &mut u32,
+) {
+    if let Some((_, item)) = run.take() {
+        crate::transparent_phase::add_with_reserved(phase, item, next_key, |key| {
+            reserved.contains_key(key)
+        });
     }
 }
 
