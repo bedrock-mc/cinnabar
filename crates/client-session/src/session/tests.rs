@@ -279,6 +279,9 @@ impl NetworkSession for TraceOrderingFailSession {
         }))
     }
 
+    /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+    async fn drain_to_boundary(&mut self) {}
+
     fn decode_error_count(&self) -> u64 {
         0
     }
@@ -312,6 +315,9 @@ impl NetworkSession for FailingSendSession {
             future::ready(Err("socket write failed"))
         }))
     }
+
+    /// This fixture's inbound never ends, so a failed write has no boundary to drain.
+    async fn drain_to_boundary(&mut self) {}
 
     fn decode_error_count(&self) -> u64 {
         0

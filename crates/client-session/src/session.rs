@@ -670,6 +670,12 @@ trait NetworkSession: Send {
 
     fn decode_error_count(&self) -> u64;
 
+    /// Reads inbound until it ends, so a Transfer or Disconnect the core sent before closing is
+    /// retained when a write fails first; the caller bounds the wait.
+    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+        async move { while self.receive_world_ingress(0).await.is_ok() {} }
+    }
+
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
         None
     }
@@ -725,6 +731,10 @@ impl NetworkSession for protocol::PlaySession {
 
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
+    }
+
+    fn drain_to_boundary(&mut self) -> impl Future<Output = ()> + Send {
+        protocol::PlaySession::drain_to_boundary(self)
     }
 
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {

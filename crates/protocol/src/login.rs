@@ -25,6 +25,9 @@ pub(crate) mod session_join;
 mod startup;
 mod unused_packets;
 use boundary::boundary_wakeup;
+
+/// Bounds the drain that surfaces the core's Transfer or Disconnect behind a failed write.
+pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
     PROTOCOL_VERSION, login_memory_tier,
