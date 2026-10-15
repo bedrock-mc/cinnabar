@@ -369,6 +369,13 @@ impl PlaySession {
         self.packet_id_trace.drain()
     }
 
+    /// The latency-trace connection, core batch frame and in-frame index of the packet received
+    /// last; see [`bridge::latency_trace`].
+    #[must_use]
+    pub fn latency_trace_position(&self) -> (u64, u64, u32) {
+        self.transport.trace_position()
+    }
+
     /// Number of receive-side decode/decompression failures observed in play.
     pub fn decode_error_count(&self) -> u64 {
         self.decode_errors

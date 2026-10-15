@@ -17,6 +17,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/latencytrace"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
@@ -44,7 +45,13 @@ const (
 const remoteMaxMTU = 1400
 
 // remoteRakNet dials a server over RakNet without probing it for NetherNet.
-func remoteRakNet() minecraft.RakNet { return minecraft.RakNet{MaxMTU: remoteMaxMTU} }
+func remoteRakNet() minecraft.RakNet {
+	network := minecraft.RakNet{MaxMTU: remoteMaxMTU}
+	if trace := latencytrace.Active(); trace != nil {
+		network.UpstreamDialer = tracingDialer{trace: trace}
+	}
+	return network
+}
 
 // rakNetConnectBudget is how long vanilla gives a RakNet connection: 12 offline attempts 500 ms
 // apart, then 10 s for the server to accept the connection request.
@@ -66,6 +73,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 	started := time.Now()
 	conn, err := network.DialContext(bounded, address)
 	if err == nil {
+		conn = traceRakNet(conn)
 		// Separates a transport stall from a login stall when a join hangs.
 		slog.Info("upstream transport connected", "target", redact.Private(address), "elapsed_ms", time.Since(started).Milliseconds())
 	}

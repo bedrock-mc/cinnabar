@@ -62,6 +62,9 @@ pub(crate) struct SessionTransport {
     sending: VecDeque<InFlightSend>,
     tap: Option<Arc<dyn PacketTap>>,
     current: Option<CurrentPacket>, // the tapped packet the session is processing
+    split_frames: u64,              // batch frames split so far; startup batches count as 0
+    split_len: usize,               // packets split from the latest frame
+    delivered: (u64, u32),          // frame and index of the packet `recv` returned last
 }
 
 /// The last delivered packet, kept until the session asks for the next one so an outcome
@@ -104,7 +107,16 @@ impl SessionTransport {
             sending: VecDeque::new(),
             tap: None,
             current: None,
+            split_frames: 0,
+            split_len: 0,
+            delivered: (0, 0),
         }
+    }
+
+    /// The latency-trace connection, frame and in-frame index of the packet [`Self::recv`]
+    /// returned last; frames count the core's batch frames from 1, startup packets are frame 0.
+    pub(crate) fn trace_position(&self) -> (u64, u64, u32) {
+        (self.reader.trace_conn(), self.delivered.0, self.delivered.1)
     }
 
     /// Reports every packet this transport delivers or sends to `tap`.
@@ -131,11 +143,14 @@ impl SessionTransport {
         self.current = None;
         loop {
             if let Some(packet) = self.received.pop_front() {
+                let index = self.split_len.saturating_sub(self.received.len() + 1);
+                self.delivered = (self.split_frames, index as u32);
                 self.observe(&packet);
                 return Ok(Inbound::Packet(packet));
             }
             if let Some(batch) = self.startup.pop_front() {
                 let packets = self.split_batch(batch)?;
+                self.split_len = packets.len();
                 self.received.extend(packets);
                 continue;
             }
@@ -158,6 +173,8 @@ impl SessionTransport {
             };
             if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
                 let packets = self.split_batch(body)?;
+                self.split_frames += 1;
+                self.split_len = packets.len();
                 self.received.extend(packets);
                 continue;
             }

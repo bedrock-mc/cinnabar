@@ -32,6 +32,9 @@ pub const KIND_DISCONNECT: u8 = 6;
 /// Archive bytes in one resource-pack data frame.
 pub const PACK_CHUNK_BYTES: usize = 4194304;
 
+/// Names the directory both processes write packet latency traces to; unset disables tracing.
+pub const LATENCY_TRACE_ENV: &str = "CINNABAR_LATENCY_TRACE";
+
 /// Vanilla's player limit for a hosted local world, the host included.
 pub const HOSTED_WORLD_MAX_PLAYERS: u32 = 8;
 

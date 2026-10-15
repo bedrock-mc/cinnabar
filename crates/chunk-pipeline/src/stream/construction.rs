@@ -151,6 +151,7 @@ impl WorldStream {
             maintenance_guarantee: true,
             chunk_data_offloaded: false,
             commit_steps: 0,
+            commit_observer: None,
             last_camera_position: [0.0; 3],
             urgent_work_due: false,
             publication_allowance: None,

@@ -256,11 +256,19 @@ pub(crate) fn send_player_auth_inputs(
     mut movement: ResMut<MovementTicker>,
     client_world: Res<ClientWorld>,
     mut fatal_error: ResMut<FatalError>,
+    real_time: Option<Res<Time<Real>>>,
 ) {
     #[cfg(feature = "acceptance")]
     if acceptance.deadline_reached(Instant::now()) {
         movement.begin_terminal_drain();
     }
+    let trace = bridge::latency_trace::active().map(|trace| {
+        let sampled = real_time
+            .as_ref()
+            .and_then(|time| time.last_update())
+            .map_or(0, |instant| trace.at(instant));
+        (trace, sampled)
+    });
     let evidence_context = input
         .snapshot()
         .zip(local_frame.snapshot())
@@ -302,6 +310,12 @@ pub(crate) fn send_player_auth_inputs(
         OUTBOUND_SEND_BUDGET_PER_FRAME,
         evidence_context,
         |identity, packet, mining_guard| {
+            if let Some((trace, sampled)) = trace {
+                trace.record(
+                    bridge::latency_trace::kind::TICK_SENT,
+                    &[identity.tick.get() as i64, sampled, trace.now()],
+                );
+            }
             network.send_physics_packet(identity, packet, mining_guard)
         },
     );

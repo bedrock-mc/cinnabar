@@ -134,7 +134,8 @@ const QUEUED_FRAMES: usize = 16;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
     let (read, write) = stream.into_split();
-    let (reader, frames, writer) = crate::tasks::prepare_connection(read, write, maximum);
+    let trace_conn = crate::latency_trace::active().map_or(0, |trace| trace.next_conn());
+    let (reader, frames, writer) = prepare_bounded(read, write, maximum, None, trace_conn);
     tokio::spawn(writer);
     (reader, frames)
 }
@@ -145,15 +146,17 @@ pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     write: W,
     maximum: usize,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
-    prepare_bounded(read, write, maximum, None)
+    prepare_bounded(read, write, maximum, None, 0)
 }
 
-/// Keeps byte permits until flush, admitting a frame larger than the budget alone.
+/// Keeps byte permits until flush, admitting a frame larger than the budget alone. A nonzero
+/// `trace_conn` records this connection's batch frames in the latency trace.
 pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: R,
     write: W,
     maximum: usize,
     budget: Option<usize>,
+    trace_conn: u64,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
     assert!(budget.is_none_or(|bytes| bytes > 0 && bytes <= u32::MAX as usize));
     let (frames, queued) = mpsc::channel(QUEUED_FRAMES);
@@ -162,10 +165,12 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
         FramedWrite::new(write, BridgeCodec::with_max(maximum)),
         queued,
         Arc::clone(&failure),
+        FrameTrace::new(trace_conn),
     );
     (
         FramedReader {
             inner: FramedRead::new(read, BridgeCodec::with_max(maximum)),
+            trace: FrameTrace::new(trace_conn),
         },
         FrameQueue {
             frames,
@@ -181,13 +186,64 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 /// native callers use the default socket read half.
 pub struct FramedReader<R = PlatformReadHalf> {
     inner: FramedRead<R, BridgeCodec>,
+    trace: FrameTrace,
+}
+
+impl<R> FramedReader<R> {
+    /// This connection's latency-trace number, or 0 when it is not traced.
+    #[must_use]
+    pub fn trace_conn(&self) -> u64 {
+        self.trace.conn
+    }
 }
 
 impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     type Item = Result<Bytes, BridgeError>;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().inner).poll_next(cx)
+        let this = self.get_mut();
+        let next = Pin::new(&mut this.inner).poll_next(cx);
+        if let Poll::Ready(Some(Ok(frame))) = &next {
+            this.trace.batch(
+                crate::latency_trace::kind::FRAME_READ,
+                frame.first(),
+                frame.len(),
+            );
+        }
+        next
+    }
+}
+
+/// Numbers one direction's batch frames in the latency trace; inert for connection 0.
+struct FrameTrace {
+    conn: u64,
+    frames: u64,
+}
+
+impl FrameTrace {
+    fn new(conn: u64) -> Self {
+        Self { conn, frames: 0 }
+    }
+
+    /// Records a frame of `len` bytes starting with `head` under `kind` when it is a batch on a
+    /// traced connection.
+    fn batch(&mut self, kind: u8, head: Option<&u8>, len: usize) {
+        if self.conn == 0 || head != Some(&crate::contract::KIND_BATCH) {
+            return;
+        }
+        let Some(trace) = crate::latency_trace::active() else {
+            return;
+        };
+        self.frames += 1;
+        trace.record(
+            kind,
+            &[
+                self.conn as i64,
+                self.frames as i64,
+                trace.now(),
+                len as i64,
+            ],
+        );
     }
 }
 
@@ -282,15 +338,24 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
     mut writer: FramedWrite<W, BridgeCodec>,
     mut frames: mpsc::Receiver<QueuedFrame>,
     failure: Arc<OnceLock<String>>,
+    mut trace: FrameTrace,
 ) {
     let mut pending = Vec::with_capacity(QUEUED_FRAMES);
+    // First byte and length of the frames in this flush, kept only while tracing.
+    let mut traced = Vec::new();
     while let Some(first) = frames.recv().await {
+        if trace.conn != 0 {
+            traced.push((first.frame.first().copied(), first.frame.len()));
+        }
         let mut written = writer.feed(first.frame).await;
         pending.push((first.written, first.bytes));
         while written.is_ok()
             && pending.len() < QUEUED_FRAMES
             && let Ok(next) = frames.try_recv()
         {
+            if trace.conn != 0 {
+                traced.push((next.frame.first().copied(), next.frame.len()));
+            }
             written = writer.feed(next.frame).await;
             pending.push((next.written, next.bytes));
         }
@@ -301,6 +366,13 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
         let result = flushed.map_err(|error| error.to_string());
         if let Err(reason) = &result {
             let _ = failure.set(reason.clone());
+        }
+        for (head, len) in traced.drain(..) {
+            trace.batch(
+                crate::latency_trace::kind::FRAME_WRITTEN,
+                head.as_ref(),
+                len,
+            );
         }
         for (written, _bytes) in pending.drain(..) {
             let _ = written.send(result.clone());

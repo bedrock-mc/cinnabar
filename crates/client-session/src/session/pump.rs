@@ -225,3 +225,32 @@ impl NetworkSequencer {
         }
     }
 }
+
+/// Records which core frame and slot produced `ingress`, once it is sequenced.
+pub(super) fn trace_decoded((conn, frame, index): (u64, u64, u32), ingress: &WorldIngress) {
+    if let Some(trace) = bridge::latency_trace::active() {
+        let (session, fifo) = ingress.identity();
+        trace.record(
+            bridge::latency_trace::kind::DECODED,
+            &[
+                conn as i64,
+                frame as i64,
+                i64::from(index),
+                session as i64,
+                fifo as i64,
+                trace.now(),
+            ],
+        );
+    }
+}
+
+/// Records `ingress` entering the app's world channel.
+pub(super) fn trace_enqueued(ingress: &WorldIngress) {
+    if let Some(trace) = bridge::latency_trace::active() {
+        let (session, fifo) = ingress.identity();
+        trace.record(
+            bridge::latency_trace::kind::ENQUEUED,
+            &[session as i64, fifo as i64, trace.now()],
+        );
+    }
+}

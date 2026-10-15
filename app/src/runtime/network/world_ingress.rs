@@ -29,6 +29,16 @@ use {
     diagnostics::write_stdout_marker,
 };
 
+/// Records a world event's commit in the latency trace; installed only while tracing.
+pub(super) fn trace_committed(fifo: u64) {
+    if let Some(trace) = bridge::latency_trace::active() {
+        trace.record(
+            bridge::latency_trace::kind::COMMITTED,
+            &[fifo as i64, trace.now()],
+        );
+    }
+}
+
 /// Drains in FIFO order, rechecking stream capacity after each event and stopping at a barrier.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn drain(
@@ -68,6 +78,13 @@ pub(super) fn drain(
         ) else {
             break;
         };
+        if let Some(trace) = bridge::latency_trace::active() {
+            let (session, fifo) = ingress.identity();
+            trace.record(
+                bridge::latency_trace::kind::DRAINED,
+                &[session as i64, fifo as i64, trace.now()],
+            );
+        }
         let sequenced = match ingress {
             client_session::WorldIngress::Event(sequenced) => {
                 network.record_readiness_event_consumed(&sequenced.event);

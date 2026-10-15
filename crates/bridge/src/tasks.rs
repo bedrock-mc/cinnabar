@@ -27,7 +27,7 @@ pub fn prepare_bounded_connection<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     maximum: usize,
     budget: usize,
 ) -> (FramedReader<R>, FrameQueue, impl Future<Output = ()>) {
-    crate::framed::prepare_bounded(read, write, maximum, Some(budget))
+    crate::framed::prepare_bounded(read, write, maximum, Some(budget), 0)
 }
 
 /// A caller-supplied deadline expired before the operation completed.
