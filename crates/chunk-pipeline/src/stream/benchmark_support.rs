@@ -97,6 +97,21 @@ impl RetentionFixture {
         Self { stream }
     }
 
+    /// Adds resident sections and their culling connectivity to the retained grid.
+    pub fn with_connectivity(radius: i32) -> Self {
+        let mut fixture = Self::new(radius);
+        for column in fixture.stream.loaded_columns.iter().copied() {
+            let key = SubChunkKey::from_chunk(column, 0);
+            fixture.stream.known_air.remove(&key);
+            fixture.stream.resident.insert(key);
+            fixture
+                .stream
+                .connectivity
+                .insert(key, FaceConnectivity::all());
+        }
+        fixture
+    }
+
     /// Retires the trailing boundary after a one-column crossing.
     pub fn cross(&mut self) {
         self.stream.local_player_chunk = Some(ChunkKey::new(0, 1, 0));
