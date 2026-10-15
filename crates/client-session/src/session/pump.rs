@@ -12,6 +12,7 @@ pub(super) enum WorldSideWork<'a, E> {
     Capacity(Result<mpsc::Permit<'a, WorldIngress>, mpsc::error::SendError<()>>),
 }
 
+/// Reads raw core frames while world admission is full, retaining the pending FIFO head.
 pub(super) async fn wait_for_world_side_work<'a, S: NetworkSession>(
     session: &mut S,
     current_dimension: i32,
@@ -19,7 +20,14 @@ pub(super) async fn wait_for_world_side_work<'a, S: NetworkSession>(
     has_pending_world_event: bool,
 ) -> WorldSideWork<'a, S::Error> {
     if has_pending_world_event {
-        WorldSideWork::Capacity(world_event_tx.reserve().await)
+        let capacity = world_event_tx.reserve();
+        tokio::pin!(capacity);
+        let permit = tokio::select! {
+            biased;
+            permit = &mut capacity => permit,
+            () = session.read_ahead() => capacity.await,
+        };
+        WorldSideWork::Capacity(permit)
     } else {
         WorldSideWork::Event(
             session

@@ -671,6 +671,11 @@ trait NetworkSession: Send {
 
     fn decode_error_count(&self) -> u64;
 
+    /// Buffers bounded raw input without decoding world events while their consumer is full.
+    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+        std::future::pending()
+    }
+
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {
         None
     }
@@ -726,6 +731,11 @@ impl NetworkSession for protocol::PlaySession {
 
     fn decode_error_count(&self) -> u64 {
         protocol::PlaySession::decode_error_count(self)
+    }
+
+    /// Reads into the play session's bounded raw transport buffer.
+    fn read_ahead(&mut self) -> impl Future<Output = ()> + Send {
+        protocol::PlaySession::read_ahead(self)
     }
 
     fn take_server_disconnect(&mut self) -> Option<ServerDisconnectEvent> {

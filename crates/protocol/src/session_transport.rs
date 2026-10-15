@@ -17,7 +17,7 @@ use futures::StreamExt;
 /// so the local leg accepts batches far larger than a typical client's 16 MiB default.
 /// The core already bounds pack transfers before they reach this hop.
 pub(crate) const MAX_SESSION_BATCH_BYTES: usize = 256 * 1024 * 1024;
-/// Bounds the frames read ahead of play while a join prepares its packs; past it the core waits.
+/// Bounds frames read while packs prepare or the world consumer is full; past it the core waits.
 pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
@@ -150,8 +150,8 @@ impl SessionTransport {
     }
 
     /// Reads core frames ahead of [`Self::recv`], unparsed, until `max_bytes` are held or the core
-    /// ends the session, so the core never waits on a client busy before play. Cancelling the
-    /// wait loses nothing.
+    /// ends the session, so short preparation or world-admission pauses do not block the core.
+    /// Cancelling the wait loses nothing.
     pub(crate) async fn read_ahead(&mut self, max_bytes: usize) {
         while self.ahead_bytes < max_bytes && !self.ahead.back().is_some_and(ends_session) {
             let next = self.reader.next().await;
