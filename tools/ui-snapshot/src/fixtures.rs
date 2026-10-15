@@ -32,6 +32,11 @@ pub enum Fixture {
     },
     /// The held tab roster's rows.
     TabList(Vec<RosterRow>),
+    /// Survival recipe-book inputs admitted by the inventory session and wire decoder.
+    #[cfg(feature = "test-support")]
+    CraftOverlap {
+        selected: bool,
+    },
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -43,6 +48,20 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-overlap-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap { selected: false },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "craft-overlap-selected",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CraftOverlap { selected: true },
+    },
     State {
         name: "loading-connecting",
         size: SIZE,
