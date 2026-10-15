@@ -222,7 +222,6 @@ fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
         .collect::<String>()
         .replace(' ', "");
     for expected in [
-        "Advanced",
         "Verboselogging",
         "Recordnetworksession",
         "containschatmessagesandplayernames",
@@ -230,8 +229,10 @@ fn general_advanced_rows_toggle_diagnostics_and_explain_the_capture() {
     ] {
         assert!(text.contains(expected), "missing {expected}");
     }
+    // Section headings draw in capitals.
+    let heading = text.find("ADVANCED").expect("missing the Advanced heading");
     assert!(
-        text.find("Advanced").unwrap() < text.find("Verboselogging").unwrap(),
+        heading < text.find("Verboselogging").unwrap(),
         "the toggles sit under the Advanced heading"
     );
     for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
