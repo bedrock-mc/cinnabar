@@ -9210,7 +9210,9 @@ unsupported. Live visual parity and performance acceptance remain open.
 Sessions record the last 4,096 packet headers in both directions, with each packet's
 accept, skip or failure outcome, and keep up to four rejected bodies per packet ID from
 the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture v2 that
-`bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
+`bedrock-replay` reads alongside v1, optionally on the recorded schedule. The capture
+queue bounds both record count and retained body bytes, including the active write;
+admitted bodies are detached from their source batches. Login,
 handshake and pack-offer bodies never reach samples or captures.
 
 Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced

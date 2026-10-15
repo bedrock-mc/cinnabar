@@ -3,7 +3,7 @@
 //! Every session reports its packets to [`global`]: a header ring of the last
 //! [`RING_CAPACITY`] packets in both directions, and the raw bodies of packets ingress rejected
 //! in the latest session that rejected any. Recording a header neither allocates nor formats;
-//! only a rejected packet's body is copied. Packets that can carry credentials or pack content
+//! without full capture, only a rejected packet's body is copied. Packets that can carry credentials or pack content
 //! keys keep their header but never their body, in samples or in captures.
 
 mod capture;
@@ -24,7 +24,8 @@ use protocol::packet_tap::{
 };
 
 pub use capture::{
-    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, PacketCaptureRequest,
+    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_BYTES, CAPTURE_QUEUE_RECORDS,
+    PacketCaptureRequest,
 };
 pub(crate) use capture::{CAPTURE_FINISH_TIMEOUT, CaptureFeed, CaptureFinisher};
 use ring::HeaderRing;

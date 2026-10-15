@@ -647,3 +647,152 @@ fn a_session_capture_keeps_packets_but_never_credential_bearing_bodies() {
     );
     assert_eq!(read_file(&path).records.len(), 2);
 }
+
+#[test]
+fn capture_byte_budget_drops_before_record_slots_fill_and_recovers_after_drain() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES / 2 + 1]);
+    for _ in 0..2 {
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+    }
+    assert_eq!(
+        queue.take_queued().len(),
+        1,
+        "the byte budget must drop the second body"
+    );
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    let records = queue.take_queued();
+    assert!(matches!(
+        records.as_slice(),
+        [
+            CaptureRecord::Gap { dropped: 1, .. },
+            CaptureRecord::Packet { .. }
+        ]
+    ));
+}
+
+#[test]
+fn capture_refuses_a_body_larger_than_its_byte_budget() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES + 1]);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    assert!(
+        queue.take_queued().is_empty(),
+        "an oversized body must never be retained"
+    );
+    drop(feed);
+    let written = queue
+        .drain(CaptureWriter::new(Vec::new(), header(1)).unwrap())
+        .unwrap();
+    let file = read_capture(Bytes::from(written)).unwrap();
+    assert!(matches!(
+        file.records.as_slice(),
+        [CaptureRecord::Gap { dropped: 1, .. }]
+    ));
+}
+
+#[test]
+fn queued_capture_bodies_release_unrelated_batch_storage() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let batch = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES]);
+    let body = batch.slice(..1);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    drop(body);
+    assert!(
+        batch.is_unique(),
+        "queued packets must not retain the batch allocation"
+    );
+    assert_eq!(queue.take_queued(), [packet(9, 0, &[7])]);
+}
+
+#[test]
+fn capture_charges_the_body_while_disk_output_is_blocked() {
+    use std::sync::atomic::AtomicBool;
+
+    /// Stops the first armed write until the test has tried another capture admission.
+    struct GatedWriter {
+        armed: Arc<AtomicBool>,
+        entered: crossbeam_channel::Sender<()>,
+        release: crossbeam_channel::Receiver<()>,
+        bytes: Vec<u8>,
+    }
+    impl Write for GatedWriter {
+        /// Stores output, with one deterministic pause after the file header is written.
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.armed.swap(false, Ordering::SeqCst) {
+                self.entered.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        /// Has no buffered output beyond the test's owned byte vector.
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let started = Instant::now();
+    let (feed, queue, stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES / 2 + 1]);
+    let armed = Arc::new(AtomicBool::new(false));
+    let (entered, writing) = crossbeam_channel::bounded(1);
+    let (release, blocked) = crossbeam_channel::bounded(1);
+    let writer = CaptureWriter::new(
+        GatedWriter {
+            armed: Arc::clone(&armed),
+            entered,
+            release: blocked,
+            bytes: Vec::new(),
+        },
+        header(1),
+    )
+    .unwrap();
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    armed.store(true, Ordering::SeqCst);
+    let thread = std::thread::spawn(move || queue.drain(writer).unwrap().bytes);
+    writing.recv().unwrap();
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    stop.send(()).unwrap();
+    release.send(()).unwrap();
+    let file = read_capture(Bytes::from(thread.join().unwrap())).unwrap();
+    assert!(matches!(
+        file.records.as_slice(),
+        [
+            CaptureRecord::Packet { .. },
+            CaptureRecord::Gap { dropped: 1, .. }
+        ]
+    ));
+}

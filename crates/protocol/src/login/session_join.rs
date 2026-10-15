@@ -25,6 +25,10 @@ impl LoginSequence {
     /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
     /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
     /// `finish_loading` after presenting the world. `tap` sees packets from startup onward.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the optional packet observer accompanies the session inputs and preparation callback"
+    )]
     pub async fn connect_session<R: Send + 'static>(
         socket_dir: &Path,
         display_name: &str,
