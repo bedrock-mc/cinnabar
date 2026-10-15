@@ -18,13 +18,15 @@ performance acceptance gate closes here.
 
 ## Single-cell palette edits
 
-Paletted block storage retains usage counts after its first changed edit or batch rebuild.
-Canonical edits to an existing value, and insertions that fit the same width, patch one
-packed word while the source value remains used. Width changes, last-use removal and
-noncanonical inputs keep the full canonical rebuild. Decoder repair discards cached counts;
-clones own their counts, and equality still compares the exact packed representation.
-Regression tests and single-cell preparation benchmarks are written but unrun.
-Incomplete: broader lazy compaction, executed verification and performance measurements.
+Paletted block storage retains live counts and bounded reusable physical slots. Single-cell
+edits patch packed words while the logical palette preserves exact survivor/insertion order.
+Last-use removal and width shrink defer canonical word packing until a consumer requests it;
+thread-safe snapshot-local caches preserve the exact public palette, width, words and equality.
+Physical width growth, noncanonical first edits and larger batches retain canonical rebuilds.
+Mutation results prove store changes without immediately materializing words through equality.
+Untouched decoded representations and no-ops remain unchanged; snapshots stay independent.
+Regression tests and preparation benchmarks are written but unrun. Incomplete: executed
+verification, consumer-cadence measurements and retained-memory/performance measurements.
 No output-parity or hardware performance gate closes here.
 
 ## Incremental persona artwork pages
