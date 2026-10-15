@@ -186,16 +186,10 @@ impl EquipmentRuntime {
             .collect::<BTreeMap<_, _>>();
         // Authored carried textures override world faces: grass uses an opaque
         // alpha-mask overlay here, not the biome-tinted terrain material.
-        if icons.source_manifest_sha256() == assets.source_manifest_sha256() {
-            block_sheets.extend(
-                icons
-                    .block_sheets()
-                    .iter()
-                    .filter(|sheet| sheet.visual.0 < assets.block_visual_count())
-                    .filter(|sheet| !block_models.contains_key(&sheet.visual.0))
-                    .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
-            );
-        }
+        block_sheets.extend(
+            block_reload::carried_sheets(&assets, &icons, &block_models)
+                .map(|sheet| (sheet.visual.0, sheet.sprite as usize)),
+        );
         let block_alpha = alpha::block_alpha_modes(world.as_deref(), &block_sheets);
         let packed = icons
             .sprites()

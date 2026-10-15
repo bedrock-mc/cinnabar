@@ -23,7 +23,11 @@ fn terrain(height: i16, color: [u8; 4], flags: u32) -> Arc<RuntimeAssets> {
     let visual = assets::BlockVisual {
         native_material: assets::native_material::NativeMaterialFacts::Unresolved,
         faces: [1; 6],
-        flags: assets::BlockFlags::empty(),
+        flags: if height == 256 {
+            assets::BlockFlags::OCCLUDES_FULL_FACE
+        } else {
+            assets::BlockFlags::empty()
+        },
         kind: assets::VisualKind::Model,
         support: assets::VisualSupport::Exact,
         contributor_role: assets::ContributorRole::Primary,
@@ -85,6 +89,19 @@ fn fixture(
     ActorRigSubmission,
     WornItem,
 ) {
+    fixture_with_icons(world, None)
+}
+
+/// Builds the same item with an optional authored carried sheet distinct from its inventory icon.
+fn fixture_with_icons(
+    world: Arc<RuntimeAssets>,
+    carried: Option<([u8; 32], [u8; 4])>,
+) -> (
+    EquipmentRuntime,
+    ActorArtworkPages,
+    ActorRigSubmission,
+    WornItem,
+) {
     let definition = assets::ItemVisualDefinition {
         key: assets::ItemVisualKey {
             identifier: "test:opaque_cube".into(),
@@ -106,18 +123,37 @@ fn fixture(
     let (base, body, item) = block_fixture_with_visuals(vec![definition]);
     let icons = RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog_with_blocks(
-            [1; 32],
-            &[IconSprite {
+            carried.map_or([1; 32], |(manifest, _)| manifest),
+            &std::iter::once(IconSprite {
                 width: 1,
                 height: 1,
                 rgba8: vec![255; 4].into(),
-            }],
+            })
+            .chain(carried.map(|(_, color)| {
+                let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
+                IconSprite {
+                    width,
+                    height,
+                    rgba8: color
+                        .repeat(usize::from(width) * usize::from(height))
+                        .into(),
+                }
+            }))
+            .collect::<Vec<_>>(),
             &[assets::IconEntry {
                 identifier: item.identifier.as_ref().into(),
                 metadata: 0,
                 sprite: 0,
             }],
-            &[],
+            &carried
+                .into_iter()
+                .flat_map(|_| {
+                    (6..=7).map(|visual| assets::IconBlockSheet {
+                        sprite: 1,
+                        visual: assets::BlockVisualId(visual),
+                    })
+                })
+                .collect::<Vec<_>>(),
             &[assets::IconBlockModel {
                 sprite: 0,
                 visual: assets::BlockVisualId(7),
@@ -136,6 +172,105 @@ fn fixture(
     );
     runtime.register_skin_rig(body.input.rig, vec!["rightItem".into()]);
     (runtime, pages, body, item)
+}
+
+#[test]
+fn held_terrain_reload_preserves_authored_carried_sheet_routes() {
+    for flags in [0, assets::MATERIAL_FLAG_GRASS_TINT] {
+        let carried = [30, 180, 70, 255];
+        let startup = terrain(256, [90, 110, 50, 255], flags);
+        let (mut runtime, pages, body, item) =
+            fixture_with_icons(Arc::clone(&startup), Some(([1; 32], carried)));
+        let before = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let original = runtime.take_pending_geometries().pop().unwrap();
+        assert_eq!(
+            drawn_pixel(&pages, &before.presentation, &original),
+            carried
+        );
+        assert_eq!(runtime.block_placement(6), runtime.block_placement(7));
+        let replacement = terrain(256, [90, 110, 50, 255], flags);
+        assert!(replacement.has_same_geometry(&startup));
+        let blocks = runtime
+            .block_item_preparer()
+            .unwrap()
+            .prepare(&replacement)
+            .unwrap();
+        let prepared = PreparedActorArtwork::new_with_block_items(&pages, None, None, Some(blocks));
+        let resources = session_resources(&pages, None, Some(&prepared));
+        runtime.set_block_items(resources.block_items.as_ref());
+        assert_eq!(
+            runtime.block_placement(6),
+            runtime.block_placement(7),
+            "shared carried sheets keep one atlas placement"
+        );
+        let main = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .expect("a carrier refresh retains the authored held cube");
+        let off = runtime.first_person_offhand(&body, &item).unwrap();
+        let third = third_person(&mut runtime, &body, &item);
+        let changed = runtime.take_pending_geometries().pop().unwrap();
+        for draw in [&main.presentation, &off.presentation, &third] {
+            assert_eq!(draw.submission.input.rig, changed.id);
+            assert_eq!(drawn_pixel(&resources.pages, draw, &changed), carried);
+        }
+        runtime.set_block_items(None);
+        let restored = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let geometry = runtime.take_pending_geometries().pop().unwrap();
+        assert_eq!(
+            drawn_pixel(&pages, &restored.presentation, &geometry),
+            carried
+        );
+    }
+}
+
+#[test]
+fn held_terrain_reload_keeps_shaped_models_and_rejects_incompatible_carried_art() {
+    let blue = [20, 80, 200, 255];
+    let green = [40, 200, 80, 255];
+    let carried = [220, 50, 70, 255];
+    for (height, manifest) in [(128, [1; 32]), (256, [9; 32])] {
+        let startup = terrain(height, blue, 0);
+        let (mut runtime, pages, body, item) =
+            fixture_with_icons(startup, Some((manifest, carried)));
+        let before = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let original = runtime.take_pending_geometries().pop().unwrap();
+        assert_eq!(drawn_pixel(&pages, &before.presentation, &original), blue);
+        let replacement = terrain(height, green, 0);
+        let blocks = runtime
+            .block_item_preparer()
+            .unwrap()
+            .prepare(&replacement)
+            .unwrap();
+        let prepared = PreparedActorArtwork::new_with_block_items(&pages, None, None, Some(blocks));
+        let resources = session_resources(&pages, None, Some(&prepared));
+        runtime.set_block_items(resources.block_items.as_ref());
+        let main = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let changed = runtime.take_pending_geometries().pop().unwrap();
+        assert_eq!(
+            drawn_pixel(&resources.pages, &main.presentation, &changed),
+            green
+        );
+        assert_eq!(
+            changed
+                .vertices
+                .iter()
+                .map(|v| v.position)
+                .collect::<Vec<_>>(),
+            original
+                .vertices
+                .iter()
+                .map(|v| v.position)
+                .collect::<Vec<_>>(),
+        );
+    }
 }
 
 /// Samples a texel inside the submitted model's first triangle on its actual artwork layer.
