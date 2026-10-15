@@ -42,6 +42,7 @@ impl JoinLoading {
         }
     }
 
+    #[cfg(test)]
     fn loading(&self) -> bool {
         self.phase.is_some()
     }
