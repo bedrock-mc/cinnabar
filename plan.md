@@ -2983,7 +2983,7 @@ latency acceptance. Offline drains do not close those gates.
 the 26.30 layout rules (`docs/tracking/vanilla-parity-gaps.md`). Texture paths
 match exactly as the client's asset index does; an unresolved one draws the
 default white texture tinted by `color` (vanilla's `textures/ui/White`). Not
-live-accepted. Provisional, labeled incomplete: chat autocomplete rows sit at
+live-accepted. Provisional, labeled incomplete: native-pack chat autocomplete rows sit at
 the top of their grid because the client answers no `#get_grid_size`, so whatever pads them is unidentified; `size`
 animations scale draws at paint time instead of relaying out each tick.
 
@@ -2998,6 +2998,10 @@ names when needed, and includes `@n` in command targets. Suggestion rows highlig
 the typed match and translate built-in descriptions. Incomplete: Education
 selectors, selector-expansion permission and cheat gating, selector argument
 completion, and live visual acceptance. This does not close the chat parity gate.
+
+The built-in Java-look chat input spans the viewport with two GUI pixels of side
+padding. Completion rows share the longest text width and sit at the replaced
+token, shifting left near the right edge. History retains its configured width.
 
 2026-10-01 JSON-UI control rendering: images follow 1.26.50 `SpriteComponent`
 (keep_ratio on by default, fill, uv/uv_size defaults, control nine-slice, tiled

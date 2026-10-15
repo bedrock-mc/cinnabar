@@ -63,6 +63,23 @@ pub const STATES: &[State] = &[
         fixture: chat_command_background,
     },
     State {
+        name: "chat-command-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_completion("/give @", &["@a", "@e", "@p"]),
+    },
+    State {
+        name: "chat-command-completion-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || {
+            chat_completion(
+                "/tell ExamplePlayer AnotherPlayerWithALongName @",
+                &["@Alex", "@ExamplePlayerWithALongName", "@Bo"],
+            )
+        },
+    },
+    State {
         name: "import-confirmation",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -234,13 +251,18 @@ fn chat_background(percent: i32) -> Fixture {
 
 /// Shows the command input and suggestions with chat backgrounds set to zero percent.
 fn chat_command_background() -> Fixture {
+    chat_completion("/", &["/give", "/help", "/say"])
+}
+
+/// Shows completions after an anonymous draft with transparent message backgrounds.
+fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;
 
     let mut options = SettingsOptions::default();
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {
-        draft: "/",
-        suggestions: ["/give", "/help", "/say"].map(Arc::from).into(),
+        draft,
+        suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
         messages: Default::default(),
         options: Arc::new(options),
     }
