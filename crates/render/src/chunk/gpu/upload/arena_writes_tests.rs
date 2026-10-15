@@ -334,6 +334,12 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
             staging: retained.then_some(&staging),
         };
         let mut arena = ChunkGpuArena::new(&device);
+        arena.geometry_stream_capacity = 8;
+        arena.geometry_stream_buffer = create_storage_buffer(
+            &device,
+            "overlapping terrain records",
+            arena.geometry_stream_capacity as u64 * GEOMETRY_STREAM_WORD_BYTES,
+        );
         let new_capacity = arena.geometry_stream_capacity * 2;
         begin_arena_migration(
             &mut arena,
