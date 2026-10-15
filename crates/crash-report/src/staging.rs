@@ -1,7 +1,7 @@
 //! A running client's staging directory, `crashes/.live-<session id>/`: what the client keeps
 //! on disk while it runs so a report written after any crash can read it, namely the packet
-//! header ring, the log flight ring and rejected packet samples. The client holds a lock file
-//! inside for its lifetime, which tells live directories from those a dead client left.
+//! header ring, the log flight ring and rejected packet samples. The client and monitor share
+//! a lock until neither can need the attachments.
 //! Folder listing and pruning ignore staging directories.
 
 use std::{
@@ -35,17 +35,27 @@ impl Staging {
     pub fn create(crash_dir: &Path, session_id: &str) -> io::Result<Self> {
         let dir = path(crash_dir, session_id);
         fs::create_dir_all(&dir)?;
-        let lock = lock(&dir.join(LOCK_FILE), true)?;
+        let lock = lock(&dir.join(LOCK_FILE), true, true)?;
         Ok(Self { dir, _lock: lock })
     }
 
+    /// Retains an existing client's staging directory while the monitor reads its reports.
+    pub fn retain(dir: &Path) -> io::Result<Self> {
+        let lock = lock(&dir.join(LOCK_FILE), false, true)?;
+        Ok(Self {
+            dir: dir.to_owned(),
+            _lock: lock,
+        })
+    }
+
+    /// The directory whose attachments this lease protects.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 }
 
-/// Deletes the staging directories in `crash_dir` whose client is gone; a directory whose lock
-/// is held, or that has none yet, stays.
+/// Deletes staging directories only after both client and monitor release them. A lock
+/// that is held, or a directory that has no lock yet, stays.
 pub fn prune(crash_dir: &Path) {
     for entry in fs::read_dir(crash_dir).into_iter().flatten().flatten() {
         let staging = entry
@@ -56,41 +66,24 @@ pub fn prune(crash_dir: &Path) {
             continue;
         }
         let dir = entry.path();
-        if let Ok(lock) = lock(&dir.join(LOCK_FILE), false) {
-            drop(lock);
+        if let Ok(_lock) = lock(&dir.join(LOCK_FILE), false, false) {
             let _ = fs::remove_dir_all(&dir);
         }
     }
 }
 
-/// Opens the lock file at `path` exclusively, creating it when `create`; fails while another
-/// process holds it.
-#[cfg(windows)]
-fn lock(path: &Path, create: bool) -> io::Result<fs::File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    fs::File::options()
-        .read(true)
-        .write(true)
-        .create(create)
-        .truncate(false)
-        .share_mode(0)
-        .open(path)
-}
-
-/// Opens the lock file at `path` and takes an exclusive advisory lock, creating it when
-/// `create`; fails while another process holds it.
-#[cfg(unix)]
-fn lock(path: &Path, create: bool) -> io::Result<fs::File> {
-    use std::os::fd::AsRawFd;
+/// Opens the lock file, creating it only for a new client. Shared leases protect readers;
+/// pruning needs an exclusive lease and keeps it until deletion has finished.
+fn lock(path: &Path, create: bool, shared: bool) -> io::Result<fs::File> {
     let file = fs::File::options()
         .read(true)
         .write(true)
-        .create(create)
-        .truncate(false)
+        .create_new(create)
         .open(path)?;
-    // SAFETY: flock only reads the open descriptor.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err(io::Error::last_os_error());
+    if shared {
+        file.try_lock_shared().map_err(io::Error::from)?;
+    } else {
+        file.try_lock().map_err(io::Error::from)?;
     }
     Ok(file)
 }
@@ -115,6 +108,23 @@ mod tests {
         drop(live);
         prune(crash_dir.path());
         assert!(!path(crash_dir.path(), "live").exists());
+    }
+
+    #[test]
+    fn diagnostics_audit_monitor_keeps_staging_until_attachments_are_read() {
+        let crash_dir = tempfile::tempdir().unwrap();
+        let client = Staging::create(crash_dir.path(), "session").unwrap();
+        fs::write(client.dir().join(PACKET_RING_FILE), b"ring").unwrap();
+        let monitor = Staging::retain(client.dir()).unwrap();
+        drop(client);
+        prune(crash_dir.path());
+        assert_eq!(
+            fs::read(monitor.dir().join(PACKET_RING_FILE)).unwrap(),
+            b"ring"
+        );
+        drop(monitor);
+        prune(crash_dir.path());
+        assert!(!path(crash_dir.path(), "session").exists());
     }
 
     #[test]

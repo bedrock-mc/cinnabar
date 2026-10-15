@@ -531,6 +531,7 @@ impl WorldStream {
                 self.replace_block_crack_dimension(sequence);
                 self.clear_block_events();
                 self.evict_all_resident();
+                self.reset_far_terrain_dimension();
                 self.block_entity_visuals.clear();
                 self.biome_records = None;
                 self.authority.reset_dimension(sequence, change.dimension);

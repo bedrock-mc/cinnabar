@@ -26,8 +26,10 @@ pub(crate) use dimension::advance_dimension_transfer;
 mod player_list_tests;
 mod service;
 mod sub_chunk_requests;
+mod terrain_generation;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
+pub(crate) use terrain_generation::synchronize_terrain_generation;
 
 #[cfg(feature = "acceptance")]
 use acceptance::committed_control::{
@@ -632,7 +634,7 @@ pub(crate) fn drive_world_stream(
     mut publication: ResMut<PublicationController>,
     mut view: ResMut<LocalViewPose>,
     mut frame_poll: ResMut<WorldStreamFramePoll>,
-    mut rendered_session: Local<Option<u64>>,
+    mut rendered_session: Local<Option<(u64, u64)>>,
     mut visibility: ResMut<CaveVisibilityCache>,
     camera_publication: Option<
         Res<client_presentation::local_player_camera_receipt::CameraPublicationAttempt>,
@@ -660,13 +662,15 @@ pub(crate) fn drive_world_stream(
     let active_session = client_world
         .stream
         .as_ref()
-        .map(|stream| stream.authority().actor_session_id());
-    if *rendered_session != active_session {
-        render_queue.reset_session();
-        acknowledgements.clear();
+        .map(WorldStream::terrain_generation);
+    if synchronize_terrain_generation(
+        &mut rendered_session,
+        active_session,
+        &mut render_queue,
+        &acknowledgements,
+    ) {
         *visibility = CaveVisibilityCache::default();
         diagnostic_quads.0.clear();
-        *rendered_session = active_session;
     }
     let Some(stream) = client_world.stream.as_mut() else {
         ui_runtime.clear_disconnected_block_cracks();
