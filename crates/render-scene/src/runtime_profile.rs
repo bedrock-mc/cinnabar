@@ -66,7 +66,7 @@ pub enum RuntimeStage {
     InputPacingWait,
     /// How far past its deadline the pacing wait woke.
     FramePacingLateness,
-    /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
+    /// First to last sampled GPU timestamp; on Metal, the graph submission's marker span.
     GpuFrame,
     GpuShadows,
     GpuOpaque,
@@ -765,6 +765,37 @@ mod tests {
         assert_eq!(latency.get(RuntimeStage::GpuFrame), None);
         assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
         assert_eq!(profiler.slow_frame_counts().unwrap().slow, 0);
+    }
+
+    /// Metal frame spans count against the GPU budget; their callback latency never does.
+    #[test]
+    fn metal_frame_spans_feed_the_gpu_budget_without_latency() {
+        const BEGIN: u64 = 90_000_000_000_000;
+        let profiler = RuntimeStageProfiler::for_gameplay(true, None);
+        profiler.set_frame_interval(Duration::from_secs_f64(1.0 / 120.0));
+        let latency = crate::GpuFrameTimes::completion_latency(Duration::from_millis(100));
+        let frame = |millis: u64| latency.with_frame_span(BEGIN, BEGIN + millis * 1_000_000);
+        assert_eq!(
+            frame(2).get(RuntimeStage::GpuFrame),
+            Some(Duration::from_millis(2))
+        );
+        profiler.record_gpu_frame(&frame(2));
+        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 0);
+        profiler.record_gpu_frame(&frame(20));
+        assert_eq!(profiler.slow_frame_counts().unwrap().gpu, 1);
+        // Missing or reversed host times keep only the latency.
+        for invalid in [
+            latency.with_frame_span(0, BEGIN),
+            latency.with_frame_span(BEGIN, BEGIN - 1),
+        ] {
+            assert_eq!(invalid, latency);
+        }
+        let snapshot = profiler.take_snapshot_if_due(Duration::ZERO).unwrap();
+        assert_eq!(snapshot.samples[RuntimeStage::GpuFrame as usize].count, 2);
+        assert_eq!(
+            snapshot.samples[RuntimeStage::GpuFrameCompletionLatency as usize].count,
+            2
+        );
     }
 
     #[test]

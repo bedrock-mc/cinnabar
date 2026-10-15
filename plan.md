@@ -1549,11 +1549,13 @@ acceptance gate.
   against both programs through their own pipelines.
 - `CINNABAR_GPU_NODES=1` plots per-node and per-section GPU times under Tracy, and Tracy
   builds expose wgpu's encode and submit zones; see the live-testing guide.
-- Metal reports `gpu_frame_completion_latency` through the stage profiler and Tracy,
-  as an informational field that never counts towards slow frames or GPU budget
-  violations. Three in-flight callback slots bound diagnostics without waiting. This CPU
-  interval includes submission, queue and polling delays; it is not GPU execution time. Incomplete: native whole-frame GPU time and shared
-  per-draw categories remain unavailable with the current command-buffer access API.
+- Metal reports `gpu_frame` from the GPU host times of two empty marker command buffers that
+  open and close the render graph's submission, read back without waiting and counted against
+  the GPU budget. It runs from the later of submission and the end of earlier queued work to
+  the end of the frame's work; submissions outside the graph are not included.
+  `gpu_frame_completion_latency` stays a separate informational CPU interval that never counts
+  towards slow frames. Incomplete: shared per-draw categories, because Apple GPUs sample
+  timestamps only at pass boundaries.
 - Evidence: [render frame time](docs/evidence/render-frame-time.md), measured on DX12 before
   Windows defaulted to Vulkan; `WGPU_BACKEND=dx12` selects that backend.
 
