@@ -17,8 +17,12 @@ use super::{
 
 const META_FILE: &str = "world.json";
 const PREFS_FILE: &str = "prefs.json";
+/// The Bedrock world folder (`level.dat`, `db/`) inside a world's directory.
+pub(crate) const LEVEL_DIR: &str = "db";
 /// A world's menu thumbnail, beside its metadata, named as vanilla names its world icon.
-const THUMBNAIL_FILE: &str = "world_icon.jpeg";
+pub(crate) const THUMBNAIL_FILE: &str = "world_icon.jpeg";
+/// Scratch folders of imports in progress; ids never start with it, so listings skip them.
+const STAGING_PREFIX: &str = ".import-";
 /// Largest thumbnail read back; one is a few tens of kilobytes.
 const MAX_THUMBNAIL_BYTES: u64 = 1024 * 1024;
 
@@ -93,6 +97,7 @@ impl Store {
     pub(crate) fn open(root: PathBuf) -> Result<Self, WorldError> {
         create_private_dir(&root)
             .map_err(|error| failed(format!("create worlds directory: {error}")))?;
+        remove_stale_staging(&root);
         Ok(Self {
             root,
             state: Mutex::default(),
@@ -213,28 +218,63 @@ impl Store {
 
     /// Validates `world` and saves it with a fresh id.
     pub(crate) fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
-        let name = validate_name(&world.name)?;
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
-        let seed = match world.seed {
-            Some(seed) => seed,
-            None => i64::from_be_bytes(random_bytes()?),
-        };
         let state = self.lock();
-        let now = state.now();
-        let world = World {
-            id,
-            name,
-            game_mode: world.game_mode,
-            generator: world.generator,
-            difficulty: world.difficulty,
-            backend: world.backend.unwrap_or_else(|| state.default_backend()),
-            seed,
-            created_unix: now,
-            last_played_unix: now,
-            size_bytes: 0,
-        };
+        let world = new_record(&state, id, world)?;
         self.write(&world)?;
         Ok(world)
+    }
+
+    /// A scratch folder beside the worlds, removed when dropped, so adopting from it is a rename.
+    pub(crate) fn staging(&self) -> Result<tempfile::TempDir, WorldError> {
+        tempfile::Builder::new()
+            .prefix(STAGING_PREFIX)
+            .tempdir_in(&self.root)
+            .map_err(|error| failed(format!("create import folder: {error}")))
+    }
+
+    /// Moves the Bedrock world folder `level` into a new world saved as `world`. The world gets a
+    /// directory no other world has used, and nothing is left behind if the move fails.
+    pub(crate) fn adopt(&self, level: &Path, world: &NewWorld) -> Result<World, WorldError> {
+        let state = self.lock();
+        let (id, dir) = self.fresh_dir()?;
+        let adopted = new_record(&state, id, world).and_then(|world| {
+            fs::rename(level, dir.join(LEVEL_DIR))
+                .map_err(|error| failed(format!("move imported world: {error}")))?;
+            self.write(&world)?;
+            Ok(world)
+        });
+        let mut world = match adopted {
+            Ok(world) => world,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&dir);
+                return Err(error);
+            }
+        };
+        let icon = dir.join(LEVEL_DIR).join(THUMBNAIL_FILE);
+        if fs::metadata(&icon).is_ok_and(|icon| icon.is_file() && icon.len() <= MAX_THUMBNAIL_BYTES)
+        {
+            let _ = fs::copy(icon, dir.join(THUMBNAIL_FILE));
+        }
+        world.size_bytes = dir_size(&dir);
+        Ok(world)
+    }
+
+    /// Creates the directory of a new random id, retrying the rare id already on disk.
+    fn fresh_dir(&self) -> Result<(String, PathBuf), WorldError> {
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        for _ in 0..8 {
+            let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
+            let dir = self.root.join(&id);
+            match builder.create(&dir) {
+                Ok(()) => return Ok((id, dir)),
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(failed(format!("create world directory: {error}"))),
+            }
+        }
+        Err(failed("no unused world id"))
     }
 
     pub(crate) fn get(&self, id: &str) -> Result<World, WorldError> {
@@ -339,6 +379,43 @@ fn valid_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// A new world's record, stamped now; a missing seed or backend gets a random seed or the default.
+fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World, WorldError> {
+    let seed = match world.seed {
+        Some(seed) => seed,
+        None => i64::from_be_bytes(random_bytes()?),
+    };
+    let now = state.now();
+    Ok(World {
+        id,
+        name: validate_name(&world.name)?,
+        game_mode: world.game_mode,
+        generator: world.generator,
+        difficulty: world.difficulty,
+        backend: world.backend.unwrap_or_else(|| state.default_backend()),
+        seed,
+        created_unix: now,
+        last_played_unix: now,
+        size_bytes: 0,
+    })
+}
+
+/// Removes import folders a killed client left behind.
+fn remove_stale_staging(root: &Path) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+        {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
 }
 
 fn random_bytes() -> Result<[u8; 8], WorldError> {

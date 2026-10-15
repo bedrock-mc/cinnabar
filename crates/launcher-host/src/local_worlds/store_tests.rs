@@ -204,7 +204,7 @@ fn list_reports_world_size() {
     let dir = scratch();
     let store = store(&dir);
     let world = store.create(&new_world("sized")).expect("create");
-    let data = store.dir(&world.id).expect("dir").join("db");
+    let data = store.dir(&world.id).expect("dir").join(LEVEL_DIR);
     fs::create_dir_all(&data).expect("db folder");
     fs::write(data.join("000001.ldb"), vec![0u8; 4096]).expect("data file");
     let worlds = store.list().expect("list");

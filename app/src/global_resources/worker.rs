@@ -2,8 +2,16 @@
 
 use bevy::prelude::Resource;
 use launcher::global_resources::{Action, Snapshot};
-use resource_pack::{GlobalPackLibrary, LibraryError, ValidatedPackStack};
+use launcher_host::desktop::picker::{self, Filter};
+use resource_pack::{GlobalPackLibrary, LibraryError, PACK_IMPORT_EXTENSIONS, ValidatedPackStack};
 use std::{path::PathBuf, sync::Arc};
+
+const PACKS: Filter = Filter {
+    title: "Import resource pack",
+    name: "Resource packs",
+    extensions: &PACK_IMPORT_EXTENSIONS,
+    unavailable_hint: "Drop a pack onto the window to import it.",
+};
 
 pub(super) enum Command {
     MinecraftImport(Box<launcher_host::minecraft_import::Request>),
@@ -182,7 +190,7 @@ fn run(
             Command::Action {
                 action: Action::Import,
                 ..
-            } => match super::picker::pick_files(&super::picker::PACKS) {
+            } => match picker::pick_files(&PACKS) {
                 Ok(paths) => import_files(&mut library, paths, &mut snapshot, refresh_icons),
                 Err(error) => {
                     snapshot.message = error;
@@ -439,3 +447,6 @@ mod tests;
 
 #[cfg(test)]
 mod disconnect_tests;
+
+#[cfg(test)]
+mod drop_tests;

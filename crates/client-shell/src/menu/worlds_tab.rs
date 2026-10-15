@@ -72,6 +72,12 @@ impl MenuRuntime {
             .flatten()
     }
 
+    /// Whether the Worlds tab is on screen, where dropped world files import.
+    #[must_use]
+    pub fn showing_worlds(&self) -> bool {
+        self.visible && self.screen == MenuScreen::Play
+    }
+
     /// The core's stable local-world identifier, independent of a rename or invite.
     pub fn local_world_identity(&self) -> Option<&str> {
         self.local_ui.world_id.as_deref()
@@ -105,7 +111,7 @@ impl MenuRuntime {
     pub fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
         self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
-        let on_worlds = self.visible && self.screen == MenuScreen::Play;
+        let on_worlds = self.showing_worlds();
         if on_worlds && !self.local_ui.prepared {
             worlds.prepare();
         }
@@ -274,7 +280,7 @@ impl MenuRuntime {
             );
         }
         match view.screen {
-            Screen::List | Screen::Opening | Screen::BackendPrompt => None,
+            Screen::List | Screen::Opening | Screen::Importing | Screen::BackendPrompt => None,
             Screen::Create => match view.tab {
                 Tab::General => local(&[
                     A::Create,

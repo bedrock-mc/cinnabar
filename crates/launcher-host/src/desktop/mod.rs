@@ -2,6 +2,7 @@
 
 #[cfg(target_os = "linux")]
 pub mod dbus;
+pub mod picker;
 #[cfg(windows)]
 pub mod windows;
 

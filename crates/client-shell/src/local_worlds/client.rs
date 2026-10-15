@@ -9,12 +9,22 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use launcher::local_worlds::world::{PrefsUpdate, WorldThumbnail};
-use launcher_host::local_worlds::{CoreLink, CoreRoute, Manager, WorldError};
+use launcher_host::desktop::picker::{self, Filter};
+use launcher_host::local_worlds::{
+    CoreLink, CoreRoute, Manager, WORLD_ARCHIVE_EXTENSION, WorldError,
+};
 
 use super::model::{Effect, Event};
 
 /// Spaces preference polls, and bounds a status poll that no world change answers sooner.
 const POLL_DELAY: Duration = Duration::from_millis(250);
+
+const WORLD_FILES: Filter = Filter {
+    title: "Import world",
+    name: "Minecraft worlds",
+    extensions: &[WORLD_ARCHIVE_EXTENSION],
+    unavailable_hint: "Drop a world file onto the Worlds tab to import it.",
+};
 
 /// Work kept on the local-world worker, including thumbnail persistence.
 enum Request {
@@ -37,6 +47,7 @@ fn read_thumbnails(
     let worlds = match event {
         Event::Listed(worlds) => worlds.as_slice(),
         Event::Created(world) | Event::Updated(world) => std::slice::from_ref(world),
+        Event::Imported { worlds, .. } => worlds.as_slice(),
         Event::Deleted(id) => {
             loaded.remove(id);
             return Vec::new();
@@ -212,6 +223,14 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
         Effect::AcceptEula => manager
             .accept_eula()
             .map_or_else(failed, |()| Event::EulaAccepted),
+        Effect::Import(Some(files)) => import_files(manager, files),
+        Effect::Import(None) => match picker::pick(&WORLD_FILES) {
+            Ok(file) => import_files(manager, file.into_iter().collect()),
+            Err(error) => Event::Imported {
+                worlds: Vec::new(),
+                errors: vec![error],
+            },
+        },
         Effect::PollStatus => Event::Status(route.status(manager)),
         Effect::Close => {
             manager.close();
@@ -227,6 +246,26 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
         }
         Effect::OpenUrl(_) => return None,
     })
+}
+
+/// Imports each file in turn; a refusal names its file.
+fn import_files(manager: &Manager, files: Vec<PathBuf>) -> Event {
+    let mut worlds = Vec::new();
+    let mut errors = Vec::new();
+    for file in files {
+        match manager.import(&file) {
+            Ok(world) => worlds.push(world),
+            Err(error) => {
+                bevy::log::warn!(%error, "could not import a world");
+                let name = file
+                    .file_name()
+                    .unwrap_or(file.as_os_str())
+                    .to_string_lossy();
+                errors.push(format!("{name}: {}", error.public_message()));
+            }
+        }
+    }
+    Event::Imported { worlds, errors }
 }
 
 #[cfg(test)]
@@ -296,6 +335,40 @@ mod tests {
             !events.is_empty()
         });
         assert!(matches!(&events[0].event, Event::Status(_)));
+    }
+
+    /// Dropped files import in one answer: each accepted world, and each refusal by file name.
+    #[test]
+    fn the_worker_imports_every_dropped_file() {
+        use std::io::Write;
+        let worlds = tempfile::tempdir().expect("worlds folder");
+        let manager =
+            launcher_host::local_worlds::open_store(worlds.path().join("store")).expect("manager");
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zip.start_file("Home/level.dat", zip::write::SimpleFileOptions::default())
+            .expect("entry");
+        zip.write_all(b"level").expect("body");
+        let good = worlds.path().join("Home.mcworld");
+        std::fs::write(&good, zip.finish().expect("zip").into_inner()).expect("archive");
+        let bad = worlds.path().join("Broken.mcworld");
+        std::fs::write(&bad, b"not a zip").expect("archive");
+        let client =
+            WorldsClient::spawn(manager, worlds.path().join("no-core-here")).expect("spawn worker");
+        client.send(Effect::Import(Some(vec![good, bad])));
+        let mut events = Vec::new();
+        test_time::eventually_within(Duration::from_secs(5), "the import result", || {
+            events.extend(client.drain());
+            !events.is_empty()
+        });
+        let Event::Imported { worlds, errors } = &events[0].event else {
+            panic!("{:?}", events[0].event);
+        };
+        assert_eq!(worlds.len(), 1);
+        assert_eq!(worlds[0].name, "Home");
+        assert!(
+            errors.len() == 1 && errors[0].starts_with("Broken.mcworld: "),
+            "{errors:?}"
+        );
     }
 
     #[test]

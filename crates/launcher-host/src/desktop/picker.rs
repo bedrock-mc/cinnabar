@@ -1,32 +1,24 @@
-//! The import button opens the platform file picker on the import worker.
-use resource_pack::PACK_IMPORT_EXTENSIONS;
+//! Import buttons open the platform file picker on their worker thread.
 use std::path::PathBuf;
 #[cfg(any(not(windows), test))]
 use std::process::Command;
 
 /// What one import dialog asks for.
-pub(crate) struct Filter {
-    pub(crate) title: &'static str,
-    pub(crate) name: &'static str,
-    pub(crate) extensions: &'static [&'static str],
+pub struct Filter {
+    pub title: &'static str,
+    pub name: &'static str,
+    pub extensions: &'static [&'static str],
     /// Appended to errors when no picker opens.
-    pub(crate) unavailable_hint: &'static str,
+    pub unavailable_hint: &'static str,
 }
 
-pub(super) const PACKS: Filter = Filter {
-    title: "Import resource pack",
-    name: "Resource packs",
-    extensions: &PACK_IMPORT_EXTENSIONS,
-    unavailable_hint: "Drop a pack onto the window to import it.",
-};
-
 /// Returns one selected filename, cancellation, or a visible picker error.
-pub(crate) fn pick(filter: &Filter) -> Result<Option<PathBuf>, String> {
+pub fn pick(filter: &Filter) -> Result<Option<PathBuf>, String> {
     choose(filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Returns all selected files, an empty list on cancellation, or a visible picker error.
-pub(super) fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
+pub fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
     choose(filter, true)
 }
 
@@ -37,9 +29,9 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(windows)]
     {
         let result = if multiple {
-            launcher_host::desktop::windows::pick_files(filter.title, &windows_filter(filter))
+            super::windows::pick_files(filter.title, &windows_filter(filter))
         } else {
-            launcher_host::desktop::windows::pick_file(filter.title, &windows_filter(filter))
+            super::windows::pick_file(filter.title, &windows_filter(filter))
                 .map(|path| path.into_iter().collect())
         };
         result.map_err(|code| {
@@ -52,15 +44,15 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     #[cfg(target_os = "linux")]
     {
         let result = if multiple {
-            launcher_host::desktop::dbus::pick_files(filter.title, filter.name, &patterns(filter))
+            super::dbus::pick_files(filter.title, filter.name, &patterns(filter))
         } else {
-            launcher_host::desktop::dbus::pick_file(filter.title, filter.name, &patterns(filter))
+            super::dbus::pick_file(filter.title, filter.name, &patterns(filter))
                 .map(|path| path.into_iter().collect())
         };
         match result {
             Ok(paths) => return Ok(paths),
             Err(error) => {
-                bevy::log::debug!("portal file chooser unavailable ({error}); trying dialog tools")
+                tracing::debug!("portal file chooser unavailable ({error}); trying dialog tools")
             }
         }
     }
@@ -196,6 +188,14 @@ fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resource_pack::PACK_IMPORT_EXTENSIONS;
+
+    const PACKS: Filter = Filter {
+        title: "Import resource pack",
+        name: "Resource packs",
+        extensions: &PACK_IMPORT_EXTENSIONS,
+        unavailable_hint: "Drop a pack onto the window to import it.",
+    };
 
     /// Returns a tool's arguments as strings for inspecting its dialog configuration.
     fn args(command: &Command) -> Vec<&str> {

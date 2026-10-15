@@ -204,15 +204,30 @@ impl Manager {
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
+        world.backend = Some(self.creatable_backend(world.backend)?);
+        self.inner.store.create(&world)
+    }
+
+    /// Imports the `.mcworld` at `archive` as a new world on this machine's default backend.
+    pub fn import(&self, archive: &std::path::Path) -> Result<World, WorldError> {
+        let backend = self.creatable_backend(None)?;
+        super::import::import(
+            &self.inner.store,
+            archive,
+            backend,
+            &super::import::WORLD_LIMITS,
+        )
+    }
+
+    /// The backend a new world runs on, or why none can be saved yet.
+    fn creatable_backend(&self, requested: Option<Backend>) -> Result<Backend, WorldError> {
         if let Some(setup) = &self.inner.setup
-            && world.backend != Some(Backend::Dragonfly)
+            && requested != Some(Backend::Dragonfly)
             && !setup.await_runtime(self.inner.runtime_wait)
         {
             return Err(WorldError::RuntimePending);
         }
-        let backend = world
-            .backend
-            .unwrap_or_else(|| self.inner.store.default_backend());
+        let backend = requested.unwrap_or_else(|| self.inner.store.default_backend());
         if let Some((_, reason)) = self
             .inner
             .unavailable
@@ -225,8 +240,7 @@ impl Manager {
         if backend == Backend::Bds && !self.bds_runnable() {
             return Err(WorldError::BackendUnavailable);
         }
-        world.backend = Some(backend);
-        self.inner.store.create(&world)
+        Ok(backend)
     }
 
     fn bds_runnable(&self) -> bool {
