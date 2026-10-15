@@ -3184,6 +3184,7 @@ dependencies = [
  "gilrs",
  "launcher",
  "launcher-host",
+ "libc",
  "minidump 0.26.1",
  "minidump-writer",
  "minidumper",

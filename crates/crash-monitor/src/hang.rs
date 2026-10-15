@@ -297,9 +297,41 @@ pub(crate) fn debugger_attached(pid: u32) -> bool {
     })
 }
 
+/// Whether a debugger is attached to the process `pid`, which pauses it on purpose: the
+/// kernel's traced flag, which a same-user process may read as `ps` does. `proc_pidinfo`'s
+/// `PROC_FLAG_TRACED` and `sysctl`'s `kinfo_proc` `P_TRACED` both report the process's
+/// `P_LTRACED`; the former has typed bindings.
+#[cfg(target_os = "macos")]
+pub(crate) fn debugger_attached(pid: u32) -> bool {
+    /// `PROC_FLAG_TRACED` from `<sys/proc_info.h>`.
+    const PROC_FLAG_TRACED: u32 = 0x2;
+    let Ok(pid) = libc::c_int::try_from(pid) else {
+        return false;
+    };
+    let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    // SAFETY: `info` is a writable `proc_bsdinfo` of `size` bytes, the size this flavor fills.
+    let written = unsafe {
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    // SAFETY: Every field is an integer or integer array, so the zeroed value is valid.
+    written == size && unsafe { info.assume_init() }.pbi_flags & PROC_FLAG_TRACED != 0
+}
+
 /// Whether a debugger is attached to the process `pid`; not detectable from another process
 /// here, so never.
-#[cfg(not(any(windows, target_os = "linux", target_os = "android")))]
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos"
+)))]
 pub(crate) fn debugger_attached(_pid: u32) -> bool {
     false
 }

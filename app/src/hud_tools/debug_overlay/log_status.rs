@@ -1,16 +1,18 @@
 //! The F3 row naming the active log filter and whether new sessions record a packet capture.
 
 use std::ffi::OsString;
-use std::fmt::Write;
+use std::fmt::{Display, Write};
 
 use bevy::log::tracing_subscriber::filter::LevelFilter;
 use diagnostics::logging::Category;
+
+use crate::runtime::network::session::{CaptureChoice, packet_capture_choice};
 
 /// What the row shows; it is formatted again only when these change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Inputs {
     filter_generation: u64,
-    capture: &'static str,
+    capture: CaptureChoice,
 }
 
 /// The environment the row reads once: the process environment does not change while running.
@@ -46,10 +48,7 @@ impl LogStatus {
         let environment = self.environment.get_or_insert_with(Environment::read);
         let inputs = Inputs {
             filter_generation: diagnostics::logging::filter_generation(),
-            capture: crate::runtime::network::session::packet_capture_label(
-                environment.capture.as_deref(),
-                record_setting,
-            ),
+            capture: packet_capture_choice(environment.capture.as_deref(), record_setting),
         };
         if self.inputs != Some(inputs) {
             self.inputs = Some(inputs);
@@ -79,7 +78,7 @@ fn write_row(
     spec: Option<&str>,
     rust_log: bool,
     level: impl Fn(Category) -> LevelFilter,
-    capture: &str,
+    capture: impl Display,
 ) {
     line.clear();
     line.push_str("Log: ");
@@ -174,9 +173,10 @@ mod tests {
             row(Some("net=debug,wgpu_core=trace"), false, "off"),
             "Log: custom | Capture: off"
         );
+        let variable = client_session::markers::PACKET_CAPTURE;
         assert_eq!(
-            row(Some(""), true, "on (CINNABAR_PACKET_CAPTURE)"),
-            "Log: custom | Capture: on (CINNABAR_PACKET_CAPTURE)"
+            row(Some(""), true, &format!("on ({variable})")),
+            format!("Log: custom | Capture: on ({variable})")
         );
         assert_eq!(row(None, false, "off"), "Log: not installed | Capture: off");
     }
@@ -209,7 +209,10 @@ mod tests {
         assert!(
             environment
                 .refresh(true)
-                .ends_with("| Capture: off (CINNABAR_PACKET_CAPTURE)")
+                .ends_with(&format!(
+                    "| Capture: off ({})",
+                    client_session::markers::PACKET_CAPTURE
+                ))
         );
         environment.refresh(false);
         assert_eq!(

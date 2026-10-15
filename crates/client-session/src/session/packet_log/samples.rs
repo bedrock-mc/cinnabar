@@ -42,6 +42,8 @@ pub(crate) struct Offered {
     pub(crate) replaced: bool,
     /// The body was kept as the newest sample, rather than only counted.
     pub(crate) kept: bool,
+    /// The body was counted as withheld because it can carry secrets.
+    pub(crate) withheld: bool,
 }
 
 /// One session's samples, and what that session turned away.
@@ -94,9 +96,11 @@ impl FailureSamples {
         let mut offered = Offered {
             replaced,
             kept: false,
+            withheld: false,
         };
         if carries_secrets(packet_id) {
             self.withheld += 1;
+            offered.withheld = true;
             return Some(offered);
         }
         let per_packet = self
@@ -124,10 +128,15 @@ impl FailureSamples {
     }
 
     /// Brings `dir` up to date after `offered`: an older session's files go, a kept body is
-    /// written under [`FailureSample::file_name`], and [`INDEX_FILE`] is rewritten.
+    /// written under [`FailureSample::file_name`], and [`INDEX_FILE`] is rewritten. An offer only
+    /// counted as over the bounds writes nothing; the index catches up at the next change, so a
+    /// stream of rejects past the bounds costs no file writes.
     pub(crate) fn persist(&self, dir: &Path, offered: Offered) -> io::Result<()> {
         if offered.replaced {
             return self.persist_all(dir);
+        }
+        if !offered.kept && !offered.withheld {
+            return Ok(());
         }
         if offered.kept
             && let Some(sample) = self.samples.last()

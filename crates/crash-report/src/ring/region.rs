@@ -17,7 +17,8 @@ unsafe impl Send for MappedRegion {}
 unsafe impl Sync for MappedRegion {}
 
 impl MappedRegion {
-    /// Creates or truncates the file at `path` to `words` zeroed words and maps it.
+    /// Creates or truncates the file at `path` to `words` zeroed words and maps it. The file's disk
+    /// space is reserved first, so a full disk is an error here instead of a fault on first write.
     pub(crate) fn create(path: &Path, words: usize) -> io::Result<Self> {
         let bytes = words
             .checked_mul(8)
@@ -29,7 +30,7 @@ impl MappedRegion {
             .create(true)
             .truncate(true)
             .open(path)?;
-        file.set_len(bytes as u64)?;
+        platform::reserve(&file, bytes as u64)?;
         let base = platform::map(&file, bytes)?;
         Ok(Self {
             base: base.cast(),
@@ -61,6 +62,11 @@ mod platform {
             MapViewOfFile, PAGE_READWRITE, UnmapViewOfFile,
         },
     };
+
+    /// Extending a file on Windows allocates its space, so a full disk fails here.
+    pub(super) fn reserve(file: &File, bytes: u64) -> io::Result<()> {
+        file.set_len(bytes)
+    }
 
     pub(super) fn map(file: &File, bytes: usize) -> io::Result<NonNull<u8>> {
         let size = bytes as u64;
@@ -99,6 +105,36 @@ mod platform {
 #[cfg(unix)]
 mod platform {
     use std::{fs::File, io, os::fd::AsRawFd, ptr::NonNull};
+
+    /// Allocates the file's blocks before it is mapped. A sparse shared mapping would allocate on
+    /// the first write to each page, and a full disk or quota then kills the process with SIGBUS.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub(super) fn reserve(file: &File, bytes: u64) -> io::Result<()> {
+        let len = libc::off_t::try_from(bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "region too large"))?;
+        // SAFETY: The descriptor is the open file's; `posix_fallocate` returns its error code.
+        match unsafe { libc::posix_fallocate(file.as_raw_fd(), 0, len) } {
+            0 => Ok(()),
+            // A filesystem without `fallocate` (bionic does not emulate it) still gets real blocks.
+            libc::EOPNOTSUPP => write_zeros(file, bytes),
+            code => Err(io::Error::from_raw_os_error(code)),
+        }
+    }
+
+    /// Allocates the file's blocks by writing them, so a full disk fails here instead of with
+    /// SIGBUS on the first write through the mapping.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    pub(super) fn reserve(file: &File, bytes: u64) -> io::Result<()> {
+        write_zeros(file, bytes)
+    }
+
+    /// Writes `bytes` zeros from the start of the empty file.
+    fn write_zeros(mut file: &File, bytes: u64) -> io::Result<()> {
+        use std::io::Read;
+        let written = io::copy(&mut io::repeat(0).take(bytes), &mut file)?;
+        debug_assert_eq!(written, bytes);
+        Ok(())
+    }
 
     pub(super) fn map(file: &File, bytes: usize) -> io::Result<NonNull<u8>> {
         // SAFETY: Maps `bytes` of the open file shared; the result is checked below.
