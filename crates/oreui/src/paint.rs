@@ -300,6 +300,20 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
+    /// Inverts the already drawn pixels inside the current clipping scope.
+    pub(super) fn invert(&mut self, bounds: Bounds) -> Result<(), PaintError> {
+        if bounds[2] > bounds[0] && bounds[3] > bounds[1] {
+            self.push(
+                bounds,
+                UiVisual::InvertedSprite {
+                    texture_page: self.solid_page,
+                    uv: [0, 0, 1, 1],
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     /// Places caller-owned geometry in the canvas's current clipping scope.
     pub(super) fn mesh(&mut self, bounds: Bounds, mesh: Arc<ui::UiMesh>) -> Result<(), PaintError> {
         self.push(bounds, UiVisual::Mesh(mesh))?;

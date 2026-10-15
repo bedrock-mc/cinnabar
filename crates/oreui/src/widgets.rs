@@ -654,6 +654,16 @@ fn field(
         color,
         insertion,
     )?;
+    if focused && let Some(selection) = view.caret.selection {
+        let mut edges = [left; 2];
+        for (x, byte) in edges.iter_mut().zip(selection) {
+            let prefix = &value[..caret_byte(value, byte)];
+            if !prefix.is_empty() {
+                *x += canvas.measure(prefix, BODY)?.min(width);
+            }
+        }
+        canvas.invert([edges[0], top, edges[1], top + canvas.r(BODY.line)])?;
+    }
     if focused && view.caret.shown && view.caret.selection.is_none() {
         let caret_x = left + caret;
         canvas.fill(

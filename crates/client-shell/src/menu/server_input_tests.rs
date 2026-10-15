@@ -218,12 +218,17 @@ impl Harness {
         let root = client_ui::test_support::pack_harness::scratch_dir("server-input");
         let mut layout = launcher::test_support::checkout();
         layout.user_config_root = root.clone();
-        let menu = MenuRuntime::new_with_layout(
+        let mut menu = MenuRuntime::new_with_layout(
             true,
             Some(2),
             "Test".into(),
             layout,
             crate::player_skin::LocalPlayerSkin::generated_default("Test"),
+        );
+        // Input assertions inspect settled text and caret geometry.
+        Arc::make_mut(&mut menu.settings_options).set(
+            launcher::menu::settings_options::SettingId::ScreenAnimations.index(),
+            0,
         );
         let clipboard = Arc::new(Mutex::new(String::new()));
         let read = clipboard.clone();
@@ -327,136 +332,101 @@ impl Harness {
         self.key(KeyCode::SuperLeft, None, ButtonState::Released);
     }
 
-    /// Checks each rendered field by its own hit rectangle, so swapped/stale text fails.
-    fn fields(&self, expected: [&str; 3], focused: MenuField) {
+    /// Checks rendered values, caret placement and selection through the fields' hit regions.
+    fn fields(&mut self, expected: [&str; 3], focused: MenuField) {
         let presentation = self.app.world().resource::<UiPresentationResource>();
         let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
-        let caret = self.app.world().resource::<MenuRuntime>().view().caret;
-        let selected = caret.selection.is_some();
-        let (mut rendered_carets, mut literal_carets) = (0, 0);
-        for (action, value) in [
-            MenuAction::AddName,
-            MenuAction::AddAddress,
-            MenuAction::AddPort,
+        let view = self.app.world().resource::<MenuRuntime>().view();
+        let selected = view.caret.selection.is_some();
+        let focused_action = match focused {
+            MenuField::Name => MenuAction::AddName,
+            MenuField::Address => MenuAction::AddAddress,
+            MenuField::Port => MenuAction::AddPort,
+            _ => unreachable!(),
+        };
+        for ((action, placeholder), value) in [
+            (MenuAction::AddName, "My server"),
+            (MenuAction::AddAddress, "Hostname or IP address"),
+            (MenuAction::AddPort, "Default"),
         ]
         .into_iter()
         .zip(expected)
         {
-            let texts: Vec<_> = nodes
-                .iter()
-                .filter_map(|node| {
-                    let UiVisual::Text { layout, .. } = node.visual() else {
-                        return None;
-                    };
-                    let parent = nodes
+            // The Play screen still draws behind the modal; read the frontmost label.
+            let actual: Option<String> = nodes.iter().rev().find_map(|node| {
+                let UiVisual::Text { layout, .. } = node.visual() else {
+                    return None;
+                };
+                (presentation.hit_test_menu(node_point(node, nodes)) == Some(action)).then(|| {
+                    layout
+                        .glyphs()
                         .iter()
-                        .find(|parent| Some(parent.id()) == node.parent())?;
-                    let x = parent.bounds().min().x() + node.bounds().min().x() + 1.0;
-                    let y = parent.bounds().min().y() + node.bounds().min().y() + 1.0;
-                    (presentation.hit_test_menu(UiPoint::new(x, y).unwrap()) == Some(action)).then(
-                        || {
-                            layout
-                                .glyphs()
-                                .iter()
-                                .map(|g| g.codepoint)
-                                .collect::<String>()
-                        },
-                    )
+                        .map(|glyph| glyph.codepoint)
+                        .collect()
                 })
-                .collect();
-            let focused_action = match focused {
-                MenuField::Name => MenuAction::AddName,
-                MenuField::Address => MenuAction::AddAddress,
-                MenuField::Port => MenuAction::AddPort,
-                _ => unreachable!(),
-            };
-            let placeholder = match action {
-                MenuAction::AddName => "addExternalServerScreen.namePlaceholder",
-                MenuAction::AddAddress => "addExternalServerScreen.ipPlaceholder",
-                _ => "",
-            };
-            let placeholder = client_ui::test_support::pack_harness::menu_translation(
-                self.app.world().resource::<UiRuntimeResource>(),
-                placeholder,
+            });
+            let wanted = if value.is_empty() { placeholder } else { value };
+            assert_eq!(
+                actual.as_deref(),
+                Some(wanted),
+                "rendered value in {action:?}"
             );
-            let wanted = if value.is_empty() && action != focused_action {
-                placeholder.as_deref().unwrap_or("")
-            } else {
-                value
-            };
-            literal_carets += wanted
-                .chars()
-                .filter(|&ch| ch == json_ui::CARET_GLYPH)
-                .count();
-            rendered_carets += texts
-                .iter()
-                .flat_map(|text| text.chars())
-                .filter(|&ch| ch == json_ui::CARET_GLYPH)
-                .count();
-            let mut wanted = wanted.to_owned();
-            if action == focused_action && !selected {
-                wanted.insert(caret.byte, json_ui::CARET_GLYPH);
-            }
-            let actual: Vec<_> = texts
-                .iter()
-                .map(String::as_str)
-                .filter(|text| !text.is_empty())
-                .collect();
-            let wanted: Vec<_> = (!wanted.is_empty())
-                .then_some(wanted.as_str())
-                .into_iter()
-                .collect();
-            if actual != wanted {
-                eprintln!(
-                    "field={:?} values={:?}",
-                    self.app.world().resource::<MenuRuntime>().view().field,
-                    [
-                        &self.app.world().resource::<MenuRuntime>().view().name,
-                        &self.app.world().resource::<MenuRuntime>().view().address
-                    ]
-                );
-                client_ui::test_support::pack_harness::dump(nodes);
-                snapshot::write(&self.app.world().resource::<Frame>().0, "input-failure");
-            }
-            assert_eq!(actual, wanted, "rendered value in {action:?}");
         }
-        assert_eq!(
-            self.app.world().resource::<MenuRuntime>().view().field,
-            Some(focused)
-        );
+        assert_eq!(view.field, Some(focused));
+        let carets: Vec<_> = nodes
+            .iter()
+            .filter(|node| {
+                matches!(node.visual(), UiVisual::Solid { color, .. }
+                if *color == ui::oreui_theme::FIELD_CARET)
+            })
+            .collect();
+        assert_eq!(carets.len(), usize::from(!selected), "focused field caret");
+        let caret_point = carets.first().map(|node| node_point(node, nodes));
         let selections: Vec<_> = nodes
             .iter()
             .filter(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
             .collect();
         assert_eq!(
-            rendered_carets,
-            literal_carets + usize::from(!selected),
-            "caret belongs only to the focused field"
-        );
-        assert_eq!(
             selections.len(),
             usize::from(selected),
             "select-all must be visible"
         );
-        if let Some(selection) = selections.first() {
-            let parent = nodes
-                .iter()
-                .find(|parent| Some(parent.id()) == selection.parent())
-                .unwrap();
-            let point = UiPoint::new(
-                parent.bounds().min().x() + selection.bounds().min().x() + 1.0,
-                parent.bounds().min().y() + selection.bounds().min().y() + 1.0,
-            )
-            .unwrap();
-            let action = match focused {
-                MenuField::Name => MenuAction::AddName,
-                MenuField::Address => MenuAction::AddAddress,
-                MenuField::Port => MenuAction::AddPort,
+        for node in carets.iter().chain(&selections) {
+            assert_eq!(
+                presentation.hit_test_menu(node_point(node, nodes)),
+                Some(focused_action)
+            );
+        }
+        if let Some(point) = caret_point {
+            let value = match focused {
+                MenuField::Name => &view.name,
+                MenuField::Address => &view.address,
+                MenuField::Port => &view.port,
                 _ => unreachable!(),
             };
-            assert_eq!(presentation.hit_test_menu(point), Some(action));
+            assert_eq!(
+                self.app
+                    .world_mut()
+                    .resource_mut::<UiPresentationResource>()
+                    .menu_caret_at(point, focused, value),
+                Some(view.caret.byte),
+                "drawn caret matches the editor position"
+            );
         }
     }
+}
+
+/// A point inside a node in window coordinates, including every clipping ancestor.
+fn node_point(node: &ui::UiNode, nodes: &[ui::UiNode]) -> UiPoint {
+    let mut x = node.bounds().min().x() + 0.5;
+    let mut y = node.bounds().min().y() + 0.5;
+    let mut parent = node.parent();
+    while let Some(ancestor) = parent.and_then(|id| nodes.iter().find(|node| node.id() == id)) {
+        x += ancestor.bounds().min().x();
+        y += ancestor.bounds().min().y();
+        parent = ancestor.parent();
+    }
+    UiPoint::new(x, y).unwrap()
 }
 
 impl Drop for Harness {
@@ -514,6 +484,12 @@ fn exercise_server_fields(dpi: f32) {
             values[index].push('7');
             h.fields(values.each_ref().map(String::as_str), field);
             h.select_all();
+            if !editing && index == 0 && dpi == 1.0 {
+                snapshot::write(
+                    &h.app.world().resource::<Frame>().0,
+                    "server-input-selection",
+                );
+            }
             assert!(
                 h.app
                     .world()
