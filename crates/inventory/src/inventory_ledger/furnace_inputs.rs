@@ -169,7 +169,11 @@ fn station(kind: ScreenRecipeKind) -> bool {
 
 impl super::PlayerInventoryLedger {
     /// Binds committed recipes; retires ingredient moves only where their item's admission changed.
+    /// Already-bound allocations return before any snapshot, as every ledger write calls this.
     pub(crate) fn bind_furnace_inputs(&mut self, catalog: Option<Arc<RecipeCatalog>>) {
+        if self.furnace_inputs_bound(&catalog) {
+            return;
+        }
         let previous = self.furnace_inputs.clone();
         if !self
             .furnace_inputs

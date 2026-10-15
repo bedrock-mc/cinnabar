@@ -4,7 +4,7 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use crate::{AssetError, RuntimeEntityAssets};
-mod color_mask;
+pub(crate) mod color_mask;
 mod dissolve;
 mod eligibility;
 pub use color_mask::{

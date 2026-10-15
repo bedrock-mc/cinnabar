@@ -18,6 +18,8 @@ const LAYER_INFLATE_STEP: f32 = 0.01;
 const SWAY_PERIOD_TICKS: f64 = 100.0;
 const SWAY_MEAN_DEGREES: f32 = 2.25;
 const SWAY_AMPLITUDE_DEGREES: f32 = 1.8;
+/// Pack path of a pattern texture, before the layer's pattern stem.
+const BANNER_PATTERN_TEXTURE_PREFIX: &str = "textures/entity/banner/banner_";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum BannerMount {
@@ -98,11 +100,13 @@ pub(super) fn emit(
         cloth_box(0.0),
         tint(model.base),
     );
+    // One name buffer serves every layer, so a swaying banner allocates at most once per frame.
+    let mut name = String::new();
     for (index, layer) in model.layers.iter().take(MAX_BANNER_LAYERS).enumerate() {
-        let Some(texture) = atlas.texture(
-            &format!("textures/entity/banner/banner_{}", layer.pattern),
-            [64.0, 64.0],
-        ) else {
+        name.clear();
+        name.push_str(BANNER_PATTERN_TEXTURE_PREFIX);
+        name.push_str(layer.pattern);
+        let Some(texture) = atlas.texture(&name, [64.0, 64.0]) else {
             continue;
         };
         builder.cuboid(

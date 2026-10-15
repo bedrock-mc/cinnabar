@@ -163,7 +163,7 @@ impl CreditsRenderer<'_> {
                         },
                         scale: 1.0,
                         localize: false,
-                        options: Default::default(),
+                        options: &Default::default(),
                     },
                 );
             }

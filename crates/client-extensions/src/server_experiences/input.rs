@@ -2,48 +2,75 @@
 
 use bevy::{
     input::{
+        gamepad::{
+            Gamepad, GamepadAxisChangedEvent, GamepadButtonChangedEvent,
+            GamepadButtonStateChangedEvent,
+        },
         keyboard::KeyboardInput,
         mouse::{MouseButtonInput, MouseWheel},
+        touch::{TouchInput, Touches},
     },
     prelude::*,
 };
 
 use client_state::ConsentInput;
 
+/// Keyboard, mouse button, wheel and touch message queues consent clears when installed.
+type PointerMessages<'w> = (
+    Option<ResMut<'w, Messages<KeyboardInput>>>,
+    Option<ResMut<'w, Messages<MouseButtonInput>>>,
+    Option<ResMut<'w, Messages<MouseWheel>>>,
+    Option<ResMut<'w, Messages<TouchInput>>>,
+);
+
+/// Gamepad button, button-state and axis message queues consent clears when installed.
+type GamepadMessages<'w> = (
+    Option<ResMut<'w, Messages<GamepadButtonChangedEvent>>>,
+    Option<ResMut<'w, Messages<GamepadButtonStateChangedEvent>>>,
+    Option<ResMut<'w, Messages<GamepadAxisChangedEvent>>>,
+);
+
 /// Removes queued physical events after consent reads them and before ordinary UI runs.
-pub fn consume(world: &mut World) {
-    if !world.resource::<ConsentInput>().0 {
+///
+/// Declares exactly the input it clears instead of taking the whole world, so frames without
+/// consent do not stall the parallel executor; optional streams are cleared when installed.
+pub fn consume(
+    consent: Res<ConsentInput>,
+    keys: Option<ResMut<ButtonInput<KeyCode>>>,
+    mouse: Option<ResMut<ButtonInput<MouseButton>>>,
+    pointer_messages: PointerMessages,
+    gamepad_messages: GamepadMessages,
+    touches: Option<ResMut<Touches>>,
+    mut gamepads: Query<&mut Gamepad>,
+) {
+    if !consent.0 {
         return;
     }
-    world.resource_mut::<ButtonInput<KeyCode>>().reset_all();
-    world.resource_mut::<ButtonInput<MouseButton>>().reset_all();
-    if let Some(mut messages) = world.get_resource_mut::<Messages<KeyboardInput>>() {
-        messages.clear();
-    }
-    if let Some(mut messages) = world.get_resource_mut::<Messages<MouseButtonInput>>() {
-        messages.clear();
-    }
-    if let Some(mut messages) = world.get_resource_mut::<Messages<MouseWheel>>() {
-        messages.clear();
-    }
-    clear_messages::<bevy::input::touch::TouchInput>(world);
-    clear_messages::<bevy::input::gamepad::GamepadButtonChangedEvent>(world);
-    clear_messages::<bevy::input::gamepad::GamepadButtonStateChangedEvent>(world);
-    clear_messages::<bevy::input::gamepad::GamepadAxisChangedEvent>(world);
-    if let Some(mut touches) = world.get_resource_mut::<bevy::input::touch::Touches>() {
+    keys.expect("consent input requires keyboard button state")
+        .reset_all();
+    mouse
+        .expect("consent input requires mouse button state")
+        .reset_all();
+    let (keyboard, mouse_buttons, wheel, touch) = pointer_messages;
+    clear_messages(keyboard);
+    clear_messages(mouse_buttons);
+    clear_messages(wheel);
+    clear_messages(touch);
+    let (gamepad_buttons, gamepad_button_states, gamepad_axes) = gamepad_messages;
+    clear_messages(gamepad_buttons);
+    clear_messages(gamepad_button_states);
+    clear_messages(gamepad_axes);
+    if let Some(mut touches) = touches {
         touches.reset_all();
     }
-    for mut gamepad in world
-        .query::<&mut bevy::input::gamepad::Gamepad>()
-        .iter_mut(world)
-    {
+    for mut gamepad in &mut gamepads {
         gamepad.digital_mut().reset_all();
     }
 }
 
 /// Discards one event stream owned by the consent frame when that stream is installed.
-fn clear_messages<T: Message>(world: &mut World) {
-    if let Some(mut messages) = world.get_resource_mut::<Messages<T>>() {
+fn clear_messages<T: Message>(messages: Option<ResMut<Messages<T>>>) {
+    if let Some(mut messages) = messages {
         messages.clear();
     }
 }
@@ -93,7 +120,8 @@ mod tests {
                 ButtonState::Pressed,
                 1.0,
             ));
-        consume(app.world_mut());
+        bevy::ecs::system::RunSystemOnce::run_system_once(app.world_mut(), consume)
+            .expect("consent consume runs");
         assert!(app.world().resource::<Messages<TouchInput>>().is_empty());
         assert!(
             app.world()

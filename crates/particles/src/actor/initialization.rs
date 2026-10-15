@@ -15,8 +15,7 @@ impl ActorInitialization {
             return None;
         }
         let mut names = Interner::with_builtins();
-        let program = Program::parse(source, &mut names)?;
-        let queries = program.actor_queries()?;
+        let (program, queries) = Program::parse_with_actor_queries(source, &mut names)?;
         Some(Self {
             program,
             names,

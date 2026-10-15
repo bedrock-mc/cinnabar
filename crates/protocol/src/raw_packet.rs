@@ -3,7 +3,7 @@
 
 //! Packet entries with only their header parsed, so play can route by ID and decode bodies lazily.
 
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_51::packets::{self, PacketId};
 use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
 
@@ -28,8 +28,15 @@ impl RawPacket {
     /// Decodes the whole entry under the server limits, rejecting a body the packet does not
     /// consume.
     pub(crate) fn decode(self) -> Result<Packet, SessionError> {
+        self.decode_parts()
+            .map(|(header, data)| Packet::from_parts(header, data))
+    }
+
+    /// Decodes like [`Self::decode`] but returns the header and payload by value, so a caller
+    /// that consumes the payload at once skips the [`Packet`] box.
+    pub(crate) fn decode_parts(self) -> Result<(GameHeader, packets::Packet), SessionError> {
         match crate::codec::decode_body(self.id, &self.body) {
-            Ok(data) => Ok(Packet::from_parts(self.header, data)),
+            Ok(data) => Ok((self.header, data)),
             Err(wire::DecodeError::TrailingBytes(remaining)) => {
                 Err(SessionFailure::PacketTrailingBytes {
                     packet_id: self.id,

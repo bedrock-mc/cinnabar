@@ -169,6 +169,7 @@ pub fn prepare_actor_render_frame(
             native_pose: &mut state.java_hand.native_pose,
             skin_rigs: &mut state.skin_rigs,
             equipment: params.equipment.as_deref_mut(),
+            scratch: &mut state.body_scratch,
         },
         hides_box,
         &mut new_geometries,
@@ -255,6 +256,9 @@ pub fn prepare_actor_render_frame(
         &mut new_geometries,
     );
     layers::apply_style_and_visibility(&mut batch, stream, params.actor_style.as_deref());
+    state
+        .body_scratch
+        .recycle(bodies.java_posed, bodies.remote_skin_layers);
     if let Some(flames) = params.flames.as_deref_mut()
         && let Ok((camera, _)) = params.presentation.camera.single()
     {

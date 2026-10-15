@@ -1,4 +1,4 @@
-use super::*;
+use super::{section::SectionCache, *};
 
 // Collision revision allocation starts at one; zero identifies an absent column.
 const UNLOADED_BOUNDARY_REVISION: u64 = 0;
@@ -44,46 +44,47 @@ impl<'a> PaletteWorld<'a> {
     }
 
     /// Emits boundary geometry without attributing it to an invented palette block.
-    fn unloaded_boundary_instances(
+    fn emit_unloaded_boundary_instances(
         &self,
         query: Aabb,
         chunks: &[ChunkKey],
-    ) -> Vec<CollisionInstance> {
+        emit: &mut impl FnMut(CollisionInstance),
+    ) {
         let side = world::SUB_CHUNK_SIDE as f64;
-        chunks
-            .iter()
-            .filter_map(|&chunk| {
-                self.unloaded_boundary_revision(chunk)?;
-                let x = f64::from(chunk.x) * side;
-                let z = f64::from(chunk.z) * side;
-                let shape = Aabb::new(
-                    Vec3::new(x, -UNLOADED_BOUNDARY_VERTICAL_LIMIT, z),
-                    Vec3::new(x + side, UNLOADED_BOUNDARY_VERTICAL_LIMIT, z + side),
-                );
-                shape.intersects(query).then_some(CollisionInstance {
+        for &chunk in chunks {
+            if self.unloaded_boundary_revision(chunk).is_none() {
+                continue;
+            }
+            let x = f64::from(chunk.x) * side;
+            let z = f64::from(chunk.z) * side;
+            let shape = Aabb::new(
+                Vec3::new(x, -UNLOADED_BOUNDARY_VERTICAL_LIMIT, z),
+                Vec3::new(x + side, UNLOADED_BOUNDARY_VERTICAL_LIMIT, z + side),
+            );
+            if shape.intersects(query) {
+                emit(CollisionInstance {
                     shape,
                     block: None,
                     runtime_id: None,
                     cell_has_scaffolding: None,
-                })
-            })
-            .collect()
+                });
+            }
+        }
     }
 
     /// Shared emission core behind both public collision surfaces so their
     /// outputs structurally cannot diverge: one translated registry shape
     /// instance per (block, layer, shape) triple in block-scan order, each
-    /// kept only when it intersects `query`.
-    pub(super) fn collision_instances(
+    /// kept only when it intersects `query`. Returns the scanned columns' identity;
+    /// on error the instances already emitted must be discarded.
+    pub(super) fn visit_collision_instances(
         &self,
         query: Aabb,
-    ) -> Result<CollisionQuery<Vec<CollisionInstance>>, WorldQueryError> {
+        emit: &mut impl FnMut(CollisionInstance),
+    ) -> Result<WorldCollisionIdentity, WorldQueryError> {
         validate_collision_query(query)?;
         if query.min == query.max {
-            return Ok(CollisionQuery {
-                value: Vec::new(),
-                identity: WorldCollisionIdentity::new(self.registry.identity(), [])?,
-            });
+            return WorldCollisionIdentity::new(self.registry.identity(), []);
         }
         let [min, max] = self.registry.query_bounds(query)?;
         let chunks = (min[0] >> 4..=max[0] >> 4)
@@ -93,67 +94,71 @@ impl<'a> PaletteWorld<'a> {
             .collect::<Vec<_>>();
         let identity = self.identity_for_chunks(chunks.iter().copied())?;
 
-        let mut instances = self.unloaded_boundary_instances(query, &chunks);
+        self.emit_unloaded_boundary_instances(query, &chunks, &mut *emit);
+        let mut section = SectionCache::default();
+        // Consecutive scan columns share a chunk column; check its boundary state once.
+        let mut column: Option<(ChunkKey, bool)> = None;
         for x in min[0]..=max[0] {
             for z in min[2]..=max[2] {
-                if self
-                    .unloaded_boundary_revision(ChunkKey::new(self.dimension, x >> 4, z >> 4))
-                    .is_some()
-                {
+                let chunk = ChunkKey::new(self.dimension, x >> 4, z >> 4);
+                let boundary = match column {
+                    Some((cached, boundary)) if cached == chunk => boundary,
+                    _ => {
+                        let boundary = self.unloaded_boundary_revision(chunk).is_some();
+                        column = Some((chunk, boundary));
+                        boundary
+                    }
+                };
+                if boundary {
                     continue;
                 }
                 for y in min[1]..=max[1] {
                     let block = [x, y, z];
-                    let first_instance = instances.len();
-                    let mut cell_has_scaffolding = false;
-                    for runtime_id in self.runtime_ids_at(block)? {
+                    let layers = self.layers_at(block, &mut section)?;
+                    // Every shape of the cell carries its any-layer scaffolding fact. An unknown
+                    // layer fails below in scan order, discarding the whole query.
+                    let cell_has_scaffolding = layers
+                        .iter()
+                        .filter_map(|runtime_id| self.registry.physics(runtime_id))
+                        .any(|physics| physics.flags.contains(BlockPhysicsFlags::SCAFFOLDING));
+                    for runtime_id in layers.iter() {
                         let physics = self
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        cell_has_scaffolding |=
-                            physics.flags.contains(BlockPhysicsFlags::SCAFFOLDING);
-                        for shape in self
-                            .block_collision_shapes(block, physics, query)?
-                            .iter()
-                            .copied()
-                        {
-                            let shape = shape.translated(physics.shape_offset(block));
+                        let shapes = self.block_collision_shapes(block, physics, query)?;
+                        if shapes.is_empty() {
+                            continue;
+                        }
+                        let offset = physics.shape_offset(block);
+                        for shape in shapes.iter() {
+                            let shape = shape.translated(offset);
                             if shape.intersects(query) {
-                                instances.push(CollisionInstance {
+                                emit(CollisionInstance {
                                     shape,
                                     block: Some(block),
                                     runtime_id: Some(runtime_id),
-                                    cell_has_scaffolding: None,
+                                    cell_has_scaffolding: Some(cell_has_scaffolding),
                                 });
                             }
                         }
-                    }
-                    // A later layer may classify shapes emitted by an earlier layer.
-                    for instance in &mut instances[first_instance..] {
-                        instance.cell_has_scaffolding = Some(cell_has_scaffolding);
                     }
                 }
             }
         }
         if let Some(colliders) = &self.actor_colliders {
-            instances.extend(
-                colliders
-                    .iter()
-                    .copied()
-                    .filter(|shape| shape.intersects(query))
-                    .map(|shape| CollisionInstance {
+            for &shape in colliders.iter() {
+                if shape.intersects(query) {
+                    emit(CollisionInstance {
                         shape,
                         block: None,
                         runtime_id: None,
                         cell_has_scaffolding: None,
-                    }),
-            );
+                    });
+                }
+            }
         }
-        Ok(CollisionQuery {
-            value: instances,
-            identity,
-        })
+        Ok(identity)
     }
 }
 

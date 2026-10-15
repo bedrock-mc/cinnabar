@@ -1,5 +1,5 @@
 use crate::vanilla::Variable;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use serde_json::Value;
 
@@ -7,9 +7,12 @@ use crate::{Catalog, env::Env};
 
 /// Screen context: the compile-time flags (`$desktop_screen`, `$touch`, …) and any
 /// extra variables that gate `ignored`/`variables[]` selection and `$var` values.
+///
+/// Clones share the variables, so retained screens compare an unchanged context by
+/// pointer instead of walking every variable each frame.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Context {
-    pub(crate) vars: BTreeMap<String, Value>,
+    pub(crate) vars: Arc<BTreeMap<String, Value>>,
 }
 
 impl Context {
@@ -144,14 +147,16 @@ impl Context {
     }
 
     /// Set a boolean flag (stored under `name`, without a `$`).
-    pub fn with_flag(mut self, name: &str, value: bool) -> Self {
-        self.vars.insert(name.to_owned(), Value::Bool(value));
-        self
+    pub fn with_flag(self, name: &str, value: bool) -> Self {
+        self.with_var(name, Value::Bool(value))
     }
 
-    /// Set an arbitrary variable value.
+    /// Set an arbitrary variable value. Writing the value already held keeps the
+    /// variables shared with every clone.
     pub fn with_var(mut self, name: &str, value: Value) -> Self {
-        self.vars.insert(name.to_owned(), value);
+        if self.vars.get(name) != Some(&value) {
+            Arc::make_mut(&mut self.vars).insert(name.to_owned(), value);
+        }
         self
     }
 
@@ -160,9 +165,47 @@ impl Context {
         for (name, value) in catalog.globals() {
             env.set(name.clone(), value.clone());
         }
-        for (name, value) in &self.vars {
+        for (name, value) in self.vars.iter() {
             env.set(name.clone(), value.clone());
         }
         env
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::Value;
+
+    use super::{Context, Variable};
+
+    #[test]
+    fn clones_share_variables_until_a_write_changes_one() {
+        let base = Context::desktop();
+        let same = base.clone().with_flag(Variable::Touch.key(), false);
+        assert!(Arc::ptr_eq(&base.vars, &same.vars));
+        assert_eq!(base, same);
+        let changed = base.clone().with_flag("cinnabar_chat_top", true);
+        assert!(!Arc::ptr_eq(&base.vars, &changed.vars));
+        assert_eq!(
+            base,
+            Context::desktop(),
+            "the shared variables stay unchanged"
+        );
+        assert_eq!(
+            changed.vars().get("cinnabar_chat_top"),
+            Some(&Value::Bool(true))
+        );
+        assert_ne!(base, changed);
+        let flipped = same.with_flag(Variable::Touch.key(), true);
+        assert_eq!(
+            flipped.vars().get(Variable::Touch.key()),
+            Some(&Value::Bool(true))
+        );
+        assert_eq!(
+            base.vars().get(Variable::Touch.key()),
+            Some(&Value::Bool(false))
+        );
     }
 }

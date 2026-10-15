@@ -155,7 +155,7 @@ pub(super) fn sample_layer_local(
         .filter_map(|weighted| clip_for_layer(assets, *weighted, geometry))
         .collect();
     // Keyframe scripts already ran for the rig; scratch variables keep their writes isolated.
-    let mut scratch = variables.clone();
+    let mut scratch = ScratchVariables::copy_of(variables);
     let local = sample_clips(
         evaluator,
         &mut scratch,

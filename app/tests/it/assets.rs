@@ -548,7 +548,7 @@ fn asset_metrics_flow_into_json_and_the_world_ready_marker() {
     let mut diagnostics = DiagnosticQuadTracker::default();
     diagnostics.upsert(
         world::SubChunkKey::new(0, 1, 2, 3),
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(54),
             537_536_753,
             6,

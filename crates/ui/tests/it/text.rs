@@ -363,6 +363,22 @@ fn cache_evicts_the_least_recently_used_entry_within_both_caps() {
     assert_eq!(below_cap.retained_bytes(), 0);
 }
 
+#[test]
+fn layouts_record_whether_any_glyph_is_obfuscated() {
+    let font = font([0x77; 32]);
+    let mut cache = TextLayoutCache::new(8, 64 * 1024);
+    let plain = layout(&mut cache, &font, "AB", 1.0, 1024);
+    let obfuscated = layout(&mut cache, &font, "A§kB", 1.0, 1024);
+    let reset = layout(&mut cache, &font, "§kA§rB", 1.0, 1024);
+    for (layout, expected) in [(&plain, false), (&obfuscated, true), (&reset, true)] {
+        assert_eq!(layout.obfuscated(), expected);
+        assert_eq!(
+            layout.obfuscated(),
+            layout.glyphs().iter().any(|glyph| glyph.style.obfuscated)
+        );
+    }
+}
+
 fn layout(
     cache: &mut TextLayoutCache,
     font: &CompiledFontCatalog,

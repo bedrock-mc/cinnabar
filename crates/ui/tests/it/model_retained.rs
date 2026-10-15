@@ -480,6 +480,57 @@ fn an_unchanged_frame_emits_nothing() {
 }
 
 #[test]
+fn obfuscated_text_is_emitted_again_for_each_seed_like_a_full_build() {
+    let font = font();
+    let pool = ui::ObfuscationGlyphs::from_catalog(&font);
+    let mut nodes = hud(&font);
+    nodes[3] =
+        UiNode::new(id(4), Some(id(1)), rect(0.0, 20.0, 40.0, 30.0)).with_visual(UiVisual::Text {
+            layout: text(&font, "§kAB§rA"),
+            color: [255; 4],
+            shadow: TextShadow::Offset64(64),
+        });
+    let scale = UiScale::new(2.0).unwrap();
+    let effects = |seed| TextEffects {
+        palette: None,
+        obfuscation_seed: seed,
+        obfuscation: Some(&pool),
+    };
+    let full_at = |seed| {
+        let mut tree = UiTree::new(nodes.clone()).unwrap();
+        tree.layout(viewport(), scale, SafeArea::ZERO).unwrap();
+        tree.build_draw_list_with(effects(seed)).unwrap()
+    };
+    let mut draw =
+        RetainedDraw::build(&nodes, viewport(), scale, SafeArea::ZERO, effects(0)).unwrap();
+    let mut last = nodes.clone();
+    let mut rebuilt = false;
+    for seed in 1..64 {
+        let update = draw
+            .update(
+                &mut last,
+                &nodes,
+                viewport(),
+                scale,
+                SafeArea::ZERO,
+                effects(seed),
+            )
+            .expect("§k text keeps the retained list");
+        assert_eq!(update.emitted, 1, "only the §k label is emitted again");
+        rebuilt |= update.rebuilt;
+        let expected = full_at(seed);
+        let actual = draw.draw_list();
+        assert_eq!(actual.vertices, expected.vertices, "seed {seed}");
+        assert_eq!(actual.indices, expected.indices, "seed {seed}");
+        assert_eq!(actual.batches, expected.batches, "seed {seed}");
+    }
+    assert!(
+        rebuilt,
+        "some seed moves a scrambled glyph to the other page"
+    );
+}
+
+#[test]
 fn a_new_node_or_viewport_needs_a_full_build() {
     let nodes = hud(&font());
     let mut draw = retained(&nodes);

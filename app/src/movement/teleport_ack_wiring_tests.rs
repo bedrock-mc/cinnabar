@@ -137,6 +137,7 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
             stream: Some(fixture_stream()),
             ..ClientWorld::default()
         })
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .init_resource::<WorldClock>()
         .init_resource::<WeatherState>()
         .insert_resource(ticker)

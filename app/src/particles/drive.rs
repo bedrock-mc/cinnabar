@@ -4,7 +4,8 @@ use std::sync::Arc;
 use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
 use bevy::prelude::{
-    App, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform, Update, With,
+    App, DetectChangesMut, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
+    Update, With,
 };
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
@@ -625,9 +626,10 @@ fn drive_particles(
         bevy::math::Vec3::from_array(view.position),
     );
     let generation = stream.connectivity_generation();
-    update_particle_frame(
+    // Mark the frame for extraction only when its published contents changed.
+    let changed = update_particle_frame(
         &mut system,
-        &mut frame,
+        frame.bypass_change_detection(),
         time.delta_secs(),
         &view,
         &world,
@@ -641,6 +643,9 @@ fn drive_particles(
             )
         },
     );
+    if changed {
+        frame.set_changed();
+    }
 }
 
 fn route_critical(
