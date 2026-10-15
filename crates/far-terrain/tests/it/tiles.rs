@@ -245,17 +245,40 @@ fn coarse_water_cells_keep_the_sea_level() {
     assert!(grid.cell(0, 0).water_depth > 0);
 }
 
+// Blocks of a level-2 tile of the coarse `near_growth` view that the grown view splits into
+// finest tiles.
+const SPLIT_FAR: (i32, i32) = (-270, -100); // Past the grown near edge.
+const SPLIT_NEAR: (i32, i32) = (-264, -8); // Inside it.
+
+/// Flat columns, a view without near terrain, and the view after near terrain grows toward the
+/// same horizon. Small, so the hand-over takes few tile builds even on a slow runner.
+fn near_growth() -> (SummaryStore, TileView, TileView) {
+    let mut store = SummaryStore::new(usize::MAX);
+    for x in -32..32 {
+        for z in -32..32 {
+            store.admit(ColumnPos::new(x, z), &flat(64));
+        }
+    }
+    let coarse = TileView {
+        centre: [8.0, 8.0],
+        near_blocks: 0.0,
+        skip_blocks: 0.0,
+        far_blocks: 304.0,
+    };
+    let grown = TileView {
+        near_blocks: 288.0,
+        far_blocks: 16.0,
+        ..coarse
+    };
+    (store, coarse, grown)
+}
+
 /// A coarser tile replaced by finer ones stays drawn until they are built, unless near terrain
 /// now draws one of its columns.
 #[test]
 fn replaced_coarse_tiles_stay_until_covered_or_near() {
-    let mut store = SummaryStore::new(usize::MAX);
-    for x in -80..80 {
-        for z in -80..80 {
-            store.admit(ColumnPos::new(x, z), &flat(64));
-        }
-    }
-    let levels = |tiles: &FarTiles, x: i32, z: i32| -> Vec<u8> {
+    let (mut store, coarse, grown) = near_growth();
+    let levels = |tiles: &FarTiles, (x, z): (i32, i32)| -> Vec<u8> {
         tiles
             .drawn()
             .iter()
@@ -263,38 +286,29 @@ fn replaced_coarse_tiles_stay_until_covered_or_near() {
             .map(|mesh| mesh.key.level)
             .collect()
     };
-    let coarse = TileView {
-        centre: [8.0, 8.0],
-        near_blocks: 32.0,
-        skip_blocks: 32.0,
-        far_blocks: 1200.0,
-    };
     let mut tiles = FarTiles::default();
     tiles.set_view(coarse);
     let now = Instant::now();
     test_time::eventually("coarse tiles build", || {
         tiles.update(&mut store, now);
-        levels(&tiles, 600, 8) == [2] && levels(&tiles, 600, 300) == [2]
+        levels(&tiles, SPLIT_NEAR) == [2] && levels(&tiles, SPLIT_FAR) == [2]
     });
 
-    tiles.set_view(TileView {
-        near_blocks: 640.0,
-        ..coarse
-    });
+    tiles.set_view(grown);
     assert_eq!(
-        levels(&tiles, 600, 300),
+        levels(&tiles, SPLIT_FAR),
         [2],
         "kept until finer tiles are built"
     );
     assert_eq!(
-        levels(&tiles, 600, 8),
+        levels(&tiles, SPLIT_NEAR),
         [2],
         "near columns hide it per fragment, so its other columns stay covered"
     );
     test_time::eventually("finer tiles replace it", || {
         tiles.update(&mut store, now);
-        levels(&tiles, 600, 300).iter().all(|level| *level < 2)
-            && !levels(&tiles, 600, 300).is_empty()
+        let levels = levels(&tiles, SPLIT_FAR);
+        !levels.is_empty() && levels.iter().all(|level| *level < 2)
     });
 }
 
@@ -416,23 +430,12 @@ fn skirts_reach_a_lower_neighbour() {
 /// mesh still hides it.
 #[test]
 fn hidden_replacements_are_not_ready() {
-    let mut store = SummaryStore::new(usize::MAX);
-    for x in -80..80 {
-        for z in -80..80 {
-            store.admit(ColumnPos::new(x, z), &flat(64));
-        }
-    }
-    let coarse = TileView {
-        centre: [8.0, 8.0],
-        near_blocks: 32.0,
-        skip_blocks: 32.0,
-        far_blocks: 1200.0,
-    };
+    let (mut store, coarse, grown) = near_growth();
     let retained = |tiles: &FarTiles| {
         tiles
             .drawn()
             .iter()
-            .any(|mesh| mesh.key.level == 2 && contains(mesh.key, 600, 300))
+            .any(|mesh| mesh.key.level == 2 && contains(mesh.key, SPLIT_FAR.0, SPLIT_FAR.1))
     };
     let mut tiles = FarTiles::default();
     tiles.set_view(coarse);
@@ -441,11 +444,8 @@ fn hidden_replacements_are_not_ready() {
         tiles.update(&mut store, now);
         retained(&tiles)
     });
-    tiles.set_view(TileView {
-        near_blocks: 640.0,
-        ..coarse
-    });
-    let column = ColumnPos::new(600 / 16, 300 / 16);
+    tiles.set_view(grown);
+    let column = ColumnPos::new(SPLIT_FAR.0.div_euclid(16), SPLIT_FAR.1.div_euclid(16));
     test_time::eventually("the finer tiles take over", || {
         tiles.update(&mut store, now);
         assert!(

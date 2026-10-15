@@ -31,6 +31,8 @@ use std::{
 
 static CONSOLE: LazyLock<Console> =
     LazyLock::new(|| Console::spawn(std::io::stdout(), std::io::stderr()));
+/// Large owned snapshots have a separate bound inside the console queue.
+const QUEUED_REPORTS: u64 = 8;
 /// Longest a panic or forced exit waits for queued output.
 const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_millis(500);
 /// Longest attaching session files waits for the writer to switch its stderr destination.
@@ -77,6 +79,8 @@ enum Message {
         priority: Priority,
         bytes: Vec<u8>,
     },
+    /// A bounded report formatted only when the writer reaches it.
+    Report(Stream, DeferredReport),
     /// Terminal output whose file copy has already been synchronized.
     WriteConsole(Stream, Vec<u8>),
     /// Replaces the stderr destination, as when fd 2 becomes the capture pipe.
@@ -90,7 +94,9 @@ impl Message {
     fn priority(&self) -> Priority {
         match self {
             Self::Write { priority, .. } => *priority,
-            Self::WriteConsole(..) | Self::Redirect(_) | Self::Flush(_) => Priority::Normal,
+            Self::Report(..) | Self::WriteConsole(..) | Self::Redirect(_) | Self::Flush(_) => {
+                Priority::Normal
+            }
         }
     }
 }
@@ -168,11 +174,25 @@ fn lock(files: &Mutex<Files>) -> MutexGuard<'_, Files> {
     files.lock().unwrap_or_else(|error| error.into_inner())
 }
 
+struct DeferredReport {
+    value: Box<dyn std::fmt::Display + Send>,
+    pending: Arc<AtomicU64>,
+}
+
+impl Drop for DeferredReport {
+    /// Releases the report budget whether the message was written or dropped.
+    fn drop(&mut self) {
+        self.pending.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// An ordered queue in front of two output streams, drained by its own thread.
 pub struct Console {
     queue: Option<Arc<Queue>>,
     files: Arc<Mutex<Files>>,
     dropped: Arc<AtomicU64>,
+    dropped_reports: Arc<AtomicU64>,
+    reports: Arc<AtomicU64>,
     raw_stderr: OnceLock<Arc<raw_stderr::RawStderr>>,
 }
 
@@ -182,10 +202,12 @@ impl Console {
         let queue = Arc::new(Queue::new(Box::new(queue::SystemClock)));
         let files = Arc::new(Mutex::new(Files::default()));
         let dropped = Arc::new(AtomicU64::new(0));
+        let dropped_reports = Arc::new(AtomicU64::new(0));
         let writer = Writer {
             queue: Arc::clone(&queue),
             files: Arc::clone(&files),
             dropped: Arc::clone(&dropped),
+            dropped_reports: Arc::clone(&dropped_reports),
             stdout: Box::new(stdout),
             stderr: Box::new(stderr),
         };
@@ -196,6 +218,8 @@ impl Console {
             queue: spawned.is_ok().then_some(queue),
             files,
             dropped,
+            dropped_reports,
+            reports: Arc::new(AtomicU64::new(0)),
             raw_stderr: OnceLock::new(),
         }
     }
@@ -225,6 +249,33 @@ impl Console {
                 write_inline(stream, &bytes);
             }
             Err(Rejected::Closed(_)) => {}
+        }
+    }
+
+    /// Queues a report without formatting or waiting; unavailable writers drop it too.
+    pub fn report(&self, stream: Stream, report: Box<dyn std::fmt::Display + Send>) {
+        if self
+            .reports
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < QUEUED_REPORTS).then_some(count + 1)
+            })
+            .is_err()
+        {
+            self.dropped_reports.fetch_add(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let report = DeferredReport {
+            value: report,
+            pending: Arc::clone(&self.reports),
+        };
+        if self
+            .queue
+            .as_ref()
+            .is_none_or(|queue| queue.push(Message::Report(stream, report)).is_err())
+        {
+            self.dropped_reports.fetch_add(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -346,6 +397,7 @@ struct Writer {
     queue: Arc<Queue>,
     files: Arc<Mutex<Files>>,
     dropped: Arc<AtomicU64>,
+    dropped_reports: Arc<AtomicU64>,
     stdout: Box<dyn Write + Send>,
     stderr: Box<dyn Write + Send>,
 }
@@ -355,11 +407,21 @@ impl Writer {
         while let Some(message) = self.queue.pop() {
             let count = self.dropped.swap(0, Ordering::Relaxed);
             if count > 0 {
-                let notice = format!("console queue full: dropped {count} writes\n");
+                let reports = self.dropped_reports.swap(0, Ordering::Relaxed);
+                let notice = if reports == 0 {
+                    format!("console queue full: dropped {count} writes\n")
+                } else {
+                    format!("console queue full: dropped {count} writes ({reports} reports)\n")
+                };
                 lock(&self.files).record(Stream::FileOnly, notice.as_bytes());
                 self.terminal(Stream::Stderr, notice.as_bytes());
             }
             match message {
+                Message::Report(stream, report) => {
+                    let bytes = format!("{}\n", report.value).into_bytes();
+                    lock(&self.files).record(stream, &bytes);
+                    self.terminal(stream, &bytes);
+                }
                 Message::Write { stream, bytes, .. } => {
                     lock(&self.files).record(stream, &bytes);
                     self.terminal(stream, &bytes);
@@ -511,6 +573,11 @@ pub fn stdout() -> Queued {
 #[must_use]
 pub fn stderr() -> Queued {
     Queued::new(Stream::Stderr, Priority::Normal)
+}
+
+/// Formats one diagnostic report on the console thread, with bounded queue loss accounting.
+pub fn defer_stderr(report: Box<dyn std::fmt::Display + Send>) {
+    console().report(Stream::Stderr, report);
 }
 
 /// The session files the console mirrors its output into: `dir/<stem>.log`, and

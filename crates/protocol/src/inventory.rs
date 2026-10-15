@@ -70,7 +70,7 @@ pub use request::{
     MAX_FILTER_STRINGS, MAX_STACK_REQUEST_ACTIONS, PLAYER_INVENTORY_SLOTS, StackItemDescriptor,
     StackRequestAction, StackRequestContainer, StackRequestSlot, container_close_packet,
     item_stack_request_batch, item_stack_request_packet, item_stack_request_packet_filtered,
-    open_inventory_packet,
+    open_inventory_packet, repeated_container_open_warning_packet,
 };
 use validation::validate_item_user_data;
 pub const MAX_CONTAINER_SLOTS: usize = 4_096;

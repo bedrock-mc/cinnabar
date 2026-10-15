@@ -457,3 +457,53 @@ fn an_info_flood_loses_no_warning() {
     }
     assert!(text.contains("console queue full: dropped"));
 }
+
+/// Checks the formatting thread and counts only reports the writer actually consumes.
+struct ReportProbe {
+    producer: std::thread::ThreadId,
+    formatted: Arc<AtomicU64>,
+}
+
+impl std::fmt::Display for ReportProbe {
+    /// Formatting must happen only after the console's stalled destination resumes.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        assert_ne!(std::thread::current().id(), self.producer);
+        self.formatted.fetch_add(1, Ordering::Relaxed);
+        f.write_str("owned snapshot")
+    }
+}
+
+/// Stalled output neither formats on the producer nor retains more than the report budget.
+#[test]
+fn deferred_reports_stay_bounded_and_format_on_the_writer() {
+    let (release, stalled) = mpsc::channel();
+    let (entered, started) = mpsc::channel();
+    let console = Console::spawn(
+        Stalled {
+            release: Some(stalled),
+            entered: Some(entered),
+            written: Arc::new(Mutex::new(Vec::new())),
+        },
+        std::io::sink(),
+    );
+    console.write(Stream::Stdout, b"hold writer\n".to_vec());
+    started.recv_timeout(Duration::from_secs(10)).unwrap();
+    let formatted = Arc::new(AtomicU64::new(0));
+    for _ in 0..QUEUED_REPORTS + 2 {
+        console.report(
+            Stream::Stderr,
+            Box::new(ReportProbe {
+                producer: std::thread::current().id(),
+                formatted: Arc::clone(&formatted),
+            }),
+        );
+    }
+    assert_eq!(formatted.load(Ordering::Relaxed), 0);
+    assert_eq!(console.reports.load(Ordering::Relaxed), QUEUED_REPORTS);
+    assert_eq!(console.dropped.load(Ordering::Relaxed), 2);
+    assert_eq!(console.dropped_reports.load(Ordering::Relaxed), 2);
+    release.send(()).unwrap();
+    console.flush();
+    assert_eq!(formatted.load(Ordering::Relaxed), QUEUED_REPORTS);
+    assert_eq!(console.reports.load(Ordering::Relaxed), 0);
+}

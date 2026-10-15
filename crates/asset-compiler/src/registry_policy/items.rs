@@ -33,9 +33,12 @@ pub(super) struct ItemRule {
     #[serde(default)]
     roles: Vec<Role>,
     tier: Option<ItemTier>,
+    armour_material: Option<assets::facts::ArmourMaterial>,
     armour_slot: Option<ItemArmourSlot>,
     allow_off_hand: Option<bool>,
     beacon_payment_key: Option<i64>,
+    book_editable: Option<bool>,
+    potion_form: Option<PotionForm>,
     repair: Option<Repair>,
 }
 #[derive(Clone, Copy, Deserialize)]
@@ -77,7 +80,7 @@ names!(Trait, ItemTraits,
     Shears => SHEARS, Spear => SPEAR, Trident => TRIDENT, Bow => BOW, Crossbow => CROSSBOW,
     Shield => SHIELD, FishingRod => FISHING_ROD, FlintAndSteel => FLINT_AND_STEEL,
     CarrotStick => CARROT_STICK, FungusStick => FUNGUS_STICK, Compass => COMPASS,
-    Brush => BRUSH, Mace => MACE,
+    Brush => BRUSH, Mace => MACE, Spyglass => SPYGLASS,
 );
 names!(Role, ContainerRoles,
     BrewingFuel => BREWING_FUEL, BrewingBottle => BREWING_BOTTLE, LoomBanner => LOOM_BANNER,
@@ -334,7 +337,9 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
                 check(
                     rule.armour_slot.is_none()
                         && rule.allow_off_hand.is_none()
-                        && rule.beacon_payment_key.is_none(),
+                        && rule.beacon_payment_key.is_none()
+                        && rule.book_editable.is_none()
+                        && rule.potion_form.is_none(),
                     "tag rule needs portable facts",
                 )?;
                 let definition = &mut tags[index];
@@ -424,12 +429,27 @@ pub(super) fn compile(root: &Path) -> Result<(ItemFactsPayload, String)> {
                 )?;
                 fact.tier = Some(tier);
             }
+            if let Some(material) = rule.armour_material {
+                check(
+                    fact.armour_material.is_none() || fact.armour_material == Some(material),
+                    "conflicting armour materials",
+                )?;
+                fact.armour_material = Some(material);
+            }
             if let Some(slot) = rule.armour_slot {
                 check(
                     fact.armour_slot.is_none() || fact.armour_slot == Some(slot),
                     "conflicting armour slots",
                 )?;
                 fact.armour_slot = Some(slot);
+            }
+            if let Some(editable) = rule.book_editable {
+                check(fact.book_editable.is_none(), "conflicting book form")?;
+                fact.book_editable = Some(editable);
+            }
+            if let Some(form) = rule.potion_form {
+                check(fact.potion_form.is_none(), "conflicting potion form")?;
+                fact.potion_form = Some(form);
             }
             if let Some(key) = rule.beacon_payment_key {
                 check(

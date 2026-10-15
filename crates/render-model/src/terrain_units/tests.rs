@@ -68,3 +68,30 @@ fn compaction_preserves_stream_order_and_shards_never_drop_units() {
         visible
     );
 }
+
+#[test]
+fn indexed_pages_bound_both_regions_and_keep_the_original_storage_slot_count() {
+    for bytes in 0..4096 {
+        let capacity = IndexedUnitPage::capacity_for(bytes);
+        if capacity == 0 {
+            assert!(bytes < IndexedUnitPage { capacity: 1 }.byte_size());
+            continue;
+        }
+        let page = IndexedUnitPage { capacity };
+        assert!(page.byte_size() <= bytes);
+        assert!(
+            IndexedUnitPage {
+                capacity: capacity + 1
+            }
+            .byte_size()
+                > bytes
+        );
+        assert_eq!(
+            u64::from(page.header()[0]) * size_of::<VisibleTerrainUnit>() as u64,
+            page.reference_offset()
+        );
+        assert!(
+            page.reference_offset() + capacity as u64 * size_of::<u32>() as u64 <= page.byte_size()
+        );
+    }
+}

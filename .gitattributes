@@ -36,5 +36,9 @@ packaging/common/prep-kit-files.txt text eol=lf
 assets/bedrock-target.json text eol=lf
 crates/assets/data/facts-expansion-v*.tsv text eol=lf
 crates/assets/data/vocabulary-v*.txt text eol=lf
+crates/assets/data/block-placement-v*.tsv text eol=lf
+crates/json-ui/data/vanilla-ui-vocabulary-*.txt text eol=lf
 crates/assets/data/item-facts-expansion-*.tsv text eol=lf
 crates/assets/data/item-facts-*.bin binary
+*_generated.rs text eol=lf
+crates/protocol-ids/src/generated.rs text eol=lf

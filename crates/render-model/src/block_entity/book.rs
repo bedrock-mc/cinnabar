@@ -217,7 +217,10 @@ const LECTERN_PARTS: PartPoses = [
 /// Emits the book model in `matrix` space (pixels): the spine runs along Y, the closed book
 /// lies on +X, and the open pages face +X.
 fn emit_book(builder: &mut MeshBuilder, atlas: &BlockEntityAtlas, matrix: Mat4, parts: PartPoses) {
-    let Some(texture) = atlas.texture("textures/entity/enchanting_table_book", [64.0, 32.0]) else {
+    let Some(texture) = atlas.texture(
+        assets::block_entity_geometry::textures::AtlasTexture::EntityEnchantingTableBook.path(),
+        [64.0, 32.0],
+    ) else {
         return;
     };
     let pivots = [

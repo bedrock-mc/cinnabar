@@ -8,6 +8,7 @@ use render_model::ActorArtworkPageId;
 #[path = "gpu/geometry.rs"]
 mod geometry;
 pub(crate) use geometry::SegmentedVertexBuffer;
+pub use geometry::storage_binding_bytes;
 
 #[derive(Default, Resource)]
 pub(crate) struct ActorDrawTracker {

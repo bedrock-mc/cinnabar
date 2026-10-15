@@ -2,7 +2,6 @@
 
 use super::*;
 
-const SPYGLASS: &str = "minecraft:spyglass";
 const SOURCE: &str = "attachables/_cinnabar/spyglass.json";
 
 /// Completes only the startup carrier; authored attachables and server packs keep their binding.
@@ -33,48 +32,73 @@ pub(super) fn complete_sample_bindings(
         payloads.insert(source.into(), bytes.into());
         Ok::<_, AssetError>(size)
     };
-    size += add(
-        SPYGLASS,
-        SOURCE,
-        &[
-            "models/entity/spyglass.geo.json",
-            "animations/spyglass.animation.json",
-            "textures/entity/spyglass.png",
-        ],
-        spyglass_binding(),
-    )?;
-    for (material, texture) in [
-        ("wooden", "wood"),
-        ("stone", "stone"),
-        ("copper", "copper"),
-        ("iron", "iron"),
-        ("golden", "gold"),
-        ("diamond", "diamond"),
-        ("netherite", "netherite"),
-    ] {
-        let identifier = format!("minecraft:{material}_spear");
-        let source = format!("attachables/_cinnabar/{material}_spear.json");
+    let facts =
+        assets::facts::ItemFacts::builtin().map_err(|_| invalid("item facts are unavailable"))?;
+    for record in &facts.payload().records {
+        if record
+            .fact
+            .traits
+            .contains(assets::facts::ItemTraits::SPYGLASS)
+        {
+            size += add(
+                &record.identifier,
+                SOURCE,
+                &[
+                    "models/entity/spyglass.geo.json",
+                    "animations/spyglass.animation.json",
+                    "textures/entity/spyglass.png",
+                ],
+                spyglass_binding(&record.identifier),
+            )?;
+        }
+        if !record
+            .fact
+            .traits
+            .contains(assets::facts::ItemTraits::SPEAR)
+        {
+            continue;
+        }
+        use assets::facts::ItemTier as T;
+        let texture = match record.fact.tier {
+            Some(T::Wood) => "wood",
+            Some(T::Stone) => "stone",
+            Some(T::Copper) => "copper",
+            Some(T::Iron) => "iron",
+            Some(T::Gold) => "gold",
+            Some(T::Diamond) => "diamond",
+            Some(T::Netherite) => "netherite",
+            None => return Err(invalid("spear material is unavailable")),
+        };
+        let stem = record
+            .identifier
+            .strip_prefix("minecraft:")
+            .ok_or_else(|| invalid("invalid builtin spear identifier"))?;
+        let source = format!("attachables/_cinnabar/{stem}.json");
         let texture_path = format!("textures/entity/spear/{texture}_spear.png");
         size += add(
-            &identifier,
+            &record.identifier,
             &source,
             &[
                 "models/entity/spear.geo.json",
                 "animations/spear.animation.json",
                 &texture_path,
             ],
-            spear_binding(&identifier, texture),
+            spear_binding(
+                &record.identifier,
+                texture,
+                record.fact.tier == Some(T::Wood),
+            ),
         )?;
     }
     Ok(size)
 }
 
 /// Connects the sample's authored geometry, texture and both poses without reproducing their art.
-fn spyglass_binding() -> Value {
+fn spyglass_binding(identifier: &str) -> Value {
     serde_json::json!({
         "format_version": "1.10.0",
         "minecraft:attachable": {"description": {
-            "identifier": SPYGLASS,
+            "identifier": identifier,
             "materials": {
                 "default": "entity_alphatest", "enchanted": "entity_alphatest_glint"
             },
@@ -97,7 +121,7 @@ fn spyglass_binding() -> Value {
 }
 
 /// Binds the spear's authored held and impact controllers in both perspectives.
-fn spear_binding(identifier: &str, material: &str) -> Value {
+fn spear_binding(identifier: &str, material: &str, wooden: bool) -> Value {
     serde_json::json!({
         "format_version": "1.10.0",
         "minecraft:attachable": {"description": {
@@ -116,7 +140,7 @@ fn spear_binding(identifier: &str, material: &str) -> Value {
                 "hit_controller": "controller.animation.spear.hit"
             },
             "scripts": {"animate": ["held_controller", "hit_controller"]},
-            "sound_effects": {"hit": if material == "wood" {"item.wooden_spear.hit"} else {"item.spear.hit"}},
+            "sound_effects": {"hit": if wooden {"item.wooden_spear.hit"} else {"item.spear.hit"}},
             "render_controllers": ["controller.render.item_default"]
         }}
     })
@@ -190,7 +214,12 @@ mod tests {
         let binding = compiled
             .equipment_bindings
             .iter()
-            .find(|binding| binding.identifier.as_ref() == SPYGLASS)
+            .find(|binding| {
+                assets::facts::ItemFacts::builtin()
+                    .unwrap()
+                    .by_identifier(&binding.identifier)
+                    .is_some_and(|fact| fact.traits.contains(assets::facts::ItemTraits::SPYGLASS))
+            })
             .expect("the sample spyglass must be drawable as an attachable");
         assert_eq!(binding.geometry.identifier.as_ref(), "geometry.spyglass");
         assert_eq!(
@@ -202,7 +231,14 @@ mod tests {
             .symbols()
             .iter()
             .position(|symbol| {
-                symbol.kind == EntityAssetKind::Attachable && symbol.identifier.as_ref() == SPYGLASS
+                symbol.kind == EntityAssetKind::Attachable
+                    && assets::facts::ItemFacts::builtin()
+                        .unwrap()
+                        .by_identifier(&symbol.identifier)
+                        .is_some_and(|fact| {
+                            fact.use_animation
+                                == Some(assets::facts::ItemUseAnimationFact::Spyglass)
+                        })
             })
             .unwrap();
         let rig = runtime

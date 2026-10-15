@@ -119,6 +119,24 @@ fn compiled_pack(files: Vec<(Box<str>, Vec<u8>)>) -> Option<assets::SessionEntit
 
 /// Keeps actor identity, pose and equipment unchanged across each pack publication.
 fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
+    runtime.set_session_items(
+        Some(&client_presentation::session_assets::SessionItems {
+            components: Arc::new(
+                [(
+                    Arc::from(ITEM),
+                    protocol::ItemComponents {
+                        wearable_slot: Some("slot.armor.chest".into()),
+                        ..Default::default()
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            ),
+            icons: None,
+        }),
+        None,
+        Vec::new(),
+    );
     let rig = render_model::skin_rig_id(0);
     runtime.register_skin_rig(rig, vec!["body".into()]);
     let pose: Arc<[render_model::RenderBoneTransform]> =
@@ -160,6 +178,20 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
         uv_anim: render_model::IDENTITY_UV_ANIM,
         light: 0,
     }
+}
+
+/// Declares the custom fixture chestplate's wearable slot, as its server's item components would;
+/// only vanilla armour takes its slot from the item facts.
+fn wear_chestplate(runtime: &mut EquipmentRuntime) {
+    let components = protocol::ItemComponents {
+        wearable_slot: Some("slot.armor.chest".into()),
+        ..Default::default()
+    };
+    let items = client_presentation::session_assets::SessionItems {
+        components: Arc::new([(Arc::<str>::from(ITEM), components)].into_iter().collect()),
+        icons: None,
+    };
+    runtime.set_session_items(Some(&items), None, Vec::new());
 }
 
 /// Produces a real player snapshot through the public event admission path.
@@ -325,6 +357,7 @@ fn hot_reload_replaces_armour_on_an_already_equipped_actor_and_restores_base() {
             ActorArtworkPages::default(),
         );
         let body = body(&mut runtime);
+        wear_chestplate(&mut runtime);
         let equipped = equipped(Some(0x234567), false);
         assert_eq!(
             worn_pixel(&mut runtime, &body, &equipped, &base_pages),
@@ -394,6 +427,7 @@ fn a_sidecar_only_glint_override_keeps_the_base_armour_visible() {
         ActorArtworkPages::default(),
     );
     let body = body(&mut runtime);
+    wear_chestplate(&mut runtime);
     let equipped = equipped(None, true);
     let path = format!("{}.png", assets::ACTOR_GLINT_TEXTURE_IDENTIFIER);
     let view = resource_pack::LayeredPackView::new(super::super::pack_reload_tests::stack(&[(
@@ -441,6 +475,7 @@ fn mixed_texture_and_geometry_reload_keeps_the_authored_equipment_model() {
         ActorArtworkPages::default(),
     );
     let body = body(&mut runtime);
+    wear_chestplate(&mut runtime);
     let equipped = equipped(None, false);
     let startup_rig = runtime.layers_for(&body, &equipped, None)[0]
         .submission
@@ -523,6 +558,7 @@ fn mixed_texture_and_material_reload_disables_authored_armour_dye() {
         ActorArtworkPages::default(),
     );
     let body = body(&mut runtime);
+    wear_chestplate(&mut runtime);
     let equipped = equipped(dye, false);
     assert_ne!(
         runtime.layers_for(&body, &equipped, None)[0]

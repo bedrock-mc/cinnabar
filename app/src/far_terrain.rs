@@ -2,6 +2,7 @@
 //! on the server, world and dimension being played, and publishes the tiles to draw.
 
 use std::{
+    collections::VecDeque,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -11,7 +12,7 @@ use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
-    RetiringSession, TileView,
+    RetiringSession, SummaryBudget, TileView,
 };
 use render_api::far_terrain::{DeviceTier, far_reach_chunks, full_detail_chunks};
 use render_scene::FarTerrainScene;
@@ -49,7 +50,7 @@ const EXIT_SUMMARY_WAIT: Duration = Duration::from_secs(1);
 struct Retiring {
     session: RetiringSession,
     inbox: FarSummaryInbox,
-    columns: Vec<(ColumnPos, EncodedSummary)>,
+    columns: VecDeque<(ColumnPos, EncodedSummary)>,
 }
 
 impl FarTerrain {
@@ -81,39 +82,109 @@ impl FarTerrain {
         self.retiring.push(Retiring {
             session,
             inbox: stream.retire_far_terrain(),
-            columns: Vec::new(),
+            columns: VecDeque::new(),
         });
     }
 
     /// Collects retiring summaries and persists each session's once its inbox is empty.
-    fn drain_retiring(&mut self, now: Instant) {
-        self.drain_retiring_until(now, None);
+    fn drain_retiring(&mut self, now: Instant, budget: &mut SummaryBudget) {
+        self.drain_retiring_until(now, None, budget);
     }
 
     /// Like [`Self::drain_retiring`], blocking until `deadline` for summaries in flight.
-    fn drain_retiring_until(&mut self, now: Instant, deadline: Option<Instant>) {
+    fn drain_retiring_until(
+        &mut self,
+        now: Instant,
+        deadline: Option<Instant>,
+        budget: &mut SummaryBudget,
+    ) {
+        self.drain_retiring_with(
+            now,
+            budget,
+            deadline.is_some(),
+            || deadline.is_some_and(|deadline| Instant::now() >= deadline),
+            |retiring| {
+                if let Some(deadline) = deadline {
+                    FarSummaryInbox::wait_for_any(
+                        retiring.iter().map(|retiring| &retiring.inbox),
+                        deadline,
+                    );
+                }
+            },
+        );
+    }
+
+    /// Gives every retiring inbox a bounded turn before waiting for any inbox to change.
+    /// Clock and wait callbacks keep the same coordination path deterministic in fixtures.
+    fn drain_retiring_with(
+        &mut self,
+        now: Instant,
+        budget: &mut SummaryBudget,
+        waiting: bool,
+        mut expired: impl FnMut() -> bool,
+        mut wait: impl FnMut(&[Retiring]),
+    ) {
+        loop {
+            let expired = expired();
+            self.drain_retiring_round(now, budget, waiting, expired);
+            if !waiting
+                || expired
+                || self
+                    .retiring
+                    .iter()
+                    .all(|retiring| retiring.inbox.is_idle())
+            {
+                break;
+            }
+            wait(&self.retiring);
+        }
+    }
+
+    /// Delivers each session's ready output before another session can wait for its permits.
+    fn drain_retiring_round(
+        &mut self,
+        now: Instant,
+        budget: &mut SummaryBudget,
+        waiting: bool,
+        expired: bool,
+    ) {
         let mut index = 0;
         while index < self.retiring.len() {
             let retiring = &mut self.retiring[index];
-            match deadline {
-                Some(deadline) => retiring.inbox.drain_waiting(&mut self.drained, deadline),
-                None => retiring.inbox.drain(&mut self.drained),
+            if expired {
+                retiring.inbox.drain(&mut self.drained);
+            } else if waiting {
+                retiring
+                    .inbox
+                    .drain_budgeted(&mut self.drained, &mut SummaryBudget::default());
+            } else {
+                retiring.inbox.drain_budgeted(&mut self.drained, budget);
             }
             let dimension = retiring.session.dimension();
-            retiring.columns.extend(
-                self.drained
-                    .drain(..)
-                    .filter(|finished| finished.column.dimension == dimension)
-                    .map(|finished| {
-                        let column = finished.column;
-                        (ColumnPos::new(column.x, column.z), finished.summary)
-                    }),
-            );
-            let expired = deadline.is_some_and(|deadline| Instant::now() >= deadline);
+            for finished in self
+                .drained
+                .drain(..)
+                .filter(|finished| finished.column.dimension == dimension)
+            {
+                let pos = ColumnPos::new(finished.column.x, finished.column.z);
+                retiring.session.add_probe(pos, &finished.summary);
+                retiring.columns.push_back((pos, finished.summary));
+            }
             if retiring.inbox.is_idle() || expired {
-                let done = self.retiring.remove(index);
-                self.cache.persist(done.session, done.columns, now);
-            } else if deadline.is_none() {
+                let mut columns = Vec::new();
+                while let Some((_, summary)) = retiring.columns.front() {
+                    if !budget.take(summary.bytes.len()) {
+                        break;
+                    }
+                    columns.push(retiring.columns.pop_front().expect("checked above"));
+                }
+                self.cache.persist(retiring.session.clone(), columns, now);
+                if retiring.columns.is_empty() {
+                    self.retiring.remove(index);
+                } else {
+                    index += 1;
+                }
+            } else {
                 index += 1;
             }
         }
@@ -126,7 +197,11 @@ impl FarTerrain {
             self.retire_stream(stream);
         }
         let now = Instant::now();
-        self.drain_retiring_until(now, Some(now + EXIT_SUMMARY_WAIT));
+        self.drain_retiring_until(
+            now,
+            Some(now + EXIT_SUMMARY_WAIT),
+            &mut SummaryBudget::new(usize::MAX, usize::MAX),
+        );
         self.cache.leave_world();
         self.cache.sync();
     }
@@ -245,14 +320,15 @@ pub(crate) fn feed_far_terrain(
             (destination.to_owned(), level, dimension, generation)
         });
     }
-    far.drain_retiring(now);
+    let mut summary_budget = SummaryBudget::default();
+    far.drain_retiring(now, &mut summary_budget);
     if world
         .stream
         .as_ref()
         .is_some_and(|stream| enabled && stream.has_far_summaries())
         && let Some(stream) = world.stream.as_mut()
     {
-        stream.drain_far_summaries(&mut far.drained);
+        stream.drain_far_summaries_budgeted(&mut far.drained, &mut summary_budget);
     }
     if world
         .stream
@@ -277,7 +353,7 @@ pub(crate) fn feed_far_terrain(
         stream.set_full_detail_radius(full_detail);
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
-        far.cache.poll(now);
+        far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
             *scene = FarTerrainScene::default();
         }
@@ -339,7 +415,7 @@ pub(crate) fn feed_far_terrain(
         .set_memory_budget(summary_budget_bytes(loaded + reach));
     far.cache
         .set_focus(ColumnPos::new(centre.x, centre.z), loaded + reach);
-    far.cache.poll(now);
+    far.cache.poll_budgeted(now, &mut summary_budget);
     let changed = far.cache.store().take_changed();
     far.tiles.mark_changed(&changed);
     far.tiles.set_view(TileView::around(
@@ -470,7 +546,7 @@ mod tests {
         far.retiring.push(Retiring {
             session,
             inbox: FarSummaryInbox::default(),
-            columns: vec![(ColumnPos::new(300, 0), flat(90))],
+            columns: VecDeque::from([(ColumnPos::new(300, 0), flat(90))]),
         });
         far.cache.leave_world();
         let mut app = App::new();
@@ -488,6 +564,203 @@ mod tests {
         reader.poll(now);
         let stored = reader.store().encoded(ColumnPos::new(300, 0)).cloned();
         assert_eq!(stored.map(|summary| summary.hash), Some(flat(90).hash));
+    }
+
+    /// Retirement persistence uses the same column limit and carries the remainder forward.
+    #[test]
+    fn retiring_admission_is_bounded() {
+        use far_terrain::config::SUMMARY_COLUMNS_PER_UPDATE;
+        let now = Instant::now();
+        let mut far = FarTerrain::new(None);
+        join(&mut far.cache, now);
+        let session = far.cache.retire_session().unwrap();
+        let columns = (0..SUMMARY_COLUMNS_PER_UPDATE + 1)
+            .map(|x| (ColumnPos::new(1000 + x as i32, 0), flat(90)))
+            .collect();
+        far.retiring.push(Retiring {
+            session,
+            inbox: FarSummaryInbox::default(),
+            columns,
+        });
+        let before = far.cache.store().len();
+        far.drain_retiring(now, &mut SummaryBudget::default());
+        assert_eq!(far.cache.store().len() - before, SUMMARY_COLUMNS_PER_UPDATE);
+        assert_eq!(far.retiring[0].columns.len(), 1);
+        far.drain_retiring(now, &mut SummaryBudget::default());
+        assert!(far.retiring.is_empty());
+        assert_eq!(
+            far.cache.store().len() - before,
+            SUMMARY_COLUMNS_PER_UPDATE + 1
+        );
+    }
+
+    /// Retiring sessions share capacity without blocking each other's final namespace writes.
+    #[test]
+    fn shutdown_progresses_all_retiring_inboxes_before_waiting() {
+        use chunk_pipeline::FarSummaryFixture;
+        use far_terrain::ColumnSnapshot;
+
+        /// Resolves the namespace for one server and dimension using stable fixture probes.
+        fn join_world(cache: &mut FarTerrainCache, server: &str, dimension: i32, now: Instant) {
+            cache.enter_world(server, 42, dimension);
+            for x in 0..WORLD_PROBE_COLUMNS as i32 {
+                cache.admit(dimension, ColumnPos::new(x, 0), flat(64), now);
+            }
+            cache.sync();
+            cache.poll(now);
+            assert!(cache.namespace().is_some());
+        }
+
+        /// Reads a persisted result from the selected namespace after the IO owner settles.
+        fn read(
+            cache: &mut FarTerrainCache,
+            pos: ColumnPos,
+            now: Instant,
+        ) -> Option<EncodedSummary> {
+            cache.set_focus(pos, 4);
+            cache.sync();
+            cache.poll(now);
+            cache.store().encoded(pos).cloned()
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let now = Instant::now();
+        let mut far = FarTerrain::new(Some(root.path().to_owned()));
+        let fixture = FarSummaryFixture::new(2);
+        let pos = ColumnPos::new(900, 0);
+        let sibling = ColumnPos::new(901, 0);
+        join_world(&mut far.cache, SERVER, 0, now);
+        let first = far.cache.retire_session().unwrap();
+        let mut denied = fixture.inbox();
+        fixture.enqueue(
+            &mut denied,
+            ::world::ChunkKey::new(0, pos.x, pos.z),
+            ColumnSnapshot::new(Arc::default(), Vec::new()),
+        );
+
+        const OTHER_SERVER: &str = "remote:other.example.net:19132";
+        join_world(&mut far.cache, OTHER_SERVER, -1, now);
+        let second = far.cache.retire_session().unwrap();
+        let mut ready = fixture.inbox();
+        fixture.ready(
+            &mut ready,
+            ::world::ChunkKey::new(-1, pos.x, pos.z),
+            flat(70),
+        );
+        fixture.ready(
+            &mut ready,
+            ::world::ChunkKey::new(-1, sibling.x, sibling.z),
+            flat(71),
+        );
+        let (usage, limits) = fixture.admission();
+        assert_eq!(
+            usage.0, limits.0,
+            "the later inbox owns every admitted slot"
+        );
+        far.cache.admit(-1, pos, flat(90), now);
+        far.retiring.extend([
+            Retiring {
+                session: first,
+                inbox: denied,
+                columns: VecDeque::new(),
+            },
+            Retiring {
+                session: second,
+                inbox: ready,
+                columns: VecDeque::new(),
+            },
+        ]);
+
+        let mut waits = 0;
+        far.drain_retiring_with(
+            now,
+            &mut SummaryBudget::new(usize::MAX, usize::MAX),
+            true,
+            || false,
+            |retiring| {
+                waits += 1;
+                assert!(waits < 16, "finite retirement must keep progressing");
+                let (usage, limits) = fixture.admission();
+                assert!(usage.0 <= limits.0 && usage.1 <= limits.1);
+                fixture.run_one();
+                assert!(
+                    FarSummaryInbox::wait_for_any(
+                        retiring.iter().map(|session| &session.inbox),
+                        now
+                    ),
+                    "delivery releases capacity or a manual job publishes the next event"
+                );
+            },
+        );
+        assert!(far.retiring.is_empty());
+        assert_eq!(fixture.admission().0, (0, 0));
+        assert_eq!(
+            far.cache.store().encoded(pos).unwrap().hash,
+            flat(90).hash,
+            "older retired output cannot replace a newer active-session write"
+        );
+        far.cache.leave_world();
+        far.cache.sync();
+
+        let mut reader =
+            FarTerrainCache::new(FarTerrainConfig::default(), Some(root.path().into()), 0);
+        join_world(&mut reader, SERVER, 0, now);
+        assert_eq!(
+            read(&mut reader, pos, now).unwrap().hash,
+            ColumnSummary::default().encode().hash
+        );
+        join_world(&mut reader, OTHER_SERVER, -1, now);
+        assert_eq!(read(&mut reader, pos, now).unwrap().hash, flat(90).hash);
+        assert_eq!(read(&mut reader, sibling, now).unwrap().hash, flat(71).hash);
+    }
+
+    /// Expiration ends the shared wait once, persisting collected output without waiting on held work.
+    #[test]
+    fn shutdown_deadline_keeps_collected_output_and_stops_waiting() {
+        use chunk_pipeline::FarSummaryFixture;
+        use far_terrain::ColumnSnapshot;
+
+        let now = Instant::now();
+        let mut far = FarTerrain::new(None);
+        join(&mut far.cache, now);
+        let session = far.cache.retire_session().unwrap();
+        let fixture = FarSummaryFixture::new(1);
+        let mut inbox = fixture.inbox();
+        fixture.enqueue(
+            &mut inbox,
+            ::world::ChunkKey::new(0, 900, 0),
+            ColumnSnapshot::new(Arc::default(), Vec::new()),
+        );
+        let pos = ColumnPos::new(800, 0);
+        far.retiring.push(Retiring {
+            session,
+            inbox,
+            columns: VecDeque::from([(pos, flat(90))]),
+        });
+        let mut checks = 0;
+        let mut waits = 0;
+        far.drain_retiring_with(
+            now,
+            &mut SummaryBudget::new(usize::MAX, usize::MAX),
+            true,
+            || {
+                checks += 1;
+                checks > 1
+            },
+            |_| {
+                waits += 1;
+            },
+        );
+        assert_eq!((checks, waits), (2, 1));
+        assert!(far.retiring.is_empty());
+        assert_eq!(far.cache.store().encoded(pos).unwrap().hash, flat(90).hash);
+        assert_eq!(
+            fixture.admission().0.0,
+            1,
+            "unfinished work keeps its permit"
+        );
+        assert!(fixture.run_one());
+        assert_eq!(fixture.admission().0, (0, 0));
     }
 
     /// Turning far terrain off mid warm-join keeps the old full-detail area free of far

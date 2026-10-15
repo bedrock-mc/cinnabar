@@ -72,8 +72,8 @@ pub struct CameraMovementTick {
 pub trait CollisionLookup {
     /// Borrows the registry matching the stream's runtime ID mode.
     fn registry(&self, mode: NetworkIdMode) -> &CollisionRegistry;
-    /// Returns the canonical block state used by render-side material sampling.
-    fn block_canonical_state(&self, mode: NetworkIdMode, runtime_id: u32) -> Option<&str>;
+    /// Returns the sleep heading compiled from the registry's direction state.
+    fn bed_rotation_degrees(&self, mode: NetworkIdMode, runtime_id: u32) -> Option<f32>;
     /// Resolves a runtime block ID without mutating gameplay state.
     fn block_identifier(&self, mode: NetworkIdMode, runtime_id: u32) -> Option<&str>;
 }

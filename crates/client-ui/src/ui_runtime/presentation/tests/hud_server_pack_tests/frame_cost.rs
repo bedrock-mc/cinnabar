@@ -6,15 +6,18 @@ use std::time::{Duration, Instant};
 const SAMPLES: usize = 500;
 
 #[test]
-#[ignore = "release benchmark; needs local carriers and CINNABAR_FORM_PACK_DIR"]
 fn offline_server_hud_publication_cost() {
     use super::super::super::forms::pack_harness;
     let Some(pack) = pack_harness::env_pack() else {
-        eprintln!("HUD_PUBLICATION skipped: no offline pack directories");
+        eprintln!(
+            "skipping offline_server_hud_publication_cost: missing offline server pack directories"
+        );
         return;
     };
     let Some(mut presentation) = pack_harness::engine_presentation() else {
-        eprintln!("HUD_PUBLICATION skipped: no installed carriers");
+        eprintln!(
+            "skipping offline_server_hud_publication_cost: missing installed carriers (make assets)"
+        );
         return;
     };
     presentation.set_server_ui_pack(&pack);
@@ -26,6 +29,7 @@ fn offline_server_hud_publication_cost() {
     for changing in [false, true] {
         let mut samples = Vec::with_capacity(SAMPLES);
         let before = presentation.hud_passes();
+        let constructions = presentation.hud_component_constructions();
         for sample in 0..=SAMPLES {
             let index = sample as u64;
             let now = index * 8;
@@ -55,6 +59,11 @@ fn offline_server_hud_publication_cost() {
                 samples.push(started.elapsed());
             }
         }
+        let after = presentation.hud_component_constructions();
+        let constructions = std::array::from_fn::<_, { json_ui::HudChanges::COUNT }, _>(|index| {
+            after[index] - constructions[index]
+        });
+        eprintln!("HUD_PUBLICATION changing={changing} component_constructions={constructions:?}");
         report(changing, &mut samples, presentation.hud_passes() - before);
     }
 }

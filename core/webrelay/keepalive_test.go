@@ -3,6 +3,7 @@ package webrelay
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
@@ -64,7 +65,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 			t.Fatal("missing received keepalive", err)
 		}
 		<-time.After(time.Second) // Advance the virtual clock before answering the first ping.
-		if err := writeJSON(browser, controlRequest{Op: bridgecontract.RelayOpPong, Resume: received.Resume}); err != nil {
+		if err := writeJSON(context.Background(), browser, controlRequest{Op: bridgecontract.RelayOpPong, Resume: received.Resume}); err != nil {
 			t.Fatal(err)
 		}
 		synctest.Wait()
@@ -106,7 +107,7 @@ func TestControlRequestsCannotReplacePongLiveness(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err := writeJSON(browser, controlRequest{Op: bridgecontract.RelayOpSignOut}); err != nil {
+		if err := writeJSON(context.Background(), browser, controlRequest{Op: bridgecontract.RelayOpSignOut}); err != nil {
 			t.Fatal(err)
 		}
 		if err := readJSON(browser, new(controlEvent)); err != nil {
@@ -142,7 +143,7 @@ func TestControlMessageFloodClosesTheController(t *testing.T) {
 			}
 		}
 		for range controlRequestBurst + 1 {
-			if err := writeJSON(browser, controlRequest{Op: "unknown"}); err != nil {
+			if err := writeJSON(context.Background(), browser, controlRequest{Op: "unknown"}); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -150,6 +151,33 @@ func TestControlMessageFloodClosesTheController(t *testing.T) {
 		case <-done:
 		case <-time.After(time.Second):
 			t.Fatal("a burst of control frames was not refused")
+		}
+	})
+}
+
+// cancelledDuringWriteConn cancels its owner, and lets the cancellation deadline land, as a write arms its own deadline.
+type cancelledDuringWriteConn struct {
+	net.Conn
+	cancel context.CancelFunc
+}
+
+func (conn *cancelledDuringWriteConn) SetWriteDeadline(deadline time.Time) error {
+	conn.cancel()
+	synctest.Wait()
+	return conn.Conn.SetWriteDeadline(deadline)
+}
+
+func TestCancellationRacingAWriteDeadlineStillStopsTheWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		server, browser := net.Pipe()
+		defer server.Close()
+		defer browser.Close()
+		ctx, cancel := context.WithCancel(t.Context())
+		defer context.AfterFunc(ctx, func() { _ = server.SetDeadline(time.Now()) })()
+		start := time.Now()
+		err := writeJSON(ctx, &cancelledDuringWriteConn{Conn: server, cancel: cancel}, controlEvent{})
+		if !errors.Is(err, context.Canceled) || time.Since(start) != 0 {
+			t.Fatal("a per-write deadline outlived the controller's cancellation", err, time.Since(start))
 		}
 	})
 }

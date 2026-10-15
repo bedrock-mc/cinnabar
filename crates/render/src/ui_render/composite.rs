@@ -33,6 +33,10 @@ pub(crate) const UI_COMPOSITE_SHADER_HANDLE: Handle<Shader> =
     uuid_handle!("f5b1f3c2-7a0e-4d0c-9c5e-3a8a4b1e6d21");
 /// The UI layer's format: raw bytes, so blending happens on sRGB-encoded values.
 pub(crate) const UI_LAYER_FORMAT: TextureFormat = TextureFormat::Rgba8Unorm;
+const UI_LAYER_BYTES_PER_TEXEL: u64 = {
+    assert!(matches!(UI_LAYER_FORMAT, TextureFormat::Rgba8Unorm));
+    4
+};
 
 /// What a retained layer was drawn from; equal content means its pixels are still valid.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +45,10 @@ pub(crate) struct UiLayerContent {
     pub(crate) skip: Option<Range<u32>>,
     pub(crate) viewport: Option<(UVec2, UVec2)>,
     pub(crate) model_depth: bool,
+    /// Original publication batches belonging to this alpha segment.
+    pub(crate) segment: Range<usize>,
+    /// The live inversion immediately after this segment, when present.
+    pub(crate) inverted: Option<usize>,
 }
 
 /// A view's retained UI layer for this frame.
@@ -56,9 +64,23 @@ pub(crate) struct UiLayerTexture {
     presented: AtomicBool,
     /// The sole writer of its output with no blend, so the composite can replace the blit.
     direct_output: bool,
+    /// Earlier alpha segments; this component's own texture is always the final segment.
+    segments: Vec<UiLayerTexture>,
 }
 
 impl UiLayerTexture {
+    /// Returns an independent raster only when the complete bounded segment set is resident.
+    pub(super) fn segment(&self, index: usize, count: usize) -> Option<&Self> {
+        if count != self.segments.len() + 1 || index >= count {
+            return None;
+        }
+        if index + 1 == count {
+            Some(self)
+        } else {
+            self.segments.get(index)
+        }
+    }
+
     /// Whether the layer already holds `content`, and if so whether that drew anything.
     pub(crate) fn holds(&self, content: &UiLayerContent) -> Option<bool> {
         let held = self.held.lock().expect("UI layer content lock");
@@ -117,6 +139,7 @@ impl UiLayerTexture {
             present: AtomicBool::new(false),
             presented: AtomicBool::new(false),
             direct_output: false,
+            segments: Vec::new(),
         }
     }
 }
@@ -144,6 +167,8 @@ impl HeldLayer {
             || content.skip.is_some()
             || self.content.viewport.is_some()
             || content.viewport.is_some()
+            || self.content.segment != content.segment
+            || self.content.inverted != content.inverted
             || self.content.model_depth != content.model_depth
             || self.content.revision != previous.revision
             || content.revision != input.revision
@@ -151,7 +176,7 @@ impl HeldLayer {
         {
             return super::damage::UiDamage::Full;
         }
-        super::damage::plan(previous, input)
+        super::damage::plan_segment(previous, input, content.segment.clone())
     }
 }
 
@@ -165,24 +190,51 @@ struct RetainedLayer {
 #[derive(Default, Resource)]
 pub(crate) struct UiLayerStore {
     device: Option<wgpu::Device>,
-    views: HashMap<Entity, RetainedLayer>,
+    views: HashMap<Entity, Vec<RetainedLayer>>,
+}
+
+impl UiLayerStore {
+    /// A replacement render device cannot use color or retained publication state from the old device.
+    fn synchronize_device(&mut self, device: &RenderDevice) {
+        if self.device.as_ref() != Some(device.wgpu_device()) {
+            self.views.clear();
+            self.device = Some(device.wgpu_device().clone());
+        }
+    }
+
+    /// Releases rasters and their accepted publications when the owning view disappears.
+    fn retain_live_views(&mut self, live: impl Fn(Entity) -> bool) {
+        self.views.retain(|view, _| live(*view));
+    }
 }
 
 /// Present when [`ui_present`] replaced the output blit, so the final composite may wait for it.
 #[derive(Resource)]
 pub(crate) struct UiPresentInstalled;
 
+/// Prepares a bounded independent raster set for each current view and accepted overlay topology.
 pub(crate) fn prepare_ui_layers(
     mut commands: Commands,
     mut store: ResMut<UiLayerStore>,
     device: Res<RenderDevice>,
     views: Query<(Entity, &ViewTarget, Option<&ExtractedCamera>)>,
+    gpu: Option<Res<UiGpu>>,
 ) {
-    if store.device.as_ref() != Some(device.wgpu_device()) {
-        store.views.clear();
-        store.device = Some(device.wgpu_device().clone());
-    }
-    store.views.retain(|view, _| views.contains(*view));
+    store.synchronize_device(&device);
+    store.retain_live_views(|view| views.contains(view));
+    let requested = gpu
+        .as_ref()
+        .filter(|gpu| gpu.accepted_revision.is_some())
+        .map_or(0, |gpu| {
+            let batches: Vec<_> = gpu
+                .batches
+                .iter()
+                .enumerate()
+                .filter(|(_, batch)| batch.world_projection == 0)
+                .map(|(index, batch)| (index, batch, ()))
+                .collect();
+            super::segments::plan_ui_passes(&batches, false).layer_count()
+        });
     let mut writers = HashMap::<_, usize>::new();
     for (_, target, _) in &views {
         if let Some(output) = target.out_texture() {
@@ -196,15 +248,14 @@ pub(crate) fn prepare_ui_layers(
             height: size.height,
             depth_or_array_layers: 1,
         };
-        let layer = store
-            .views
-            .entry(entity)
-            .and_modify(|layer| {
-                if layer.texture.size() != size {
-                    *layer = retained_layer(&device, size);
-                }
-            })
-            .or_insert_with(|| retained_layer(&device, size));
+        let count = retained_segment_count(requested.max(1), size);
+        let layers = store.views.entry(entity).or_default();
+        synchronize_layers(layers, &device, size, count);
+        if requested == 0 {
+            for layer in layers.iter() {
+                *layer.held.lock().expect("UI layer content lock") = None;
+            }
+        }
         let unblended = camera.is_none_or(|camera| {
             matches!(
                 camera.output_mode,
@@ -214,20 +265,72 @@ pub(crate) fn prepare_ui_layers(
                 }
             )
         });
-        commands.entity(entity).insert(UiLayerTexture {
-            texture: layer.texture.clone(),
-            view: layer.view.clone(),
-            held: Arc::clone(&layer.held),
-            present: AtomicBool::new(false),
-            presented: AtomicBool::new(false),
-            direct_output: unblended
-                && target
-                    .out_texture()
-                    .is_some_and(|output| writers[&output.id()] == 1),
-        });
+        let direct_output = unblended
+            && target
+                .out_texture()
+                .is_some_and(|output| writers[&output.id()] == 1);
+        let mut frame = frame_layer(
+            layers.last().expect("one scratch layer is always resident"),
+            direct_output,
+        );
+        frame.segments = layers[..layers.len() - 1]
+            .iter()
+            .map(|layer| frame_layer(layer, false))
+            .collect();
+        commands.entity(entity).insert(frame);
     }
 }
 
+/// Bounds extra full-extent rasters; larger topologies use the existing single-layer replay.
+fn retained_segment_count(requested: usize, size: Extent3d) -> usize {
+    const MAX_LAYERS: usize = 8;
+    const MAX_EXTRA_BYTES: u64 = 64 * 1024 * 1024;
+    let bytes = u64::from(size.width)
+        .saturating_mul(u64::from(size.height))
+        .saturating_mul(UI_LAYER_BYTES_PER_TEXEL);
+    if requested > 0
+        && requested <= MAX_LAYERS
+        && bytes.saturating_mul(requested.saturating_sub(1) as u64) <= MAX_EXTRA_BYTES
+    {
+        requested
+    } else {
+        1
+    }
+}
+
+/// Drops removed rasters and every old extent before allocating the required bounded set.
+fn synchronize_layers(
+    layers: &mut Vec<RetainedLayer>,
+    device: &RenderDevice,
+    size: Extent3d,
+    count: usize,
+) {
+    if layers
+        .first()
+        .is_some_and(|layer| layer.texture.size() != size)
+    {
+        layers.clear();
+    }
+    layers.truncate(count);
+    while layers.len() < count {
+        layers.push(retained_layer(device, size));
+    }
+}
+
+/// Shares retained storage into a frame component without carrying presentation state across frames.
+fn frame_layer(layer: &RetainedLayer, direct_output: bool) -> UiLayerTexture {
+    UiLayerTexture {
+        texture: layer.texture.clone(),
+        view: layer.view.clone(),
+        held: Arc::clone(&layer.held),
+        present: AtomicBool::new(false),
+        presented: AtomicBool::new(false),
+        direct_output,
+        segments: Vec::new(),
+    }
+}
+
+/// Allocates one gamma-space raster on the current view/device lifetime.
 fn retained_layer(device: &RenderDevice, size: Extent3d) -> RetainedLayer {
     let texture = device.create_texture(&TextureDescriptor {
         label: Some("retained gamma-space UI layer"),

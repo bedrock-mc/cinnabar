@@ -196,3 +196,51 @@ fn residency_hash_reuses_unchanged_membership_and_preserves_legacy_key_order() {
         "a cached hash is not part of set equality"
     );
 }
+
+/// The resumable index follows first insertion, partial removal, last removal and clearing.
+#[test]
+fn ordered_column_cursor_tracks_actual_residency() {
+    let mut keys = ColumnSubChunkSet::default();
+    let a = ChunkKey::new(0, -1, 2);
+    let b = ChunkKey::new(0, 2, -1);
+    for key in [
+        SubChunkKey::from_chunk(b, 0),
+        SubChunkKey::from_chunk(a, -4),
+        SubChunkKey::from_chunk(a, 7),
+    ] {
+        keys.insert(key);
+    }
+    assert_eq!(keys.next_column(None), Some(a));
+    assert_eq!(keys.next_column(Some(a)), Some(b));
+    assert_eq!(keys.next_column(Some(b)), None);
+    keys.remove(&SubChunkKey::from_chunk(a, -4));
+    assert_eq!(keys.next_column(None), Some(a));
+    keys.remove(&SubChunkKey::from_chunk(a, 7));
+    assert_eq!(keys.next_column(None), Some(b));
+    keys.clear();
+    assert_eq!(keys.next_column(None), None);
+}
+
+/// A resend preserves membership age; leaving and re-entering creates a new membership.
+#[test]
+fn captured_column_membership_survives_resends_but_not_eviction() {
+    let mut keys = ColumnSubChunkSet::default();
+    let column = ChunkKey::new(0, 1, 2);
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    let captured = keys.column_generation();
+    keys.replace_column(column, [SubChunkKey::from_chunk(column, 7)]);
+    assert!(keys.existed_at(column, captured));
+    assert_eq!(keys.len(), 1);
+    assert!(!keys.contains(&SubChunkKey::from_chunk(column, 0)));
+    keys.replace_column(column, []);
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    assert!(!keys.existed_at(column, captured));
+    let captured = keys.column_generation();
+    let retired = keys.retire();
+    keys.insert(SubChunkKey::from_chunk(column, 0));
+    assert!(retired.existed_at(column, captured));
+    assert!(
+        !keys.existed_at(column, captured),
+        "full retirement preserves the membership clock"
+    );
+}

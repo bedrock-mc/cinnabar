@@ -12,6 +12,12 @@ mod material_shader;
 mod motion_blur_shader;
 #[path = "../../src/nametag_render/shader.rs"]
 mod nametag_shader;
+#[path = "../../src/queue_writes.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures exercise a subset of queue upload entry points"
+)]
+mod queue_writes;
 #[path = "support/rod_snapshot.rs"]
 mod rod_snapshot;
 #[path = "../../src/shader_safety.rs"]

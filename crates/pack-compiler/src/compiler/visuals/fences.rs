@@ -15,7 +15,9 @@ pub(in crate::compiler) fn compile_rule(
     }
     let mut visual = diagnostic_visual(record);
     if let Some(material) = inputs.material(record, BlockFace::South) {
-        let flag = if record.name.as_ref() == "minecraft:nether_brick_fence" {
+        let flag = if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::NetherBrickFence
+        {
             MODEL_TEMPLATE_FLAG_FENCE_NETHER
         } else {
             MODEL_TEMPLATE_FLAG_FENCE_WOOD

@@ -179,3 +179,24 @@ fn pending_event_count_includes_the_buffered_head() {
     let _ = network.world_ingress_mut().1.take();
     assert_eq!(network.pending_event_count(), 0);
 }
+
+/// Terrain requests and movement receipts fit without blocking the writer across busy frames.
+#[test]
+fn frame_control_drain_keeps_up_with_a_full_frame_of_send_receipts() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(client_session::CONTROL_EVENT_CAPACITY);
+    for frame in 0..1_000 {
+        for receipt in 0..=OUTBOUND_SEND_BUDGET_PER_FRAME {
+            assert!(
+                tx.try_send((frame, receipt)).is_ok(),
+                "receipts backed up by frame {frame}"
+            );
+        }
+        let drained = drain_network_controls(&mut rx, NETWORK_CONTROL_BUDGET_PER_FRAME);
+        assert_eq!(
+            drained,
+            (0..=OUTBOUND_SEND_BUDGET_PER_FRAME)
+                .map(|receipt| (frame, receipt))
+                .collect::<Vec<_>>()
+        );
+    }
+}

@@ -140,6 +140,132 @@ pub fn hud_clocks(model: &HudModel) -> std::collections::BTreeMap<String, f64> {
 /// Map `model` onto the HUD templates' bindings.
 pub fn hud_data_source(model: &HudModel) -> DataSource {
     let mut data = DataSource::new();
+    data.set_strict(true);
+    for write in HUD_PARTS {
+        write(&mut data, model);
+    }
+    data
+}
+
+/// Independent groups of HUD bindings whose construction inputs changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HudChanges {
+    pub status: bool,
+    pub hotbar: bool,
+    pub text: bool,
+    pub chat: bool,
+    pub sidebar: bool,
+    pub boss_bars: bool,
+    pub world_text: bool,
+}
+
+impl HudChanges {
+    /// Number of independently constructed HUD binding groups.
+    pub const COUNT: usize = 7;
+
+    /// Refreshes every component, including after a session or catalog replacement.
+    pub const ALL: Self = Self {
+        status: true,
+        hotbar: true,
+        text: true,
+        chat: true,
+        sidebar: true,
+        boss_bars: true,
+        world_text: true,
+    };
+
+    /// Construction flags in the same order as the HUD's binding writers.
+    pub const fn components(self) -> [bool; Self::COUNT] {
+        [
+            self.status,
+            self.hotbar,
+            self.text,
+            self.chat,
+            self.sidebar,
+            self.boss_bars,
+            self.world_text,
+        ]
+    }
+}
+
+const HUD_PARTS: [fn(&mut DataSource, &HudModel); HudChanges::ALL.components().len()] = [
+    status_data,
+    hotbar_data,
+    text_data,
+    chat_data,
+    sidebar_data,
+    boss_data,
+    world_data,
+];
+
+/// Retains component ownership and shares the unchanged published binding bags.
+#[derive(Default)]
+pub struct HudBindings {
+    parts: [PartKeys; HUD_PARTS.len()],
+    data: std::sync::Arc<DataSource>,
+    initialized: bool,
+}
+
+impl HudBindings {
+    /// Rebuilds only affected binding groups and removes bindings retired by those groups.
+    pub fn update(&mut self, model: &HudModel, changes: HudChanges) -> std::sync::Arc<DataSource> {
+        let changes = if self.initialized {
+            changes
+        } else {
+            HudChanges::ALL
+        };
+        if changes.components().into_iter().any(|changed| changed) {
+            let data = std::sync::Arc::make_mut(&mut self.data);
+            data.set_strict(true);
+            for ((part, changed), write) in self
+                .parts
+                .iter_mut()
+                .zip(changes.components())
+                .zip(HUD_PARTS)
+            {
+                if changed {
+                    let mut next = DataSource::new();
+                    write(&mut next, model);
+                    replace_part(data, part, next);
+                }
+            }
+            self.initialized = true;
+        }
+        std::sync::Arc::clone(&self.data)
+    }
+
+    /// Applies the interface opacity without rebuilding the HUD collections.
+    pub fn set_opacity(&mut self, opacity: i32) -> std::sync::Arc<DataSource> {
+        let data = std::sync::Arc::make_mut(&mut self.data);
+        data.set_global("#hud_alpha", Scalar::Num(f64::from(opacity) / 100.0));
+        data.set_global("#hud_propagate_alpha", Scalar::Bool(true));
+        std::sync::Arc::clone(&self.data)
+    }
+}
+
+/// Names owned by a component, derived from the bindings it actually writes.
+#[derive(Default)]
+struct PartKeys {
+    globals: Vec<String>,
+    collections: Vec<String>,
+    collection_defaults: Vec<String>,
+    factories: Vec<String>,
+}
+
+/// Replaces a component's namespaces, moving values without cloning its strings or feeds.
+fn replace_part(data: &mut DataSource, keys: &mut PartKeys, next: DataSource) {
+    macro_rules! replace {
+        ($($field:ident),+) => {$(
+            for key in keys.$field.drain(..) { data.$field.remove(&key); }
+            keys.$field.extend(next.$field.keys().cloned());
+            data.$field.extend(next.$field);
+        )+};
+    }
+    replace!(globals, collections, collection_defaults, factories);
+}
+
+/// Writes visibility and numeric status bindings.
+fn status_data(data: &mut DataSource, model: &HudModel) {
     // Unbound flags read as false, as the controller answers them.
     data.set_strict(true);
     let flag = |data: &mut DataSource, name: &str, value: bool| {
@@ -173,10 +299,8 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         ),
         ("#paper_doll_visible", model.paper_doll),
         ("#status_effects_visible", model.effects_visible),
-        ("#scoreboard_sidebar_visible", model.sidebar.is_some()),
-        ("#chat_visible", model.chat_visible),
     ] {
-        flag(&mut data, name, value);
+        flag(data, name, value);
     }
     data.set_global("#hud_alpha", Scalar::Num(1.0));
     // Both bars bind a clip ratio: the fraction clipped away.
@@ -186,6 +310,10 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
     );
     data.set_global("#level_number", Scalar::Text(model.level.to_string()));
     data.set_global("#gamertag", Scalar::Text(String::new()));
+}
+
+/// Writes item cells and their matching icon references.
+fn hotbar_data(data: &mut DataSource, model: &HudModel) {
     data.set_grid_dimensions("#hotbar_grid_dimensions", [model.hotbar.len() as u32, 1]);
     data.set_collection("hotbar_items", model.hotbar.iter().map(slot_item).collect());
     data.set_global(
@@ -196,7 +324,11 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         "offhand_items",
         model.offhand.iter().map(slot_item).collect(),
     );
-    titles(&mut data, model);
+}
+
+/// Writes timed text and controller creation identities.
+fn text_data(data: &mut DataSource, model: &HudModel) {
+    titles(data, model);
     if let Some(tip) = &model.tip {
         data.set_global("#tip_text", Scalar::Text(tip.text.clone()));
         // The tip text's own factory: its `$destroy_id` names the instance the
@@ -225,6 +357,11 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
             ],
         );
     }
+}
+
+/// Writes the bounded chat notification collection and factory instances.
+fn chat_data(data: &mut DataSource, model: &HudModel) {
+    data.set_global("#chat_visible", Scalar::Bool(model.chat_visible));
     if model.chat_visible {
         data.set_collection(
             "chat_text_grid",
@@ -257,8 +394,24 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
             .collect();
         data.set_factory("chat_item_factory", chat);
     }
-    sidebar(&mut data, model.sidebar.as_ref());
-    boss_bars(&mut data, &model.boss_bars);
+}
+
+/// Writes the already ordered sidebar projection.
+fn sidebar_data(data: &mut DataSource, model: &HudModel) {
+    data.set_global(
+        "#scoreboard_sidebar_visible",
+        Scalar::Bool(model.sidebar.is_some()),
+    );
+    sidebar(data, model.sidebar.as_ref());
+}
+
+/// Writes the stable visible boss-bar stack.
+fn boss_data(data: &mut DataSource, model: &HudModel) {
+    boss_bars(data, &model.boss_bars);
+}
+
+/// Writes translated world text and its background setting.
+fn world_data(data: &mut DataSource, model: &HudModel) {
     for (line, visible, text) in [
         (
             &model.player_position,
@@ -280,7 +433,6 @@ pub fn hud_data_source(model: &HudModel) -> DataSource {
         "#hud_text_background_alpha",
         Scalar::Num(model.text_background_alpha),
     );
-    data
 }
 
 fn slot_item(slot: &HudSlot) -> CollectionItem {
@@ -463,3 +615,6 @@ fn boss_bars(data: &mut DataSource, bars: &[BossBar]) {
             .collect(),
     );
 }
+
+#[cfg(test)]
+mod retained_tests;

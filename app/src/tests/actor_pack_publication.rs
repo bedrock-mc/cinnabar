@@ -231,9 +231,10 @@ fn fixture_equipment() -> Arc<assets::RuntimeEquipmentCatalog> {
     )
 }
 
-/// A rejected equipment range retries after capacity is freed without rebuilding accepted entities.
+/// A pack too large for the catalog is staged: item refreshes leave the catalog untouched, and
+/// each rig becomes resident when drawn, displacing an undrawn one.
 #[test]
-fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
+fn staged_pack_rigs_become_resident_when_drawn_without_refresh_rebuilds() {
     let (_fixture, artwork, entities) = super::actor_rest_presentation::compiled_fixture(
         "1.0",
         1,
@@ -264,12 +265,12 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
             .all(|geometry| geometry.vertices != equipment_geometry.vertices),
         "equipment-only geometry must not be selected by an entity render route"
     );
-    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
-    scene.replace_pack_entities(Some(&entities)).unwrap();
+    let mut scene = ActorRenderScene::default();
     scene.reset();
-    let filler_count =
-        render_model::MAX_ACTOR_CATALOG_VERTICES - scene.frame().rig.geometry_vertices.len();
-    scene.replace_pack_entities(None).unwrap();
+    // Leave room for one pack model without a startup copy that could share its page.
+    let filler_count = render_model::MAX_ACTOR_CATALOG_VERTICES
+        - scene.frame().rig.geometry_vertices.len()
+        - equipment_geometry.vertices.len();
     let filler = |slot, count| {
         render_model::ActorRigGeometry::new(
             render_model::item_mesh_rig_id(slot),
@@ -297,53 +298,73 @@ fn rejected_equipment_retries_while_accepted_entities_stay_shared() {
     scene.insert_geometries(fillers).unwrap();
     let mut world = session_world(pack, artwork, scene);
     let original = publish(&mut world);
-    assert_eq!(
-        original.rig.geometry_vertices.len(),
-        render_model::MAX_ACTOR_CATALOG_VERTICES
-    );
-    assert!(
-        world
-            .resource::<ActorRenderScene>()
-            .contains_geometry(render_model::pack_rig_id(0))
-    );
-    assert!(
-        !world
-            .resource::<ActorRenderScene>()
-            .contains_geometry(equipment)
-    );
+    let entity = render_model::pack_rig_id(0);
+    let resident = |world: &World, id| world.resource::<ActorRenderScene>().contains_geometry(id);
+    assert!(!resident(&world, entity) && !resident(&world, equipment));
     world.resource_mut::<ClientWorld>().session_items = Some(Arc::new(SessionItems {
         components: Arc::default(),
         icons: None,
     }));
-    let retried = publish(&mut world);
+    let refreshed = publish(&mut world);
     assert!(Arc::ptr_eq(
-        &retried.rig.geometry_vertices.segments,
+        &refreshed.rig.geometry_vertices.segments,
         &original.rig.geometry_vertices.segments,
     ));
-    assert!(
-        !world
-            .resource::<ActorRenderScene>()
-            .contains_geometry(equipment)
-    );
-    world
-        .resource_mut::<ActorRenderScene>()
-        .insert_geometry(filler(0, 3))
-        .unwrap();
-    world.resource_mut::<ClientWorld>().session_items = Some(Arc::new(SessionItems {
-        components: Arc::default(),
-        icons: None,
-    }));
-    publish(&mut world);
-    assert!(
+
+    let skins = [render_model::default_actor_skin_rgba8()];
+    let mut draw = |rig, bones| {
         world
-            .resource::<ActorRenderScene>()
-            .contains_geometry(equipment)
-    );
-    assert!(
-        world
-            .resource::<ActorRenderScene>()
-            .contains_geometry(render_model::pack_rig_id(0))
-    );
+            .resource_mut::<ActorRenderScene>()
+            .update_rigs(0.5, None, [drawn_rig(rig, bones)], &skins)
+            .rig
+            .instances
+            .len()
+    };
+    assert_eq!(draw(equipment, equipment_geometry.bones_used()), 1);
+    assert_eq!(draw(entity, entity_geometry.bones_used()), 1);
+    assert!(resident(&world, entity) && !resident(&world, equipment));
+}
+
+/// One posed body with enough bones for `rig`, as a frame would submit it.
+fn drawn_rig(rig: render_model::EntityRigId, bones: usize) -> render_model::ActorRigSubmission {
+    let bone = render_model::RenderBoneTransform::from_model_space(
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+    )
+    .unwrap();
+    render_model::ActorRigSubmission {
+        material: Default::default(),
+        culling_bounds: Default::default(),
+        input: render_model::ActorRigRenderInput {
+            identity: render_model::ActorRenderIdentity {
+                session_id: 1,
+                dimension: 0,
+                runtime_id: 42,
+                spawn_revision: 1,
+                ingress_sequence: 1,
+                source_tick: Some(1),
+                movement_revision: 1,
+                pose_generation: render_api::PoseGeneration::new(1),
+                layer: render_model::ACTOR_LAYER_BODY,
+            },
+            rig,
+            previous_bones: vec![bone; bones].into(),
+            current_bones: vec![bone; bones].into(),
+            completed_tick: 1,
+            reset_generation: 1,
+        },
+        world_from_actor: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 64.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ],
+        texture_layer: 0,
+        route: render_model::ActorRigRoute::Compiled,
+        tint: 0,
+        uv_anim: render_model::IDENTITY_UV_ANIM,
+        light: 0,
+        overlay_rgba8: 0,
+    }
 }
 
 /// Gives the fixture geometry a distinct, original texture and its normal pack route.

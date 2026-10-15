@@ -715,3 +715,45 @@ fn item_glint_tints_grayscale_purple_and_restores_pack_pixels_without_changing_a
         }
     }
 }
+
+/// A clock-only glint update restores overlapping translucent/model pixels in painter order.
+#[test]
+fn retained_glint_clock_damage_matches_full_replay_with_unchanged_depth_models() {
+    let mut input = scene();
+    for vertex in &mut Arc::make_mut(&mut input.vertices)[4..8] {
+        vertex.style_flags |= UI_STYLE_GLINT;
+    }
+    let Some(raster) = Raster::with_glint_pattern(
+        &input,
+        1.0,
+        [2, 2],
+        &[
+            255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255, 120, 40, 180, 255,
+        ],
+    ) else {
+        return;
+    };
+    let damage = animated_batches(&input)
+        .into_iter()
+        .fold(UiDamage::Unchanged, UiDamage::union);
+    let UiDamage::Rect(rect) = damage else {
+        panic!("glint must have bounded coverage");
+    };
+    let retained = target(&raster.gpu, false);
+    let full = target(&raster.gpu, false);
+    raster.draw(&input, &retained, None);
+    let initial = raster.pixels(&retained);
+    raster.gpu.queue.write_buffer(
+        &raster.viewport,
+        0,
+        bytemuck::cast_slice(&[SIDE as f32, SIDE as f32, 0.75_f32, 1.0]),
+    );
+    raster.draw(&input, &full, None);
+    raster.draw(&input, &retained, Some(rect));
+    let expected = raster.pixels(&full);
+    assert_ne!(
+        initial, expected,
+        "synthetic glint clock must change pixels"
+    );
+    assert_eq!(raster.pixels(&retained), expected);
+}

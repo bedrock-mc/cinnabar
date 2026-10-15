@@ -6,6 +6,7 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use assets::BlockFace;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(in crate::compiler) enum Shape {
@@ -24,14 +25,11 @@ fn family(record: &RegistryRecord) -> Option<Shape> {
     {
         return None;
     }
-    let name = record.name.strip_prefix("minecraft:")?;
-    let name = name.strip_prefix("dead_").unwrap_or(name);
-    let (species, shape) = if let Some(species) = name.strip_suffix("_coral_wall_fan") {
-        (species, Shape::Wall(0))
-    } else {
-        (name.strip_suffix("_coral_fan")?, Shape::Floor)
-    };
-    matches!(species, "tube" | "brain" | "bubble" | "fire" | "horn").then_some(shape)
+    match block_render_fact(&record.name).kind {
+        R::CoralFan => Some(Shape::Floor),
+        R::CoralWallFan => Some(Shape::Wall(0)),
+        _ => None,
+    }
 }
 
 /// Admits the typed direction selectors used by registered coral fans.
@@ -50,11 +48,6 @@ fn shape(record: &RegistryRecord) -> Option<Shape> {
         )? as u8)),
         _ => None,
     }
-}
-
-/// Marks fan sprite materials as cutouts.
-pub(in crate::compiler) fn is_fan(record: &RegistryRecord) -> bool {
-    matches!(family(record), Some(Shape::Floor | Shape::Wall(_)))
 }
 
 /// Compiles fan templates using each record's resolved sprite material.

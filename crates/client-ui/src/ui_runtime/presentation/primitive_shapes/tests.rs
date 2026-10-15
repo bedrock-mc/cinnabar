@@ -191,3 +191,81 @@ fn primitive_text_rawtext_refreshes_after_common_or_equal_patch_and_retains_stea
     assert!(!Arc::ptr_eq(&after_atlas, &store.atlas));
     assert!(store.text_records.values[0].rect[2] > previous_right);
 }
+
+#[test]
+fn primitive_text_keeps_smaller_misses_after_a_failed_line_and_rebuilds_on_the_next_update() {
+    use std::cell::Cell;
+    let font = ui_engine::test_support::fixture_font();
+    let glyphs = [
+        ('/', [NAMETAG_ATLAS_SIDE / 2; 2]),
+        ('2', [NAMETAG_ATLAS_SIDE; 2]),
+        (
+            '0',
+            [NAMETAG_ATLAS_SIDE / 16, ui::TEXT_LINE_HEIGHT_64 / 64 * 2],
+        ),
+    ]
+    .map(|(codepoint, size)| assets::SheetGlyph {
+        metrics: *font.glyph(codepoint).unwrap(),
+        draw_size_64: size.map(|value| value * 64),
+    });
+    let font = Arc::new(font.with_glyphs(&glyphs, |_| true));
+    let runtime = UiRuntime::new(1);
+    let mut rasterizer = PrimitiveTextRasterizer::default();
+    let mut layouts = TextLayoutCache::new(4, 1 << 20);
+    let mut store = PrimitiveShapeStore::default();
+    let reads = Cell::new(0);
+    let pages = |page| {
+        reads.set(reads.get() + 1);
+        font_page(&font, page)
+    };
+    apply(&mut store, update(1, PrimitiveShapeData::Text(text("/"))));
+    rasterizer.invalidate(&mut store, &font, FormattingPalette::default());
+    rasterizer.prepare(&mut store, &font, &mut layouts, &runtime, &pages);
+    let original = Arc::clone(&store.atlas);
+    let kept_records = store.text_records.values.clone();
+    reads.set(0);
+    apply(
+        &mut store,
+        update(2, PrimitiveShapeData::Text(text("2\n0"))),
+    );
+    rasterizer.prepare(&mut store, &font, &mut layouts, &runtime, &pages);
+    assert_eq!(
+        reads.get(),
+        1,
+        "the rejected full-size line must not sample glyph pages"
+    );
+    assert_eq!(store.atlas.len(), 2);
+    assert!(Arc::ptr_eq(&original[0].rgba8, &store.atlas[0].rgba8));
+    assert_eq!(
+        &store.text_records.values[..kept_records.len()],
+        kept_records.as_slice()
+    );
+    assert_eq!(store.text_records.values.len(), kept_records.len() * 2);
+    assert!(
+        !rasterizer.atlas.has_room_for(1),
+        "pixel exhaustion still requests a future rebuild"
+    );
+    let current = Arc::clone(&store.atlas);
+    let current_records = store.text_records.values.clone();
+    store.drain_uploads(|_, _, _, _| {});
+    store.text_records.drain(|_, _| {});
+    reads.set(0);
+    for _ in 0..3 {
+        rasterizer.prepare(&mut store, &font, &mut layouts, &runtime, &pages);
+        assert!(Arc::ptr_eq(&current, &store.atlas));
+        assert_eq!(store.text_records.values, current_records);
+        assert!(store.text_records.is_clean());
+        assert_eq!(reads.get(), 0);
+    }
+    apply(&mut store, update(2, PrimitiveShapeData::Text(text("0"))));
+    rasterizer.prepare(&mut store, &font, &mut layouts, &runtime, &pages);
+    assert!(!Arc::ptr_eq(&current, &store.atlas));
+    assert_eq!(
+        reads.get(),
+        2,
+        "the rebuild requeues both retained text shapes"
+    );
+    assert_eq!(store.atlas.len(), 2);
+    assert_eq!(store.text_records.values.len(), current_records.len());
+    assert!(rasterizer.atlas.has_room_for(1));
+}

@@ -1,3 +1,4 @@
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::*, assets::BlockFace};
 
 pub(in crate::compiler) const fn is_terrestrial_cross(record: &RegistryRecord) -> bool {
@@ -11,10 +12,7 @@ pub(in crate::compiler) const fn is_torch(record: &RegistryRecord) -> bool {
 
 pub(in crate::compiler) fn is_chain(record: &RegistryRecord) -> bool {
     matches!(record.contributor_role, ContributorRole::Primary)
-        && record
-            .name
-            .strip_prefix("minecraft:")
-            .is_some_and(|name| name.ends_with("chain") && !name.contains("command"))
+        && block_render_fact(&record.name).kind == R::Chain
 }
 
 /// Full cubes whose source art carries alpha (or that lack cube flags in the registry) and draw as one unit cube.
@@ -22,19 +20,14 @@ pub(in crate::compiler) fn is_translucent_cube(record: &RegistryRecord) -> bool 
     matches!(record.contributor_role, ContributorRole::Primary)
         && !record.flags.contains(BlockFlags::AIR)
         && matches!(
-            record.name.as_bytes(),
-            b"minecraft:ice"
-                | b"minecraft:frosted_ice"
-                | b"minecraft:slime"
-                | b"minecraft:honey_block"
-                | b"minecraft:tinted_glass"
-                | b"minecraft:powder_snow"
+            block_render_fact(&record.name).kind,
+            R::Ice | R::FrostedIce | R::Slime | R::Honey | R::TintedGlass | R::PowderSnow
         )
 }
 
 /// Powder snow's art is fully opaque, so it stays on the opaque model path.
 pub(in crate::compiler) fn translucent_cube_material_flags(name: &str) -> u32 {
-    if name == "minecraft:powder_snow" {
+    if block_render_fact(name).kind == R::PowderSnow {
         0
     } else {
         MATERIAL_FLAG_ALPHA_BLEND
@@ -44,20 +37,12 @@ pub(in crate::compiler) fn translucent_cube_material_flags(name: &str) -> u32 {
 /// Amethyst clusters and buds drawn with crossed sprite planes.
 pub(in crate::compiler) fn is_crystal(record: &RegistryRecord) -> bool {
     matches!(record.contributor_role, ContributorRole::Primary)
-        && record.name.strip_prefix("minecraft:").is_some_and(|name| {
-            matches!(
-                name,
-                "amethyst_cluster"
-                    | "small_amethyst_bud"
-                    | "medium_amethyst_bud"
-                    | "large_amethyst_bud"
-            )
-        })
+        && block_render_fact(&record.name).kind == R::Crystal
 }
 
 pub(in crate::compiler) fn is_ladder(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:ladder"
-        && matches!(record.contributor_role, ContributorRole::Primary)
+    matches!(record.contributor_role, ContributorRole::Primary)
+        && block_render_fact(&record.name).kind == R::Ladder
 }
 
 pub(in crate::compiler) const fn is_rail(record: &RegistryRecord) -> bool {
@@ -66,8 +51,7 @@ pub(in crate::compiler) const fn is_rail(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_aquatic_cross(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::Aquatic)
-        && record.name.as_ref() == "minecraft:seagrass"
+    block_render_fact(&record.name).kind == R::Seagrass
 }
 
 pub(in crate::compiler) fn is_cross_visual(record: &RegistryRecord) -> bool {
@@ -75,29 +59,23 @@ pub(in crate::compiler) fn is_cross_visual(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_kelp(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::Aquatic) && record.name.as_ref() == "minecraft:kelp"
+    block_render_fact(&record.name).kind == R::Kelp
 }
 
 pub(in crate::compiler) fn is_flowerbed(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::FlowerBed)
-        && matches!(
-            record.name.as_ref(),
-            "minecraft:wildflowers" | "minecraft:pink_petals"
-        )
+    record.model_family == ModelFamily::FlowerBed
 }
 
 pub(in crate::compiler) fn is_vine(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::Vine) && record.name.as_ref() == "minecraft:vine"
+    record.model_family == ModelFamily::Vine
 }
 
 pub(in crate::compiler) fn is_glow_lichen(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::GlowLichen)
-        && record.name.as_ref() == "minecraft:glow_lichen"
+    record.model_family == ModelFamily::GlowLichen
 }
 
 pub(in crate::compiler) fn is_sculk_vein(record: &RegistryRecord) -> bool {
-    matches!(record.model_family, ModelFamily::SculkVein)
-        && record.name.as_ref() == "minecraft:sculk_vein"
+    record.model_family == ModelFamily::SculkVein
 }
 
 pub(in crate::compiler) fn is_multiface(record: &RegistryRecord) -> bool {
@@ -127,62 +105,15 @@ pub(in crate::compiler) const fn is_pressure_plate(record: &RegistryRecord) -> b
 pub(in crate::compiler) const fn is_button(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Button)
         && matches!(record.contributor_role, ContributorRole::Primary)
-        && is_supported_button_name(&record.name)
-}
-
-pub(in crate::compiler) const fn is_supported_button_name(name: &str) -> bool {
-    matches!(
-        name.as_bytes(),
-        b"minecraft:acacia_button"
-            | b"minecraft:bamboo_button"
-            | b"minecraft:birch_button"
-            | b"minecraft:cherry_button"
-            | b"minecraft:crimson_button"
-            | b"minecraft:dark_oak_button"
-            | b"minecraft:jungle_button"
-            | b"minecraft:mangrove_button"
-            | b"minecraft:pale_oak_button"
-            | b"minecraft:polished_blackstone_button"
-            | b"minecraft:poplar_button"
-            | b"minecraft:spruce_button"
-            | b"minecraft:stone_button"
-            | b"minecraft:warped_button"
-            | b"minecraft:wooden_button"
-    )
 }
 
 pub(in crate::compiler) const fn is_carpet(record: &RegistryRecord) -> bool {
     matches!(record.model_family, ModelFamily::Carpet)
         && matches!(record.contributor_role, ContributorRole::Primary)
-        && is_supported_carpet_name(&record.name)
-}
-
-pub(in crate::compiler) const fn is_supported_carpet_name(name: &str) -> bool {
-    matches!(
-        name.as_bytes(),
-        b"minecraft:black_carpet"
-            | b"minecraft:blue_carpet"
-            | b"minecraft:brown_carpet"
-            | b"minecraft:cyan_carpet"
-            | b"minecraft:gray_carpet"
-            | b"minecraft:green_carpet"
-            | b"minecraft:light_blue_carpet"
-            | b"minecraft:light_gray_carpet"
-            | b"minecraft:lime_carpet"
-            | b"minecraft:magenta_carpet"
-            | b"minecraft:moss_carpet"
-            | b"minecraft:orange_carpet"
-            | b"minecraft:pale_moss_carpet"
-            | b"minecraft:pink_carpet"
-            | b"minecraft:purple_carpet"
-            | b"minecraft:red_carpet"
-            | b"minecraft:white_carpet"
-            | b"minecraft:yellow_carpet"
-    )
 }
 
 pub(in crate::compiler) fn is_pale_moss_carpet(record: &RegistryRecord) -> bool {
-    is_carpet(record) && record.name.as_ref() == "minecraft:pale_moss_carpet"
+    block_render_fact(&record.name).kind == R::PaleMossCarpet
 }
 
 pub(in crate::compiler) const fn is_gate(record: &RegistryRecord) -> bool {
@@ -195,48 +126,16 @@ pub(in crate::compiler) const fn is_pane(record: &RegistryRecord) -> bool {
         && matches!(record.contributor_role, ContributorRole::Primary)
 }
 
-pub(in crate::compiler) const ORDINARY_STAINED_GLASS_NAMES: [&str; 16] = [
-    "minecraft:black_stained_glass",
-    "minecraft:blue_stained_glass",
-    "minecraft:brown_stained_glass",
-    "minecraft:cyan_stained_glass",
-    "minecraft:gray_stained_glass",
-    "minecraft:green_stained_glass",
-    "minecraft:light_blue_stained_glass",
-    "minecraft:light_gray_stained_glass",
-    "minecraft:lime_stained_glass",
-    "minecraft:magenta_stained_glass",
-    "minecraft:orange_stained_glass",
-    "minecraft:pink_stained_glass",
-    "minecraft:purple_stained_glass",
-    "minecraft:red_stained_glass",
-    "minecraft:white_stained_glass",
-    "minecraft:yellow_stained_glass",
-];
-
-pub(in crate::compiler) const COPPER_GRATE_NAMES: [&str; 8] = [
-    "minecraft:copper_grate",
-    "minecraft:exposed_copper_grate",
-    "minecraft:oxidized_copper_grate",
-    "minecraft:waxed_copper_grate",
-    "minecraft:waxed_exposed_copper_grate",
-    "minecraft:waxed_oxidized_copper_grate",
-    "minecraft:waxed_weathered_copper_grate",
-    "minecraft:weathered_copper_grate",
-];
-
 pub(in crate::compiler) fn is_stained_glass_cube(record: &RegistryRecord) -> bool {
     record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Cube
         && record.contributor_role == ContributorRole::Primary
-        && ORDINARY_STAINED_GLASS_NAMES
-            .binary_search(&record.name.as_ref())
-            .is_ok()
+        && block_render_fact(&record.name).kind == R::StainedGlass
 }
 
 /// Vanilla glass is not solid: faces touching it still draw, and only glass culls glass.
 pub(in crate::compiler) fn is_clear_glass_cube(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:glass"
+    block_render_fact(&record.name).kind == R::ClearGlass
         && record.canonical_state.as_ref() == "{}"
         && record.model_family == ModelFamily::Cube
         && record.contributor_role == ContributorRole::Primary
@@ -245,7 +144,7 @@ pub(in crate::compiler) fn is_clear_glass_cube(record: &RegistryRecord) -> bool 
 }
 
 pub(in crate::compiler) fn is_ordinary_stained_glass_name(name: &str) -> bool {
-    ORDINARY_STAINED_GLASS_NAMES.binary_search(&name).is_ok()
+    block_render_fact(name).kind == R::StainedGlass
 }
 
 pub(in crate::compiler) fn is_copper_grate(record: &RegistryRecord) -> bool {
@@ -261,7 +160,7 @@ pub(in crate::compiler) fn is_copper_grate(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_copper_grate_name(name: &str) -> bool {
-    COPPER_GRATE_NAMES.binary_search(&name).is_ok()
+    block_render_fact(name).kind == R::CopperGrate
 }
 
 pub(in crate::compiler) const fn is_fence(record: &RegistryRecord) -> bool {
@@ -285,54 +184,42 @@ pub(in crate::compiler) const fn is_stair(record: &RegistryRecord) -> bool {
 }
 
 pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bool {
-    super::visuals::coral::is_fan(record)
-        || super::visuals::lily_pad::is_record(record)
-        || is_cross_visual(record)
-        || is_kelp(record)
-        || is_flowerbed(record)
-        || is_vine(record)
-        || is_multiface(record)
-        || is_door(record)
-        || is_trapdoor(record)
-        || is_torch(record)
-        || is_ladder(record)
-        || is_rail(record)
-        || is_chain(record)
-        || is_crystal(record)
+    block_render_fact(&record.name).kind.route().cutout
+        || matches!(
+            record.model_family,
+            ModelFamily::Cross
+                | ModelFamily::Crop
+                | ModelFamily::FlowerBed
+                | ModelFamily::Vine
+                | ModelFamily::GlowLichen
+                | ModelFamily::SculkVein
+                | ModelFamily::ResinClump
+                | ModelFamily::Door
+                | ModelFamily::Trapdoor
+                | ModelFamily::Torch
+                | ModelFamily::Rail
+        )
 }
 
 pub(in crate::compiler) fn is_model_visual(record: &RegistryRecord) -> bool {
-    super::visuals::coral::is_record(record)
-        || super::visuals::lantern::is_record(record)
-        || pack_compile_input::respawn_anchor::is_record(record)
-        || super::visuals::candle_cake::is_record(record)
-        || super::visuals::sea_pickle::is_record(record)
-        || super::visuals::brewing_stand::is_record(record)
-        || super::visuals::campfire::is_record(record)
-        || super::visuals::grindstone::is_record(record)
-        || super::visuals::tripwire_hook::is_record(record)
-        || super::visuals::lever::is_record(record)
-        || super::visuals::portal::is_record(record)
-        || super::visuals::shelf::is_record(record)
-        || super::visuals::end_portal_frame::is_record(record)
-        || super::visuals::end_rod::is_record(record)
-        || super::visuals::lightning_rod::is_record(record)
-        || is_stained_glass_cube(record)
-        || is_clear_glass_cube(record)
-        || is_copper_grate(record)
-        || is_translucent_cube(record)
-        || is_named_block(record)
+    block_render_fact(&record.name).kind.route().model
+        || record
+            .traits
+            .contains(assets::registry::BlockTraits::LANTERN_LIKE)
         || is_cutout_model_visual(record)
-        || is_slab(record)
-        || is_stair(record)
-        || is_wall(record)
-        || is_pressure_plate(record)
-        || is_button(record)
-        || is_gate(record)
-        || is_carpet(record)
-        || is_pane(record)
-        || is_fence(record)
-        || is_sign(record)
+        || matches!(
+            record.model_family,
+            ModelFamily::Slab
+                | ModelFamily::Stair
+                | ModelFamily::Wall
+                | ModelFamily::PressurePlate
+                | ModelFamily::Button
+                | ModelFamily::Gate
+                | ModelFamily::Carpet
+                | ModelFamily::Pane
+                | ModelFamily::Fence
+                | ModelFamily::Sign
+        )
 }
 
 pub(in crate::compiler) const fn is_liquid(record: &RegistryRecord) -> bool {
@@ -342,28 +229,34 @@ pub(in crate::compiler) const fn is_liquid(record: &RegistryRecord) -> bool {
 
 pub(in crate::compiler) fn is_supported_liquid(record: &RegistryRecord) -> bool {
     is_liquid(record)
-        && matches!(
-            record.name.as_ref(),
-            "minecraft:water"
-                | "minecraft:flowing_water"
-                | "minecraft:lava"
-                | "minecraft:flowing_lava"
-        )
+        && (record
+            .traits
+            .intersects(assets::registry::BlockTraits::WATER | assets::registry::BlockTraits::LAVA)
+            || matches!(block_render_fact(&record.name).kind, R::Water | R::Lava))
 }
 
-pub(in crate::compiler) const fn liquid_material_flags(name: &str) -> u32 {
-    match name.as_bytes() {
-        b"minecraft:water" | b"minecraft:flowing_water" => {
-            MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
-        }
-        b"minecraft:lava" | b"minecraft:flowing_lava" => MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
-        _ => 0,
+pub(in crate::compiler) fn liquid_material_flags(record: &RegistryRecord) -> u32 {
+    if record.traits.contains(assets::registry::BlockTraits::WATER)
+        || block_render_fact(&record.name).kind == R::Water
+    {
+        MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_WATER_TINT
+    } else if record.traits.contains(assets::registry::BlockTraits::LAVA)
+        || block_render_fact(&record.name).kind == R::Lava
+    {
+        MATERIAL_FLAG_LIQUID_DEPTH_WRITE
+    } else {
+        0
     }
 }
 
 pub(in crate::compiler) fn cross_texture_face(record: &RegistryRecord) -> BlockFace {
-    if record.name.as_ref() == "minecraft:sweet_berry_bush" {
-        return match canonical_state_u32(&record.canonical_state, "growth").unwrap_or(0) {
+    if block_render_fact(&record.name).kind == R::BerryBush {
+        return match canonical_state_u32(
+            &record.canonical_state,
+            assets::facts::BlockProperty::Growth.name(),
+        )
+        .unwrap_or(0)
+        {
             0 => BlockFace::Down,
             1 => BlockFace::Up,
             2 => BlockFace::North,
@@ -372,7 +265,11 @@ pub(in crate::compiler) fn cross_texture_face(record: &RegistryRecord) -> BlockF
             _ => BlockFace::East,
         };
     }
-    if canonical_state_u32(&record.canonical_state, "upper_block_bit") == Some(1) {
+    if canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::UpperBlockBit.name(),
+    ) == Some(1)
+    {
         BlockFace::Up
     } else {
         BlockFace::Down
@@ -404,9 +301,14 @@ pub(in crate::compiler) fn canonical_state_str(state: &str, property: &str) -> O
 }
 
 pub(in crate::compiler) fn aquatic_cross_faces(record: &RegistryRecord) -> Option<[BlockFace; 2]> {
-    match record.name.as_ref() {
-        "minecraft:seagrass" => {
-            match canonical_state_str(&record.canonical_state, "sea_grass_type")?.as_ref() {
+    match block_render_fact(&record.name).kind {
+        R::Seagrass => {
+            match canonical_state_str(
+                &record.canonical_state,
+                assets::facts::BlockProperty::SeaGrassType.name(),
+            )?
+            .as_ref()
+            {
                 "default" => Some([BlockFace::Up, BlockFace::Up]),
                 "double_bot" => Some([BlockFace::Down, BlockFace::South]),
                 "double_top" => Some([BlockFace::East, BlockFace::West]),
@@ -418,28 +320,11 @@ pub(in crate::compiler) fn aquatic_cross_faces(record: &RegistryRecord) -> Optio
 }
 
 pub(in crate::compiler) fn cutout_model_tint_flags(name: &str) -> u32 {
-    match name {
-        "minecraft:short_grass"
-        | "minecraft:tall_grass"
-        | "minecraft:fern"
-        | "minecraft:large_fern"
-        | "minecraft:bush" => MATERIAL_FLAG_GRASS_TINT,
-        "minecraft:vine" => MATERIAL_FLAG_FOLIAGE_TINT,
-        _ => 0,
-    }
+    tint_flags(assets::facts::block_render_fact(name).tint)
 }
 
 pub(in crate::compiler) fn leaf_tint_flags(name: &str) -> u32 {
-    match name {
-        "minecraft:oak_leaves"
-        | "minecraft:dark_oak_leaves"
-        | "minecraft:jungle_leaves"
-        | "minecraft:acacia_leaves"
-        | "minecraft:mangrove_leaves" => MATERIAL_FLAG_FOLIAGE_TINT,
-        "minecraft:birch_leaves" => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE,
-        "minecraft:spruce_leaves" => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE,
-        _ => 0,
-    }
+    tint_flags(assets::facts::block_render_fact(name).tint)
 }
 
 pub(in crate::compiler) fn record_has_deferred_material(
@@ -464,5 +349,18 @@ pub(in crate::compiler) fn source_is_deferred(
     key: &str,
     _path: &str,
 ) -> bool {
-    record.name.as_ref() != "minecraft:grass_block" && pack.terrain.requires_tint(key)
+    block_render_fact(&record.name).kind != R::Grass && pack.terrain.requires_tint(key)
+}
+
+/// Maps the compiled tint domain to the shared material contract.
+fn tint_flags(tint: assets::facts::BlockRenderTint) -> u32 {
+    use assets::facts::BlockRenderTint as T;
+    match tint {
+        T::None => 0,
+        T::Grass => MATERIAL_FLAG_GRASS_TINT,
+        T::Foliage => MATERIAL_FLAG_FOLIAGE_TINT,
+        T::Birch => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_BIRCH_FOLIAGE,
+        T::Evergreen => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_EVERGREEN_FOLIAGE,
+        T::Dry => MATERIAL_FLAG_FOLIAGE_TINT | MATERIAL_FLAG_DRY_FOLIAGE,
+    }
 }

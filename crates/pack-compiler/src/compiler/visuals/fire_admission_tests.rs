@@ -83,7 +83,10 @@ fn native_upper_orientation_controls_partial_block_top_support() {
         }
         let state = format!("{{\"{key}\":{{\"type\":\"byte\",\"value\":1}}}}");
         assert_eq!(
-            canonical_upper_half(&record(name, family, &state), key),
+            canonical_upper_half(
+                &record(name, family, &state),
+                BlockProperty::from_name(key).unwrap()
+            ),
             Some(true)
         );
     }
@@ -104,20 +107,22 @@ fn malformed_orientation_is_lenient_and_keeps_no_support_fact() {
 }
 
 #[test]
-fn wool_uses_a_proven_catch_component_and_does_not_infer_from_wood_names() {
-    for name in [
-        "minecraft:red_wool",
-        "minecraft:light_blue_wool_stairs",
-        "minecraft:black_wool_double_slab",
+fn admitted_wool_catches_fire_without_inferring_from_wood_material() {
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    for (name, expected) in [
+        ("minecraft:red_wool", true),
+        ("minecraft:oak_planks", false),
     ] {
-        assert!(known_wool_flammable(name));
-    }
-    for name in [
-        "minecraft:oak_planks",
-        "minecraft:oak_log",
-        "custom:red_wool",
-        "minecraft:imaginary_wool",
-    ] {
-        assert!(!known_wool_flammable(name));
+        let record = records
+            .iter()
+            .find(|record| record.name.as_ref() == name)
+            .unwrap();
+        let mut visual = visual(VisualKind::Cube);
+        apply(record, &mut visual);
+        assert_eq!(visual.flags.contains(BlockFlags::FIRE_FLAMMABLE), expected);
     }
 }

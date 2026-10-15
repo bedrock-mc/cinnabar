@@ -14,6 +14,21 @@ const SPRITE_GROUP_SCALE: f32 = 0.3;
 const SPRITE_DEFAULT_SCALE: f32 = 1.5;
 const CUBE_SCALE: f32 = 0.25;
 
+/// Rotates a block model vector by its authored quarter turn about Y.
+pub(super) fn block_item_rotation([x, y, z]: [f32; 3], rotation: u32) -> [f32; 3] {
+    match rotation & 3 {
+        1 => [-z, y, x],
+        2 => [-x, y, -z],
+        3 => [z, y, -x],
+        _ => [x, y, z],
+    }
+}
+
+/// Maps a fixed-point block template corner to its centered item position.
+pub(super) fn block_item_position(point: [i16; 3], rotation: u32) -> [f32; 3] {
+    block_item_rotation(point.map(|axis| f32::from(axis) / 256.0 - 0.5), rotation)
+}
+
 /// Ordinary model routes admitted by this dropped-item renderer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DroppedItemShape {

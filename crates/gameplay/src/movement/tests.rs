@@ -183,7 +183,7 @@ fn authority_change_drops_a_held_release_whose_facing_never_went_out() {
 
     let mut ticker = held_release_ticker();
     let sent = flush_identities(&mut ticker, 8);
-    ticker.begin_respawn_search();
+    ticker.begin_respawn_search(&mut LocalPhysicsController::default());
     // A write acknowledged under the old epoch must not revive the release.
     ticker.acknowledge_physics_send(sent[0]);
     assert!(!ticker.has_held_release());
@@ -201,6 +201,26 @@ fn held_release_survives_an_authority_change_after_its_facing_was_written() {
         Ok(())
     });
     assert!(released);
+}
+
+#[test]
+fn discarding_a_future_release_drops_its_reserved_facing() {
+    use crate::test_support::survival_mining::completed;
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, completed(101).position);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    let written = flush_identities(&mut ticker, 1);
+    assert!(ticker.acknowledge_physics_send(written[0]));
+    assert!(ticker.override_action_rotation(102, -30.0, 90.0));
+    ticker.hold_release_after_tick(102, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.correction_authority_changed();
+    assert!(!ticker.has_held_release());
+    let next = completed(102);
+    ticker.enqueue_completed_physics(next.clone()).unwrap();
+    let snapshot = ticker.pending_snapshots()[0];
+    assert_eq!((snapshot.pitch, snapshot.yaw), (next.pitch, next.yaw));
+    ticker.send_held_release(|_| panic!("the discarded release must not return"));
 }
 
 /// A reanchor that keeps the tick number retires an action flag latched under the old authority.

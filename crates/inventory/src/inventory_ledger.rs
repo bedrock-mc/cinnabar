@@ -44,6 +44,7 @@ mod overlay;
 #[cfg(test)]
 mod overlay_tests;
 mod personal;
+mod presentation;
 mod queue;
 mod quick_move;
 #[cfg(test)]
@@ -67,6 +68,7 @@ pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
 use personal::PersonalWindow;
+pub use presentation::InventoryPresentationSnapshot;
 pub use queue::MAX_PENDING_REQUESTS;
 use queue::PendingRequest;
 pub use response::StackResponseOverlay;
@@ -187,6 +189,8 @@ pub struct PlayerInventoryLedger {
     queue: VecDeque<PendingRequest>,
     /// Admitted world-drop gestures waiting to deliver their immediate feedback.
     pending_world_drops: usize,
+    /// Excess container opens awaiting a delivery acknowledgement, bounded like requests.
+    pending_open_warnings: usize,
     next_request_id: i32,
     session_generation: u64,
     next_open_generation: u64,
@@ -232,6 +236,7 @@ impl Default for PlayerInventoryLedger {
             bundles: BTreeMap::new(),
             queue: VecDeque::new(),
             pending_world_drops: 0,
+            pending_open_warnings: 0,
             next_request_id: -3,
             session_generation: 0,
             next_open_generation: 1,
@@ -506,6 +511,12 @@ impl PlayerInventoryLedger {
 
     /// Places ready requests in one packet; window controls keep their existing queue priority.
     pub fn pending_batch(&self) -> Result<Option<(Packet, usize)>, InventoryGestureError> {
+        if self.pending_open_warnings != 0 {
+            return Ok(Some((
+                protocol::repeated_container_open_warning_packet(),
+                1,
+            )));
+        }
         if let Some(control) = self.pending_control_packet()? {
             return Ok(Some((control, 1)));
         }
@@ -543,6 +554,10 @@ impl PlayerInventoryLedger {
     }
 
     pub fn mark_transport_enqueued(&mut self, now_millis: u64) -> bool {
+        if self.pending_open_warnings != 0 {
+            self.pending_open_warnings -= 1;
+            return true;
+        }
         if self.mark_control_enqueued(now_millis) {
             return true;
         }
@@ -571,7 +586,8 @@ impl PlayerInventoryLedger {
     /// Unsent requests never reached the server, so sustained queue pressure
     /// rolls every one of them back.
     pub fn note_transport_pressure(&mut self, now_millis: u64) {
-        if self.pending_control().is_some()
+        if self.pending_open_warnings != 0
+            || self.pending_control().is_some()
             || matches!(
                 self.personal,
                 Some(PersonalWindow::Opening {

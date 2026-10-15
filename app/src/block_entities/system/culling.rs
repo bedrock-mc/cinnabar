@@ -1,5 +1,6 @@
-//! Skips geometry preparation for block entities the current cave graph hides.
+//! Skips geometry preparation outside the view or in sections the cave graph hides.
 
+use bevy::math::Mat4;
 use render_model::BLOCK_ENTITY_REACH_BLOCKS;
 use world::SubChunkKey;
 
@@ -20,10 +21,15 @@ impl BlockEntityWork {
     pub(super) fn admit(
         &mut self,
         culling: Option<&CaveCulling<'_, impl Fn(SubChunkKey) -> bool>>,
+        clip_from_world: Option<Mat4>,
         template: &Template,
         block: [i32; 3],
     ) -> bool {
-        let prepare = !culling.is_some_and(|culling| culling.hides(template, block));
+        let prepare = bounds(template, block).is_none_or(|(low, high)| {
+            clip_from_world.is_none_or(|matrix| {
+                render_model::visibility_bounds::box_intersects_view(matrix, low, high)
+            }) && !culling.is_some_and(|culling| culling.hides(low, high))
+        });
         self.candidates += 1;
         self.prepared += u32::from(prepare);
         prepare
@@ -76,11 +82,8 @@ impl<'a, K: Fn(SubChunkKey) -> bool> CaveCulling<'a, K> {
         }
     }
 
-    /// Whether `template` at `block` draws nothing visible; beacon beams never hide.
-    fn hides(&self, template: &Template, block: [i32; 3]) -> bool {
-        let Some((low, high)) = bounds(template, block) else {
-            return false;
-        };
+    /// Whether every section touched by conservative bounds is known and unreached.
+    fn hides(&self, low: [f32; 3], high: [f32; 3]) -> bool {
         self.cave
             .hides_box(self.camera, self.generation, &self.known, low, high)
     }

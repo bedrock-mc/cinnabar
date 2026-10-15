@@ -585,6 +585,10 @@ pub(super) fn queue_wait(queued_at: Instant, started_at: Instant) -> Duration {
 /// Work performed by one call to [`WorldStream::poll`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WorldStreamPoll {
+    /// Retention and full-detail columns or unchanged row interiors examined.
+    pub maintenance_items: usize,
+    /// Maximum elapsed time of a maintenance item, commit or worker-result acceptance.
+    pub service_item_max: Duration,
     /// Ordered commit steps applied, counting each partial sub-chunk batch entry.
     pub commit_steps: usize,
     pub decoded_results: usize,

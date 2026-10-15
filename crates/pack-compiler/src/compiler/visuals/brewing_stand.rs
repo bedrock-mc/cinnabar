@@ -4,11 +4,12 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 /// Identifies the terrain model before its provisional envelope route.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:brewing_stand"
+    block_render_fact(&record.name).kind == R::BrewingStand
         && record.contributor_role == ContributorRole::Primary
         && !record.flags.contains(BlockFlags::AIR)
 }
@@ -22,9 +23,9 @@ fn bottles(record: &RegistryRecord) -> Option<[bool; 3]> {
     }
     let selector = |key| Some(super::state::exact_tagged_byte(state.get(key)?, 1)? != 0);
     Some([
-        selector("brewing_stand_slot_a_bit")?,
-        selector("brewing_stand_slot_b_bit")?,
-        selector("brewing_stand_slot_c_bit")?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotABit.name())?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotBBit.name())?,
+        selector(assets::facts::BlockProperty::BrewingStandSlotCBit.name())?,
     ])
 }
 

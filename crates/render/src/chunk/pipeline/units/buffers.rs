@@ -1,80 +1,221 @@
-use render_model::terrain_units::{VisibleTerrainUnit, shards};
+use crate::queue_writes::ProfiledQueue as _;
+use render_model::terrain_units::{IndexedUnitPage, VisibleTerrainUnit};
 
+use super::UnitStream;
 use crate::chunk::*;
 use crate::upload_staging::TerrainUploadStaging;
 
-/// One binding-sized page of a stream's ordered visible units.
+/// One binding contains both stable geometry slots and the ordered visibility references.
 pub(super) struct UnitPage {
     buffer: Buffer,
     pub(super) group: BindGroup,
     pub(super) count: u32,
-    uploaded: Vec<VisibleTerrainUnit>,
+    layout: IndexedUnitPage,
+    indexed: bool,
+    packed: Vec<VisibleTerrainUnit>,
+    references: Vec<u32>,
 }
 
-/// Uploads only changed pages through the shared staging pool. Pages never truncate a stream.
+#[derive(Default)]
+pub(super) struct Uploaded {
+    pub(super) descriptors: u64,
+    pub(super) references: u64,
+}
+
+/// Uploads changed slot spans; oversized streams retain complete ordered page draws.
 pub(super) fn upload(
-    pages: &mut Vec<UnitPage>,
-    visible: &[VisibleTerrainUnit],
+    stream: &mut UnitStream,
+    capacity: usize,
     device: &RenderDevice,
     queue: &RenderQueue,
     cache: &PipelineCache,
     staging: Option<&TerrainUploadStaging>,
-) -> u64 {
-    let limits = device.limits();
-    let max_bytes = limits
-        .max_buffer_size
-        .min(limits.max_storage_buffer_binding_size);
-    let mut bytes_uploaded = 0;
-    let mut page_count = 0;
-    for (index, range) in shards(visible.len(), max_bytes).enumerate() {
-        page_count += 1;
-        let units = &visible[range];
-        let bytes = bytemuck::cast_slice(units);
-        if pages
-            .get(index)
-            .is_none_or(|page| page.buffer.size() < bytes.len() as u64)
-        {
-            let buffer = device.create_buffer(&BufferDescriptor {
-                label: Some("visible terrain unit page"),
-                size: (bytes.len() as u64).next_power_of_two().min(max_bytes),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
-            let group = device.create_bind_group(
-                "visible terrain unit page",
-                &cache.get_bind_group_layout(&super::bind_group_layout()),
-                &[BindGroupEntry {
-                    binding: 0,
-                    resource: buffer.as_entire_binding(),
-                }],
+) -> Uploaded {
+    let mut uploaded = Uploaded::default();
+    if stream.indexed {
+        if stream.descriptors.records.is_empty() {
+            stream.pages.clear();
+            return uploaded;
+        }
+        stream.pages.truncate(1);
+        let fresh = ensure_page(
+            &mut stream.pages,
+            0,
+            stream.descriptors.records.len(),
+            capacity,
+            device,
+            cache,
+        );
+        let page = &mut stream.pages[0];
+        let all = fresh || !page.indexed;
+        page.indexed = true;
+        page.packed.clear();
+        upload_page(
+            page,
+            &stream.descriptors.records,
+            &stream.descriptors.dirty,
+            &stream.references,
+            all,
+            device,
+            queue,
+            staging,
+            &mut uploaded,
+        );
+    } else {
+        let mut pages = 0;
+        for (index, descriptors) in stream.fallback.chunks(capacity).enumerate() {
+            pages += 1;
+            let fresh = ensure_page(
+                &mut stream.pages,
+                index,
+                descriptors.len(),
+                capacity,
+                device,
+                cache,
             );
-            let page = UnitPage {
-                buffer,
-                group,
-                count: 0,
-                uploaded: Vec::new(),
-            };
-            if index == pages.len() {
-                pages.push(page);
-            } else {
-                pages[index] = page;
+            let page = &mut stream.pages[index];
+            let all = fresh || page.indexed || page.packed != descriptors;
+            page.indexed = false;
+            let references = (0..descriptors.len() as u32).collect::<Vec<_>>();
+            upload_page(
+                page,
+                descriptors,
+                &[],
+                &references,
+                all,
+                device,
+                queue,
+                staging,
+                &mut uploaded,
+            );
+            if all {
+                page.packed.clear();
+                page.packed.extend_from_slice(descriptors);
             }
         }
-        let page = &mut pages[index];
-        page.count = units.len() as u32;
-        if page.uploaded != units {
-            #[cfg(feature = "tracy")]
-            let _span = bevy::log::info_span!("terrain.unit_upload", bytes = bytes.len()).entered();
-            if let Some(staging) = staging {
-                staging.write_batch(device, queue, &[(&page.buffer, 0, bytes)]);
-            } else {
-                queue.write_buffer(&page.buffer, 0, bytes);
+        stream.pages.truncate(pages);
+    }
+    uploaded
+}
+
+/// Grows geometrically without exceeding either the buffer or storage-binding limit.
+fn ensure_page(
+    pages: &mut Vec<UnitPage>,
+    index: usize,
+    needed: usize,
+    maximum: usize,
+    device: &RenderDevice,
+    cache: &PipelineCache,
+) -> bool {
+    if pages
+        .get(index)
+        .is_some_and(|page| page.layout.capacity >= needed)
+    {
+        return false;
+    }
+    let layout = IndexedUnitPage {
+        capacity: needed.next_power_of_two().min(maximum),
+    };
+    let buffer = device.create_buffer(&BufferDescriptor {
+        label: Some("indexed terrain unit page"),
+        size: layout.byte_size(),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let group = device.create_bind_group(
+        "indexed terrain unit page",
+        &cache.get_bind_group_layout(&super::bind_group_layout()),
+        &[BindGroupEntry {
+            binding: 0,
+            resource: buffer.as_entire_binding(),
+        }],
+    );
+    let page = UnitPage {
+        buffer,
+        group,
+        count: 0,
+        layout,
+        indexed: false,
+        packed: Vec::new(),
+        references: Vec::new(),
+    };
+    if index == pages.len() {
+        pages.push(page);
+    } else {
+        pages[index] = page;
+    }
+    true
+}
+
+/// Coalesces adjacent changed slots, without copying any intervening unchanged descriptor.
+pub(super) fn dirty_ranges(dirty: &[u32]) -> impl Iterator<Item = Range<usize>> + '_ {
+    let mut remaining = dirty;
+    std::iter::from_fn(move || {
+        let (&start, rest) = remaining.split_first()?;
+        let mut end = start + 1;
+        let mut used = 0;
+        for &slot in rest {
+            if slot != end {
+                break;
             }
-            page.uploaded.clear();
-            page.uploaded.extend_from_slice(units);
-            bytes_uploaded += bytes.len() as u64;
+            end += 1;
+            used += 1;
+        }
+        remaining = &rest[used..];
+        Some(start as usize..end as usize)
+    })
+}
+
+/// Keeps all writes in the existing ordered staging pool before any camera uses the page.
+#[allow(clippy::too_many_arguments)]
+fn upload_page(
+    page: &mut UnitPage,
+    descriptors: &[VisibleTerrainUnit],
+    dirty: &[u32],
+    references: &[u32],
+    all: bool,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    staging: Option<&TerrainUploadStaging>,
+    uploaded: &mut Uploaded,
+) {
+    let header = page.layout.header();
+    let record_bytes = size_of::<VisibleTerrainUnit>() as u64;
+    let mut writes: Vec<crate::upload_staging::BufferWrite<'_>> = Vec::new();
+    if all {
+        writes.push((&page.buffer, 0, bytemuck::bytes_of(&header)));
+        writes.push((
+            &page.buffer,
+            record_bytes,
+            bytemuck::cast_slice(descriptors),
+        ));
+        uploaded.descriptors += record_bytes * (1 + descriptors.len() as u64);
+    } else {
+        for range in dirty_ranges(dirty) {
+            uploaded.descriptors += range.len() as u64 * record_bytes;
+            writes.push((
+                &page.buffer,
+                (1 + range.start as u64) * record_bytes,
+                bytemuck::cast_slice(&descriptors[range]),
+            ));
         }
     }
-    pages.truncate(page_count);
-    bytes_uploaded
+    let changed = all || page.references != references;
+    if changed && !references.is_empty() {
+        let bytes = bytemuck::cast_slice(references);
+        writes.push((&page.buffer, page.layout.reference_offset(), bytes));
+        uploaded.references += bytes.len() as u64;
+    }
+    if let Some(staging) = staging {
+        staging.write_batch(device, queue, &writes);
+    } else {
+        for (buffer, offset, bytes) in writes {
+            queue.profiled_write_buffer(buffer, offset, bytes);
+        }
+    }
+    if changed {
+        page.references.clear();
+        page.references.extend_from_slice(references);
+    }
+    page.count = references.len() as u32;
 }

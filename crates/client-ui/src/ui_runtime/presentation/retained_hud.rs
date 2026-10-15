@@ -170,6 +170,11 @@ impl PresentedScoreboardCache {
 }
 
 impl ScoreboardOwnerNameAuthority {
+    /// Identifies the names used by the retained sidebar projection.
+    pub(super) fn revision(&self) -> u64 {
+        self.revision
+    }
+
     pub(super) fn replace(&mut self, names: impl IntoIterator<Item = (i64, Arc<str>)>) {
         let next = names
             .into_iter()

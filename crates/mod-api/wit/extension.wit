@@ -207,7 +207,7 @@ interface gameplay {
         frame-seconds: f32,
         players: list<player>,
     }
-    /// Requires the explicit players grant; none means gameplay does not own input.
+    /// Requires players or terrain; player rows require players. None means gameplay does not own input.
     read-frame: func() -> result<option<snapshot>, string>;
     /// Input-owned local physics state; velocity is blocks per simulation tick.
     record movement-snapshot {
@@ -393,8 +393,70 @@ interface item-use {
     set-delay-fix: func(enabled: bool) -> result<_, string>;
 }
 
+/// Bounded local terrain reads. The queries a callback reads become its subscriptions, which the
+/// client samples before later frames, so a new query reads `pending` first. A deferred callback
+/// keeps its subscriptions. Unknown terrain is never reported as air.
+interface terrain {
+    record position { x: s32, y: s32, z: s32 }
+    flags geometry { collision, selection }
+    /// Inclusive minimum and exclusive maximum; each extent is 1 to `MAX_TERRAIN_EXTENT` blocks.
+    record region-query { min: position, max: position, geometry: geometry }
+    /// Identifies one sample of one query; an equal stamp means identical contents.
+    record stamp { session: u64, dimension: s32, registry: u64, revision: u64 }
+    flags physics-flags { climbable, water, lava, cobweb, powder-snow, scaffolding, passable }
+    enum surface-response { none, slime, bed, honey, soul-sand, bubble-up, bubble-down }
+    record physics {
+        friction: f64, horizontal-speed-factor: f64, vertical-speed-factor: f64,
+        fluid-height: f64, %flags: physics-flags, surface: surface-response,
+    }
+    /// An index into the region's shapes; shape 0 is known-empty.
+    variant resolved-shape { unavailable, known(u32) }
+    variant shape-binding {
+        not-requested,
+        fixed(resolved-shape),
+        /// Every occurrence has an override.
+        per-cell,
+    }
+    /// One distinct runtime ID; metadata and physics are absent when the registry lacks them.
+    record block-state {
+        runtime-id: u32, identifier: option<string>, canonical-state: option<string>,
+        tags: list<string>, physics: option<physics>,
+        collision: shape-binding, selection: shape-binding,
+    }
+    /// Revision of a column the region depends on; none is absent terrain.
+    record chunk-revision { x: s32, z: s32, revision: option<u64> }
+    /// Geometry of one layer slot that depends on its position; none keeps the state's binding.
+    record shape-override { slot: u32, collision: option<resolved-shape>, selection: option<resolved-shape> }
+    /// Cell `((x * size-z) + z) * size-y + y`, relative to the minimum, has layer `l` at slot
+    /// `l * cells + cell`. Shapes are block-local, with native position offsets applied.
+    record region {
+        stamp: stamp,
+        /// Every column read, including those consulted for neighbour or actor geometry.
+        chunks: list<chunk-revision>,
+        layer-count: u8,
+        /// Bit `cell % 64` of word `cell / 64` is set for known cells.
+        loaded: list<u64>,
+        /// Palette index per slot; 65535 is no layer, never air.
+        states: list<u16>,
+        palette: list<block-state>,
+        /// Shape `s` is boxes `shape-offsets[s]` to `shape-offsets[s + 1]`.
+        shape-offsets: list<u32>,
+        /// Six values per box: minimum then maximum x, y and z.
+        shape-boxes: list<f64>,
+        /// Sorted by slot.
+        overrides: list<shape-override>,
+    }
+    variant read-result { pending, unchanged(stamp), changed(region) }
+    enum read-error { denied, unavailable, invalid-query, out-of-range, budget-exhausted, limit-exceeded }
+    /// Requires terrain authority and a gameplay frame; the query lies within
+    /// `MAX_TERRAIN_DISTANCE` blocks of the player's feet on each axis. Pass the stamp last received
+    /// for this query to skip unchanged data. Limits are `mod-api`'s `MAX_TERRAIN_*` constants.
+    read-region: func(query: region-query, after: option<stamp>) -> result<read-result, read-error>;
+}
+
 /// Experimental developer contract; no WASI or ambient operating-system access.
 world extension {
+    import terrain;
     import player-state;
     import item-use;
     import camera;

@@ -5,13 +5,14 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use super::state::{exact_tagged_byte, exact_tagged_int};
+use assets::facts::{BlockRenderKind as R, block_render_fact};
 use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) type TemplateKey = ([u32; 4], u8, bool);
 
 /// Identifies pitcher crop states without admitting the harvested ornamental plant.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == "minecraft:pitcher_crop"
+    block_render_fact(&record.name).kind == R::PitcherCrop
 }
 
 /// Reads the complete growth and half selector product.
@@ -22,8 +23,11 @@ fn state(record: &RegistryRecord) -> Option<(u8, bool)> {
         return None;
     }
     Some((
-        exact_tagged_int(state.get("growth")?, 7)? as u8,
-        exact_tagged_byte(state.get("upper_block_bit")?, 1)? != 0,
+        exact_tagged_int(state.get(assets::facts::BlockProperty::Growth.name())?, 7)? as u8,
+        exact_tagged_byte(
+            state.get(assets::facts::BlockProperty::UpperBlockBit.name())?,
+            1,
+        )? != 0,
     ))
 }
 

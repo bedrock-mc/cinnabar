@@ -1,11 +1,12 @@
 //! Retained GPU storage for immutable geometry pages.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{Buffer, BufferDescriptor, BufferUsages, CommandEncoderDescriptor},
     renderer::{RenderDevice, RenderQueue},
 };
+use render_model::ActorRigVertex;
 use render_model::ActorRigVertexSegments;
-use render_model::{ActorRigVertex, MAX_ACTOR_CATALOG_VERTICES};
 use std::collections::BTreeSet;
 
 /// Mirrors changed pages; growth and relocation copy retained GPU bytes instead of uploading them.
@@ -115,7 +116,8 @@ impl SegmentedVertexBuffer {
         )
         .entered();
         if plan.replace {
-            let capacity = vertex_buffer_capacity(vertices.len());
+            let binding = usize::try_from(storage_binding_bytes(device)).unwrap_or(usize::MAX);
+            let capacity = vertex_buffer_capacity(vertices.len(), binding / stride);
             let buffer = device.create_buffer(&BufferDescriptor {
                 label: Some(label),
                 size: (capacity * stride) as u64,
@@ -155,7 +157,7 @@ impl SegmentedVertexBuffer {
                 bytes = vertices.segments[index].len() * stride,
             )
             .entered();
-            queue.write_buffer(
+            queue.profiled_write_buffer(
                 buffer,
                 (vertices.offsets[index] * stride) as u64,
                 bytemuck::cast_slice::<ActorRigVertex, u8>(&vertices.segments[index]),
@@ -170,8 +172,20 @@ impl SegmentedVertexBuffer {
     }
 }
 
-fn vertex_buffer_capacity(vertices: usize) -> usize {
-    (vertices + vertices / 4).min(MAX_ACTOR_CATALOG_VERTICES)
+/// Bytes one storage buffer binding of `device` can hold.
+#[must_use]
+pub fn storage_binding_bytes(device: &RenderDevice) -> u64 {
+    let limits = device.limits();
+    limits
+        .max_storage_buffer_binding_size
+        .min(limits.max_buffer_size)
+}
+
+/// Grows with headroom, never past what one storage binding of this device holds.
+fn vertex_buffer_capacity(vertices: usize, binding_vertices: usize) -> usize {
+    (vertices + vertices / 4)
+        .min(binding_vertices)
+        .max(vertices)
 }
 
 #[cfg(test)]
@@ -180,17 +194,16 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn buffer_growth_accommodates_the_aggregate_catalog_budget() {
+    fn buffer_growth_stays_within_the_device_binding() {
+        let binding = render_model::MAX_ACTOR_CATALOG_VERTICES * 4;
         for vertices in [
             render_model::MAX_ACTOR_RIG_VERTICES + 1,
-            MAX_ACTOR_CATALOG_VERTICES,
+            render_model::MAX_ACTOR_CATALOG_VERTICES,
+            binding,
         ] {
-            let capacity = vertex_buffer_capacity(vertices);
+            let capacity = vertex_buffer_capacity(vertices, binding);
             assert!(capacity >= vertices);
-            assert!(
-                capacity * std::mem::size_of::<ActorRigVertex>()
-                    <= render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES
-            );
+            assert!(capacity <= binding);
         }
     }
 
