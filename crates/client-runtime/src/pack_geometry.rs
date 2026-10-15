@@ -232,17 +232,19 @@ mod tests {
             let chunks = state.get_mut(&mut world).unwrap();
             let gpu = ChunkTextureReload::default();
             gpu.request_geometry(candidate.clone(), Arc::from([]));
+            let obsolete = gpu.preparation().unwrap();
             preparation
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
                 .expect("an obsolete GPU build must wait without failing the reload");
             assert!(gpu.geometry_pending());
-            gpu.finish(candidate.identity(), succeeded);
+            gpu.finish(&obsolete, succeeded);
             preparation
                 .request(&candidate, &current, Some(&stream), &chunks, &gpu)
                 .expect("an obsolete GPU result must be replaced");
             assert!(gpu.geometry().is_some());
             assert!(gpu.status(candidate.identity()).is_none());
-            gpu.finish(candidate.identity(), true);
+            assert!(!gpu.finish(&obsolete, true));
+            gpu.finish(&gpu.preparation().unwrap(), true);
             assert_eq!(gpu.status(candidate.identity()), Some(Ok(())));
         }
     }
