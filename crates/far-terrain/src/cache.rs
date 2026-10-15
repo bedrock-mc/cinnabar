@@ -167,6 +167,7 @@ impl FarTerrainCache {
             server: ServerKey::from_destination(destination),
             dimension,
             level,
+            resources: [0; 32],
         };
         if self.world != Some(world) {
             self.begin_visit(destination, level, dimension);
@@ -193,9 +194,10 @@ impl FarTerrainCache {
             self.disk = DiskCache::spawn(root, bounds);
         }
         self.world = Some(WorldKey {
-            server: ServerKey::from_destination(destination).with_resources(resources),
+            server: ServerKey::from_destination(destination),
             dimension,
             level,
+            resources,
         });
     }
 
