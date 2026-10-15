@@ -147,8 +147,12 @@ impl ActorRigFrameBuilder {
     /// staged for per-frame admission. On error the catalog is unchanged.
     fn publish_session_pack(
         &mut self,
-        pack: BTreeMap<EntityRigId, ActorRigGeometry>,
+        mut pack: BTreeMap<EntityRigId, ActorRigGeometry>,
     ) -> Result<(), ActorRigGeometryError> {
+        // Keep refreshed preparation in both the resident and staged publication paths.
+        for geometry in pack.values_mut() {
+            geometry.revalidate()?;
+        }
         let maximum = self.catalog.maximum_vertices;
         let mut base = self.catalog.geometries.clone();
         base.retain(|id, _| !is_session_pack_rig(*id));

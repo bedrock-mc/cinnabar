@@ -466,3 +466,56 @@ fn invalid_staged_poses_cannot_starve_a_valid_draw() {
         }
     }
 }
+
+/// Vertex edits refresh the required bone count before either pack namespace is staged.
+#[test]
+fn staged_publication_revalidates_replaced_vertex_storage() {
+    for equipment in [false, true] {
+        for combined in [false, true] {
+            let rig = if equipment {
+                crate::pack_equipment_rig_id
+            } else {
+                crate::pack_rig_id
+            };
+            let mut edited = ActorRigGeometry::new(
+                rig(0),
+                vec![
+                    ActorRigVertex {
+                        bone_index: 1,
+                        ..ActorRigVertex::default()
+                    };
+                    6
+                ],
+                vec![[0.0; 3]; 2],
+            )
+            .unwrap();
+            edited.vertices = vec![ActorRigVertex::default(); 6].into();
+            let pack = vec![edited, distinct(rig(1), 7.0, 12)];
+            let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+            builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+            if combined {
+                let (entities, worn) = if equipment {
+                    (Vec::new(), pack)
+                } else {
+                    (pack, Vec::new())
+                };
+                assert_eq!(
+                    builder.replace_session_pack_geometries(entities, worn),
+                    (Ok(()), Ok(()))
+                );
+            } else if equipment {
+                builder.replace_pack_equipment_geometries(pack).unwrap();
+            } else {
+                builder.replace_pack_geometries(pack).unwrap();
+            }
+            let frame = builder.build(0.5, None, [draws(1, rig(0))]);
+            assert_eq!(
+                frame.instances.len(),
+                1,
+                "equipment {equipment}, combined {combined}"
+            );
+            assert_eq!(frame.manifest[0].rig, rig(0));
+            assert_spans(&builder.catalog);
+        }
+    }
+}
