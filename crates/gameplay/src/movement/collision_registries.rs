@@ -40,8 +40,6 @@ struct InteractionBlock {
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
-/// Block state property names and their value ids, by block id.
-type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
 
 /// Sequential and hashed IDs grouped by block identity and canonical state.
 type StateIds = BTreeMap<u32, BTreeMap<String, (u32, u32)>>;
