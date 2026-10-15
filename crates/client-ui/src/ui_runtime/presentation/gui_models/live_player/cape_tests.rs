@@ -3,7 +3,12 @@ use std::sync::Arc;
 
 /// Compiles an original player whose cape moves independently of the torso.
 fn catalog() -> Arc<assets::RuntimeEntityAssets> {
-    let geometry = serde_json::json!({
+    catalog_with_cape(Some([1.0; 3]))
+}
+
+/// Compiles a player with an optional cape bone and its authored animation scale.
+fn catalog_with_cape(scale: Option<[f32; 3]>) -> Arc<assets::RuntimeEntityAssets> {
+    let mut geometry = serde_json::json!({
         "format_version": "1.12.0",
         "minecraft:geometry": [
             {"description": {"identifier": "geometry.test_player", "texture_width":64, "texture_height":64},
@@ -19,6 +24,12 @@ fn catalog() -> Arc<assets::RuntimeEntityAssets> {
              ]}
         ]
     });
+    if scale.is_none() {
+        geometry["minecraft:geometry"][0]["bones"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|bone| bone["name"] != "cape");
+    }
     let entity = serde_json::json!({
         "format_version":"1.10.0", "minecraft:client_entity":{"description":{
             "identifier": assets::facts::VanillaEntity::Player.identifier(),
@@ -28,12 +39,19 @@ fn catalog() -> Arc<assets::RuntimeEntityAssets> {
             "render_controllers":["controller.render.test_player"]
         }}
     });
-    let animation = serde_json::json!({
+    let mut animation = serde_json::json!({
         "format_version":"1.8.0", "animations":{"animation.test.cape":{"loop":true,"bones":{
             "body":{"rotation":["query.is_sneaking * 20",0,0]},
             "cape":{"rotation":["-10 - query.cape_flap_amount * 30", "query.life_time * 20", 0]}
         }}}
     });
+    let bones = &mut animation["animations"]["animation.test.cape"]["bones"];
+    match scale {
+        Some(scale) => bones["cape"]["scale"] = serde_json::json!(scale),
+        None => {
+            bones.as_object_mut().unwrap().remove("cape");
+        }
+    }
     let render = serde_json::json!({
         "format_version":"1.8.0", "render_controllers":{"controller.render.test_player":{
             "geometry":"Geometry.default", "materials":[{"*":"Material.default"}], "textures":["Texture.default"]
@@ -208,6 +226,39 @@ fn hud_cape_and_torso_share_the_swimming_translation_once() {
         assert!((swimming[0] - standing[0]).abs() < 1e-6);
         assert!((swimming[1] - standing[1] - expected).abs() < 1e-6);
     }
+}
+
+#[test]
+fn missing_or_hidden_cape_keeps_the_hud_body_visible() {
+    for scale in [None, Some([0.0; 3])] {
+        let catalog = catalog_with_cape(scale);
+        let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
+        stream.advance_actor_interpolation_ticks(1);
+        let mut presentation = presentation(&catalog);
+        presentation.capture_hud_player(Some(&stream), false);
+        let mesh = presentation
+            .gui_player_mesh()
+            .expect("a missing or hidden cape must not hide the player's body");
+        assert!(!mesh.vertices().is_empty());
+        assert!(
+            mesh.batches().iter().all(|batch| batch.texture_page != 100),
+            "cape faces must be omitted for scale {scale:?}"
+        );
+    }
+}
+
+#[test]
+fn flattened_cape_keeps_its_visible_faces_and_hud_body() {
+    let catalog = catalog_with_cape(Some([0.0, 1.0, 1.0]));
+    let mut stream = tests::player_stream(Arc::clone(&catalog), Arc::clone(&catalog));
+    stream.advance_actor_interpolation_ticks(1);
+    let mut presentation = presentation(&catalog);
+    presentation.capture_hud_player(Some(&stream), false);
+    let mesh = presentation
+        .gui_player_mesh()
+        .expect("collapsed cape faces must not hide the body or the remaining cape faces");
+    assert!(mesh.batches().iter().any(|batch| batch.texture_page == 100));
+    assert!(mesh.batches().iter().any(|batch| batch.texture_page != 100));
 }
 
 #[test]

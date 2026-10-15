@@ -1196,8 +1196,9 @@ not close a parity or visual acceptance gate.
   queues. Rendered-frame and hardware performance acceptance remain incomplete.
 - The HUD cape now uses the evaluated player cape bone and the shared world-cape attachment
   calculation instead of a resting menu mesh. Worn wings suppress its separate cape layer.
-  Regression coverage includes movement, stationary sway, swimming offsets and removing wings.
-  Compilation, test execution and before/after rendered validation remain incomplete.
+  Missing and hidden cape bones omit collapsed faces while keeping the body visible; flattened
+  capes retain their visible faces. Filtered HUD, cape geometry and wing-routing tests pass.
+  Before/after rendered validation remains incomplete.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
 - Review corrections: local head sampling stays in the current render frame; cape and camera

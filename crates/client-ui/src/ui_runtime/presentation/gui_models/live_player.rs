@@ -146,6 +146,7 @@ impl UiPresentationRuntime {
                 None,
             );
             project_vertices(&cape.geometry, &pose, frame, &mut live.cape_vertices);
+            discard_collapsed_faces(&mut live.cape_vertices);
         }
     }
 }
@@ -210,6 +211,20 @@ fn project_vertices(
             part: vertex.bone_index + 6,
         });
     }
+}
+
+/// Removes cape faces with no lighting normal while preserving any remaining visible faces.
+fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
+    let mut visible = 0;
+    for start in (0..vertices.len()).step_by(3) {
+        let [a, b, c] = [0, 1, 2].map(|corner| Vec3::from_array(vertices[start + corner].position));
+        if (b - a).cross(c - a).length_squared() == 0.0 {
+            continue;
+        }
+        vertices.copy_within(start..start + 3, visible);
+        visible += 3;
+    }
+    vertices.truncate(visible);
 }
 
 #[cfg(test)]
