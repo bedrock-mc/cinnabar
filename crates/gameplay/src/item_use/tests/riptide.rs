@@ -112,13 +112,31 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
                 "reselected" => edge.selection.as_mut().unwrap().slot += 1,
                 _ => {}
             }
-            runtime.defer_riptide_release(&edge);
-            runtime.defer_riptide_release(&trident(150, false, 3, true));
-            assert!(runtime.is_using());
+            runtime.observe_riptide_release(
+                edge.tick,
+                edge.held,
+                edge.riptide,
+                edge.selection.as_ref(),
+            );
+            let later = trident(150, false, 3, true);
+            runtime.observe_riptide_release(
+                later.tick,
+                later.held,
+                later.riptide,
+                later.selection.as_ref(),
+            );
+            assert_eq!(runtime.is_using(), invalid != "reselected");
             assert_eq!(runtime.take_riptide_launch(), None);
             // Recovery of the environment and selection must not upgrade the observed edge.
             let outcome = runtime.step(&trident(160, false, 3, true));
-            assert_eq!(kinds(&outcome), ["release"]);
+            assert_eq!(
+                kinds(&outcome),
+                if invalid == "reselected" {
+                    vec![]
+                } else {
+                    vec!["release"]
+                }
+            );
             assert_eq!(
                 runtime.take_riptide_launch(),
                 (invalid == "none" && ticks == RIPTIDE_CHARGE_TICKS).then_some(3)
@@ -129,9 +147,40 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     runtime.step(&trident(100, true, 3, true));
-    runtime.defer_riptide_release(&trident(110, false, 3, true));
+    let edge = trident(110, false, 3, true);
+    runtime.observe_riptide_release(edge.tick, edge.held, edge.riptide, edge.selection.as_ref());
     let mut changed = trident(150, false, 3, true);
     changed.selection.as_mut().unwrap().slot += 1;
     assert!(runtime.step(&changed).packets.is_empty());
     assert_eq!(runtime.take_riptide_launch(), None);
+}
+
+#[test]
+fn observing_riptide_release_facts_leaves_other_held_items_on_their_admission_clock() {
+    for identifier in ["minecraft:bow", "minecraft:crossbow"] {
+        let mut runtime = ItemUseRuntime::default();
+        runtime.observe_press(true);
+        let start = item_frame(100, true, selection(2, MENU_ITEM), identifier);
+        assert!(runtime.step(&start).started);
+        runtime.observe_riptide_release(101, false, None, start.selection.as_ref());
+        assert!(
+            runtime
+                .step(&UseFrame {
+                    tick: 101,
+                    ..start.clone()
+                })
+                .packets
+                .is_empty()
+        );
+        assert!(runtime.is_using());
+        assert_eq!(
+            kinds(&runtime.step(&UseFrame {
+                tick: 102,
+                held: false,
+                ..start
+            })),
+            ["release"]
+        );
+        assert_eq!(runtime.take_riptide_launch(), None);
+    }
 }

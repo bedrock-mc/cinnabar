@@ -4,7 +4,7 @@ use super::*;
 use client_interaction::item_use::ItemUseRuntime;
 
 /// Routes the physical Use button through the ordinary semantic input owner.
-fn use_button(world: &mut World, held: bool) {
+pub(super) fn use_button(world: &mut World, held: bool) {
     let snapshot = world
         .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
         .route_and_finalize(semantic_input::DeviceFrame {
@@ -43,7 +43,7 @@ fn wet_tick(world: &mut World, held: bool) -> gameplay::movement::PhysicsMovemen
 }
 
 /// Builds a retained selected trident and an admitted charge of the requested length.
-fn charging_world(charge_ticks: u64) -> (World, client_session::CapturedPackets) {
+pub(super) fn charging_world(charge_ticks: u64) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     item_use_tests::hold_air_item(&mut world, "minecraft:trident", 1, riptide_data());
     let position = world

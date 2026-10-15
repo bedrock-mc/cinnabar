@@ -10,6 +10,9 @@ mod sprint;
 #[path = "riptide/respawn.rs"]
 mod respawn;
 
+#[path = "riptide/backpressure.rs"]
+mod backpressure;
+
 /// Water everywhere keeps item eligibility independent of fixture terrain and rain.
 struct Water;
 

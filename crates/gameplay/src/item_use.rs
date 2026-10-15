@@ -176,16 +176,26 @@ impl ItemUseRuntime {
         self.active.is_some() && (!held || self.release_pending)
     }
 
-    /// Freezes Riptide eligibility while its facing tick is unavailable, without sending it.
-    pub fn defer_riptide_release(&mut self, frame: &UseFrame) {
-        if self.active.as_ref().is_some_and(|active| active.riptide)
-            && self.is_releasing(frame.held)
-            && !self.release_pending
-        {
-            self.release_launch = self
-                .active
-                .as_ref()
-                .and_then(|active| active.riptide_launch(frame));
+    /// Observes release facts on the local clock before any interaction or facing input can wait.
+    pub fn observe_riptide_release(
+        &mut self,
+        tick: u64,
+        held: bool,
+        riptide: Option<RiptideUse>,
+        selection: Option<&FrozenMiningSelection>,
+    ) {
+        let Some(active) = self.active.as_ref().filter(|active| active.riptide) else {
+            return;
+        };
+        if !self.is_releasing(held) {
+            return;
+        }
+        if active.selection_changed(selection) {
+            self.active = None;
+            self.release_pending = false;
+            self.release_launch = None;
+        } else if !self.release_pending {
+            self.release_launch = active.riptide_launch(tick, riptide, selection);
             self.release_pending = true;
         }
     }
@@ -301,10 +311,7 @@ impl ItemUseRuntime {
             return;
         };
         let selection = match &frame.selection {
-            Some(current)
-                if current.slot != active.selection.slot
-                    || current.item.network_id() != active.selection.item.network_id() =>
-            {
+            Some(_) if active.selection_changed(frame.selection.as_ref()) => {
                 // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
                 self.release_launch = None;
@@ -336,7 +343,7 @@ impl ItemUseRuntime {
         let launch = if release_pending {
             self.release_launch
         } else {
-            active.riptide_launch(frame)
+            active.riptide_launch(frame.tick, frame.riptide, frame.selection.as_ref())
         };
         self.active = None;
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
@@ -507,21 +514,31 @@ impl ItemUseRuntime {
 }
 
 impl ActiveUse {
+    /// Unverified inventory preserves a use; a different selected slot or item cancels it.
+    fn selection_changed(&self, selection: Option<&FrozenMiningSelection>) -> bool {
+        selection.is_some_and(|selection| {
+            selection.slot != self.selection.slot
+                || selection.item.network_id() != self.selection.item.network_id()
+        })
+    }
+
     /// Resolves launch eligibility from this charge and the facts observed at release.
-    fn riptide_launch(&self, frame: &UseFrame) -> Option<u8> {
-        frame
-            .riptide
+    fn riptide_launch(
+        &self,
+        tick: u64,
+        riptide: Option<RiptideUse>,
+        selection: Option<&FrozenMiningSelection>,
+    ) -> Option<u8> {
+        riptide
             .filter(|riptide| {
                 self.riptide
                     && riptide.level > 0
                     && riptide.wet
                     && !riptide.mounted
                     && riptide.usable
-                    && frame.selection.as_ref().is_some_and(|selection| {
-                        selection.slot == self.selection.slot
-                            && selection.item.network_id() == self.selection.item.network_id()
-                    })
-                    && frame.tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
+                    && selection.is_some()
+                    && !self.selection_changed(selection)
+                    && tick.saturating_sub(self.started_tick) >= RIPTIDE_CHARGE_TICKS
             })
             .map(|riptide| riptide.level)
     }

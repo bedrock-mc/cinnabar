@@ -82,7 +82,8 @@ Riptide releases now carry a level-dependent launch and spin lifetime through fi
 correction replay, input start/stop flags and local actor presentation. Charge and admission
 regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
 snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
-release-edge eligibility while waiting for facing input and retain use slowdown through that tick. Release
+release-edge eligibility before waiting for interaction sampling or facing input, including movement
+FIFO backpressure, and retain use slowdown through that tick. Release
 sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
 launches survive a snap or replay fallback until their movement input is written, including late
 socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and

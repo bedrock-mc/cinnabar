@@ -173,28 +173,10 @@ fn produce_use(
     runtime.set_delay_fix(delay_fix_enabled);
     runtime.observe_selected_slot(player_runtime.selected_hotbar_slot());
     runtime.observe_press(admitted && use_phase.pressed);
-    if movement.has_held_release() {
-        return;
-    }
     let Some(stream) = context.client_world.stream.as_ref() else {
         return;
     };
     if !runtime.has_work(held) {
-        return;
-    }
-    let sample = if before_flush {
-        movement
-            .newest_unsent_sample()
-            .map(Into::into)
-            .or_else(|| movement.between_ticks_sample())
-    } else {
-        runtime.frame_sample(&movement, held, true)
-    };
-    let Some(sample) = sample else {
-        return;
-    };
-    // One press resolves once: item use waits while block use still holds it.
-    if context.block_use.press_pending() {
         return;
     }
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
@@ -217,8 +199,8 @@ fn produce_use(
             .predicted_selection(&server, inventory_revision.unwrap_or(0))
             .unwrap_or(server)
     });
-    let frame = UseFrame {
-        riptide: selected_riptide_use(
+    let riptide_at = |position| {
+        selected_riptide_use(
             &player_runtime,
             stream,
             context
@@ -227,13 +209,45 @@ fn produce_use(
                 .is_some_and(|physics| physics.in_water())
                 || riptide::in_rain(
                     stream,
-                    sample.position,
+                    position,
                     context
                         .weather
                         .as_deref()
                         .map_or(0.0, |weather| weather.current_rain_level),
                 ),
-        ),
+        )
+    };
+    // The completed local pose remains available while its movement input waits in the FIFO.
+    if runtime.is_releasing(held)
+        && let Some(edge) = movement.build_action_state()
+    {
+        runtime.observe_riptide_release(
+            edge.tick.saturating_add(1),
+            held,
+            riptide_at(edge.position),
+            selection.as_ref(),
+        );
+    }
+    if movement.has_held_release() {
+        return;
+    }
+    let sample = if before_flush {
+        movement
+            .newest_unsent_sample()
+            .map(Into::into)
+            .or_else(|| movement.between_ticks_sample())
+    } else {
+        runtime.frame_sample(&movement, held, true)
+    };
+    let Some(sample) = sample else {
+        return;
+    };
+    // One press resolves once: item use waits while block use still holds it.
+    if context.block_use.press_pending() {
+        return;
+    }
+    let frame = UseFrame {
+        riptide: riptide_at(sample.position),
         tick: sample.tick,
         now_millis,
         position: sample.position,
@@ -310,10 +324,14 @@ fn admit_with_action_aim(
     });
     // Freeze the edge before waiting, retaining slowdown until facing can be written.
     if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
-        runtime.defer_riptide_release(
-            duration_frame
-                .as_ref()
-                .expect("assisted release has a duration"),
+        let edge = duration_frame
+            .as_ref()
+            .expect("assisted release has a duration");
+        runtime.observe_riptide_release(
+            edge.tick,
+            edge.held,
+            edge.riptide,
+            edge.selection.as_ref(),
         );
         return;
     }
