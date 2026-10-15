@@ -339,6 +339,15 @@ impl LocomotionState {
             .filter(|mount| *mount != 0)
             .filter(|_| frame.active && !frame.input_authority_released && frame.hold.is_none())
             .filter(|_| !frame.facts.input_locks.blocks(ClientInputLock::Dismount))
+            .filter(|_| {
+                !frame.facts.input_locks.blocks(
+                    if frame.facts.ride == Some(super::RideKind::Boat) {
+                        ClientInputLock::Jump
+                    } else {
+                        ClientInputLock::Sneak
+                    },
+                )
+            })
             .map(|mount| (session, mount));
         if self.pending_dismount != mount {
             self.pending_dismount = None;
