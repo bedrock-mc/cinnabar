@@ -99,6 +99,11 @@ impl WorldAuthority {
     pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.actors.seed_item_registry(registry)
     }
+
+    /// Identifies the registry and compiled facts used by canonical item resolution.
+    pub fn item_presentation_generation(&self) -> &std::sync::Arc<()> {
+        self.actors.item_presentation_generation()
+    }
     /// Advances simulation ticks with one visual evaluation per tick.
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);

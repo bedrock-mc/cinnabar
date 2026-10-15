@@ -76,6 +76,7 @@ impl UiPresentationRuntime {
             gui_scale_preference: None,
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
+            inventory_cache: Some(Box::default()),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_local_actor: None,

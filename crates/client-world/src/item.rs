@@ -27,6 +27,8 @@ pub use durability::resolve_item_durability;
 mod animation_tests;
 mod glint;
 mod grip;
+#[cfg(test)]
+mod presentation_tests;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -134,6 +136,7 @@ type EquipmentKey = (ActorLifetimeId, ActorHandedness);
 
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
+    presentation_generation: Arc<()>,
     assets: Option<Arc<RuntimeEntityAssets>>,
     registry: BTreeMap<i32, CanonicalItemRegistryRecord>,
     facts: inventory::SessionItemFacts,
@@ -152,6 +155,11 @@ pub(crate) struct ItemStateStore {
 }
 
 impl ItemStateStore {
+    /// Retains this store's registry identity independently of its address.
+    pub(crate) fn presentation_generation(&self) -> &Arc<()> {
+        &self.presentation_generation
+    }
+
     pub(crate) fn diagnostic() -> Self {
         Self::new(None)
     }
@@ -163,6 +171,7 @@ impl ItemStateStore {
     fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
         let registry = built_in_registry(assets.as_deref());
         let mut store = Self {
+            presentation_generation: Arc::new(()),
             assets,
             registry,
             facts: inventory::SessionItemFacts::default(),
@@ -241,6 +250,7 @@ impl ItemStateStore {
 
     #[cfg(test)]
     pub(crate) fn clear(&mut self) {
+        self.presentation_generation = Arc::new(());
         self.registry.clear();
         self.armor.clear();
         self.clear_actor_state();
