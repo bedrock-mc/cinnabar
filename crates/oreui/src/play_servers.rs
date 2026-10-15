@@ -272,7 +272,8 @@ mod tests {
             address: "127.0.0.1:19132".to_owned(),
             favorite: false,
             last_joined_unix: 0,
-        }];
+        }]
+        .into();
         assert_eq!(selection(&view, 0), Some(Selection::Saved(0)));
         assert_eq!(selection(&view, 2), Some(Selection::Featured(0)));
         view.feeds.select_saved(0);

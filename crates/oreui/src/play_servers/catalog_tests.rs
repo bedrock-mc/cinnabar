@@ -55,7 +55,7 @@ fn detail_labels(view: &MenuView) -> Vec<String> {
 fn experience_details_show_positive_service_counts_without_ping_status() {
     let mut view = MenuView::new(true, "Fixture".into());
     let address = format!("{}fixture", launcher::menu::EXPERIENCE_ADDRESS_PREFIX);
-    view.featured = vec![card("Experience", &address)];
+    view.featured = vec![card("Experience", &address)].into();
     view.feeds.pings.insert(
         address.clone(),
         PingInfo {
@@ -95,7 +95,7 @@ fn experience_details_show_positive_service_counts_without_ping_status() {
 fn creator_server_details_keep_pong_counts_instead_of_service_counts() {
     let mut view = MenuView::new(true, "Fixture".into());
     let address = "creator.test:19132";
-    view.featured = vec![card("Creator", address)];
+    view.featured = vec![card("Creator", address)].into();
     view.feeds.details.insert(
         address.into(),
         ServerDetails {
@@ -124,7 +124,8 @@ fn groups_preserve_catalog_action_indices_and_use_real_motds() {
     view.featured = vec![
         card("Creator", "creator.test:19132"),
         card("Experience", "gathering/fixture"),
-    ];
+    ]
+    .into();
     view.feeds.details.insert(
         view.featured[0].address.clone(),
         ServerDetails {
@@ -158,7 +159,7 @@ fn groups_preserve_catalog_action_indices_and_use_real_motds() {
 #[test]
 fn details_draw_complete_sections_and_end_at_content_with_independent_scroll() {
     let mut view = MenuView::new(true, "Fixture".into());
-    view.featured = vec![card("Creator", "creator.test:19132")];
+    view.featured = vec![card("Creator", "creator.test:19132")].into();
     view.feeds.details.insert(
         view.featured[0].address.clone(),
         ServerDetails {

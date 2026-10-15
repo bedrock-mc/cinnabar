@@ -76,13 +76,13 @@ impl MenuRuntime {
     /// a pending sign-out request is sent.
     pub fn sync_account_control(&mut self, control: &mut dyn AccountControl) {
         if let Some(realms) = control.realms() {
-            self.realms = realms;
+            self.realms.replace(realms);
         }
         if let Some(mut friends) = control.friends() {
             // The friends service can list one session twice; show each host's world once.
             let mut seen = std::collections::HashSet::new();
             friends.retain(|friend| seen.insert((friend.xuid.clone(), friend.world_name.clone())));
-            self.friends = friends;
+            self.friends.replace(friends);
         }
         if let Some(featured) = control.featured() {
             let selected = self
@@ -95,7 +95,8 @@ impl MenuRuntime {
                     .iter()
                     .map(|(card, details)| (card.address.clone(), details.clone())),
             );
-            self.featured = featured.into_iter().map(|(card, _)| card).collect();
+            self.featured
+                .replace(featured.into_iter().map(|(card, _)| card).collect());
             if let Some(address) = selected {
                 self.feeds.selected_featured = self
                     .featured
@@ -194,8 +195,8 @@ impl MenuRuntime {
         self.control_auth = None;
         self.stop_catalog();
         self.catalog_started = false;
-        self.realms.clear();
-        self.friends.clear();
+        self.realms.replace(Vec::new());
+        self.friends.replace(Vec::new());
         for details in self.feeds.details.values_mut() {
             details.player_count = None;
         }
@@ -272,8 +273,9 @@ mod tests {
             icon: None,
         };
         let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
-        menu.featured = vec![card("first.test:19132"), card("picked.test:19132")];
+        menu.featured = vec![card("first.test:19132"), card("picked.test:19132")].into();
         menu.feeds.selected_featured = Some(1);
+        let previous = menu.view();
         let mut control = Catalog(Some(vec![
             (
                 card("picked.test:19132"),
@@ -286,6 +288,11 @@ mod tests {
         ]));
         menu.sync_account_control(&mut control);
         assert_eq!(menu.feeds.selected_featured, Some(0));
+        assert_eq!(previous.featured[1].address, "picked.test:19132");
+        assert_eq!(previous.feeds.selected_featured, Some(1));
+        assert!(!previous.featured.shares_storage(&menu.view().featured));
+        assert!(previous.realms.shares_storage(&menu.view().realms));
+        assert!(previous.friends.shares_storage(&menu.view().friends));
         assert_eq!(
             menu.featured[menu.feeds.selected_featured.unwrap()].address,
             "picked.test:19132"
@@ -293,6 +300,40 @@ mod tests {
         control.0 = Some(vec![(card("first.test:19132"), ServerDetails::default())]);
         menu.sync_account_control(&mut control);
         assert_eq!(menu.feeds.selected_featured, None);
+        assert_eq!(previous.featured.len(), 2);
+    }
+
+    #[test]
+    fn equal_core_catalog_deliveries_keep_list_storage_and_refresh_details() {
+        let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
+        let card = MenuServerCard {
+            name: "Featured".into(),
+            address: "featured.example.test:19132".into(),
+            caption: String::new(),
+            image_path: String::new(),
+            icon: None,
+        };
+        let mut control = Catalog(Some(vec![(card.clone(), ServerDetails::default())]));
+        menu.sync_account_control(&mut control);
+        let previous = menu.view();
+        control.0 = Some(vec![(
+            card,
+            ServerDetails {
+                player_count: Some(42),
+                ..Default::default()
+            },
+        )]);
+        menu.sync_account_control(&mut control);
+        let current = menu.view();
+        assert!(previous.featured.shares_storage(&current.featured));
+        assert_eq!(
+            current.feeds.details[&current.featured[0].address].player_count,
+            Some(42)
+        );
+        assert_eq!(
+            previous.feeds.details[&previous.featured[0].address].player_count,
+            None
+        );
     }
 
     /// An experience has no server until it is joined, so a featured experience is never pinged.
@@ -621,10 +662,18 @@ mod tests {
             launcher::menu::disconnect::describe(error).body,
             launcher::menu::disconnect::DisconnectBody::Server("Server closed".to_owned())
         );
+        menu.sync_account_control(&mut control);
+        assert!(view.friends.shares_storage(&menu.view().friends));
         menu.activate(launcher::menu::MenuAction::SignOut);
         menu.sync_account_control(&mut control);
         assert!(control.signed_out);
         assert!(menu.friends.is_empty());
+        assert_eq!(
+            view.friends.len(),
+            1,
+            "sign-out must not rewrite a retained view"
+        );
+        assert!(!view.friends.shares_storage(&menu.view().friends));
         assert_eq!(menu.view().screen, launcher::menu::MenuScreen::Profile);
     }
 
@@ -637,7 +686,8 @@ mod tests {
             caption: String::new(),
             image_path: String::new(),
             icon: None,
-        }];
+        }]
+        .into();
         menu.feeds.details.insert(
             "geo.hivebedrock.network".into(),
             ServerDetails {

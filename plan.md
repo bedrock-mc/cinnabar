@@ -1,3 +1,12 @@
+## Shared menu list snapshots
+
+Menu views share saved servers, featured cards, realms, friends and local worlds with their
+semantic owners. Vector edits detach retained views, and equal feed deliveries preserve the
+current list storage. Interaction state and service details still publish independently.
+Incomplete: behavioral and copy-count regressions are written but unrun. Compilation,
+rendered comparisons and measured menu publication cost remain pending; no performance or
+output-parity gate closes here. Form texture-dependency caching remains separate.
+
 ## Sleeper-only bed sampling
 
 Actor ingress retains sleeping actors and their streamed bed positions. Presentation samples
