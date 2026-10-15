@@ -191,7 +191,7 @@ fn reanchoring_clears_pending_teleport_travel_suppression() {
     assert_ne!(frame.samples[0].velocity, [0.0; 3]);
 }
 
-/// Replaying a captured stationary tick must not turn it back into travel.
+/// Replaying a captured stationary tick in clear air must not turn it back into travel.
 #[test]
 fn correction_replay_preserves_the_captured_travel_suppression() {
     let world = VersionedFloor(1);
@@ -203,14 +203,14 @@ fn correction_replay_preserves_the_captured_travel_suppression() {
     {
         ticker.enqueue_completed_physics(sample).unwrap();
     }
-    let target = [1.0, 2.620_01, 0.0];
+    let target = [1.0, 10.0 + protocol::PLAYER_NETWORK_OFFSET, 0.0];
     super::reconcile_physics_anchor(
         &mut ticker,
         &mut physics,
         super::PhysicsAnchor {
             network_position: target,
             tick: 102,
-            on_ground: true,
+            on_ground: false,
             velocity: Some([0.0; 3]),
         },
         PhysicsCorrectionMode::ReplayIfRetained,
@@ -220,7 +220,7 @@ fn correction_replay_preserves_the_captured_travel_suppression() {
     assert_eq!(physics.sample_at(103).unwrap().position, target);
     assert_eq!(physics.sample_at(103).unwrap().velocity, [0.0; 3]);
     let mut expected = LocalPhysicsController::default();
-    expected.reanchor_network_position(target, 102, true);
+    expected.reanchor_network_position(target, 102, false);
     expected.skip_next_travel_tick();
     expected.advance(Duration::from_millis(100), forward_physics_input(), &world);
     assert_eq!(physics.state(), expected.state());
