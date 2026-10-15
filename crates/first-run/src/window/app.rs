@@ -74,10 +74,6 @@ pub(super) struct SetupApp {
 }
 
 impl SetupApp {
-    #[expect(
-        clippy::print_stderr,
-        reason = "the setup child process installs no log subscriber; stderr is its only diagnostic channel"
-    )]
     pub(super) fn new(
         layout: InstallLayout,
         text: Text,

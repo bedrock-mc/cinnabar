@@ -101,7 +101,7 @@ pub fn decode_logo() -> Option<Image> {
 /// Opens connected controllers, or reports why controller input is unavailable.
 pub fn controllers() -> Option<gilrs::Gilrs> {
     gilrs::Gilrs::new()
-        .map_err(|error| eprintln!("bootstrap controller input unavailable: {error}"))
+        .map_err(|error| tracing::warn!("bootstrap controller input unavailable: {error}"))
         .ok()
 }
 
