@@ -104,7 +104,7 @@ fn block(x: i32, y: i32, z: i32, top: i32) -> u32 {
         DIRT
     } else if cave(x, y, z) {
         AIR
-    } else if hash(x, y, z) % 23 == 0 {
+    } else if hash(x, y, z).is_multiple_of(23) {
         ORE
     } else {
         STONE

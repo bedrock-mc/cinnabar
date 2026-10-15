@@ -114,6 +114,8 @@ fn charge_frame(
     tick: u64,
 ) -> UseFrame {
     UseFrame {
+        riptide_facing: Default::default(),
+        riptide: None,
         tick,
         now_millis: tick * 50,
         position: [0.0; 3],

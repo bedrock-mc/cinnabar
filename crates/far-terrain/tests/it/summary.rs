@@ -37,7 +37,7 @@ fn hash_tracks_content_only() {
 
 #[test]
 fn decoding_rejects_unknown_formats_and_bad_lengths() {
-    let mut bytes = hilly().encode().bytes.into_vec();
+    let mut bytes = hilly().encode().bytes.to_vec();
     assert_eq!(ColumnSummary::decode(&[]), Err(SummaryDecodeError::Length));
     assert_eq!(
         ColumnSummary::decode(&bytes[..bytes.len() / 2]),
@@ -48,4 +48,13 @@ fn decoding_rejects_unknown_formats_and_bad_lengths() {
         ColumnSummary::decode(&bytes),
         Err(SummaryDecodeError::UnknownFormat(99))
     );
+}
+
+/// Snapshot clones share their immutable payload instead of allocating another encoding.
+#[test]
+fn encoding_clones_share_the_payload() {
+    let encoded = hilly().encode();
+    let cloned = encoded.clone();
+    assert!(std::ptr::eq(encoded.bytes.as_ref(), cloned.bytes.as_ref()));
+    assert_eq!(ColumnSummary::decode(&cloned.bytes), Ok(hilly()));
 }

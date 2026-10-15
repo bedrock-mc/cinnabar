@@ -199,3 +199,99 @@ fn catchup_attacks_and_misses_precede_the_first_input_with_its_previous_pose() {
         }
     }
 }
+
+#[test]
+fn frame_attacks_follow_completed_inputs_and_precede_the_next_tick_and_swing() {
+    for crosshair in [ZOMBIE, Crosshair::Miss] {
+        let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
+        let mut ticker = gameplay::test_support::survival_mining::ticker_with_ticks(0);
+        let mut runtime = MeleeRuntime::default();
+        runtime.observe_input(true, false);
+        let mut preceding = [0.0; 3];
+        for tick in 101..=102 {
+            let mut sample = gameplay::test_support::survival_mining::completed(tick);
+            sample.position[1] += (tick - 100) as f32 * 0.25;
+            preceding = sample.position;
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+        assert!(runtime.between_ticks_press(&ticker).is_none());
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut ticker,
+            8,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+        let sample = runtime.between_ticks_press(&ticker).unwrap();
+        assert_eq!((sample.tick, sample.position), (103, preceding));
+        let press = PressContext {
+            tick: sample.tick,
+            player_position: sample.position,
+            ..press(PlayerInputMode::Mouse)
+        };
+        let missed = resolve_and_send(
+            &mut runtime,
+            &mut SwingTracker::default(),
+            crosshair,
+            &press,
+            1,
+            |packets| network.send_inventory_packets(packets),
+        );
+        if missed {
+            assert!(ticker.mark_missed_swing(sample.tick));
+        }
+        ticker
+            .enqueue_completed_physics(gameplay::test_support::survival_mining::completed(
+                sample.tick,
+            ))
+            .unwrap();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut ticker,
+            8,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+        let packets = captured.drain();
+        let expected = if crosshair == ZOMBIE {
+            vec![
+                "PlayerAuthInputPacket",
+                "PlayerAuthInputPacket",
+                "InventoryTransactionPacket",
+                "AnimatePacket",
+                "PlayerAuthInputPacket",
+            ]
+        } else {
+            vec![
+                "PlayerAuthInputPacket",
+                "PlayerAuthInputPacket",
+                "AnimatePacket",
+                "PlayerAuthInputPacket",
+            ]
+        };
+        assert_eq!(kinds(&packets), expected);
+        for (index, tick) in [(0, 101), (1, 102), (packets.len() - 1, 103)] {
+            let input = protocol::player_auth_input_trace_sample(&packets[index]).unwrap();
+            assert_eq!(input.tick, tick);
+            assert_eq!(
+                input.flag_names.contains(&"MissedSwing"),
+                missed && tick == 103
+            );
+        }
+        if crosshair == ZOMBIE {
+            let expected = protocol::use_actor_packet(protocol::ActorUseRequest {
+                actor_runtime_id: 9,
+                action: protocol::ActorUseAction::Attack,
+                selected_slot: press.selection.as_ref().unwrap().slot,
+                selected_item: press.selection.as_ref().unwrap().item.clone(),
+                player_position: preceding,
+                hit_position: [0.0, 1.5, -2.0],
+            })
+            .unwrap();
+            assert_eq!(
+                protocol::encode(&packets[2]).unwrap(),
+                protocol::encode(&expected).unwrap()
+            );
+        }
+    }
+}

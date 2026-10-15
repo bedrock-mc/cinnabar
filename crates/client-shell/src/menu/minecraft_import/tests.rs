@@ -75,6 +75,7 @@ fn import_and_revert_save_preferences_while_session_overrides_stay_active() {
     assert_eq!(menu.settings_options.value(SettingId::HideHand), 1);
     assert_eq!(menu.settings_options.value(SettingId::FieldOfView), 80);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(&path);
     assert_eq!(saved.value(SettingId::HideHand), 0);
     assert_eq!(saved.value(SettingId::FieldOfView), 80);
@@ -88,6 +89,7 @@ fn import_and_revert_save_preferences_while_session_overrides_stay_active() {
         original
     );
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(&path);
     assert_eq!(saved.value(SettingId::HideHand), 0);
     assert_eq!(saved.value(SettingId::FieldOfView), original);
@@ -109,6 +111,7 @@ fn published_preferences_replace_the_stored_choice_beneath_an_override() {
     );
     assert_eq!(menu.settings_options.value(SettingId::HideHand), 0);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(
         &menu
             .config_path
@@ -149,6 +152,7 @@ fn import_requests_preserve_unset_distance_and_uncapped_msaa_preferences() {
     assert_eq!(menu.settings_options.value(SettingId::RenderDistance), 50);
     assert_eq!(menu.settings_options.value(SettingId::Msaa), 1);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let stored: serde_json::Value = serde_json::from_slice(
         &std::fs::read(
             menu.config_path
@@ -369,9 +373,11 @@ fn saving_the_active_session_choice_after_import_replaces_its_underlying_prefere
         Some(saved_state(&SettingsOptions::default())),
     );
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     assert!(!menu.settings_dirty);
     menu.set_named_option(SettingId::HideHand, 1);
     menu.sync_user_settings(None);
+    menu.flush_user_settings().unwrap();
     let saved = SettingsOptions::load(
         &menu
             .config_path

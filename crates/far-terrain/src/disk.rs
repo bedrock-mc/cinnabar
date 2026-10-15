@@ -4,6 +4,10 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     thread::JoinHandle,
     time::SystemTime,
 };
@@ -83,6 +87,7 @@ pub struct DiskCache {
     tx: Option<Sender<Command>>,
     rx: Receiver<DiskEvent>,
     thread: Option<JoinHandle<()>>,
+    observed_version: Arc<AtomicU64>,
 }
 
 impl DiskCache {
@@ -91,6 +96,8 @@ impl DiskCache {
     pub fn spawn(root: PathBuf, bounds: DiskBounds) -> Option<Self> {
         let (tx, commands) = unbounded();
         let (events, rx) = unbounded();
+        let observed_version = Arc::new(AtomicU64::new(0));
+        let worker_version = Arc::clone(&observed_version);
         let thread = std::thread::Builder::new()
             .name("far-terrain-io".into())
             .spawn(move || {
@@ -101,6 +108,7 @@ impl DiskCache {
                     events,
                     claimed: HashSet::new(),
                     visits: HashMap::new(),
+                    observed_version: worker_version,
                 };
                 for command in commands {
                     worker.run(command);
@@ -111,6 +119,7 @@ impl DiskCache {
             tx: Some(tx),
             rx,
             thread: Some(thread),
+            observed_version,
         })
     }
 
@@ -175,6 +184,11 @@ impl DiskCache {
         self.rx.try_iter()
     }
 
+    /// Highest version read by the worker, including events the owner has not consumed yet.
+    pub(crate) fn observed_version(&self) -> u64 {
+        self.observed_version.load(Ordering::Relaxed)
+    }
+
     /// Blocks until every earlier command has finished.
     pub fn sync(&self) {
         let (done, wait) = crossbeam_channel::bounded(1);
@@ -223,6 +237,7 @@ struct Worker {
     claimed: HashSet<NamespaceKey>,
     /// The epoch each world visit resolved to, so every later write of that visit lands in it.
     visits: HashMap<(WorldKey, u64), u32>,
+    observed_version: Arc<AtomicU64>,
 }
 
 impl Worker {
@@ -245,6 +260,12 @@ impl Worker {
             }
             Command::Load { namespace, region } => {
                 let columns = self.load(namespace, region);
+                let highest = columns
+                    .iter()
+                    .map(|(_, column)| column.version)
+                    .max()
+                    .unwrap_or(0);
+                self.observed_version.fetch_max(highest, Ordering::Relaxed);
                 let _ = self.events.send(DiskEvent::Loaded {
                     namespace,
                     region,

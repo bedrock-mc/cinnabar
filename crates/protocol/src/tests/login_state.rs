@@ -135,6 +135,7 @@ async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolE
         None,
         &protocol::LoginSettings::default(),
         None,
+        |packs, game_data| (packs, game_data),
     )
     .await;
     let core = Core {
@@ -142,7 +143,7 @@ async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolE
         task,
         _dir: dir,
     };
-    let (mut session, game_data) = joined?;
+    let (mut session, (_, game_data)) = joined?;
     session.finish_loading().await?;
     Ok((session, game_data, core))
 }

@@ -7,7 +7,7 @@
 use json_ui::vanilla::Reference;
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{Catalog, Context, DataSource, HudModel, hud_clocks, hud_data_source};
+use json_ui::{Catalog, Context, DataSource, HudBindings, HudChanges, HudModel, hud_clocks};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef};
 use ui_engine::{
     cached_screen::CachedScreen,
@@ -28,6 +28,8 @@ mod crisp_tests;
 #[cfg(test)]
 mod image_tests;
 pub mod prepared;
+#[cfg(test)]
+mod retention_tests;
 mod titles;
 #[cfg(test)]
 mod visibility_tests;
@@ -101,9 +103,10 @@ pub struct HudScreens {
     pub loading: CachedScreen,
     /// This frame's fade clocks (title, action bar, item name).
     clocks: BTreeMap<String, f64>,
-    model: Option<HudModel>,
     opacity: Option<i32>,
-    data: Arc<DataSource>,
+    bindings: HudBindings,
+    crosshair_data: Arc<DataSource>,
+    model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
 }
 
@@ -130,32 +133,29 @@ impl HudScreens {
         self.loading.invalidate_textures();
     }
 
-    /// Starts a frame: binds `model` at `opacity` percent (none for the crosshair overlay),
-    /// starts this frame's fade clocks from `scene_clock`, and resets hunger motion for a new
-    /// session or catalog. Returns the data the screen binds.
+    /// Binds retained semantic components while advancing the live scene and paint clocks.
     pub fn begin(
         &mut self,
-        model: Option<(HudModel, i32)>,
+        model: Option<(&HudModel, HudChanges, i32)>,
         scene_clock: &BTreeMap<String, f64>,
         session: u64,
         catalog: &Arc<Catalog>,
     ) -> Arc<DataSource> {
         let data = match model {
-            None => Arc::default(),
-            Some((model, opacity)) => {
-                self.clocks = hud_clocks(&model);
-                if self.model.as_ref() != Some(&model) || self.opacity != Some(opacity) {
-                    let mut data = hud_data_source(&model);
-                    data.set_global(
-                        "#hud_alpha",
-                        json_ui::Scalar::Num(f64::from(opacity) / 100.0),
-                    );
-                    data.set_global("#hud_propagate_alpha", json_ui::Scalar::Bool(true));
-                    self.data = Arc::new(data);
-                    self.opacity = Some(opacity);
-                    self.model = Some(model);
+            None => Arc::clone(&self.crosshair_data),
+            Some((model, changes, opacity)) => {
+                if changes.text {
+                    self.model_clocks = hud_clocks(model);
                 }
-                Arc::clone(&self.data)
+                self.clocks.clone_from(&self.model_clocks);
+                let mut data = self.bindings.update(model, changes);
+                if changes.status || self.opacity != Some(opacity) {
+                    // A status refresh restores the default alpha binding.
+                    drop(data);
+                    data = self.bindings.set_opacity(opacity);
+                    self.opacity = Some(opacity);
+                }
+                data
             }
         };
         self.clocks.extend(scene_clock.clone());

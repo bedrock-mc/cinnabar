@@ -217,6 +217,10 @@ fn rig_snapshot_retains_java_equip_and_native_wing_inputs() {
             None,
             Some(WornArmor {
                 item: "minecraft:elytra".into(),
+                fact: *assets::facts::ItemFacts::builtin()
+                    .unwrap()
+                    .by_identifier("minecraft:elytra")
+                    .unwrap(),
                 dye_rgb: None,
             }),
             None,

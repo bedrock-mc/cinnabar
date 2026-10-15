@@ -99,6 +99,11 @@ impl WorldAuthority {
     pub fn seed_item_registry(&mut self, registry: protocol::ItemRegistryEvent) -> bool {
         self.actors.seed_item_registry(registry)
     }
+
+    /// Identifies the registry and compiled facts used by canonical item resolution.
+    pub fn item_presentation_generation(&self) -> &std::sync::Arc<()> {
+        self.actors.item_presentation_generation()
+    }
     /// Advances simulation ticks with one visual evaluation per tick.
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.actors.advance_interpolation_ticks(ticks);
@@ -473,6 +478,12 @@ impl WorldAuthority {
         self.actors
             .painting_actors()
             .filter(|actor| actor.runtime_id != self.local_player_runtime_id)
+    }
+
+    /// Solid actor bounds for local prediction, excluding the local player's mount.
+    pub fn movement_actor_colliders(&self) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
+        self.actors
+            .movement_colliders(self.local_player_runtime_id, self.local_player_unique_id)
     }
 
     /// Every tracked actor except the local player, in no particular order.

@@ -168,6 +168,7 @@ fn totem_emission_follows_the_actor_without_moving_already_born_particles() {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,
         head_yaw: 0.0,

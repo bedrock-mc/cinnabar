@@ -82,6 +82,8 @@ impl PlayerInputFlags {
     pub const DOWN_RIGHT: Self = Self(1 << 52);
     /// Wire ordinal 53: the local player began using its held item this tick.
     pub const START_USING_ITEM: Self = Self(1 << 53);
+    pub const START_SPIN_ATTACK: Self = Self(1 << 56);
+    pub const STOP_SPIN_ATTACK: Self = Self(1 << 57);
     pub const JUMP_RELEASED_RAW: Self = Self(1 << 59);
     pub const JUMP_PRESSED_RAW: Self = Self(1 << 60);
     pub const JUMP_CURRENT_RAW: Self = Self(1 << 61);
@@ -404,6 +406,8 @@ mod locomotion_flag_tests {
             (PlayerInputFlags::START_FLYING, "StartFlying"),
             (PlayerInputFlags::STOP_FLYING, "StopFlying"),
             (PlayerInputFlags::START_USING_ITEM, "StartUsingItem"),
+            (PlayerInputFlags::START_SPIN_ATTACK, "StartSpinAttack"),
+            (PlayerInputFlags::STOP_SPIN_ATTACK, "StopSpinAttack"),
             (PlayerInputFlags::SNEAK_CURRENT_RAW, "SneakCurrentRaw"),
         ] {
             let row = flag.bits().trailing_zeros() as usize;

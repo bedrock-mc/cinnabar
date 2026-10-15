@@ -88,3 +88,38 @@ fn an_unpinned_archive_cannot_supply_entity_components() {
             .contains("hash mismatch")
     );
 }
+
+#[test]
+fn collidable_defaults_come_from_components_and_keep_conditional_groups_separate() {
+    let scratch = tempfile::tempdir().unwrap();
+    let entities = scratch.path().join("behavior_pack/entities");
+    std::fs::create_dir_all(&entities).unwrap();
+    for (name, components, groups) in [
+        (
+            "solid",
+            serde_json::json!({"minecraft:is_collidable": {}}),
+            serde_json::json!({}),
+        ),
+        (
+            "conditional",
+            serde_json::json!({}),
+            serde_json::json!({"active": {"minecraft:is_collidable": {}}}),
+        ),
+        ("ordinary", serde_json::json!({}), serde_json::json!({})),
+    ] {
+        let document = serde_json::json!({"minecraft:entity": {
+            "description": {"identifier": format!("fixture:{name}")},
+            "components": components, "component_groups": groups,
+        }});
+        std::fs::write(
+            entities.join(format!("{name}.json")),
+            serde_json::to_vec(&document).unwrap(),
+        )
+        .unwrap();
+    }
+    let source: ComponentSource =
+        serde_json::from_slice(&components(scratch.path()).unwrap()).unwrap();
+    assert!(source.entries["fixture:solid"].collidable);
+    assert!(!source.entries["fixture:conditional"].collidable);
+    assert!(!source.entries["fixture:ordinary"].collidable);
+}

@@ -4,6 +4,9 @@ use bevy::prelude::IntoScheduleConfigs;
 use client_runtime::network::NetworkHandle;
 use {super::*, gameplay::movement::flush_player_auth_inputs};
 
+#[path = "respawn/riptide.rs"]
+mod riptide;
+
 #[test]
 fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_input() {
     let initial = [0.0, 70.0, 0.0];

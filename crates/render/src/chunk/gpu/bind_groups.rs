@@ -1,5 +1,6 @@
 use super::resource_geometry::PreparedResourceGeometry;
 use crate::chunk::*;
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::color::ColorToPacked;
 
 use render_scene::{
@@ -213,7 +214,7 @@ pub(in crate::chunk) fn prepare_chunk_animation_clock(
     gpu_clock: Res<ChunkGpuAnimationClock>,
     render_queue: Res<RenderQueue>,
 ) {
-    render_queue.write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
+    render_queue.profiled_write_buffer(&gpu_clock.buffer, 0, bytemuck::bytes_of(&*clock));
 }
 
 type PreparedReplacement = (
@@ -680,7 +681,7 @@ pub(in crate::chunk) fn upload_texture_page(
         view_formats: &[TextureFormat::Rgba8Unorm],
     });
     let queue_upload_bytes = write_texture_mips(texture_array, upload_plans, |plan, bytes| {
-        render_queue.write_texture(
+        render_queue.profiled_write_texture(
             TexelCopyTextureInfo {
                 texture: &texture,
                 mip_level: plan.mip_level,

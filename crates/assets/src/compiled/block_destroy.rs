@@ -200,10 +200,7 @@ fn parse(line: &'static str) -> Option<(&'static str, BlockDestroyFacts)> {
             effective_tools,
             harvest_tools,
             requirement,
-            sword_speed_bits: if matches!(
-                identifier,
-                "minecraft:bamboo" | "minecraft:bamboo_sapling"
-            ) {
+            sword_speed_bits: if crate::facts::block_render_fact(identifier).fast_sword {
                 30.0_f32.to_bits()
             } else {
                 0

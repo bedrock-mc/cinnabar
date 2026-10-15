@@ -186,8 +186,11 @@ Without the stage profiler, frames record only `gpu_frame`, from the first timed
 the frame's graph, where the frame's own submission resolves its spans; a shown F3 overlay times every
 pass in one frame per refresh.
 On Metal, queries attach to existing owned render passes and the stock opaque pass:
-other stock Bevy passes and shared draw categories remain unmeasured, and `gpu_frame` stays absent. Empty
-compute marker passes do not produce usable timestamps on Apple GPUs. Pass categories
+other stock Bevy passes and shared draw categories remain unmeasured. Empty
+compute marker passes do not produce usable timestamps on Apple GPUs, so `gpu_frame` instead
+spans the GPU host times of empty marker command buffers that open and close the graph's
+submission: from the later of submission and the end of earlier queued work to the end of the
+frame's work. Pass categories
 sum elapsed latencies, including gaps and overlapping GPU work; they are not GPU
 active time and must not be added. Invalid timestamp pairs are skipped, so a
 category may cover only some of its passes. Check coverage against native traces;

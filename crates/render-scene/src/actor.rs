@@ -205,6 +205,17 @@ impl ActorRenderScene {
         })
     }
 
+    /// Lets the geometry catalog grow to the budget of vanilla memory tier `memory_tier`,
+    /// within one storage binding of `binding_bytes` and never below the baseline.
+    pub fn set_geometry_budget(&mut self, memory_tier: u32, binding_bytes: u64) {
+        let bytes = usize::try_from(binding_bytes)
+            .unwrap_or(usize::MAX)
+            .min(render_model::actor_catalog_budget_bytes(memory_tier))
+            .max(render_model::MAX_ACTOR_CATALOG_VERTEX_BYTES);
+        self.rig_builder
+            .set_vertex_budget(bytes / std::mem::size_of::<render_model::ActorRigVertex>());
+    }
+
     /// Registers or replaces one geometry, such as a generated item mesh.
     pub fn insert_geometry(
         &mut self,

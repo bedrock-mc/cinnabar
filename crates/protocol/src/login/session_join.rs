@@ -13,7 +13,7 @@ use super::{LoginSequence, PlaySession};
 use crate::codec::SessionFailure;
 use crate::disconnect::{disconnect_reason, join_disconnect};
 use crate::packet_tap::{PacketOutcome, PacketTap};
-use crate::session_transport::SessionTransport;
+use crate::session_transport::{MAX_READ_AHEAD_BYTES, SessionTransport};
 use crate::{
     ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
     ResourcePackHandoff, ServerTransferEvent,
@@ -21,10 +21,11 @@ use crate::{
 
 impl LoginSequence {
     /// Joins whatever the core has selected: a pending server transfer, the chosen server or the
-    /// open local world, using the caller's persisted login ID. The owner calls
-    /// `finish_loading` after presenting the world. `tap` sees every session packet from the
-    /// first handed-off startup packet on, in both directions.
-    pub async fn connect_session(
+    /// open local world, using the caller's persisted login ID, and returns `prepare`'s result for
+    /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
+    /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
+    /// `finish_loading` after presenting the world. `tap` sees packets from startup onward.
+    pub async fn connect_session<R: Send + 'static>(
         socket_dir: &Path,
         display_name: &str,
         client_random_id: ClientRandomId,
@@ -32,7 +33,8 @@ impl LoginSequence {
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
         tap: Option<Arc<dyn PacketTap>>,
-    ) -> Result<(PlaySession, GameData), ProtocolError> {
+        prepare: impl FnOnce(ResourcePackHandoff, GameData) -> R + Send + 'static,
+    ) -> Result<(PlaySession, R), ProtocolError> {
         let (mut reader, frames) = bridge::connect_session(socket_dir)
             .await
             .map_err(ProtocolError::Bridge)?;
@@ -57,7 +59,14 @@ impl LoginSequence {
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
         let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
-        let spawned = match super::startup::await_spawn(&mut transport).await {
+        let mut preparation = None;
+        let spawned = super::startup::await_spawn(&mut transport, |start_game, item_registry| {
+            preparation = Some(tokio::task::spawn_blocking(move || {
+                prepare(packs, GameData::from_wire(&start_game, &item_registry))
+            }));
+        })
+        .await;
+        let spawned = match spawned {
             Ok(spawned) => spawned,
             Err(error) => {
                 if let ProtocolError::Session(session) = &error
@@ -68,15 +77,24 @@ impl LoginSequence {
                 return Err(error);
             }
         };
-        let runtime_id = spawned.runtime_id;
-        let terrain_before_spawn = spawned.terrain_before_spawn;
-        let game_data = tokio::task::spawn_blocking(move || {
-            GameData::from_wire(&spawned.start_game, &spawned.item_registry)
-        })
-        .await
-        .map_err(|_| unexpected("startup facts reader failed"))?;
-        let session = PlaySession::new(transport, cache, packs, runtime_id, terrain_before_spawn);
-        Ok((session, game_data))
+        let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
+        // Keep reading while the packs prepare, so the server's backlog never stalls the core.
+        let prepared = tokio::select! {
+            prepared = &mut preparation => prepared,
+            () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => preparation.await,
+        };
+        let prepared = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            Err(_) => return Err(unexpected("startup facts reader failed")),
+        };
+        let session = PlaySession::new(
+            transport,
+            cache,
+            spawned.runtime_id,
+            spawned.terrain_before_spawn,
+        );
+        Ok((session, prepared))
     }
 }
 

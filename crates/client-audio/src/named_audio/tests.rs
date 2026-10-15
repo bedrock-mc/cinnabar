@@ -188,3 +188,56 @@ fn only_unit_finite_unhandled_no_loop_dynamics_are_admitted_and_stop_survives_ca
     });
     assert_eq!(submitted, 0);
 }
+
+#[test]
+fn delayed_open_retains_admitted_sources_and_respects_stops_and_rebinding() {
+    let (mut device, release, owner) = AudioDevice::delayed_open();
+    let mut value = state();
+    for sequence in 1..=3 {
+        assert!(device.is_opening());
+        value.event(&play(sequence), Some([0.0; 3]), true);
+        value.flush_device(&mut device);
+        assert_eq!(value.stats.submitted, 0);
+        assert_eq!(value.stats.backend_failed, 0);
+    }
+    assert_eq!(value.pool.occupied(), 3);
+    value.event(&stop(4, false), None, true);
+    assert_eq!(value.pool.occupied(), 0);
+    value.event(&play(5), Some([0.0; 3]), true);
+    value.bind(None);
+    assert_eq!(value.pool.occupied(), 0);
+    value.bind(Some(AudioOwner {
+        session: 1,
+        stream: 1,
+        dimension: 0,
+        epoch: 0,
+    }));
+    value.event(&play(6), Some([0.0; 3]), true);
+    let mut mixer = device.start_capture();
+    value.flush_device(&mut device);
+    assert_eq!(value.stats.submitted, 1);
+    assert!(mixer.by_ref().take(64).any(|sample| sample > 0.0));
+    value.flush_device(&mut device);
+    assert_eq!(value.stats.submitted, 1);
+    drop(release);
+    owner.join().unwrap();
+}
+
+#[test]
+fn failed_open_retires_all_staged_named_sources() {
+    let (mut device, release, owner) = AudioDevice::delayed_open();
+    let mut value = state();
+    for sequence in 1..=3 {
+        value.event(&play(sequence), Some([0.0; 3]), true);
+    }
+    value.flush_device(&mut device);
+    assert_eq!(value.pool.occupied(), 3);
+    drop(release);
+    owner.join().unwrap();
+    value.flush_device(&mut device);
+    assert_eq!(value.pool.occupied(), 0);
+    assert_eq!(value.stats.backend_failed, 1);
+    assert_eq!(value.stats.submitted, 0);
+    value.flush_device(&mut device);
+    assert_eq!(value.stats.backend_failed, 1);
+}

@@ -13,7 +13,8 @@ pub fn ticks_to_duration(ticks: u64, period_ns: f32) -> Duration {
 }
 
 /// Sums elapsed pass latencies, including overlapping work and gaps; unmeasured stages stay absent.
-/// Metal samples vertex-start to fragment-end and omits whole-frame, stock-pass and per-draw costs.
+/// Metal pass queries sample vertex-start to fragment-end. Its labelled frame completion
+/// latency is a CPU observation, not GPU execution time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GpuFrameTimes {
     stages: [Option<Duration>; RuntimeStage::GPU.len()],
@@ -28,6 +29,23 @@ impl Default for GpuFrameTimes {
 }
 
 impl GpuFrameTimes {
+    /// Publishes submission-to-callback latency without inventing GPU execution bounds.
+    #[must_use]
+    pub fn completion_latency(elapsed: Duration) -> Self {
+        let mut frame = Self::default();
+        frame.add(RuntimeStage::GpuFrameCompletionLatency, elapsed);
+        frame
+    }
+
+    /// Adds a whole-frame span in nanoseconds of one host clock; invalid spans are ignored.
+    #[must_use]
+    pub fn with_frame_span(mut self, begin: u64, end: u64) -> Self {
+        if span_validity(begin, end) == SpanValidity::Valid {
+            self.add(RuntimeStage::GpuFrame, Duration::from_nanos(end - begin));
+        }
+        self
+    }
+
     /// `None` when the stage is not GPU-timed or did not run in this frame.
     #[must_use]
     pub fn get(&self, stage: RuntimeStage) -> Option<Duration> {

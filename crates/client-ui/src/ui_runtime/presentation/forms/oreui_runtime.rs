@@ -299,7 +299,7 @@ impl UiPresentationRuntime {
         let destination_icon = (stage == LoadingStage::ChangingDimension)
             .then(|| {
                 oreui::images::dimensions::destination(self.hud_frame.dimension)
-                    .and_then(|art| self.item_icon(art.block, 0))
+                    .and_then(|art| self.item_icon(art.icon.identifier(), 0))
             })
             .flatten();
         let input = LoadingInput {

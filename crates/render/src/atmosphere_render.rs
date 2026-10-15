@@ -1,3 +1,4 @@
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::render_resource::ShaderType;
 use bytemuck::Zeroable;
 use std::collections::HashMap;
@@ -195,13 +196,13 @@ fn prepare_atmosphere_uniform(
     mut gpu: ResMut<AtmosphereGpu>,
     render_queue: Res<RenderQueue>,
 ) {
-    render_queue.write_buffer(&gpu.buffer, 0, bytemuck::bytes_of(&*frame));
+    render_queue.profiled_write_buffer(&gpu.buffer, 0, bytemuck::bytes_of(&*frame));
     let mask = assets
         .skybox(crate::pack_skybox::dimension(*frame))
         .map_or(0, assets::PackSkybox::face_mask);
     gpu.skybox_active = mask != 0;
     let skybox = crate::pack_skybox::SkyboxUniform::new(*frame, *settings, mask);
-    render_queue.write_buffer(&gpu.skybox, 0, bytemuck::bytes_of(&skybox));
+    render_queue.profiled_write_buffer(&gpu.skybox, 0, bytemuck::bytes_of(&skybox));
 }
 
 pub(crate) mod textures;

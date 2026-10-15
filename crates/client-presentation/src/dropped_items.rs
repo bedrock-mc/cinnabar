@@ -7,17 +7,16 @@ use assets::{
 };
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Local, Res, ResMut},
+    prelude::{Camera, Camera3d, Local, Query, Res, ResMut, With},
 };
 use chunk_pipeline::WorldStream;
 use client_world::{BlockEntityKind, RopeKind};
 use render_model::{DroppedItemBlock, DroppedItemCube, DroppedItemSprite};
 use {
     render_model::{
-        DroppedItemInstance, DroppedItemModel, DroppedItemShape, DroppedItemSpawnPose,
-        ItemMeshVertex, MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition,
-        dropped_item_transform, native_dropped_item_transform, pack_overlay_rgba8, rope_color,
-        rope_ribbon,
+        ActorCullView, DroppedItemInstance, DroppedItemModel, DroppedItemShape, ItemMeshVertex,
+        MAX_ITEM_SPRITE_SIDE, TerrainItemInstance, TerrainItemTransition, dropped_item_transform,
+        pack_overlay_rgba8, rope_color, rope_ribbon,
     },
     render_scene::{ChunkTextureAssets, DroppedItemScene},
 };
@@ -26,6 +25,8 @@ use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
 mod dials;
 mod lighting;
+mod preparation;
+use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
 const TNT_FLASH_OVERLAY: [f32; 4] = [1.0, 1.0, 1.0, 0.8];
@@ -51,6 +52,15 @@ pub(super) struct DroppedItemPublisher<'w, 's> {
     placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
     device: Option<Res<'w, bevy::render::renderer::RenderDevice>>,
+    cameras: Query<
+        'w,
+        's,
+        (
+            &'static Camera,
+            Option<&'static bevy::render::camera::TemporalJitter>,
+        ),
+        With<Camera3d>,
+    >,
 }
 
 fn tint_rgba(flags: u32) -> u32 {
@@ -240,6 +250,19 @@ fn template_model(
 }
 
 impl DroppedItemPublisher<'_, '_> {
+    /// Retains draws for multiple cameras, jitter or subviews absent from the publication view.
+    fn culling_view(
+        &self,
+        view: Option<ActorCullView>,
+    ) -> Option<render_model::dropped_item::DroppedItemFrustum> {
+        preparation::publication_frustum(
+            view,
+            self.cameras
+                .single()
+                .is_ok_and(|(camera, jitter)| jitter.is_none() && camera.sub_camera_view.is_none()),
+        )
+    }
+
     /// Resolves a plant's separate potted geometry through the current terrain carrier.
     fn potted_model(cache: &mut ModelCache, assets: &RuntimeAssets, id: u32) -> Option<u32> {
         let template = assets.potted_model_template(NetworkIdMode::Sequential, id)?;
@@ -330,13 +353,15 @@ impl DroppedItemPublisher<'_, '_> {
         icons: Option<&UiPresentationRuntime>,
         stream: Option<&WorldStream>,
         collisions: Option<&dyn crate::observations::CollisionLookup>,
-        camera: Option<([f32; 3], f32)>,
+        camera: (Option<([f32; 3], f32)>, Option<ActorCullView>),
         partial_tick: f32,
         glint: (
             Option<render_model::EquipmentRaster>,
             render_model::ActorGlint,
         ),
     ) {
+        let (camera, cull_view) = camera;
+        let frustum = self.culling_view(cull_view);
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
             return;
         };
@@ -393,69 +418,53 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
         cache.finish_demand();
-        let live = dropped
-            .iter()
-            .map(|view| (view.runtime_id, view.spawn_revision))
-            .collect::<std::collections::HashSet<_>>();
-        cache
-            .spawn_poses
-            .retain(|lifetime, _| live.contains(lifetime));
+        preparation::retain_lifetimes(cache, &dropped);
         for view in dropped {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
             let block_id = item_block_id(stream, view.item.visual);
-            let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
-                Self::carried_block_model(cache, icons, assets, mode, id)
-                    .or_else(|| Self::block_model(cache, assets, mode, id))
-            });
-            let (model, shape) = match cube {
-                Some(model) => (model, DroppedItemShape::Cube),
-                None => {
-                    let (icon_identifier, variant) =
-                        dropped_icon_key(icons, identifier, &view.item);
-                    let Some(model) =
-                        Self::icon_model(cache, icons, icon_identifier, variant, true)
-                    else {
-                        continue;
-                    };
-                    (model, DroppedItemShape::Sprite)
-                }
+            let preparation = DropPreparation {
+                view: &view,
+                native_origin: stream.authority().actor(view.runtime_id).map_or(
+                    view.position,
+                    |actor| {
+                        let mut origin = actor.position;
+                        origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
+                        origin
+                    },
+                ),
+                camera,
+                frustum: frustum.as_ref(),
             };
-            let pose = *cache
-                .spawn_poses
-                .entry((view.runtime_id, view.spawn_revision))
-                .or_insert_with(|| {
-                    DroppedItemSpawnPose::new(
-                        stream
-                            .authority()
-                            .actor(view.runtime_id)
-                            .map_or(view.position, |actor| {
-                                let mut native_origin = actor.position;
-                                native_origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
-                                native_origin
-                            }),
-                        camera,
+            let cube = block_id.zip(assets).and_then(|((mode, id), assets)| {
+                let hashed = mode == NetworkIdMode::Hashed;
+                preparation
+                    .model(
+                        cache,
+                        &ModelKey::CarriedBlock { hashed, id },
+                        DroppedItemShape::Cube,
+                        |cache| Self::carried_block_model(cache, icons, assets, mode, id),
                     )
-                });
-            let mut position = view.position;
-            position[1] += pose.bob(view.age_ticks, view.bob_phase, shape) * view.bob_multiplier;
-            let yaw = pose.yaw(view.yaw_radians);
-            let (block_level, sky_level) = stream.light_level_at(position);
-            for offset in view.copy_offsets.iter().take(usize::from(view.copy_count)) {
-                instances.push(DroppedItemInstance {
-                    model,
-                    world_from_item: native_dropped_item_transform(
-                        position,
-                        yaw,
-                        *offset,
-                        view.render_scale,
-                        shape,
-                    ),
-                    block_level: u32::from(block_level),
-                    sky_level: u32::from(sky_level),
-                    overlay_rgba8: 0,
-                    glint: view.item.enchanted || view.item.glint.enabled().unwrap_or(false),
+                    .or_else(|| {
+                        preparation.model(
+                            cache,
+                            &ModelKey::Block { hashed, id },
+                            DroppedItemShape::Cube,
+                            |cache| Self::block_model(cache, assets, mode, id),
+                        )
+                    })
+            });
+            let prepared = cube.or_else(|| {
+                let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
+                let key = ModelKey::icon(icons.item_icon(icon_identifier, variant)?, true);
+                preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
+                    Self::icon_model(cache, icons, icon_identifier, variant, true)
+                })
+            });
+            if let Some(prepared) = prepared {
+                prepared.append(&view, &mut instances, |position| {
+                    stream.light_level_at(position)
                 });
             }
         }

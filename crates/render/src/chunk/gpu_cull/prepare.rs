@@ -1,5 +1,6 @@
 //! Per-frame preparation: record sync, uploads, the depth pyramid and the cull uniforms.
 
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, RuntimeStageProfiler};
 
 use bevy::{
@@ -242,7 +243,11 @@ fn upload_records(cull: &mut GpuCull, device: &RenderDevice, queue: &RenderQueue
                 bytes = words * std::mem::size_of::<u32>()
             )
             .entered();
-            queue.write_buffer(&storage.enabled, 0, bytemuck::cast_slice(&enabled[..words]));
+            queue.profiled_write_buffer(
+                &storage.enabled,
+                0,
+                bytemuck::cast_slice(&enabled[..words]),
+            );
         }
     }
 }
@@ -280,7 +285,7 @@ pub(super) fn write_dirty_records(
             bytes = run.len() as u64 * record_bytes,
         )
         .entered();
-        queue.write_buffer(
+        queue.profiled_write_buffer(
             records,
             first as u64 * record_bytes,
             bytemuck::cast_slice(&source[first..=last]),

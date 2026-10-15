@@ -1,4 +1,5 @@
 use super::*;
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{AtmosphereFrame, EntityShadowScene};
 
 #[derive(Resource)]
@@ -265,7 +266,7 @@ pub(crate) fn prepare_shadow_buffers(
             gpu.instances = instance_buffer(&device, gpu.capacity);
         }
         if needed > 0 {
-            queue.write_buffer(&gpu.instances, 0, bytemuck::cast_slice(&frame.shadows));
+            queue.profiled_write_buffer(&gpu.instances, 0, bytemuck::cast_slice(&frame.shadows));
             gpu.uploads += 1;
         }
         gpu.count = needed as u32;
@@ -273,7 +274,7 @@ pub(crate) fn prepare_shadow_buffers(
     }
     let params = shadow_params(&atmosphere.map(|frame| *frame).unwrap_or_default());
     if gpu.params_value != Some(params) {
-        queue.write_buffer(&gpu.params, 0, bytemuck::bytes_of(&params));
+        queue.profiled_write_buffer(&gpu.params, 0, bytemuck::bytes_of(&params));
         gpu.params_value = Some(params);
         gpu.uploads += 1;
     }

@@ -128,6 +128,13 @@ fn native_spear_tag_query_uses_the_selected_item_fact() {
     let input = ActorTickInput::default();
     let context = ActorTickContext {
         main_hand_is_spear: true,
+        held_item_facts: [
+            *assets::facts::ItemFacts::builtin()
+                .unwrap()
+                .by_identifier("minecraft:wooden_spear")
+                .unwrap(),
+            assets::facts::ItemFact::default(),
+        ],
         ..Default::default()
     };
     let query = |context: &ActorTickContext, slot: &str, tag: &str| {

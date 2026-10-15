@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/testwait"
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
@@ -53,13 +55,14 @@ func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
 
 	output := stderr.String()
 	assertTextInOrder(t, output,
-		"msg=\"core starting\" endpoint=run upstream=zeqa.net:19132",
-		"msg=\"authentication starting\" mode=microsoft",
-		"msg=\"authentication ready\" mode=microsoft",
-		"msg=\"listener ready; waiting for local Rust client\" socket_dir=run network=tcp endpoint=127.0.0.1:43123",
-		"msg=\"local client accepted\" socket_dir=run",
-		"msg=\"upstream connection starting\" target=zeqa.net:19132 authentication=microsoft",
-		"msg=\"upstream connected\" target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"core build\" process=game version=unknown commit=unknown",
+		"msg=\"core starting\" process=game endpoint=run upstream=zeqa.net:19132",
+		"msg=\"authentication starting\" process=game mode=microsoft",
+		"msg=\"authentication ready\" process=game mode=microsoft",
+		"msg=\"listener ready; waiting for local Rust client\" process=game socket_dir=run network=tcp endpoint=127.0.0.1:43123",
+		"msg=\"local client accepted\" process=game socket_dir=run",
+		"msg=\"upstream connection starting\" process=game target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"upstream connected\" process=game target=zeqa.net:19132 authentication=microsoft",
 	)
 	if strings.Contains(output, "secret-token-sentinel") || strings.Contains(output, "token.json") {
 		t.Fatalf("startup output exposed credential material or its cache path:\n%s", output)
@@ -84,10 +87,118 @@ func TestExecuteReportsFatalStartupError(t *testing.T) {
 		t.Fatalf("execute() exit code = %d, want 1", exitCode)
 	}
 	assertTextInOrder(t, stderr.String(),
-		"msg=\"core starting\" endpoint=run upstream=localhost:19132",
-		"msg=\"authentication ready\" mode=offline",
-		"level=ERROR msg=\"core failed\" error=\"listener bind failed\"",
+		"msg=\"core starting\" process=game endpoint=run upstream=localhost:19132",
+		"msg=\"authentication ready\" process=game mode=offline",
+		"level=ERROR msg=\"core failed\" process=game error=\"listener bind failed\"",
 	)
+}
+
+// Invalid arguments are still reported through the root logger, labelled with the binary.
+func TestExecuteReportsInvalidArgumentsThroughTheRootLogger(t *testing.T) {
+	var stderr bytes.Buffer
+	exitCode := execute(context.Background(), []string{"-xbox-presence"}, io.Discard, &stderr,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) {
+			t.Fatal("invalid arguments called the auth source")
+			return nil, nil
+		},
+		func(context.Context, proxy.Config) error {
+			t.Fatal("invalid arguments started the proxy")
+			return nil
+		})
+	if exitCode != 1 || !strings.Contains(stderr.String(), `level=ERROR msg="core failed" process=bedrock-core error="xbox-presence requires -control-status"`) {
+		t.Fatalf("exit code = %d, output:\n%s", exitCode, stderr.String())
+	}
+}
+
+// Each spawn mode labels its records, so cores sharing core.log stay distinguishable.
+func TestProcessLabelNamesTheCoreMode(t *testing.T) {
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-auth-events", "-auth-cache", "token.json"}, "auth-events"},
+		{[]string{"-catalog-file", "catalog.json", "-auth-cache", "token.json"}, "catalog"},
+		{[]string{"-socket-dir", "run", "-control-status", "-xbox-presence"}, "account"},
+		{[]string{"-socket-dir", "run", "-control-status", "-upstream", "localhost:19132"}, "game"},
+		{[]string{"-socket-dir", "run"}, "bedrock-core"},
+	} {
+		opts, err := parseFlags(test.args, io.Discard)
+		if err != nil || opts.process() != test.want {
+			t.Fatalf("parseFlags(%v).process() = %q, %v; want %q", test.args, opts.process(), err, test.want)
+		}
+	}
+}
+
+func TestLogLevelAndCrashOutputFlags(t *testing.T) {
+	defaults, err := parseFlags(nil, io.Discard)
+	if err != nil || defaults.logLevel != slog.LevelInfo || defaults.crashOutput != "" {
+		t.Fatalf("defaults = level %v, crash output %q, %v", defaults.logLevel, defaults.crashOutput, err)
+	}
+	set, err := parseFlags([]string{"-log-level", "debug", "-crash-output", "core-crash.txt"}, io.Discard)
+	if err != nil || set.logLevel != slog.LevelDebug || set.crashOutput != "core-crash.txt" {
+		t.Fatalf("set = level %v, crash output %q, %v", set.logLevel, set.crashOutput, err)
+	}
+	if _, err := parseFlags([]string{"-log-level", "verbose"}, io.Discard); err == nil {
+		t.Fatal("an unknown -log-level was accepted")
+	}
+}
+
+// run hands the process-wide setup the same leveled, labelled logger the proxy receives.
+func TestRunInstallsItsRootLogger(t *testing.T) {
+	previous := installDiagnostics
+	defer func() { installDiagnostics = previous }()
+	var installed *slog.Logger
+	var installedOptions options
+	installDiagnostics = func(opts options, logger *slog.Logger) { installedOptions, installed = opts, logger }
+	var stderr bytes.Buffer
+	err := run(context.Background(),
+		[]string{"-socket-dir", "run", "-upstream", "localhost:19132", "-log-level", "warn", "-crash-output", "core-crash.txt"},
+		io.Discard, &stderr,
+		func(context.Context, authcache.Config) (oauth2.TokenSource, error) { return nil, nil },
+		func(_ context.Context, cfg proxy.Config) error {
+			if cfg.Logger != installed {
+				t.Fatal("the proxy logger is not the installed root logger")
+			}
+			cfg.Logger.Info("below the level")
+			cfg.Logger.Warn("upstream slow")
+			return nil
+		})
+	if err != nil || installedOptions.crashOutput != "core-crash.txt" {
+		t.Fatalf("run = %v, installed crash output %q", err, installedOptions.crashOutput)
+	}
+	output := stderr.String()
+	if strings.Contains(output, "core starting") || strings.Contains(output, "below the level") ||
+		!strings.Contains(output, `level=WARN msg="upstream slow" process=game`) {
+		t.Fatalf("records ignored -log-level warn:\n%s", output)
+	}
+}
+
+// Installing makes library records share the root format and arms crash output where it can.
+func TestInstallProcessDiagnosticsSetsTheDefaultAndCrashOutput(t *testing.T) {
+	// Created first so their removal runs after the cleanup below releases the runtime's handle.
+	crashPath := filepath.Join(t.TempDir(), "core-crash.txt")
+	unopenable := filepath.Join(t.TempDir(), "private-missing-dir", "core-crash.txt")
+	previous := slog.Default()
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		log.SetOutput(os.Stderr)
+		log.SetFlags(log.LstdFlags)
+		_ = debug.SetCrashOutput(nil, debug.CrashOptions{})
+	})
+	var logs bytes.Buffer
+	logger := corelog.New(&logs, "game", slog.LevelInfo)
+	installProcessDiagnostics(options{crashOutput: crashPath}, logger)
+	slog.Info("library record", "hop", 1)
+	if !strings.Contains(logs.String(), `level=INFO msg="library record" process=game hop=1`) {
+		t.Fatalf("default logger did not use the root format:\n%s", logs.String())
+	}
+	if _, err := os.Stat(crashPath); err != nil {
+		t.Fatalf("crash output not opened: %v", err)
+	}
+	installProcessDiagnostics(options{crashOutput: unopenable}, logger)
+	if !strings.Contains(logs.String(), "crash output unavailable") || strings.Contains(logs.String(), "private-missing-dir") {
+		t.Fatalf("unopenable crash output must warn without its path:\n%s", logs.String())
+	}
 }
 
 func TestParseFlagsAuthCacheIsOptional(t *testing.T) {
@@ -463,8 +574,10 @@ func TestHelpDocumentsAuthCache(t *testing.T) {
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("parseFlags(-h) error = %v, want flag.ErrHelp", err)
 	}
-	if !strings.Contains(help.String(), "-auth-cache") {
-		t.Fatalf("help text does not document -auth-cache:\n%s", help.String())
+	for _, documented := range []string{"-auth-cache", "-log-level", "-crash-output"} {
+		if !strings.Contains(help.String(), documented) {
+			t.Fatalf("help text does not document %s:\n%s", documented, help.String())
+		}
 	}
 }
 
@@ -505,6 +618,7 @@ func TestConfigureRuntimeRespectsEnvironmentOverrides(t *testing.T) {
 func TestMain(m *testing.M) {
 	startVerifierPreload = func(context.Context, *slog.Logger) func() { return func() {} }
 	keepAccountFresh = func(*authcache.Account, context.Context) {}
+	installDiagnostics = func(options, *slog.Logger) {}
 	os.Exit(m.Run())
 }
 

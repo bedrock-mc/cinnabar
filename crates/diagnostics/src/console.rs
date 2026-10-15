@@ -16,6 +16,8 @@ use std::{
 
 /// Writes queued before a writer waits; bounds memory while the console is stalled.
 const QUEUED_WRITES: usize = 4096;
+/// Large owned snapshots have a separate bound inside the console queue.
+const QUEUED_REPORTS: u64 = 8;
 static CONSOLE: OnceLock<Console> = OnceLock::new();
 /// Pause between attempts to queue a bounded flush behind a full queue.
 const FULL_QUEUE_RETRY: Duration = Duration::from_millis(1);
@@ -33,10 +35,24 @@ pub enum Stream {
 
 enum Message {
     Write(Stream, Vec<u8>),
+    /// A bounded report formatted only when the writer reaches it.
+    Report(Stream, DeferredReport),
     /// Terminal output whose file copy has already been synchronized.
     WriteConsole(Stream, Vec<u8>),
     /// Acknowledged once every earlier write has reached its stream.
     Flush(SyncSender<()>),
+}
+
+struct DeferredReport {
+    value: Box<dyn std::fmt::Display + Send>,
+    pending: Arc<AtomicU64>,
+}
+
+impl Drop for DeferredReport {
+    /// Releases the report budget whether the message was written or dropped.
+    fn drop(&mut self) {
+        self.pending.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// An ordered queue in front of two output streams, drained by its own thread.
@@ -44,6 +60,8 @@ pub struct Console {
     queue: Option<SyncSender<Message>>,
     log: Option<Arc<Mutex<crate::rotating_log::RotatingLog>>>,
     dropped: Arc<AtomicU64>,
+    reports: Arc<AtomicU64>,
+    dropped_reports: Arc<AtomicU64>,
     raw_stderr: Option<Arc<raw_stderr::RawStderr>>,
 }
 
@@ -63,6 +81,8 @@ impl Console {
             sync_channel(QUEUED_WRITES);
         let dropped = Arc::new(AtomicU64::new(0));
         let lost = Arc::clone(&dropped);
+        let dropped_reports = Arc::new(AtomicU64::new(0));
+        let lost_reports = Arc::clone(&dropped_reports);
         let mut plain = AnsiFilter::default();
         let log = log.map(|log| Arc::new(Mutex::new(log)));
         let writer_log = log.clone();
@@ -72,7 +92,14 @@ impl Console {
                 for message in pending {
                     let count = lost.swap(0, Ordering::Relaxed);
                     if count > 0 {
-                        let notice = format!("console queue full: dropped {count} writes\n");
+                        let reports = lost_reports.swap(0, Ordering::Relaxed);
+                        let notice = if reports == 0 {
+                            format!("console queue full: dropped {count} writes\n")
+                        } else {
+                            format!(
+                                "console queue full: dropped {count} writes ({reports} reports)\n"
+                            )
+                        };
                         if let Some(log) = &writer_log {
                             let mut log = log.lock().unwrap_or_else(|error| error.into_inner());
                             let _ = log.write_all(notice.as_bytes()).and_then(|()| log.flush());
@@ -80,6 +107,12 @@ impl Console {
                         let _ = stderr.write_all(notice.as_bytes());
                         let _ = stderr.flush();
                     }
+                    let message = match message {
+                        Message::Report(stream, report) => {
+                            Message::Write(stream, format!("{}\n", report.value).into_bytes())
+                        }
+                        message => message,
+                    };
                     let mirror = matches!(&message, Message::Write(..));
                     match message {
                         Message::Write(stream, bytes) | Message::WriteConsole(stream, bytes) => {
@@ -100,6 +133,7 @@ impl Console {
                         Message::Flush(done) => {
                             let _ = done.send(());
                         }
+                        Message::Report(..) => unreachable!(),
                     }
                 }
             });
@@ -107,6 +141,8 @@ impl Console {
             queue: spawned.is_ok().then_some(queue),
             log,
             dropped,
+            reports: Arc::new(AtomicU64::new(0)),
+            dropped_reports,
             raw_stderr: None,
         }
     }
@@ -126,6 +162,33 @@ impl Console {
                 write_inline(stream, &bytes);
             }
             Err(TrySendError::Disconnected(_)) => unreachable!(),
+        }
+    }
+
+    /// Queues a report without formatting or waiting; unavailable writers drop it too.
+    pub fn report(&self, stream: Stream, report: Box<dyn std::fmt::Display + Send>) {
+        if self
+            .reports
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                (count < QUEUED_REPORTS).then_some(count + 1)
+            })
+            .is_err()
+        {
+            self.dropped_reports.fetch_add(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let report = DeferredReport {
+            value: report,
+            pending: Arc::clone(&self.reports),
+        };
+        if self
+            .queue
+            .as_ref()
+            .is_none_or(|queue| queue.try_send(Message::Report(stream, report)).is_err())
+        {
+            self.dropped_reports.fetch_add(1, Ordering::Relaxed);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -285,6 +348,11 @@ pub fn stderr() -> Queued {
     }
 }
 
+/// Formats one diagnostic report on the console thread, with bounded queue loss accounting.
+pub fn defer_stderr(report: Box<dyn std::fmt::Display + Send>) {
+    console().report(Stream::Stderr, report);
+}
+
 /// Initializes the rotating sink, capturing raw stderr for nonterminal launches before any writes.
 pub fn initialize_log(path: &std::path::Path, limit: u64) -> std::io::Result<()> {
     let terminal = std::io::stderr().is_terminal();
@@ -352,6 +420,56 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+
+    /// Checks the formatting thread and counts only reports the writer actually consumes.
+    struct ReportProbe {
+        producer: std::thread::ThreadId,
+        formatted: Arc<AtomicU64>,
+    }
+
+    impl std::fmt::Display for ReportProbe {
+        /// Formatting must happen only after the console's stalled destination resumes.
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            assert_ne!(std::thread::current().id(), self.producer);
+            self.formatted.fetch_add(1, Ordering::Relaxed);
+            f.write_str("owned snapshot")
+        }
+    }
+
+    /// Stalled output neither formats on the producer nor retains more than the report budget.
+    #[test]
+    fn deferred_reports_stay_bounded_and_format_on_the_writer() {
+        let (release, stalled) = mpsc::channel();
+        let (entered, started) = mpsc::channel();
+        let console = Console::spawn(
+            Stalled {
+                release: Some(stalled),
+                entered: Some(entered),
+                written: Arc::new(Mutex::new(Vec::new())),
+            },
+            std::io::sink(),
+        );
+        console.write(Stream::Stdout, b"hold writer\n".to_vec());
+        started.recv_timeout(Duration::from_secs(10)).unwrap();
+        let formatted = Arc::new(AtomicU64::new(0));
+        for _ in 0..QUEUED_REPORTS + 2 {
+            console.report(
+                Stream::Stderr,
+                Box::new(ReportProbe {
+                    producer: std::thread::current().id(),
+                    formatted: Arc::clone(&formatted),
+                }),
+            );
+        }
+        assert_eq!(formatted.load(Ordering::Relaxed), 0);
+        assert_eq!(console.reports.load(Ordering::Relaxed), QUEUED_REPORTS);
+        assert_eq!(console.dropped.load(Ordering::Relaxed), 2);
+        assert_eq!(console.dropped_reports.load(Ordering::Relaxed), 2);
+        release.send(()).unwrap();
+        console.flush();
+        assert_eq!(formatted.load(Ordering::Relaxed), QUEUED_REPORTS);
+        assert_eq!(console.reports.load(Ordering::Relaxed), 0);
+    }
 
     /// Recreates a launcher with no stderr destination in a separate process.
     #[test]
