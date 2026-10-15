@@ -13,7 +13,6 @@ use ui::{
     TextLayout, TextLayoutCache, TextLayoutRequest, TextStyle, TextWrap, UiScale,
 };
 
-#[path = "nametag_atlas/packing.rs"]
 mod packing;
 
 /// Widest line laid out before it would wrap, in font texels.
