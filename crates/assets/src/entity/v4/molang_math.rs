@@ -283,8 +283,12 @@ fn clamp_unit(value: f32) -> f32 {
     }
 }
 
-// The inclusive upper bound stops one ulp short; needs independent measurement.
+/// Samples inclusive ordered bounds, propagating NaN without passing it to `clamp`.
+/// The upper bound stops one ulp short; needs independent measurement.
 fn random_integer(low: f32, high: f32, roll: f32) -> f32 {
+    if low.is_nan() || high.is_nan() {
+        return f32::NAN;
+    }
     let span_high = high + 1.0 - high * f32::EPSILON;
     (span_high * roll + (1.0 - roll) * low)
         .floor()
@@ -443,6 +447,33 @@ mod tests {
         assert_eq!(high(MolangFunction::DieRoll, &[2.0, 1.7, 3.2]), 6.0);
         assert_eq!(low(MolangFunction::DieRollInteger, &[3.0, 1.0, 6.0]), 3.0);
         assert_eq!(low(MolangFunction::DieRoll, &[0.0, 1.0, 6.0]), 0.0);
+        assert_eq!(low(MolangFunction::RandomInteger, &[3.0, 1.0]), 1.0);
+        assert_eq!(high(MolangFunction::RandomInteger, &[3.0, 1.0]), 3.0);
+        assert_eq!(low(MolangFunction::DieRollInteger, &[3.0, 6.0, 1.0]), 3.0);
+        assert_eq!(high(MolangFunction::DieRollInteger, &[3.0, 6.0, 1.0]), 18.0);
+    }
+
+    #[test]
+    fn integer_random_nan_bounds_keep_the_number_of_rolls() {
+        for (function, dice) in [
+            (MolangFunction::RandomInteger, 1),
+            (MolangFunction::DieRollInteger, 3),
+        ] {
+            for (low, high) in [(f32::NAN, 0.0), (0.0, f32::NAN)] {
+                let args = if function == MolangFunction::RandomInteger {
+                    vec![low, high]
+                } else {
+                    vec![dice as f32, low, high]
+                };
+                let mut calls = 0;
+                let result = molang_call(function, &args, &mut || {
+                    calls += 1;
+                    0.5
+                });
+                assert!(result.is_nan());
+                assert_eq!(calls, dice);
+            }
+        }
     }
 
     #[test]

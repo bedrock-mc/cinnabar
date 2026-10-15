@@ -8,6 +8,9 @@ mod owner_variables;
 mod presentation;
 pub(super) mod variables;
 
+#[cfg(test)]
+mod invalid_input_tests;
+
 /// Runtime values retain the attachable's owning actor reference without numeric coercion.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum MolangValue {
