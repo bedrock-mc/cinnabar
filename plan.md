@@ -9353,16 +9353,17 @@ unsupported. Live visual parity and performance acceptance remain open.
 Sessions record the last 4,096 packet headers in both directions, with each packet's
 accept, skip or failure outcome, and keep up to four rejected bodies per packet ID from
 the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture v2 that
-`bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
-handshake and pack-offer bodies never reach samples or captures.
+`bedrock-replay` reads alongside v1, optionally on the recorded schedule. Its queue bounds
+record count and owned body bytes, including the active disk write, and detaches admitted
+bodies from their source batches. Captures that require an unavailable blob cache are
+rejected before replay starts. Login, handshake and pack-offer bodies never reach samples
+or captures.
 
-Incomplete: crash reports do not dump the ring or samples yet; recorded times are when the
-client read each batch, not socket arrival; no frame or join capture has measured the
-recorder's cost.
-Crash reports carry them: the header ring and the log flight recorder (last 2,000 lines,
+Crash reports carry the ring and samples: the header ring and the log flight recorder (last 2,000 lines,
 `debug` for net, session, core and packs under its own per-layer filter) are lock-free
-rings in mapped files under `crashes/.live-<session id>/`, samples are written there as they
-change, and the monitor and the in-process fallback attach `packets.txt`,
+rings in mapped files under `crashes/.live-<session id>/`. A background writer coalesces
+sample changes from a store bounded by body bytes and sample count; ingress never waits
+for persistence, and contention losses are counted. The monitor and the in-process fallback attach `packets.txt`,
 `decode-samples/` and `flight.log` to every folder; the crash window lists the last packets
 from `packets.txt`. Verified locally on Windows: ring layouts round-trip through their
 readers, header recording into the mapped ring allocates nothing, and the crash-monitor
@@ -9371,7 +9372,9 @@ in-process panic) each carry the fixture's packets, sample and recorder line. Cr
 shared build host under load: a recorder-only `debug` event costs about 1.7 µs through the
 installed subscriber (both filters, formatting, mapped write); a disabled event about 2 ns.
 
-Incomplete: folders from fatal Unix signals written in-process lack the three attachments;
+Incomplete: recorded times are when the client reads each batch, not socket arrival;
+no frame or join capture has measured the recorder's cost. Folders from fatal Unix
+signals written in-process lack the three attachments;
 Linux and macOS fixtures run only in CI; the recorder cost is not measured on an idle host
 or in a frame or join capture; the Settings → Advanced "Record network session" option is
 not built; recorded times are when the client read each batch, not socket arrival.

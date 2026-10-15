@@ -1,5 +1,8 @@
 //! The crashing session's part of an append-only log, found by its session header.
 
+pub mod header;
+pub(crate) mod session;
+
 use std::{
     fs,
     io::{self, Read, Seek, SeekFrom},
@@ -24,11 +27,58 @@ pub fn latest<'a>(text: &'a str, marker: &str) -> &'a str {
 /// When the header is older than the bound, the section starts at the first whole line inside
 /// it. A missing log yields an empty section.
 pub fn read(path: &Path, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    read_tail(file, marker, max_bytes)
+}
+
+/// Like [`read`], but checks the latest header's timestamp before truncating its section.
+pub fn read_since(path: &Path, marker: &str, max_bytes: u64, since_ms: u64) -> io::Result<Vec<u8>> {
     let mut file = match fs::File::open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
+    let timestamp = header::latest_timestamp(marker, &mut [0; 4096], |bytes| file.read(bytes))?;
+    if timestamp.is_some_and(|at| at < since_ms) {
+        return Ok(Vec::new());
+    }
+    let length = file.metadata()?.len();
+    let offset = length.saturating_sub(max_bytes);
+    file.seek(SeekFrom::Start(offset))?;
+    let mut bytes = Vec::new();
+    file.take(max_bytes).read_to_end(&mut bytes)?;
+    let cut = since(&bytes, marker, since_ms, offset > 0);
+    bytes.drain(..cut);
+    Ok(bytes)
+}
+
+/// Selects every section whose header is current, preserving earlier processes of one session.
+/// The caller checks the full file's latest timestamp before passing a truncated tail here.
+pub fn since(tail: &[u8], marker: &str, since_ms: u64, truncated: bool) -> usize {
+    let mut older = false;
+    let mut offset = 0;
+    for line in tail.split_inclusive(|byte| *byte == b'\n') {
+        if line.starts_with(marker.as_bytes()) {
+            match header::first_timestamp(line, marker) {
+                Some(at) if at < since_ms => older = true,
+                _ => return offset,
+            }
+        }
+        offset += line.len();
+    }
+    if older {
+        tail.len()
+    } else {
+        start(tail, marker, truncated)
+    }
+}
+
+/// Reads a bounded session tail from the same open file used to check its timestamp.
+fn read_tail(mut file: fs::File, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
     let length = file.metadata()?.len();
     let offset = length.saturating_sub(max_bytes);
     file.seek(SeekFrom::Start(offset))?;
@@ -37,17 +87,6 @@ pub fn read(path: &Path, marker: &str, max_bytes: u64) -> io::Result<Vec<u8>> {
     let cut = start(&bytes, marker, offset > 0);
     bytes.drain(..cut);
     Ok(bytes)
-}
-
-/// Like [`read`], but empty when the section's header `timestamp_ms` precedes `since_ms`,
-/// because that section belongs to an earlier session.
-pub fn read_since(path: &Path, marker: &str, max_bytes: u64, since_ms: u64) -> io::Result<Vec<u8>> {
-    let section = read(path, marker, max_bytes)?;
-    Ok(if is_stale(&section, marker, since_ms) {
-        Vec::new()
-    } else {
-        section
-    })
 }
 
 /// Offset in `tail`, the final bytes of a log, where its latest session begins.
@@ -69,30 +108,7 @@ pub fn start(tail: &[u8], marker: &str, truncated: bool) -> usize {
 ///
 /// Allocation-free, so signal handlers may call it.
 pub fn is_stale(section: &[u8], marker: &str, since_ms: u64) -> bool {
-    section
-        .starts_with(marker.as_bytes())
-        .then(|| header_timestamp_ms(section))
-        .flatten()
-        .is_some_and(|at| at < since_ms)
-}
-
-/// The `timestamp_ms=` value on a section's first line.
-fn header_timestamp_ms(section: &[u8]) -> Option<u64> {
-    let line = section.split(|byte| *byte == b'\n').next()?;
-    let line = std::str::from_utf8(line).ok()?;
-    let value = line.split_once("timestamp_ms=")?.1;
-    let digits = value
-        .find(|character: char| !character.is_ascii_digit())
-        .map_or(value, |end| &value[..end]);
-    digits.parse().ok()
-}
-
-/// Whether `text` holds `marker` anywhere; an empty marker matches nothing.
-fn contains(text: &[u8], marker: &str) -> bool {
-    let marker = marker.as_bytes();
-    !marker.is_empty()
-        && marker.len() <= text.len()
-        && text.windows(marker.len()).any(|window| window == marker)
+    header::first_timestamp(section, marker).is_some_and(|at| at < since_ms)
 }
 
 /// Byte offset of the start of the line holding the last `marker`.
@@ -193,6 +209,32 @@ mod tests {
             read(&log, CLIENT_SESSION_START, 64).unwrap(),
             b"CLIENT_SESSION_START session=b\nnew\n"
         );
+    }
+
+    /// Session age is checked even when the section header is outside the retained tail.
+    #[test]
+    fn read_since_rejects_an_oversized_previous_core_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("core.log");
+        let payload = "old line\n".repeat(128);
+        for (timestamp, stale) in [(1, true), (50, false)] {
+            fs::write(
+                &log,
+                format!("{CORE_SESSION_START} timestamp_ms={timestamp}\n{payload}"),
+            )
+            .unwrap();
+            let section = read_since(&log, CORE_SESSION_START, 64, 20).unwrap();
+            assert_eq!(section.is_empty(), stale);
+            assert!(section.len() <= 64);
+        }
+    }
+
+    #[test]
+    fn read_since_keeps_all_current_core_processes() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("core.log");
+        fs::write(&log, "CORE_SESSION_START timestamp_ms=1\nold\nCORE_SESSION_START timestamp_ms=20\naccount\nCORE_SESSION_START timestamp_ms=30\ngame\n").unwrap();
+        assert_eq!(read_since(&log, CORE_SESSION_START, MAX_SECTION_BYTES, 10).unwrap(), b"CORE_SESSION_START timestamp_ms=20\naccount\nCORE_SESSION_START timestamp_ms=30\ngame\n");
     }
 
     #[test]

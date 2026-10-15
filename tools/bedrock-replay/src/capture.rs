@@ -1,8 +1,10 @@
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use bytes::Bytes;
 use protocol::capture::{CaptureRecord, MAX_CAPTURE_BYTES, is_capture_v2};
 use protocol::packet_tap::PacketDirection;
-use protocol::session_wire::{CapturedPacketKind, captured_packet_kind, packet_from_body};
+use protocol::session_wire::{
+    CapturedPacketKind, captured_packet_kind, packet_from_body, validate_replay_cache_mode,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io::Read, time::Duration};
@@ -109,6 +111,7 @@ pub fn read_capture(reader: impl Read) -> Result<Capture> {
             summary.handshake_records_regenerated += 1;
             continue;
         }
+        validate_replay_cache_mode(id, &body).with_context(|| format!("record {record}"))?;
         let wire = packet_from_body(id, &body)?;
         hash_packet(&mut digest, &wire);
         packets.push(CapturedPacket {

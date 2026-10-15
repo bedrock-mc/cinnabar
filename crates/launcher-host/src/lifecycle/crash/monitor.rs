@@ -5,13 +5,15 @@
 //! Its socket sits in a directory only this user can enter, and every message carries the
 //! token this process handed it on that stdin.
 
+mod slot;
+
 use std::{
     io::{self, BufRead, BufReader, Write},
     path::{Path, PathBuf},
     process::{ChildStdin, ChildStdout, Command, Stdio},
     sync::{
         Condvar, Mutex, OnceLock, PoisonError,
-        atomic::{AtomicPtr, AtomicU8, Ordering},
+        atomic::{AtomicU8, Ordering},
     },
     time::Duration,
 };
@@ -43,9 +45,8 @@ impl MonitorCommand {
     }
 }
 
-/// The connection crash handlers use, once up; replaced after each panic dump. Replaced
-/// connections stay allocated, since a crash handler may still be using one.
-static CONNECTION: AtomicPtr<minidumper::Client> = AtomicPtr::new(std::ptr::null_mut());
+/// Signal handlers borrow this slot without locking; reconnects reclaim old connections.
+static CONNECTION: slot::Slot<minidumper::Client> = slot::Slot::new();
 /// Where crash reports go: [`CONNECTING`], [`CLAIMED`], [`CONNECTED`] or [`IN_PROCESS`].
 static ROUTE: AtomicU8 = AtomicU8::new(CONNECTING);
 /// No connection yet: a crash now claims the in-process report.
@@ -204,7 +205,9 @@ fn introduce() -> Result<(), String> {
         ROUTE.store(IN_PROCESS, Ordering::Release);
         return Err("the hello was not delivered".to_owned());
     }
-    publish(client);
+    if !CONNECTION.publish(client) {
+        return Err("previous crash connection is still in use".to_owned());
+    }
     ROUTE.store(CONNECTED, Ordering::Release);
     Ok(())
 }
@@ -221,10 +224,10 @@ pub(super) fn reconnect() -> bool {
     if !say_hello(&client) {
         return false;
     }
-    publish(client);
-    true
+    CONNECTION.publish(client)
 }
 
+/// Opens a replacement connection outside native crash handlers.
 fn open_connection() -> Result<minidumper::Client, minidumper::Error> {
     let session = SESSION
         .get()
@@ -232,16 +235,11 @@ fn open_connection() -> Result<minidumper::Client, minidumper::Error> {
     minidumper::Client::with_name(protocol::socket_name(&session.socket))
 }
 
+/// Reintroduces this session on a newly opened connection.
 fn say_hello(client: &minidumper::Client) -> bool {
     SESSION
         .get()
         .is_some_and(|session| send_on(client, protocol::HELLO, &session.hello))
-}
-
-/// Makes `client` the connection crash handlers use.
-fn publish(client: minidumper::Client) {
-    // The replaced connection is leaked on purpose: a handler on another thread may hold it.
-    CONNECTION.swap(Box::into_raw(Box::new(client)), Ordering::AcqRel);
 }
 
 fn settle(progress: Progress) {
@@ -250,15 +248,14 @@ fn settle(progress: Progress) {
 }
 
 /// The connection, once up; lock-free, so crash handlers may call it.
-pub(super) fn connection() -> Option<&'static minidumper::Client> {
-    // SAFETY: Published connections are never freed.
-    unsafe { CONNECTION.load(Ordering::Acquire).as_ref() }
+pub(super) fn connection() -> Option<slot::Guard<'static, minidumper::Client>> {
+    CONNECTION.read()
 }
 
 /// The connection a crash reports through, or `None` when the crash must write its folder
 /// in-process. Lock-free and allocation-free, so crash handlers may call it; while the
 /// connection is being introduced it waits for it.
-pub(super) fn route() -> Option<&'static minidumper::Client> {
+pub(super) fn route() -> Option<slot::Guard<'static, minidumper::Client>> {
     if let Some(client) = connection() {
         return Some(client);
     }
@@ -273,14 +270,31 @@ pub(super) fn route() -> Option<&'static minidumper::Client> {
         if ROUTE.load(Ordering::Acquire) == IN_PROCESS {
             return None;
         }
-        std::thread::sleep(Duration::from_millis(1));
+        introduction_pause();
     }
     None
 }
 
+/// Pauses a bounded introduction wait without entering Rust's thread runtime on Unix.
+fn introduction_pause() {
+    #[cfg(unix)]
+    {
+        let pause = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 1_000_000,
+        };
+        // SAFETY: nanosleep reads a valid timespec and requires no allocation or locks.
+        unsafe {
+            libc::nanosleep(&pause, std::ptr::null_mut());
+        }
+    }
+    #[cfg(not(unix))]
+    std::thread::sleep(Duration::from_millis(1));
+}
+
 /// Sends one message; false when there is no connection or the send failed.
 pub(super) fn send(kind: u32, payload: &[u8]) -> bool {
-    connection().is_some_and(|client| send_on(client, kind, payload))
+    connection().is_some_and(|client| send_on(&client, kind, payload))
 }
 
 /// Sends `payload` behind the launch token on `client`. Payloads of at most

@@ -139,6 +139,14 @@ fn signal_drain_child() {
     })
     .unwrap();
     assert!(flush_before_exit());
+    if std::env::var_os("CINNABAR_SIGNAL_DRAIN_REPLACE").is_some() {
+        let _other = SessionLog::open(
+            Family::new(&dir, "client", "log"),
+            Retention::DEFAULT,
+            b"another client\n".to_vec(),
+        )
+        .unwrap();
+    }
     // Holding the pipe reader keeps the drain thread from queueing what follows.
     let raw = console().raw_stderr.get().unwrap();
     let _held = raw.reader.lock().unwrap();
@@ -149,8 +157,7 @@ fn signal_drain_child() {
     std::process::abort();
 }
 
-/// Raw stderr still in the capture pipe at a fatal signal reaches the launcher's stderr and the
-/// session log once each.
+/// Fatal output is preserved in the session log without attempting a blocking launcher write.
 #[cfg(unix)]
 #[test]
 fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
@@ -173,7 +180,37 @@ fn raw_stderr_in_the_pipe_survives_a_fatal_signal() {
     let text = std::fs::read_to_string(dir.path().join("client.log")).unwrap();
     let launcher = String::from_utf8_lossy(&output.stderr);
     assert_eq!(text.matches(marker).count(), 1, "file: {text}");
-    assert_eq!(launcher.matches(marker).count(), 1, "stderr: {launcher}");
+    assert_eq!(launcher.matches(marker).count(), 0, "stderr: {launcher}");
+}
+
+#[cfg(unix)]
+#[test]
+fn signal_drain_keeps_the_reporting_clients_archived_log() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "console::tests::signal_drain_child",
+            "--nocapture",
+        ])
+        .env("CINNABAR_SIGNAL_DRAIN_FIXTURE", dir.path())
+        .env("CINNABAR_SIGNAL_DRAIN_REPLACE", "1")
+        .stdout(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let family = Family::new(dir.path(), "client", "log");
+    assert_eq!(
+        std::fs::read(family.current()).unwrap(),
+        b"another client\n"
+    );
+    let archived = family.archives().unwrap();
+    assert_eq!(archived.len(), 1);
+    assert!(
+        std::fs::read_to_string(&archived[0])
+            .unwrap()
+            .contains("written just before the fault")
+    );
 }
 
 #[test]

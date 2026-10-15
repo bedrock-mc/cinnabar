@@ -69,6 +69,7 @@ struct Context {
 impl Context {
     fn log_sources(&self) -> LogSources<'_> {
         LogSources {
+            session_id: Some(&self.identity.session_id),
             client: &self.client_log,
             core: &self.core_log,
             started_at_ms: self.identity.started_at_ms,
@@ -116,6 +117,7 @@ pub fn install(
         let message = info.to_string();
         let backtrace = Backtrace::force_capture().to_string();
         (hooks.log_panic)(&format!("{message}\n{backtrace}\n"));
+        previous(info);
         // Queued lines must reach `client.log` before its section is copied.
         (hooks.flush)();
         if !REPORTED.swap(true, Ordering::AcqRel) {
@@ -127,7 +129,6 @@ pub fn install(
                 let _ = fallback::write_panic(context, message, thread, backtrace, now_ms);
             }
         }
-        previous(info);
         (hooks.flush)();
     }));
 }
@@ -151,14 +152,21 @@ fn report_panic(
         uptime_ms: now_ms.saturating_sub(context.identity.started_at_ms),
     };
     let sent = serde_json::to_vec(&panic)
-        .is_ok_and(|panic| monitor::send_on(client, protocol::PANIC, &panic));
+        .is_ok_and(|panic| monitor::send_on(&client, protocol::PANIC, &panic));
     if !sent {
         return false;
     }
-    if handler::dump_this_thread() && !monitor::reconnect() {
+    let dumped = handler::dump_this_thread();
+    drop(client);
+    if dumped && !monitor::reconnect() {
         tracing::warn!("crash monitor connection lost after a panic dump");
     }
     true
+}
+
+/// Refreshes prepared log handles after the session files are first opened.
+pub fn logs_ready() {
+    state_changed();
 }
 
 /// Tells the monitor this process is about to exit with `code` on purpose, so it reports

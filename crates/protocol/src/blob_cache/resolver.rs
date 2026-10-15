@@ -408,21 +408,22 @@ impl BlobCacheResolver {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
         }
-        if admission.is_some()
-            && (self.pending.contains_key(&sequence) || self.ready.contains_key(&sequence))
-        {
+        status.accepted =
+            self.pending.contains_key(&sequence) || self.ready.contains_key(&sequence);
+        if admission.is_some() && status.accepted {
             status.set_admission(admission);
         }
         Ok(status)
     }
 
+    /// Accepts verified blobs, returning false when the response was skipped with recovery.
     pub(crate) fn accept_miss_response(
         &mut self,
         response: ClientCacheMissResponse,
-    ) -> Result<(), BlobCacheError> {
+    ) -> Result<bool, BlobCacheError> {
         if response.missing_blobs.is_empty() {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
-            return Ok(());
+            return Ok(true);
         }
         let response_bytes = response.missing_blobs.iter().fold(
             response.missing_blobs.capacity() * size_of::<MissingBlobData>(),
@@ -437,11 +438,12 @@ impl BlobCacheResolver {
             .collect::<Vec<_>>();
         let rejected = u64::try_from(response.missing_blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(true),
             Err(BlobCacheError::UnsolicitedBlob(_)) => {
                 self.stats.miss_response_unsolicited =
                     self.stats.miss_response_unsolicited.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(BlobCacheError::HashMismatch { .. } | BlobCacheError::ConflictingDuplicate(_)) => {
                 self.stats.miss_response_integrity_rejection = self
@@ -450,11 +452,13 @@ impl BlobCacheResolver {
                     .saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(BlobCacheError::PinnedPayloadPressure | BlobCacheError::CacheEntryPressure) => {
                 self.stats.miss_response_cache_pressure =
                     self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);

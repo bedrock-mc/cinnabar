@@ -1,7 +1,12 @@
 //! Crash folders written from a Unix signal handler: everything that allocates is prepared
 //! beforehand, and [`Prepared::write`] uses only async-signal-safe calls.
 
-use std::{ffi::CString, os::unix::ffi::OsStrExt, path::Path};
+use std::{
+    ffi::CString,
+    fs::File,
+    os::{fd::AsRawFd, unix::ffi::OsStrExt},
+    path::Path,
+};
 
 use crate::{
     folder::{self, LogSources},
@@ -39,7 +44,7 @@ pub struct Prepared {
 
 /// A log whose latest session the handler copies into the crash folder.
 struct LogCopy {
-    source: CString,
+    source: Option<File>,
     target: CString,
 }
 
@@ -64,11 +69,19 @@ impl Prepared {
             prefix,
             started_at_ms: logs.started_at_ms,
             client_log: LogCopy {
-                source: c_path(logs.client)?,
+                source: section::session::open(
+                    logs.client,
+                    section::CLIENT_SESSION_START,
+                    logs.session_id,
+                ),
                 target: c_path(&crash.join(folder::CLIENT_LOG_FILE))?,
             },
             core_log: LogCopy {
-                source: c_path(logs.core)?,
+                source: section::session::open(
+                    logs.core,
+                    section::CORE_SESSION_START,
+                    logs.session_id,
+                ),
                 target: c_path(&crash.join(folder::CORE_LOG_FILE))?,
             },
         })
@@ -158,19 +171,36 @@ unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scra
         if target < 0 {
             return;
         }
-        let source = libc::open(copy.source.as_ptr(), libc::O_RDONLY);
-        if source >= 0 {
+        if let Some(source) = &copy.source {
+            let source = source.as_raw_fd();
             let length = libc::lseek(source, 0, libc::SEEK_END);
+            let current = since_ms.is_none_or(|since| {
+                if libc::lseek(source, 0, libc::SEEK_SET) < 0 {
+                    return false;
+                }
+                section::header::latest_timestamp(marker, scratch, |buffer| {
+                    let count = libc::read(source, buffer.as_mut_ptr().cast(), buffer.len());
+                    if count < 0 {
+                        Err(())
+                    } else {
+                        Ok(count as usize)
+                    }
+                })
+                .is_ok_and(|timestamp| timestamp.is_none_or(|at| at >= since))
+            });
             let offset = (length.max(0) as u64).saturating_sub(scratch.len() as u64);
-            if length >= 0 && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0 {
+            if current
+                && length >= 0
+                && libc::lseek(source, offset as libc::off_t, libc::SEEK_SET) >= 0
+            {
                 let filled = read_full(source, scratch);
                 let tail = &scratch[..filled];
-                let part = &tail[section::start(tail, marker, offset > 0)..];
-                if !since_ms.is_some_and(|since| section::is_stale(part, marker, since)) {
-                    write_all(target, part);
-                }
+                let cut = match since_ms {
+                    Some(since) => section::since(tail, marker, since, offset > 0),
+                    None => section::start(tail, marker, offset > 0),
+                };
+                write_all(target, &tail[cut..]);
             }
-            libc::close(source);
         }
         libc::fsync(target);
         libc::close(target);
@@ -311,7 +341,10 @@ mod tests {
         .unwrap();
         fs::write(
             logs.join("core.log"),
-            "CORE_SESSION_START timestamp_ms=1\nstale core\n",
+            format!(
+                "CORE_SESSION_START timestamp_ms=1\n{}",
+                "stale core\n".repeat(SCRATCH_BYTES / 8)
+            ),
         )
         .unwrap();
         let identity = Identity {
@@ -326,11 +359,18 @@ mod tests {
         fs::create_dir_all(&crash_dir).unwrap();
         let (client, core) = (logs.join("client.log"), logs.join("core.log"));
         let sources = LogSources {
+            session_id: None,
             client: &client,
             core: &core,
             started_at_ms: identity.started_at_ms,
         };
         let prepared = Prepared::new(&crash_dir, &report, &sources, NOW_MS).unwrap();
+        fs::rename(&client, logs.join("client-20260101-000000.log")).unwrap();
+        fs::write(
+            &client,
+            "CLIENT_SESSION_START session=another\nunrelated client\n",
+        )
+        .unwrap();
         let mut scratch = vec![0; SCRATCH_BYTES];
         // SAFETY: The test owns the scratch buffer.
         unsafe {

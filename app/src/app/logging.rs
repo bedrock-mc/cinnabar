@@ -110,23 +110,13 @@ pub(super) fn apply_verbose_setting_changes(
 }
 
 /// The profiler layers this build enables.
-#[cfg(any(feature = "tracy", feature = "frame-trace"))]
-#[allow(
-    clippy::vec_init_then_push,
-    reason = "each push depends on its own feature"
-)]
 fn profiler_layers() -> Vec<CallerLayer> {
-    let mut layers = Vec::new();
-    #[cfg(feature = "tracy")]
-    layers.push(crate::tracy::layer());
-    #[cfg(feature = "frame-trace")]
-    layers.push(chrome::layer());
-    layers
-}
-
-#[cfg(not(any(feature = "tracy", feature = "frame-trace")))]
-fn profiler_layers() -> Vec<CallerLayer> {
-    Vec::new()
+    Vec::from([
+        #[cfg(feature = "tracy")]
+        crate::tracy::layer(),
+        #[cfg(feature = "frame-trace")]
+        chrome::layer(),
+    ])
 }
 
 /// Writes the panicking thread's span trace before the panic report, as Bevy's `trace`

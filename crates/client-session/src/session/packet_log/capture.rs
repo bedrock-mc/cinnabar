@@ -1,8 +1,9 @@
 //! Opt-in full capture of one session's packets, written on a background thread.
 //!
-//! The network tasks hand each packet to a bounded queue as a shared view of its batch; they
-//! never copy a body, wait for the disk or block on a full queue. A packet that finds the queue
-//! full is dropped and counted, and the next packet that fits is preceded by a gap record
+//! The network tasks copy admitted bodies into a queue bounded by records and retained bytes;
+//! they never wait for the disk or block on a full queue. Bodies use separate allocations so a
+//! tiny slice cannot retain an unrelated batch. A packet over either bound is dropped and
+//! counted, and the next packet that fits is preceded by a gap record
 //! carrying that count; packets dropped after the last gap are counted in a gap the writer
 //! appends when the capture finishes.
 //!
@@ -16,16 +17,19 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TrySendError};
 use protocol::capture::{CaptureHeader, CaptureRecord, CaptureWriter};
 use protocol::packet_tap::{PacketBody, PacketDirection};
 
 /// Records waiting for the writer thread; past this, packets are dropped and counted.
 pub const CAPTURE_QUEUE_RECORDS: usize = 8192;
+/// Packet body bytes retained by queued records and the active disk write.
+pub const CAPTURE_QUEUE_BYTES: usize = 16 << 20;
 /// Encoded bytes the writer holds before passing them to the file.
 pub const CAPTURE_BUFFER_BYTES: usize = 64 << 10;
 /// Extension of capture v2 files.
@@ -65,17 +69,56 @@ impl PacketCaptureRequest {
 
 /// The network side of a running capture.
 pub(crate) struct CaptureFeed {
-    sender: Sender<CaptureRecord>,
+    sender: Sender<QueuedRecord>,
+    retained: Arc<AtomicUsize>,
+    stopped: Arc<AtomicBool>,
     started: Instant,
     dropped: Arc<AtomicU64>, // packets dropped since the last gap record
 }
 
 /// The writer side of a capture: queued records, the stop request and the drop count.
 pub(crate) struct CaptureQueue {
-    records: Receiver<CaptureRecord>,
+    records: Receiver<QueuedRecord>,
+    stopped: Arc<AtomicBool>,
     stop: Receiver<()>,
     started: Instant,
     dropped: Arc<AtomicU64>,
+}
+
+/// Holds its byte reservation until the body is released after writing or a failed enqueue.
+struct QueuedRecord {
+    record: CaptureRecord,
+    _reservation: Option<ByteReservation>,
+}
+
+/// Charges copied packet bodies, including the record currently being written.
+struct ByteReservation {
+    retained: Arc<AtomicUsize>,
+    bytes: usize,
+}
+
+impl ByteReservation {
+    /// Claims room before copying; concurrent producers share the same byte budget.
+    fn try_new(retained: &Arc<AtomicUsize>, bytes: usize) -> Option<Self> {
+        retained
+            .try_update(Ordering::AcqRel, Ordering::Relaxed, |current| {
+                current
+                    .checked_add(bytes)
+                    .filter(|total| *total <= CAPTURE_QUEUE_BYTES)
+            })
+            .ok()?;
+        Some(Self {
+            retained: Arc::clone(retained),
+            bytes,
+        })
+    }
+}
+
+impl Drop for ByteReservation {
+    /// Returns the charge after the queued body's allocation is released.
+    fn drop(&mut self) {
+        self.retained.fetch_sub(self.bytes, Ordering::AcqRel);
+    }
 }
 
 /// Ends a capture from session teardown.
@@ -93,13 +136,17 @@ pub(crate) fn channel(
     let (sender, records) = crossbeam_channel::bounded(capacity);
     let (stop_sender, stop) = crossbeam_channel::bounded(1);
     let dropped = Arc::new(AtomicU64::new(0));
+    let stopped = Arc::new(AtomicBool::new(false));
     let feed = CaptureFeed {
         sender,
+        retained: Arc::new(AtomicUsize::new(0)),
+        stopped: Arc::clone(&stopped),
         started,
         dropped: Arc::clone(&dropped),
     };
     let queue = CaptureQueue {
         records,
+        stopped,
         stop,
         started,
         dropped,
@@ -137,7 +184,7 @@ impl CaptureFeed {
         Ok((feed, CaptureFinisher { stop, done }, path))
     }
 
-    /// Queues one packet seen at `now` without waiting; the body stays a view of its batch.
+    /// Copies a packet within the byte budget and queues it without waiting for disk or room.
     pub(crate) fn packet(
         &self,
         direction: PacketDirection,
@@ -145,12 +192,18 @@ impl CaptureFeed {
         now: Instant,
         body: PacketBody<'_>,
     ) {
+        if self.stopped.load(Ordering::Acquire) {
+            return;
+        }
         let elapsed_us = micros(now.saturating_duration_since(self.started));
         let dropped = self.dropped.swap(0, Ordering::Relaxed);
         if dropped != 0 {
-            match self.sender.try_send(CaptureRecord::Gap {
-                elapsed_us,
-                dropped,
+            match self.sender.try_send(QueuedRecord {
+                record: CaptureRecord::Gap {
+                    elapsed_us,
+                    dropped,
+                },
+                _reservation: None,
             }) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => {
@@ -160,11 +213,18 @@ impl CaptureFeed {
                 Err(TrySendError::Disconnected(_)) => return,
             }
         }
-        let record = CaptureRecord::Packet {
-            direction,
-            packet_id,
-            elapsed_us,
-            body: body.to_shared(),
+        let Some(reservation) = ByteReservation::try_new(&self.retained, body.len()) else {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        };
+        let record = QueuedRecord {
+            record: CaptureRecord::Packet {
+                direction,
+                packet_id,
+                elapsed_us,
+                body: Bytes::copy_from_slice(body.as_slice()),
+            },
+            _reservation: Some(reservation),
         };
         if let Err(TrySendError::Full(_)) = self.sender.try_send(record) {
             self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -181,7 +241,7 @@ impl CaptureQueue {
             crossbeam_channel::select! {
                 recv(self.records) -> record => {
                     let Ok(record) = record else { break };
-                    if !writer.write(&record)? {
+                    if !writer.write(&record.record)? {
                         break;
                     }
                     if self.records.is_empty() {
@@ -189,8 +249,9 @@ impl CaptureQueue {
                     }
                 }
                 recv(self.stop) -> _ => {
-                    for record in self.records.try_iter() {
-                        if !writer.write(&record)? {
+                    self.stopped.store(true, Ordering::Release);
+                    for record in self.records.try_iter().take(self.records.len()) {
+                        if !writer.write(&record.record)? {
                             break;
                         }
                     }
@@ -210,9 +271,16 @@ impl CaptureQueue {
     }
 }
 
+impl Drop for CaptureQueue {
+    /// Disables producer copies on every writer exit, including write failures.
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+    }
+}
+
 impl CaptureFinisher {
     /// Asks the writer to finish the file and waits at most `within` for it; returns whether
-    /// it finished. Feeds still held elsewhere may keep queuing, but nothing more is written.
+    /// it finished. Feeds stop copying bodies when the writer exits.
     pub(crate) fn finish(self, within: Duration) -> bool {
         let _ = self.stop.try_send(());
         matches!(
@@ -226,7 +294,10 @@ impl CaptureFinisher {
 impl CaptureQueue {
     /// Takes the queued records without writing them.
     pub(crate) fn take_queued(&self) -> Vec<CaptureRecord> {
-        self.records.try_iter().collect()
+        self.records
+            .try_iter()
+            .map(|record| record.record)
+            .collect()
     }
 }
 
@@ -253,6 +324,7 @@ fn create_capture_file(path: &Path, started_unix_ms: u64) -> io::Result<(PathBuf
     }
 }
 
+/// Opens a new capture exclusively with private permissions where supported.
 fn create_new(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
@@ -264,6 +336,7 @@ fn create_new(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
+/// Converts monotonic time without overflowing the capture field.
 fn micros(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX)
 }

@@ -300,6 +300,46 @@ fn without_a_monitor_the_hook_writes_the_panic_folder_with_the_client_log() {
     );
 }
 
+/// Models a previous panic hook whose stderr text is captured by the installed log writer.
+#[test]
+fn previous_hook_fixture() {
+    let Some(root) = std::env::var_os("CINNABAR_PREVIOUS_HOOK_FIXTURE") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    std::panic::set_hook(Box::new(|_| {
+        log_fixture_panic("previous hook panic text\n")
+    }));
+    install(&layout(&root), identity(), NO_HOOKS, None);
+    assert!(
+        std::thread::spawn(|| panic!("fixture panic"))
+            .join()
+            .is_err()
+    );
+}
+
+#[test]
+fn panic_snapshot_includes_the_previous_hooks_output() {
+    let dir = tempfile::tempdir().unwrap();
+    write_logs(dir.path());
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "lifecycle::crash::tests::previous_hook_fixture",
+            "--nocapture",
+        ])
+        .env("CINNABAR_PANIC_HOOK_FIXTURE", dir.path())
+        .env("CINNABAR_PREVIOUS_HOOK_FIXTURE", dir.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let client = fs::read_to_string(only_folder(dir.path()).join(folder::CLIENT_LOG_FILE)).unwrap();
+    assert!(
+        client.contains("previous hook panic text"),
+        "panic output was copied too early: {client}"
+    );
+}
+
 /// Startup prune drops legacy files and staging directories a dead client left, but keeps
 /// folders and this live client's staging directory.
 #[test]
@@ -398,7 +438,7 @@ mod signals {
             }
         }
         let mut identity = identity();
-        identity.started_at_ms = 0;
+        identity.started_at_ms = 2;
         install(&layout(&root), identity, NO_HOOKS, None);
         let attempt = Attempt {
             backend: Backend::Metal,

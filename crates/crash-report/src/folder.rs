@@ -44,6 +44,8 @@ pub struct Logs {
 /// Where a crashing session's logs live.
 #[derive(Clone, Copy, Debug)]
 pub struct LogSources<'a> {
+    /// The reporting client session; absent for logs without session identities.
+    pub session_id: Option<&'a str>,
     pub client: &'a Path,
     pub core: &'a Path,
     /// Unix milliseconds when the session began; `core.log` sections from before it belong to
@@ -56,18 +58,34 @@ impl Logs {
     /// section.
     pub fn read(sources: &LogSources<'_>) -> Self {
         Self {
-            client: section::read(
-                sources.client,
-                section::CLIENT_SESSION_START,
-                section::MAX_SECTION_BYTES,
-            )
+            client: match sources.session_id {
+                Some(session_id) => section::session::read(
+                    sources.client,
+                    section::CLIENT_SESSION_START,
+                    session_id,
+                    section::MAX_SECTION_BYTES,
+                ),
+                None => section::read(
+                    sources.client,
+                    section::CLIENT_SESSION_START,
+                    section::MAX_SECTION_BYTES,
+                ),
+            }
             .unwrap_or_default(),
-            core: section::read_since(
-                sources.core,
-                section::CORE_SESSION_START,
-                section::MAX_SECTION_BYTES,
-                sources.started_at_ms,
-            )
+            core: match sources.session_id {
+                Some(session_id) => section::session::core(
+                    sources.core,
+                    session_id,
+                    section::MAX_SECTION_BYTES,
+                    sources.started_at_ms,
+                ),
+                None => section::read_since(
+                    sources.core,
+                    section::CORE_SESSION_START,
+                    section::MAX_SECTION_BYTES,
+                    sources.started_at_ms,
+                ),
+            }
             .unwrap_or_default(),
         }
     }
@@ -224,6 +242,8 @@ pub fn read(folder: &Path) -> io::Result<Report> {
 }
 
 /// Crash folders in `crash_dir`, oldest first; other entries are ignored.
+/// Within a UTC second, directory modification times order completed writes rather than ids
+/// or reusable collision suffixes. The path breaks ties when filesystem times are equal.
 pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = fs::read_dir(crash_dir)
         .into_iter()
@@ -233,7 +253,15 @@ pub fn list(crash_dir: &Path) -> Vec<PathBuf> {
         .map(|entry| entry.path())
         .filter(|path| created_at_ms(path).is_some())
         .collect();
-    folders.sort();
+    folders.sort_by_cached_key(|path| {
+        (
+            created_at_ms(path),
+            fs::metadata(path)
+                .and_then(|metadata| metadata.modified())
+                .ok(),
+            path.clone(),
+        )
+    });
     folders
 }
 
@@ -431,6 +459,7 @@ mod tests {
         .unwrap();
         fs::write(&core, "CORE_SESSION_START timestamp_ms=5\nearlier core\n").unwrap();
         let logs = Logs::read(&LogSources {
+            session_id: None,
             client: &client,
             core: &core,
             started_at_ms: 10,
@@ -439,6 +468,7 @@ mod tests {
         assert!(logs.core.is_empty());
         let missing = dir.path().join("missing.log");
         let logs = Logs::read(&LogSources {
+            session_id: None,
             client: &missing,
             core: &missing,
             started_at_ms: 0,
@@ -523,6 +553,42 @@ mod tests {
         assert_eq!(created_at_ms(&folders[0]), Some(NOW_MS + 4_000));
     }
 
+    /// Same-second crash loops retain the latest writes even when folder names are reused.
+    #[test]
+    fn same_second_crashes_are_pruned_in_write_order() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..24_u64 {
+            let folder = write(
+                dir.path(),
+                &report(&format!("crash {index}")),
+                &Logs::default(),
+                None,
+                NOW_MS,
+            )
+            .unwrap();
+            let modified = std::time::UNIX_EPOCH + std::time::Duration::from_millis(NOW_MS + index);
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // FILE_FLAG_BACKUP_SEMANTICS opens a directory; FILE_WRITE_ATTRIBUTES sets its times.
+                options.custom_flags(0x02000000).access_mode(0x100);
+            }
+            options
+                .open(folder)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(modified))
+                .unwrap();
+        }
+        let messages: Vec<_> = list(dir.path())
+            .iter()
+            .map(|folder| read(folder).unwrap().message)
+            .collect();
+        let expected: Vec<_> = (16..24).map(|index| format!("crash {index}")).collect();
+        assert_eq!(messages, expected);
+    }
+
     #[test]
     fn read_rejects_other_schema_versions() {
         let dir = tempfile::tempdir().unwrap();
@@ -543,5 +609,34 @@ mod tests {
         assert_eq!(name(0, "../AB-c1"), "19700101-000000--c1");
         assert_eq!(created_at_ms(Path::new("19700101-000000")), None);
         assert_eq!(created_at_ms(Path::new("crash-1.json")), None);
+    }
+}
+
+#[cfg(test)]
+mod session_selection_tests {
+    use super::*;
+
+    #[test]
+    fn a_report_uses_its_own_archived_client_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("client.log");
+        let archived = dir.path().join("client-20260101-000000.log");
+        fs::write(
+            &client,
+            "CLIENT_SESSION_START session=second timestamp_ms=20\nother client\n",
+        )
+        .unwrap();
+        fs::write(
+            &archived,
+            "CLIENT_SESSION_START session=first timestamp_ms=10\nreporting client\n",
+        )
+        .unwrap();
+        let logs = Logs::read(&LogSources {
+            session_id: Some("first"),
+            client: &client,
+            core: &dir.path().join("core.log"),
+            started_at_ms: 10,
+        });
+        assert_eq!(logs.client, fs::read(&archived).unwrap());
     }
 }

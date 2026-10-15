@@ -385,6 +385,35 @@ pub(crate) mod unix {
         );
     }
 
+    /// A detached in-flight packet must not keep unrelated batch siblings through its observer.
+    #[tokio::test]
+    async fn detaching_the_current_packet_releases_its_old_batch_before_settlement() {
+        let time = |value| {
+            Packet::new(SetTime {
+                time: wire::ZigZag32(value),
+            })
+        };
+        let tap = Arc::new(RecordingTap::default());
+        let Pair { transport, .. } = &mut tapped_pair(
+            "compact-current",
+            &[packet_bytes(&time(1)), packet_bytes(&time(2))],
+            Some(tap.clone()),
+        )
+        .await;
+        drop(next(transport).await);
+        let raw = next(transport).await;
+        let backing = raw.body().clone();
+        let raw = raw.into_retention_bounded();
+        transport.compact_current(&raw);
+        assert!(backing.is_unique(), "the observer kept the unrelated batch");
+        let expected = raw.body().to_vec();
+        drop(raw);
+        transport.reject_current(PacketOutcome::Failed);
+        assert!(matches!(tap.events().last(), Some(TapEvent::Reject(
+            _, _, PacketOutcome::Failed, body,
+        )) if body == &expected));
+    }
+
     async fn next(transport: &mut SessionTransport) -> RawPacket {
         match transport.recv().await.unwrap() {
             Inbound::Packet(raw) => raw,
