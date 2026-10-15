@@ -704,7 +704,7 @@ pub(super) fn summary(application: &super::PackApplication) -> String {
     let glyphs = application
         .glyph_sheets
         .as_ref()
-        .map(|glyphs| format!("{:?} {:?}", glyphs.cells, glyphs.named));
+        .map(|glyphs| format!("{:?} {:?}", glyphs.cells(), glyphs.named()));
     let entities = application
         .entities
         .as_ref()
