@@ -21,7 +21,7 @@
     "light_registry": "8b39c689ceab4f3de18110e558e2afde45b015aae91bd82ae21c68c6a100804f",
     "physics_registry": "c9f05c3ab8c9deb92198ab098c41e29ed0d72f7707f9dd29047bcaf673b35ba1"
   },
-  "protocolgen_commit": "0348c011fadb107c26d7068053b386acea12e06d",
+  "protocolgen_commit": "4e9626abbb51b8fa842f49b4aea0fb4d3c01a682",
   "schema": "cinnabar.bedrock-target.v1",
   "server_version": "1.26.52.3",
   "wire_protocol": 2193
