@@ -96,11 +96,11 @@ fn mixed_lifetimes_replacements_rejections_and_eviction_match_an_emitter_walk() 
         let allowed = emitters <= TERRAIN_EMITTER_LIMIT && particles <= TERRAIN_PARTICLE_LIMIT;
         assert_eq!(system.spawn_terrain(&req).is_some(), allowed);
         // Ordinary spawns still evict the oldest table entry at the fixed cap.
-        let oldest = system.emitters.first().map(|e| e.id);
+        let oldest = system.emitters.front().map(|e| e.id);
         let full = system.emitter_count() == MAX_EMITTERS;
         system.spawn(&req).unwrap();
         if full {
-            assert_ne!(system.emitters.first().map(|e| e.id), oldest);
+            assert_ne!(system.emitters.front().map(|e| e.id), oldest);
         }
         if index % 11 == 0 {
             let id = system.emitters[index % system.emitters.len()].id;
@@ -272,7 +272,7 @@ fn oldest_entry_releases_its_tile_before_the_replacement_resolves_pixels() {
     system
         .spawn(&request("a", crate::atlas::MAX_SLOTS as u64 + 1))
         .unwrap();
-    assert_eq!(system.emitters.last().unwrap().texture, first);
+    assert_eq!(system.emitters.back().unwrap().texture, first);
     assert_walk(&system, &mut vec![first]);
 }
 
@@ -326,6 +326,7 @@ fn all_tile_aliases_keep_append_order_caller_precedence_and_draw_output() {
     actual_request.variables = names.iter().map(|name| (name.clone(), -9.0)).collect();
     actual_request.variables.push((names[0].clone(), -10.0));
     let mut expected_request = actual_request.clone();
+    let mut actual_request = std::borrow::Cow::Owned(actual_request);
     let placement = actual.resolve_texture(&TextureSource::Terrain, &mut actual_request);
     let expected_placement = expected.atlas.tile(1, 1, &[1; 4]).unwrap();
     let values = expected_placement.normalized();
@@ -337,7 +338,7 @@ fn all_tile_aliases_keep_append_order_caller_precedence_and_draw_output() {
     assert_eq!(actual_request.variables, expected_request.variables);
     assert_eq!(actual_request.variables.len(), names.len() * 2 + 1);
     for (system, request, placement) in [
-        (&mut actual, actual_request, placement),
+        (&mut actual, actual_request.into_owned(), placement),
         (&mut expected, expected_request, expected_placement),
     ] {
         let def = system.resolve("a").unwrap().clone();
@@ -347,7 +348,7 @@ fn all_tile_aliases_keep_append_order_caller_precedence_and_draw_output() {
             assert_eq!(emitter.vars[usize::from(slot)], value);
         }
         system.bookkeeping.insert(&emitter, &mut system.atlas);
-        system.emitters.push(emitter);
+        system.emitters.push_back(emitter);
         system.tick(0.01, &EmptyWorld);
     }
     let view = ParticleView {
@@ -372,14 +373,14 @@ fn absent_or_invalid_tiles_preserve_fallback_variables_and_never_pin_static_pixe
     let mut system = ParticleSystem::default();
     let fallback = system.atlas.fallback();
     for source in [TextureSource::Terrain, TextureSource::Items] {
-        let mut absent = SpawnRequest {
+        let mut absent = std::borrow::Cow::Owned(SpawnRequest {
             variables: vec![("custom".into(), 7.0)],
             ..Default::default()
-        };
+        });
         assert_eq!(system.resolve_texture(&source, &mut absent), fallback);
         assert_eq!(absent.variables, [("custom".into(), 7.0)]);
-        let mut invalid = request("a", 1);
-        invalid.tile.as_mut().unwrap().pixels = Vec::new().into();
+        let mut invalid = std::borrow::Cow::<SpawnRequest>::Owned(request("a", 1));
+        invalid.to_mut().tile.as_mut().unwrap().pixels = Vec::new().into();
         assert_eq!(system.resolve_texture(&source, &mut invalid), fallback);
         let expected: Vec<_> = crate::system::TILE_VARIABLE_NAMES
             .into_iter()

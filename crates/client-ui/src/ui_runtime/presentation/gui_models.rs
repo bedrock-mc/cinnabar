@@ -23,7 +23,7 @@ mod held;
 mod live_player;
 mod pack_equipment;
 mod sources;
-use sources::{gui_cube_sheet, modulated};
+use sources::{ModulatedMeshes, gui_cube_sheet, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
 #[cfg(test)]
 mod cube_budget;
@@ -39,13 +39,15 @@ pub(super) const MODEL_PAGES: usize = render_model::MAX_UI_MODEL_ATLAS_PAGES;
 
 /// Swaps sprites that have native models for their geometry. The player preview mesh is built
 /// at most once, and only when a node shows the preview icon. Models with overlapping faces
-/// retain their original sprite when faded so the control's opacity applies once.
+/// retain their original sprite when faded so the control's opacity applies once. `modulate`
+/// tints a mesh as [`modulated`] does.
 fn replace_model_icons<'a>(
     nodes: &mut [UiNode],
     preview: Option<IconKey>,
     faded_thumbnails: &BTreeSet<IconKey>,
     player: impl FnOnce() -> Option<Arc<UiMesh>>,
     models: impl Fn(&IconKey) -> Option<&'a Arc<UiMesh>>,
+    mut modulate: impl FnMut(&Arc<UiMesh>, [u8; 4], bool) -> Option<Arc<UiMesh>>,
 ) {
     let mut build_player = Some(player);
     let mut player = None;
@@ -74,7 +76,7 @@ fn replace_model_icons<'a>(
         } else {
             models(&key)
         };
-        let Some(mesh) = mesh.and_then(|mesh| modulated(mesh, color, glint)) else {
+        let Some(mesh) = mesh.and_then(|mesh| modulate(mesh, color, glint)) else {
             continue;
         };
         *node = node.clone().with_visual(UiVisual::Mesh(mesh));
@@ -103,6 +105,8 @@ pub(super) struct GuiModels {
     held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
     hand_pivots: Option<[[f32; 3]; 2]>,
     fire: fire::FireAtlas,
+    /// Tinted copies of `models`, kept while frames draw them.
+    modulated: std::sync::Mutex<ModulatedMeshes>,
 }
 
 impl GuiModels {
@@ -375,6 +379,11 @@ impl UiPresentationRuntime {
             return;
         }
         let preview = self.player_preview_icon.map(icon_key);
+        let mut modulated_meshes = self
+            .gui_models
+            .modulated
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         replace_model_icons(
             nodes,
             None,
@@ -386,7 +395,10 @@ impl UiPresentationRuntime {
                     .get(key)
                     .or_else(|| self.session_icons.models.get(key))
             },
+            |mesh, color, glint| modulated_meshes.get(mesh, color, glint),
         );
+        modulated_meshes.retain_drawn();
+        drop(modulated_meshes);
         let is_preview = |visual: &UiVisual| match visual {
             UiVisual::Sprite {
                 texture_page, uv, ..
@@ -453,6 +465,7 @@ impl UiPresentationRuntime {
                                 &self.gui_models.faded_thumbnails,
                                 || Some(probe),
                                 |_| None,
+                                modulated,
                             );
                             RetainedDraw::build(
                                 &baseline,
@@ -490,6 +503,7 @@ impl UiPresentationRuntime {
             &self.gui_models.faded_thumbnails,
             || player,
             |_| None,
+            modulated,
         );
     }
 

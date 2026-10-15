@@ -134,6 +134,15 @@ pub enum EquipmentOutcome {
 
 type EquipmentKey = (ActorLifetimeId, ActorHandedness);
 
+/// Every hand that keys actor equipment. The match fails to compile when a hand is added, so
+/// keyed removal and lookup cannot silently miss one.
+const HANDS: [ActorHandedness; 2] = {
+    match ActorHandedness::Left {
+        ActorHandedness::Left | ActorHandedness::Right => {}
+    }
+    [ActorHandedness::Left, ActorHandedness::Right]
+};
+
 #[derive(Debug)]
 pub(crate) struct ItemStateStore {
     presentation_generation: Arc<()>,
@@ -265,7 +274,9 @@ impl ItemStateStore {
     }
 
     pub(crate) fn remove(&mut self, lifetime: ActorLifetimeId) {
-        self.equipment.retain(|(actor, _), _| *actor != lifetime);
+        for hand in HANDS {
+            self.equipment.remove(&(lifetime, hand));
+        }
         self.pending.retain(|(actor, _)| *actor != lifetime);
         if self.persistent_armor_runtime != Some(lifetime.runtime_id) {
             self.armor.remove(&lifetime.runtime_id);
@@ -487,7 +498,7 @@ impl ItemStateStore {
     }
 
     pub(crate) fn get(&self, lifetime: ActorLifetimeId) -> Option<&ActorEquipmentSnapshot> {
-        [ActorHandedness::Left, ActorHandedness::Right]
+        HANDS
             .into_iter()
             .filter_map(|hand| self.get_in_hand(lifetime, hand))
             .max_by_key(|equipment| equipment.event.ingress_sequence)

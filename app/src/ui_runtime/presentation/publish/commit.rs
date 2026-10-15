@@ -37,7 +37,12 @@ pub(crate) fn publish_ui_runtime(
         }
     };
     if let Some(mut scene) = nametag_scene {
-        scene.0 = presentation.nametag_scene();
+        // Writing only a changed scene keeps the resource unchanged, so render extraction
+        // neither clones nor re-uploads identical labels.
+        let next = presentation.nametag_scene();
+        if scene.0 != next {
+            scene.0 = next;
+        }
     }
     if !hand_rig.is_active() {
         hand.bind_cpu_fallback(
@@ -83,6 +88,7 @@ mod tests {
         world.init_resource::<render_scene::UiRenderSceneResource>();
         world.init_resource::<render_scene::UiRenderStatsResource>();
         world.init_resource::<ClientWorld>();
+        world.init_resource::<crate::runtime::shutdown::FatalError>();
         world.init_resource::<render_scene::HandRigScene>();
         world
     }
@@ -109,6 +115,11 @@ mod tests {
         world.run_system_once(publish_ui_runtime).unwrap();
     }
 
+    /// The session's recorded fatal error, if publication ended it.
+    fn fatal_error(world: &World) -> &Option<String> {
+        &world.resource::<crate::runtime::shutdown::FatalError>().0
+    }
+
     #[test]
     fn rejected_render_publication_does_not_end_the_session() {
         let mut world = world();
@@ -116,11 +127,7 @@ mod tests {
             .resource_mut::<render_scene::UiRenderSceneResource>()
             .revision = u64::MAX;
         publish(&mut world, [1280, 720]);
-        assert!(
-            world.resource::<ClientWorld>().fatal_error.is_none(),
-            "{:?}",
-            world.resource::<ClientWorld>().fatal_error
-        );
+        assert!(fatal_error(&world).is_none(), "{:?}", fatal_error(&world));
         assert!(
             world
                 .resource::<render_scene::UiRenderSceneResource>()
@@ -138,11 +145,7 @@ mod tests {
             .resource_mut::<UiPresentationResource>()
             .set_menu_view(Some(view));
         publish(&mut world, [254, 124]);
-        assert!(
-            world.resource::<ClientWorld>().fatal_error.is_none(),
-            "{:?}",
-            world.resource::<ClientWorld>().fatal_error
-        );
+        assert!(fatal_error(&world).is_none(), "{:?}", fatal_error(&world));
         assert!(
             world
                 .resource::<render_scene::UiRenderSceneResource>()
@@ -150,11 +153,7 @@ mod tests {
                 .is_some()
         );
         publish(&mut world, [1280, 720]);
-        assert!(
-            world.resource::<ClientWorld>().fatal_error.is_none(),
-            "{:?}",
-            world.resource::<ClientWorld>().fatal_error
-        );
+        assert!(fatal_error(&world).is_none(), "{:?}", fatal_error(&world));
     }
 
     #[test]
@@ -162,11 +161,7 @@ mod tests {
         for size in [[0, 0], [1, 1]] {
             let mut world = world();
             publish(&mut world, size);
-            assert!(
-                world.resource::<ClientWorld>().fatal_error.is_none(),
-                "{:?}",
-                world.resource::<ClientWorld>().fatal_error
-            );
+            assert!(fatal_error(&world).is_none(), "{:?}", fatal_error(&world));
             assert_eq!(
                 world
                     .resource::<UiPresentationResource>()
@@ -174,11 +169,7 @@ mod tests {
                 1
             );
             publish(&mut world, [1280, 720]);
-            assert!(
-                world.resource::<ClientWorld>().fatal_error.is_none(),
-                "{:?}",
-                world.resource::<ClientWorld>().fatal_error
-            );
+            assert!(fatal_error(&world).is_none(), "{:?}", fatal_error(&world));
             assert!(
                 world
                     .resource::<render_scene::UiRenderSceneResource>()

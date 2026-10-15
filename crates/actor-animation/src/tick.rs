@@ -605,13 +605,15 @@ pub(super) fn evaluate_state(
             runtime.blend_from = None;
         }
     }
-    let reset_clocks = state
-        .clip_clocks
-        .iter()
-        .filter(|((_, _, basis), _)| *basis == super::clock::Basis::Lifetime)
-        .map(|(key, value)| (*key, *value))
-        .collect();
+    // Lifetime clocks survive a reset; only a resetting rig copies them out.
+    let reset_clocks: super::clock::ClipClocks;
     let previous_clocks = if reset {
+        reset_clocks = state
+            .clip_clocks
+            .iter()
+            .filter(|((_, _, basis), _)| *basis == super::clock::Basis::Lifetime)
+            .map(|(key, value)| (*key, *value))
+            .collect();
         &reset_clocks
     } else {
         replay.map_or(&state.clip_clocks, |replay| &replay.clocks)

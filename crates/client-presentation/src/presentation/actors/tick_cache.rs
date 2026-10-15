@@ -7,8 +7,8 @@ use super::*;
 /// unchanged pose keeps its allocation so its bone matrices are reused.
 #[derive(Debug, Default)]
 pub struct PoseConversions {
-    entries: std::collections::HashMap<u64, PoseEntry>,
-    presentations: std::collections::HashMap<u64, PresentationEntry>,
+    entries: bevy::platform::collections::HashMap<u64, PoseEntry>,
+    presentations: bevy::platform::collections::HashMap<u64, PresentationEntry>,
     scratch: Vec<RenderBoneTransform>,
     frame: u64,
     builds: u64,
@@ -226,10 +226,28 @@ impl PoseConversions {
     }
 }
 
+/// Converts a pose to render space in one exactly sized allocation; `None` if any bone is not
+/// finite.
 pub(crate) fn convert_bones(
     bones: &[actor_animation::BoneTransform],
 ) -> Option<Arc<[RenderBoneTransform]>> {
-    convert_bones_with(bones, &mut Vec::with_capacity(bones.len()))
+    let mut finite = true;
+    // A mapped slice iterator has an exact length, so the shared pose is allocated once.
+    let converted: Arc<[RenderBoneTransform]> = bones
+        .iter()
+        .map(|bone| {
+            RenderBoneTransform::from_model_space_scaled(
+                bone.rotation,
+                bone.translation_scale,
+                bone.axis_scale,
+            )
+            .unwrap_or_else(|| {
+                finite = false;
+                RenderBoneTransform::default()
+            })
+        })
+        .collect();
+    finite.then_some(converted)
 }
 
 /// [`convert_bones`] staging the conversion in `scratch`, so only the shared pose allocates.

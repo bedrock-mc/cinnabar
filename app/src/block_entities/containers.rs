@@ -1,6 +1,6 @@
 //! Lid openness for chests and shulker boxes, eased toward the server's open cue.
 
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashMap;
 
 const TICKS_PER_SECOND: f32 = 20.0;
 /// Openness change per tick while a lid moves; needs native measurement per container.
@@ -32,14 +32,15 @@ pub(super) fn cue_is_open(event_type: i32, event_value: i32) -> bool {
 
 #[derive(Debug, Default)]
 pub(super) struct ContainerLids {
-    openness: HashMap<[i32; 3], f32>,
-    seen: HashSet<[i32; 3]>,
+    /// Openness and the frame that last advanced it.
+    openness: HashMap<[i32; 3], (f32, u64)>,
+    frame: u64,
 }
 
 impl ContainerLids {
     /// Starts a frame; positions not touched before [`Self::finish`] are forgotten.
     pub(super) fn begin(&mut self) {
-        self.seen.clear();
+        self.frame = self.frame.wrapping_add(1);
     }
 
     /// Advances the lid at `position` toward its target and returns the raw openness.
@@ -50,9 +51,9 @@ impl ContainerLids {
         open: bool,
         delta_seconds: f32,
     ) -> f32 {
-        self.seen.insert(position);
         let step = kind.rate() * TICKS_PER_SECOND * delta_seconds.max(0.0);
-        let value = self.openness.entry(position).or_insert(0.0);
+        let (value, seen) = self.openness.entry(position).or_insert((0.0, self.frame));
+        *seen = self.frame;
         *value = if open {
             (*value + step).min(1.0)
         } else {
@@ -62,8 +63,8 @@ impl ContainerLids {
     }
 
     pub(super) fn finish(&mut self) {
-        let seen = &self.seen;
-        self.openness.retain(|position, _| seen.contains(position));
+        let frame = self.frame;
+        self.openness.retain(|_, (_, seen)| *seen == frame);
     }
 }
 

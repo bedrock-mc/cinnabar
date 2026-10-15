@@ -18,11 +18,13 @@ pub(super) struct Footprint {
 }
 
 impl Footprint {
-    /// Reuses the tile target until either its extent or actor velocity source changes.
+    /// Reuses the tile target until either its extent or actor velocity source changes;
+    /// `layout` is resolved through `cache` only when the target is rebuilt.
     pub fn prepare(
         state: &mut Option<Self>,
         device: &RenderDevice,
-        layout: &BindGroupLayout,
+        cache: &PipelineCache,
+        layout: &BindGroupLayoutDescriptor,
         uniform: &Buffer,
         motion: &TextureView,
         size: Extent3d,
@@ -51,7 +53,7 @@ impl Footprint {
         let view = texture.create_view(&Default::default());
         let binding = device.create_bind_group(
             "actor motion tile source",
-            layout,
+            &cache.get_bind_group_layout(layout),
             &[
                 BindGroupEntry {
                     binding: 3,

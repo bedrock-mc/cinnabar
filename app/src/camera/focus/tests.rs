@@ -5,7 +5,7 @@ use {super::*, client_presentation::camera::AutoFly};
 
 use launcher::menu::settings_options::BindingId;
 /// Builds the production focus/capture boundary without a windowing plugin or OS input.
-fn focus_app() -> (App, Entity) {
+pub(super) fn focus_app() -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<ButtonInput<KeyCode>>()
         .init_resource::<ButtonInput<MouseButton>>()

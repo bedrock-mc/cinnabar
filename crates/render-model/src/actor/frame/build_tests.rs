@@ -238,8 +238,11 @@ fn reference(
             rejects.actor_capacity += 1;
             continue;
         }
-        let (geometry_id, geometry) = match eligibility::geometry(&catalog.geometries, &submission)
-        {
+        let (geometry_id, geometry) = match eligibility::geometry(
+            &catalog.geometries,
+            &PoseMatrixCache::default(),
+            &submission,
+        ) {
             Ok(geometry) => geometry,
             Err(error) => {
                 error.count(&mut rejects);

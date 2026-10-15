@@ -122,18 +122,25 @@ pub fn apply_capes<'a>(
                 submission.input.current_bones = pose;
             }
             None => {
-                submission.input.previous_bones = cape.pose(
-                    rig.bone_names,
-                    |index| rest_pose(rig.rest, index),
-                    &body.input.previous_bones,
-                    None,
-                );
-                submission.input.current_bones = cape.pose(
+                let current = cape.pose(
                     rig.bone_names,
                     |index| rest_pose(rig.rest, index),
                     &body.input.current_bones,
                     None,
                 );
+                // Shared body endpoints also share their cape pose and cached matrices.
+                submission.input.previous_bones =
+                    if Arc::ptr_eq(&body.input.previous_bones, &body.input.current_bones) {
+                        Arc::clone(&current)
+                    } else {
+                        cape.pose(
+                            rig.bone_names,
+                            |index| rest_pose(rig.rest, index),
+                            &body.input.previous_bones,
+                            None,
+                        )
+                    };
+                submission.input.current_bones = current;
             }
         }
         submission.texture_layer = layer as u32;

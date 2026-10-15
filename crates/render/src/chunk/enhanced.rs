@@ -41,33 +41,38 @@ pub(crate) fn draw_shadow_geometry<'w>(
         return;
     };
     let tint_identity = world.resource::<ChunkBiomeTints>().table_identity();
-    let frame_probe = world.resource::<ActiveFrameProbe>();
-    let eligible = |entity, allocation: &GpuChunkAllocation| {
-        !arena.pending_removals.contains(&entity)
-            && chunk_tint_identity_is_active(allocation.tint_identity, tint_identity)
-            && frame_probe.accepts(
-                entity,
-                FrameAllocationIdentity {
-                    entity,
-                    key: allocation.key,
-                    generation: allocation.generation,
-                },
-            )
-            && intersects(bounds, allocation)
-    };
     let Some(lightmap) = world.get_resource::<crate::lighting::LightmapGpu>() else {
         return;
     };
+    let envelope = CascadeEnvelope::new(bounds);
+    // One pass decides eligibility for both pipelines, keeping the map's iteration order.
+    let frame_probe = world.resource::<ActiveFrameProbe>().scope();
+    let eligible: Vec<&GpuChunkAllocation> = arena
+        .allocations
+        .iter()
+        .map(|(&entity, resident)| (entity, &resident.gpu))
+        .filter(|&(entity, allocation)| {
+            chunk_tint_identity_is_active(allocation.tint_identity, tint_identity)
+                && envelope.intersects(allocation)
+                && !arena.pending_removals.contains(&entity)
+                && frame_probe.accepts(
+                    entity,
+                    FrameAllocationIdentity {
+                        entity,
+                        key: allocation.key,
+                        generation: allocation.generation,
+                    },
+                )
+        })
+        .map(|(_, allocation)| allocation)
+        .collect();
+    drop(frame_probe);
     pass.set_bind_group(0, bind_group, &[view_offset]);
     pass.set_bind_group(1, &lightmap.bind_group, &[]);
     pass.set_render_pipeline(cube_pipeline);
     pass.set_index_buffer(arena.index_buffer.slice(..), IndexFormat::Uint32);
     pass.set_vertex_buffer(0, arena.vertex_offset_buffer.slice(..));
-    for (entity, resident) in &arena.allocations {
-        let allocation = &resident.gpu;
-        if !eligible(*entity, allocation) {
-            continue;
-        }
+    for &allocation in &eligible {
         let addresses = direct_stream_addresses(allocation);
         if !cube_stream_addresses_valid(&addresses) || !shared_stream_ranges_disjoint(&addresses) {
             continue;
@@ -82,11 +87,7 @@ pub(crate) fn draw_shadow_geometry<'w>(
     }
     pass.set_render_pipeline(model_pipeline);
     pass.set_index_buffer(arena.model_index_buffer.slice(..), IndexFormat::Uint32);
-    for (entity, resident) in &arena.allocations {
-        let allocation = &resident.gpu;
-        if !eligible(*entity, allocation) {
-            continue;
-        }
+    for &allocation in &eligible {
         let Some(draw) = model_direct_draw_command(allocation) else {
             continue;
         };
@@ -98,12 +99,31 @@ pub(crate) fn draw_shadow_geometry<'w>(
     }
 }
 
-/// Uses the terrain visibility envelope for displaced and overhanging shadow casters.
-fn intersects(bounds: &CascadeBounds, allocation: &GpuChunkAllocation) -> bool {
-    let origin = render_scene::chunk::chunk_origin(allocation.key);
-    let aabb = crate::chunk::bounds::aabb(true);
-    let center = Vec3::from_array(origin.map(|value| value as f32)) + Vec3::from(aabb.center);
-    bounds.intersects_aabb(center, Vec3::from(aabb.half_extents))
+/// The terrain visibility envelope for displaced and overhanging shadow casters, as one cascade
+/// sees it; the envelope's light-space radius depends only on the cascade, so it is built once.
+struct CascadeEnvelope<'a> {
+    bounds: &'a CascadeBounds,
+    center: Vec3,
+    radius: Vec3,
+}
+
+impl<'a> CascadeEnvelope<'a> {
+    /// Rotates the shared envelope into `bounds`' light space.
+    fn new(bounds: &'a CascadeBounds) -> Self {
+        let aabb = crate::chunk::bounds::aabb(true);
+        Self {
+            bounds,
+            center: Vec3::from(aabb.center),
+            radius: bounds.rotated_radius(Vec3::from(aabb.half_extents)),
+        }
+    }
+
+    /// Whether the envelope around `allocation`'s sub-chunk overlaps the cascade.
+    fn intersects(&self, allocation: &GpuChunkAllocation) -> bool {
+        let origin = render_scene::chunk::chunk_origin(allocation.key);
+        let center = Vec3::from_array(origin.map(|value| value as f32)) + self.center;
+        self.bounds.intersects_rotated(center, self.radius)
+    }
 }
 
 #[cfg(test)]
@@ -137,7 +157,7 @@ mod tests {
             max: Vec3::new(17.4, 16.0, 16.0),
         };
         assert!(
-            intersects(&bounds, &allocation),
+            CascadeEnvelope::new(&bounds).intersects(&allocation),
             "shadow cascade retains the displaced overhang"
         );
     }

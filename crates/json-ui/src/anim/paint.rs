@@ -148,13 +148,18 @@ impl DrawNode {
                 out.color = written.color.map(|color| {
                     color.map(|channel| (channel.clamp(0.0, 1.0) * 255.0).round() as u8)
                 });
-                let meta = textures.and_then(|source| source.texture(texture));
                 let mut written = written;
                 if let Some(ms) = written.aseprite_ms {
                     let frames = textures.and_then(|source| source.aseprite_frames(texture));
                     written.uv = Some(aseprite_origin(frames.as_deref().unwrap_or(&[]), ms));
                 }
-                let uv = sprite_uv(anim, &written, *uv, meta.map(|meta| meta.base_size));
+                // Only a uv or flip-book write reads the texture's size; others keep the uv.
+                let uv = if written.uv.is_some() || written.flip.is_some() {
+                    let meta = textures.and_then(|source| source.texture(texture));
+                    sprite_uv(anim, &written, *uv, meta.map(|meta| meta.base_size))
+                } else {
+                    *uv
+                };
                 let (dest, uv) = clip_crop(anim, own, &written, self.dest, uv);
                 out.dest = dest;
                 out.uv = Some(uv);

@@ -87,6 +87,27 @@ fn mesh_fades_share_topology_and_do_not_change_the_cached_source() {
 }
 
 #[test]
+fn meshes_compare_by_contents_whether_or_not_they_share_buffers() {
+    let source = mesh();
+    let rebuilt = mesh();
+    assert_eq!(*source, (*source).clone(), "shared buffers");
+    assert_eq!(*source, *rebuilt, "separate buffers with the same contents");
+    assert_ne!(*source, (*source).clone().with_opacity(0.5));
+    let moved = UiMesh::new(
+        vec![
+            vertex([0.0, 0.0], 2.0),
+            vertex([2.0, 0.0], 2.0),
+            vertex([0.0, 1.0], 2.0),
+        ]
+        .into(),
+        source.indices().into(),
+        source.batches().into(),
+    )
+    .unwrap();
+    assert_ne!(*source, moved);
+}
+
+#[test]
 fn ui_mesh_keeps_node_layout_clips_homogeneous_depth_and_authored_material_order() {
     let mut tree = UiTree::new(vec![
         UiNode::new(UiNodeId::new(1), None, rect(0.0, 0.0, 50.0, 50.0)).with_clip_children(true),
