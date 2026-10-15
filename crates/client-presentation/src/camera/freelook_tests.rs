@@ -320,10 +320,17 @@ fn mouse_look_turns_vanilla_degrees_for_window_width_and_sensitivity() {
     game.set_sensitivity(0.8);
     assert!((turned(1920, Some(0.8), 30.0) - expected(1920, game.value())).abs() < 1e-4);
     assert_eq!(turned(1920, Some(0.5), 30.0), turned(1920, None, 30.0));
-    for counts in [-3000.0, 3000.0] {
+    for counts in [
+        -semantic_input::MAX_LOOK_DELTA_PER_FRAME,
+        semantic_input::MAX_LOOK_DELTA_PER_FRAME,
+    ] {
         let expected = look::mouse_turn_degrees(Vec2::new(counts, 0.0), 1920, 0.628).x;
         assert!(expected.abs() > 180.0);
-        assert!((turned(1920, None, counts) - expected).abs() < 1e-4);
+        let actual = turned(1920, None, counts);
+        assert!(
+            (actual - expected).abs() < 1e-4,
+            "{counts} routed counts turn {actual} degrees, expected {expected}"
+        );
     }
 }
 
