@@ -9,7 +9,7 @@ use render_scene::{
 mod removal_pressure;
 
 /// Creates isolated upload and publication resources on a noop device without running a frame.
-pub(super) fn noop_gpu_publication_app(
+pub(in crate::chunk) fn noop_gpu_publication_app(
     acknowledgements: ChunkUploadAcknowledgements,
     gpu_removals: ChunkGpuRemovalQueue,
 ) -> App {

@@ -91,8 +91,13 @@ the selected tiles and covering fallbacks during bounded replacements; a still c
 and rebuilds nothing. Growth copies existing GPU data without replaying resident uploads.
 Near column admission and the far mask publish together before draw queues run. Empty-section
 receipts survive feature toggles within their stream and dimension visit, stay bounded by
-retained sections, and expire on replacement or withdrawal. Resource geometry swaps recheck
-the same admission before their allocation components reach draw queues. Encoded summaries share
+retained sections, refresh on every section-membership change, and expire on replacement or
+withdrawal. Valid decoded summaries prove coverage per column; missing, invalid or partial
+summaries cannot prove an entire tile empty or retire its visible fallback. Resource geometry
+and material tables publish together after pending removals and their fences allow the swap;
+blocked candidates stay staged. The same admission is rechecked before replacement allocation
+components reach draw queues. Focused lifecycle regressions are written but unrun, and hardware
+performance and visual acceptance remain open. Encoded summaries share
 immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
 resumes within column and byte limits. Cache completions and live or retiring summary
 admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit

@@ -8,7 +8,15 @@ struct State {
     requested: Option<ChunkTextureAssets>,
     geometry: Option<Arc<[ChunkRenderInstance]>>,
     holding_geometry: bool,
+    geometry_epoch: u64,
     result: Option<Result<ChunkTextureAssetIdentity, String>>,
+}
+
+/// One immutable worker input, captured under the reload mailbox's lock.
+pub struct ChunkTexturePreparation {
+    pub assets: ChunkTextureAssets,
+    pub geometry: Option<Arc<[ChunkRenderInstance]>>,
+    pub epoch: u64,
 }
 
 /// Shared main/render-world mailbox; GPU replacements remain staged until CPU publication.
@@ -78,17 +86,30 @@ impl ChunkTextureReload {
             .clone()
     }
 
-    /// Drops a replacement set captured for chunks a session reset retired, so ordinary mesh
-    /// handoff resumes for the new session; the atlas request still completes and publishes.
+    /// Drops the retired session snapshot and its readiness acknowledgement. Ordinary handoff
+    /// resumes; the renderer completes or rejects the atlas against the surviving session.
     pub fn discard_geometry(&self) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
         state.geometry = None;
         state.holding_geometry = false;
+        state.result = state
+            .requested
+            .as_ref()
+            .map(|_| Err("World changed while preparing resource packs; apply again".into()));
+        state.geometry_epoch += 1;
     }
 
-    /// Releases the CPU replacement set after the render world publishes it.
-    pub fn published(&self) {
+    /// Releases only the published request, preserving a newer request or preparation hold.
+    pub fn published(&self, identity: ChunkTextureAssetIdentity, epoch: u64) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if state.geometry_epoch != epoch
+            || state
+                .requested
+                .as_ref()
+                .is_none_or(|assets| assets.identity() != identity)
+        {
+            return;
+        }
         state.requested = None;
         state.geometry = None;
         state.holding_geometry = false;
@@ -126,7 +147,25 @@ impl ChunkTextureReload {
         }
     }
 
-    /// Clones the candidate for the render preparation worker.
+    /// Captures the candidate, geometry and reset epoch together for one worker invocation.
+    pub fn preparation(&self) -> Option<ChunkTexturePreparation> {
+        let state = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        Some(ChunkTexturePreparation {
+            assets: state.requested.clone()?,
+            geometry: state.geometry.clone(),
+            epoch: state.geometry_epoch,
+        })
+    }
+
+    /// Identifies the current session snapshot independently of superseding pack requests.
+    pub fn geometry_epoch(&self) -> u64 {
+        self.0
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .geometry_epoch
+    }
+
+    /// Returns the current candidate without retaining its geometry snapshot.
     pub fn requested(&self) -> Option<ChunkTextureAssets> {
         self.0
             .lock()
@@ -135,13 +174,14 @@ impl ChunkTextureReload {
             .clone()
     }
 
-    /// Completes only the currently requested generation; superseded results retire on drop.
-    pub fn finish(&self, identity: ChunkTextureAssetIdentity, succeeded: bool) {
+    /// Completes only the requested identity and session epoch; stale worker results retire on drop.
+    pub fn finish(&self, identity: ChunkTextureAssetIdentity, epoch: u64, succeeded: bool) {
         let mut state = self.0.lock().unwrap_or_else(|error| error.into_inner());
-        if state
-            .requested
-            .as_ref()
-            .is_some_and(|assets| assets.identity() == identity)
+        if state.geometry_epoch == epoch
+            && state
+                .requested
+                .as_ref()
+                .is_some_and(|assets| assets.identity() == identity)
         {
             state.result = Some(if succeeded {
                 Ok(identity)

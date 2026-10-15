@@ -79,41 +79,54 @@ impl PreparedResourceGeometry {
         })
     }
 
-    /// Rebinds all staged allocations to resident render entities before any draw preparation.
+    /// Checks the live entity set and physical retirement without consuming staged resources.
+    pub(in crate::chunk) fn ready(
+        &self,
+        instances: &Query<(Entity, &ChunkRenderInstance)>,
+        active: &ChunkGpuArena,
+    ) -> bool {
+        if !active.retired_allocations.is_empty() {
+            return false;
+        }
+        let keys: HashSet<_> = instances.iter().map(|(_, instance)| instance.key).collect();
+        let staged: HashSet<_> = self
+            .arena
+            .allocations
+            .values()
+            .map(|allocation| allocation.gpu.key)
+            .collect();
+        staged.iter().all(|key| keys.contains(key))
+            && active.allocations.iter().all(|(entity, allocation)| {
+                (!active.pending_removals.contains(entity) && keys.contains(&allocation.gpu.key))
+                    || staged.contains(&allocation.gpu.key)
+            })
+            && self.models.committed.as_ref().is_none_or(|committed| {
+                committed
+                    .address
+                    .allocations
+                    .iter()
+                    .all(|allocation| keys.contains(&allocation.key))
+            })
+    }
+
+    /// Rebinds a complete swap, returning the intact candidate when retirement still blocks it.
+    #[allow(clippy::result_large_err)]
     pub(in crate::chunk) fn publish(
         mut self,
         commands: &mut Commands,
         instances: &Query<(Entity, &ChunkRenderInstance)>,
         active: &mut ChunkGpuArena,
         mut coverage: Option<&mut TerrainCoverage>,
-    ) -> bool {
-        let keys: HashMap<_, _> = instances
-            .iter()
-            .map(|(entity, instance)| (instance.key, entity))
-            .collect();
+    ) -> Result<(), Self> {
+        if !self.ready(instances, active) {
+            return Err(self);
+        }
         let mut by_key: HashMap<_, _> = self
             .arena
             .allocations
             .drain()
             .map(|(_, allocation)| (allocation.gpu.key, allocation))
             .collect();
-        // A swap cannot discard allocations still waiting for physical retirement.
-        if by_key.keys().any(|key| !keys.contains_key(key))
-            || active
-                .pending_removals
-                .iter()
-                .filter_map(|entity| active.allocations.get(entity))
-                .any(|allocation| !by_key.contains_key(&allocation.gpu.key))
-            || self.models.committed.as_ref().is_some_and(|committed| {
-                committed
-                    .address
-                    .allocations
-                    .iter()
-                    .any(|allocation| !keys.contains_key(&allocation.key))
-            })
-        {
-            return false;
-        }
         for (entity, instance) in instances {
             if let Some(allocation) = by_key.remove(&instance.key) {
                 if active.pending_removals.contains(&entity) {
@@ -155,7 +168,7 @@ impl PreparedResourceGeometry {
         commands.insert_resource(self.liquids);
         commands.insert_resource(self.models);
         commands.insert_resource(GpuUpdateFairness::default());
-        true
+        Ok(())
     }
 }
 

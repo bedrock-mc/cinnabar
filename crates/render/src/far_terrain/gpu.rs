@@ -75,7 +75,7 @@ pub(crate) struct FarTerrainGpu {
     applied_mask: Option<Arc<NearMask>>,
     applied_world: Option<FarTerrainResidency>,
     protected: HashSet<ColumnPos>,
-    empty_far: HashSet<TileKey>,
+    empty_far: HashSet<ColumnPos>,
     publication_revision: u64,
     pub(super) draws: Vec<FarDraw>,
     layout: BindGroupLayoutDescriptor,
@@ -233,6 +233,18 @@ impl FarTerrainGpu {
         for (index, rank) in order {
             let mesh = &tiles[index];
             if self.current(mesh) {
+                continue;
+            }
+            // A partial rebuild cannot overwrite the only visible evidence for another column.
+            if !matches!(&mesh.coverage, far_terrain::TileCoverage::Complete)
+                && self.resident.get(&mesh.key).is_some_and(|old| {
+                    old.visible
+                        && old
+                            .mesh
+                            .covered_columns()
+                            .any(|column| !mesh.covers(column))
+                })
+            {
                 continue;
             }
             let bytes = mesh.quads.len() as u64 * QUAD_BYTES

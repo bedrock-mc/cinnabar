@@ -289,6 +289,7 @@ fn enabling_far_terrain_reuses_full_and_empty_gpu_publications_across_toggle_cyc
     let tiles: Arc<[Arc<TileMesh>]> = [column, air_column]
         .map(|column| {
             Arc::new(TileMesh {
+                coverage: far_terrain::TileCoverage::Complete,
                 key: TileKey::containing(
                     0,
                     column.x * COLUMN_SIDE as i32,
@@ -391,6 +392,7 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
     let budget = ChunkUploadBudget::new(8, config.maximum_frame_bytes)
         .with_zero_byte_operations_per_frame(1);
     let far_mesh = Arc::new(TileMesh {
+        coverage: far_terrain::TileCoverage::Complete,
         key: TileKey::containing(
             0,
             column.x * COLUMN_SIDE as i32,
@@ -491,4 +493,110 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
             .contains(pos)
     );
     assert_eq!(allowance.live_permits(), 0);
+}
+
+/// A new section in an existing column must reach both receipt retention and near admission.
+#[test]
+fn publication_membership_growth_and_retirement_refresh_cached_sources_and_targets() {
+    let mut stream = WorldStream::new(protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    let first = SubChunkKey::new(0, 0, 0, 0);
+    let second = SubChunkKey { y: 1, ..first };
+    let a = stream.stage_publication_fixture_known_air(first);
+    stream.load_publication_fixture_column(first.chunk());
+    let mut far = FarTerrain::new(None);
+    let mut scene = FarTerrainScene::default();
+    far.publish_target(&stream, 32, &mut scene);
+    let source = scene.publications.clone().unwrap();
+    source.record(first, a.generation, true);
+    let before = scene.target.clone().unwrap();
+    far.publish_target(&stream, 32, &mut scene);
+    assert!(Arc::ptr_eq(&before, scene.target.as_ref().unwrap()));
+
+    let b = stream.stage_publication_fixture_known_air(second);
+    far.publish_target(&stream, 32, &mut scene);
+    let grown = scene.target.clone().unwrap();
+    assert!(!Arc::ptr_eq(&before, &grown));
+    assert!(source.same_source(scene.publications.as_ref().unwrap()));
+    assert_eq!(grown.near[&first.chunk()].len(), 2);
+    assert_eq!(grown.near[&first.chunk()][&second], b.generation);
+    source.record(second, b.generation, true);
+    let (revision, empty) = source.changed_empty(None).unwrap();
+    assert_eq!(empty.len(), 2, "the newly retained empty receipt survives");
+    let mut publication = far_terrain::TerrainPublication::default();
+    publication.replace_empty(empty);
+    publication.publish(&grown, &Default::default(), |_| true);
+    assert!(publication.draws_near(first.chunk()));
+
+    let stamp = stream.terrain_publication_source();
+    stream.stage_publication_fixture_known_air(second);
+    assert_eq!(
+        stream.terrain_publication_source(),
+        stamp,
+        "a resend keeps membership"
+    );
+    far.publish_source(Some(&stream), &mut scene);
+    assert!(source.changed_empty(Some(revision)).is_none());
+
+    stream.evict_publication_fixture_column(first.chunk());
+    far.publish_target(&stream, 32, &mut scene);
+    assert!(scene.target.as_ref().unwrap().retained.is_empty());
+    assert!(scene.target.as_ref().unwrap().near.is_empty());
+    assert!(source.changed_empty(None).unwrap().1.is_empty());
+    source.record(second, b.generation + 1, true);
+    assert!(
+        source.changed_empty(None).unwrap().1.is_empty(),
+        "late retired receipt stays pruned"
+    );
+}
+
+/// Equal counters in a replacement stream cannot reuse another stream's target or receipts.
+#[test]
+fn a_new_stream_republishes_targets_even_when_section_counters_match() {
+    let bootstrap = protocol::WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    };
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut first = WorldStream::new(bootstrap.clone());
+    let mut second = WorldStream::new(bootstrap);
+    for stream in [&mut first, &mut second] {
+        stream.stage_publication_fixture_known_air(key);
+        stream.load_publication_fixture_column(key.chunk());
+    }
+    assert_eq!(
+        first.terrain_publication_revision(),
+        second.terrain_publication_revision()
+    );
+    let mut far = FarTerrain::new(None);
+    let mut scene = FarTerrainScene::default();
+    far.publish_target(&first, 32, &mut scene);
+    let target = scene.target.clone().unwrap();
+    let source = scene.publications.clone().unwrap();
+    source.record(key, 1, true);
+    far.publish_target(&second, 32, &mut scene);
+    assert!(!Arc::ptr_eq(&target, scene.target.as_ref().unwrap()));
+    assert!(!source.same_source(scene.publications.as_ref().unwrap()));
+    assert!(
+        scene
+            .publications
+            .as_ref()
+            .unwrap()
+            .changed_empty(None)
+            .unwrap()
+            .1
+            .is_empty()
+    );
 }

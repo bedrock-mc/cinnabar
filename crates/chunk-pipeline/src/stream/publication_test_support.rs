@@ -30,6 +30,12 @@ impl WorldStream {
         self.note_near_drawn(column);
     }
 
+    /// Retires a fixture column through the production residency and receipt cleanup path.
+    #[doc(hidden)]
+    pub fn evict_publication_fixture_column(&mut self, column: ChunkKey) {
+        self.evict_column(column);
+    }
+
     /// Prepares fixture appearances without changing the simulation clock under test.
     #[doc(hidden)]
     pub fn prepare_actor_appearance_fixture(&mut self) {

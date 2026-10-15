@@ -2,7 +2,7 @@ use super::*;
 
 impl FarTerrainGpu {
     /// Invalidates retained coverage when CPU-ready empty selections change.
-    pub(super) fn set_empty_coverage(&mut self, empty: Option<&HashSet<TileKey>>) {
+    pub(super) fn set_empty_coverage(&mut self, empty: Option<&HashSet<ColumnPos>>) {
         let unchanged = empty.map_or(self.empty_far.is_empty(), |empty| self.empty_far == *empty);
         if !unchanged {
             self.empty_far = empty.cloned().unwrap_or_default();
@@ -34,6 +34,10 @@ impl FarTerrainGpu {
         next: Option<TileKey>,
     ) -> bool {
         let ready = |mesh: &Arc<TileMesh>| Some(mesh.key) == next || self.current(mesh);
+        let covered = |column| {
+            self.empty_far.contains(&column)
+                || tiles.iter().any(|mesh| mesh.covers(column) && ready(mesh))
+        };
         tiles
             .iter()
             .filter(|mesh| key.overlaps(mesh.key))
@@ -42,29 +46,34 @@ impl FarTerrainGpu {
                 .protected
                 .iter()
                 .filter(|column| contains_column(key, **column))
-                .all(|column| {
-                    self.empty_far
-                        .iter()
-                        .any(|key| contains_column(*key, *column))
-                        || tiles
-                            .iter()
-                            .any(|mesh| contains_column(mesh.key, *column) && ready(mesh))
-                })
+                .all(|column| covered(*column))
+            && (!tiles.iter().any(|mesh| {
+                key.overlaps(mesh.key)
+                    && !matches!(&mesh.coverage, far_terrain::TileCoverage::Complete)
+            }) || self.resident.get(&key).is_none_or(|old| {
+                old.mesh
+                    .covered_columns()
+                    .filter(|column| {
+                        self.empty_far.contains(column)
+                            || tiles.iter().any(|mesh| contains_column(mesh.key, *column))
+                    })
+                    .all(covered)
+            }))
     }
 
-    /// Whether this column has a current drawable fallback or a proven empty far selection.
+    /// Whether decoded evidence has a visible far drawer or an acknowledged empty selection.
     pub(crate) fn covers_column(&self, column: ColumnPos) -> bool {
-        (0..LEVEL_COUNT).any(|level| {
-            let key = TileKey::containing(
-                level,
-                column.x * far_terrain::COLUMN_SIDE as i32,
-                column.z * far_terrain::COLUMN_SIDE as i32,
-            );
-            self.resident
-                .get(&key)
-                .is_some_and(|resident| resident.visible)
-                || self.empty_far.contains(&key)
-        })
+        self.empty_far.contains(&column)
+            || (0..LEVEL_COUNT).any(|level| {
+                let key = TileKey::containing(
+                    level,
+                    column.x * far_terrain::COLUMN_SIDE as i32,
+                    column.z * far_terrain::COLUMN_SIDE as i32,
+                );
+                self.resident
+                    .get(&key)
+                    .is_some_and(|resident| resident.visible && resident.mesh.covers(column))
+            })
     }
 
     /// Publishes the mask chosen with near draw admission in the current render frame.

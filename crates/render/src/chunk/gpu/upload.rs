@@ -31,6 +31,7 @@ pub(in crate::chunk) struct ChunkInstanceQueries<'w, 's> {
 #[derive(SystemParam)]
 pub(in crate::chunk) struct ChunkUploadPublication<'w> {
     acknowledgements: Res<'w, ChunkUploadAcknowledgements>,
+    textures: Option<Res<'w, ChunkGpuTextureAssets>>,
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     terrain_generations:
         Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
@@ -59,6 +60,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
         acknowledgements,
+        textures,
         gpu_removals,
         mut terrain_generations,
         mut coverage,
@@ -133,6 +135,19 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &acknowledgements,
         terrain_generations.as_deref_mut(),
     );
+
+    // A selected CPU atlas can outlive a session reset. Keep old draw tables coherent,
+    // while the physical-removal and completion-fence work above continues to drain.
+    if textures.as_ref().is_some_and(|textures| {
+        textures
+            .prepared
+            .as_ref()
+            .is_none_or(|prepared| prepared.identity != texture_assets.identity())
+    }) {
+        fairness.recover_untracked = true;
+        *upload_stats = ChunkGpuUploadStats::default();
+        return;
+    }
 
     let mut applied_tokens = Vec::new();
     let mut applied_publication_permits = Vec::new();

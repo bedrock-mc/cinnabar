@@ -221,7 +221,9 @@ impl Plugin for ChunkRenderPlugin {
                         .in_set(RenderSystems::Queue),
                     prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
-                    prepare_chunk_biome_tints.in_set(ChunkPublicationStage::Attributes),
+                    prepare_chunk_biome_tints
+                        .in_set(ChunkPublicationStage::Attributes)
+                        .after(prepare_chunk_texture_assets),
                     prepare_gpu_chunks
                         .in_set(ChunkPublicationStage::Geometry)
                         .after(crate::dropped_item_render::terrain_items::TerrainItemSessionSet)

@@ -13,6 +13,7 @@ mod publication;
 mod region;
 mod store;
 mod summary;
+mod tile_coverage;
 mod tile_mesh;
 mod tile_set;
 mod tiles;
@@ -37,5 +38,6 @@ pub use tile_mesh::{
     FACE_NEGATIVE_X, FACE_NEGATIVE_Z, FACE_POSITIVE_X, FACE_POSITIVE_Z, FACE_UP, TileGrid,
     TileMesh, mesh_tile,
 };
+pub use tile_coverage::TileCoverage;
 pub use tile_set::FarTiles;
 pub use tiles::{NearMask, TileKey, TileView, select_tiles};

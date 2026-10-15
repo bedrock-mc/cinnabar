@@ -5,8 +5,8 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::{
-    ColumnPos, ColumnSummary, EncodedSummary, SummaryBudget, SummaryStore, TileGrid, TileKey,
-    TileMesh, TileView,
+    ColumnPos, ColumnSummary, EncodedSummary, SummaryBudget, SummaryStore, TileCoverage, TileGrid,
+    TileKey, TileMesh, TileView,
     config::{
         LEVEL_COUNT, MAX_TILE_BUILDS, TILE_BUILD_BYTES_PER_UPDATE, TILE_BUILD_COLUMNS_PER_UPDATE,
         TILE_REBUILD_INTERVAL,
@@ -114,7 +114,9 @@ impl FarTiles {
             kept.insert(key, self.selected.remove(&key).unwrap_or_default());
         }
         for (_, tile) in std::mem::replace(&mut self.selected, kept) {
-            if let Some(mesh) = tile.mesh.filter(|mesh| !mesh.quads.is_empty()) {
+            if let Some(mesh) = tile.mesh.filter(|mesh| {
+                !mesh.quads.is_empty() && !self.retired.iter().any(|old| old.key.overlaps(mesh.key))
+            }) {
                 self.retire(mesh);
             }
         }
@@ -132,33 +134,31 @@ impl FarTiles {
     /// Marks the selected tiles holding `columns`, or holding them in the ring of neighbours
     /// their skirts reach down to, for a rebuild.
     pub fn mark_changed(&mut self, columns: &[ColumnPos]) {
+        let mut changed = false;
         for column in columns {
             for (dx, dz) in (-1..=1).flat_map(|dx| (-1..=1).map(move |dz| (dx, dz))) {
                 let x = (column.x + dx) * COLUMN_SIDE as i32;
                 let z = (column.z + dz) * COLUMN_SIDE as i32;
                 for level in 0..LEVEL_COUNT {
                     if let Some(tile) = self.selected.get_mut(&TileKey::containing(level, x, z)) {
+                        changed |= !tile.dirty;
                         tile.dirty = true;
                         break;
                     }
                 }
             }
         }
+        if changed {
+            self.revision += 1;
+        }
     }
 
     /// Collects finished meshes and starts due builds; returns true when the drawn set changed.
     pub fn update(&mut self, store: &mut SummaryStore, now: Instant) -> bool {
         let before = self.revision;
-        for built in self.rx.try_iter() {
+        while let Ok(built) = self.rx.try_recv() {
             self.in_flight -= 1;
-            let Some(tile) = self.selected.get_mut(&built.key) else {
-                continue;
-            };
-            if tile.building == Some(built.token) {
-                tile.building = None;
-                tile.mesh = Some(Arc::new(built.mesh));
-                self.revision += 1;
-            }
+            self.accept_mesh(built);
         }
         if self.revision != before {
             self.retire_covered();
@@ -209,15 +209,19 @@ impl FarTiles {
         selected.chain(self.retired.iter().cloned()).collect()
     }
 
-    /// CPU-ready empty selections, for which retiring every old GPU draw is valid coverage.
-    pub fn empty_keys(&self) -> impl Iterator<Item = TileKey> + '_ {
-        self.selected.iter().filter_map(|(&key, tile)| {
-            (!tile.dirty
-                && tile.building.is_none()
-                && tile.mesh.as_ref().is_some_and(|mesh| mesh.quads.is_empty())
-                && !self.retired.iter().any(|old| old.key.overlaps(key)))
-            .then_some(key)
-        })
+    /// Known empty columns in settled selections, after covering fallback draws have retired.
+    pub fn empty_columns(&self) -> impl Iterator<Item = ColumnPos> + '_ {
+        self.selected
+            .iter()
+            .filter_map(|(&key, tile)| {
+                let mesh = tile.mesh.as_deref()?;
+                (!tile.dirty
+                    && tile.building.is_none()
+                    && mesh.quads.is_empty()
+                    && !self.retired.iter().any(|old| old.key.overlaps(key)))
+                .then_some(mesh)
+            })
+            .flat_map(TileMesh::covered_columns)
     }
 
     /// True when a selected tile over `column` is CPU-ready from its current summary.
@@ -240,7 +244,7 @@ impl FarTiles {
                 {
                     None
                 } else {
-                    tile.mesh.as_deref()
+                    tile.mesh.as_deref().filter(|mesh| mesh.covers(column))
                 }
             })
         })
@@ -292,13 +296,11 @@ impl FarTiles {
             ..
         } = self.gathering.take().expect("gathering exists");
         if columns.is_empty() {
-            let tile = self
-                .selected
-                .get_mut(&key)
-                .expect("gathered tiles are selected");
-            tile.building = None;
-            tile.mesh = Some(Arc::new(TileMesh::empty(key)));
-            self.revision += 1;
+            self.accept_mesh(Built {
+                key,
+                token,
+                mesh: TileMesh::empty(key),
+            });
             self.retire_covered();
             return true;
         }
@@ -308,13 +310,40 @@ impl FarTiles {
             let decoded: Vec<(ColumnPos, ColumnSummary)> = columns
                 .into_iter()
                 .filter_map(|(pos, encoded)| {
-                    Some((pos, ColumnSummary::decode(&encoded.bytes).ok()?))
+                    let summary = ColumnSummary::decode(&encoded.bytes).ok()?;
+                    (summary.content_hash() == encoded.hash).then_some((pos, summary))
                 })
                 .collect();
             let mesh = mesh_tile(&TileGrid::build(key, &decoded));
             let _ = tx.send(Built { key, token, mesh });
         });
         true
+    }
+
+    /// Installs a current build while retaining any visible coverage its evidence would lose.
+    fn accept_mesh(&mut self, built: Built) {
+        let Some(tile) = self.selected.get_mut(&built.key) else {
+            return;
+        };
+        if tile.building != Some(built.token) {
+            return;
+        }
+        tile.building = None;
+        let old = tile.mesh.replace(Arc::new(built.mesh));
+        let mesh = tile.mesh.as_ref().expect("installed mesh");
+        let fallback = old.filter(|old| {
+            !old.quads.is_empty()
+                && !matches!(&mesh.coverage, TileCoverage::Complete)
+                && !self
+                    .retired
+                    .iter()
+                    .any(|fallback| fallback.key.overlaps(old.key))
+                && old.covered_columns().any(|column| !mesh.covers(column))
+        });
+        if let Some(old) = fallback {
+            self.retire(old);
+        }
+        self.revision += 1;
     }
 
     /// Keeps a replaced mesh drawn until its area is covered, never alongside another retired
@@ -326,14 +355,29 @@ impl FarTiles {
         }
     }
 
-    /// Drops retired meshes once every selected tile over their area has a mesh.
+    /// Drops a fallback only when settled replacements prove coverage of its known columns.
     fn retire_covered(&mut self) {
         let selected = &self.selected;
         let before = self.retired.len();
         self.retired.retain(|old| {
-            selected
-                .iter()
-                .any(|(key, tile)| tile.mesh.is_none() && old.key.overlaps(*key))
+            selected.iter().any(|(key, tile)| {
+                old.key.overlaps(*key)
+                    && (tile.dirty
+                        || tile.building.is_some()
+                        || tile.mesh.as_ref().is_none_or(|mesh| {
+                            !matches!(&mesh.coverage, TileCoverage::Complete)
+                                && old
+                                    .covered_columns()
+                                    .filter(|column| {
+                                        TileKey::containing(
+                                            key.level,
+                                            column.x * COLUMN_SIDE as i32,
+                                            column.z * COLUMN_SIDE as i32,
+                                        ) == *key
+                                    })
+                                    .any(|column| !mesh.covers(column))
+                        }))
+            })
         });
         if self.retired.len() != before {
             self.revision += 1;

@@ -38,7 +38,8 @@ impl FarTerrainResidency {
     #[must_use]
     pub fn ready(&self, column: ColumnPos, mesh: &TileMesh) -> bool {
         let block = [column.x * COLUMN_SIDE as i32, column.z * COLUMN_SIDE as i32];
-        if mesh.key.level >= LEVEL_COUNT
+        if !mesh.covers(column)
+            || mesh.key.level >= LEVEL_COUNT
             || mesh.key != TileKey::containing(mesh.key.level, block[0], block[1])
         {
             return false;

@@ -16,8 +16,8 @@ impl WorldStream {
                 self.authority.actor_session_id(),
                 self.form_dimension_epoch(),
             ),
-            self.resident.column_generation(),
-            self.known_air.column_generation(),
+            self.resident.membership_revision(),
+            self.known_air.membership_revision(),
         )
     }
 
@@ -31,8 +31,8 @@ impl WorldStream {
         (
             self.revisions.next_revision,
             self.near_drawn.revision,
-            self.resident.column_generation(),
-            self.known_air.column_generation(),
+            self.resident.membership_revision(),
+            self.known_air.membership_revision(),
             self.loaded_columns.len(),
             self.full_detail.radius,
         )

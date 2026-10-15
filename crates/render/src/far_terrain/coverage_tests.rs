@@ -7,6 +7,7 @@ fn meshes(keys: impl IntoIterator<Item = TileKey>) -> Vec<Arc<TileMesh>> {
         .enumerate()
         .map(|(index, key)| {
             Arc::new(TileMesh {
+                coverage: far_terrain::TileCoverage::Complete,
                 key,
                 revision: index as u64 + 1,
                 quads: vec![[1 << 14 | 1 << 21, 64]].into_boxed_slice(),
@@ -373,7 +374,7 @@ fn a_proven_empty_selection_can_replace_pinned_geometry_without_a_new_draw() {
     populate(&mut gpu, &device, &queue, &old);
     let column = old[0].key.columns().next().unwrap();
     gpu.protect_coverage(std::iter::once(column));
-    gpu.set_empty_coverage(Some(&HashSet::from([old[0].key])));
+    gpu.set_empty_coverage(Some(&old[0].key.columns().collect()));
     assert!(gpu.apply_tiles(&device, &queue, &[]));
     assert!(
         gpu.draws.is_empty(),
@@ -591,4 +592,107 @@ fn a_new_world_does_not_inherit_fallbacks_or_upload_acknowledgements() {
     let gpu = world.resource::<FarTerrainGpu>();
     assert!(!gpu.resident.contains_key(&old[0].key));
     assert_eq!(gpu.draws.len(), UPLOAD_TILES_PER_FRAME);
+}
+
+/// The renderer consumes decoded column evidence, including partial empty and solid tiles.
+#[test]
+fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback() {
+    use far_terrain::{ColumnSummary, SurfaceCell, TileGrid, mesh_tile};
+    let (device, queue) = device(256);
+    let key = TileKey {
+        level: 0,
+        x: 0,
+        z: 0,
+    };
+    let known = key.columns().next().unwrap();
+    let unknown = ColumnPos::new(known.x + 1, known.z);
+    let mut solid = ColumnSummary::default();
+    solid.cells_mut().fill(SurfaceCell {
+        height: 64,
+        rgb: [80; 3],
+        water_depth: 0,
+    });
+    let partial = Arc::new(mesh_tile(&TileGrid::build(key, &[(known, solid.clone())])));
+    let mut gpu = FarTerrainGpu::new(&device);
+    assert!(gpu.apply_tiles(&device, &queue, &[partial.clone()]));
+    assert!(gpu.covers_column(known));
+    assert!(!gpu.covers_column(unknown));
+    let residency = render_scene::FarTerrainResidency::default();
+    residency.publish(std::iter::once((key, partial.revision)));
+    assert!(residency.ready(known, &partial));
+    assert!(!residency.ready(unknown, &partial));
+
+    let empty = mesh_tile(&TileGrid::build(key, &[(known, ColumnSummary::default())]));
+    let empty_columns: HashSet<_> = empty.covered_columns().collect();
+    gpu.clear_tiles();
+    gpu.set_empty_coverage(Some(&empty_columns));
+    assert!(gpu.covers_column(known));
+    assert!(!gpu.covers_column(unknown));
+    let mut near = far_terrain::TerrainPublication::default();
+    let section = world::SubChunkKey::new(0, unknown.x, 0, unknown.z);
+    let pending = world::SubChunkKey { y: 1, ..section };
+    let target = far_terrain::TerrainTarget {
+        centre: section.chunk(),
+        horizon: 32,
+        near: HashMap::from([(section.chunk(), HashMap::from([(section, 1), (pending, 1)]))]),
+        retained: HashSet::from([section, pending]),
+        empty_far: empty_columns,
+    };
+    near.publish(&target, &HashMap::from([(section, 1)]), |column| {
+        gpu.covers_column(ColumnPos::new(column.x, column.z))
+    });
+    assert!(
+        near.draws_near(section.chunk()),
+        "unknown terrain keeps the partially uploaded near drawer"
+    );
+
+    gpu.clear_tiles();
+    let coarse = TileKey {
+        level: 1,
+        x: 0,
+        z: 0,
+    };
+    let original = Arc::new(mesh_tile(&TileGrid::build(
+        coarse,
+        &coarse
+            .columns()
+            .map(|pos| (pos, solid.clone()))
+            .collect::<Vec<_>>(),
+    )));
+    populate(&mut gpu, &device, &queue, &[original.clone()]);
+    let replacements: Vec<_> = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .into_iter()
+        .map(|(x, z)| {
+            let key = TileKey { level: 0, x, z };
+            Arc::new(mesh_tile(&TileGrid::build(
+                key,
+                &key.columns()
+                    .filter(|pos| *pos != unknown)
+                    .map(|pos| (pos, solid.clone()))
+                    .collect::<Vec<_>>(),
+            )))
+        })
+        .collect();
+    assert!(gpu.apply_tiles(&device, &queue, &replacements));
+    assert!(
+        gpu.resident[&coarse].visible,
+        "an uploaded partial replacement does not retire known coverage"
+    );
+    assert!(gpu.covers_column(unknown));
+    let complete: Vec<_> = replacements
+        .iter()
+        .map(|mesh| {
+            Arc::new(mesh_tile(&TileGrid::build(
+                mesh.key,
+                &mesh
+                    .key
+                    .columns()
+                    .map(|pos| (pos, solid.clone()))
+                    .collect::<Vec<_>>(),
+            )))
+        })
+        .collect();
+    assert!(gpu.apply_tiles(&device, &queue, &complete));
+    assert!(!gpu.resident.contains_key(&coarse));
+    assert!(gpu.covers_column(unknown));
 }

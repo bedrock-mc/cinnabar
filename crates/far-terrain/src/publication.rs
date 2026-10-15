@@ -3,17 +3,17 @@
 use std::collections::{HashMap, HashSet};
 use world::{ChunkKey, SubChunkKey};
 
-use crate::TileKey;
+use crate::ColumnPos;
 
 /// The main world's requested near sections, with exact dirty or published generations.
-/// Missing columns request far terrain. Empty far tiles prove that no far draw is needed.
+/// Missing columns request far terrain. Empty far columns carry decoded evidence that no far draw is needed.
 #[derive(Clone, Debug)]
 pub struct TerrainTarget {
     pub centre: ChunkKey,
     pub horizon: i32,
     pub near: HashMap<ChunkKey, HashMap<SubChunkKey, u64>>,
     pub retained: HashSet<SubChunkKey>,
-    pub empty_far: HashSet<TileKey>,
+    pub empty_far: HashSet<ColumnPos>,
 }
 
 impl TerrainTarget {

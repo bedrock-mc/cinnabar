@@ -12,6 +12,7 @@ fn tiles(count: usize) -> Vec<Arc<TileMesh>> {
     (0..count)
         .map(|index| {
             Arc::new(TileMesh {
+                coverage: far_terrain::TileCoverage::Complete,
                 key: TileKey {
                     level: 0,
                     x: index as i32,
@@ -247,6 +248,7 @@ fn growth_preserves_gpu_bytes_and_orders_replacement_writes_after_copies() {
 
     let first = &desired[0];
     desired[0] = Arc::new(TileMesh {
+        coverage: far_terrain::TileCoverage::Complete,
         key: first.key,
         revision: first.revision + 100,
         quads: vec![[99, 88]; 3].into_boxed_slice(),

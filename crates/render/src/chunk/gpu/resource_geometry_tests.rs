@@ -73,13 +73,15 @@ fn publish(
     mut candidate: ResMut<Candidate>,
     mut coverage: Option<ResMut<TerrainCoverage>>,
 ) {
-    if let Some(candidate) = candidate.0.take() {
-        candidate.publish(
-            &mut commands,
-            &instances,
-            &mut arena,
-            coverage.as_deref_mut(),
-        );
+    if let Some(staged) = candidate.0.take() {
+        candidate.0 = staged
+            .publish(
+                &mut commands,
+                &instances,
+                &mut arena,
+                coverage.as_deref_mut(),
+            )
+            .err();
     }
 }
 

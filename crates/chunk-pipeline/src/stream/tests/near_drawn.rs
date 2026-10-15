@@ -193,3 +193,71 @@ fn near_drawn_columns_are_tracked_only_with_far_terrain_on() {
     stream.set_far_terrain_enabled(false);
     assert!(!drawn(&stream, column));
 }
+
+/// Exact section requirements change independently of the column's full-detail age.
+#[test]
+fn section_membership_stamps_track_insert_remove_replace_and_retire() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    let a = SubChunkKey::new(0, 0, 0, 0);
+    let b = SubChunkKey { y: 1, ..a };
+    let c = SubChunkKey { y: 2, ..a };
+    stream.loaded_columns.insert(a.chunk());
+    stream.record_known_air(a);
+    let age = stream.resident.column_generation();
+    let mut stamp = (
+        stream.terrain_publication_source(),
+        stream.terrain_publication_revision(),
+    );
+    let mut changed = |stream: &WorldStream, expected: &[SubChunkKey]| {
+        let next = (
+            stream.terrain_publication_source(),
+            stream.terrain_publication_revision(),
+        );
+        assert_ne!(next.0, stamp.0);
+        assert_ne!(next.1, stamp.1);
+        stamp = next;
+        let target = stream.terrain_publication_target(32);
+        assert_eq!(target.retained, expected.iter().copied().collect());
+        assert_eq!(
+            target
+                .near
+                .get(&a.chunk())
+                .map(|keys| keys
+                    .keys()
+                    .copied()
+                    .collect::<std::collections::HashSet<_>>())
+                .unwrap_or_default(),
+            target.retained
+        );
+    };
+    stream.record_known_air(b);
+    changed(&stream, &[a, b]);
+    stream.resident.remove(&b);
+    stream.known_air.remove(&b);
+    changed(&stream, &[a]);
+    stream.resident.replace_column(a.chunk(), [c]);
+    stream.known_air.replace_column(a.chunk(), [c]);
+    changed(&stream, &[c]);
+    assert!(stream.resident.existed_at(a.chunk(), age));
+    assert_eq!(stream.resident.column_generation(), age);
+    let before = stream.terrain_publication_source();
+    stream.resident.replace_column(a.chunk(), [c, c]);
+    stream.known_air.replace_column(a.chunk(), [c]);
+    stream.record_known_air(c);
+    assert_eq!(stream.terrain_publication_source(), before);
+    stream.resident.retire();
+    stream.known_air.retire();
+    changed(&stream, &[]);
+    let empty = stream.terrain_publication_source();
+    stream.resident.retire();
+    stream.known_air.retire();
+    assert_eq!(stream.terrain_publication_source(), empty);
+}

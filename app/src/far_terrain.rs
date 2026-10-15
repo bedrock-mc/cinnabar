@@ -113,6 +113,7 @@ impl FarTerrain {
         }
         if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
             scene.publications = stream.map(|_| Default::default());
+            self.publication = None;
         }
         if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
             publications.retain(stream.terrain_publication_sections());
@@ -135,7 +136,7 @@ impl FarTerrain {
             return;
         }
         let mut target = stream.terrain_publication_target(horizon);
-        target.empty_far.extend(self.tiles.empty_keys());
+        target.empty_far.extend(self.tiles.empty_columns());
         scene.target = Some(Arc::new(target));
         self.publication = Some(key);
     }
