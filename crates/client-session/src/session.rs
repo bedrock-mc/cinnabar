@@ -25,7 +25,8 @@ use protocol::{FastTransferAction, InteractionPacketGuard, PhysicsSendIdentity};
 
 /// Holds a frame's light burst; terrain admission, not this bound, paces chunk ingress.
 pub const WORLD_EVENT_CAPACITY: usize = 256;
-const CONTROL_EVENT_CAPACITY: usize = 64;
+/// Bounds queued controls; send receipts wait here until the frame drains them.
+pub const CONTROL_EVENT_CAPACITY: usize = 64;
 const COMMAND_CAPACITY: usize = 64;
 const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";

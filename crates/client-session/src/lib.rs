@@ -9,9 +9,10 @@ mod session;
 #[cfg(any(test, feature = "test-support"))]
 pub use session::handle_state::CapturedPackets;
 pub use session::{
-    BatchSendError, NetworkConfig, NetworkControlEvent, NetworkFailureOrigin, NetworkHandle,
-    PacketSendError, PreparedSession, SequencedWorldEvent, SessionTransferTarget,
-    WORLD_EVENT_CAPACITY, WorldIngress, session_failure_display, spawn_network,
+    BatchSendError, CONTROL_EVENT_CAPACITY, NetworkConfig, NetworkControlEvent,
+    NetworkFailureOrigin, NetworkHandle, PacketSendError, PreparedSession, SequencedWorldEvent,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, session_failure_display,
+    spawn_network,
 };
 
 /// Optional observations at the original transport publication boundaries.
