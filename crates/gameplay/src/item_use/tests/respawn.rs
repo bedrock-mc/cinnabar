@@ -89,7 +89,7 @@ fn respawn_discards_rejected_clicks_and_unconsumed_launches() {
     runtime.observe_press(true);
     runtime.step(&trident(120, true));
     runtime.step(&trident(130, false));
-    assert_eq!(runtime.riptide_launch, Some(3));
+    assert_eq!(runtime.riptide_launch.map(|launch| launch.level), Some(3));
     runtime.cancel_for_respawn();
     assert_eq!(runtime.take_riptide_launch(), None);
 }

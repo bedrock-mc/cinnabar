@@ -7,6 +7,9 @@ use client_interaction::item_use::ItemUseRuntime;
 #[path = "backpressure/retained_fence.rs"]
 mod retained_fence;
 
+#[path = "backpressure/release_facing.rs"]
+mod release_facing;
+
 struct Dry;
 
 impl sim::CollisionWorld for Dry {

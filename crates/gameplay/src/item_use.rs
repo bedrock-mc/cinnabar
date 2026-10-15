@@ -38,6 +38,29 @@ pub struct RiptideUse {
     pub usable: bool,
 }
 
+/// The effective release-time `[pitch, yaw]` in protocol degrees and its aim policy.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct RiptideFacing {
+    pub rotation: [f32; 2],
+    pub assisted: bool,
+}
+
+/// An admitted launch carrying the same facing as its preceding action input.
+/// Movement still validates the raw level against its collision-query budget.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RiptideLaunch {
+    pub level: u8,
+    pub rotation: [f32; 2],
+}
+
+/// One observed Riptide release, retained until admission or cancellation.
+#[derive(Debug, Clone, PartialEq)]
+struct RiptideRelease {
+    selection: FrozenMiningSelection,
+    level: Option<u8>,
+    facing: RiptideFacing,
+}
+
 /// A throw's locally consumed stack, shown until the server restates the slot.
 #[derive(Debug, Clone, PartialEq)]
 struct PredictedStack {
@@ -51,6 +74,8 @@ struct PredictedStack {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseFrame {
     pub riptide: Option<RiptideUse>,
+    /// Effective action facing at this frame; non-Riptide item use ignores it.
+    pub riptide_facing: RiptideFacing,
     pub tick: u64,
     pub now_millis: u64,
     pub position: [f32; 3],
@@ -108,14 +133,14 @@ pub struct ItemUseRuntime {
     release_pending: bool,
     crossbows: crossbow::CrossbowPredictions,
     /// Launch retained only after the release transaction was admitted.
-    riptide_launch: Option<u8>,
-    /// Eligibility captured at release, before facing input or queue pressure can delay it.
-    release_launch: Option<u8>,
+    riptide_launch: Option<RiptideLaunch>,
+    /// Selection, eligibility and facing captured together at the first release edge.
+    riptide_release: Option<RiptideRelease>,
 }
 
 impl ItemUseRuntime {
     /// Takes one admitted launch for the next successful movement tick.
-    pub fn take_riptide_launch(&mut self) -> Option<u8> {
+    pub fn take_riptide_launch(&mut self) -> Option<RiptideLaunch> {
         self.riptide_launch.take()
     }
     /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
@@ -176,33 +201,41 @@ impl ItemUseRuntime {
         self.active.is_some() && (!held || self.release_pending)
     }
 
-    /// Retains release-facing ordering for an accepted Riptide use, even while inventory is hidden.
-    pub fn riptide_release_needs_facing(&self) -> bool {
-        self.active.as_ref().is_some_and(|active| active.riptide)
+    /// Returns the first release-facing decision while its packet still awaits admission.
+    pub fn riptide_release_facing(&self) -> Option<RiptideFacing> {
+        self.riptide_release.as_ref().map(|release| release.facing)
     }
 
     /// Observes release facts on the local clock before any interaction or facing input can wait.
+    /// Returns true only when this call captures the first accepted release observation.
     pub fn observe_riptide_release(
         &mut self,
         tick: u64,
         held: bool,
         riptide: Option<RiptideUse>,
         selection: Option<&FrozenMiningSelection>,
-    ) {
+        facing: RiptideFacing,
+    ) -> bool {
         let Some(active) = self.active.as_ref().filter(|active| active.riptide) else {
-            return;
+            return false;
         };
         if !self.is_releasing(held) {
-            return;
+            return false;
         }
         if active.selection_changed(selection) {
             self.active = None;
             self.release_pending = false;
-            self.release_launch = None;
-        } else if !self.release_pending {
-            self.release_launch = active.riptide_launch(tick, riptide, selection);
+            self.riptide_release = None;
+        } else if self.riptide_release.is_none() {
+            self.riptide_release = Some(RiptideRelease {
+                selection: selection.unwrap_or(&active.selection).clone(),
+                level: active.riptide_launch(tick, riptide, selection),
+                facing,
+            });
             self.release_pending = true;
+            return true;
         }
+        false
     }
 
     /// Movement-input factor while a use runs; `None` when idle.
@@ -241,7 +274,7 @@ impl ItemUseRuntime {
         self.last_frame_tick = None;
         self.release_pending = false;
         self.riptide_launch = None;
-        self.release_launch = None;
+        self.riptide_release = None;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -287,6 +320,13 @@ impl ItemUseRuntime {
 
     /// Ends a use on release, depletion or reselection, then resolves a press or held repeat.
     pub fn step(&mut self, frame: &UseFrame) -> UseOutcome {
+        self.observe_riptide_release(
+            frame.tick,
+            frame.held,
+            frame.riptide,
+            frame.selection.as_ref(),
+            frame.riptide_facing,
+        );
         self.last_frame_tick = Some(frame.tick);
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
@@ -315,11 +355,11 @@ impl ItemUseRuntime {
         let Some(active) = &self.active else {
             return;
         };
-        let selection = match &frame.selection {
+        let mut selection = match &frame.selection {
             Some(_) if active.selection_changed(frame.selection.as_ref()) => {
                 // Switching away stops the use without a release, as vanilla does.
                 self.active = None;
-                self.release_launch = None;
+                self.riptide_release = None;
                 return;
             }
             Some(current) => current.clone(),
@@ -345,17 +385,18 @@ impl ItemUseRuntime {
         if frame.held && !release_pending {
             return;
         }
-        let launch = if release_pending {
-            self.release_launch
-        } else {
-            active.riptide_launch(frame.tick, frame.riptide, frame.selection.as_ref())
-        };
+        let launch = self.riptide_release.take().and_then(|release| {
+            selection = release.selection;
+            release.level.map(|level| RiptideLaunch {
+                level,
+                rotation: release.facing.rotation,
+            })
+        });
         self.active = None;
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
             outcome.released = true;
             self.riptide_launch = launch;
-            self.release_launch = None;
         }
     }
 

@@ -6528,7 +6528,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Ordinary and assisted releases retain eligibility at the release edge while waiting for facing
   input, including movement FIFO backpressure before interaction sampling, without extending charge
   time, and keep use slowdown through that facing tick. Accepted uses retain their facing fence
-  while pending inventory gestures hide the selected stack. Its sprint gate expires
+  while pending inventory gestures hide the selected stack. The first release observation retains
+  its selected item, eligibility and effective action facing for both that input and the launch;
+  later look and aim targets cannot replace it. Its sprint gate expires
   on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
   releases cancel their pending and replayed launch. Cancellation replay rebuilds interpolated

@@ -27,6 +27,7 @@ fn held_stack() -> NetworkItemStack {
 fn use_frame(tick: u64) -> UseFrame {
     let stack = held_stack();
     UseFrame {
+        riptide_facing: Default::default(),
         riptide: None,
         tick,
         now_millis: 1_000,
@@ -154,7 +155,10 @@ fn riptide_release_follows_completed_inputs_and_precedes_the_launch_input() {
         None,
         &network,
     );
-    assert_eq!(runtime.take_riptide_launch(), Some(3));
+    assert_eq!(
+        runtime.take_riptide_launch().map(|launch| launch.level),
+        Some(3)
+    );
     assert!(captured.drain().is_empty());
     let mut launch = completed(112);
     launch.processed.spin_started = true;
@@ -347,8 +351,8 @@ fn discarded_riptide_release_cancels_pending_and_replayed_launch() {
             &network,
         );
         assert!(ticker.has_held_release());
-        let level = runtime.take_riptide_launch().unwrap();
-        super::riptide::request_launch(level, &mut physics, &mut ticker, &view);
+        let launch = runtime.take_riptide_launch().unwrap();
+        ticker.request_riptide(&mut physics, launch.level, launch.rotation);
         if facing_written {
             let mut written = Vec::new();
             gameplay::movement::flush_player_auth_inputs_guarded(

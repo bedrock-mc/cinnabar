@@ -56,12 +56,11 @@ fn assert_release_after_snap(
     })
     .unwrap();
     ticker.hold_release_after_tick(sample.tick, vec![release]);
-    super::super::riptide::request_launch(
-        3,
-        &mut physics,
-        &mut ticker,
+    let facing = super::super::riptide::release_facing(
+        None,
         &client_presentation::local_player::LocalViewPose::default(),
     );
+    ticker.request_riptide(&mut physics, 3, facing.rotation);
     let mut written = None;
     gameplay::movement::flush_player_auth_inputs_guarded(
         &mut ticker,

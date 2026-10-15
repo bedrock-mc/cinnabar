@@ -10,6 +10,13 @@ pub fn step_and_send(
     swing_duration: i32,
     send: impl FnOnce(Vec<protocol::Packet>) -> Result<(), BatchSendError>,
 ) -> bool {
+    runtime.observe_riptide_release(
+        frame.tick,
+        frame.held,
+        frame.riptide,
+        frame.selection.as_ref(),
+        frame.riptide_facing,
+    );
     if let Some(expected) = &runtime.deferred_selection {
         match &frame.selection {
             Some(current) if current != expected => runtime.cancel_pending_input(),
@@ -64,9 +71,6 @@ pub fn step_and_send(
             if outcome.used {
                 runtime.latched_press = true;
                 runtime.deferred_selection = frame.selection.clone();
-            }
-            if outcome.released && !runtime.release_pending {
-                runtime.release_launch = candidate.riptide_launch;
             }
             runtime.release_pending |= outcome.released;
             false

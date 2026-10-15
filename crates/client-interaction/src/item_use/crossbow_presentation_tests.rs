@@ -42,6 +42,7 @@ fn selection(slot: u8, network_id: i32) -> FrozenMiningSelection {
 
 fn frame(tick: u64, held: bool) -> UseFrame {
     UseFrame {
+        riptide_facing: Default::default(),
         riptide: None,
         tick,
         now_millis: tick * 50,

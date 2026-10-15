@@ -188,6 +188,7 @@ mod tests {
         assert_eq!(selection.item.count(), 2);
         assert!(inventory.predicted_selection(&server, 2).is_none());
         let mut frame = crate::item_use::UseFrame {
+            riptide_facing: Default::default(),
             riptide: None,
             tick: 1,
             now_millis: 1_000,
@@ -236,6 +237,7 @@ mod tests {
         inventory.commit(server.clone(), 1, change);
         air.observe_press(true);
         let outcome = air.step(&crate::item_use::UseFrame {
+            riptide_facing: Default::default(),
             riptide: None,
             tick: 1,
             now_millis: 1_000,

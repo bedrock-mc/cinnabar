@@ -84,7 +84,9 @@ regressions cover wetness, queue rejection, captured ordinary and assisted relea
 snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
 release-edge eligibility before waiting for interaction sampling or facing input, including movement
 FIFO backpressure, and retain use slowdown through that tick. An accepted use keeps its facing
-fence while pending inventory gestures hide the selected stack. Release
+fence while pending inventory gestures hide the selected stack. The first release observation
+retains its selected item, eligibility and effective action facing for the input and launch,
+without replacing later physical look outside that action fence. Release
 sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
 launches survive a snap or replay fallback until their movement input is written, including late
 socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and

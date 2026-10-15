@@ -102,10 +102,10 @@ fn assisted_riptide_release_keeps_its_charge_and_first_launch_input() {
         );
         let level = runtime.take_riptide_launch();
         let charged = charge >= gameplay::item_use::RIPTIDE_CHARGE_TICKS;
-        assert_eq!(level, charged.then_some(3));
+        assert_eq!(level.map(|launch| launch.level), charged.then_some(3));
         assert_eq!(runtime.take_riptide_launch(), None);
-        if let Some(level) = level {
-            super::super::riptide::request_launch(level, &mut physics, &mut ticker, &view);
+        if let Some(launch) = level {
+            ticker.request_riptide(&mut physics, launch.level, launch.rotation);
         }
         view.set_rotation(bevy::prelude::Quat::IDENTITY);
         assert!(captured.drain().is_empty());

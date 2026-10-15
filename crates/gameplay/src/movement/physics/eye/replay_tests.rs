@@ -125,6 +125,7 @@ fn release(
         advance(physics, ticker, controls(pose, 0), world);
         let tick = ticker.completed_tick();
         let frame = UseFrame {
+            riptide_facing: Default::default(),
             riptide: Some(RiptideUse {
                 level: 3,
                 wet: true,
@@ -164,7 +165,8 @@ fn release(
             );
             assert_eq!(packets.len(), 1);
             ticker.hold_release_after_tick(tick, packets);
-            ticker.request_riptide(physics, runtime.take_riptide_launch().unwrap(), [0.0; 2]);
+            let launch = runtime.take_riptide_launch().unwrap();
+            ticker.request_riptide(physics, launch.level, launch.rotation);
         }
     }
     if written {

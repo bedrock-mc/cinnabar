@@ -153,7 +153,10 @@ fn produce_use(
     let held = admitted && use_phase.held;
     let aim_rotation =
         client_interaction::camera::aim_assist::action_rotation(&context.aim, &context.camera);
-    let assisted_release = aim_rotation.is_some() && runtime.is_releasing(held);
+    let release_facing = runtime
+        .riptide_release_facing()
+        .unwrap_or_else(|| riptide::release_facing(aim_rotation, &view));
+    let assisted_release = release_facing.assisted && runtime.is_releasing(held);
     if before_flush != assisted_release {
         return;
     }
@@ -221,12 +224,16 @@ fn produce_use(
     if runtime.is_releasing(held)
         && let Some(edge) = movement.build_action_state()
     {
-        runtime.observe_riptide_release(
+        let first = runtime.observe_riptide_release(
             edge.tick.saturating_add(1),
             held,
             riptide_at(edge.position),
             selection.as_ref(),
+            release_facing,
         );
+        if first && let Some(rotation) = aim_rotation {
+            view.set_rotation(rotation);
+        }
     }
     if movement.has_held_release() {
         return;
@@ -248,6 +255,7 @@ fn produce_use(
     }
     let frame = UseFrame {
         riptide: riptide_at(sample.position),
+        riptide_facing: release_facing,
         tick: sample.tick,
         now_millis,
         position: sample.position,
@@ -290,10 +298,10 @@ fn produce_use(
         aim_rotation,
         &context.network,
     );
-    if let Some(level) = runtime.take_riptide_launch()
+    if let Some(launch) = runtime.take_riptide_launch()
         && let Some(physics) = context.physics.as_deref_mut()
     {
-        riptide::request_launch(level, physics, &mut movement, &view);
+        movement.request_riptide(physics, launch.level, launch.rotation);
     }
     if let Some((slot, revision, change)) = runtime.take_inventory_change() {
         player_runtime
@@ -316,33 +324,42 @@ fn admit_with_action_aim(
     aim_rotation: Option<bevy::prelude::Quat>,
     network: &NetworkHandle<PackApplication>,
 ) {
-    let assisted_release = aim_rotation.is_some() && runtime.is_releasing(frame.held);
+    let release_facing = runtime
+        .riptide_release_facing()
+        .unwrap_or_else(|| riptide::release_facing(aim_rotation, view));
+    let assisted_release = release_facing.assisted && runtime.is_releasing(frame.held);
     // Facing uses a completed input; elapsed use time includes that tick.
-    let duration_frame = assisted_release.then(|| UseFrame {
-        tick: movement.completed_tick().saturating_add(1),
+    let action_frame = UseFrame {
+        tick: if assisted_release {
+            movement.completed_tick().saturating_add(1)
+        } else {
+            frame.tick
+        },
+        riptide_facing: release_facing,
         ..frame.clone()
-    });
+    };
+    let first = runtime.observe_riptide_release(
+        action_frame.tick,
+        action_frame.held,
+        action_frame.riptide,
+        action_frame.selection.as_ref(),
+        release_facing,
+    );
+    if first && let Some(rotation) = aim_rotation {
+        view.set_rotation(rotation);
+    }
     // Freeze the edge before waiting, retaining slowdown until facing can be written.
     if assisted_release && movement.unsent_sample_at(frame.tick).is_none() {
-        let edge = duration_frame
-            .as_ref()
-            .expect("assisted release has a duration");
-        runtime.observe_riptide_release(
-            edge.tick,
-            edge.held,
-            edge.riptide,
-            edge.selection.as_ref(),
-        );
         return;
     }
-    let riptide_fence = runtime.riptide_release_needs_facing();
+    let riptide_fence = runtime.riptide_release_facing().is_some();
     let use_modifier = runtime.movement_modifier();
     let mut deferred = None;
     admit_on_tick(
         runtime,
         swings,
         movement,
-        duration_frame.as_ref().unwrap_or(frame),
+        &action_frame,
         local_runtime_id,
         swing_duration,
         |packets| {
@@ -356,7 +373,13 @@ fn admit_with_action_aim(
         },
     );
     if let Some(packets) = deferred {
-        if let Some(rotation) = aim_rotation.or_else(|| riptide_fence.then(|| view.rotation())) {
+        if riptide_fence {
+            movement.override_action_rotation(
+                frame.tick,
+                release_facing.rotation[0],
+                release_facing.rotation[1],
+            );
+        } else if let Some(rotation) = aim_rotation {
             client_interaction::camera::aim_assist::apply_action_rotation(
                 rotation, view, movement, frame.tick,
             );

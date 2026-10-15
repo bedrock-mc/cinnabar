@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "riptide/snapshot.rs"]
+mod snapshot;
+
 /// Supplies a trident with authoritative enchantment and environment observations.
 fn trident(tick: u64, held: bool, level: u8, wet: bool) -> UseFrame {
     UseFrame {
@@ -31,7 +34,10 @@ fn riptide_requires_ten_charge_ticks_and_wetness_at_both_edges() {
             kinds(&released),
             if wet_start { vec!["release"] } else { vec![] }
         );
-        assert_eq!(runtime.take_riptide_launch(), launch);
+        assert_eq!(
+            runtime.take_riptide_launch().map(|launch| launch.level),
+            launch
+        );
         assert_eq!(runtime.take_riptide_launch(), None);
     }
 }
@@ -67,7 +73,10 @@ fn rejected_release_cannot_launch_or_turn_a_short_charge_into_a_full_one() {
             6,
             |_| Ok(()),
         );
-        assert_eq!(runtime.take_riptide_launch(), launch);
+        assert_eq!(
+            runtime.take_riptide_launch().map(|launch| launch.level),
+            launch
+        );
         assert!(!runtime.is_using());
     }
 }
@@ -117,6 +126,7 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
                 edge.held,
                 edge.riptide,
                 edge.selection.as_ref(),
+                edge.riptide_facing,
             );
             let later = trident(150, false, 3, true);
             runtime.observe_riptide_release(
@@ -124,6 +134,7 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
                 later.held,
                 later.riptide,
                 later.selection.as_ref(),
+                later.riptide_facing,
             );
             assert_eq!(runtime.is_using(), invalid != "reselected");
             assert_eq!(runtime.take_riptide_launch(), None);
@@ -138,7 +149,7 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
                 }
             );
             assert_eq!(
-                runtime.take_riptide_launch(),
+                runtime.take_riptide_launch().map(|launch| launch.level),
                 (invalid == "none" && ticks == RIPTIDE_CHARGE_TICKS).then_some(3)
             );
             assert!(!runtime.is_using());
@@ -148,7 +159,13 @@ fn deferred_riptide_release_keeps_edge_eligibility_and_cannot_ignore_reselection
     runtime.observe_press(true);
     runtime.step(&trident(100, true, 3, true));
     let edge = trident(110, false, 3, true);
-    runtime.observe_riptide_release(edge.tick, edge.held, edge.riptide, edge.selection.as_ref());
+    runtime.observe_riptide_release(
+        edge.tick,
+        edge.held,
+        edge.riptide,
+        edge.selection.as_ref(),
+        edge.riptide_facing,
+    );
     let mut changed = trident(150, false, 3, true);
     changed.selection.as_mut().unwrap().slot += 1;
     assert!(runtime.step(&changed).packets.is_empty());
@@ -162,7 +179,13 @@ fn observing_riptide_release_facts_leaves_other_held_items_on_their_admission_cl
         runtime.observe_press(true);
         let start = item_frame(100, true, selection(2, MENU_ITEM), identifier);
         assert!(runtime.step(&start).started);
-        runtime.observe_riptide_release(101, false, None, start.selection.as_ref());
+        runtime.observe_riptide_release(
+            101,
+            false,
+            None,
+            start.selection.as_ref(),
+            start.riptide_facing,
+        );
         assert!(
             runtime
                 .step(&UseFrame {
