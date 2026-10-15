@@ -595,16 +595,14 @@ impl LocalPhysicsController {
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
             };
-            if tick_index == 0 {
-                self.anchor_state.prepare_tick(
-                    world,
-                    self.modes,
-                    context.mode_intent,
-                    &mut observed,
-                    input,
-                );
-                state.position = observed.feet;
-            }
+            self.anchor_state.prepare_tick(
+                world,
+                self.modes,
+                context.mode_intent,
+                &mut observed,
+                input,
+            );
+            state.position = observed.feet;
             match self.modes.select(context.mode_intent, observed, world) {
                 Ok(choice) => {
                     input.mode = choice.mode;
@@ -683,7 +681,6 @@ impl LocalPhysicsController {
                     self.eye_offset.tick(input.mode, input.sneaking);
                     self.controller_history.push_back(ControllerFrame {
                         tick: state.tick,
-                        frame_start: tick_index == 0,
                         anchor_state: self.anchor_state,
                         entry_velocity,
                         eye_height: self.eye_offset.height(1.0),

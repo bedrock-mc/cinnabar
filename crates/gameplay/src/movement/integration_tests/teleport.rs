@@ -142,6 +142,38 @@ fn snapped_teleport_recovers_floor_overlap_before_catch_up_travel() {
         assert!(sample.grounded_after_tick);
     }
     assert!((physics.state().unwrap().position.y - 1.0).abs() < 1e-5);
+
+    let expected = physics.state().cloned();
+    let skipped_tick = frame.samples[0].tick;
+    for sample in &frame.samples {
+        ticker.enqueue_completed_physics(sample.clone()).unwrap();
+    }
+    let outcome = super::reconcile_physics_anchor(
+        &mut ticker,
+        &mut physics,
+        super::PhysicsAnchor {
+            network_position: target,
+            tick: skipped_tick,
+            on_ground: true,
+            velocity: Some([0.0; 3]),
+        },
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &world,
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        PhysicsCorrectionOutcome::Replayed {
+            replayed_ticks: 2,
+            ..
+        }
+    ));
+    assert_eq!(physics.state(), expected.as_ref());
+    for sample in &frame.samples[1..] {
+        let replayed = physics.sample_at(sample.tick).unwrap();
+        assert_eq!(replayed.movement, [0.0; 3]);
+        assert!(replayed.grounded_after_tick);
+    }
 }
 
 /// Session reanchoring discards a teleport marker belonging to the old timeline.

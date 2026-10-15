@@ -751,7 +751,8 @@ these changes do not close the movement, camera, or actor parity gates.
   Unstamped or expired reset corrections keep their incoming destination.
   Snapped MovePlayer teleports suppress travel for one completed tick, retaining
   destination contact, jump cooldown and independent motion updates. The captured
-  input preserves that tick during correction replay.
+  input preserves that tick during correction replay. Pending anchor recovery
+  precedes resumed travel, including catch-up ticks within the same frame.
 - Actor crouch updates preserve held ability-flight descent during live input
   and correction replay; older walking-pose updates stop at the flight transition.
   Focused regressions reproduce the upward rewind caused by a server sneak clear.
