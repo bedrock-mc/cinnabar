@@ -7,23 +7,29 @@ use std::{
     path::Path,
 };
 
+/// Most header bytes inspected to identify a session.
+pub(crate) const HEADER_BYTES: usize = 4096;
 const SESSION_FIELD: &str = "session=";
 
 /// Whether the retained header prefix belongs to `session_id`, using a bounded header read.
 fn belongs(file: &mut File, marker: &str, session_id: &str) -> io::Result<bool> {
-    let mut header = [0; 4096];
+    let mut header = [0; HEADER_BYTES];
     let count = file.read(&mut header)?;
     file.seek(SeekFrom::Start(0))?;
-    let line = header[..count]
+    Ok(matches_header(&header[..count], marker, session_id))
+}
+
+/// Matches a bounded header prefix without allocation or IO, including in signal handlers.
+pub(crate) fn matches_header(header: &[u8], marker: &str, session_id: &str) -> bool {
+    let line = header
         .split(|byte| *byte == b'\n')
         .rfind(|line| line.starts_with(marker.as_bytes()))
         .unwrap_or_default();
     let Ok(line) = std::str::from_utf8(line) else {
-        return Ok(false);
+        return false;
     };
-    Ok(line
-        .split_ascii_whitespace()
-        .any(|field| field.strip_prefix(SESSION_FIELD) == Some(session_id)))
+    line.split_ascii_whitespace()
+        .any(|field| field.strip_prefix(SESSION_FIELD) == Some(session_id))
 }
 
 /// Opens this session's current or retained segments, ordered by their modification time.
@@ -104,7 +110,7 @@ fn identified(path: &Path) -> bool {
     let Ok(mut file) = File::open(path) else {
         return true;
     };
-    let mut header = [0; 4096];
+    let mut header = [0; HEADER_BYTES];
     let Ok(count) = file.read(&mut header) else {
         return true;
     };

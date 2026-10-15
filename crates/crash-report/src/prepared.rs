@@ -38,6 +38,7 @@ pub struct Prepared {
     /// `report.json` without its deferred fields or closing brace.
     prefix: Vec<u8>,
     started_at_ms: u64,
+    session_id: Option<String>,
     client_log: LogCopy,
     core_log: LogCopy,
 }
@@ -45,6 +46,7 @@ pub struct Prepared {
 /// A log whose latest session the handler copies into the crash folder.
 struct LogCopy {
     source: Option<File>,
+    current: CString,
     target: CString,
 }
 
@@ -68,7 +70,9 @@ impl Prepared {
             report: c_path(&crash.join(folder::REPORT_FILE))?,
             prefix,
             started_at_ms: logs.started_at_ms,
+            session_id: logs.session_id.map(str::to_owned),
             client_log: LogCopy {
+                current: c_path(logs.client)?,
                 source: section::session::open(
                     logs.client,
                     section::CLIENT_SESSION_START,
@@ -77,6 +81,7 @@ impl Prepared {
                 target: c_path(&crash.join(folder::CLIENT_LOG_FILE))?,
             },
             core_log: LogCopy {
+                current: c_path(logs.core)?,
                 source: section::session::open(
                     logs.core,
                     section::CORE_SESSION_START,
@@ -121,12 +126,14 @@ impl Prepared {
                 &self.client_log,
                 section::CLIENT_SESSION_START,
                 None,
+                self.session_id.as_deref(),
                 scratch,
             );
             copy_section(
                 &self.core_log,
                 section::CORE_SESSION_START,
                 Some(self.started_at_ms),
+                self.session_id.as_deref(),
                 scratch,
             );
         }
@@ -159,7 +166,13 @@ fn deferred_fields(fault: &SignalFault, uptime_ms: u64, thread_id: u64) -> Buffe
 /// Copies the latest session of a log, read from at most its final `scratch.len()` bytes, into a
 /// new file with async-signal-safe calls only; a missing log leaves the copy empty. With
 /// `since_ms`, a section whose header predates it belongs to an earlier session and is left out.
-unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scratch: &mut [u8]) {
+unsafe fn copy_section(
+    copy: &LogCopy,
+    marker: &str,
+    since_ms: Option<u64>,
+    session_id: Option<&str>,
+    scratch: &mut [u8],
+) {
     // SAFETY: The paths are prebuilt C strings; open, lseek, read, write, fsync and close are
     // async-signal-safe, and the section helpers neither allocate nor lock.
     unsafe {
@@ -171,8 +184,10 @@ unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scra
         if target < 0 {
             return;
         }
-        if let Some(source) = &copy.source {
-            let source = source.as_raw_fd();
+        let current =
+            session_id.and_then(|session_id| current_source(copy, marker, session_id, scratch));
+        let source = current.or_else(|| copy.source.as_ref().map(AsRawFd::as_raw_fd));
+        if let Some(source) = source {
             let length = libc::lseek(source, 0, libc::SEEK_END);
             let current = since_ms.is_none_or(|since| {
                 if libc::lseek(source, 0, libc::SEEK_SET) < 0 {
@@ -202,8 +217,39 @@ unsafe fn copy_section(copy: &LogCopy, marker: &str, since_ms: Option<u64>, scra
                 write_all(target, &tail[cut..]);
             }
         }
+        if let Some(current) = current {
+            libc::close(current);
+        }
         libc::fsync(target);
         libc::close(target);
+    }
+}
+
+/// Opens the current segment only when its header still belongs to this session.
+/// The caller owns scratch exclusively and must close any returned descriptor.
+unsafe fn current_source(
+    copy: &LogCopy,
+    marker: &str,
+    session_id: &str,
+    scratch: &mut [u8],
+) -> Option<i32> {
+    // SAFETY: The C path is prepared, and all IO uses the exclusive caller-provided buffer.
+    unsafe {
+        let fd = libc::open(
+            copy.current.as_ptr(),
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+        );
+        if fd < 0 {
+            return None;
+        }
+        let count = scratch.len().min(section::session::HEADER_BYTES);
+        let filled = read_full(fd, &mut scratch[..count]);
+        if section::session::matches_header(&scratch[..filled], marker, session_id) {
+            Some(fd)
+        } else {
+            libc::close(fd);
+            None
+        }
     }
 }
 
@@ -407,6 +453,67 @@ mod tests {
             fs::read(folders[0].join(folder::CORE_LOG_FILE))
                 .unwrap()
                 .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod rotation_tests {
+    use super::*;
+    use crate::report::{Identity, Kind};
+
+    #[test]
+    fn native_snapshot_follows_the_same_sessions_new_segment() {
+        let dir = tempfile::tempdir().unwrap();
+        let client = dir.path().join("client.log");
+        let core = dir.path().join("core.log");
+        let identity = Identity {
+            session_id: "0123456789abcdef".into(),
+            started_at_ms: 0,
+            release: "fixture".into(),
+            commit: "fixture".into(),
+            build_profile: "test".into(),
+        };
+        let header = format!(
+            "{} session={}\n",
+            section::CLIENT_SESSION_START,
+            identity.session_id
+        );
+        std::fs::write(&client, format!("{header}old segment\n")).unwrap();
+        let report = Report::new(Kind::Native, "fixture".into(), &identity, 1000);
+        let prepared = Prepared::new(
+            dir.path(),
+            &report,
+            &LogSources {
+                session_id: Some(&identity.session_id),
+                client: &client,
+                core: &core,
+                started_at_ms: 0,
+            },
+            1000,
+        )
+        .unwrap();
+        std::fs::rename(&client, dir.path().join("client-19700101-000001.log")).unwrap();
+        let current = format!("{header}latest segment\n");
+        std::fs::write(&client, &current).unwrap();
+        let mut scratch = vec![0; SCRATCH_BYTES];
+        // SAFETY: This fixture owns the scratch buffer and calls the writer only once.
+        unsafe {
+            prepared.write(
+                &SignalFault {
+                    signal: libc::SIGABRT,
+                    code: 0,
+                    address: 0,
+                },
+                2000,
+                &mut scratch,
+            );
+        }
+        let folders = folder::list(dir.path());
+        assert_eq!(folders.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(folders[0].join(folder::CLIENT_LOG_FILE)).unwrap(),
+            current
         );
     }
 }
