@@ -213,13 +213,6 @@ impl ParticleSystem {
                 let Some(tile) = request.tile.as_ref() else {
                     return fallback;
                 };
-                // Pinning only affects tile-slot recycling, so it is refreshed right before it.
-                self.atlas.set_live_placements(
-                    self.emitters
-                        .iter()
-                        .filter(|emitter| !emitter.done || !emitter.particles.is_empty())
-                        .map(|emitter| emitter.texture),
-                );
                 let placement = self
                     .atlas
                     .tile(tile.key, tile.size, &tile.pixels)

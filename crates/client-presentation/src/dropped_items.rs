@@ -507,9 +507,7 @@ impl DroppedItemPublisher<'_, '_> {
                 })
             });
             if let Some(prepared) = prepared {
-                prepared.append(view, instances, |position| {
-                    stream.light_level_at(position)
-                });
+                prepared.append(view, instances, |position| stream.light_level_at(position));
             }
         }
 

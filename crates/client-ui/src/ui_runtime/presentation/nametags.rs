@@ -460,7 +460,7 @@ pub fn build_nametag_scene<'p>(
     }));
     let side = NAMETAG_ATLAS_SIDE as f32;
     let texels = FONT_DESIGN_PIXEL_TEXELS as f32;
-    let mut records = Vec::with_capacity((requested_lines * 3).min(MAX_NAMETAG_RECORDS));
+    let mut records = Vec::new();
     let mut labels = Vec::with_capacity(ordered.len());
     // One line buffer serves every label.
     let mut placed = Vec::new();
