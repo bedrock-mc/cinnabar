@@ -19,11 +19,13 @@ mod carriers;
 pub mod entities;
 pub mod events;
 mod format_generated;
+pub mod identities;
 pub mod items;
 mod light;
 mod manifest;
 mod movement;
 mod placement;
+pub mod presentation;
 mod projection;
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
@@ -61,6 +63,8 @@ struct BiomeFact {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Policy {
+    runtime_identifiers: BTreeMap<String, BTreeMap<String, String>>,
+    presentation: presentation::Rules,
     entity_compatibility: Vec<String>,
     entity_rules: Vec<entities::Rule>,
     model_family_rules: Vec<Rule>,

@@ -1291,126 +1291,7 @@ vocabularies = [
     { path = "crates/protocol/data/item_tags_dragonfly.tsv", column = 0 },
 ]
 block_registries = ["crates/assets/data/block-registry-v2193.bin"]
-baselines = [
-    { path = "app/src/block_entities/describe.rs", max = 1 },
-    { path = "app/src/developer_control/state.rs", max = 1 },
-    { path = "app/src/environment/profile_lookup.rs", max = 3 },
-    { path = "app/src/hud_tools/debug_overlay/entities.rs", max = 1 },
-    { path = "app/src/modding/module_observations.rs", max = 1 },
-    { path = "app/src/particles/ambient.rs", max = 1 },
-    { path = "app/src/particles/ambient/fire.rs", max = 2 },
-    { path = "app/src/particles/ambient/portal.rs", max = 2 },
-    { path = "app/src/particles/drive.rs", max = 7 },
-    { path = "app/src/runtime/network/block_overlay.rs", max = 1 },
-    { path = "app/src/runtime/network/reload_environment.rs", max = 1 },
-    { path = "app/src/runtime/network/reload_environment/biomes.rs", max = 3 },
-    { path = "app/src/ui_runtime/presentation/publish.rs", max = 2 },
-    { path = "app/src/ui_runtime/presentation/publish/menu_icons.rs", max = 4 },
-    { path = "crates/actor-animation/src/legacy_swing.rs", max = 6 },
-    { path = "crates/actor-animation/src/query.rs", max = 1 },
-    { path = "crates/actor-animation/src/store.rs", max = 1 },
-    { path = "crates/actor-animation/src/tick.rs", max = 4 },
-    { path = "crates/asset-compiler/build_support/sources.rs", max = 1 },
-    { path = "crates/assets/src/atmosphere.rs", max = 4 },
-    { path = "crates/assets/src/bamboo.rs", max = 1 },
-    { path = "crates/assets/src/banner.rs", max = 1 },
-    { path = "crates/assets/src/banner/patterns.rs", max = 4 },
-    { path = "crates/assets/src/beacon.rs", max = 1 },
-    { path = "crates/assets/src/block_entity_geometry.rs", max = 1 },
-    { path = "crates/assets/src/block_names.rs", max = 29 },
-    { path = "crates/assets/src/block_presentation_state.rs", max = 3 },
-    { path = "crates/assets/src/compiled/block_destroy.rs", max = 8 },
-    { path = "crates/assets/src/effects.rs", max = 1 },
-    { path = "crates/assets/src/entity/v4/molang_math.rs", max = 1 },
-    { path = "crates/assets/src/gui_item.rs", max = 2 },
-    { path = "crates/assets/src/icon/dial.rs", max = 3 },
-    { path = "crates/assets/src/model.rs", max = 4 },
-    { path = "crates/assets/src/potion.rs", max = 6 },
-    { path = "crates/assets/src/runtime/decode.rs", max = 1 },
-    { path = "crates/bridge/src/contract.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/predicted.rs", max = 2 },
-    { path = "crates/client-audio/src/audio/route.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/settings.rs", max = 1 },
-    { path = "crates/client-audio/src/audio/systems.rs", max = 1 },
-    { path = "crates/client-presentation/src/actor_publication/java.rs", max = 2 },
-    { path = "crates/client-presentation/src/camera/facts.rs", max = 2 },
-    { path = "crates/client-presentation/src/camera/overlay_publish.rs", max = 1 },
-    { path = "crates/client-presentation/src/camera/presentation.rs", max = 1 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/java.rs", max = 1 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/native.rs", max = 5 },
-    { path = "crates/client-presentation/src/presentation/equipment/runtime/types.rs", max = 2 },
-    { path = "crates/client-ui/src/ui_runtime/book_screen.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/food.rs", max = 12 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/debug_overlay.rs", max = 2 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/forms/furnace_book.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/forms/preview_renderer.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/gui_models/held.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/inventory_tooltip.rs", max = 3 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/player_preview/controller.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/publish/container.rs", max = 4 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/publish/player_items.rs", max = 1 },
-    { path = "crates/client-ui/src/ui_runtime/presentation/publish/recipes.rs", max = 6 },
-    { path = "crates/client-ui/src/ui_runtime/sign_editor.rs", max = 10 },
-    { path = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs", max = 2 },
-    { path = "crates/client-world/src/actor_store/cloud_particles.rs", max = 2 },
-    { path = "crates/client-world/src/actor_store/dragon_fireball_particles.rs", max = 2 },
-    { path = "crates/client-world/src/actor_store/dragon_particles.rs", max = 3 },
-    { path = "crates/client-world/src/actor_store/entities.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/lifecycle/interpolation.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/lightning.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/mount.rs", max = 12 },
-    { path = "crates/client-world/src/actor_store/projectile.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/properties.rs", max = 1 },
-    { path = "crates/client-world/src/actor_store/synchronized_audio.rs", max = 1 },
-    { path = "crates/client-world/src/authority/dimension_ranges.rs", max = 1 },
-    { path = "crates/experience-runtime/src/callback.rs", max = 1 },
-    { path = "crates/experience-runtime/src/protocol.rs", max = 8 },
-    { path = "crates/experience-runtime/src/protocol/visuals.rs", max = 4 },
-    { path = "crates/gameplay/src/movement/collision_registries.rs", max = 1 },
-    { path = "crates/inventory/src/inventory_ledger/item_roles.rs", max = 2 },
-    { path = "crates/json-ui/src/anim.rs", max = 1 },
-    { path = "crates/json-ui/src/anim/def.rs", max = 2 },
-    { path = "crates/json-ui/src/layout/place.rs", max = 2 },
-    { path = "crates/json-ui/src/predicate/token.rs", max = 1 },
-    { path = "crates/launcher-host/src/launcher_account.rs", max = 2 },
-    { path = "crates/launcher-host/src/local_worlds/docker.rs", max = 1 },
-    { path = "crates/launcher/src/install_layout.rs", max = 1 },
-    { path = "crates/mod-host/src/runtime/exports.rs", max = 1 },
-    { path = "crates/mod-render/src/shader.rs", max = 2 },
-    { path = "crates/oreui/src/images/dimensions.rs", max = 3 },
-    { path = "crates/particles/src/ambient.rs", max = 1 },
-    { path = "crates/particles/src/ambient/fire.rs", max = 1 },
-    { path = "crates/particles/src/dragon_egg.rs", max = 1 },
-    { path = "crates/particles/src/triggers.rs", max = 7 },
-    { path = "crates/particles/src/world.rs", max = 1 },
-    { path = "crates/protocol/src/actor/painting.rs", max = 1 },
-    { path = "crates/protocol/src/inventory/recipes/grammar.rs", max = 6 },
-    { path = "crates/protocol/src/item/attack.rs", max = 1 },
-    { path = "crates/protocol/src/world/custom_blocks.rs", max = 4 },
-    { path = "crates/render-model/src/block_entity/bell.rs", max = 1 },
-    { path = "crates/render-model/src/block_entity/chest.rs", max = 7 },
-    { path = "crates/render-model/src/block_entity/held.rs", max = 3 },
-    { path = "crates/render-model/src/block_entity/pot.rs", max = 1 },
-    { path = "crates/render-model/src/block_entity/statue.rs", max = 5 },
-    { path = "crates/render-model/src/java_animation.rs", max = 1 },
-    { path = "crates/sim/src/conformance.rs", max = 3 },
-    { path = "crates/ui-engine/src/engine/vector_icons.rs", max = 1 },
-    { path = "crates/ui-screens/src/container_data.rs", max = 2 },
-    { path = "crates/ui/src/mod_panel/surface.rs", max = 1 },
-    { path = "crates/ui/src/mod_panel/surface/static_templates.rs", max = 1 },
-    { path = "examples/experiences/probe/src/contract.rs", max = 2 },
-    { path = "examples/experiences/probe/src/lib.rs", max = 2 },
-    { path = "tools/architecture/src/paths.rs", max = 1 },
-    { path = "tools/architecture/src/reexports.rs", max = 1 },
-    { path = "tools/cinnabar-mcp/src/definitions.rs", max = 10 },
-    { path = "tools/cxb/src/fixtures.rs", max = 1 },
-    { path = "tools/devtool/src/capture.rs", max = 2 },
-    { path = "tools/devtool/src/ci.rs", max = 1 },
-    { path = "tools/dist/src/lib.rs", max = 1 },
-    { path = "tools/jsonui-mcp/src/tools.rs", max = 14 },
-    { path = "tools/release-manifest/src/main.rs", max = 1 },
-    { path = "tools/workspace-declarations/src/lib.rs", max = 1 },
-]
+baselines = []
 
 [[identifier_literal_exceptions]]
 path = "tools/architecture/src/identifiers/scan.rs"
@@ -1446,6 +1327,471 @@ reason = "Portal axis value from the pinned block-state domain."
 path = "crates/asset-compiler/src/block_shapes/visual.rs"
 literal = "tip"
 reason = "Dripstone thickness value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "air"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "water"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "lava"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/atmosphere.rs"
+literal = "powder_snow"
+reason = "Fog-medium schema keyword; this parser does not select block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner.rs"
+literal = "_dye"
+reason = "Extracts a colour token only after the compiled loom-dye role admits the item."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "creeper"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "skull"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "pig"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/banner/patterns.rs"
+literal = "piglin"
+reason = "Banner wire-code and texture-stem vocabulary, not actor or item membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/block_entity_geometry.rs"
+literal = "_shulker_box"
+reason = "Extracts texture colours once while indexing generated Shulker backing memberships."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "pickaxe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "axe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "shovel"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "hoe"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "sword"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/compiled/block_destroy.rs"
+literal = "shears"
+reason = "Tool-family keyword in the generated destroy carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/effects.rs"
+literal = "minecraft:wither"
+reason = "Effect registry vocabulary; the table is checked against the pinned effect inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/entity/v4/molang_math.rs"
+literal = "sign"
+reason = "Molang math function keyword, not block membership."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/gui_item.rs"
+literal = "shield"
+reason = "Native shield geometry bone name used by the isolated model transcription."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "minecraft:water"
+reason = "Potion-type vocabulary; the table is checked against the pinned potion inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "minecraft:wither"
+reason = "Potion and effect vocabulary checked against the pinned potion inventory."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "wither"
+reason = "Potion translation-key stem in the checked potion descriptor table."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/potion.rs"
+literal = "potion_bottle_splash"
+reason = "Sprite atlas key in the validated legacy icon schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/assets/src/runtime/decode.rs"
+literal = "frame"
+reason = "Diagnostic label for the animation-frame count in the carrier schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/block_entity/bell.rs"
+literal = "hanging"
+reason = "Bell attachment value from the pinned block-state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/block_entity/pot.rs"
+literal = "_pottery_sherd"
+reason = "Extracts the artwork stem only after the compiled decorated-pot tag admits the item."
+
+[[identifier_literal_exceptions]]
+path = "crates/render-model/src/java_animation.rs"
+literal = "_sword"
+reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
+
+[[identifier_literal_exceptions]]
+path = "app/src/runtime/network/block_overlay.rs"
+literal = "water"
+reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
+
+[[identifier_literal_exceptions]]
+path = "app/src/runtime/network/reload_environment/biomes.rs"
+literal = "color"
+reason = "Client-biome component field name in the authored JSON schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/asset-compiler/build_support/sources.rs"
+literal = "target"
+reason = "Cargo build-directory name excluded from source fingerprinting."
+
+[[identifier_literal_exceptions]]
+path = "crates/bridge/src/contract.rs"
+literal = "banner"
+reason = "Generated bridge messaging artwork marker, checked against contract.json by bridgegen."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/forms/preview_renderer.rs"
+literal = "rotation"
+reason = "JSON-UI renderer property key, not an actor identity."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/player_preview/controller.rs"
+literal = "rotation"
+reason = "JSON-UI renderer property key, not an actor identity."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/publish/container.rs"
+literal = "helmet"
+reason = "Empty-slot texture naming vocabulary in the JSON-UI item artwork contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/publish/container.rs"
+literal = "chestplate"
+reason = "Empty-slot texture naming vocabulary in the JSON-UI item artwork contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/publish/container.rs"
+literal = "leggings"
+reason = "Empty-slot texture naming vocabulary in the JSON-UI item artwork contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/publish/container.rs"
+literal = "boots"
+reason = "Empty-slot texture naming vocabulary in the JSON-UI item artwork contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs"
+literal = "minecraft:stone"
+reason = "Opt-in acceptance fixture names the pinned stone target and its explicit diagnostic selector."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/use_on_identity_evidence.rs"
+literal = "stone"
+reason = "Opt-in acceptance fixture names the pinned stone target and its explicit diagnostic selector."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/callback.rs"
+literal = "minecraft:air"
+reason = "Experience protocol sentinel for an empty block or inventory cell."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol.rs"
+literal = "minecraft:stone"
+reason = "Protocol conformance fixture requires concrete registered block and item identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol.rs"
+literal = "minecraft:iron_ingot"
+reason = "Protocol conformance fixture requires concrete registered block and item identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol.rs"
+literal = "minecraft:ender_pearl"
+reason = "Protocol conformance fixture requires concrete registered block and item identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol.rs"
+literal = "minecraft:air"
+reason = "Protocol conformance fixture requires concrete registered block and item identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "minecraft:cardinal_direction"
+reason = "Placement-state schema property names carried by the Experience wire contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "minecraft:facing_direction"
+reason = "Placement-state schema property names carried by the Experience wire contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "minecraft:block_face"
+reason = "Placement-state schema property names carried by the Experience wire contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "minecraft:vertical_half"
+reason = "Placement-state schema property names carried by the Experience wire contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/inventory/src/inventory_ledger/item_roles.rs"
+literal = "filled_map"
+reason = "Legacy cartography map identities are absent from the pinned retail carrier; preserve the exact fallback until they can be admitted as item facts."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/anim.rs"
+literal = "color"
+reason = "JSON-UI animation property vocabulary."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/anim/def.rs"
+literal = "color"
+reason = "JSON-UI animation kind and layout orientation property vocabulary."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/anim/def.rs"
+literal = "orientation"
+reason = "JSON-UI animation kind and layout orientation property vocabulary."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/layout/place.rs"
+literal = "top"
+reason = "JSON-UI anchor grammar uses vertical position words, not registry identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/layout/place.rs"
+literal = "bottom"
+reason = "JSON-UI anchor grammar uses vertical position words, not registry identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/json-ui/src/predicate/token.rs"
+literal = "inf"
+reason = "Numeric expression grammar accepts the floating-point infinity prefix."
+
+[[identifier_literal_exceptions]]
+path = "crates/launcher-host/src/local_worlds/docker.rs"
+literal = "bat"
+reason = "Windows executable filename extension recognized by the local-world launcher."
+
+[[identifier_literal_exceptions]]
+path = "crates/launcher/src/install_layout.rs"
+literal = "target"
+reason = "Cargo artifact-directory name used to locate an in-tree development executable."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-host/src/runtime/exports.rs"
+literal = "frame"
+reason = "Required WebAssembly callback export name in the checked mod WIT contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/mod-render/src/shader.rs"
+literal = "frame"
+reason = "Shader resource-binding name validated against the mod rendering contract."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/actor/painting.rs"
+literal = "minecraft:painting"
+reason = "AddPainting packet grammar fixes the actor discriminator; packet normalization tests check the projected identity."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "cartography_table"
+reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "furnace"
+reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "blast_furnace"
+reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "smoker"
+reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "crafting_table"
+reason = "Recipe packet station vocabulary, normalized at the protocol boundary before facts admission."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/attack.rs"
+literal = "minecraft:is_spear"
+reason = "Authored component tag vocabulary parsed at the assets-free protocol boundary and checked against the pinned tag fixture."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks.rs"
+literal = "block_face"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks.rs"
+literal = "vertical_half"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks.rs"
+literal = "cardinal_direction"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks.rs"
+literal = "facing_direction"
+reason = "Custom-block placement-state schema names admitted from the wire."
+
+[[identifier_literal_exceptions]]
+path = "crates/sim/src/conformance.rs"
+literal = "lava"
+reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/sim/src/conformance.rs"
+literal = "soul_sand"
+reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/sim/src/conformance.rs"
+literal = "scaffolding"
+reason = "Behavior conformance scenario vocabulary selects checked physics fixtures, not runtime block identities."
+
+[[identifier_literal_exceptions]]
+path = "crates/ui-engine/src/engine/vector_icons.rs"
+literal = "sword"
+reason = "Product vector-icon schema token selecting original Cinnabar artwork."
+
+[[identifier_literal_exceptions]]
+path = "crates/ui-screens/src/container_data.rs"
+literal = "_button"
+reason = "JSON-UI crafter widget-name grammar encodes a numeric slot before the button suffix."
+
+[[identifier_literal_exceptions]]
+path = "crates/ui/src/mod_panel/surface.rs"
+literal = "color"
+reason = "JSON-UI animation property schema used by mod controls."
+
+[[identifier_literal_exceptions]]
+path = "crates/ui/src/mod_panel/surface/static_templates.rs"
+literal = "color"
+reason = "JSON-UI animation property schema used by static mod templates."
+
+[[identifier_literal_exceptions]]
+path = "examples/experiences/probe/src/contract.rs"
+literal = "minecraft:stone"
+reason = "Runnable Experience conformance fixture needs a registered solid block and inventory stack."
+
+[[identifier_literal_exceptions]]
+path = "examples/experiences/probe/src/lib.rs"
+literal = "minecraft:air"
+reason = "Runnable Experience probe uses pinned empty and solid block fixtures."
+
+[[identifier_literal_exceptions]]
+path = "examples/experiences/probe/src/lib.rs"
+literal = "minecraft:stone"
+reason = "Runnable Experience probe uses pinned empty and solid block fixtures."
+
+[[identifier_literal_exceptions]]
+path = "tools/architecture/src/paths.rs"
+literal = "target"
+reason = "Cargo artifact-directory name excluded from architecture source discovery."
+
+[[identifier_literal_exceptions]]
+path = "tools/architecture/src/reexports.rs"
+literal = "target"
+reason = "Cargo target-specific dependency table key in the manifest schema."
+
+[[identifier_literal_exceptions]]
+path = "tools/cinnabar-mcp/src/definitions.rs"
+literal = "string"
+reason = "MCP JSON Schema primitive type vocabulary."
+
+[[identifier_literal_exceptions]]
+path = "tools/cxb/src/fixtures.rs"
+literal = "minecraft:stone"
+reason = "Compiler fixture needs a concrete registered item stack."
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/capture.rs"
+literal = "target"
+reason = "Cargo JSON message schema field identifying the built artifact."
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/ci.rs"
+literal = "cinnabar"
+reason = "Cargo workspace package name in the checked CI package-policy table."
+
+[[identifier_literal_exceptions]]
+path = "tools/dist/src/lib.rs"
+literal = "cookie"
+reason = "Distribution exclusion grammar recognizes credential filename markers."
+
+[[identifier_literal_exceptions]]
+path = "tools/jsonui-mcp/src/tools.rs"
+literal = "string"
+reason = "MCP JSON Schema primitive type vocabulary."
+
+[[identifier_literal_exceptions]]
+path = "tools/release-manifest/src/main.rs"
+literal = "sign"
+reason = "Release-manifest command grammar selects the signing operation."
+
+[[identifier_literal_exceptions]]
+path = "tools/workspace-declarations/src/lib.rs"
+literal = "cinnabar"
+reason = "Cargo package-metadata namespace for checked workspace declarations."
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/capture.rs"
+literal = "cinnabar"
+reason = "Cargo package name selecting the client binary in the artifact-message schema."
+
+[[identifier_literal_exceptions]]
+path = "crates/client-ui/src/ui_runtime/presentation/debug_overlay.rs"
+literal = "color"
+reason = "JSON-UI color property key in the original developer overlay template."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/inventory/recipes/grammar.rs"
+literal = "stonecutter"
+reason = "Recipe packet station vocabulary normalized at the protocol boundary before facts admission."
 
 [[identifier_literal_exceptions]]
 path = "crates/pack-compiler/entity/src/block_entity.rs"
