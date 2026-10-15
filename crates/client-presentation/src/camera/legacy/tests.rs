@@ -528,3 +528,84 @@ fn shared_hand_sway_retains_turn_direction_at_high_and_low_frame_rates() {
         }
     }
 }
+
+/// Returning from freelook adds only the physical return angle to settled hand sway.
+#[test]
+fn freelook_release_preserves_hand_sway_winding() {
+    for java_mode in [false, true] {
+        for (turn, return_angle) in [
+            (360.0_f32, 0.0_f32),
+            (-720.0, 0.0),
+            (405.0, -45.0),
+            (-405.0, 45.0),
+        ] {
+            let mut app = camera_app();
+            let mut user = ui::UserSettings::default();
+            user.video.java_animations = java_mode;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(1, &user)
+                .unwrap();
+            let actor_yaw = 135.0_f32;
+            app.insert_resource(LocalViewPose::new(
+                Vec3::ZERO,
+                Quat::from_rotation_y(-actor_yaw.to_radians()),
+            ));
+            let actor_rotation = app.world().resource::<LocalViewPose>().rotation();
+            tick(&mut app, 1);
+            app.world_mut().run_system_cached(sample).unwrap();
+            {
+                let mut view = app.world_mut().resource_mut::<LocalViewPose>();
+                view.set_freelook(true);
+                view.turn_look_rotation(
+                    Quat::from_rotation_y(-(actor_yaw + turn).to_radians()),
+                    -turn.to_radians(),
+                );
+            }
+            for index in 2..=34 {
+                tick(&mut app, index);
+                app.world_mut().run_system_cached(sample).unwrap();
+            }
+            assert!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .sway_yaw_radians
+                    .abs()
+                    < 2e-6
+            );
+            app.world_mut()
+                .resource_mut::<LocalViewPose>()
+                .set_freelook(false);
+            let view = *app.world().resource::<LocalViewPose>();
+            assert_eq!(view.rotation(), actor_rotation);
+            assert_eq!(view.camera_rotation(), actor_rotation);
+            for alpha in [0.0, 0.5, 1.0] {
+                app.world_mut().resource_mut::<TestPhysics>().alpha = alpha;
+                app.world_mut().run_system_cached(sample).unwrap();
+                let actual = app
+                    .world()
+                    .resource::<FirstPersonHandMotion>()
+                    .sway_yaw_radians;
+                let expected = (return_angle * 0.1).to_radians();
+                assert!(
+                    (actual - expected).abs() < 2e-6,
+                    "Java {java_mode}, turn {turn}, alpha {alpha}: {actual} != {expected}"
+                );
+            }
+            {
+                let mut view = app.world_mut().resource_mut::<LocalViewPose>();
+                view.set_freelook(false);
+                view.turn_look_rotation(
+                    Quat::from_rotation_y(-(actor_yaw + 30.0).to_radians()),
+                    -30.0_f32.to_radians(),
+                );
+            }
+            app.world_mut().run_system_cached(sample).unwrap();
+            let actual = app
+                .world()
+                .resource::<FirstPersonHandMotion>()
+                .sway_yaw_radians;
+            assert!((actual - ((return_angle + 30.0) * 0.1).to_radians()).abs() < 2e-6);
+        }
+    }
+}

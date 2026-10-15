@@ -318,11 +318,13 @@ impl LocalViewPose {
         self.look_rotation()
     }
 
+    /// Restores the actor heading on release with the winding nearest the outgoing camera.
     pub fn set_freelook(&mut self, held: bool) {
         if held {
             self.freelook_rotation.get_or_insert(self.rotation);
-        } else {
-            self.freelook_rotation = None;
+        } else if let Some(freelook) = self.freelook_rotation.take() {
+            let turns = ((freelook.yaw - self.rotation.yaw) / std::f32::consts::TAU).round();
+            self.rotation.yaw += turns * std::f32::consts::TAU;
         }
     }
 

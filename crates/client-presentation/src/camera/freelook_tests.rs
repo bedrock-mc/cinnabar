@@ -179,7 +179,7 @@ fn view_heading_keeps_wrap_crossings_and_freelook_turns() {
     );
     assert!((view.camera_look()[1] - 1080.0).abs() < 1e-4);
     view.set_freelook(false);
-    assert!((view.camera_look()[1] - 480.0).abs() < 1e-4);
+    assert!((view.camera_look()[1] - 1200.0).abs() < 1e-4);
     let before = view;
     view.set_look_rotation(Quat::from_xyzw(0.0, 0.0, 0.0, 0.0));
     view.turn_look_rotation(Quat::IDENTITY, f32::NAN);
