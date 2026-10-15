@@ -251,7 +251,13 @@ impl Workspace {
 
     /// Add host files to `layer`, stripping the folder that holds the pack.
     /// `pending` paths exist but arrive later through [`Self::supply`].
-    pub fn add_files(&mut self, layer: usize, files: Vec<(String, Vec<u8>)>, pending: Vec<String>) {
+    /// Return each accepted pending path paired with its original host path.
+    pub fn add_files(
+        &mut self,
+        layer: usize,
+        files: Vec<(String, Vec<u8>)>,
+        pending: Vec<String>,
+    ) -> Vec<(String, String)> {
         let all: Vec<&str> = files
             .iter()
             .map(|(path, _)| path.as_str())
@@ -259,7 +265,7 @@ impl Workspace {
             .collect();
         let root = pack_root(&all);
         let Some(target) = self.layers.get_mut(layer) else {
-            return;
+            return Vec::new();
         };
         for (path, bytes) in files {
             if let Some(path) = strip_root(&path, &root) {
@@ -267,15 +273,18 @@ impl Workspace {
                 target.files.insert(path, bytes.into());
             }
         }
-        for path in pending {
-            if let Some(path) = strip_root(&path, &root)
+        let mut host_paths = Vec::new();
+        for host_path in pending {
+            if let Some(path) = strip_root(&host_path, &root)
                 && !target.files.contains_key(&path)
             {
-                target.pending.insert(path);
+                target.pending.insert(path.clone());
+                host_paths.push((path, host_path));
             }
         }
         target.generation += 1;
         self.refresh_ui_paths();
+        host_paths
     }
 
     /// Open a zip, reading index-selected UI documents and language files eagerly.
@@ -620,6 +629,47 @@ mod cache_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pending_host_paths_use_the_loaded_files_pack_root() {
+        let mut workspace = Workspace::default();
+        let layer = workspace.add_layer("pack");
+        let paths = workspace.add_files(
+            layer,
+            vec![("Wrapper/Pack/manifest.json".into(), b"{}".to_vec())],
+            vec![
+                "Wrapper/Pack/custom/ui/screen.json".into(),
+                "Wrapper/Pack/ui/screen.json".into(),
+                "Wrapper\\Pack\\@custom\\screen.uidx".into(),
+                "Wrapper/outside.json".into(),
+            ],
+        );
+        assert_eq!(
+            paths,
+            vec![
+                (
+                    "custom/ui/screen.json".into(),
+                    "Wrapper/Pack/custom/ui/screen.json".into(),
+                ),
+                (
+                    "ui/screen.json".into(),
+                    "Wrapper/Pack/ui/screen.json".into(),
+                ),
+                (
+                    "@custom/screen.uidx".into(),
+                    "Wrapper\\Pack\\@custom\\screen.uidx".into(),
+                ),
+            ]
+        );
+        for (path, _) in paths {
+            workspace.supply(layer, &path, path.as_bytes().to_vec());
+            assert_eq!(
+                workspace.layers()[layer].text(&path).as_deref(),
+                Some(path.as_str())
+            );
+        }
+        assert!(!workspace.layers()[layer].has("Wrapper/outside.json"));
+    }
 
     // A pack dropped inside a wrapper folder still lands at its own root.
     #[test]

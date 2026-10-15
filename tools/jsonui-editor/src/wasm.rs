@@ -77,11 +77,12 @@ impl Editor {
         self.staged_pending.push(path.to_owned());
     }
 
-    pub fn commit_files(&mut self, layer: usize) {
+    /// Commit staged files and return pending `[pack-relative path, host path]` pairs.
+    pub fn commit_files(&mut self, layer: usize) -> String {
         self.frame = None;
         let files = std::mem::take(&mut self.staged);
         let pending = std::mem::take(&mut self.staged_pending);
-        self.session.workspace.add_files(layer, files, pending);
+        json!(self.session.workspace.add_files(layer, files, pending)).to_string()
     }
 
     pub fn add_zip(&mut self, layer: usize, bytes: Vec<u8>) -> Result<(), JsValue> {
