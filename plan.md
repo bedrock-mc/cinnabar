@@ -974,6 +974,10 @@ these changes do not close the movement, camera, or actor parity gates.
 
 - Actor catch-up uses `simulation_clock::MAX_TICKS_PER_FRAME`. Prediction and live per-tick actor
   advancement share one clock step, including server-defined interaction boxes after a stall.
+  Returning actors warm their previous tick in full-cap prefix waves on the existing pool,
+  with bounded helper launches, ordered actual charges and a serial partial-budget tail.
+  Differential and lifecycle regressions are written but unrun. Native crowd-turn timing,
+  first-visible-frame acceptance and measured gains remain incomplete.
   Deterministic regression coverage does not close live animation or movement acceptance.
 
 - Apple pipelined rendering keeps surface creation on the UI thread while render
