@@ -240,10 +240,6 @@ impl SlowFrameRecorder {
     }
 
     /// Attributes the preceding start-to-start interval before resetting its baseline.
-    #[expect(
-        clippy::print_stderr,
-        reason = "live-testing scripts parse CINNABAR_SLOW_FRAME lines from stderr"
-    )]
     pub fn begin_frame(
         &self,
         now: Instant,
