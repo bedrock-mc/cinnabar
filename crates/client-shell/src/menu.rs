@@ -194,7 +194,8 @@ pub struct MenuRuntime {
     settings_dropdown: Option<u16>,
     settings_scale_picker: bool,
     settings_dirty: bool,
-    /// Failed writes wait until this deadline while retaining the newest edits.
+    settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
+    /// Worker startup failures wait until this deadline before another attempt.
     settings_retry_at: Option<std::time::Instant>,
     settings_apply: bool,
     /// Stored choices beneath session-only overrides, restored before saving preferences.
@@ -913,6 +914,9 @@ impl MenuRuntime {
 
 impl Drop for MenuRuntime {
     fn drop(&mut self) {
+        if let Err(error) = self.flush_user_settings() {
+            eprintln!("Could not save settings at shutdown: {error}");
+        }
         self.stop_sign_in();
         self.stop_catalog();
     }

@@ -235,6 +235,15 @@ execution of this move remain unverified, and no parity gate is closed by it.
 - Focus and existing input/cursor regression coverage are retained. Compilation and execution
   of this ownership change remain unverified; movement and presentation parity gates stay open.
 
+## Settings disk writes
+
+Settings edits apply to runtime authorities immediately. A single background writer keeps
+only the newest pending snapshot. It starts a 100 ms batching window with the first edit,
+without extending that window during a drag. Storage can delay completion. Failed writes
+retain the latest edits and retry after one second. Orderly shutdown flushes pending edits before releasing the writer.
+A crash can lose edits still in the batching window or waiting on storage. Native slider-drag
+frame timings remain unverified; this change does not close a hardware performance gate.
+
 ## Menu shell ownership
 
 `client-shell` owns the menu runtime, launcher account and local-world drivers,
