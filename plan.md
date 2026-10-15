@@ -287,6 +287,13 @@ animation parity gate closes.
 - Existing behavior tests are retained. Compilation and execution of these moves
   remain unverified; behavior and performance acceptance gates stay open.
 
+Actor commands collect receipts only after encoding draws and publish them against the
+immutable queued batch once per command. Existing ordered-set membership, complete-span
+coverage and GPU-completion acknowledgement stay in their current owners. The local receipt
+vector adds transient allocation and copying; fragmented commands can still publish once per
+span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
+Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
+
 ## Player interaction ownership
 
 `client-interaction` owns the movement and interaction resource wrappers, item-use
