@@ -210,9 +210,10 @@ all threads and keeps the process running. One report per stall.
 ## Phase 6: Redaction
 
 1. `Secret<T>` in Rust and a `LogValuer` secret type in Go cover credentials at write time.
-2. One share-time rule file in `crash-report` with test vectors; a generated copy embedded
-   in `core/control`, checked in CI. Go `RedactError`, the Go resource-pack handler, `devtool
-   diag` and Copy report use it. Placeholders unify to `[redacted]`.
+2. One share-time rule file in `crash-report` with test vectors; a byte-for-byte copy embedded
+   in `core/internal/redact`, checked by a `crash-report` test. Go `redact.Error` (replacing
+   `RedactError`), the Go resource-pack handler, `devtool diag` and Copy report use it.
+   Placeholders unify to `[redacted]`.
 3. Unredacted Go sites (`proxy.go:195-202`, `targets.go:69`, `proxy.go:251`, `main.go:159`,
    `friend_host.go:209`, raw upstream errors) move to typed or scrubbed fields.
 

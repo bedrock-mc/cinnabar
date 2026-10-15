@@ -549,6 +549,7 @@ fn start_network(
         actor_artwork: actor_artwork.cloned(),
         ui_catalog: ui_catalog.map(|base| base.0.clone()),
         log_dir: menu.layout().log_dir(),
+        record_session: menu.settings_snapshot().0.record_network_session(),
     })
     .map_err(|error| error.to_string())?;
     commands.insert_resource(

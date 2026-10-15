@@ -8,6 +8,7 @@ use std::{fs, path::PathBuf};
 use bootstrap_ui::Preferences;
 use crash_monitor::window::{CrashSummary, Headline};
 use launcher::install_layout::InstallLayout;
+use launcher_host::lifecycle::crash::attachments;
 
 const FONT: &[u8] = include_bytes!("../../../assets/fonts/CinnanglesSans.ttf");
 
@@ -65,17 +66,18 @@ const LOG_TAIL: &str = "\
 21:07:14.745  ERROR crash: requesting a minidump from the crash monitor
 21:07:14.902  INFO crash_monitor: minidump written (38.4 MiB), report saved";
 
-const LAST_PACKETS: &str = "\
-+11.912s  in   LevelChunk           (77, -26)  4 216 B
-+11.913s  in   SubChunk             8 entries  21 904 B
-+11.940s  in   UpdateBlock          (1211, 64, -401)  12 B
-+11.951s  out  PlayerAuthInput      tick 284  64 B
-+11.988s  in   MoveActorDelta       actor 1188  18 B
-+12.003s  in   LevelChunk           (78, -25)  5 102 B
-+12.004s  in   SubChunk             12 entries  33 870 B
-+12.020s  in   SetTime              18 400  6 B
-+12.031s  out  PlayerAuthInput      tick 286  64 B
-+12.044s  in   UpdateSubChunkBlocks  (78, 4, -25) 214 changes  1 712 B";
+/// Rows of a report's `packets.txt`, which the window lists through the same formatter.
+const PACKETS_TABLE: &str = "\
+     18402       11912  clientbound  accepted       4216  LevelChunk (58)
+     18403       11913  clientbound  accepted      21904  SubChunk (174)
+     18404       11940  clientbound  accepted         12  UpdateBlock (21)
+     18405       11951  serverbound  accepted         64  PlayerAuthInput (144)
+     18406       11988  clientbound  accepted         18  MoveActorDelta (111)
+     18407       12003  clientbound  accepted       5102  LevelChunk (58)
+     18408       12004  clientbound  skipped       33870  SubChunk (174)
+     18409       12020  clientbound  accepted          6  SetTime (10)
+     18410       12031  serverbound  accepted         64  PlayerAuthInput (144)
+     18411       12044  clientbound  failed         1712  UpdateSubChunkBlocks (172)";
 
 #[expect(
     clippy::print_stdout,
@@ -93,7 +95,7 @@ fn main() {
         graphics: "NVIDIA GeForce RTX 3070, driver 566.36, Vulkan".into(),
         session: "32 min, joining a server".into(),
         log_tail: LOG_TAIL.lines().map(str::to_owned).collect(),
-        last_packets: LAST_PACKETS.lines().map(str::to_owned).collect(),
+        last_packets: attachments::window_lines(PACKETS_TABLE, attachments::WINDOW_PACKETS),
         folder,
     };
     let preferences = InstallLayout::discover()

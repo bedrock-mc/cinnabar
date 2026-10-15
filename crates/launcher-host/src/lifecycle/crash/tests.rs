@@ -300,8 +300,10 @@ fn without_a_monitor_the_hook_writes_the_panic_folder_with_the_client_log() {
     );
 }
 
+/// Startup prune drops legacy files and staging directories a dead client left, but keeps
+/// folders and this live client's staging directory.
 #[test]
-fn startup_prune_removes_legacy_reports_and_keeps_folders() {
+fn startup_prune_removes_legacy_reports_and_dead_staging_and_keeps_folders() {
     let dir = tempfile::tempdir().unwrap();
     let crash_dir = dir.path().join("crashes");
     let context = context(&layout(dir.path()), identity());
@@ -315,12 +317,15 @@ fn startup_prune_removes_legacy_reports_and_keeps_folders() {
     .unwrap();
     fs::write(crash_dir.join("crash-1-00000000000000000000.json"), "{}").unwrap();
     fs::write(crash_dir.join("crash-2-native.json"), "{}").unwrap();
+    drop(crash_report::staging::Staging::create(&crash_dir, "dead").unwrap());
     prune_reports(&layout(dir.path()));
-    let remaining: Vec<PathBuf> = fs::read_dir(&crash_dir)
+    let mut remaining: Vec<PathBuf> = fs::read_dir(&crash_dir)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect();
-    assert_eq!(remaining, [folder]);
+    remaining.sort();
+    let live = crash_report::staging::path(&crash_dir, &identity().session_id);
+    assert_eq!(remaining, [live, folder]);
 }
 
 /// Linux and Android only: macOS crash capture uses Mach exception ports, whose forwarding of

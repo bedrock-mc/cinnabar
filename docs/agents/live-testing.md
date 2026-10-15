@@ -141,7 +141,9 @@ category with a level (`net=debug`), a bare category for every level, or any `RU
 directive (`wgpu_core=warn`). Invalid directives are skipped with a warning in the log. The
 client MCP `log_filter_set` and `log_filter_get` tools change and report the same spec at
 runtime. `CINNABAR_LOG_JSON=1` also writes each event as one JSON object per line to
-`logs/client.jsonl`.
+`logs/client.jsonl`. Settings → General → Advanced → Verbose logging applies
+`net=debug,session=debug,core=debug,packs=debug` at launch and when toggled, unless
+`CINNABAR_LOG` or `RUST_LOG` is set. F3 shows the active filter.
 
 Every client also starts a `--crash-monitor` process that exits with it and logs to
 `logs/crash-monitor.log`. A crash, abort or kill opens the crash window once the client is gone;
@@ -158,7 +160,7 @@ full-memory `crash.dmp` (Windows).
 | `packs` | Assets, resource packs, pack runtime and extensions |
 | `audio` | Audio playback and decoding |
 | `input` | Input mapping, gamepads and windowing input |
-| `core` | Go core bridge, launcher, lifecycle and diagnostics |
+| `core` | Go core bridge, launcher, lifecycle, crash monitor and diagnostics |
 | `session` | Client session, join, rich presence and telemetry |
 
 ## Native and performance evidence
@@ -310,10 +312,17 @@ use a developer build for acceptance evidence, even when testing with the releas
 The client keeps the last 4,096 packet headers of its sessions in both directions (ID, length,
 the time the client read it and whether ingress accepted, skipped or failed the packet) and up
 to four raw bodies of each rejected packet ID, 1 MiB in total, from the latest session that
-rejected one. Nothing is written until a crash report asks for them.
+rejected one. Beside them a log flight recorder keeps the last 2,000 log lines its own filter
+passes: `debug` for the `net`, `session`, `core` and `packs` categories and the default level
+elsewhere, whatever `CINNABAR_LOG` sets for the session file. All three live in the session's
+crash staging directory, `crashes/.live-<session id>/` (the header and log rings as mapped
+files, the samples as written), so every crash folder gets `packets.txt` (the header table with
+packet names), `decode-samples/` and `flight.log`, even after a native fault or an external
+kill. Staging directories of clients that are gone are deleted at the next startup.
 
-Set `CINNABAR_PACKET_CAPTURE=1` to record each session in full to
-`logs/packets-<session start unix ms>.cnbrcap`, or set it to a file path. An existing file is
+Set `CINNABAR_PACKET_CAPTURE=1` (or turn on Settings → General → Advanced → Record network
+session) to record each session in full to `logs/packets-<session start unix ms>.cnbrcap`, or
+set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
 never replaced; the start time is added to the name instead. The capture uses the v2 format that
 `tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
 when the client read each batch, which trails socket arrival while ingress is backlogged. It

@@ -10,6 +10,8 @@ use protocol::capture::{
 use protocol::session_wire::{CapturedPacketKind, captured_packet_kind};
 
 use super::capture::channel;
+use protocol::packet_tap::PacketName;
+
 use super::samples::FailureSamples;
 use super::*;
 
@@ -58,7 +60,7 @@ fn read_file(path: &Path) -> CaptureFile {
 #[test]
 fn the_ring_keeps_the_newest_records_in_order_across_wraparound() {
     let log = fresh_log();
-    let total = RING_CAPACITY as u64 + 10;
+    let total = packets::CAPACITY as u64 + 10;
     for index in 0..total {
         let direction = PacketDirection::ALL[index as usize % 2];
         let sequence = log.record(
@@ -71,7 +73,7 @@ fn the_ring_keeps_the_newest_records_in_order_across_wraparound() {
         assert_eq!(sequence, index + 1);
     }
     let headers = log.headers();
-    assert_eq!(headers.len(), RING_CAPACITY);
+    assert_eq!(headers.len(), packets::CAPACITY);
     for (offset, header) in headers.iter().enumerate() {
         let index = 10 + offset as u64;
         assert_eq!(
@@ -120,11 +122,11 @@ fn a_stalled_writer_never_overwrites_or_mixes_with_a_newer_record() {
     let publish = |sequence: u64| {
         ring.publish(
             sequence,
-            PacketDirection::Clientbound,
+            PacketDirection::Clientbound as u8,
             (sequence % 0x400) as u32,
             sequence as u32,
             sequence,
-            PacketOutcome::Accepted,
+            PacketOutcome::Accepted as u8,
         );
     };
     let record = || {
@@ -144,11 +146,11 @@ fn a_stalled_writer_never_overwrites_or_mixes_with_a_newer_record() {
 
     // A writer that took its sequence number, then stalled for a whole ring.
     let stalled = ring.reserve();
-    for _ in 1..RING_CAPACITY {
+    for _ in 1..packets::CAPACITY {
         record();
     }
     let newer = record();
-    assert_eq!(newer, stalled + RING_CAPACITY as u64);
+    assert_eq!(newer, stalled + packets::CAPACITY as u64);
     assert!(!ring.begin(stalled), "a stale writer must give up its slot");
     let headers = log.headers();
     assert_eq!(headers.last().map(|header| header.sequence), Some(newer));
@@ -157,21 +159,21 @@ fn a_stalled_writer_never_overwrites_or_mixes_with_a_newer_record() {
     // A writer stalled mid-write keeps its slot: the newer record is given up, not mixed in.
     let slow = ring.reserve();
     assert!(ring.begin(slow));
-    for _ in 1..RING_CAPACITY {
+    for _ in 1..packets::CAPACITY {
         record();
     }
     let blocked = ring.reserve();
-    assert_eq!(blocked, slow + RING_CAPACITY as u64);
+    assert_eq!(blocked, slow + packets::CAPACITY as u64);
     assert!(!ring.begin(blocked));
     let headers = log.headers();
     assert!(headers.iter().all(|header| header.sequence != blocked));
-    assert_eq!(headers.len(), RING_CAPACITY - 1);
+    assert_eq!(headers.len(), packets::CAPACITY - 1);
     publish(slow);
     let headers = log.headers();
     assert!(headers.iter().all(|header| header.sequence != slow));
     assert!(consistent(&headers));
     // Once published, the slot takes the next record a ring later.
-    assert!(ring.begin(blocked + RING_CAPACITY as u64));
+    assert!(ring.begin(blocked + packets::CAPACITY as u64));
 }
 
 #[test]
@@ -196,7 +198,7 @@ fn outcomes_settle_only_the_record_they_name() {
     assert_eq!(outcomes, PacketOutcome::ALL);
 
     // Once the ring overwrites a record, a late outcome for it changes nothing.
-    for _ in 0..RING_CAPACITY {
+    for _ in 0..packets::CAPACITY {
         log.record(
             PacketDirection::Clientbound,
             7,
@@ -276,104 +278,114 @@ fn samples_and_their_bounds_belong_to_one_session() {
     assert_eq!(samples.samples().len(), 1);
 }
 
+/// The ring moves into the staging file with the headers recorded so far, and every later
+/// header and outcome lands in the file a crash report reads.
 #[test]
-fn dump_lists_headers_by_name_and_summarises_samples() {
+fn an_attached_log_keeps_its_headers_in_the_staging_ring_file() {
     let log = fresh_log();
-    let start_game = start_game();
-    let session = log.begin_session();
-    let start = log.record(
+    let staging = tempfile::tempdir().unwrap();
+    let early = log.record(
         PacketDirection::Clientbound,
-        start_game,
+        start_game(),
         58,
         1234,
         PacketOutcome::Accepted,
     );
-    log.record(
+    log.attach(staging.path()).unwrap();
+    let late = log.record(
         PacketDirection::Serverbound,
         0x3ff,
         4,
         1240,
         PacketOutcome::Accepted,
     );
-    log.reject(
-        session,
-        start,
-        start_game,
-        PacketOutcome::Failed,
-        &[1, 2, 3],
-    );
-    let mut out = Vec::new();
-    log.dump(&mut out).unwrap();
-    let text = String::from_utf8(out).unwrap();
-    let lines: Vec<_> = text.lines().collect();
-    assert_eq!(lines[0], "packet headers: 2 recorded, last 2 kept");
-    let name = format!("{} ({start_game})", PacketName(start_game));
-    assert!(lines[2].ends_with(&name), "{text}");
-    for field in ["1", "1234", "clientbound", "failed", "58"] {
-        assert!(
-            lines[2].split_whitespace().any(|word| word == field),
-            "{text}"
-        );
-    }
-    assert!(
-        lines[3].contains("serverbound") && lines[3].contains("accepted"),
-        "{text}"
+    log.reject(1, late, 0x3ff, PacketOutcome::Skipped, &[9]);
+    let file = std::fs::read(staging.path().join(staging::PACKET_RING_FILE)).unwrap();
+    let image = packets::read(&file).unwrap();
+    let headers: Vec<_> = image
+        .headers
+        .into_iter()
+        .filter_map(HeaderRecord::from_ring)
+        .collect();
+    assert_eq!(image.recorded, 2);
+    assert_eq!(headers, log.headers());
+    assert_eq!(
+        headers
+            .iter()
+            .map(|header| (header.sequence, header.outcome))
+            .collect::<Vec<_>>(),
+        [
+            (early, PacketOutcome::Accepted),
+            (late, PacketOutcome::Skipped)
+        ]
     );
     assert_eq!(
-        lines[4],
-        format!(
-            "rejected packet samples from session {session}: 1 kept (3 bytes), 0 withheld as credential-bearing, 0 over the bounds"
-        )
+        log.attach(staging.path()).unwrap_err().kind(),
+        io::ErrorKind::AlreadyExists
     );
 }
 
-/// A crash on the thread updating the samples must not hang the dump.
+/// Samples kept before the attach and after it are on disk with their index; the next session
+/// to reject a packet replaces them there as in memory.
 #[test]
-fn dumps_never_wait_for_samples_another_caller_holds() {
-    let log = fresh_log();
-    let start = log.record(
-        PacketDirection::Clientbound,
-        9,
-        1,
-        0,
-        PacketOutcome::Accepted,
-    );
-    log.reject(1, start, 9, PacketOutcome::Failed, &[1]);
-    let held = log.lock_samples();
-    let mut out = Vec::new();
-    log.dump(&mut out).unwrap();
-    let text = String::from_utf8(out).unwrap();
-    assert!(text.contains(" failed "), "{text}");
-    assert!(
-        text.ends_with("rejected packet samples: unavailable while being updated\n"),
-        "{text}"
-    );
-    let dir = tempfile::tempdir().unwrap();
-    assert_eq!(log.dump_samples(&dir.path().join("packets")).unwrap(), 0);
-    drop(held);
-    assert_eq!(log.dump_samples(&dir.path().join("packets")).unwrap(), 1);
-}
-
-#[test]
-fn dump_samples_writes_each_body_and_an_index() {
+fn attached_samples_follow_the_latest_session_on_disk() {
     let log = fresh_log();
     let start_game = start_game();
-    let start = log.record(
+    let staging = tempfile::tempdir().unwrap();
+    let dir = staging.path().join(staging::DECODE_SAMPLES_DIR);
+    let first = log.record(
         PacketDirection::Clientbound,
         start_game,
         3,
         0,
         PacketOutcome::Accepted,
     );
-    log.reject(3, start, start_game, PacketOutcome::Skipped, &[4, 5, 6]);
-    let dir = tempfile::tempdir().unwrap();
-    let samples = dir.path().join("packets");
-    assert_eq!(log.dump_samples(&samples).unwrap(), 1);
-    let name = format!("{start}-{}.bin", PacketName(start_game));
-    assert_eq!(std::fs::read(samples.join(&name)).unwrap(), [4, 5, 6]);
-    let index = std::fs::read_to_string(samples.join("index.txt")).unwrap();
+    log.reject(3, first, start_game, PacketOutcome::Skipped, &[4, 5, 6]);
+    log.attach(staging.path()).unwrap();
+    let second = log.record(
+        PacketDirection::Clientbound,
+        9,
+        2,
+        0,
+        PacketOutcome::Accepted,
+    );
+    log.reject(3, second, 9, PacketOutcome::Failed, &[7, 8]);
+    log.reject(3, 0, secret_packet_id(), PacketOutcome::Failed, &[1]);
+    let first_name = log.samples()[0].file_name();
+    assert_eq!(
+        first_name,
+        format!("{first}-{}.bin", PacketName(start_game))
+    );
+    assert_eq!(std::fs::read(dir.join(&first_name)).unwrap(), [4, 5, 6]);
+    let second_name = log.samples()[1].file_name();
+    assert_eq!(std::fs::read(dir.join(&second_name)).unwrap(), [7, 8]);
+    let index = std::fs::read_to_string(dir.join(samples::INDEX_FILE)).unwrap();
+    let lines: Vec<_> = index.lines().collect();
+    assert_eq!(
+        lines[0],
+        "rejected packet samples from session 3: 2 kept (5 bytes), 1 withheld as credential-bearing, 0 over the bounds"
+    );
     assert!(
-        index.starts_with(&name) && index.contains("session 3") && index.contains("skipped"),
+        lines[1].starts_with(&first_name) && lines[1].contains("skipped"),
+        "{index}"
+    );
+    assert!(
+        lines[2].contains("failed") && lines[2].contains("2 of 2 bytes"),
+        "{index}"
+    );
+
+    let third = log.record(
+        PacketDirection::Clientbound,
+        9,
+        1,
+        0,
+        PacketOutcome::Accepted,
+    );
+    log.reject(4, third, 9, PacketOutcome::Failed, &[1]);
+    assert!(!dir.join(&first_name).exists());
+    let index = std::fs::read_to_string(dir.join(samples::INDEX_FILE)).unwrap();
+    assert!(
+        index.starts_with("rejected packet samples from session 4: 1 kept"),
         "{index}"
     );
 }
@@ -521,24 +533,31 @@ fn the_writer_stops_at_the_size_limit_with_a_final_marker() {
     assert_eq!(file.records[2], CaptureRecord::Truncated { elapsed_us: 2 });
 }
 
+/// Neither the in-memory ring nor one mapped into a staging file allocates per header.
 #[test]
 fn recording_a_header_without_capture_does_not_allocate() {
-    let log = fresh_log();
-    let tap = SessionTap::new(&log, 1, Instant::now(), None);
-    let body = Bytes::from_static(&[1, 2, 3, 4]);
-    let start_game = start_game();
-    let (record, allocations) = test_alloc::count(|| {
-        let record = tap.record(
-            PacketDirection::Clientbound,
-            start_game,
-            PacketBody::whole(&body),
-        );
-        tap.record(PacketDirection::Serverbound, 9, PacketBody::whole(&body));
-        record
-    });
-    assert_eq!(allocations, 0);
-    assert_eq!(record, PacketRecordId(1));
-    assert_eq!(log.headers().len(), 2);
+    let staging = tempfile::tempdir().unwrap();
+    for attached in [false, true] {
+        let log = fresh_log();
+        if attached {
+            log.attach(staging.path()).unwrap();
+        }
+        let tap = SessionTap::new(&log, 1, Instant::now(), None);
+        let body = Bytes::from_static(&[1, 2, 3, 4]);
+        let start_game = start_game();
+        let (record, allocations) = test_alloc::count(|| {
+            let record = tap.record(
+                PacketDirection::Clientbound,
+                start_game,
+                PacketBody::whole(&body),
+            );
+            tap.record(PacketDirection::Serverbound, 9, PacketBody::whole(&body));
+            record
+        });
+        assert_eq!(allocations, 0, "attached: {attached}");
+        assert_eq!(record, PacketRecordId(1));
+        assert_eq!(log.headers().len(), 2);
+    }
 }
 
 #[test]

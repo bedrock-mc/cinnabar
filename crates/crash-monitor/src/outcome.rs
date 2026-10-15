@@ -7,7 +7,10 @@ use crash_report::{
     native::Address,
     report::{Identity, Kind, Report, Thread},
 };
-use launcher_host::lifecycle::crash::protocol::{self, Hello, Panic};
+use launcher_host::lifecycle::crash::{
+    attachments::Attachments,
+    protocol::{self, Hello, Panic},
+};
 
 use crate::{
     dump,
@@ -155,7 +158,8 @@ fn crash_report(observed: &Observed, now_ms: u64) -> Option<Report> {
     Some(report)
 }
 
-/// Writes `report` with the client's log sections as they are now, moving `dump` in.
+/// Writes `report` with the client's log sections as they are now and the attachments of its
+/// staging directory, moving `dump` in.
 pub(crate) fn write(
     crash_dir: &Path,
     hello: &Hello,
@@ -168,7 +172,19 @@ pub(crate) fn write(
         core: &hello.core_log,
         started_at_ms: hello.identity.started_at_ms,
     });
-    let folder = folder::write(crash_dir, report, &logs, dump, now_ms)?;
+    let attachments = hello
+        .staging
+        .as_deref()
+        .map(Attachments::read)
+        .unwrap_or_default();
+    let folder = folder::write_with(
+        crash_dir,
+        report,
+        &logs,
+        dump,
+        &attachments.as_folder(),
+        now_ms,
+    )?;
     Ok((folder, logs))
 }
 
@@ -197,6 +213,7 @@ mod tests {
             client_log: PathBuf::from("client.log"),
             core_log: PathBuf::from("core.log"),
             full_dump: false,
+            staging: None,
         }
     }
 

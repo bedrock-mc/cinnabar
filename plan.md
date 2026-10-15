@@ -513,19 +513,20 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   user comment remain open.
 - Diagnostics Phase 5, core process wiring: every bedrock-core spawn (game, account, sign-in
   and catalog helpers) gets `-log-level` from the `core` log category (trace and debug map to
-  debug, off to error) and `-crash-output` under `crashes/.core/`. A reader thread per process
+  debug, off to error) and `-crash-output` in the session's crash staging directory (`core/`,
+  pruned with it once the client is gone). A reader thread per process
   labels stderr lines without a `process=` attribute with role and pid and queues them for one
   `core.log` writer (a per-session family with the `CORE_SESSION_START` header and the client
   log's mid-session size cap); a full queue drops and counts lines, never blocking a core.
   Exit statuses are recorded; an exit nobody asked for other than status 0 or the core's own
   `core failed` status 1, or any Go crash output, writes a `kind: core` folder with the client
-  and core log sections and `core-crash.txt`, without a crash window; the staged file is
+  and core log sections, the staged packet and flight attachments and `core-crash.txt`, without
+  a crash window; the staged file is
   deleted afterwards. The account core restarts with `RestartBackoff` (0.5 s doubling to 8 s,
   giving up after five quick exits until sign-in changes or a refresh). Verified locally on
   Windows with a Go stand-in core: a panic gives one folder with the traceback, clean and status
-  1 exits and kills give none, helper stderr reaches the log labelled. Incomplete: crash-output
-  files of cores still running when the client itself dies are not cleaned up; Linux and macOS
-  run only in CI.
+  1 exits and kills give none, helper stderr reaches the log labelled. Incomplete: Linux and
+  macOS run only in CI; no live client run with a crashing real core.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel
@@ -9026,6 +9027,67 @@ the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture
 `bedrock-replay` reads alongside v1, optionally on the recorded schedule. Login,
 handshake and pack-offer bodies never reach samples or captures.
 
-Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced
-"Record network session" option is not built; recorded times are when the client read
-each batch, not socket arrival; no frame or join capture has measured the recorder's cost.
+Incomplete: crash reports do not dump the ring or samples yet; recorded times are when the
+client read each batch, not socket arrival; no frame or join capture has measured the
+recorder's cost.
+Crash reports carry them: the header ring and the log flight recorder (last 2,000 lines,
+`debug` for net, session, core and packs under its own per-layer filter) are lock-free
+rings in mapped files under `crashes/.live-<session id>/`, samples are written there as they
+change, and the monitor and the in-process fallback attach `packets.txt`,
+`decode-samples/` and `flight.log` to every folder; the crash window lists the last packets
+from `packets.txt`. Verified locally on Windows: ring layouts round-trip through their
+readers, header recording into the mapped ring allocates nothing, and the crash-monitor
+fixtures (panic, access violation, stack overflow, fail-fast abort, external kill, early
+in-process panic) each carry the fixture's packets, sample and recorder line. Criterion,
+shared build host under load: a recorder-only `debug` event costs about 1.7 µs through the
+installed subscriber (both filters, formatting, mapped write); a disabled event about 2 ns.
+
+Incomplete: folders from fatal Unix signals written in-process lack the three attachments;
+Linux and macOS fixtures run only in CI; the recorder cost is not measured on an idle host
+or in a frame or join capture; the Settings → Advanced "Record network session" option is
+not built; recorded times are when the client read each batch, not socket arrival.
+
+## Shared redaction
+
+`crates/crash-report/data/redaction-rules.json` is the one redaction rule set: credentials
+(authorization of any scheme, XBL3.0, bearer, JWTs, token/ticket/session id/content key
+fields) and private data (IPv4/IPv6 with ports, hosts in address/target fields and bare
+hostnames, home folders, XUIDs, gamertag and other identity fields), all replaced by
+`[redacted]`. `crash_report::redact` compiles it and owns the share-time engine (learned
+values, escape layers, JSON keys) that `devtool diag` and the crash window's Copy report use.
+The Go core embeds a byte-for-byte copy in `core/internal/redact`; a crash-report test fails
+when it drifts, and the file's conformance vectors pass in both languages, with each output
+stable under a second pass. Go `redact.Error` replaces `control.RedactError` and the
+resource-pack handler's URL pattern; `redact.Secret` logs as the placeholder and
+`redact.Private` as a per-process keyed hash (`[redacted:xxxxxxxx]`) that the share-time rules
+keep, so records about one server still correlate. Upstream targets, transfer hops, the
+`core starting` upstream, the friend XUID and the raw upstream, session, friend and web-relay
+errors log redacted, with regression tests asserting no address or XUID in the output.
+
+Verified: crash-report, devtool diagnostic-bundle and crash-monitor summary tests; Go tests for
+`internal/redact`, `control`, `launcher`, `webrelay`, `cmd/bedrock-core` and `proxy`.
+Incomplete: Go applies only the single pattern pass; learned values and escape decoding are
+Rust share-time only, so an escaped credential in a Go error relies on the JWT and XBL rules.
+No Rust log site was found carrying a credential field, so no `Secret` wrapping was added; the
+`developer-control` and `launcher-host` tokens sit in `Debug` structs that are never logged.
+The core still logs its socket directory and catalog path in clear; share time redacts the
+`endpoint` value whole but only the home folder name in the catalog path.
+
+## Diagnostics settings and F3 log row
+
+Settings → General → Advanced has two toggles, both off by default and kept in
+`settings.json`. Verbose logging layers `net=debug,session=debug,core=debug,packs=debug`
+over the defaults right after launch finds the install layout, and changes the filter
+immediately when toggled; a non-empty `CINNABAR_LOG` or `RUST_LOG` wins and the setting
+then changes nothing. Record network session asks each new session for a capture in the
+log directory; its caption says the recording holds chat and player names and is never
+uploaded. A non-empty `CINNABAR_PACKET_CAPTURE`, including `0`, decides instead. F3 shows
+one row with the categories not at `info` (or `custom` for `RUST_LOG` or raw directives)
+and the capture choice. The row is formatted again only when
+`diagnostics::logging::filter_generation()` or the capture choice changes.
+
+Verified: unit tests for setting persistence, environment precedence for both settings,
+the F3 row's content and its formatting only on change, and the OreUI rows; ui-snapshot
+captures of the section. Incomplete: no live client run has toggled either setting or shown
+the F3 row on a real frame; the F3 row reports the choice for new sessions, not whether the
+running session is recording; the toggle stays enabled when the environment overrides it.

@@ -318,6 +318,7 @@ mod tests {
             client_log: PathBuf::from("client.log"),
             core_log: PathBuf::from("core.log"),
             full_dump: false,
+            staging: None,
         })
         .unwrap()
     }

@@ -3,8 +3,9 @@
 //! not asked for.
 //!
 //! The client [`install`]s the routes once. Each spawn through [`spawn`] then gets
-//! `-log-level` from the core log category and `-crash-output` naming a per-process file under
-//! `<crash dir>/.core/`. A reader thread per process labels its stderr lines and queues them
+//! `-log-level` from the core log category and `-crash-output` naming a per-process file in
+//! the [`STAGING_DIR`] of this session's crash staging directory, which startup prunes once its
+//! client is gone. A reader thread per process labels its stderr lines and queues them
 //! for one `core.log` writer, so a slow disk never blocks a core; a full queue drops lines and
 //! counts them. Once stderr closes the thread collects the exit status: a crash writes a
 //! `kind: core` report with the Go runtime's crash output attached, and the staged file is
@@ -24,7 +25,6 @@ use std::{
 };
 
 use crossbeam_channel::{Receiver, Sender, bounded};
-use launcher::install_layout::InstallLayout;
 use tracing::level_filters::LevelFilter;
 
 use crate::lifecycle::children::{self, ExitObserver, Spawned};
@@ -39,8 +39,8 @@ const MAX_CRASH_OUTPUT_BYTES: u64 = crash_report::section::MAX_SECTION_BYTES;
 const FLUSH_WAIT: Duration = Duration::from_secs(2);
 /// How often an exited core's status is collected once its stderr closes.
 const EXIT_POLL: Duration = Duration::from_millis(10);
-/// Directory under the crash directory holding each running core's crash output.
-pub const STAGING_DIR: &str = ".core";
+/// Subdirectory of the session's crash staging directory holding each core's crash output.
+pub const STAGING_DIR: &str = "core";
 
 /// What a core process is for; names it in `core.log` and in its crash-output file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,15 +124,16 @@ pub struct Config {
 
 static INSTALLED: OnceLock<CoreOutput> = OnceLock::new();
 
-/// Routes every later core spawn's stderr into `config.log`, stages crash output under
-/// `layout`'s crash directory and reports core crashes through crash capture. Fails when the
-/// log writer cannot start or routes are already installed; spawns then run without them.
-pub fn install(layout: &InstallLayout, config: Config) -> io::Result<()> {
+/// Routes every later core spawn's stderr into `config.log`, stages crash output in the crash
+/// staging directory (none without one) and reports core crashes through crash capture, which
+/// must be installed first. Fails when the log writer cannot start or routes are already
+/// installed; spawns then run without them.
+pub fn install(config: Config) -> io::Result<()> {
     let report: Reporter = Arc::new(super::crash::core_exit::report_core);
     let output = CoreOutput::new(
         config.level,
         Some(config.log),
-        Some(layout.crash_dir().join(STAGING_DIR)),
+        super::crash::staging_dir().map(|dir| dir.join(STAGING_DIR)),
         Some(report),
     )?;
     INSTALLED
@@ -234,13 +235,10 @@ fn stage_crash_output(dir: &Path, role: CoreRole) -> Option<PathBuf> {
         return None;
     }
     let path = dir.join(format!(
-        "{}-{}-{}.txt",
-        std::process::id(),
+        "{}-{}.txt",
         NEXT.fetch_add(1, Ordering::Relaxed),
         role.label()
     ));
-    // A file left by an earlier client with this pid must not pass for this core's crash.
-    let _ = fs::remove_file(&path);
     Some(path)
 }
 

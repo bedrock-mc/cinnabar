@@ -79,13 +79,14 @@ pub(super) fn capture_core(layout: &InstallLayout) {
         level: || diagnostics::logging::category_filter(Category::Core),
         log: Box::new(log),
     };
-    if let Err(error) = launcher_host::lifecycle::core_output::install(layout, config) {
+    if let Err(error) = launcher_host::lifecycle::core_output::install(config) {
         bevy::log::warn!("core output routing unavailable: {error}");
     }
 }
 
 /// Captures every panic and native fault, flushing the client log around it; `monitor` starts
-/// the crash monitor, without which reports are written in-process.
+/// the crash monitor, without which reports are written in-process. The packet log and the log
+/// flight recorder then move into the crash staging directory, where reports read them.
 ///
 /// When raw stderr is not captured, the default hook's panic text never reaches the client
 /// log, so it is recorded there with the report's backtrace.
@@ -116,4 +117,12 @@ pub(super) fn install_crash_capture(
         drain_on_signal: diagnostics::console::drain_raw_stderr_on_signal,
     };
     launcher_host::lifecycle::crash::install(layout, identity, hooks, monitor);
+    if let Some(staging) = launcher_host::lifecycle::crash::staging_dir() {
+        if let Err(error) = client_session::packet_log::global().attach(staging) {
+            bevy::log::warn!(%error, "packet ring stays out of crash reports");
+        }
+        if let Err(error) = diagnostics::logging::flight::attach(staging) {
+            bevy::log::warn!(%error, "flight recorder stays out of crash reports");
+        }
+    }
 }

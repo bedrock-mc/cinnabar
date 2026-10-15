@@ -41,6 +41,15 @@ impl PacketDirection {
             _ => None,
         }
     }
+
+    /// The direction as reports write it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Clientbound => "clientbound",
+            Self::Serverbound => "serverbound",
+        }
+    }
 }
 
 /// What ingress made of a recorded packet. The discriminant is its wire value in header records.
@@ -67,6 +76,16 @@ impl PacketOutcome {
             1 => Some(Self::Skipped),
             2 => Some(Self::Failed),
             _ => None,
+        }
+    }
+
+    /// The outcome as reports write it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Skipped => "skipped",
+            Self::Failed => "failed",
         }
     }
 }

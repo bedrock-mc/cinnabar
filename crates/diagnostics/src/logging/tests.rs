@@ -181,16 +181,23 @@ fn logging_child() {
         return;
     };
     let dir = PathBuf::from(dir);
+    assert_eq!(filter_generation(), 0);
     install(Options {
         base_filter: "info,wgpu_core=warn".to_owned(),
         omit_frame_marks: true,
         layers: Vec::new(),
+        flight_recorder: true,
     })
     .unwrap();
+    assert_eq!(filter_generation(), 1);
+    let staging = dir.join("staging");
+    std::fs::create_dir_all(&staging).unwrap();
+    flight::attach(&staging).unwrap();
     assert_eq!(
         install(Options::default()),
         Err(InstallError::AlreadyInstalled)
     );
+    assert_eq!(filter_generation(), 1);
     tracing::warn!(target: "cinnabar::lifecycle", "warning before the log opens");
     initialize_log(&SessionFiles {
         dir: &dir,
@@ -206,6 +213,7 @@ fn logging_child() {
     assert_eq!(category_filter(Category::Core), LevelFilter::INFO);
     tracing::debug!(target: "launcher_host::update", "hidden debug");
     set_filter("core=debug").unwrap();
+    assert_eq!(filter_generation(), 2);
     assert_eq!(category_filter(Category::Core), LevelFilter::DEBUG);
     assert_eq!(category_filter(Category::Net), LevelFilter::INFO);
     tracing::debug!(target: "launcher_host::update", "visible debug");
@@ -214,6 +222,7 @@ fn logging_child() {
         Err(FilterError::Invalid(InvalidDirective { directive, .. })) if directive == "net=loud"
     ));
     assert_eq!(filter().unwrap().spec, "core=debug");
+    assert_eq!(filter_generation(), 2, "a rejected spec is no change");
     tracing::info!(tracy.frame_mark = true, "frame mark");
     std::thread::Builder::new()
         .name("log-fixture".to_owned())
@@ -257,6 +266,32 @@ fn installed_logging_writes_the_session_file() {
         );
     }
     assert!(text.contains("visible debug"), "{text}");
+    // The recorder keeps the debug line the session file left out, under its own filter.
+    let ring = fs::read(
+        dir.path()
+            .join("staging")
+            .join(crash_report::staging::FLIGHT_RING_FILE),
+    )
+    .unwrap();
+    let flight = crash_report::ring::flight::read(&ring).unwrap().to_log();
+    for recorded in [
+        "warning before the log opens",
+        "log crate warning",
+        "hidden debug",
+        "visible debug",
+        "join failed chunks=3",
+    ] {
+        assert!(
+            flight.contains(recorded),
+            "`{recorded}` not recorded: {flight}"
+        );
+    }
+    for left_out in ["filtered log record", "frame mark"] {
+        assert!(
+            !flight.contains(left_out),
+            "`{left_out}` recorded: {flight}"
+        );
+    }
     let failure = text
         .lines()
         .find(|line| line.contains("join failed"))
@@ -314,6 +349,7 @@ fn caller_layers_child() {
         base_filter: "info".to_owned(),
         omit_frame_marks: false,
         layers,
+        flight_recorder: false,
     })
     .unwrap();
     initialize_log(&SessionFiles {

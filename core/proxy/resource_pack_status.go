@@ -5,12 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"math"
-	"regexp"
-	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 )
@@ -289,7 +288,8 @@ func (cache observedResourcePackCache) Store(ctx context.Context, key minecraft.
 }
 
 // secretSafeResourcePackLogger routes third-party dialer and discovery logs through logger's
-// handler, so they share its format, level and attributes while dropping pack secrets.
+// handler, so they share its format, level and attributes while dropping pack identities and
+// passing all text through the shared redaction rules.
 func secretSafeResourcePackLogger(logger *slog.Logger) *slog.Logger {
 	return slog.New(secretSafeResourcePackHandler{next: logger.Handler()}).With("component", "upstream-dialer")
 }
@@ -301,7 +301,7 @@ func (handler secretSafeResourcePackHandler) Enabled(ctx context.Context, level 
 }
 
 func (handler secretSafeResourcePackHandler) Handle(ctx context.Context, record slog.Record) error {
-	clean := slog.NewRecord(record.Time, record.Level, redactURLs(record.Message), record.PC)
+	clean := slog.NewRecord(record.Time, record.Level, redact.Text(record.Message), record.PC)
 	record.Attrs(func(attr slog.Attr) bool {
 		if attr, ok := redactResourcePackAttr(attr); ok {
 			clean.AddAttrs(attr)
@@ -321,17 +321,11 @@ func (handler secretSafeResourcePackHandler) WithAttrs(attrs []slog.Attr) slog.H
 	return secretSafeResourcePackHandler{next: handler.next.WithAttrs(clean)}
 }
 
-// resourcePackIdentityKeys name pack identities and locations; a key equal to or ending in one is dropped.
-var resourcePackIdentityKeys = []string{"uuid", "version", "url", "content_key", "digest", "path"}
-
-// redactResourcePackAttr drops identity attributes at any group depth and strips URLs, which may be
-// signed CDN links, from the text of the rest, including errors.
+// redactResourcePackAttr drops pack identity attributes at any group depth and redacts the text
+// of the rest, including errors, whose URLs may be signed CDN links.
 func redactResourcePackAttr(attr slog.Attr) (slog.Attr, bool) {
-	key := strings.ToLower(attr.Key)
-	for _, identity := range resourcePackIdentityKeys {
-		if key == identity || strings.HasSuffix(key, "_"+identity) {
-			return slog.Attr{}, false
-		}
+	if redact.PackIdentityKey(attr.Key) {
+		return slog.Attr{}, false
 	}
 	value := attr.Value.Resolve()
 	switch value.Kind() {
@@ -344,16 +338,9 @@ func redactResourcePackAttr(attr slog.Attr) (slog.Attr, bool) {
 		}
 		return slog.Group(attr.Key, members...), true
 	case slog.KindString, slog.KindAny:
-		return slog.String(attr.Key, redactURLs(value.String())), true
+		return slog.String(attr.Key, redact.Text(value.String())), true
 	}
 	return slog.Attr{Key: attr.Key, Value: value}, true
-}
-
-// urlPattern matches absolute URLs, including the quoted ones net/http puts in errors.
-var urlPattern = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s"']+`)
-
-func redactURLs(text string) string {
-	return urlPattern.ReplaceAllString(text, "[url]")
 }
 
 func (handler secretSafeResourcePackHandler) WithGroup(name string) slog.Handler {

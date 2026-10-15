@@ -35,3 +35,7 @@ pub fn transparent_sort_committed_marker(
             )
         })
 }
+
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
