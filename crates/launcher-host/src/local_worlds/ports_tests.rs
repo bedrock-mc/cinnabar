@@ -86,10 +86,15 @@ fn a_fixed_port_reserves_its_exact_window_or_fails() {
         );
     }
     {
-        let last = u16::try_from(u32::from(port) + players - 1).expect("port");
-        let _taken = UdpSocket::bind((LOCAL_SERVER_HOST, last)).expect("take UDP");
+        let (port, taken) = blocked_udp_window(players);
+        let last = taken.local_addr().expect("address").port();
         let error = free_bds_port(players, port).expect_err("occupied UDP window");
-        assert!(error.to_string().contains("UDP transport"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("UDP transport port {last}:")),
+            "{error}"
+        );
         let _tcp = TcpListener::bind((LOCAL_SERVER_HOST, port))
             .expect("a failed UDP reservation leaked its TCP port");
         let _udp = UdpSocket::bind((LOCAL_SERVER_HOST, port))
@@ -99,6 +104,29 @@ fn a_fixed_port_reserves_its_exact_window_or_fails() {
         free_bds_port(players, 65_535).is_err(),
         "a wrapping fixed window must fail"
     );
+}
+
+/// Holds a window's last UDP port after checking its TCP port and earlier UDP ports are available.
+fn blocked_udp_window(players: u32) -> (u16, UdpSocket) {
+    let mut rejected = Vec::new();
+    for _ in 0..AUTOMATIC_ATTEMPTS {
+        let taken = UdpSocket::bind((LOCAL_SERVER_HOST, 0)).expect("reserve fixture UDP");
+        let last = taken.local_addr().expect("address").port();
+        let Some(port) = last.checked_sub(u16::try_from(players - 1).expect("window fits")) else {
+            rejected.push(taken);
+            continue;
+        };
+        if let Ok(_tcp) = TcpListener::bind((LOCAL_SERVER_HOST, port)) {
+            let earlier: std::io::Result<Vec<_>> = (port..last)
+                .map(|candidate| UdpSocket::bind((LOCAL_SERVER_HOST, candidate)))
+                .collect();
+            if earlier.is_ok() {
+                return (port, taken);
+            }
+        }
+        rejected.push(taken);
+    }
+    panic!("fixture could not reserve a window with only its last UDP port blocked");
 }
 
 #[test]
