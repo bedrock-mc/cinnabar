@@ -33,6 +33,7 @@ impl CollisionWorld for Solids {
                     aabb: *shape,
                     block: Some(*block),
                     runtime_id: Some(1),
+                    cell_has_scaffolding: None,
                 })
                 .collect(),
         ))
