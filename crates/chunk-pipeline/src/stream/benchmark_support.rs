@@ -97,7 +97,7 @@ impl RetentionFixture {
         Self { stream }
     }
 
-    /// Adds resident sections and their culling connectivity to the retained grid.
+    /// Uses non-air resident markers to exercise neighbour invalidation during retirement.
     pub fn with_connectivity(radius: i32) -> Self {
         let mut fixture = Self::new(radius);
         for column in fixture.stream.loaded_columns.iter().copied() {
