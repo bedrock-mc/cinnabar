@@ -112,6 +112,126 @@ fn link(store: &mut ActorStore, rider: i64, mount: i64, kind: protocol::ActorLin
     );
 }
 
+/// Admits a server-collidable dragon and starts its fixed-tick death lift.
+fn dying_solid_dragon() -> ActorStore {
+    let mut store = ActorStore::new(1, 0);
+    apply(
+        &mut store,
+        entity_spawn(
+            7,
+            17,
+            "minecraft:ender_dragon",
+            [
+                ActorMetadata {
+                    key: ActorDataKey::FlagsTwo.wire_value(),
+                    value: solid_flag(),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::Width.wire_value(),
+                    value: ActorMetadataValue::Float(2.0),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::Height.wire_value(),
+                    value: ActorMetadataValue::Float(4.0),
+                },
+            ]
+            .into(),
+        ),
+    );
+    apply(
+        &mut store,
+        ActorEvent::Status(protocol::ActorStatusEvent {
+            runtime_id: 7,
+            kind: protocol::ActorStatusKind::Death,
+            data: 0,
+        }),
+    );
+    store
+}
+
+#[test]
+fn dragon_death_lifts_refresh_exact_bounds_and_preserve_old_snapshots() {
+    let mut store = dying_solid_dragon();
+    let initial = current(&store, 0, 0);
+    let (min, max) = initial[0];
+    let height = max[1] - min[1];
+    let mut y = min[1];
+    for _ in 0..6 {
+        assert_eq!(store.get(7).unwrap().interpolation_ticks_remaining, 0);
+        let previous = current(&store, 0, 0);
+        let previous_bounds = previous[0];
+        store.advance_interpolation_ticks(1);
+        y += super::super::dragon_particles::DEATH_LIFT_PER_TICK;
+        let lifted = current(&store, 0, 0);
+        assert_eq!(
+            lifted[0],
+            ([min[0], y, min[2]], [max[0], y + height, max[2]])
+        );
+        assert!(!Arc::ptr_eq(&previous, &lifted));
+        assert_eq!(previous[0], previous_bounds);
+        assert_eq!(initial[0], (min, max));
+    }
+    let settled = current(&store, 0, 0);
+    let visits = store
+        .effect_members
+        .collidable
+        .snapshot_visits
+        .load(Ordering::Relaxed);
+    let (_, allocations) = test_alloc::measure(|| {
+        for _ in 0..120 {
+            assert!(Arc::ptr_eq(
+                &settled,
+                &store.movement_collider_snapshot(0, 0)
+            ));
+        }
+    });
+    assert_eq!(allocations.calls, 0);
+    assert_eq!(
+        store
+            .effect_members
+            .collidable
+            .snapshot_visits
+            .load(Ordering::Relaxed),
+        visits
+    );
+    for (mover, rider) in [(7, 0), (0, 99)] {
+        link(&mut store, 99, 17, protocol::ActorLinkType::Rider);
+        let excluded = current(&store, mover, rider);
+        assert!(excluded.is_empty());
+        store.advance_interpolation_ticks(1);
+        assert!(Arc::ptr_eq(&excluded, &current(&store, mover, rider)));
+        current(&store, 0, 0);
+    }
+}
+
+#[test]
+fn grouped_dragon_ticks_keep_colliders_current_through_interpolation_and_death_lifts() {
+    let mut grouped = dying_solid_dragon();
+    let mut stepped = dying_solid_dragon();
+    for store in [&mut grouped, &mut stepped] {
+        move_to(store, 7, 12.0, false);
+    }
+    for ticks in [2, 5, 7] {
+        let old = current(&grouped, 0, 0);
+        let old_bounds = old[0];
+        grouped.advance_interpolation_frame(ticks);
+        for _ in 0..ticks {
+            stepped.advance_interpolation_ticks(1);
+            current(&stepped, 0, 0);
+        }
+        assert_eq!(current(&grouped, 0, 0), current(&stepped, 0, 0));
+        assert_eq!(
+            grouped.get(7).unwrap().position,
+            stepped.get(7).unwrap().position
+        );
+        assert_eq!(old[0], old_bounds);
+    }
+    assert_eq!(grouped.get(7).unwrap().interpolation_ticks_remaining, 0);
+    let previous = current(&grouped, 0, 0);
+    grouped.advance_interpolation_frame(1);
+    assert_ne!(previous, current(&grouped, 0, 0));
+}
+
 #[test]
 fn unchanged_queries_reuse_storage_without_allocating_or_visiting_members() {
     let mut store = ActorStore::new(1, 0);

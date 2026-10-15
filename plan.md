@@ -3,6 +3,7 @@
 Actor state retains ordered solid bounds as poses, metadata and membership change. Movement
 and correction adapters share their converted bounds until the source changes. Mover and
 mount filters refresh before queries, and historical prediction readers keep their old bounds.
+Effect-driven pose changes, including the dragon death lift, refresh bounds at the mutation.
 Incomplete: behavior, query and allocation-work regressions are written but unrun.
 Compilation, live comparisons and performance measurements remain pending; no behavior or
 performance acceptance gate closes here.
