@@ -171,22 +171,6 @@ impl GeometryCatalog {
         })
     }
 
-    pub(super) fn can_admit(&self, geometries: &BTreeMap<EntityRigId, ActorRigGeometry>) -> bool {
-        let mut pages = VertexPages::retained(&self.vertices.segments, &self.page_fingerprints);
-        let mut used = BTreeSet::new();
-        let mut len = 0;
-        for mut geometry in geometries.values().cloned() {
-            let page = pages.intern(&mut geometry);
-            if used.insert(page) {
-                if geometry.vertices.len() > self.maximum_vertices.saturating_sub(len) {
-                    return false;
-                }
-                len += geometry.vertices.len();
-            }
-        }
-        true
-    }
-
     /// Reuses vacant addresses; capacity fragmentation changes only page addresses.
     /// Admission is transactional and uses live vertices, as with the former full repack.
     pub(super) fn append(
