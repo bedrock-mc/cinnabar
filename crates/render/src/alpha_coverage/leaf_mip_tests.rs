@@ -10,7 +10,7 @@ fn leaf_atlas(gpu: &Gpu) -> wgpu::TextureView {
         let base: Vec<_> = (0..assets::TILE_SIZE * assets::TILE_SIZE)
             .flat_map(|pixel| {
                 let alpha = ALPHAS.get(layer).copied().unwrap_or_else(|| {
-                    if pixel % 2 == 0 && (pixel / assets::TILE_SIZE) % 2 == 0 {
+                    if pixel.is_multiple_of(2) && (pixel / assets::TILE_SIZE).is_multiple_of(2) {
                         0
                     } else {
                         255
