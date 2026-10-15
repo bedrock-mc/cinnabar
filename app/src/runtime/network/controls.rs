@@ -140,6 +140,7 @@ pub(super) fn apply(
 pub(super) struct Retirement<'a> {
     pub player_runtime: &'a mut PlayerRuntime,
     pub client_world: &'a mut ClientWorld,
+    pub fatal_error: &'a mut Option<String>,
     pub ui_runtime: &'a mut UiRuntime,
     pub resource_pack_admission: &'a mut ResourcePackAdmissionState,
     pub pack_reload: Option<&'a mut PackReload>,
@@ -156,6 +157,7 @@ impl Retirement<'_> {
         let Self {
             player_runtime,
             client_world,
+            fatal_error,
             ui_runtime,
             resource_pack_admission,
             mut pack_reload,
@@ -192,7 +194,7 @@ impl Retirement<'_> {
         match end {
             SessionEnd::Failed { failure, .. } => {
                 error!(decode_error_count, "{failure}");
-                record_fatal_error(&mut client_world.fatal_error, failure);
+                record_fatal_error(fatal_error, failure);
             }
             SessionEnd::Transferred(notice) => {
                 info!(
@@ -203,8 +205,8 @@ impl Retirement<'_> {
                 client_world.transfer_notice = Some(notice);
             }
             SessionEnd::Stopped => {
-                if client_world.fatal_error.is_none() {
-                    client_world.fatal_error = Some("network session stopped unexpectedly".into());
+                if fatal_error.is_none() {
+                    *fatal_error = Some("network session stopped unexpectedly".into());
                 }
             }
         }

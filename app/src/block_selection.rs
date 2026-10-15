@@ -7,7 +7,10 @@ use simulation_clock::identity::SessionGeneration;
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
-    crate::{interaction_authority::ray_is_current, runtime::world::ClientWorld},
+    crate::{
+        interaction_authority::ray_is_current,
+        runtime::{shutdown::FatalError, world::ClientWorld},
+    },
     client_interaction::movement::PhysicsCollisionRegistries,
     client_presentation::local_player::InteractionOriginSnapshot,
     client_state::{ClientFrameSet, RuntimeSettings, SemanticInputSnapshot},
@@ -18,6 +21,7 @@ use {
 pub(crate) struct SelectionContext<'w> {
     player: Res<'w, client_state::PlayerRuntime>,
     world: Res<'w, ClientWorld>,
+    fatal_error: Res<'w, FatalError>,
     collisions: Res<'w, PhysicsCollisionRegistries>,
     ui: Res<'w, UiRuntimeResource>,
     focus: Res<'w, client_state::ScreenFocus>,
@@ -55,8 +59,7 @@ fn target(
     player_runtime: &client_state::PlayerRuntime,
     context: &SelectionContext,
 ) -> Option<BlockSelectionTarget> {
-    if context.focus.menu_visible || context.focus.ui_focused || context.world.fatal_error.is_some()
-    {
+    if context.focus.menu_visible || context.focus.ui_focused || context.fatal_error.0.is_some() {
         return None;
     }
     let stream = context.world.stream.as_ref()?;

@@ -81,14 +81,15 @@ impl Canvas<'_> {
                 .unwrap_or(default) as f32
                 * self.px
         };
-        let color = |name: &str| {
-            data.get(&format!("#{name}"))
+        // A bound `#name` wins over the authored `name`.
+        let color = |bound: &str, name: &str| {
+            data.get(bound)
                 .or_else(|| data.get(name))
                 .and_then(json_ui::color_value)
         };
         let radius = length("radius", 6.0).clamp(0.0, width.min(height) * 0.5);
-        let fill = color("color").unwrap_or([255; 4]);
-        let border_color = color("border_color");
+        let fill = color("#color", "color").unwrap_or([255; 4]);
+        let border_color = color("#border_color", "border_color");
         let border = if border_color.is_some() {
             length("border_width", 1.0).clamp(0.0, width.min(height) * 0.5)
         } else {
@@ -101,7 +102,7 @@ impl Canvas<'_> {
             fringe: geometry::coverage_width(self.metrics.dpi_scale.get()).to_bits(),
             page: self.solid_page,
             color: alpha(fill),
-            end_color: alpha(color("color2").unwrap_or(fill)),
+            end_color: alpha(color("#color2", "color2").unwrap_or(fill)),
             horizontal: data
                 .get("gradient_direction")
                 .and_then(serde_json::Value::as_str)

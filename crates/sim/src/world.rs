@@ -28,7 +28,10 @@ pub(crate) use liquid_probe::liquid_probe_bounds;
 mod primary_lookup;
 mod snapshot;
 pub use snapshot::CollisionSnapshot;
+mod identity;
+mod physics_table;
 mod raycast;
+mod section;
 pub use door::{DoorFacing, DoorState};
 mod validate;
 
@@ -128,45 +131,6 @@ impl<'de> Deserialize<'de> for WorldCollisionIdentity {
                 }),
         )
         .map_err(D::Error::custom)
-    }
-}
-
-impl WorldCollisionIdentity {
-    pub fn new(
-        registry: CollisionRegistryIdentity,
-        chunks: impl IntoIterator<Item = ChunkCollisionRevision>,
-    ) -> Result<Self, WorldQueryError> {
-        let mut by_chunk: BTreeMap<ChunkKey, ChunkCollisionRevision> = BTreeMap::new();
-        for revision in chunks {
-            if let Some(previous) = by_chunk.get(&revision.chunk) {
-                if previous.revision != revision.revision {
-                    return Err(WorldQueryError::ChunkRevisionConflict {
-                        chunk: revision.chunk,
-                    });
-                }
-                continue;
-            }
-            if by_chunk.len() == MAX_COLLISION_IDENTITY_CHUNKS {
-                return Err(WorldQueryError::IdentityChunkLimitExceeded {
-                    max: MAX_COLLISION_IDENTITY_CHUNKS,
-                });
-            }
-            by_chunk.insert(revision.chunk, revision);
-        }
-        Ok(Self {
-            registry,
-            chunks: by_chunk.into_values().collect(),
-        })
-    }
-
-    pub fn merge(&self, other: &Self) -> Result<Self, WorldQueryError> {
-        if self.registry != other.registry {
-            return Err(WorldQueryError::RegistryIdentityMismatch);
-        }
-        Self::new(
-            self.registry,
-            self.chunks.iter().chain(other.chunks.iter()).copied(),
-        )
     }
 }
 
@@ -289,7 +253,7 @@ impl BlockPhysicsSample {
 #[derive(Debug, Clone)]
 pub struct CollisionRegistry {
     identity: CollisionRegistryIdentity,
-    blocks: Arc<BTreeMap<u32, BlockPhysics>>,
+    blocks: Arc<physics_table::PhysicsTable>,
     shape_state_ids: Arc<BTreeMap<[u8; 32], u32>>,
     air_runtime_id: u32,
     collision_halo: [(i32, i32); 3],
@@ -306,7 +270,8 @@ struct BlockPhysics {
     )>,
     door: Option<DoorState>,
     flow: Option<FlowBlockFacts>,
-    shapes: Box<[Aabb]>,
+    /// Shared among every state registered with bit-identical shapes.
+    shapes: Arc<[Aabb]>,
     /// Shapes the interaction ray targets instead of `shapes` (selection boxes).
     pick_shapes: Option<Box<[Aabb]>>,
     pick_rule: assets::block_shapes::PickRule,
@@ -365,7 +330,7 @@ impl CollisionRegistry {
     pub fn with_identity(identity: CollisionRegistryIdentity) -> Self {
         Self {
             identity,
-            blocks: Arc::new(BTreeMap::new()),
+            blocks: Arc::new(physics_table::PhysicsTable::new(identity.id_space)),
             shape_state_ids: Arc::new(BTreeMap::new()),
             air_runtime_id: 0,
             collision_halo: [(0, 0); 3],
@@ -458,7 +423,9 @@ impl CollisionRegistry {
                 }
             }
         }
-        Arc::make_mut(&mut self.blocks).insert(
+        let table = Arc::make_mut(&mut self.blocks);
+        let shapes = table.intern_shapes(shapes);
+        table.insert(
             runtime_id,
             BlockPhysics {
                 actor_facing: None,
@@ -466,7 +433,7 @@ impl CollisionRegistry {
                 random_offset: None,
                 door: None,
                 flow: None,
-                shapes: shapes.into_boxed_slice(),
+                shapes,
                 pick_shapes: None,
                 pick_rule: assets::block_shapes::PickRule::Always,
                 shape_flags: assets::block_shapes::ShapeFlags::empty(),
@@ -522,7 +489,7 @@ impl CollisionRegistry {
 
     /// Drops every registration at or above `first_runtime_id`.
     pub fn remove_runtime_ids_from(&mut self, first_runtime_id: u32) {
-        Arc::make_mut(&mut self.blocks).split_off(&first_runtime_id);
+        Arc::make_mut(&mut self.blocks).remove_from(first_runtime_id);
     }
 
     /// Makes the interaction ray target `boxes` (empty: untargetable) instead of the
@@ -532,7 +499,7 @@ impl CollisionRegistry {
         runtime_id: u32,
         boxes: impl IntoIterator<Item = Aabb>,
     ) -> bool {
-        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.pick_shapes = Some(boxes.into_iter().collect());
@@ -541,7 +508,7 @@ impl CollisionRegistry {
 
     /// Attaches compiled pick eligibility to an existing runtime ID.
     pub fn set_pick_rule(&mut self, runtime_id: u32, rule: assets::block_shapes::PickRule) -> bool {
-        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.pick_rule = rule;
@@ -550,14 +517,12 @@ impl CollisionRegistry {
 
     /// Drops one registration; returns whether it existed.
     pub fn remove_runtime_id(&mut self, runtime_id: u32) -> bool {
-        Arc::make_mut(&mut self.blocks)
-            .remove(&runtime_id)
-            .is_some()
+        Arc::make_mut(&mut self.blocks).remove(runtime_id)
     }
 
     #[must_use]
     pub fn contains_runtime_id(&self, runtime_id: u32) -> bool {
-        self.blocks.contains_key(&runtime_id)
+        self.blocks.contains(runtime_id)
     }
 
     /// Block-local collision boxes of a registered runtime id.
@@ -587,7 +552,7 @@ impl CollisionRegistry {
     }
 
     fn physics(&self, runtime_id: u32) -> Option<&BlockPhysics> {
-        self.blocks.get(&runtime_id)
+        self.blocks.get(runtime_id)
     }
 }
 
@@ -726,54 +691,38 @@ impl<'a> PaletteWorld<'a> {
     ) -> Result<WorldCollisionIdentity, WorldQueryError> {
         let revisions = chunks
             .into_iter()
-            .map(|key| {
-                self.store
-                    .collision_revision(key)
-                    .or_else(|| self.unloaded_boundary_revision(key))
-                    .ok_or(WorldQueryError::UnloadedChunk(key))
-            })
+            .map(|key| self.column_revision(key))
             .collect::<Result<Vec<_>, _>>()?;
         WorldCollisionIdentity::new(self.registry.identity(), revisions)
+    }
+
+    /// The identity of the one column holding `block`, as
+    /// [`Self::identity_for_chunks`] would build it.
+    fn identity_for_block(
+        &self,
+        block: [i32; 3],
+    ) -> Result<WorldCollisionIdentity, WorldQueryError> {
+        let chunk = ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4);
+        Ok(WorldCollisionIdentity::single(
+            self.registry.identity(),
+            self.column_revision(chunk)?,
+        ))
+    }
+
+    /// A loaded column's revision, or the boundary revision of an absent movement column.
+    fn column_revision(&self, key: ChunkKey) -> Result<ChunkCollisionRevision, WorldQueryError> {
+        self.store
+            .collision_revision(key)
+            .or_else(|| self.unloaded_boundary_revision(key))
+            .ok_or(WorldQueryError::UnloadedChunk(key))
     }
 
     /// Whether every layer of a loaded block is air.
     pub fn is_air(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
         Ok(self
-            .runtime_ids_at(block)?
-            .into_iter()
+            .layers_at(block, &mut section::SectionCache::default())?
+            .iter()
             .all(|runtime_id| runtime_id == self.registry.air_runtime_id))
-    }
-
-    fn runtime_ids_at(&self, block: [i32; 3]) -> Result<Vec<u32>, WorldQueryError> {
-        let [x, y, z] = block;
-        let chunk = ChunkKey::new(self.dimension, x >> 4, z >> 4);
-        let key = SubChunkKey::new(self.dimension, x >> 4, y >> 4, z >> 4);
-        if !self.store.is_sub_chunk_loaded(key) {
-            if self.unloaded_boundary_revision(chunk).is_some() {
-                return Ok(vec![self.registry.air_runtime_id]);
-            }
-            return Err(WorldQueryError::UnloadedChunk(chunk));
-        }
-        let Some(sub_chunk) = self.store.sub_chunk(key) else {
-            return Ok(vec![self.registry.air_runtime_id]);
-        };
-        let ids = (0..sub_chunk.storages().len())
-            .map(|layer| {
-                sub_chunk
-                    .runtime_id(
-                        layer,
-                        x.rem_euclid(16) as u8,
-                        y.rem_euclid(16) as u8,
-                        z.rem_euclid(16) as u8,
-                    )
-                    .expect("validated palette storage resolves every local coordinate")
-            })
-            .collect::<Vec<_>>();
-        Ok(if ids.is_empty() {
-            vec![self.registry.air_runtime_id]
-        } else {
-            ids
-        })
     }
 }
 
@@ -798,10 +747,9 @@ impl CollisionWorld for PaletteWorld<'_> {
         &self,
         block: [i32; 3],
     ) -> Result<Option<CollisionQuery<bool>>, WorldQueryError> {
-        let chunk = ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4);
         Ok(Some(CollisionQuery {
             value: self.primary_runtime_id(block)? == self.registry.air_runtime_id,
-            identity: self.identity_for_chunks([chunk])?,
+            identity: self.identity_for_block(block)?,
         }))
     }
 
@@ -810,31 +758,29 @@ impl CollisionWorld for PaletteWorld<'_> {
     }
 
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
-        let instances = self.collision_instances(query)?;
-        Ok(CollisionQuery {
-            value: instances.value.into_iter().map(|i| i.shape).collect(),
-            identity: instances.identity,
-        })
+        let mut value = Vec::new();
+        let identity =
+            self.visit_collision_instances(query, &mut |instance: CollisionInstance| {
+                value.push(instance.shape);
+            })?;
+        Ok(CollisionQuery { value, identity })
     }
 
     fn collision_boxes_with_provenance(
         &self,
         query: Aabb,
     ) -> Result<CollisionQuery<Vec<ProvenancedCollider>>, WorldQueryError> {
-        let instances = self.collision_instances(query)?;
-        Ok(CollisionQuery {
-            value: instances
-                .value
-                .into_iter()
-                .map(|instance| ProvenancedCollider {
+        let mut value = Vec::new();
+        let identity =
+            self.visit_collision_instances(query, &mut |instance: CollisionInstance| {
+                value.push(ProvenancedCollider {
                     aabb: instance.shape,
                     block: instance.block,
                     runtime_id: instance.runtime_id.map(u64::from),
                     cell_has_scaffolding: instance.cell_has_scaffolding,
-                })
-                .collect(),
-            identity: instances.identity,
-        })
+                });
+            })?;
+        Ok(CollisionQuery { value, identity })
     }
 
     /// Collects the same borrowed camera scan for callers that need owned colliders.
@@ -865,21 +811,17 @@ impl CollisionWorld for PaletteWorld<'_> {
     }
 
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
-        let chunk = ChunkKey::new(self.dimension, block[0] >> 4, block[2] >> 4);
-        let identity = self.identity_for_chunks([chunk])?;
+        let identity = self.identity_for_block(block)?;
         let layers = self
-            .runtime_ids_at(block)?
-            .into_iter()
+            .layers_at(block, &mut section::SectionCache::default())?
+            .iter()
             .map(|runtime_id| {
                 self.registry
                     .movement_facts(runtime_id)
                     .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })
             })
-            .collect::<Result<Vec<_>, WorldQueryError>>()?;
-        Ok(BlockPhysicsSample {
-            layers: layers.into_boxed_slice(),
-            identity,
-        })
+            .collect::<Result<Box<[_]>, WorldQueryError>>()?;
+        Ok(BlockPhysicsSample { layers, identity })
     }
 }
 

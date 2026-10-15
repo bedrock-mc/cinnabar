@@ -3,8 +3,10 @@ use bevy::prelude::*;
 use client_shell::ui_resources::UiRuntimeResource;
 use render_scene::ModRenderScene;
 use {
-    crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera,
-    client_shell::menu::MenuRuntime, client_state::ClientFrameSet,
+    crate::runtime::{shutdown::FatalError, world::ClientWorld},
+    client_presentation::camera::FlyCamera,
+    client_shell::menu::MenuRuntime,
+    client_state::ClientFrameSet,
 };
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -55,6 +57,7 @@ fn resolve_ids(
 fn publish(
     extension: Option<Res<super::ModRuntime>>,
     world: Option<Res<ClientWorld>>,
+    fatal_error: Option<Res<FatalError>>,
     menu: Option<Res<MenuRuntime>>,
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
@@ -69,7 +72,7 @@ fn publish(
             .is_some_and(|(ui, player)| !ui.ui_focused(player));
     let stream = world
         .as_deref()
-        .filter(|world| world.fatal_error.is_none())
+        .filter(|_| fatal_error.as_deref().is_none_or(|fatal| fatal.0.is_none()))
         .and_then(|world| world.stream.as_ref());
     let spec = extension
         .as_deref()
@@ -82,7 +85,9 @@ fn publish(
     let (Some(stream), Some(spec), Some(camera)) = (stream, spec, camera) else {
         discovery.scan.clear();
         discovery.session = 0;
-        scene.set_block_highlights(&[], [0.0; 4]);
+        super::render::update_overlay(&mut scene, |scene| {
+            scene.set_block_highlights(&[], [0.0; 4]);
+        });
         return;
     };
     let session = stream.authority().actor_session_id();
@@ -129,7 +134,9 @@ fn publish(
         ids,
         mod_api::MAX_BLOCK_HIGHLIGHTS,
     );
-    scene.set_block_highlights(if visible { positions } else { &[] }, spec.color);
+    super::render::update_overlay(&mut scene, |scene| {
+        scene.set_block_highlights(if visible { positions } else { &[] }, spec.color);
+    });
 }
 #[cfg(test)]
 mod tests {

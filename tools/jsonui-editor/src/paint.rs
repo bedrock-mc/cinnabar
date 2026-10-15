@@ -225,7 +225,7 @@ impl Painter<'_, '_> {
                     align: *align,
                     scale: *scale,
                     localize: *localize,
-                    options: options.clone(),
+                    options,
                 };
                 self.text(text, dest, clip, &style);
             }
@@ -289,7 +289,7 @@ impl Painter<'_, '_> {
             dest,
             font,
             style.scale,
-            &style.options,
+            style.options,
             style.align,
             self.px,
         );
@@ -297,7 +297,7 @@ impl Painter<'_, '_> {
             return;
         };
         let [width, height] = layout.size_64().map(|size| size as f32 / 64.0);
-        let [left, top] = label_origin(dest, font, &style.options, self.px);
+        let [left, top] = label_origin(dest, font, style.options, self.px);
         if self.group(clip).is_none() {
             return;
         }

@@ -177,6 +177,7 @@ fn remote_body_and_persona_publish_sampled_clamps_and_preserve_java_overrides() 
                         native_pose: &mut native_pose,
                         skin_rigs: &mut skin_rigs,
                         equipment: Some(&mut equipment),
+                        scratch: &mut super::super::bodies::BodyScratch::default(),
                     },
                     |_, _, _, _| false,
                     &mut geometries,

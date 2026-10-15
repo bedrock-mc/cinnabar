@@ -54,7 +54,7 @@ impl Inputs {
             .or_else(|| {
                 inherited
                     .value(V::IsEnchanted.name())
-                    .map(Value::from_molang)
+                    .map(|value| Value::from_molang(&value))
             })
             .unwrap_or(Value::Number(0.0f32.to_bits()));
         Self {

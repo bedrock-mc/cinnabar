@@ -276,6 +276,7 @@ impl MotionSampling {
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
         let mut mask = vec![[0; 3]; names.len()];
+        let mut channel_bones = pose::ChannelBones::new(names);
         for weighted in clips {
             let weighted = match geometry {
                 Some(geometry) => match render::clip_for_layer(assets, weighted, geometry) {
@@ -287,13 +288,12 @@ impl MotionSampling {
             let Some(clip) = assets.animation_clips().get(weighted.clip) else {
                 continue;
             };
+            let weighted = self.weighted_symbols.contains(&clip.symbol)
+                || self.timed_symbols.contains(&clip.symbol);
             let first = clip.first_channel as usize;
             for channel in &assets.animation_channels()[first..first + clip.channel_count as usize]
             {
-                let index = match &channel.bone_name {
-                    Some(name) => names.iter().position(|candidate| candidate == name),
-                    None => Some(channel.bone as usize),
-                };
+                let index = channel_bones.resolve(channel);
                 let Some(bone) = index.and_then(|index| mask.get_mut(index)) else {
                     continue;
                 };
@@ -302,8 +302,6 @@ impl MotionSampling {
                     EntityAnimationProperty::Rotation => ROTATION,
                     EntityAnimationProperty::Scale => SCALE,
                 };
-                let weighted = self.weighted_symbols.contains(&clip.symbol)
-                    || self.timed_symbols.contains(&clip.symbol);
                 if weighted && clip.override_previous {
                     bone.fill(TRANSLATION | ROTATION | SCALE | ROTATION_FRAME);
                 } else if weighted && channel.rotation_relative_to_entity {
@@ -319,10 +317,13 @@ impl MotionSampling {
                         } else {
                             0.0
                         };
-                        if expression
-                            .is_some_and(|expression| self.expressions.contains(&expression))
-                            || (weighted
+                        // Each test is pure, so set bits and cheap weighted reads go first.
+                        if (bone[axis] & bit) == 0
+                            && ((weighted
                                 && (expression.is_some() || key.value[axis].get() != neutral))
+                                || expression.is_some_and(|expression| {
+                                    self.expressions.contains(&expression)
+                                }))
                         {
                             bone[axis] |= bit;
                         }

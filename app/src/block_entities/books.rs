@@ -1,6 +1,6 @@
 //! Enchanting-table books, ticked at the game rate like the native block actor.
 
-use std::collections::{HashMap, HashSet};
+use bevy::platform::collections::HashMap;
 
 use bevy::math::Vec3;
 use render_model::{BookPose, EnchantingBook};
@@ -10,8 +10,9 @@ const MAX_CATCH_UP_TICKS: u64 = 20;
 
 #[derive(Debug, Default)]
 pub(super) struct TableBooks {
-    books: HashMap<[i32; 3], EnchantingBook>,
-    seen: HashSet<[i32; 3]>,
+    /// Each book and the frame that last advanced it.
+    books: HashMap<[i32; 3], (EnchantingBook, u64)>,
+    frame: u64,
     /// The whole game tick reached by the previous frame.
     tick: Option<u64>,
     steps: u64,
@@ -22,7 +23,7 @@ impl TableBooks {
     /// Starts a frame at `ticks` game ticks; books not advanced before [`Self::finish`] are
     /// forgotten.
     pub(super) fn begin(&mut self, ticks: f64) {
-        self.seen.clear();
+        self.frame = self.frame.wrapping_add(1);
         let ticks = ticks.max(0.0);
         let whole = ticks as u64;
         self.steps = self.tick.map_or(0, |previous| {
@@ -35,11 +36,14 @@ impl TableBooks {
     /// Runs the book at `position` through this frame's ticks with `players` (eye-level
     /// positions) as possible readers, and returns its pose for drawing.
     pub(super) fn advance(&mut self, position: [i32; 3], players: &[Vec3]) -> BookPose {
-        let book = self
+        let frame = self.frame;
+        // A new book starts with a stamp other than this frame's, so its first draw ticks it.
+        let (book, seen) = self
             .books
             .entry(position)
-            .or_insert_with(|| EnchantingBook::new(position));
-        if self.seen.insert(position) {
+            .or_insert_with(|| (EnchantingBook::new(position), frame.wrapping_add(1)));
+        if *seen != frame {
+            *seen = frame;
             let reader = book.nearest_reader(players.iter().copied());
             for _ in 0..self.steps {
                 book.tick(reader);
@@ -50,8 +54,8 @@ impl TableBooks {
 
     /// Forgets books not advanced this frame; hidden books that advanced remain resident.
     pub(super) fn finish(&mut self) {
-        let seen = &self.seen;
-        self.books.retain(|position, _| seen.contains(position));
+        let frame = self.frame;
+        self.books.retain(|_, (_, seen)| *seen == frame);
     }
 }
 

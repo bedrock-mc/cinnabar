@@ -83,6 +83,17 @@ fn perspective_mut(projection: &mut Projection) -> Option<&mut PerspectiveProjec
     }
 }
 
+/// Reads the world perspective, including the one carried by portal distortion.
+fn perspective_ref(projection: &Projection) -> Option<&PerspectiveProjection> {
+    match projection {
+        Projection::Perspective(perspective) => Some(perspective),
+        Projection::Custom(custom) => custom
+            .get::<PortalProjection>()
+            .map(|portal| &portal.perspective),
+        Projection::Orthographic(_) => None,
+    }
+}
+
 impl CameraProjection for PortalProjection {
     fn get_clip_from_view(&self) -> Mat4 {
         self.perspective.get_clip_from_view() * self.distortion
@@ -105,6 +116,21 @@ impl CameraProjection for PortalProjection {
         self.perspective
             .get_frustum_corners(z_near, z_far)
             .map(|corner| inverse.transform_point3a(corner))
+    }
+}
+
+/// Whether [`apply_distortion`] would alter `projection`, so callers can skip the mutable
+/// borrow that marks the camera projection changed. A bit-identical portal distortion is
+/// reported unchanged because reassigning it is a no-op.
+pub(super) fn distortion_changes(projection: &Projection, distortion: Mat4) -> bool {
+    match projection {
+        Projection::Perspective(_) => distortion != Mat4::IDENTITY,
+        Projection::Custom(custom) => custom.get::<PortalProjection>().is_some_and(|portal| {
+            distortion == Mat4::IDENTITY
+                || portal.distortion.to_cols_array().map(f32::to_bits)
+                    != distortion.to_cols_array().map(f32::to_bits)
+        }),
+        Projection::Orthographic(_) => false,
     }
 }
 
@@ -156,10 +182,19 @@ pub fn update_camera_fov(
     }
     let fov_degrees =
         server.fov_override_degrees(base).unwrap_or(player_fov) * settings.fov_scale();
+    let fov = projection_fov_radians(fov_degrees);
+    let aspect_ratio = window_aspect(&window);
     for mut projection in &mut cameras {
+        // Comparing first leaves an unchanged projection untouched, so Bevy skips its
+        // projection and frustum refresh.
+        if perspective_ref(&projection).is_none_or(|perspective| {
+            perspective.fov == fov && perspective.aspect_ratio == aspect_ratio
+        }) {
+            continue;
+        }
         if let Some(perspective) = perspective_mut(&mut projection) {
-            perspective.fov = projection_fov_radians(fov_degrees);
-            perspective.aspect_ratio = window_aspect(&window);
+            perspective.fov = fov;
+            perspective.aspect_ratio = aspect_ratio;
         }
     }
 }

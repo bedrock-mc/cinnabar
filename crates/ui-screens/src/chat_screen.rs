@@ -88,6 +88,8 @@ pub struct ChatScreen {
     /// Logical px per virtual px, from the last frame.
     scale: f32,
     pointer: Option<UiPoint>,
+    /// The chat context, kept while the engine context and placement stay.
+    context: crate::chat_position::PlacedContext,
 }
 
 /// What one chat paint reads from the client's chat state.
@@ -136,8 +138,11 @@ impl ChatScreen {
             data.set_control_values(name, metrics.feedback());
         }
         let view = self.view_state(input.selected_suggestion);
-        let context =
-            crate::chat_position::context(engine.context().clone(), &self.settings.options);
+        let context = self.context.get(
+            engine.context(),
+            self.settings.options.chat_at_top(),
+            crate::chat_position::placed,
+        );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;
         let px = metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;

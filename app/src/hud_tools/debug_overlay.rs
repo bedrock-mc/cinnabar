@@ -31,7 +31,7 @@ use client_ui::ui_runtime::presentation::DebugLines;
 use {
     crate::{
         environment::{WeatherState, WorldClock},
-        runtime::{visibility::CaveVisibilityCache, world::ClientWorld},
+        runtime::{shutdown::FatalError, visibility::CaveVisibilityCache, world::ClientWorld},
     },
     client_interaction::movement::{
         LocalPhysicsController, MovementTicker, PhysicsCollisionRegistries,
@@ -153,6 +153,7 @@ fn top_gpu_passes(
 #[derive(SystemParam)]
 struct DebugContext<'w, 's> {
     client_world: Res<'w, ClientWorld>,
+    fatal_error: Res<'w, FatalError>,
     frame: Res<'w, LocalPlayerFrameCarrier>,
     view: Option<Res<'w, LocalViewPose>>,
     collisions: Option<Res<'w, PhysicsCollisionRegistries>>,

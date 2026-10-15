@@ -1,6 +1,9 @@
 //! Bone matrices appended directly to the frame arena without per-actor temporary buffers.
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
+
+use foldhash::fast::FixedState;
+use hashbrown::HashMap;
 
 use super::{EntityRigId, RenderBoneTransform, affine_matrix};
 
@@ -24,10 +27,11 @@ impl CachedMatrices {
 }
 
 /// Bone matrices of recently drawn poses keyed by pose allocation and geometry: every frame of
-/// a tick shares a pose, so its matrices are computed once.
+/// a tick shares a pose, so its matrices are computed once. Entries are checked against the
+/// geometry's pivots on every use, so they stay valid across catalog changes.
 #[derive(Debug, Default)]
 pub(super) struct PoseMatrixCache {
-    entries: HashMap<(usize, EntityRigId), CachedMatrices>,
+    entries: HashMap<(usize, EntityRigId), CachedMatrices, FixedState>,
     /// Matrix buffers of released entries, reused by the next poses computed.
     spare: Vec<Vec<[[f32; 4]; 3]>>,
     frame: u64,
@@ -65,6 +69,19 @@ impl PoseMatrixCache {
         pose.iter().enumerate().all(|(index, transform)| {
             affine_matrix(*transform, pivots.get(index).copied().unwrap_or([0.0; 3])).is_some()
         })
+    }
+
+    /// Whether `pose` already has cached matrices for `geometry`. Only finite poses are ever
+    /// cached and an entry holds its pose allocation, so a hit proves every bone is finite.
+    pub(super) fn holds_finite(
+        &self,
+        pose: &Arc<[RenderBoneTransform]>,
+        geometry: EntityRigId,
+    ) -> bool {
+        let key = (Arc::as_ptr(pose).cast::<u8>() as usize, geometry);
+        self.entries
+            .get(&key)
+            .is_some_and(|entry| Arc::ptr_eq(&entry.pose, pose))
     }
 
     /// [`append_pose_matrices`] through the cache.

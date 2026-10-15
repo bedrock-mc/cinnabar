@@ -37,11 +37,25 @@ pub struct UiMeshBatch {
     pub alpha_cutoff: Option<f32>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct UiMesh {
     vertices: Arc<[UiMeshVertex]>,
     indices: Arc<[u32]>,
     batches: Arc<[UiMeshBatch]>,
+}
+
+/// Meshes compare by contents. [`UiMesh::new`] admits only finite floats, so buffers shared
+/// between two meshes are equal without reading them, as retained frames compare every drawn
+/// mesh with the last frame's.
+impl PartialEq for UiMesh {
+    fn eq(&self, other: &Self) -> bool {
+        fn same<T: PartialEq>(left: &Arc<[T]>, right: &Arc<[T]>) -> bool {
+            Arc::ptr_eq(left, right) || **left == **right
+        }
+        same(&self.vertices, &other.vertices)
+            && same(&self.indices, &other.indices)
+            && same(&self.batches, &other.batches)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
