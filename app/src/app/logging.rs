@@ -50,6 +50,64 @@ pub(crate) fn install(process: Process) {
     }
 }
 
+/// The spec the Verbose logging setting layers over the defaults.
+const VERBOSE_SPEC: &str = "net=debug,session=debug,core=debug,packs=debug";
+
+/// The spec the Verbose logging setting asks for: [`VERBOSE_SPEC`] when on, the defaults when
+/// off, and `None` when `CINNABAR_LOG` or `RUST_LOG` chose this process's filter, which the
+/// setting never overrides.
+fn verbose_setting_spec(verbose: bool, environment_chose: bool) -> Option<&'static str> {
+    (!environment_chose).then_some(if verbose { VERBOSE_SPEC } else { "" })
+}
+
+/// Whether `CINNABAR_LOG` or `RUST_LOG` is set to a non-empty filter.
+fn environment_chose_filter() -> bool {
+    let set = |value: Option<std::ffi::OsString>| value.is_some_and(|value| !value.is_empty());
+    set(env_compat::var_os(diagnostics::markers::LOG)) || set(std::env::var_os("RUST_LOG"))
+}
+
+/// Applies the Verbose logging setting to the installed filter, unless the environment chose
+/// it.
+fn apply_verbose_setting(verbose: bool) {
+    let Some(spec) = verbose_setting_spec(verbose, environment_chose_filter()) else {
+        return;
+    };
+    if let Err(error) = diagnostics::logging::set_filter(spec) {
+        bevy::log::warn!("verbose logging setting not applied: {error}");
+    }
+}
+
+/// Applies the saved Verbose logging setting at launch, once the install layout names the
+/// settings file. Off leaves the installed filter as it is.
+pub(crate) fn apply_saved_verbose_setting(layout: &launcher::install_layout::InstallLayout) {
+    let saved = launcher::menu::settings_options::SettingsOptions::load(
+        &layout
+            .server_file()
+            .with_file_name(launcher::menu::settings_options::SETTINGS_FILE),
+    );
+    if saved.verbose_logging() {
+        apply_verbose_setting(true);
+    }
+}
+
+/// Applies Verbose logging changes made in Settings as they happen. The first run records the
+/// value [`apply_saved_verbose_setting`] already applied.
+pub(super) fn apply_verbose_setting_changes(
+    menu: Option<bevy::prelude::Res<client_shell::menu::MenuRuntime>>,
+    mut applied: bevy::prelude::Local<Option<bool>>,
+) {
+    let Some(menu) = menu else {
+        return;
+    };
+    let verbose = menu.settings_snapshot().0.verbose_logging();
+    if applied
+        .replace(verbose)
+        .is_some_and(|previous| previous != verbose)
+    {
+        apply_verbose_setting(verbose);
+    }
+}
+
 /// The profiler layers this build enables.
 #[cfg(any(feature = "tracy", feature = "frame-trace"))]
 #[allow(
@@ -177,5 +235,27 @@ pub(super) fn loaded_assets(loaded: &LoadedAssets) {
         bevy::log::warn!("{}", loaded.fonts.startup_summary());
     } else {
         bevy::log::info!("{}", loaded.fonts.startup_summary());
+    }
+}
+
+#[cfg(test)]
+mod verbose_setting_tests {
+    use super::{VERBOSE_SPEC, verbose_setting_spec};
+
+    #[test]
+    fn the_setting_layers_verbose_categories_unless_the_environment_chose_the_filter() {
+        assert_eq!(verbose_setting_spec(true, false), Some(VERBOSE_SPEC));
+        assert_eq!(verbose_setting_spec(false, false), Some(""));
+        assert_eq!(verbose_setting_spec(true, true), None);
+        assert_eq!(verbose_setting_spec(false, true), None);
+    }
+
+    #[test]
+    fn the_verbose_spec_is_valid_category_directives() {
+        for directive in VERBOSE_SPEC.split(',') {
+            let (name, level) = directive.split_once('=').unwrap();
+            assert!(diagnostics::logging::Category::from_name(name).is_some());
+            assert_eq!(level, "debug");
+        }
     }
 }

@@ -7,6 +7,7 @@ mod bindings;
 mod details;
 mod entities;
 mod lines;
+mod log_status;
 mod spatial;
 #[cfg(test)]
 mod tests;
@@ -70,6 +71,7 @@ pub(super) struct DebugOverlayState {
     ui_line: String,
     has_gpu: bool,
     block_states: spatial::BlockStates,
+    log_status: log_status::LogStatus,
     #[cfg(test)]
     gathers: usize,
 }
@@ -192,6 +194,9 @@ fn publish_debug_overlay(
     state
         .bindings
         .update(settings.as_ref().map(|(settings, _)| settings));
+    let record_session = settings
+        .as_ref()
+        .is_some_and(|(settings, _)| settings.record_network_session());
     let toggled = !menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
         && state.bindings.pressed(&keys, context.mouse.as_deref());
     if toggled {
@@ -264,6 +269,7 @@ fn publish_debug_overlay(
     }
     context.append_client(&mut lines, &presentation, &state.ui_line);
     context.append_world(&mut lines, time.elapsed_secs_f64(), &mut state.block_states);
+    lines.left.push(state.log_status.refresh(record_session));
     lines.left.push("");
     lines.left.push(state.bindings.hint());
     let mut published = Some(lines.finish());

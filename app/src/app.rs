@@ -645,6 +645,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             actor_artwork: Some(actor_artwork.clone()),
             ui_catalog: Some(ui_catalog.0.clone()),
             log_dir: menu.layout().log_dir(),
+            record_session: menu.settings_snapshot().0.record_network_session(),
         })
         .context("spawn Bedrock network worker")
         {
@@ -727,6 +728,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     #[cfg(target_os = "macos")]
     crate::frame_pacing::macos_display_link::install(&mut app);
     app.add_systems(Update, crate::window_icon::apply);
+    app.add_systems(Update, logging::apply_verbose_setting_changes);
     app.add_plugins(crate::hud_tools::HudToolsPlugin {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
