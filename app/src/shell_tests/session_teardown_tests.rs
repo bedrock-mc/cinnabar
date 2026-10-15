@@ -193,6 +193,7 @@ fn pause_disconnect_retires_pending_movement_before_network_send() {
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(runtime))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
@@ -285,6 +286,7 @@ fn terminal_queued_after_receive_wins_over_closed_physics_send_and_recovers_laun
         .insert_resource(DelayedTerminal(Some(terminal_sender)))
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,
@@ -368,6 +370,7 @@ fn drive_once(
         .insert_resource(network)
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
             1,

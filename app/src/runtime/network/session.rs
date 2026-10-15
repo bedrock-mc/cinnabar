@@ -9,6 +9,8 @@ pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplicati
 /// Startup snapshot supplied by application composition.
 #[derive(Debug, Clone)]
 pub struct NetworkConfig {
+    /// Immutable world and collision inputs captured for this join.
+    pub(crate) registry_base: super::session_registries::RegistryBase,
     pub session_generation: simulation_clock::identity::SessionGeneration,
     pub socket_dir: PathBuf,
     pub display_name: String,
@@ -31,6 +33,8 @@ pub fn spawn_network(
     config: NetworkConfig,
 ) -> Result<NetworkHandle<PackApplication>, std::io::Error> {
     let socket_dir = config.socket_dir.clone();
+    let registry_base = config.registry_base;
+    let session_generation = config.session_generation;
     let actor_artwork = config.actor_artwork;
     let ui_catalog = config.ui_catalog;
     let physical_memory_bytes = launcher_host::memory::physical_bytes();
@@ -71,15 +75,22 @@ pub fn spawn_network(
                     "server resource packs prepared for the join"
                 );
             }
-            prepared.map(|result| {
-                result
-                    .map(|packs| client_session::PreparedSession {
-                        custom_blocks: preparation.inputs.blocks.clone(),
-                        packs_applied: preparation.has_applied_packs(),
-                        packs,
-                    })
-                    .map_err(|error| error.to_string())
-            })
+            let mut packs = match prepared? {
+                Ok(packs) => packs,
+                Err(error) => return Some(Err(error.to_string())),
+            };
+            packs.registries = Some(registry_base.prepare(
+                session_generation,
+                game_data.world.block_network_ids_are_hashes,
+                &preparation.inputs.blocks,
+                &packs,
+                cancelled,
+            )?);
+            Some(Ok(client_session::PreparedSession {
+                custom_blocks: preparation.inputs.blocks.clone(),
+                packs_applied: preparation.has_applied_packs(),
+                packs,
+            }))
         },
         client_session::SessionTrace {
             movement_line: gameplay::movement::pending_trace_line,
