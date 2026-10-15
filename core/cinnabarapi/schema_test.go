@@ -72,6 +72,8 @@ func TestClientMessagesConformToPinnedSchema(t *testing.T) {
 		proofMessage{Type: typeProof, Signature: signature},
 		visibilityMessage{Type: typeVisibility, Visible: false},
 		lookupMessage{Type: typeLookup, ID: 4294967295, XUIDs: xuids},
+		lookupMessage{Type: typeLookup, ID: 1, UUIDs: []string{"00112233-4455-6677-8899-aabbccddeeff"}},
+		lookupMessage{Type: typeLookup, ID: 2, XUIDs: xuids[:1], UUIDs: []string{"00112233-4455-6677-8899-aabbccddeeff"}},
 	} {
 		validate(t, "ClientMessage", message)
 	}
@@ -88,6 +90,7 @@ func TestPinnedServerMessagesDecode(t *testing.T) {
 		{`{"type":"welcome","xuid":"2535400000000000"}`, inbound{Type: typeWelcome}},
 		{`{"type":"welcome","xuid":"1","lookup_batch_max":64,"lookup_bucket_capacity":100,"lookup_refill_per_min":50,"cache_ttl_ms":500,"ping_interval_ms":1000,"reconnect_max_ms":2000,"future":true}`, inbound{Type: typeWelcome, parameters: parameters{LookupBatchMax: 64, LookupBucketCapacity: 100, LookupRefillPerMin: 50, CacheTTLMS: 500, PingIntervalMS: 1000, ReconnectMaxMS: 2000}}},
 		{`{"type":"lookup_result","id":7,"cinnabar":["1"]}`, inbound{Type: typeLookupResult, ID: &id, Cinnabar: []string{"1"}}},
+		{`{"type":"lookup_result","id":7,"cinnabar":[],"cinnabar_uuids":["00112233-4455-6677-8899-aabbccddeeff"]}`, inbound{Type: typeLookupResult, ID: &id, Cinnabar: []string{}, CinnabarUUIDs: []string{"00112233-4455-6677-8899-aabbccddeeff"}}},
 		{`{"type":"error","code":"rate_limited","id":7}`, inbound{Type: typeError, Code: codeRateLimited, ID: &id}},
 		{`{"type":"release","channel":"beta","version":"0.2.0","build":42,"published_at":"2026-10-13T00:00:00.000Z"}`, inbound{Type: typeRelease, Channel: "beta", Version: "0.2.0", Build: 42, PublishedAt: "2026-10-13T00:00:00.000Z"}},
 	} {
@@ -179,3 +182,18 @@ func TestPinnedSchemaDigest(t *testing.T) {
 
 //go:embed schema/source.json
 var pinnedSource []byte
+
+// Local identifier validation must accept exactly the schema's identifier patterns.
+func TestIdentifierPatternsMatchPinnedSchema(t *testing.T) {
+	var schema struct {
+		Defs struct {
+			Xuid, Uuid struct{ Pattern string }
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(pinnedSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Defs.Xuid.Pattern != xuidPattern.String() || schema.Defs.Uuid.Pattern != uuidPattern.String() {
+		t.Fatal("identifier patterns differ from schema")
+	}
+}

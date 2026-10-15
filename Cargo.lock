@@ -2717,6 +2717,7 @@ dependencies = [
  "ui-engine",
  "ui-screens",
  "url",
+ "uuid",
  "world",
  "zip",
 ]
