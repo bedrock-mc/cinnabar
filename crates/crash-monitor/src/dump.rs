@@ -1,12 +1,25 @@
 //! What a minidump says about the fault it captured.
 
-use std::path::Path;
+use std::{fs::File, io, path::Path};
 
 use crash_report::native::{Address, module_name};
 use minidump::{
     Minidump, MinidumpException, MinidumpMiscInfo, MinidumpModuleList, MinidumpSystemInfo,
     MinidumpThreadNames, Module,
 };
+
+/// Creates a new dump without exposing its raw process memory to other Unix users.
+/// Existing paths, including symlinks, are rejected rather than truncated or reused.
+pub(crate) fn create(path: &Path) -> io::Result<File> {
+    let mut options = File::options();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
 
 /// The faulting thread and instruction of a native crash.
 #[derive(Clone, Debug)]
@@ -90,5 +103,22 @@ pub(crate) fn rewrite_with_full_memory(
     match written {
         Ok(_) => tracing::info!("full-memory minidump written"),
         Err(error) => tracing::warn!("full-memory minidump failed: {error}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dump_creation_never_reuses_an_existing_path() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("existing.dmp");
+        std::fs::write(&path, "previous dump").unwrap();
+        assert_eq!(
+            create(&path).unwrap_err().kind(),
+            io::ErrorKind::AlreadyExists
+        );
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "previous dump");
     }
 }

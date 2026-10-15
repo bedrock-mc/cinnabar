@@ -149,7 +149,7 @@ impl ServerHandler for Handler {
     fn create_minidump_file(&self) -> Result<(File, PathBuf), std::io::Error> {
         std::fs::create_dir_all(&self.crash_dir)?;
         let path = pending_dump(&self.crash_dir, self.dumps.fetch_add(1, Ordering::Relaxed));
-        let file = File::create(&path)?;
+        let file = crate::dump::create(&path)?;
         *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
         Ok((file, path))
     }
@@ -340,6 +340,18 @@ mod tests {
             uptime_ms: 0,
         })
         .unwrap()
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn minidumps_are_private_from_their_first_write() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let (mut handler, _, _) = handler();
+        handler.crash_dir = directory.path().to_owned();
+        let (file, _) = handler.create_minidump_file().unwrap();
+        assert_eq!(file.metadata().unwrap().permissions().mode() & 0o077, 0);
     }
 
     #[test]
