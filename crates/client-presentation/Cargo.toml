@@ -45,6 +45,7 @@ sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+actor-animation = { path = "../actor-animation", features = ["test-support"] }
 protocol = { path = "../protocol", features = ["test-support"] }
 test-time = { path = "../test-time" }
 test-alloc = { path = "../test-alloc" }

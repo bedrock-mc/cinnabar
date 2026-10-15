@@ -154,7 +154,7 @@ struct FrameWindow {
     suppressed: u64,
     sequence: u64,
     counts: SlowFrameCounts,
-    /// GPU frames over budget since the last line; each was counted on arrival.
+    /// GPU overruns since the last line, counted on arrival.
     gpu_pending: bool,
 }
 
@@ -176,8 +176,8 @@ impl Default for FrameWindow {
 }
 
 impl SlowFrameRecorder {
-    /// Adds a stage duration; returns the event when a read-back GPU frame is over budget,
-    /// which counts on its own because several can arrive within one main frame.
+    /// Counts GPU execution overruns separately from the current CPU frame.
+    /// Completion latency stays informational because polling can delay callbacks.
     pub fn record(&self, stage: RuntimeStage, elapsed: Duration) -> Option<SlowFrameEvent> {
         let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
         self.totals[stage as usize].fetch_add(nanos, Ordering::Relaxed);
@@ -507,6 +507,30 @@ mod tests {
             ],
             [3, 1, 1, 1, 0]
         );
+    }
+
+    #[test]
+    fn late_completion_callbacks_do_not_count_as_slow_frames() {
+        let recorder = SlowFrameRecorder::default();
+        let interval = Duration::from_secs_f64(1.0 / 120.0);
+        recorder.set_interval(interval);
+        let now = Instant::now();
+        assert!(recorder.begin_frame(now, true, false).is_none());
+        for latency in [interval, Duration::from_millis(100)] {
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrame, Duration::from_millis(2))
+                    .is_none()
+            );
+            assert!(
+                recorder
+                    .record(RuntimeStage::GpuFrameCompletionLatency, latency)
+                    .is_none()
+            );
+        }
+        recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
+        assert!(recorder.begin_frame(now + interval, true, false).is_none());
+        assert_eq!(recorder.counts(), SlowFrameCounts::default());
     }
 
     /// Several read-back GPU frames can land before one main-frame boundary.

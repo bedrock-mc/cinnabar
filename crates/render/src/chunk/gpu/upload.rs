@@ -49,6 +49,8 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     mut fairness: ResMut<GpuUpdateFairness>,
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
+    #[cfg(feature = "tracy")]
+    let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
         acknowledgements,
         gpu_removals,
@@ -146,6 +148,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
     let mut migrations_started = 0;
     let mut uploads_waiting_for_growth = 0;
+    let mut candidates_examined = 0;
+    let mut model_streams_validated = 0;
+    let mut range_plans = 0;
     let frame_items = budget
         .max_per_frame
         .max(PublicationServiceConfig::DEFAULT.maximum_frame_items);
@@ -184,33 +189,51 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         }
     }
-    for &entity in &selected {
+    for entity in fairness.examination_order(&selected) {
         if upload_reservation.items >= frame_items {
             break;
         }
         let Ok((_, instance)) = all_instances.get(entity) else {
             continue;
         };
-        let old = arena.allocations.get(&entity).cloned();
+        candidates_examined += 1;
         // Deferred removals already occupy resident GPU ranges. Do not admit
         // more fresh chunks while completion cannot make retirement room.
         // Replacements still use their ordinary bounded COW admission below.
-        if retirement_pressure && old.is_none() {
+        if retirement_pressure && !arena.allocations.contains_key(&entity) {
             continue;
         }
         let instance_bytes = chunk_instance_upload_byte_len(instance);
-        if !validate_partitioned_model_streams(
-            &instance.model_refs,
-            &instance.model_lighting,
-            &instance.model_draw_refs,
-            &instance.transparent_model_draw_refs,
-            texture_assets.assets().model_templates(),
-            texture_assets.assets().model_quads(),
-            texture_assets.assets().materials(),
-        ) {
+        if let Some(slot) = &instance.publication_permit
+            && (slot.stage() != Some(PublicationPermitStage::RenderEntity)
+                || slot.is_zero_byte()
+                || slot.bytes() != Some(instance_bytes))
+        {
+            drop(slot.take());
+            continue;
+        }
+        // This lower bound needs no stream walk, biome copy, or allocation plan.
+        // Exact admission below also charges writes mirrored by arena migration.
+        let mut preliminary = upload_reservation;
+        let can_prepare = if instance.publication_permit.is_some() {
+            preliminary.try_reserve_permitted(instance_bytes)
+        } else {
+            preliminary.try_reserve(*budget, instance_bytes)
+        };
+        if !can_prepare {
+            continue;
+        }
+        let validation_limit = fairness.limit;
+        let (valid, validated) =
+            fairness
+                .model_validation
+                .validate(entity, instance, &texture_assets, validation_limit);
+        model_streams_validated += usize::from(validated);
+        if !valid {
             bevy::log::error!("sub-chunk model streams are not an exact material partition");
             continue;
         }
+        let old = arena.allocations.get(&entity).cloned();
         let required = match u32::try_from(instance.cube_quads.len()) {
             Ok(required) => required,
             Err(_) => {
@@ -321,6 +344,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
             continue;
         }
+        range_plans += 1;
         let Some(projected_ranges) = plan_fresh_chunk_ranges(&arena, stream_counts, biome_required)
         else {
             continue;
@@ -369,14 +393,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         };
         if !fits {
             uploads_waiting_for_growth += 1;
-            continue;
-        }
-        if let Some(slot) = &instance.publication_permit
-            && (slot.stage() != Some(PublicationPermitStage::RenderEntity)
-                || slot.is_zero_byte()
-                || slot.bytes() != Some(instance_bytes))
-        {
-            drop(slot.take());
             continue;
         }
         if instance
@@ -660,6 +676,30 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
     upload_stats.migrations_started = migrations_started;
     upload_stats.uploads_waiting_for_growth = uploads_waiting_for_growth;
+    upload_stats.candidates_examined = candidates_examined;
+    upload_stats.model_streams_validated = model_streams_validated;
+    upload_stats.range_plans = range_plans;
+    upload_stats.candidates_deferred = selected.len().saturating_sub(successful_updates.len());
+    #[cfg(feature = "tracy")]
+    if let Some(client) = tracy_client::Client::running() {
+        use tracy_client::plot_name;
+        client.plot(
+            plot_name!("terrain upload examined"),
+            candidates_examined as f64,
+        );
+        client.plot(
+            plot_name!("terrain upload validated"),
+            model_streams_validated as f64,
+        );
+        client.plot(
+            plot_name!("terrain upload admitted"),
+            successful_updates.len() as f64,
+        );
+        client.plot(
+            plot_name!("terrain upload deferred"),
+            upload_stats.candidates_deferred as f64,
+        );
+    }
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
             "chunk GPU preparation observed {} updates despite a {}-chunk upload budget",

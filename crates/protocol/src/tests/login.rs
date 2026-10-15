@@ -30,7 +30,7 @@ async fn login_reaches_start_game_through_bds() {
     wait_for_endpoint(&mut harness, socket_dir.path())
         .unwrap_or_else(|error| panic!("{error}\nGo harness output:\n{}", harness.output()));
 
-    let (mut session, game_data) = tokio::time::timeout(
+    let (mut session, (_, game_data)) = tokio::time::timeout(
         LOGIN_TIMEOUT,
         LoginSequence::connect_session(
             socket_dir.path(),
@@ -39,6 +39,7 @@ async fn login_reaches_start_game_through_bds() {
             None,
             None,
             &Default::default(),
+            |packs, game_data| (packs, game_data),
         ),
     )
     .await
@@ -147,6 +148,7 @@ async fn offline_core_session_preserves_startup_behaviour() {
                 None,
                 None,
                 &Default::default(),
+                |packs, game_data| (packs, game_data),
             ),
         )
         .await
@@ -179,10 +181,10 @@ async fn offline_core_session_preserves_startup_behaviour() {
                 assert_eq!(disconnect.message.as_deref(), Some(expected), "{scenario}");
             }
             _ => {
-                let (mut session, _) =
+                let (mut session, (packs, _)) =
                     login.unwrap_or_else(|error| panic!("{error}\n{}", harness.output()));
                 if scenario == "packs" {
-                    assert_handed_off_fixture_packs(session.take_resource_pack_handoff());
+                    assert_handed_off_fixture_packs(packs);
                 }
                 session
                     .send(startup_marker(100))

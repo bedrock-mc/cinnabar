@@ -57,7 +57,9 @@ hourly. Fix failing scheduled checks promptly.
 ### Build caches
 
 CI and packaging use `.github/actions/build-cache`. Rust caches keep workspace
-artifacts as well as dependencies. The action hashes tracked inputs and restores
+libraries, build-script outputs and fingerprints as well as dependencies, but not
+linked test and bin executables, their debug info or examples; Cargo relinks those.
+The save step logs the kept and left-out sizes by directory. The action hashes tracked inputs and restores
 old file and directory timestamps only for identical tracked contents and
 permissions, so fresh checkouts do not force recompilation. Changed inputs get
 fresh timestamps after restoration. A source change
@@ -73,7 +75,8 @@ ownership, without timestamp restoration.
 CI buckets live in the shared GitHub cache, which evicts least recently used entries
 past 10 GB. Each bucket has a budget in `.github/actions/build-cache/budgets.json`,
 the budgets must fit the limit together, and a save deletes its bucket's old entry
-first, then fails if the new one is over budget. Release buckets, used once a day,
+first, then deletes the new one and fails, with a job summary line, if it is over
+budget. The JSON-UI editor site has its own bucket. Release buckets, used once a day,
 would be the first evicted there, so `package.yml` stores them as workflow artifacts
 instead, kept for three days with their own budgets.
 

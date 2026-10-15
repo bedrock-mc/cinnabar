@@ -30,7 +30,7 @@ pub fn dye_tint(dye: i64) -> [f32; 3] {
 
 /// Classifies one block from its compiled tint eligibility and light filtering.
 pub fn beacon_medium(identifier: &str, tint: crate::BeaconTint, light_filter: u8) -> BeaconMedium {
-    if light_filter >= 15 && identifier != "minecraft:bedrock" {
+    if light_filter >= 15 && identifier != crate::facts::VanillaBlock::Bedrock.identifier() {
         BeaconMedium::Obstruction
     } else if let Some(dye) = tint.dye_colour() {
         BeaconMedium::Tint(dye_tint(dye))

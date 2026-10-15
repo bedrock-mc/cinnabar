@@ -78,7 +78,7 @@ static APPEARANCES: LazyLock<[Option<Appearance>; 64]> = LazyLock::new(|| {
     let mut appearances = [None; 64];
     for line in include_str!("../data/legacy-icon-routes-26.30.tsv").lines() {
         let mut columns = line.split('\t');
-        if columns.next() != Some("minecraft:splash_potion") {
+        if columns.next() != Some(crate::facts::VanillaItem::SplashPotion.identifier()) {
             continue;
         }
         let metadata: usize = columns.next().unwrap().parse().unwrap();

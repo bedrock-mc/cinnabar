@@ -459,8 +459,10 @@ fn loom_controls(source: &dyn ContainerSource, data: &mut DataSource) {
         .target_stack(InventoryTarget::Craft(9))
         .filter(|stack| {
             ledger
-                .negotiated_item_entry(stack.network_id)
-                .is_some_and(|entry| entry.identifier.as_ref() == "minecraft:banner")
+                .item_facts()
+                .get(stack.network_id)
+                .roles
+                .contains(assets::facts::ContainerRoles::LOOM_BANNER)
         });
     let dye = ledger
         .target_stack(InventoryTarget::Craft(10))

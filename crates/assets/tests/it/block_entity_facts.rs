@@ -29,6 +29,10 @@ fn block_entity_facts_cover_every_declared_backing_state_and_no_unrelated_state(
     }
     for record in &records {
         if let Some(backing) = facts.get(record.sequential_id) {
+            assert_eq!(
+                facts.by_block_identifier(&record.name),
+                Some(backing.entity)
+            );
             assert!(
                 backing
                     .entity
@@ -40,6 +44,7 @@ fn block_entity_facts_cover_every_declared_backing_state_and_no_unrelated_state(
     }
     assert!(facts.get(u32::MAX).is_none());
     assert!(facts.entry("UnknownBlockEntity").is_none());
+    assert!(facts.by_block_identifier("example:unknown_block").is_none());
 }
 
 #[test]

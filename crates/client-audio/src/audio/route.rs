@@ -93,7 +93,12 @@ fn from_level_route(
             .actor_identifier
             .strip_prefix("minecraft:")
             .unwrap_or(&event.actor_identifier);
-        if event.sound_event.as_ref() != "splash" || actor != "fishing_hook" {
+        let native = assets::facts::entity::EntityFacts::pinned()
+            .get(&format!("minecraft:{actor}"))
+            .native_class;
+        if event.sound_event.as_ref() != "splash"
+            || native != assets::facts::entity::NativeEntityClass::FishingHook
+        {
             let volume = super::water::encoded_volume(event.data);
             request.volume = FloatRange {
                 min: volume,

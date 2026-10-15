@@ -75,7 +75,11 @@ impl HeldBlockEntity {
     /// The held model the item `identifier` draws, or `None` for items without one.
     #[must_use]
     pub fn from_item(identifier: &str) -> Option<Self> {
-        if identifier == "minecraft:ender_chest" {
+        use assets::facts::{BlockEntityFacts, BlockEntityRenderer};
+        let renderer = BlockEntityFacts::pinned()
+            .by_block_identifier(identifier)
+            .map(|entry| entry.renderer);
+        if renderer == Some(BlockEntityRenderer::EnderChest) {
             return Some(Self::Chest(ChestVariantKey::Ender));
         }
         if let Some(variant) = ChestVariant::from_block_name(identifier) {
@@ -86,9 +90,9 @@ impl HeldBlockEntity {
         {
             return Some(Self::Shulker(color));
         }
-        match identifier {
-            "minecraft:decorated_pot" => Some(Self::DecoratedPot),
-            "minecraft:conduit" => Some(Self::Conduit),
+        match renderer? {
+            BlockEntityRenderer::DecoratedPot => Some(Self::DecoratedPot),
+            BlockEntityRenderer::Conduit => Some(Self::Conduit),
             _ => None,
         }
     }
