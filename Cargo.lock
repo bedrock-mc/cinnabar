@@ -6677,6 +6677,7 @@ dependencies = [
  "pack-json",
  "render-model",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
