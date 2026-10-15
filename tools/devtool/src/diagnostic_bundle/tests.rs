@@ -468,7 +468,7 @@ fn crash(crash_dir: &Path, session_id: &str, message: &str, now_ms: u64) -> Path
             .into_bytes(),
         core: format!("CORE_SESSION_START timestamp_ms=1\n{message} core\n").into_bytes(),
     };
-    folder::write(crash_dir, &report, &logs, now_ms).unwrap()
+    folder::write(crash_dir, &report, &logs, None, now_ms).unwrap()
 }
 
 fn archive_members(root: &Path) -> std::collections::BTreeMap<String, String> {
