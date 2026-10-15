@@ -21,6 +21,8 @@ pub const CLIENT_LOG_FILE: &str = "client.log";
 pub const CORE_LOG_FILE: &str = "core.log";
 /// The native fault's minidump, written by the crash monitor.
 pub const DUMP_FILE: &str = "crash.dmp";
+/// The Go core's runtime crash output (panic and goroutine traces), in `core` reports.
+pub const CORE_CRASH_FILE: &str = "core-crash.txt";
 /// Largest `report.json` that [`read`] accepts.
 const MAX_REPORT_BYTES: u64 = 16 << 20;
 /// Same-second folders with one id before a write gives up.
@@ -104,6 +106,41 @@ pub fn write(
     dump: Option<&Path>,
     now_ms: u64,
 ) -> io::Result<PathBuf> {
+    write_with(crash_dir, report, logs, dump, &[], now_ms)
+}
+
+/// An extra member of a crash folder, such as [`CORE_CRASH_FILE`].
+#[derive(Clone, Copy, Debug)]
+pub struct Attachment<'a> {
+    /// A relative path of normal components, such as `core-crash.txt` or `samples/index.txt`;
+    /// it may not name one of the fixed members.
+    pub name: &'a str,
+    pub bytes: &'a [u8],
+}
+
+/// [`write`] plus `attachments`, each written beside the fixed members with its parent
+/// directories created inside the folder.
+///
+/// Every attachment name is checked before anything is written: an absolute path, a `..` or
+/// other non-normal component, a duplicate, or a fixed member's name fails with
+/// [`io::ErrorKind::InvalidInput`].
+pub fn write_with(
+    crash_dir: &Path,
+    report: &Report,
+    logs: &Logs,
+    dump: Option<&Path>,
+    attachments: &[Attachment<'_>],
+    now_ms: u64,
+) -> io::Result<PathBuf> {
+    for (index, attachment) in attachments.iter().enumerate() {
+        check_attachment(attachment.name)?;
+        if attachments[..index]
+            .iter()
+            .any(|earlier| Path::new(earlier.name) == Path::new(attachment.name))
+        {
+            return Err(invalid_attachment(attachment.name));
+        }
+    }
     prune(crash_dir, MAX_REPORTS - 1);
     fs::create_dir_all(crash_dir)?;
     let base = name(now_ms, &report.session_id);
@@ -117,7 +154,42 @@ pub fn write(
     if let Some(dump) = dump {
         move_file(dump, &folder.join(DUMP_FILE))?;
     }
+    for attachment in attachments {
+        let path = folder.join(attachment.name);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        write_new(&path, attachment.bytes)?;
+    }
     Ok(folder)
+}
+
+/// Accepts relative paths of normal components whose first component is not a fixed member.
+fn check_attachment(name: &str) -> io::Result<()> {
+    let mut components = Path::new(name).components();
+    let first = components.next();
+    let normal = first.is_some()
+        && first
+            .into_iter()
+            .chain(components)
+            .all(|component| matches!(component, std::path::Component::Normal(_)));
+    let fixed = first.is_some_and(|first| {
+        [REPORT_FILE, CLIENT_LOG_FILE, CORE_LOG_FILE, DUMP_FILE]
+            .iter()
+            .any(|member| first.as_os_str() == *member)
+    });
+    if normal && !fixed {
+        Ok(())
+    } else {
+        Err(invalid_attachment(name))
+    }
+}
+
+fn invalid_attachment(name: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("crash folder attachment `{name}` is not a free relative member path"),
+    )
 }
 
 /// Renames `from` to `to`, copying across volumes.
@@ -255,6 +327,85 @@ mod tests {
         assert_eq!(fs::read(folder.join(DUMP_FILE)).unwrap(), b"MDMP");
         assert!(!dump.exists());
         assert_eq!(list(&crash_dir), [folder]);
+    }
+
+    #[test]
+    fn attachments_land_inside_the_folder_in_their_subdirectories() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = write_with(
+            dir.path(),
+            &report("core"),
+            &Logs::default(),
+            None,
+            &[
+                Attachment {
+                    name: CORE_CRASH_FILE,
+                    bytes: b"panic: boom\n",
+                },
+                Attachment {
+                    name: "samples/index.txt",
+                    bytes: b"index\n",
+                },
+            ],
+            NOW_MS,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(folder.join(CORE_CRASH_FILE)).unwrap(),
+            b"panic: boom\n"
+        );
+        assert_eq!(
+            fs::read(folder.join("samples").join("index.txt")).unwrap(),
+            b"index\n"
+        );
+        assert_eq!(read(&folder).unwrap(), report("core"));
+    }
+
+    #[test]
+    fn attachments_cannot_escape_or_replace_fixed_members() {
+        let dir = tempfile::tempdir().unwrap();
+        let absolute = dir.path().join("outside.txt");
+        let absolute = absolute.to_str().unwrap();
+        for name in [
+            "",
+            "../outside.txt",
+            "samples/../../outside.txt",
+            "./core-crash.txt",
+            absolute,
+            REPORT_FILE,
+            CORE_LOG_FILE,
+            "crash.dmp/inner.txt",
+        ] {
+            let error = write_with(
+                dir.path(),
+                &report("core"),
+                &Logs::default(),
+                None,
+                &[Attachment { name, bytes: b"x" }],
+                NOW_MS,
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{name}");
+        }
+        let twice = [Attachment {
+            name: "a.txt",
+            bytes: b"x",
+        }; 2];
+        let error = write_with(
+            dir.path(),
+            &report("core"),
+            &Logs::default(),
+            None,
+            &twice,
+            NOW_MS,
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            list(dir.path()).is_empty(),
+            "a rejected write creates no folder"
+        );
+        assert!(!dir.path().join("outside.txt").exists());
     }
 
     #[test]
