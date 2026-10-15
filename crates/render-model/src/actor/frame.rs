@@ -389,7 +389,7 @@ impl ActorRigFrameBuilder {
             return Err(ActorRigGeometryError::DuplicateRig);
         }
         let revision = self.appended_revision(&geometries);
-        self.catalog.append(geometries, revision)?;
+        self.insert_reclaiming_staged(geometries, revision)?;
         self.matrices = PoseMatrixCache::default();
         Ok(())
     }
@@ -438,7 +438,7 @@ impl ActorRigFrameBuilder {
         if self.frame_generation == u64::MAX || eligibility::validate_input(submission).is_err() {
             return false;
         }
-        let Ok((id, geometry)) = eligibility::geometry(&self.catalog, submission) else {
+        let Ok((id, geometry)) = eligibility::geometry(&self.catalog.geometries, submission) else {
             return false;
         };
         let Some(&index) = self.catalog.indices.get(&id) else {
@@ -600,13 +600,14 @@ impl ActorRigFrameBuilder {
             }
             let previous = &submission.input.previous_bones;
             let current = &submission.input.current_bones;
-            let (geometry_id, geometry) = match eligibility::geometry(&self.catalog, submission) {
-                Ok(geometry) => geometry,
-                Err(error) => {
-                    error.count(&mut rejects);
-                    continue;
-                }
-            };
+            let (geometry_id, geometry) =
+                match eligibility::geometry(&self.catalog.geometries, submission) {
+                    Ok(geometry) => geometry,
+                    Err(error) => {
+                        error.count(&mut rejects);
+                        continue;
+                    }
+                };
             let Some(next_bone_count) = previous_bones.len().checked_add(previous.len()) else {
                 rejects.bone_capacity = rejects.bone_capacity.saturating_add(1);
                 continue;
@@ -794,6 +795,7 @@ fn outside_clip_plane(corners: &[Vec4; 8], outside: impl Fn(&Vec4) -> bool) -> b
     corners.iter().all(outside)
 }
 
+/// Builds finite affine rows, rejecting invalid inputs and overflow during composition.
 fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option<[[f32; 4]; 3]> {
     if !transform.is_finite() || bind_pivot.iter().any(|value| !value.is_finite()) {
         return None;
@@ -834,14 +836,19 @@ fn affine_matrix(transform: RenderBoneTransform, bind_pivot: [f32; 3]) -> Option
         rows.map(|row| row[0] * bind_pivot[0] + row[1] * bind_pivot[1] + row[2] * bind_pivot[2]);
     let translation: [f32; 3] =
         std::array::from_fn(|axis| transform.translation_scale[axis] - rotated_pivot[axis]);
-    Some(std::array::from_fn(|axis| {
+    let matrix = std::array::from_fn(|axis| {
         [
             rows[axis][0],
             rows[axis][1],
             rows[axis][2],
             translation[axis],
         ]
-    }))
+    });
+    matrix
+        .iter()
+        .flatten()
+        .all(|value| value.is_finite())
+        .then_some(matrix)
 }
 
 #[cfg(test)]

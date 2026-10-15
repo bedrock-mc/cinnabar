@@ -32,6 +32,51 @@ fn is_session_pack_rig(id: EntityRigId) -> bool {
 }
 
 impl ActorRigFrameBuilder {
+    /// Registers a whole dynamic batch, reclaiming the oldest staged pages only as needed.
+    /// Replaced dynamic pages are released first; an impossible batch leaves all residents intact.
+    pub(super) fn insert_reclaiming_staged(
+        &mut self,
+        mut geometries: Vec<ActorRigGeometry>,
+        revision: u64,
+    ) -> Result<(), ActorRigGeometryError> {
+        if self.staged.is_empty() {
+            return self.catalog.append(geometries, revision);
+        }
+        for geometry in &mut geometries {
+            geometry.revalidate()?;
+        }
+        // Match append's last-write-wins handling before planning the batch's storage.
+        let added: BTreeMap<_, _> = geometries
+            .into_iter()
+            .map(|geometry| (geometry.id, geometry))
+            .collect();
+        let mut old: Vec<_> = self
+            .catalog
+            .geometries
+            .keys()
+            .filter(|id| self.staged.geometries.contains_key(id) && !added.contains_key(id))
+            .map(|id| (self.staged.last_drawn.get(id).copied().unwrap_or(0), *id))
+            .collect();
+        old.sort_unstable();
+        let evictable: Vec<_> = added
+            .keys()
+            .filter(|id| self.catalog.geometries.contains_key(id))
+            .copied()
+            .chain(old.into_iter().map(|(_, id)| id))
+            .collect();
+        let added: Vec<_> = added.into_values().collect();
+        let plan = self.catalog.plan_admission(&added, &evictable, usize::MAX);
+        if plan.admitted.len() != added.len() {
+            return Err(ActorRigGeometryError::CatalogCapacity);
+        }
+        let evicted: BTreeSet<_> = evictable[..plan.evicted].iter().copied().collect();
+        self.catalog
+            .append_evicting(added, |id| evicted.contains(id), revision)?;
+        self.staged.last_drawn.retain(|id, _| !evicted.contains(id));
+        self.staged.denied = None;
+        Ok(())
+    }
+
     /// Replaces both pack namespaces at once; `Err` only for geometry that fails validation,
     /// leaving the catalog unchanged.
     pub fn replace_session_pack_geometries(
@@ -143,14 +188,22 @@ impl ActorRigFrameBuilder {
             return;
         }
         let drawn: BTreeSet<EntityRigId> = drawn
-            .filter(|submission| {
-                matches!(
-                    submission.route,
-                    ActorRigRoute::Compiled | ActorRigRoute::StaticFallback
-                )
+            .filter_map(|submission| {
+                let (id, geometry) =
+                    eligibility::geometry(&self.staged.geometries, submission).ok()?;
+                (u32::try_from(submission.input.reset_generation).is_ok()
+                    && self.matrices.pose_is_valid(
+                        &submission.input.previous_bones,
+                        id,
+                        &geometry.bone_pivots,
+                    )
+                    && self.matrices.pose_is_valid(
+                        &submission.input.current_bones,
+                        id,
+                        &geometry.bone_pivots,
+                    ))
+                .then_some(id)
             })
-            .map(|submission| submission.input.rig)
-            .filter(|id| self.staged.geometries.contains_key(id))
             .collect();
         let mut missing = Vec::new();
         for id in &drawn {

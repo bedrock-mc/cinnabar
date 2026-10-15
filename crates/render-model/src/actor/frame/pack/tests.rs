@@ -377,3 +377,92 @@ fn a_rig_sharing_a_resident_page_is_admitted_into_a_full_catalog() {
     assert_eq!(frame.instances.len(), 2);
     assert_eq!(frame.rejects.missing_geometry, 0);
 }
+
+/// Dynamic meshes reclaim old pack pages while retaining the most recently drawn rig.
+#[test]
+fn dynamic_geometry_reclaims_staged_capacity() {
+    let (old, visible) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    let dynamic = EntityRigId(2);
+    let mut builder = ActorRigFrameBuilder::new([geometry(EntityRigId(1), 3)]).unwrap();
+    builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 24;
+    builder
+        .replace_pack_geometries((0..3).map(|index| pack_geometry(index, 12)).collect())
+        .unwrap();
+    let _ = builder.build(0.5, None, [draws(1, old), draws(2, visible)]);
+    let previous = builder.build(0.5, None, [draws(2, visible)]);
+
+    assert_eq!(builder.insert_geometry(distinct(dynamic, 20.0, 12)), Ok(()));
+    let frame = builder.build(0.5, None, [draws(2, visible), draws(3, dynamic)]);
+    assert_eq!(frame.instances.len(), 2);
+    assert_eq!(
+        frame.geometry_vertices.epoch,
+        previous.geometry_vertices.epoch
+    );
+    assert!(!builder.contains_geometry(old));
+    assert_spans(&builder.catalog);
+
+    // Replacing a dynamic mesh releases its old page before charging the new batch.
+    assert_eq!(
+        builder.insert_geometries(vec![geometry(dynamic, 6), geometry(EntityRigId(3), 6)]),
+        Ok(())
+    );
+    assert!(builder.contains_geometry(visible));
+    assert_spans(&builder.catalog);
+    let revision = builder.catalog.revision;
+    assert_eq!(
+        builder.insert_geometry(geometry(EntityRigId(4), 40)),
+        Err(ActorRigGeometryError::CatalogCapacity)
+    );
+    assert_eq!(builder.catalog.revision, revision);
+    assert!(builder.contains_geometry(visible));
+    assert!(builder.contains_geometry(dynamic));
+}
+
+/// Rejected poses neither claim fresh pack capacity nor protect a previously resident rig.
+#[test]
+fn invalid_staged_poses_cannot_starve_a_valid_draw() {
+    let (invalid, valid) = (crate::pack_rig_id(0), crate::pack_rig_id(1));
+    for resident in [false, true] {
+        for case in 0..5 {
+            let mut malformed = draws(1, invalid);
+            let mut small = pack_geometry(0, 6);
+            match case {
+                0 => {
+                    malformed.input.previous_bones = Arc::from([]);
+                    malformed.input.current_bones = Arc::from([]);
+                }
+                1 => malformed.input.current_bones = Arc::from([]),
+                2 => Arc::make_mut(&mut malformed.input.current_bones)[0].rotation[0] = f32::NAN,
+                3 => {
+                    let mut vertices = small.vertices.to_vec();
+                    vertices[0].bone_index = 1;
+                    small = ActorRigGeometry::new(invalid, vertices, vec![[0.0; 3]; 2]).unwrap();
+                }
+                _ => {
+                    let bone = &mut Arc::make_mut(&mut malformed.input.current_bones)[0];
+                    bone.translation_scale[3] = f32::MAX;
+                    bone.axis_scale[0] = f32::MAX;
+                }
+            }
+            let mut builder = ActorRigFrameBuilder::new([]).unwrap();
+            builder.catalog.maximum_vertices = builder.catalog.vertices.len() + 12;
+            builder
+                .replace_pack_geometries(vec![small, pack_geometry(1, 12)])
+                .unwrap();
+            if resident {
+                let mut initial = draws(1, invalid);
+                initial.input.previous_bones = vec![initial.input.previous_bones[0]; 2].into();
+                initial.input.current_bones = Arc::clone(&initial.input.previous_bones);
+                assert_eq!(builder.build(0.5, None, [initial]).instances.len(), 1);
+            }
+            let frame = builder.build(0.5, None, [malformed, draws(2, valid)]);
+            assert_eq!(frame.instances.len(), 1, "resident {resident}, case {case}");
+            assert_eq!(
+                frame.manifest[0].rig, valid,
+                "resident {resident}, case {case}"
+            );
+            assert!(!builder.contains_geometry(invalid));
+            assert_spans(&builder.catalog);
+        }
+    }
+}

@@ -265,12 +265,12 @@ fn staged_pack_rigs_become_resident_when_drawn_without_refresh_rebuilds() {
             .all(|geometry| geometry.vertices != equipment_geometry.vertices),
         "equipment-only geometry must not be selected by an entity render route"
     );
-    let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
-    scene.replace_pack_entities(Some(&entities)).unwrap();
+    let mut scene = ActorRenderScene::default();
     scene.reset();
-    let filler_count =
-        render_model::MAX_ACTOR_CATALOG_VERTICES - scene.frame().rig.geometry_vertices.len();
-    scene.replace_pack_entities(None).unwrap();
+    // Leave room for one pack model without a startup copy that could share its page.
+    let filler_count = render_model::MAX_ACTOR_CATALOG_VERTICES
+        - scene.frame().rig.geometry_vertices.len()
+        - equipment_geometry.vertices.len();
     let filler = |slot, count| {
         render_model::ActorRigGeometry::new(
             render_model::item_mesh_rig_id(slot),
@@ -312,21 +312,21 @@ fn staged_pack_rigs_become_resident_when_drawn_without_refresh_rebuilds() {
     ));
 
     let skins = [render_model::default_actor_skin_rgba8()];
-    let mut draw = |rig| {
+    let mut draw = |rig, bones| {
         world
             .resource_mut::<ActorRenderScene>()
-            .update_rigs(0.5, None, [drawn_rig(rig)], &skins)
+            .update_rigs(0.5, None, [drawn_rig(rig, bones)], &skins)
             .rig
             .instances
             .len()
     };
-    assert_eq!(draw(equipment), 1);
-    assert_eq!(draw(entity), 1);
+    assert_eq!(draw(equipment, equipment_geometry.bones_used()), 1);
+    assert_eq!(draw(entity, entity_geometry.bones_used()), 1);
     assert!(resident(&world, entity) && !resident(&world, equipment));
 }
 
-/// One posed body drawing `rig`, as a frame would submit it.
-fn drawn_rig(rig: render_model::EntityRigId) -> render_model::ActorRigSubmission {
+/// One posed body with enough bones for `rig`, as a frame would submit it.
+fn drawn_rig(rig: render_model::EntityRigId, bones: usize) -> render_model::ActorRigSubmission {
     let bone = render_model::RenderBoneTransform::from_model_space(
         [0.0, 0.0, 0.0, 1.0],
         [0.0, 0.0, 0.0, 1.0],
@@ -348,8 +348,8 @@ fn drawn_rig(rig: render_model::EntityRigId) -> render_model::ActorRigSubmission
                 layer: render_model::ACTOR_LAYER_BODY,
             },
             rig,
-            previous_bones: Arc::from([bone]),
-            current_bones: Arc::from([bone]),
+            previous_bones: vec![bone; bones].into(),
+            current_bones: vec![bone; bones].into(),
             completed_tick: 1,
             reset_generation: 1,
         },
