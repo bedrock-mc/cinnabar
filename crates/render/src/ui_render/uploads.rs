@@ -2,11 +2,11 @@
 
 use std::{ops::Range, sync::Arc};
 
-use render_model::{UiRenderInput, UiRenderVertex};
+use render_model::{FontAtlasFrame, UiRenderInput};
 
+/// Retains the last planned publication's indices; vertices are retained by the font frame.
 #[derive(Default)]
 pub(super) struct BufferUploads {
-    vertices: Arc<[UiRenderVertex]>,
     indices: Arc<[u32]>,
 }
 
@@ -16,18 +16,19 @@ pub(super) struct UploadPlan {
 }
 
 impl BufferUploads {
-    /// Plan exact byte changes, forcing complete uploads for newly allocated buffers.
+    /// Plans exact byte changes of the remapped vertices `fonts` last committed and of the
+    /// previously planned indices, forcing complete uploads for newly allocated buffers.
     pub(super) fn plan(
         &mut self,
         input: &UiRenderInput,
+        fonts: &FontAtlasFrame,
         fresh_vertices: bool,
         fresh_indices: bool,
     ) -> UploadPlan {
         let plan = UploadPlan {
-            vertices: changed_range(&self.vertices, &input.vertices, fresh_vertices),
+            vertices: changed_range(&fonts.previous_vertices, &fonts.vertices, fresh_vertices),
             indices: changed_range(&self.indices, &input.indices, fresh_indices),
         };
-        self.vertices = Arc::clone(&input.vertices);
         self.indices = Arc::clone(&input.indices);
         plan
     }
@@ -73,6 +74,7 @@ pub(super) fn changed_range<T: bytemuck::Pod>(old: &[T], new: &[T], fresh: bool)
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::UiRenderVertex;
 
     #[test]
     fn spans_reconstruct_exact_bytes_across_edits_resize_and_buffer_replacement() {

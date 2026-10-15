@@ -1,0 +1,54 @@
+[package]
+name = "crash-monitor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["macos", "windows"]
+reads = [
+    "assets/fonts/CinnanglesSans.ttf",
+    "website/index.html.in",
+]
+
+[dependencies]
+bootstrap-ui = { path = "../bootstrap-ui" }
+crash-report = { path = "../crash-report" }
+diagnostics = { path = "../diagnostics" }
+gilrs = "0.11.2"
+launcher = { path = "../launcher" }
+launcher-host = { path = "../launcher-host" }
+minidump = "0.26"
+minidumper = "0.11"
+render-model = { path = "../render-model" }
+serde_json = "1"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std"] }
+tracing.workspace = true
+ui = { path = "../ui" }
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "x11"] }
+
+# Live hang dumps; Windows also rewrites full-memory crash dumps with it.
+[target.'cfg(any(windows, target_os = "linux", target_os = "android"))'.dependencies]
+minidump-writer = "0.13"
+
+# Reads whether the client is being traced, for the hang watchdog.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Diagnostics_Debug", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+# The game binary enables wgpu's platform backends; the standalone crash preview needs them too.
+wgpu = { workspace = true, features = ["dx12", "metal", "vulkan"] }
+bytes.workspace = true
+client-session = { path = "../client-session", features = ["test-support"] }
+launcher = { path = "../launcher", features = ["test-support"] }
+protocol = { path = "../protocol" }
+sadness-generator = "0.7"
+tempfile = "3"
+test-time = { path = "../test-time" }
+
+[lints]
+workspace = true

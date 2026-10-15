@@ -22,9 +22,12 @@ use bevy::{
 };
 
 use launcher::local_worlds::world::WorldThumbnail;
-use model::{Effect, Event, Input, WorldsMenu};
+use model::{Effect, Event, Input, Screen, WorldsMenu};
 
 use client::WorldsClient;
+
+/// Shown for an import with no attached worker; one cut off by a detach never publishes.
+const IMPORT_UNAVAILABLE: &str = "Local worlds are not ready; try the import again in a moment.";
 
 /// Menu model plus the world manager and the worker that serves it.
 #[derive(Resource)]
@@ -96,6 +99,7 @@ impl LocalWorlds {
         if let Some(client) = self.client.take() {
             client.revoke();
         }
+        self.end_import();
         self.playing = false;
         if let Some(manager) = &self.manager {
             manager.close();
@@ -109,6 +113,20 @@ impl LocalWorlds {
     pub fn input(&mut self, input: Input) {
         let effects = self.menu.update(input);
         self.dispatch(effects);
+        if self.client.is_none() {
+            self.end_import();
+        }
+    }
+
+    /// Fails an import no worker will answer, so its modal never stays up.
+    fn end_import(&mut self) {
+        if self.menu.screen() == Screen::Importing {
+            let effects = self.menu.apply(Event::Imported {
+                worlds: Vec::new(),
+                errors: vec![IMPORT_UNAVAILABLE.to_owned()],
+            });
+            self.dispatch(effects);
+        }
     }
 
     /// Applies finished world requests; call once per frame.

@@ -1,6 +1,6 @@
 //! Generation-fenced join progress independent of the menu and process owner.
 
-use std::{path::PathBuf, time::Instant};
+use std::{path::PathBuf, process::ExitStatus, time::Instant};
 
 use bridge::bridge_endpoint_exists;
 
@@ -45,11 +45,12 @@ pub enum JoinPoll<D> {
 
 impl<D> JoinAttempt<D> {
     /// Advances the existing join in order, before the app inserts a replacement network handle.
+    /// `core_exit` reports the per-session core's exit status once it has exited.
     pub fn poll(
         mut self,
         current_generation: u64,
         connecting: bool,
-        core_exited: impl FnOnce() -> bool,
+        core_exit: impl FnOnce() -> Option<ExitStatus>,
     ) -> JoinPoll<D> {
         if self.generation != current_generation || !connecting {
             return JoinPoll::Retired;
@@ -86,10 +87,10 @@ impl<D> JoinAttempt<D> {
                         directory: Some(directory),
                     };
                 }
-                let error = if core_exited() {
-                    "bedrock-core exited before publishing its endpoint"
+                let error = if let Some(status) = core_exit() {
+                    format!("bedrock-core exited ({status}) before publishing its endpoint")
                 } else if Instant::now() >= deadline {
-                    "bedrock-core did not publish its endpoint"
+                    "bedrock-core did not publish its endpoint".to_owned()
                 } else {
                     self.stage = JoinStage::Core {
                         socket_dir,
@@ -183,14 +184,19 @@ mod tests {
                 deadline: Instant::now() + CORE_START_TIMEOUT,
             },
         };
-        let result = attempt.poll(7, true, || true);
-        assert!(matches!(
-            result,
-            JoinPoll::Failed {
-                directory: Some(_),
-                ..
-            }
-        ));
+        let status = ExitStatus::default();
+        let result = attempt.poll(7, true, || Some(status));
+        let JoinPoll::Failed {
+            directory: Some(_),
+            message,
+        } = &result
+        else {
+            panic!("an exited core fails the join keeping its directory");
+        };
+        assert!(
+            message.contains(&format!("bedrock-core exited ({status}) before")),
+            "{message}"
+        );
         assert_eq!(releases.load(Ordering::SeqCst), 0);
         drop(result);
         assert_eq!(releases.load(Ordering::SeqCst), 1);

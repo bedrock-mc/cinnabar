@@ -17,7 +17,8 @@ mod pack_cache;
 mod server;
 pub use pack_cache::CachedArchive;
 pub use server::{
-    CapturedPacketKind, captured_packet_kind, decode_connect, encode_core_message, packet_from_body,
+    CapturedPacketKind, captured_packet_kind, decode_connect, encode_core_message,
+    packet_from_body, validate_replay_cache_mode,
 };
 
 use bridge::contract::{

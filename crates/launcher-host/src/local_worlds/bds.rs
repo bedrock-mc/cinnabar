@@ -20,6 +20,7 @@ use super::{
     ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
     process::{Instance, Launch, Process, Runner, StartSpec, launch},
     provision::{Provisioner, RuntimeKind, install_dir},
+    store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
     write_private,
 };
@@ -81,7 +82,7 @@ impl Runner for BdsRunner {
         let max_players = self.max_players.max(1);
         let port = free_bds_port(max_players, self.host_port)?;
         let install = install_dir(&binary)?;
-        let world_dir = spec.dir.join("db");
+        let world_dir = spec.dir.join(LEVEL_DIR);
         create_private_dir(&world_dir)
             .map_err(|error| failed(format!("create world folder: {error}")))?;
         let link = install.join("worlds").join(&spec.world.id);

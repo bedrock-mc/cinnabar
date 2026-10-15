@@ -14,8 +14,7 @@ pub(super) struct LayerPoses<'a> {
     pub combat_visuals: render_api::CombatVisuals,
     pub local_emote_pose: Option<&'a actor_animation::CustomEmotePose>,
     pub native_body_sampled: bool,
-    pub remote_skin_layers:
-        &'a std::collections::HashMap<u64, Arc<[actor_animation::SkinRenderLayer]>>,
+    pub remote_skin_layers: &'a super::bodies::RemoteSkinLayers,
     pub native_pose: &'a hand::NativePoseCache,
 }
 
@@ -93,7 +92,7 @@ pub(super) fn attach(
         );
     }
     if let (Some(stream), Some((cape, preparation))) = (stream, cape_state.rig(entity_assets)) {
-        if !scene.contains_geometry(cape.id) {
+        if !scene.contains_geometry(cape.geometry.id) {
             let _ = scene.insert_geometry(cape.geometry.clone());
         }
         crate::presentation::cape::apply_capes(
@@ -189,24 +188,28 @@ pub(super) fn apply_style_and_visibility(
     stream: Option<&WorldStream>,
     style: Option<&ActorPresentationStyle>,
 ) {
-    if let Some(style) = style {
-        for submission in &mut batch.submissions {
-            let armor = (3..=6).contains(&submission.input.identity.layer);
-            let hurt = stream.is_some_and(|stream| {
-                stream
-                    .authority()
-                    .actor(submission.input.identity.runtime_id)
-                    .is_some_and(|actor| actor.hurt_overlay_active())
-            });
-            let attackable = style.attackable_actor == Some(submission.input.identity.runtime_id)
-                && stream.is_some_and(|stream| {
-                    stream
-                        .authority()
-                        .actor(submission.input.identity.runtime_id)
-                        .is_some_and(|actor| {
-                            matches!(actor.kind, protocol::ActorKind::Player { .. })
-                        })
-                });
+    if style.is_none() && stream.is_none() {
+        return;
+    }
+    // Each submission's overlay and route depend only on itself, so one pass with one lookup
+    // per run of an actor's adjacent layers matches separate style and visibility passes.
+    let mut looked_up: Option<(u64, Option<&client_world::ActorSnapshot>)> = None;
+    for submission in &mut batch.submissions {
+        let identity = submission.input.identity;
+        let actor = match looked_up {
+            Some((runtime_id, actor)) if runtime_id == identity.runtime_id => actor,
+            _ => {
+                let actor = stream.and_then(|stream| stream.authority().actor(identity.runtime_id));
+                looked_up = Some((identity.runtime_id, actor));
+                actor
+            }
+        };
+        if let Some(style) = style {
+            let armor = (3..=6).contains(&identity.layer);
+            let hurt = actor.is_some_and(|actor| actor.hurt_overlay_active());
+            let attackable = style.attackable_actor == Some(identity.runtime_id)
+                && actor
+                    .is_some_and(|actor| matches!(actor.kind, protocol::ActorKind::Player { .. }));
             if let Some(color) = cosmetic_overlay(
                 style,
                 hurt,
@@ -217,22 +220,14 @@ pub(super) fn apply_style_and_visibility(
                 submission.overlay_rgba8 = render_model::pack_overlay_rgba8(color);
             }
         }
-    }
-    // Hiding skin layers keeps armor and held items visible.
-    if let Some(stream) = stream {
-        for submission in &mut batch.submissions {
-            let identity = submission.input.identity;
-            if (identity.layer == render_model::ACTOR_LAYER_BODY
-                || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
-                || crate::presentation::skin_layers::is_skin_layer(identity.layer)
-                || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
-                && stream
-                    .authority()
-                    .actor(identity.runtime_id)
-                    .is_some_and(|actor| actor.is_invisible())
-            {
-                submission.route = render_model::ActorRigRoute::NoDraw;
-            }
+        // Hiding skin layers keeps armor and held items visible.
+        if (identity.layer == render_model::ACTOR_LAYER_BODY
+            || identity.layer == crate::presentation::cape::ACTOR_LAYER_CAPE
+            || crate::presentation::skin_layers::is_skin_layer(identity.layer)
+            || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
+            && actor.is_some_and(|actor| actor.is_invisible())
+        {
+            submission.route = render_model::ActorRigRoute::NoDraw;
         }
     }
 }

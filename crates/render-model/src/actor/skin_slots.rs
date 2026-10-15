@@ -1,8 +1,8 @@
 //! Stable player-skin texture slots: one array per native resolution, LRU-recycled.
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
+
+use foldhash::fast::FixedState;
+use hashbrown::HashMap;
 
 use crate::MAX_RENDERED_PLAYERS;
 #[cfg(test)]
@@ -74,7 +74,7 @@ pub struct SkinSlots {
     classes: [Vec<Option<Slot>>; 4],
     free: [Vec<usize>; 4],
     recency: [crate::FrameSlotRecency; SKIN_CLASS_SIDES.len()],
-    index: HashMap<SkinRgba8, u32>,
+    index: HashMap<SkinRgba8, u32, FixedState>,
     frame: u64,
     admissions: u64,
     residency: Arc<ActorSkinResidency>,

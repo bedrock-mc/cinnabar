@@ -20,7 +20,7 @@ pub(crate) struct MotionEndpointState {
 
 pub(super) struct MotionEndpoint<'a> {
     pub evaluator: evaluation::Evaluator<'a>,
-    pub variables: MolangVariables,
+    pub variables: ScratchVariables,
     pub clips: Vec<tick::WeightedClip>,
     pub scale: Option<[f32; 4]>,
 }
@@ -50,7 +50,7 @@ impl MotionEndpointState {
             },
             ..base
         };
-        let mut variables = self.variables.clone();
+        let mut variables = ScratchVariables::copy_of(&self.variables);
         if let Some(swing) = swing {
             variables.set(evaluator.layout.engine.attack_time, swing);
         }

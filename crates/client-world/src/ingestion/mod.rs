@@ -17,7 +17,7 @@ pub use contracts::{
 pub(crate) use decode_diagnostics::{DecodeDiagnostics, block_registry_sha256};
 pub use ids::{DecodeIds, default_biome_id, dimension_slots};
 pub use jobs::{BlockMutationBatch, DecodeCompletion, DecodeJob, QueuedDecodeJob};
-pub use lanes::{Consumers, Footprint, LaneContext, classify};
+pub use lanes::{Consumers, Footprint, FootprintColumns, LaneContext, classify};
 pub use ordered::{CommitBudget, CommitStep, DecodeCommit, OrderedCommitState};
 pub use prepare::{
     light_neutral_sections, light_semantics_changed, prepare_block_mutations, prepare_sub_chunks,

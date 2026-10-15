@@ -7,9 +7,15 @@ use crate::ui_runtime::UiRuntime;
 use crate::ui_runtime::presentation::UiPresentationRuntime;
 use ui::DpiScale;
 
-fn names(count: usize) -> Vec<Arc<str>> {
+fn names(count: usize) -> Vec<(Arc<str>, Arc<str>, [u8; 16])> {
     (0..count)
-        .map(|index| Arc::from(format!("Player{index:02}")))
+        .map(|index| {
+            (
+                Arc::from(format!("Player{index:02}")),
+                Arc::from(""),
+                [0; 16],
+            )
+        })
         .collect()
 }
 
@@ -31,7 +37,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     });
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
-    runtime.refresh_raw_text_identities(|_| None, names(2));
+    runtime.player_roster.set_entries(names(2));
     let frame = |presentation: &mut UiPresentationRuntime,
                  player: &player_state::PlayerState,
                  runtime: &UiRuntime| {
@@ -48,7 +54,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
         presentation.screens.player_list.as_ref().unwrap().passes(),
         1
     );
-    runtime.refresh_raw_text_identities(|_| None, names(3));
+    runtime.player_roster.set_entries(names(3));
     let changed = frame(&mut presentation, &player, &runtime);
     assert_ne!(shown.vertices, changed.vertices);
     runtime.set_player_list_held(false);

@@ -38,10 +38,10 @@ impl DroppedItemScene {
             self.models = models;
         }
         let count = instances.len().min(MAX_DROPPED_ITEM_INSTANCES);
-        self.instances = Arc::from(&instances[..count]);
+        replace_unless_both_empty(&mut self.instances, &instances[..count]);
         // Whole triangles only.
         let dynamic_count = dynamic.len().min(MAX_DYNAMIC_ITEM_VERTICES) / 3 * 3;
-        self.dynamic = Arc::from(&dynamic[..dynamic_count]);
+        replace_unless_both_empty(&mut self.dynamic, &dynamic[..dynamic_count]);
         self.daylight = if daylight.is_finite() {
             daylight.clamp(0.0, 1.0)
         } else {
@@ -60,9 +60,9 @@ impl DroppedItemScene {
     }
 
     pub fn clear(&mut self) {
-        self.instances = Arc::from([]);
-        self.dynamic = Arc::from([]);
-        self.terrain_instances = Arc::from([]);
+        replace_unless_both_empty(&mut self.instances, &[]);
+        replace_unless_both_empty(&mut self.dynamic, &[]);
+        replace_unless_both_empty(&mut self.terrain_instances, &[]);
         self.terrain_session_id = None;
     }
 
@@ -80,6 +80,14 @@ impl DroppedItemScene {
     #[must_use]
     pub fn instance_count(&self) -> usize {
         self.instances.len()
+    }
+}
+
+/// Publishes `next` into `published`, keeping the existing allocation when both are empty so
+/// frames without items allocate nothing.
+fn replace_unless_both_empty<T: Clone>(published: &mut Arc<[T]>, next: &[T]) {
+    if !(published.is_empty() && next.is_empty()) {
+        *published = Arc::from(next);
     }
 }
 

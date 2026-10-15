@@ -166,6 +166,9 @@ const _: () = assert!(UPDATE_CHANNEL_CHOICES.len() == update_manifest::channel::
 /// Stable is offered only after its signed release exists; beta is the initial channel.
 pub const UPDATE_CHANNEL_OPTION: SettingDefinition = SettingId::UpdateChannel.definition();
 
+/// Lets other Cinnabar players see this player as one through the Cinnabar API.
+pub const CINNABAR_VISIBILITY_OPTION: SettingDefinition = SettingId::CinnabarVisible.definition();
+
 /// Publishes the client's state to Discord Rich Presence.
 pub const DISCORD_PRESENCE_OPTION: SettingDefinition = SettingId::DiscordPresence.definition();
 
@@ -513,6 +516,10 @@ settings! {
         [(SettingPanel::GeneralNetwork, 0)], [], None, Some("options.websocketsEnabled.name");
     WebsocketEncryption => "websocket_encryption", toggle("options.websocketEncryption", false),
         [(SettingPanel::GeneralNetwork, 1)], [], None, None;
+    CinnabarVisible => "cinnabar_visible", toggle("Show me as a Cinnabar player", true),
+        [(SettingPanel::GeneralNetwork, 2)], [], None, None;
+    CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
+        [(SettingPanel::GeneralNetwork, 3)], [], None, None;
     AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
         [(SettingPanel::GeneralUpdates, 0)], [], None, None;
     InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
@@ -609,4 +616,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
+        [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
+    RecordNetworkSession => "record_network_session", toggle("Record network session", false),
+        [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
 }

@@ -43,6 +43,10 @@ impl WorldAuthority {
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
     }
+    /// Named player-list entries as `(username, xuid, uuid)`, sorted by username.
+    pub fn player_list_roster(&self) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>, [u8; 16])> {
+        self.actors.player_list_roster()
+    }
     /// How many players are on the player list, without allocating.
     pub fn player_count(&self) -> usize {
         self.actors.player_list_count()
@@ -264,6 +268,11 @@ impl WorldAuthority {
         self.actors.get(runtime_id)
     }
 
+    /// Returns the session, dimension and spawn identity that owns the current actor.
+    pub fn actor_lifetime(&self, runtime_id: u64) -> Option<actor_animation::ActorLifetimeId> {
+        self.actors.lifetime(runtime_id)
+    }
+
     /// Publishes the session's level mode before remote players are admitted.
     pub fn set_world_default_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         self.actors.apply_world_game_mode(mode);
@@ -290,9 +299,14 @@ impl WorldAuthority {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
-    /// Dropped-item stacks with interpolated pose, spin, and pickup flight at `partial_tick`.
-    pub fn dropped_items(&self, partial_tick: f32) -> Vec<crate::DroppedItemView> {
-        self.actors.dropped_items(partial_tick)
+    /// Borrows this actor's current roster XUID and UUID, even while its appearance is being prepared.
+    pub fn actor_player_roster_identity(&self, runtime_id: u64) -> Option<(&str, &[u8; 16])> {
+        self.actors.player_roster_identity(runtime_id)
+    }
+    /// Replaces `views` with dropped-item stacks at their interpolated pose, spin, and pickup
+    /// flight at `partial_tick`.
+    pub fn dropped_items_into(&self, partial_tick: f32, views: &mut Vec<crate::DroppedItemView>) {
+        self.actors.dropped_items_into(partial_tick, views);
     }
     /// Live lightning-bolt actors, for the bolt renderer and sky flash.
     pub fn lightning_bolts(&self) -> Vec<crate::LightningBoltView> {
@@ -302,9 +316,15 @@ impl WorldAuthority {
     pub fn block_entities(&self, partial_tick: f32) -> Vec<crate::BlockEntityView> {
         self.actors.block_entities(partial_tick)
     }
-    /// Retains pending block actors for visibility decisions in the terrain's render frame.
-    pub fn block_entity_candidates(&self, partial_tick: f32) -> Vec<crate::BlockEntityCandidate> {
-        self.actors.block_entity_candidates(partial_tick)
+    /// Replaces `candidates` with pending block actors, retained for visibility decisions in
+    /// the terrain's render frame.
+    pub fn block_entity_candidates_into(
+        &self,
+        partial_tick: f32,
+        candidates: &mut Vec<crate::BlockEntityCandidate>,
+    ) {
+        self.actors
+            .block_entity_candidates_into(partial_tick, candidates);
     }
     /// End crystal beams with interpolated endpoints and actor animation age.
     pub fn crystal_beams(&self, partial_tick: f32) -> Vec<crate::CrystalBeamView> {
@@ -314,9 +334,9 @@ impl WorldAuthority {
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
     }
-    /// Fishing lines and leads with interpolated endpoints.
-    pub fn ropes(&self, partial_tick: f32) -> Vec<crate::RopeView> {
-        self.actors.ropes(partial_tick)
+    /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
+    pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
+        self.actors.ropes_into(partial_tick, ropes);
     }
     /// Borrows one actor rig for presentation.
     pub fn actor_rig(&self, runtime_id: u64) -> Option<ActorRigSnapshot<'_>> {

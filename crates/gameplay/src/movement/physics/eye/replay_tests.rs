@@ -255,7 +255,8 @@ fn corrected_pair(
     );
     if let Some(retained) = retained {
         assert_camera(&physics, &retained);
-        assert_history(&physics, &retained, facing, &world);
+        // The accepted network anchor rounds body coordinates through f32; pose offsets stay exact.
+        assert_eye_history(&physics, &retained, facing, &world);
     }
     (physics, equivalent, facing, world)
 }
@@ -297,12 +298,57 @@ fn assert_history(
             .collect::<Vec<_>>(),
         "retained aim keeps the cancelled spin eye"
     );
+    assert_eye_history(physics, equivalent, facing, world);
+    assert_eq!(physics.state(), equivalent.state());
+}
+
+/// Compares pose offsets and liquid probes against the reference on the accepted body positions.
+fn assert_eye_history(
+    physics: &LocalPhysicsController,
+    equivalent: &LocalPhysicsController,
+    facing: u64,
+    world: &Pool,
+) {
+    let end = physics.state().unwrap().tick;
+    let expected_poses: Vec<_> = physics
+        .sample_history
+        .iter()
+        .filter(|sample| sample.tick > facing - 2 && sample.tick <= end)
+        .map(|sample| {
+            let expected = equivalent
+                .controller_history
+                .iter()
+                .find(|frame| frame.tick == sample.tick)
+                .unwrap();
+            let mut eye = sample.position;
+            eye[1] += expected.eye_offset.height(1.0) - PLAYER_NETWORK_OFFSET;
+            let orientation = equivalent
+                .sample_at(sample.tick)
+                .unwrap()
+                .camera_orientation;
+            (sample.tick, eye, orientation)
+        })
+        .collect();
+    assert_eq!(
+        physics
+            .aim_poses_after(Some(facing - 2), end)
+            .collect::<Vec<_>>(),
+        expected_poses
+    );
     for frame in &physics.controller_history {
         let expected = equivalent
             .controller_history
             .iter()
             .find(|other| other.tick == frame.tick)
             .unwrap();
+        for alpha in [0.0, 0.25, 0.5, 1.0] {
+            assert_eq!(
+                frame.eye_offset.height(alpha),
+                expected.eye_offset.height(alpha),
+                "retained eye at tick {} and alpha {alpha}",
+                frame.tick
+            );
+        }
         assert_eq!(
             frame.input.liquid_attach_height, expected.input.liquid_attach_height,
             "controller liquid attachment at {}",
@@ -335,7 +381,6 @@ fn assert_history(
             );
         }
     }
-    assert_eq!(physics.state(), equivalent.state());
 }
 
 #[test]

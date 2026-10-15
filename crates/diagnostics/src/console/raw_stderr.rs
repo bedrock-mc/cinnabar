@@ -1,32 +1,38 @@
 //! Drains the process stderr pipe into the same ordered, rotating sink as queued output.
-use super::{FULL_QUEUE_RETRY, Message, Stream};
+use super::{
+    Message, Priority, Stream,
+    queue::{Queue, Rejected},
+};
 use std::{
     fs::File,
     io::{self, Read},
     sync::{
         Arc, Mutex, TryLockError,
         atomic::{AtomicBool, AtomicU64, Ordering},
-        mpsc::{SyncSender, TrySendError},
     },
     time::{Duration, Instant},
 };
+
+/// Pause between attempts to take the pipe reader from the drain thread.
+const READER_RETRY: Duration = Duration::from_millis(1);
 
 const READ_SIZE: usize = 4096;
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub(super) struct RawStderr {
-    reader: Mutex<File>,
+    /// The capture pipe's read end; whoever holds it is the only reader besides a fatal-signal
+    /// drain.
+    pub(super) reader: Mutex<File>,
     cancelled: AtomicBool,
     dropped: Arc<AtomicU64>, // Shared with the console so overflow is reported once, in order.
 }
 
 impl RawStderr {
     /// Installs a process-lifetime pipe only after its drain thread has started successfully.
-    pub(super) fn start(
-        queue: SyncSender<Message>,
-        dropped: Arc<AtomicU64>,
-    ) -> io::Result<Arc<Self>> {
+    pub(super) fn start(queue: Arc<Queue>, dropped: Arc<AtomicU64>) -> io::Result<Arc<Self>> {
         let (reader, writer) = pipe()?;
+        #[cfg(unix)]
+        let reader_fd = std::os::fd::AsRawFd::as_raw_fd(&reader);
         let capture = Arc::new(Self {
             reader: Mutex::new(reader),
             cancelled: AtomicBool::new(false),
@@ -47,12 +53,16 @@ impl RawStderr {
             capture.cancelled.store(true, Ordering::Relaxed);
             return Err(error);
         }
+        // The console keeps the capture, and so the pipe, for the rest of the process.
+        #[cfg(unix)]
+        super::signal_drain::publish_reader(reader_fd);
         Ok(capture)
     }
 
-    /// Queues all bytes currently in the pipe. Without a deadline a full queue drops and counts the
-    /// chunk, so a stalled console never backs up the pipe into `eprintln!` callers.
-    pub(super) fn drain(&self, queue: &SyncSender<Message>, deadline: Option<Instant>) -> bool {
+    /// Queues all bytes currently in the pipe. Raw stderr carries panics and fatal reports, so it
+    /// may use the queue's reserve. Without a deadline a full queue drops and counts the chunk,
+    /// so a stalled console never backs up the pipe into `eprintln!` callers.
+    pub(super) fn drain(&self, queue: &Queue, deadline: Option<Instant>) -> bool {
         let mut reader = loop {
             match self.reader.try_lock() {
                 Ok(reader) => break reader,
@@ -61,7 +71,7 @@ impl RawStderr {
                     if deadline.is_some_and(|end| Instant::now() >= end) {
                         return false;
                     }
-                    std::thread::sleep(FULL_QUEUE_RETRY);
+                    std::thread::sleep(READER_RETRY);
                 }
             }
         };
@@ -78,25 +88,25 @@ impl RawStderr {
                 return true;
             }
             let count = match reader.read(&mut bytes[..count]) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return true,
                 Ok(0) | Err(_) => return false,
                 Ok(count) => count,
             };
-            let mut message = Message::Write(Stream::Stderr, bytes[..count].to_vec());
-            loop {
-                match queue.try_send(message) {
-                    Ok(()) => break,
-                    Err(TrySendError::Disconnected(_)) => return false,
-                    Err(TrySendError::Full(returned)) => {
-                        let Some(end) = deadline else {
-                            self.dropped.fetch_add(1, Ordering::Relaxed);
-                            break;
-                        };
-                        if Instant::now() >= end {
-                            return false;
-                        }
-                        message = returned;
-                        std::thread::sleep(FULL_QUEUE_RETRY);
-                    }
+            let message = Message::Write {
+                stream: Stream::Stderr,
+                priority: Priority::Warn,
+                bytes: bytes[..count].to_vec(),
+            };
+            let queued = match deadline {
+                Some(end) => queue.push_until(message, end),
+                None => queue.push(message),
+            };
+            match queued {
+                Ok(()) => {}
+                Err(Rejected::Closed(_)) => return false,
+                Err(Rejected::Full) if deadline.is_some() => return false,
+                Err(Rejected::Full) => {
+                    self.dropped.fetch_add(1, Ordering::Relaxed);
                 }
             }
         }
@@ -132,13 +142,15 @@ pub(super) fn original() -> io::Result<Option<File>> {
     ))
 }
 
-/// Creates owned pipe ends; the read side never blocks when queried under the reader lock.
+/// Creates owned pipe ends with a nonblocking reader, including when a signal consumes bytes.
 #[cfg(unix)]
 fn pipe() -> io::Result<(File, File)> {
     let (read, write) = rustix::pipe::pipe()?;
     for fd in [&read, &write] {
         rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::CLOEXEC)?;
     }
+    let flags = rustix::fs::fcntl_getfl(&read)?;
+    rustix::fs::fcntl_setfl(&read, flags | rustix::fs::OFlags::NONBLOCK)?;
     Ok((read.into(), write.into()))
 }
 
@@ -228,7 +240,8 @@ fn available(reader: &File) -> io::Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{io::Write, sync::mpsc::sync_channel};
+    use crate::console::queue::{RESERVED_CAPACITY, SHARED_CAPACITY, SystemClock};
+    use std::io::Write;
 
     /// A stalled console must not stop the pipe draining, or raw stderr writers block.
     #[test]
@@ -239,13 +252,68 @@ mod tests {
             cancelled: AtomicBool::new(false),
             dropped: Arc::new(AtomicU64::new(0)),
         };
-        let (queue, _pending) = sync_channel(1);
-        queue
-            .try_send(Message::Write(Stream::Stderr, b"queued".to_vec()))
-            .unwrap();
+        let queue = Queue::new(Box::new(SystemClock));
+        for _ in 0..SHARED_CAPACITY + RESERVED_CAPACITY {
+            let queued = queue.push(Message::Write {
+                stream: Stream::Stderr,
+                priority: Priority::Warn,
+                bytes: b"queued".to_vec(),
+            });
+            assert!(queued.is_ok());
+        }
         writer.write_all(b"stalled console output").unwrap();
         assert!(capture.drain(&queue, None));
         assert_eq!(capture.dropped.load(Ordering::Relaxed), 1);
         assert_eq!(available(&capture.reader.lock().unwrap()).unwrap(), 0);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod nonblocking_tests {
+    use super::*;
+
+    /// Models a competing reader consuming all bytes before the fatal handler's next read.
+    #[test]
+    fn exhausted_reader_fixture() {
+        if std::env::var_os("CINNABAR_EMPTY_CAPTURE_FIXTURE").is_none() {
+            return;
+        }
+        use std::io::Write;
+        let (mut reader, mut writer) = pipe().unwrap();
+        writer.write_all(b"x").unwrap();
+        let mut byte = [0];
+        reader.read_exact(&mut byte).unwrap();
+        assert_eq!(
+            reader.read(&mut byte).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    /// An exhausted capture reader returns immediately while its write end remains open.
+    #[test]
+    fn exhausted_capture_pipe_never_waits_for_another_stderr_write() {
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "console::raw_stderr::nonblocking_tests::exhausted_reader_fixture",
+            ])
+            .env("CINNABAR_EMPTY_CAPTURE_FIXTURE", "1")
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut status = None;
+        let completed = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
+            status = child.try_wait().unwrap();
+            status.is_some()
+        });
+        if !completed {
+            child.kill().unwrap();
+            child.wait().unwrap();
+        }
+        assert!(
+            completed,
+            "capture reader blocked after its last byte was consumed"
+        );
+        assert!(status.unwrap().success());
     }
 }

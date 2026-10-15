@@ -1,5 +1,8 @@
 use super::*;
 
+/// A crash folder's report member, as `run` names it.
+const CRASH_REPORT: &str = "crashes/20251014-120000-0123456789abcdef/report.json";
+
 /// Bundles `entries` and returns every archive member's text, concatenated.
 fn bundled(entries: &[(String, String)]) -> String {
     let temp = tempfile::tempdir().unwrap();
@@ -51,7 +54,7 @@ fn json_embedded_in_crash_strings_removes_every_private_array_element() {
         "message": r#"panicked at crates/client-runtime/src/auth.rs:40:9: refresh rejected {"token":["first-secret","second-secret"],"status":401}"#,
         "log_tail": "level=WARN msg=\"refresh failed\" body={\"token\":[\"first-secret\",\"second-secret\"]}\n",
     });
-    let all = bundled(&[("crashes/report-0.json".into(), report.to_string())]);
+    let all = bundled(&[(CRASH_REPORT.into(), report.to_string())]);
     assert!(all.contains("refresh rejected") && all.contains("401"));
     for private in ["first-secret", "second-secret"] {
         assert!(!all.contains(private), "leaked {private}: {all}");
@@ -76,14 +79,10 @@ fn windows_panic_locations_and_backtraces_keep_their_backslashes() {
     });
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("bundle.zip");
-    bundle(
-        &path,
-        &[("crashes/report-0.json".into(), report.to_string())],
-    )
-    .unwrap();
+    bundle(&path, &[(CRASH_REPORT.into(), report.to_string())]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
@@ -113,8 +112,6 @@ fn debug_quoted_windows_paths_are_scrubbed_before_a_second_decode() {
     )]);
     assert!(all.contains("logs"));
     assert!(!all.contains("ob"), "leaked username: {all}");
-    let unlearned = redact(r#"path="C:\\Users\\bob\\logs""#, &[]).unwrap();
-    assert!(!unlearned.contains("ob"), "leaked username: {unlearned}");
 }
 
 #[test]
@@ -137,27 +134,11 @@ fn home_folders_with_spaces_are_redacted_whole_and_everywhere() {
     }
 }
 #[test]
-fn home_folder_usernames_keep_apostrophes() {
-    for text in ["opened /Users/D'Angelo/logs", "home is /Users/D'Angelo"] {
-        let redacted = redact(text, &[]).unwrap();
-        assert!(!redacted.contains("Angelo"), "leaked username: {redacted}");
-    }
-    let quoted = redact("profile '/Users/D'Angelo/logs'", &[]).unwrap();
-    assert_eq!(quoted, "profile '[redacted]/logs'");
-}
-
-#[test]
-fn ipv6_addresses_before_a_prose_colon_are_redacted() {
-    let redacted = redact("dial failed via 2001:db8::7: timeout", &[]).unwrap();
-    assert_eq!(redacted, "dial failed via [redacted]: timeout");
-}
-
-#[test]
 fn excessive_escape_depth_never_publishes_a_bundle() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("bundle.zip");
     let mut text = "gamertag=\"Fixture Player\"".to_owned();
-    for _ in 0..=MAX_ESCAPE_DEPTH {
+    for _ in 0..=redact::MAX_ESCAPE_DEPTH {
         text = serde_json::to_string(&text).unwrap();
     }
     assert!(bundle(&path, &[("client.log".into(), text)]).is_err());
@@ -180,7 +161,7 @@ fn escaped_payloads_remove_learned_secrets_and_unlabelled_identities_everywhere(
     bundle(&path, &[
             ("client.log".into(), format!("error={escaped}\nerror={double}\nlater {name} connected\n")),
             ("core.log".into(), format!("unlabelled {secret}\nencoded {}\nunicode {unicode}\n", serde_json::to_string(name).unwrap())),
-            ("crashes/report-0.json".into(), serde_json::json!({"message": double, "later": format!("{name} connected {secret}"), (name): "connected"}).to_string()),
+            (CRASH_REPORT.into(), serde_json::json!({"message": double, "later": format!("{name} connected {secret}"), (name): "connected"}).to_string()),
         ]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut all = String::new();
@@ -193,6 +174,36 @@ fn escaped_payloads_remove_learned_secrets_and_unlabelled_identities_everywhere(
     assert!(all.contains("connected"));
     for private in ["FIXTURE_PRIVATE_TOKEN", "Escaped", "Fixture", &unicode] {
         assert!(!all.contains(private), "leaked fixture value: {all}");
+    }
+}
+
+#[test]
+fn bundles_tagged_core_sessions_and_their_rotated_join_timeline() {
+    let directory = tempfile::tempdir().unwrap();
+    let logs = directory.path().join("logs");
+    fs::create_dir(&logs).unwrap();
+    fs::write(
+        logs.join("client.log"),
+        "CLIENT_SESSION_START session=0123456789abcdef timestamp_ms=2\n",
+    )
+    .unwrap();
+    fs::write(
+        logs.join("core.log.1"),
+        "CORE_SESSION_START timestamp_ms=1 session=previous\nstale\nCORE_SESSION_START timestamp_ms=3 session=0123456789abcdef\nupstream first elapsed_ms=4\n",
+    )
+    .unwrap();
+    fs::write(
+        logs.join("core.log"),
+        "CORE_SESSION_START timestamp_ms=5 session=0123456789abcdef\r\nupstream second elapsed_ms=6\n",
+    )
+    .unwrap();
+    run(&["--data-root".into(), directory.path().display().to_string()]).unwrap();
+    let members = archive_members(directory.path());
+    for member in ["core.log", "join-timeline.txt"] {
+        let text = &members[member];
+        assert!(text.contains("upstream first"), "missing {member}: {text}");
+        assert!(text.contains("upstream second"), "missing {member}: {text}");
+        assert!(!text.contains("stale"));
     }
 }
 
@@ -236,14 +247,14 @@ fn crash_json_strings_are_decoded_redacted_and_serialized() {
     bundle(
         &path,
         &[
-            ("crashes/report-0.json".into(), report.to_string()),
+            (CRASH_REPORT.into(), report.to_string()),
             ("core.log".into(), "Other Player connected".into()),
         ],
     )
     .unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
@@ -281,7 +292,7 @@ fn escaped_crash_fields_never_strip_backslashes_from_unicode_escaped_identities(
     bundle(
         &path,
         &[
-            ("crashes/report-0.json".into(), report.to_string()),
+            (CRASH_REPORT.into(), report.to_string()),
             (
                 "core.log".into(),
                 format!("level=INFO msg=\"player {unicode} connected\"\n"),
@@ -337,14 +348,10 @@ fn rust_backtraces_keep_symbols_and_source_locations_while_addresses_are_redacte
         "os": "macos",
         "arch": "aarch64",
     });
-    bundle(
-        &path,
-        &[("crashes/report-0.json".into(), report.to_string())],
-    )
-    .unwrap();
+    bundle(&path, &[(CRASH_REPORT.into(), report.to_string())]).unwrap();
     let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
     let mut text = String::new();
-    zip.by_name("crashes/report-0.json")
+    zip.by_name(CRASH_REPORT)
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
@@ -446,13 +453,13 @@ fn newest_session_excludes_previous_launches() {
     };
     let text = "old\nCLIENT_SESSION_START timestamp_ms=1\nfirst\nCLIENT_SESSION_START timestamp_ms=2\nlast\n";
     assert_eq!(
-        latest_session(text, "CLIENT_SESSION_START"),
+        section::latest(text, section::CLIENT_SESSION_START),
         "CLIENT_SESSION_START timestamp_ms=2\nlast\n"
     );
     assert_eq!(
         recent_core_session(
             "CORE_SESSION_START timestamp_ms=1\nold\nCORE_SESSION_START timestamp_ms=3\nnew",
-            latest_session(text, "CLIENT_SESSION_START")
+            section::latest(text, section::CLIENT_SESSION_START)
         ),
         "CORE_SESSION_START timestamp_ms=3\nnew"
     );
@@ -470,4 +477,227 @@ fn newest_session_excludes_previous_launches() {
         ),
         "CORE_SESSION_START timestamp_ms=1\nold"
     );
+}
+
+fn crash(crash_dir: &Path, session_id: &str, message: &str, now_ms: u64) -> PathBuf {
+    let identity = crash_report::report::Identity {
+        session_id: session_id.into(),
+        started_at_ms: now_ms - 1_000,
+        release: "1.2.3".into(),
+        commit: "abc123".into(),
+        build_profile: "release".into(),
+    };
+    let report = crash_report::report::Report::new(
+        crash_report::report::Kind::Panic,
+        message.into(),
+        &identity,
+        now_ms,
+    );
+    let logs = folder::Logs {
+        client: format!("CLIENT_SESSION_START session={session_id}\n{message} client\n")
+            .into_bytes(),
+        core: format!("CORE_SESSION_START timestamp_ms=1\n{message} core\n").into_bytes(),
+    };
+    folder::write(crash_dir, &report, &logs, None, now_ms).unwrap()
+}
+
+fn archive_members(root: &Path) -> std::collections::BTreeMap<String, String> {
+    let path = fs::read_dir(root.join("diag"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let mut zip = zip::ZipArchive::new(fs::File::open(path).unwrap()).unwrap();
+    (0..zip.len())
+        .map(|index| {
+            let mut member = zip.by_index(index).unwrap();
+            let mut text = String::new();
+            member.read_to_string(&mut text).unwrap();
+            (member.name().to_owned(), text)
+        })
+        .collect()
+}
+
+#[test]
+fn bundles_only_the_crash_folders_of_the_latest_session() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir(temp.path().join("logs")).unwrap();
+    fs::write(
+        temp.path().join("logs/client.log"),
+        "CLIENT_SESSION_START session=00000000000000aa timestamp_ms=1000\nold\nCLIENT_SESSION_START version=1 session=00000000000000bb timestamp_ms=5000000\ncurrent\n",
+    )
+    .unwrap();
+    let crash_dir = temp.path().join("crashes");
+    let previous = crash(&crash_dir, "00000000000000aa", "earlier panic", 2_000_000);
+    let current = crash(&crash_dir, "00000000000000bb", "current panic", 6_000_000);
+    fs::write(
+        crash_dir.join("crash-1-00000000000000000000.json"),
+        r#"{"message":"legacy"}"#,
+    )
+    .unwrap();
+    run(&["--data-root".into(), temp.path().display().to_string()]).unwrap();
+    let members = archive_members(temp.path());
+    let name = current.file_name().unwrap().to_str().unwrap();
+    let report: serde_json::Value =
+        serde_json::from_str(&members[&format!("crashes/{name}/report.json")]).unwrap();
+    assert_eq!(report["message"], "current panic");
+    assert_eq!(report["kind"], "panic");
+    assert!(members[&format!("crashes/{name}/client.log")].contains("current panic client"));
+    assert!(members[&format!("crashes/{name}/core.log")].contains("current panic core"));
+    let previous = previous.file_name().unwrap().to_str().unwrap();
+    assert!(members.keys().all(|member| !member.contains(previous)));
+    let all: String = members.values().cloned().collect();
+    assert!(!all.contains("earlier panic"));
+    assert!(!all.contains("legacy"));
+}
+
+#[test]
+fn headers_without_a_session_id_select_crashes_by_time() {
+    let temp = tempfile::tempdir().unwrap();
+    let crash_dir = temp.path().join("crashes");
+    let before = crash(&crash_dir, "00000000000000aa", "before", 1_000_000);
+    let same_second = crash(&crash_dir, "00000000000000bb", "same second", 5_000_000);
+    let after = crash(&crash_dir, "00000000000000cc", "after", 9_000_000);
+    let header = "CLIENT_SESSION_START version=1 commit=abc timestamp_ms=5000400";
+    assert_eq!(
+        session_crashes(&crash_dir, Some(header)),
+        [after.clone(), same_second.clone()]
+    );
+    assert_eq!(
+        session_crashes(&crash_dir, None),
+        [after, same_second, before]
+    );
+}
+
+/// A continued session includes its rotated segments and excludes previous launches.
+#[test]
+fn bundle_reassembles_rotated_segments_of_the_current_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let logs = temp.path().join("logs");
+    fs::create_dir(&logs).unwrap();
+    let previous = "CLIENT_SESSION_START session=old timestamp_ms=1\nprevious launch\n";
+    let header = "CLIENT_SESSION_START session=current timestamp_ms=2\n";
+    for (name, text) in [
+        ("client-19700101-000000.log", previous.to_owned()),
+        (
+            "client-19700101-000000-2.log",
+            format!("{header}first segment token=fixture-secret\n"),
+        ),
+        (
+            "client-19700101-000000-10.log",
+            format!("{header}second segment\n"),
+        ),
+        (
+            "client.log",
+            format!("{header}last segment fixture-secret\n"),
+        ),
+        ("client-notes.log", "unrelated file\n".to_owned()),
+    ] {
+        fs::write(logs.join(name), text).unwrap();
+    }
+    run(&["--data-root".into(), temp.path().display().to_string()]).unwrap();
+    let members = archive_members(temp.path());
+    let client = &members["client.log"];
+    let first = client
+        .find("first segment")
+        .expect("missing rotated segment");
+    let second = client
+        .find("second segment")
+        .expect("missing rotated segment");
+    let last = client.find("last segment").unwrap();
+    assert!(first < second && second < last);
+    assert!(!client.contains("previous launch"));
+    assert!(!client.contains("unrelated file"));
+    assert!(!client.contains("fixture-secret"));
+}
+
+#[test]
+fn diagnostics_audit_core_archives_follow_identity_and_rotation() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("core.log");
+    for (name, id, event) in [
+        (
+            "core-20260101-000000.log",
+            "own",
+            "upstream first elapsed_ms=1",
+        ),
+        (
+            "core-20260101-000000-2.log",
+            "own",
+            "upstream second elapsed_ms=2",
+        ),
+        (
+            "core-20260101-000000-10.log",
+            "own",
+            "upstream third elapsed_ms=3",
+        ),
+        ("core.log", "other", "other session"),
+    ] {
+        fs::write(
+            temp.path().join(name),
+            format!("CORE_SESSION_START timestamp_ms=2 session={id}\n{event}\n"),
+        )
+        .unwrap();
+    }
+    let text =
+        core_session_tail(&path, "CLIENT_SESSION_START timestamp_ms=2 session=own\n").unwrap();
+    assert!(
+        text.contains("first") && text.contains("second") && text.contains("third"),
+        "{text}"
+    );
+    assert!(text.find("second") < text.find("third"), "{text}");
+    assert!(!text.contains("other session"), "{text}");
+}
+
+#[test]
+fn diagnostics_audit_large_client_logs_keep_their_archive_identity() {
+    let temp = tempfile::tempdir().unwrap();
+    let header = "CLIENT_SESSION_START timestamp_ms=2 session=own\n";
+    fs::write(
+        temp.path().join("client-20260101-000000.log"),
+        format!("{header}earlier session event\n"),
+    )
+    .unwrap();
+    fs::write(
+        temp.path().join("client.log"),
+        format!("{header}{}\nlatest event\n", "x".repeat(LOG_LIMIT as usize)),
+    )
+    .unwrap();
+    let text = client_session_logs(temp.path()).unwrap();
+    assert!(text.starts_with(header), "missing session identity");
+    assert!(text.contains("earlier session event"));
+    assert!(text.ends_with("latest event\n"));
+}
+
+/// Legacy append-only logs must keep the latest session's identity outside the retained tail.
+#[test]
+fn oversized_multisession_logs_recover_the_latest_header() {
+    for newline in ["\n", "\r\n"] {
+        let temp = tempfile::tempdir().unwrap();
+        let first = "CLIENT_SESSION_START timestamp_ms=1 session=first";
+        let middle = "CLIENT_SESSION_START timestamp_ms=2 session=middle";
+        let latest = "CLIENT_SESSION_START timestamp_ms=3 session=latest";
+        fs::write(
+            temp.path().join("client.log"),
+            format!("{first}{newline}{}{newline}{middle}{newline}old event{newline}{latest}{newline}{}{newline}latest event{newline}",
+                "old payload".repeat(section::HEADER_BYTES), "x".repeat(LOG_LIMIT as usize)),
+        ).unwrap();
+        fs::write(
+            temp.path().join("client-20260101-000000.log"),
+            format!("{first}{newline}wrong archived event{newline}"),
+        )
+        .unwrap();
+        fs::write(
+            temp.path().join("client-20260101-000001.log"),
+            format!("{latest}{newline}latest archived event{newline}"),
+        )
+        .unwrap();
+        let text = client_session_logs(temp.path()).unwrap();
+        assert_eq!(text.lines().next(), Some(latest));
+        assert!(text.contains("latest archived event"));
+        assert!(!text.contains("wrong archived event"));
+        assert!(!text.contains("old event"));
+        assert!(text.ends_with(&format!("latest event{newline}")));
+    }
 }

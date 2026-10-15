@@ -246,6 +246,8 @@ def without_symlinks(member):
     """Leave symbolic links out: restores refuse them, and Cargo recreates its uplift links (such
     as a `.dSYM` pointing into `deps/`) for fresh units too."""
     return None if member.issym() else member
+
+
 # Linked executables and their debug info. Cargo relinks a missing one from the kept
 # libraries and fingerprints, and a test build's executables outweigh everything else.
 LINKED_SUFFIXES = {"", ".exe", ".pdb", ".o", ".dwo", ".dwp"}

@@ -1,5 +1,5 @@
 //! Pack workers prepare immutable artwork and meshes before session publication.
-use crate::presentation::equipment::EquipmentRuntime;
+use crate::presentation::equipment::{EquipmentRuntime, PreparedBlockItems};
 use assets::SessionEntityPack;
 use render_model::{ActorArtworkLocation, ActorArtworkPages};
 use render_model::{
@@ -24,6 +24,14 @@ pub(crate) struct PreparedSessionResources {
     pub(crate) entities: Vec<ActorRigGeometry>,
     pub(crate) equipment: Vec<ActorRigGeometry>,
     pub(crate) held_block_entities: Option<PreparedHeldBlockEntities>,
+    pub(crate) block_items: Option<PlacedBlockItems>,
+}
+
+/// Held terrain inputs paired with their locations in one published artwork atlas.
+#[derive(Clone, Debug)]
+pub(crate) struct PlacedBlockItems {
+    pub(crate) source: Arc<PreparedBlockItems>,
+    pub(crate) locations: Vec<Option<ActorArtworkLocation>>,
 }
 
 /// One atlas generation's held bindings and immutable geometry, prepared together.
@@ -47,6 +55,7 @@ impl PreparedSessionResources {
             entities: Vec::new(),
             equipment: Vec::new(),
             held_block_entities: None,
+            block_items: None,
         };
         if let Some(pack) = pack {
             {
@@ -114,7 +123,17 @@ impl PreparedActorArtwork {
         pack: Option<&Arc<SessionEntityPack>>,
         block_entity_art: Option<&Arc<PreparedBlockEntityArtwork>>,
     ) -> Self {
-        Self {
+        Self::new_with_block_items(base, pack, block_entity_art, None)
+    }
+
+    /// Packs terrain-derived held models into the same publication as actor artwork.
+    pub fn new_with_block_items(
+        base: &ActorArtworkPages,
+        pack: Option<&Arc<SessionEntityPack>>,
+        block_entity_art: Option<&Arc<PreparedBlockEntityArtwork>>,
+        blocks: Option<Arc<PreparedBlockItems>>,
+    ) -> Self {
+        let mut prepared = Self {
             base: base.clone(),
             pack: pack.cloned(),
             block_entity_art: block_entity_art.cloned(),
@@ -123,7 +142,43 @@ impl PreparedActorArtwork {
                 pack.map(AsRef::as_ref),
                 block_entity_art.map(AsRef::as_ref),
             ),
+        };
+        if let Some(blocks) = blocks {
+            let (pages, locations) = prepared
+                .resources
+                .pages
+                .with_equipment_rasters(&blocks.rasters);
+            prepared.resources.pages = pages;
+            prepared.resources.block_items = Some(PlacedBlockItems {
+                source: blocks,
+                locations,
+            });
         }
+        prepared
+    }
+
+    /// Reuses held-block preparation only for the exact retained terrain carrier.
+    pub fn block_items_for(
+        &self,
+        world: &Arc<assets::RuntimeAssets>,
+    ) -> Option<Arc<PreparedBlockItems>> {
+        self.resources
+            .block_items
+            .as_ref()
+            .map(|blocks| &blocks.source)
+            .filter(|blocks| blocks.matches(world))
+            .cloned()
+    }
+
+    /// Includes terrain-derived held resources in the worker snapshot's reuse decision.
+    pub fn matches_block_items(&self, blocks: Option<&Arc<PreparedBlockItems>>) -> bool {
+        same_snapshot(
+            self.resources
+                .block_items
+                .as_ref()
+                .map(|blocks| &blocks.source),
+            blocks,
+        )
     }
 
     /// Returns shared pages only while both immutable inputs are still the same snapshots.

@@ -218,13 +218,15 @@ fn upload_page(
     )
 }
 
-/// Opaque instances share runs; sorted-pass instances retain individual sort positions.
+/// Rebuilds `spans` in place, reusing its capacity across frames. Opaque instances share runs;
+/// sorted-pass instances retain individual sort positions.
 pub(super) fn draw_spans(
+    spans: &mut Vec<ActorDrawSpan>,
     pages: &[ActorArtworkPageId],
     instances: &[render_model::ActorGpuInstance],
     geometry: &[render_model::ActorRigGeometrySpan],
-) -> Vec<ActorDrawSpan> {
-    let mut spans: Vec<ActorDrawSpan> = Vec::new();
+) {
+    spans.clear();
     let mut last_geometry = None;
     for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
         if let Some(span) = spans.last_mut().filter(|span| {
@@ -247,7 +249,6 @@ pub(super) fn draw_spans(
             last_geometry = Some(instance.geometry_id);
         }
     }
-    spans
 }
 
 #[cfg(test)]
@@ -265,7 +266,9 @@ mod tests {
             material,
             ..Default::default()
         }; 2];
-        let spans = draw_spans(
+        let mut spans = Vec::new();
+        draw_spans(
+            &mut spans,
             &[1; 2],
             &instances,
             &[render_model::ActorRigGeometrySpan {
@@ -294,7 +297,9 @@ mod tests {
             material: material(blend),
             ..Default::default()
         });
-        let spans = draw_spans(
+        let mut spans = Vec::new();
+        draw_spans(
+            &mut spans,
             &[1; 4],
             &instances,
             &[render_model::ActorRigGeometrySpan {
@@ -402,7 +407,13 @@ mod tests {
             .iter()
             .map(|entry| page_of(&entry.identity))
             .collect::<Vec<_>>();
-        let spans = draw_spans(&instance_pages, &frame.instances, &frame.geometry_spans);
+        let mut spans = Vec::new();
+        draw_spans(
+            &mut spans,
+            &instance_pages,
+            &frame.instances,
+            &frame.geometry_spans,
+        );
         assert_eq!(spans.len(), 2);
         assert_eq!((spans[0].page, spans[0].count), (low.page(), 1));
         assert_eq!((spans[1].page, spans[1].count), (high.page(), 2));
@@ -418,7 +429,9 @@ mod tests {
             material: material as u32,
             ..Default::default()
         });
-        let spans = draw_spans(
+        let mut spans = Vec::new();
+        draw_spans(
+            &mut spans,
             &[1, 1],
             &instances,
             &[render_model::ActorRigGeometrySpan {
@@ -452,7 +465,9 @@ mod tests {
                 vertex_count: 3024,
             },
         ];
-        let spans = draw_spans(
+        let mut spans = Vec::new();
+        draw_spans(
+            &mut spans,
             &[0, 1, 1, 1, 2],
             &[
                 instance(0),

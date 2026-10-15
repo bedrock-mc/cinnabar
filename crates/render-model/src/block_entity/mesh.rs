@@ -95,6 +95,30 @@ impl MeshBuilder {
         }
     }
 
+    /// Empties every layer for a new frame against `atlas_size`, keeping the layers' capacity;
+    /// the builder then emits exactly as one made by [`Self::new`].
+    pub(super) fn reset(&mut self, atlas_size: [u32; 2]) {
+        let mut layers = [
+            std::mem::take(&mut self.solid),
+            std::mem::take(&mut self.overlay),
+            std::mem::take(&mut self.crack),
+            std::mem::take(&mut self.portal),
+            std::mem::take(&mut self.additive),
+        ];
+        for layer in &mut layers {
+            layer.clear();
+        }
+        let [solid, overlay, crack, portal, additive] = layers;
+        *self = Self {
+            solid,
+            overlay,
+            crack,
+            portal,
+            additive,
+            ..Self::new(atlas_size)
+        };
+    }
+
     /// Resolves a required model texture and records missing artwork without stopping emission.
     pub(super) fn required_texture(
         &mut self,

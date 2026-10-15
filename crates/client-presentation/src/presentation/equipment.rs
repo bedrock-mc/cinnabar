@@ -21,7 +21,10 @@ pub use runtime::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentPresentation, HeldKind, JavaGrip, WornItem,
     java_draws_attachable,
 };
-pub use runtime::{EquipmentRuntime, FirstPersonArms, FirstPersonItem, StagedSessionIcons};
+pub use runtime::{
+    BlockItemPreparer, EquipmentRuntime, FirstPersonArms, FirstPersonItem, PreparedBlockItems,
+    StagedSessionIcons,
+};
 
 /// Chest equipment occupies the same layer for its pack image and cape replacement.
 pub(crate) const ELYTRA_LAYER: u8 = display::LAYER_CHESTPLATE;

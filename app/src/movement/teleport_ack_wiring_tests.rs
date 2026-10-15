@@ -137,12 +137,15 @@ fn wiring_app(ticker: MovementTicker, physics: LocalPhysicsController) -> App {
             stream: Some(fixture_stream()),
             ..ClientWorld::default()
         })
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .init_resource::<WorldClock>()
         .init_resource::<WeatherState>()
         .insert_resource(ticker)
         .insert_resource(physics)
         .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<client_interaction::movement::LocomotionState>()
+        .init_resource::<client_presentation::camera::look::LookSmoother>()
         .insert_resource(fixture_registries())
         .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
         .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(

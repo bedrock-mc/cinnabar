@@ -10,6 +10,7 @@ use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
 };
+use ui_screens::player_list::RosterRow;
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -29,6 +30,8 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
     },
+    /// The held tab roster's rows.
+    TabList(Vec<RosterRow>),
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -137,6 +140,18 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::reset_settings,
     },
     State {
+        name: "play-worlds",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds,
+    },
+    State {
+        name: "play-worlds-importing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds_importing,
+    },
+    State {
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -214,6 +229,18 @@ pub const STATES: &[State] = &[
         fixture: chat_command_targets,
     },
     State {
+        name: "tab-list-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(true),
+    },
+    State {
+        name: "tab-list-expired-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(false),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -242,6 +269,24 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: settings_keyboard,
+    },
+    State {
+        name: "settings-general",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_general_toggle(SettingId::EcomodeToggle),
+    },
+    State {
+        name: "settings-general-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_general_toggle(SettingId::RecordNetworkSession),
+    },
+    State {
+        name: "settings-general-advanced-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_general_diagnostics_on,
     },
     State {
         name: "settings-keyboard-physical-label",
@@ -372,6 +417,24 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     }
 }
 
+/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
+fn tab_list_badges(visible: bool) -> Fixture {
+    Fixture::TabList(
+        [
+            ("Alex", true),
+            ("Alex", false),
+            ("Riley", false),
+            ("Steve", visible),
+            ("Zoe", false),
+        ]
+        .map(|(name, badged)| RosterRow {
+            name: Arc::from(name),
+            badged,
+        })
+        .into(),
+    )
+}
+
 /// Opens a settings category by its registered name rather than a copied index.
 pub fn settings(section: &str) -> MenuView {
     let mut view = MenuView::new(true, "Player".into());
@@ -408,6 +471,32 @@ fn settings_video_option(id: SettingId) -> Fixture {
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
+}
+
+/// Scrolls the General section to toggle `id` through the client's focus scrolling; a toggle's
+/// action carries the value it switches to.
+fn settings_general_toggle(id: SettingId) -> Fixture {
+    let mut view = settings(SettingSection::General.definition().name);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        id.index() as u16,
+        1 - view.settings_options.value(id),
+    ));
+    Fixture::Menu(Box::new(view))
+}
+
+/// The Advanced rows with Verbose logging and Record network session turned on.
+fn settings_general_diagnostics_on() -> Fixture {
+    let mut view = settings(SettingSection::General.definition().name);
+    let mut options = (*view.settings_options).clone();
+    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
+        options.set(id.index(), 1);
+    }
+    view.settings_options = Arc::new(options);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::RecordNetworkSession.index() as u16,
+        0,
+    ));
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.

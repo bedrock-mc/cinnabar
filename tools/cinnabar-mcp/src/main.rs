@@ -1,6 +1,8 @@
 //! A stdio MCP server that launches a `developer-control` build of the client and drives it
 //! over its loopback endpoint: joins, input, chat, cinematic cameras, state, waits,
 //! screenshots and fixed-clock recordings.
+// The tool list is one `json!` value; its nesting exceeds the default macro recursion limit.
+#![recursion_limit = "256"]
 
 mod commands;
 mod definitions;

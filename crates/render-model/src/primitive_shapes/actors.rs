@@ -21,7 +21,8 @@ struct ActorReference {
 #[derive(Debug, Default)]
 pub(super) struct Attachments {
     references: HashMap<i64, ActorReference>,
-    active: Vec<i64>,
+    /// Attached ids with their position slots, so frame updates need no map lookups.
+    active: Vec<(i64, u32)>,
 }
 
 impl Attachments {
@@ -40,7 +41,7 @@ impl Attachments {
                 active_index: self.active.len(),
             },
         );
-        self.active.push(id);
+        self.active.push((id, slot));
         slot
     }
 
@@ -55,7 +56,7 @@ impl Attachments {
         }
         let reference = self.references.remove(&id).expect("reference was present");
         self.active.swap_remove(reference.active_index);
-        if let Some(&moved) = self.active.get(reference.active_index) {
+        if let Some(&(moved, _)) = self.active.get(reference.active_index) {
             self.references
                 .get_mut(&moved)
                 .expect("active actor has a slot")
@@ -70,10 +71,10 @@ impl Attachments {
         slots: &mut PrimitiveSlots<PrimitiveActor>,
         mut position: impl FnMut(i64) -> Option<[f32; 3]>,
     ) {
-        for &id in &self.active {
+        for &(id, slot) in &self.active {
             let sample = position(id).filter(|p| p.iter().all(|v| v.is_finite()));
             slots.set(
-                self.references[&id].slot,
+                slot,
                 PrimitiveActor {
                     position: sample.unwrap_or_default(),
                     valid: u32::from(sample.is_some()),

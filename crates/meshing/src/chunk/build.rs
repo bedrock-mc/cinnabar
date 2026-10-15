@@ -148,12 +148,19 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     }
     let masks = VisibilityMasks::from_facts(&facts);
     let connectivity = cave_connectivity(&facts, |[x, y, z]| !masks.occludes(x, y, z));
+    let block_bits = crate::palette_bits::NeighbourhoodBlockBits::new(
+        *classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+    );
     let lighting = crate::lighting::MeshLightingCache::new(
         classifier,
         visuals,
         network_id_mode,
         neighbourhood,
         light_sampler,
+        &block_bits,
     );
     let neighbour_facts: [OnceCell<PaletteFacts<'_>>; Face::ALL.len()] =
         std::array::from_fn(|_| OnceCell::new());
@@ -169,34 +176,51 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
             .seasonal_foliage
             .then(|| super::seasonal_foliage::SeasonalCoverage::new(palette_context));
 
-    let leaves = super::leaves::LeafOcclusion::new(palette_context);
+    let leaves = super::leaves::LeafOcclusion::new(&block_bits);
     let mut cube_streams = CubeQuadStreams::default();
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
+    // Greedy merging reads lighting only at the current slice's visible cells, which are
+    // all rewritten before it runs, so one scratch serves every slice.
+    let mut lighting_scratch = [PackedQuadLighting::default(); SIDE * SIDE];
+    // Runs of one block share emission; only registered values are memoized, so an
+    // unregistered value is still resolved, and counted as missing, once per face.
+    let mut known_emission: Option<(u32, bool)> = None;
     for face in Face::ALL {
         let columns = exposed_columns(palette_context, face, &masks, &neighbour_facts, &leaves);
         for slice in 0..SIDE {
             let mut rows = [0_u64; SIDE];
-            let mut lighting_scratch = [PackedQuadLighting::default(); SIDE * SIDE];
             for (v, row) in rows.iter_mut().enumerate() {
                 for (u, column) in columns[v].iter().enumerate() {
-                    let visible = (*column >> slice) & 1;
-                    *row |= visible << u;
-                    if visible != 0 {
-                        let coordinate = block_coordinate(face, slice, u, v);
-                        let entry = facts.at(coordinate[0], coordinate[1], coordinate[2]);
-                        lighting_scratch[v * SIDE + u] = crate::lighting::bake_quad(
-                            &lighting,
-                            coordinate.map(|value| value as i32),
-                            face,
-                            crate::lighting::cube_face_positions(face),
-                            visuals
-                                .resolve(network_id_mode, entry.network_value)
-                                .light_properties()
-                                .emission()
-                                > 0,
-                        );
-                    }
+                    *row |= ((*column >> slice) & 1) << u;
                 }
+                let mut visible = *row;
+                while visible != 0 {
+                    let u = visible.trailing_zeros() as usize;
+                    visible &= visible - 1;
+                    let coordinate = block_coordinate(face, slice, u, v);
+                    let entry = facts.at(coordinate[0], coordinate[1], coordinate[2]);
+                    let emitting = match known_emission {
+                        Some((value, emitting)) if value == entry.network_value => emitting,
+                        _ => {
+                            let block = visuals.resolve(network_id_mode, entry.network_value);
+                            let emitting = block.light_properties().emission() > 0;
+                            if block.is_known() {
+                                known_emission = Some((entry.network_value, emitting));
+                            }
+                            emitting
+                        }
+                    };
+                    lighting_scratch[v * SIDE + u] = crate::lighting::bake_quad(
+                        &lighting,
+                        coordinate.map(|value| value as i32),
+                        face,
+                        crate::lighting::cube_face_positions(face),
+                        emitting,
+                    );
+                }
+            }
+            if rows.iter().all(|&row| row == 0) {
+                continue;
             }
             greedy_slice(
                 &CubeMaterialResolver {
@@ -230,6 +254,9 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
     } {
         for y in 0..SIDE {
             for z in 0..SIDE {
+                if !facts.may_have_model_at(x, y, z) {
+                    continue;
+                }
                 for entry in facts.model_entries_at(x, y, z).into_iter().flatten() {
                     if !matches!(entry.kind, VisualKind::Cross | VisualKind::Model)
                         || entry.model_template == NO_MODEL_TEMPLATE

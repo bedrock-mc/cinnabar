@@ -251,7 +251,8 @@ impl Emitter {
         }
         let (origin, basis, queries) = (self.pos, self.basis, self.queries.clone());
         let mut particles = std::mem::take(&mut self.particles);
-        let mut pending: Vec<(Box<str>, [f32; 3], [f32; 3])> = Vec::new();
+        // Event names borrow the definition; firing them must not allocate per particle.
+        let mut pending: Vec<(&str, [f32; 3], [f32; 3])> = Vec::new();
         let rng = &mut self.rng;
         particles.retain_mut(|p| {
             p.age += dt;
@@ -346,7 +347,7 @@ impl Emitter {
                     p.vel = p.vel.map(|c| c * damp);
                     for event in &collision.events {
                         if speed >= event.min_speed {
-                            pending.push((event.event.clone(), p.pos, p.vel));
+                            pending.push((&event.event, p.pos, p.vel));
                         }
                     }
                     if collision.expire_on_contact {
@@ -394,7 +395,7 @@ impl Emitter {
                 if *distance > p.travelled {
                     break;
                 }
-                pending.push((event.clone(), world_pos, p.vel));
+                pending.push((event, world_pos, p.vel));
                 p.travel_next += 1;
             }
             if !def.particle.looping_travel_events.is_empty() {
@@ -408,7 +409,7 @@ impl Emitter {
                     }
                     let due = ((p.travelled / interval) as u32).min(p.loop_counts[index] + 8);
                     while p.loop_counts[index] < due {
-                        pending.push((event.clone(), world_pos, p.vel));
+                        pending.push((event, world_pos, p.vel));
                         p.loop_counts[index] += 1;
                     }
                 }
@@ -417,19 +418,19 @@ impl Emitter {
                 if *time > p.age {
                     break;
                 }
-                pending.push((event.clone(), world_pos, p.vel));
+                pending.push((event, world_pos, p.vel));
                 p.timeline_next += 1;
             }
             if !alive {
                 for event in &def.particle.expiration_events {
-                    pending.push((event.clone(), world_pos, p.vel));
+                    pending.push((event, world_pos, p.vel));
                 }
             }
             alive
         });
         self.particles = particles;
         for (event, position, velocity) in pending {
-            self.run_event(&event, position, velocity, output);
+            self.run_event(event, position, velocity, output);
         }
     }
 }

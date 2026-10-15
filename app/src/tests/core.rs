@@ -77,6 +77,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
         unique_id: 9,
         username: "remote".into(),
         verified: true,
+        xuid: "".into(),
         skin,
     };
 
@@ -194,6 +195,21 @@ fn teardown_without_app_exit_arms_the_watchdog() {
     });
     drop(TeardownWatchdog(watchdog));
     assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(0));
+}
+
+// A panic unwinding the main thread tears the world down too; cut short, it must not exit 0.
+#[test]
+fn teardown_during_a_panic_keeps_the_panic_status() {
+    let (terminated, termination) = mpsc::channel();
+    let watchdog = ShutdownWatchdog::new(Duration::from_millis(10), move |code| {
+        terminated.send(code).unwrap();
+    });
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _teardown = TeardownWatchdog(watchdog);
+        panic!("teardown fixture panic");
+    }));
+    assert!(unwound.is_err());
+    assert_eq!(termination.recv_timeout(Duration::from_secs(1)), Ok(101));
 }
 
 #[test]

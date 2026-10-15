@@ -579,7 +579,8 @@ fn general(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             Some(MenuAction::SettingsSupport(action)),
         )?;
     }
-    Ok(())
+    content.heading("options.cinnabar.advanced", "")?;
+    options(content, SettingPanel::GeneralAdvanced)
 }
 
 fn creator(content: &mut Content<'_, '_>) -> Result<(), PaintError> {

@@ -1,13 +1,14 @@
 # Updates
 
-The launcher checks its selected release channel once a day and downloads verified updates
-in the background. An interrupted transfer resumes from its digest-named partial file, or
+The launcher checks its selected release channel at every launch, then every six hours, and
+downloads verified updates in the background. A [Cinnabar API](cinnabar-api.md) release notice for
+the selected channel starts a check at once; the check still verifies the signed manifest. An interrupted transfer resumes from its digest-named partial file, or
 restarts safely if the server does not support ranges.
 
-Only one running client per install handles updates; other windows stay passive until they take over on a daily-check tick.
+Only one running client per install handles updates; other windows stay passive until they take over on a due check tick.
 
 When the download is ready, choose **Restart and update** or **Later**. Later defers installation
-for this session; daily checks continue, and a newer release replaces the waiting one. In
+for this session; periodic checks continue, and a newer release replaces the waiting one. In
 **Settings → General**, you can turn off update checks, select a channel, or enable **Install
 updates when I quit**. Installation on quit is off by default. The in-game pause menu only shows
 a small ready badge; update actions remain in the launcher.
@@ -64,3 +65,5 @@ must sign the correct channel and a positive build number. The release signer ac
 The Publish job declares the protected `release` environment. Its `CINNABAR_UPDATE_SIGNING_KEY`
 is an environment secret limited to `dev` and `v*` tags; `UPDATE_TRUSTED_KEYS` is a repository
 variable compiled into the clients. Both are configured; the first signed publication remains pending.
+After the release is published, the Publish job posts its channel and version to the Cinnabar API's
+`/v1/releases` with `CINNABAR_API_RELEASE_HOOK_SECRET`; a failed notice only warns.

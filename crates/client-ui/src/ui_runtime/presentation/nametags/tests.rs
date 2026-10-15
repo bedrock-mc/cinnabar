@@ -1,6 +1,7 @@
 use super::*;
 use protocol_ids::ActorFlag;
 
+mod badges;
 mod opacity;
 mod own_tag;
 mod view_depth;
@@ -105,6 +106,7 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
         text_alpha: 1.0,
         view_depth: 5.0,
         camera_forward_y: 0.0,
+        cinnabar_badge: false,
     }
 }
 

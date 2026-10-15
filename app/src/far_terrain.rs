@@ -226,10 +226,13 @@ impl NearRadius {
     }
 }
 
+/// Destination, level, dimension, stream/transition generation and terrain resource identity.
+type WorldIdentity<D> = (D, Option<u64>, i32, (u64, u64), [u8; 32]);
+
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, Option<u64>, i32, u64)>);
+pub(crate) struct ActiveWorld(Option<WorldIdentity<String>>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -261,11 +264,9 @@ pub(crate) fn feed_far_terrain(
         .enabled(u32::from(video.render_distance_chunks), tier);
     // A transfer or rejoin to the same address is a new session and so a fresh visit: the
     // lobby behind it may be another instance under the same identity.
-    let destination = session.as_deref().and_then(|session| {
-        session
-            .destination_identity()
-            .map(|destination| (destination, session.generation()))
-    });
+    let destination = session
+        .as_deref()
+        .and_then(SessionController::destination_identity);
     let now = Instant::now();
     // Turned off, by the setting or by Auto, far terrain stays until near terrain has drawn
     // every column it covered.
@@ -279,17 +280,18 @@ pub(crate) fn feed_far_terrain(
     if !draining {
         far.drain_since = None;
     }
-    let target = world
+    let target: Option<WorldIdentity<&str>> = world
         .stream
         .as_ref()
         .zip(destination)
         .filter(|_| wanted || draining)
-        .map(|(stream, (destination, generation))| {
+        .map(|(stream, destination)| {
             (
                 destination,
                 world.level_identity,
                 stream.current_dimension(),
-                generation,
+                stream.terrain_generation(),
+                world.terrain_resource_identity,
             )
         });
     let enabled = target.is_some();
@@ -302,30 +304,53 @@ pub(crate) fn feed_far_terrain(
     {
         stream.set_far_terrain_enabled(enabled);
     }
-    let current = active
-        .0
-        .as_ref()
-        .map(|(destination, level, dimension, generation)| {
-            (destination.as_str(), *level, *dimension, *generation)
-        });
+    let current: Option<WorldIdentity<&str>> =
+        active
+            .0
+            .as_ref()
+            .map(|(destination, level, dimension, generation, resources)| {
+                (
+                    destination.as_str(),
+                    *level,
+                    *dimension,
+                    *generation,
+                    *resources,
+                )
+            });
     if current != target {
         match target {
-            Some((destination, level, dimension, _)) => {
+            Some((destination, level, dimension, _, resources)) => {
                 if let Some(level) = level {
-                    far.cache.begin_visit(destination, level, dimension);
+                    far.cache
+                        .begin_visit_with_resources(destination, level, dimension, resources);
                 } else if destination.starts_with("local:") {
                     // The launcher supplies a stable local-world ID independently of StartGame.
-                    far.cache.begin_visit(destination, 0, dimension);
+                    far.cache
+                        .begin_visit_with_resources(destination, 0, dimension, resources);
                 } else {
-                    far.cache.begin_uncertain_visit(destination, dimension);
+                    far.cache.begin_uncertain_visit_with_resources(
+                        destination,
+                        dimension,
+                        resources,
+                    );
                 }
             }
             None => far.cache.leave_world(),
         }
         far.tiles.clear();
         far.near_view = None;
-        active.0 = target.map(|(destination, level, dimension, generation)| {
-            (destination.to_owned(), level, dimension, generation)
+        far.published = None;
+        far.drained.clear();
+        far.unloaded.clear();
+        *scene = FarTerrainScene::default();
+        active.0 = target.map(|(destination, level, dimension, generation, resources)| {
+            (
+                destination.to_owned(),
+                level,
+                dimension,
+                generation,
+                resources,
+            )
         });
     }
     let mut summary_budget = SummaryBudget::default();
@@ -519,6 +544,14 @@ pub(crate) fn finish_far_terrain_on_exit(
 }
 
 #[cfg(test)]
+#[path = "far_terrain/resource_tests.rs"]
+mod resource_tests;
+
+#[cfg(test)]
+#[path = "far_terrain/transfer_tests.rs"]
+mod transfer_tests;
+
+#[cfg(test)]
 mod tests {
     use bevy::prelude::{App, Last};
     use far_terrain::{ColumnSummary, SurfaceCell, config::WORLD_PROBE_COLUMNS};
@@ -527,7 +560,8 @@ mod tests {
 
     const SERVER: &str = "remote:play.example.net:19132";
 
-    fn flat(height: i16) -> EncodedSummary {
+    /// Encodes a uniformly colored, original surface summary at the requested height.
+    pub(super) fn flat(height: i16) -> EncodedSummary {
         let mut summary = ColumnSummary::default();
         summary.cells_mut().fill(SurfaceCell {
             height,
@@ -548,7 +582,7 @@ mod tests {
     }
 
     /// Builds an empty session with far terrain on and the minimum full-detail radius.
-    fn far_terrain_app(render_distance: u8) -> App {
+    pub(super) fn far_terrain_app(render_distance: u8) -> App {
         let mut settings = RuntimeSettings::default();
         let mut user = settings.user_settings_update().1.clone();
         user.video.far_terrain = render_api::far_terrain::FarTerrainMode::On;

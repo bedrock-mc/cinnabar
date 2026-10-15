@@ -2,6 +2,7 @@
 //! and this client continues from StartGame with its own spawn sequence.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::session_wire::{ConnectRequest, CoreMessage, HandoffPackReceiver, SessionHandoff};
 use bridge::{BridgeError, FramedReader};
@@ -11,6 +12,7 @@ use super::client_data::{ClientRandomId, LoginSettings};
 use super::{LoginSequence, PlaySession};
 use crate::codec::SessionFailure;
 use crate::disconnect::{disconnect_reason, join_disconnect};
+use crate::packet_tap::{PacketOutcome, PacketTap};
 use crate::session_transport::{MAX_READ_AHEAD_BYTES, SessionTransport};
 use crate::{
     ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
@@ -22,7 +24,12 @@ impl LoginSequence {
     /// open local world, using the caller's persisted login ID, and returns `prepare`'s result for
     /// the handed-off packs. `prepare` runs on a blocking worker from the moment StartGame and the
     /// item registry arrive, and the session is read meanwhile until it finishes. The owner calls
-    /// `finish_loading` after presenting the world.
+    /// `finish_loading` after presenting the world. `tap` sees every session packet from the
+    /// first handed-off startup packet on, in both directions.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument is an independent caller choice for one join"
+    )]
     pub async fn connect_session<R: Send + 'static>(
         socket_dir: &Path,
         display_name: &str,
@@ -30,6 +37,7 @@ impl LoginSequence {
         cache: Option<ClientBlobCache>,
         skin: Option<ClientSkin>,
         settings: &LoginSettings,
+        tap: Option<Arc<dyn PacketTap>>,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> R + Send + 'static,
     ) -> Result<(PlaySession, R), ProtocolError> {
         let (mut reader, frames) = bridge::connect_session(socket_dir)
@@ -55,14 +63,26 @@ impl LoginSequence {
         let packs = resource_pack_handoff(&handoff, archives)?;
         // A blob cache serves only a session whose upstream login advertised one.
         let cache = cache.filter(|_| handoff.client_cache);
-        let mut transport = SessionTransport::new(reader, frames, &handoff.startup);
+        let mut transport = SessionTransport::new(reader, frames, &handoff.startup).with_tap(tap);
         let mut preparation = None;
-        let spawned = super::startup::await_spawn(&mut transport, |start_game, item_registry| {
-            preparation = Some(tokio::task::spawn_blocking(move || {
-                prepare(packs, GameData::from_wire(&start_game, &item_registry))
-            }));
-        })
-        .await?;
+        let spawned =
+            match super::startup::await_spawn(&mut transport, |start_game, item_registry| {
+                preparation = Some(tokio::task::spawn_blocking(move || {
+                    prepare(packs, GameData::from_wire(&start_game, &item_registry))
+                }));
+            })
+            .await
+            {
+                Ok(spawned) => spawned,
+                Err(error) => {
+                    if let ProtocolError::Session(session) = &error
+                        && session.0.is_packet_failure()
+                    {
+                        transport.reject_current(PacketOutcome::Failed);
+                    }
+                    return Err(error);
+                }
+            };
         let mut preparation = preparation.expect("spawn waits for StartGame and the item registry");
         // Keep reading while the packs prepare, so the server's backlog never stalls the core.
         let prepared = tokio::select! {

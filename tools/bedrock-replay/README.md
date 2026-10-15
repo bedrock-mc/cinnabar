@@ -66,10 +66,29 @@ packet and byte limits. No second Minecraft login runs on the local connection.
 
 ## Fidelity and report interpretation
 
-The input format repeats little-endian `u32 packet_id`, `u32 body_length`, then
-the body. It has no timestamps or subclient fields. The helper reconstructs a
-header with zero subclient IDs and preserves all selected bodies and their order.
-Use a capture from the pinned protocol version; the report identifies the
+The helper reads two capture formats and tells them apart by the v2 magic.
+
+- **v1** (`raw.bin`) repeats little-endian `u32 packet_id`, `u32 body_length`, then
+  the body. It has no timestamps, directions or subclient fields.
+- **v2** (`.cnbrcap`) is what the client writes with `CINNABAR_PACKET_CAPTURE` (see
+  `docs/agents/live-testing.md`). After the magic `CNBRCAP2`, a `u16` format version,
+  the `i32` protocol version and the `u64` start time in Unix milliseconds, each record
+  is a `u8` kind, `u32` packet ID, `u64` microseconds since the start, `u32` body length
+  and the body, all little-endian. Kinds 0 and 1 are clientbound and serverbound
+  packets; kind 2 is a gap whose 8-byte body counts packets the client dropped; kind 3
+  ends a capture its 512 MiB limit cut short. Markers carry packet ID 0. The client
+  records clientbound packets when its session reads their batch from the core, from the
+  handed-off startup on, and never records login, handshake or resource-pack offer
+  packets.
+
+Serverbound records are counted and ignored. The report's `capture` section gives the
+`format`, `serverbound_records_ignored`, `dropped_packets` from gap records and whether
+the capture was `truncated`: stopped by its size limit, or ending inside a record because
+the client crashed or was killed while writing. A capture with gaps or truncation replays
+the complete records it kept; any other malformed record rejects the file.
+The helper reconstructs a header with zero subclient IDs and preserves all selected
+bodies and their order. A v2 capture from another protocol version is rejected; for v1,
+use a capture from the pinned protocol version, because the report identifies the
 protocol supported by the binary, not a version inferred from the capture.
 
 Before the first StartGame, network settings, encryption, login status, pack info
@@ -77,6 +96,11 @@ and pack stack are replaced by the session handoff. Supplied local archives
 are handed off in command-line order. Their hashes and identities are recorded;
 the original offer, experiments, encryption and download timing are not reproduced.
 Other pre-StartGame packets and all packets from StartGame onward are retained.
+Cache-enabled LevelChunk and SubChunk packets are rejected before the listener opens:
+the capture does not include the original client's pre-existing blob store. Terrain
+packets whose cache mode cannot be decoded are also rejected. Use an uncached session
+for terrain replay.
+
 Exactly one StartGame is required. This exercises archive handoff and session
 setup, but does not prove fidelity of the original server's login handshake.
 
@@ -86,7 +110,18 @@ blocks, later bursts catch up to their original deadlines. The report records
 each burst's source record range, scheduled time and actual flush time. Repeat
 the same capture, packs, burst settings, client build, carrier hashes, cache state,
 presentation settings and focus/occlusion conditions for before/after work.
-Original network arrival timing cannot be recovered from this capture format.
+
+With a v2 capture, `-original-timing` replaces the fixed schedule with the recorded
+times: each play burst is due when its first packet was received, counted from
+StartGame's, and packets received within 1 ms of it join the burst within the packet
+and byte limits. The report sets `original_timing`. The client records a packet when its
+session reads the batch from the core's socket, which it does only when ingress asks for
+a packet and has none left; the handed-off startup is recorded at once. While the
+original client's ingress was backlogged (a full world-event queue, slow decoding),
+those times trail the batch's socket arrival, so `-original-timing` replays the original
+client's read pace, slowdowns included, rather than the server's send times. Compare
+captures from unloaded sessions when timing matters. v1 captures have no timing and
+refuse `-original-timing`.
 
 `complete` means every selected packet was flushed and the ordered byte witness
 matched. It does not mean the client consumed every packet or presented the world.
@@ -140,4 +175,7 @@ The committed protocol LevelChunk deliberately has a dummy payload and is omitte
 Use `-hold` for a bounded native probe.
 The tests compare packet bytes across the session transport, hand off an
 original minimal pack and compare its hash, exercise both shutdown paths, and
-reject truncated input, transfers, invalid bounds and reused report paths.
+reject truncated input, transfers, invalid bounds and reused report paths. v2 tests
+rebuild the fixture as a client capture with a serverbound reply, a gap and a size cut,
+and check that it replays the v1 witness and that `-original-timing` sends each burst
+at its recorded arrival.

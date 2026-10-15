@@ -2,7 +2,7 @@
 
 use std::{
     ffi::OsString,
-    fs::{self, File},
+    fs,
     io::{BufRead, BufReader, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -15,6 +15,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use assets::carriers;
+use diagnostics::session_log::SharedLog;
 use serde::Deserialize;
 
 use super::fs_retry;
@@ -73,7 +74,7 @@ pub(super) struct Compiler<'a> {
     pub kit: PathBuf,
     pub workspace: PathBuf,
     /// Receives both output streams; `None` discards them.
-    pub log: Option<File>,
+    pub log: Option<SharedLog>,
     /// Set to stop the running compiler and the run.
     pub cancel: &'a AtomicBool,
     /// On Unix, leads its own process group so cancellation reaches its descendants. Under the update
@@ -140,11 +141,11 @@ impl Compiler<'_> {
         }
     }
 
-    fn log_writer(&self) -> Result<Box<dyn Write + Send>> {
-        Ok(match &self.log {
-            Some(log) => Box::new(log.try_clone()?),
+    fn log_writer(&self) -> Box<dyn Write + Send> {
+        match &self.log {
+            Some(log) => Box::new(log.clone()),
             None => Box::new(std::io::sink()),
-        })
+        }
     }
 
     /// Runs the compiler, passing each stdout line to `line` and keeping both streams in the log;
@@ -178,13 +179,13 @@ impl Compiler<'_> {
             .take()
             .context("capture asset compiler errors")?;
         let (lines, received) = mpsc::channel();
-        let out_log = self.log_writer()?;
+        let out_log = self.log_writer();
         let out = std::thread::spawn(move || {
             copy_lines(stdout, out_log, |text| {
                 let _ = lines.send(text.to_owned());
             })
         });
-        let err_log = self.log_writer()?;
+        let err_log = self.log_writer();
         let tail = std::thread::spawn(move || copy_lines(stderr, err_log, |_| {}));
         let status = loop {
             while let Ok(text) = received.try_recv() {
@@ -219,8 +220,8 @@ impl Compiler<'_> {
     }
 }
 
-/// Copies `output` into `log` line by line, hands each line to `each`, and returns the last
-/// non-blank one.
+/// Copies `output` into `log` one whole line per write, so lines from both streams never
+/// interleave, hands each line to `each`, and returns the last non-blank one.
 fn copy_lines(
     output: impl Read,
     mut log: impl Write,
@@ -228,11 +229,11 @@ fn copy_lines(
 ) -> Option<String> {
     let mut last = None;
     for line in BufReader::new(output).split(b'\n') {
-        let Ok(line) = line else {
+        let Ok(mut line) = line else {
             break;
         };
+        line.push(b'\n');
         let _ = log.write_all(&line);
-        let _ = log.write_all(b"\n");
         let text = String::from_utf8_lossy(&line).trim().to_owned();
         each(&text);
         if !text.is_empty() {
@@ -341,6 +342,14 @@ fn cancel_child(child: &mut std::process::Child) {
 mod tests {
     use super::*;
     use crate::test_support::Dir;
+    #[cfg(unix)]
+    use diagnostics::session_log::{Family, Retention, SessionLog};
+
+    /// The session log a shell compiler in `dir` writes.
+    #[cfg(unix)]
+    fn compiler_log(dir: &Path) -> Family {
+        Family::new(dir.join("logs"), "first-run", "log")
+    }
 
     /// A compiler whose kit binary is `/bin/sh`, so tests drive it with `-c <script>`.
     #[cfg(unix)]
@@ -351,7 +360,9 @@ mod tests {
         Compiler {
             kit: dir.into(),
             workspace: dir.into(),
-            log: Some(File::create(dir.join("log")).unwrap()),
+            log: Some(SharedLog::new(
+                SessionLog::open(compiler_log(dir), Retention::DEFAULT, Vec::new()).unwrap(),
+            )),
             cancel,
             own_group: true,
         }
@@ -446,7 +457,7 @@ mod tests {
         );
         let message = format!("{:#}", compiler.run(&args, |_| {}).unwrap_err());
         assert!(message.starts_with("missing texture atlas ("), "{message}");
-        let log = fs::read_to_string(dir.path().join("log")).unwrap();
+        let log = fs::read_to_string(compiler_log(dir.path()).current()).unwrap();
         assert!(
             log.contains("progress") && log.contains("warning: slow"),
             "{log}"

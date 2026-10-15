@@ -229,7 +229,8 @@ fn update(
     if super::footprint::Footprint::prepare(
         &mut state.footprint,
         device,
-        &cache.get_bind_group_layout(pipeline.footprint_layout(samples)),
+        cache,
+        pipeline.footprint_layout(samples),
         &state.uniform,
         motion,
         target.main_texture().size(),
