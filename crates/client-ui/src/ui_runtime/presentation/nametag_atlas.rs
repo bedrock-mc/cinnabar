@@ -75,6 +75,12 @@ pub struct NametagAtlas {
     requested: HashSet<Arc<str>>,
     reclamation: Option<Vec<ShelfReclamation>>,
     exhausted: bool,
+    frame_active: bool,
+    /// Actual attempts include lines reached only after earlier misses leave draw budget.
+    frame_lines: Vec<Arc<str>>,
+    /// Suppresses repeated rebuilds for an order that has already tried fresh packing.
+    rebuilt_lines: Option<Vec<Arc<str>>>,
+    rebuild_pending: bool,
     published: Option<Arc<[NametagAtlasRect]>>,
     revision: u64,
     palette: ui::FormattingPalette,
@@ -112,8 +118,25 @@ impl NametagAtlas {
         }
     }
 
-    /// Protects every requested hit before any miss can reclaim unused shelf cells.
+    /// Starts before any draw captures UVs, rebuilding after an unsatisfied miss if needed.
+    /// Protects all potential hits in the draw-budget prefix before reclaiming unused cells.
+    /// A stable request order gets one fresh packing attempt, including late budget admissions.
     pub(super) fn begin_frame<'a>(&mut self, texts: impl Iterator<Item = &'a Arc<str>>) {
+        if self
+            .rebuilt_lines
+            .as_ref()
+            .is_some_and(|lines| lines != &self.frame_lines)
+        {
+            self.rebuilt_lines = None;
+        }
+        if self.rebuild_pending && self.rebuilt_lines.is_none() {
+            let lines = std::mem::take(&mut self.frame_lines);
+            self.reset();
+            self.rebuilt_lines = Some(lines);
+        }
+        self.frame_lines.clear();
+        self.frame_active = true;
+        self.rebuild_pending = false;
         self.requested.clear();
         self.requested.extend(texts.cloned());
         self.reclamation = None;
@@ -128,9 +151,12 @@ impl NametagAtlas {
         layouts: &mut TextLayoutCache,
         pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
     ) -> Option<AtlasLine> {
-        if !self.requested.is_empty() && self.requested.insert(Arc::clone(text)) {
-            // Rejected earlier lines can leave budget for a later, initially unpinned line.
-            self.reclamation = None;
+        if self.frame_active {
+            self.frame_lines.push(Arc::clone(text));
+            if self.requested.insert(Arc::clone(text)) {
+                // Rejected earlier lines can leave budget for a later, initially unpinned line.
+                self.reclamation = None;
+            }
         }
         if let Some(&index) = self.lines.get(text) {
             return Some(self.cells[index].line);
@@ -139,13 +165,17 @@ impl NametagAtlas {
         let [width, height] = measured.size;
         // Pixel exhaustion signals a later caller rebuild; smaller misses still try to fit.
         if self.lines.len() >= MAX_ATLAS_LINES && !self.reclaim_shelf(None) {
+            self.rebuild_pending |= self.frame_active;
             return None;
         }
-        let placement = self.allocate(width, height);
-        let (shelf, origin) = match placement {
-            Some(placement) => placement,
-            None if self.reclaim_shelf(Some([width, height])) => self.allocate(width, height)?,
-            None => return None,
+        let mut placement = self.allocate(width, height);
+        if placement.is_none() && self.reclaim_shelf(Some([width, height])) {
+            placement = self.allocate(width, height);
+        }
+        let Some((shelf, origin)) = placement else {
+            // Keep this latch separate from exploratory allocation and later successful misses.
+            self.rebuild_pending |= self.frame_active;
+            return None;
         };
         let rgba8 = rasterize_line(&measured, pages, &self.palette);
         let line = AtlasLine {
@@ -173,6 +203,10 @@ impl NametagAtlas {
         self.requested.clear();
         self.reclamation = None;
         self.exhausted = false;
+        self.frame_active = false;
+        self.frame_lines.clear();
+        self.rebuilt_lines = None;
+        self.rebuild_pending = false;
         self.published = None;
     }
 

@@ -9,16 +9,23 @@ impl NametagAtlas {
             return None;
         }
         let available = self.shelves.iter().enumerate().find_map(|(index, shelf)| {
-            if shelf.height < height {
-                return None;
-            }
-            shelf
+            let span = shelf
                 .free
                 .iter()
-                .position(|span| span.end - span.start >= width)
-                .map(|span| (index, span))
+                .position(|span| span.end - span.start >= width)?;
+            if shelf.height < height {
+                let limit = self.shelves[index + 1..]
+                    .iter()
+                    .find(|next| next.height != 0 && next.free != [0..NAMETAG_ATLAS_SIDE])
+                    .map_or(NAMETAG_ATLAS_SIDE, |next| next.y);
+                if shelf.y + height > limit {
+                    return None;
+                }
+            }
+            Some((index, span))
         });
         if let Some((index, span)) = available {
+            self.grow_shelf(index, height);
             let index = self.trim_shelf(index, height);
             let shelf = &mut self.shelves[index];
             let x = shelf.free[span].start;
@@ -51,6 +58,28 @@ impl NametagAtlas {
             free: Vec::from([width..NAMETAG_ATLAS_SIDE]),
         });
         Some((index, [0, y]))
+    }
+
+    /// Extends a shelf through empty rows or the unallocated tail without moving cached cells.
+    /// Allocation has already checked that no occupied lower row intersects the new height.
+    fn grow_shelf(&mut self, index: usize, height: u32) {
+        if height <= self.shelves[index].height {
+            return;
+        }
+        self.shelves[index].height = height;
+        let end_y = self.shelves[index].y + height;
+        for next in &mut self.shelves[index + 1..] {
+            if next.y >= end_y {
+                break;
+            }
+            let old_end = next.y + next.height;
+            next.y = end_y;
+            next.height = old_end.saturating_sub(end_y);
+            if next.height == 0 {
+                next.free.clear();
+            }
+        }
+        self.reclamation = None;
     }
 
     /// Releases a shelf's unused vertical tail while keeping every cached cell in place.

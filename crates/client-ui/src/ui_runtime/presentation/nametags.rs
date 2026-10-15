@@ -451,6 +451,7 @@ pub fn build_nametag_scene<'p>(
             .then(a.runtime_id.cmp(&b.runtime_id))
     });
     let mut available_records = MAX_NAMETAG_RECORDS;
+    // Any deferred atlas rebuild must finish before this frame captures its first cell UVs.
     atlas.begin_frame(ordered.iter().flat_map(|anchor| {
         let records_per_line = NAMETAG_RECORDS_PER_LINE + usize::from(!anchor.depth_tested);
         let count = anchor.lines.len().min(available_records / records_per_line);
