@@ -20,6 +20,8 @@ impl MovementTicker {
         self.admitted_riptide = None;
         self.written_riptide_tick = None;
         self.previous_input = HeldInput::default();
+        self.next_tick_flags = protocol::PlayerInputFlags::NONE;
+        self.next_tick_rotation = None;
         physics.restore_riptide_request(None);
     }
 

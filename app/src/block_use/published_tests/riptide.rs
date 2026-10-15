@@ -7,6 +7,9 @@ use protocol_ids::Enchantment;
 #[path = "riptide/sprint.rs"]
 mod sprint;
 
+#[path = "riptide/respawn.rs"]
+mod respawn;
+
 /// Water everywhere keeps item eligibility independent of fixture terrain and rain.
 struct Water;
 

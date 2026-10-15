@@ -27,14 +27,16 @@ fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor(
         &control(1, 0, position),
         42,
         &mut movement,
-        &mut physics
+        &mut physics,
+        None
     ));
     assert!(!lifecycle.consume_nonspatial_phase(
         7,
         &control(2, 1, position),
         42,
         &mut movement,
-        &mut physics
+        &mut physics,
+        None
     ));
     assert!(lifecycle.input_held());
     assert!(matches!(
@@ -57,7 +59,8 @@ fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor(
             &control(duplicate, 1, position),
             42,
             &mut movement,
-            &mut physics
+            &mut physics,
+            None
         ));
     }
     lifecycle
@@ -78,6 +81,7 @@ fn respawn_search_and_session_replacement_drop_obsolete_completion() {
         42,
         &mut movement,
         &mut physics,
+        None,
     );
     lifecycle.consume_nonspatial_phase(
         7,
@@ -85,6 +89,7 @@ fn respawn_search_and_session_replacement_drop_obsolete_completion() {
         42,
         &mut movement,
         &mut physics,
+        None,
     );
     lifecycle
         .queue_completion(|_| panic!("completion from preceding respawn"))
@@ -96,6 +101,7 @@ fn respawn_search_and_session_replacement_drop_obsolete_completion() {
         42,
         &mut movement,
         &mut physics,
+        None,
     );
     lifecycle.synchronize_session(Some(8));
     assert!(!lifecycle.input_held());
@@ -107,7 +113,8 @@ fn respawn_search_and_session_replacement_drop_obsolete_completion() {
         &control(1, 1, position),
         56,
         &mut movement,
-        &mut physics
+        &mut physics,
+        None
     ));
     lifecycle
         .queue_completion(|packet| {
@@ -131,6 +138,7 @@ fn respawn_unknown_phases_are_nonspatial_and_preserve_the_current_search() {
         42,
         &mut movement,
         &mut physics,
+        None,
     );
     for (sequence, state) in [(2, 2), (3, u8::MAX)] {
         assert!(lifecycle.consume_nonspatial_phase(
@@ -138,7 +146,8 @@ fn respawn_unknown_phases_are_nonspatial_and_preserve_the_current_search() {
             &control(sequence, state, [f32::NAN; 3]),
             42,
             &mut movement,
-            &mut physics
+            &mut physics,
+            None
         ));
     }
     assert!(lifecycle.input_held());

@@ -114,6 +114,11 @@ fn produce_use(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     before_flush: bool,
 ) {
+    runtime.synchronize(context.ui.session_id());
+    if context.client_world.respawn.input_held() {
+        runtime.cancel_for_respawn();
+        return;
+    }
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -123,7 +128,6 @@ fn produce_use(
             .and_then(|timing| timing.swing_duration_ticks),
     );
 
-    runtime.synchronize(context.ui.session_id());
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let use_phase = context.input.phase(Action::Use);

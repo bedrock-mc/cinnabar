@@ -200,22 +200,27 @@ impl ItemUseRuntime {
         self.rejected_swing_tick = None;
     }
 
+    /// Drops old-life charges and unsent use actions, preserving inventory and cooldown policy.
+    pub fn cancel_for_respawn(&mut self) {
+        self.cancel_pending_input();
+        self.active = None;
+        self.last_frame_tick = None;
+        self.release_pending = false;
+        self.riptide_launch = None;
+        self.release_launch = None;
+    }
+
     /// Clears session-owned use state after disconnect or session replacement.
     fn cancel(&mut self) {
         self.delay_fix = false;
         self.selected_slot = None;
         self.slot_change_pending = false;
         self.last_air_use_tick = None;
-        self.last_frame_tick = None;
-        self.cancel_pending_input();
-        self.active = None;
+        self.cancel_for_respawn();
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
         self.inventory_change = None;
-        self.release_pending = false;
-        self.riptide_launch = None;
-        self.release_launch = None;
         self.crossbows.clear();
     }
 

@@ -6530,7 +6530,8 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   on the same fixed tick even when a frame runs several ticks. Admitted releases retain
   their launch through snaps and replay fallback until its movement input is written; discarded
   releases cancel their pending and replayed launch. Respawn search and ready anchors discard
-  retained releases, their temporary use modifier and pending launches from the old life.
+  retained releases, active item-use charges, temporary use modifiers and pending launches from
+  the old life, including their reserved input flags and facing. Item-use producers wait for respawn completion before accepting new uses.
   Travel-suppressed spin ticks use the compact
   body for block contact. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety

@@ -86,7 +86,8 @@ charge while waiting for their facing input and retain use slowdown through that
 sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
 launches survive a snap or replay fallback until their movement input is written, including late
 socket receipts. Respawn search and ready anchors discard old releases, temporary use modifiers
-and pending launches. Suppressed travel uses the compact spin body for block contacts. Unsupported
+and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
+respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported
 impulses are retired at the
 collision-query budget, a known safety divergence for oversized levels. Exact positional rain eligibility, actor-hit
 termination, server spin metadata, audio and integrated acceptance remain incomplete; this

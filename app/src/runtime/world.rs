@@ -318,6 +318,7 @@ type WorldPollInputs<'w, 's> = (
     ResMut<'w, client_state::PlayerRuntime>,
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     Local<'s, gameplay::movement::CorrectionContextLog>,
+    Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -343,6 +344,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         mut player_runtime,
         server_camera_view,
         mut correction_log,
+        mut item_use,
     ): WorldPollInputs<'_, '_>,
 ) {
     let _timer = profiler
@@ -496,6 +498,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             stream.local_player_runtime_id(),
             &mut movement,
             &mut local_physics,
+            item_use.as_deref_mut(),
         ) {
             continue;
         }
