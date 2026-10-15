@@ -1,6 +1,7 @@
 //! What the crash window says about one report: its title and sentence, the summary rows, the
 //! details log and the Markdown that Copy report puts on the clipboard.
 
+use crash_report::redact;
 use launcher::PRODUCT_NAME;
 use launcher_host::lifecycle::crash::protocol::Stage;
 
@@ -121,18 +122,19 @@ impl CrashSummary {
         lines
     }
 
-    /// A Markdown issue body for Copy report. It leaves out the folder path, which names the
-    /// player's account on most systems, and writes the player's home directory as `~`. Nothing
-    /// else is scrubbed: the client log keeps server addresses out at write time.
+    /// A Markdown issue body for Copy report. It leaves out the folder path and passes the rest
+    /// through `crash_report::redact`, so credentials, server addresses, XUIDs, home folders and
+    /// the player's own home directory become `[redacted]`. Text escaped too deeply to redact
+    /// safely drops the log and packet sections, and failing that everything but the title.
     pub(super) fn issue_markdown(&self) -> String {
-        let markdown = self.markdown();
-        match home() {
-            Some(home) => redact_home(&markdown, &home, cfg!(windows)),
-            None => markdown,
-        }
+        let home = home();
+        redacted(&self.markdown(true), home.as_deref())
+            .or_else(|_| redacted(&self.markdown(false), home.as_deref()))
+            .unwrap_or_else(|_| format!("### {}\n", self.title()))
     }
 
-    fn markdown(&self) -> String {
+    /// The issue body; `with_logs` adds the log tail and the last packets.
+    fn markdown(&self, with_logs: bool) -> String {
         let mut out = format!("### {}\n\n", self.title());
         if let Some(activity) = self.activity() {
             out.push_str(&format!("While {activity}.\n\n"));
@@ -145,11 +147,13 @@ impl CrashSummary {
         if let Some(fault) = self.full_fault() {
             sections.push((FAULT_LABEL.to_owned(), fault.lines().collect()));
         }
-        sections.push((
-            self.log_heading(),
-            self.log_tail.iter().map(String::as_str).collect(),
-        ));
-        if !self.last_packets.is_empty() {
+        if with_logs {
+            sections.push((
+                self.log_heading(),
+                self.log_tail.iter().map(String::as_str).collect(),
+            ));
+        }
+        if with_logs && !self.last_packets.is_empty() {
             sections.push((
                 self.packets_heading(),
                 self.last_packets.iter().map(String::as_str).collect(),
@@ -177,39 +181,17 @@ fn home() -> Option<String> {
         .filter(|home| !home.is_empty())
 }
 
-/// Replaces every `home` path in `text` with `~`. Either separator matches either separator, case
-/// is ignored when `ignore_case` (Windows paths), and a match must end where a path component
-/// does, so a sibling such as `/home/ann2` keeps its name.
-fn redact_home(text: &str, home: &str, ignore_case: bool) -> String {
-    let home: Vec<char> = home.trim_end_matches(['/', '\\']).chars().collect();
-    if home.is_empty() {
-        return text.to_owned();
+/// `text` redacted by the shared rules, after learning private values from it and the player's
+/// home directory, which may lie outside the folders the rules recognise.
+fn redacted(text: &str, home: Option<&str>) -> Result<String, redact::Error> {
+    let mut learned = redact::Learned::default();
+    if let Some(home) = home.map(|home| home.trim_end_matches(['/', '\\']))
+        && !home.is_empty()
+    {
+        learned.value(home);
     }
-    let same = |a: char, b: char| match (a, b) {
-        ('/' | '\\', '/' | '\\') => true,
-        _ if ignore_case => a.to_lowercase().eq(b.to_lowercase()),
-        _ => a == b,
-    };
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut at = 0;
-    while at < chars.len() {
-        let end = at + home.len();
-        let found = chars
-            .get(at..end)
-            .is_some_and(|window| window.iter().zip(&home).all(|(a, b)| same(*a, *b)))
-            && chars
-                .get(end)
-                .is_none_or(|next| !(next.is_alphanumeric() || matches!(next, '_' | '-')));
-        if found {
-            out.push('~');
-            at = end;
-        } else {
-            out.push(chars[at]);
-            at += 1;
-        }
-    }
-    out
+    learned.text(text)?;
+    learned.redactor().text(text)
 }
 
 /// How a details line is coloured.
@@ -381,24 +363,58 @@ mod tests {
         assert!(summary.full_fault().is_none());
         assert!(
             !summary
-                .markdown()
+                .markdown(true)
                 .contains(&format!("<summary>{FAULT_LABEL}"))
         );
     }
 
     #[test]
-    fn home_directories_become_a_tilde_with_either_separator() {
-        let text =
-            "logs at C:\\Users\\Ann\\AppData\\logs\nsaved c:/users/ann/crash\nC:\\Users\\Ann";
-        assert_eq!(
-            redact_home(text, "C:\\Users\\Ann", true),
-            "logs at ~\\AppData\\logs\nsaved ~/crash\n~"
-        );
-        assert_eq!(
-            redact_home("/home/ann/x /HOME/ANN/y /home/ann2/z", "/home/ann/", false),
-            "~/x /HOME/ANN/y /home/ann2/z"
-        );
-        assert_eq!(redact_home("/a/b", "/", false), "/a/b");
+    fn copy_report_redacts_credentials_servers_and_players() {
+        let summary = CrashSummary {
+            fault: "dial udp 203.0.113.7:19132: i/o timeout".into(),
+            log_tail: vec![
+                "12:00:01 INFO  joining play.example.invalid:19132 gamertag=\"Private Player\""
+                    .into(),
+                "12:00:02 WARN  refresh failed: Bearer abc.def-123 for 2535400000000000".into(),
+                "12:00:03 ERROR Private Player lost C:\\Users\\Ann\\AppData\\cinnabar".into(),
+            ],
+            ..summary()
+        };
+        let markdown = summary.issue_markdown();
+        for private in [
+            "203.0.113",
+            "play.example",
+            "Private",
+            "abc.def",
+            "2535400000000000",
+            "Ann",
+        ] {
+            assert!(!markdown.contains(private), "leaked {private}: {markdown}");
+        }
+        assert!(markdown.contains("12:00:03 ERROR [redacted] lost C:\\Users\\[redacted]\\AppData"));
+        assert!(markdown.contains(&format!("| {FAULT_LABEL} | `dial udp [redacted]: i/o timeout` |")));
+    }
+
+    #[test]
+    fn copy_report_drops_logs_too_deeply_escaped_to_redact() {
+        let mut deep = "gamertag=\"Private Player\"".to_owned();
+        for _ in 0..=redact::MAX_ESCAPE_DEPTH {
+            deep = serde_json::to_string(&deep).unwrap();
+        }
+        let summary = CrashSummary {
+            log_tail: vec![deep],
+            ..summary()
+        };
+        let markdown = summary.issue_markdown();
+        assert!(markdown.starts_with(&format!("### {PRODUCT_NAME} crashed\n")));
+        assert!(markdown.contains("| Version | `0.1.20` |"));
+        assert!(!markdown.contains(&summary.log_heading()), "{markdown}");
+        assert!(!markdown.contains("Private"), "{markdown}");
+    }
+
+    #[test]
+    fn secret_values_print_the_shared_placeholder() {
+        assert_eq!(diagnostics::secret::REDACTED, redact::PLACEHOLDER);
     }
 
     #[test]
@@ -413,6 +429,6 @@ mod tests {
         };
         let markdown = summary.issue_markdown();
         assert!(!markdown.contains(&home), "{markdown}");
-        assert!(markdown.contains("logs at ~/logs"));
+        assert!(markdown.contains("logs at [redacted]/logs"), "{markdown}");
     }
 }
