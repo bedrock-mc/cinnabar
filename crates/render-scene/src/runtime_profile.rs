@@ -66,7 +66,7 @@ pub enum RuntimeStage {
     InputPacingWait,
     /// How far past its deadline the pacing wait woke.
     FramePacingLateness,
-    /// First to last sampled GPU timestamp; absent when coverage includes only owned passes.
+    /// First to last sampled GPU timestamp; on Metal, the graph submission's marker span.
     GpuFrame,
     GpuShadows,
     GpuOpaque,
@@ -398,6 +398,8 @@ struct RuntimeStageProfileState {
     last_snapshot_nanos: AtomicU64,
     stages: [StageSampleAccumulator; RuntimeStage::ALL.len()],
     latest_gpu: Mutex<Option<crate::GpuFrameTimes>>,
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: crate::runtime_profile_alloc::AllocationProfiler,
 }
 
 /// Queues an owned report for background formatting without adding a crate dependency.
@@ -448,6 +450,8 @@ impl RuntimeStageProfiler {
                 last_snapshot_nanos: AtomicU64::new(0),
                 stages: std::array::from_fn(|_| StageSampleAccumulator::default()),
                 latest_gpu: Mutex::new(None),
+                #[cfg(any(test, feature = "alloc-stats"))]
+                allocations: crate::runtime_profile_alloc::AllocationProfiler::default(),
             }),
             frame_id: None,
         }
@@ -492,11 +496,20 @@ impl RuntimeStageProfiler {
             stage,
             frame_id: self.frame_id(),
             started: self.active().then(Instant::now),
+            #[cfg(any(test, feature = "alloc-stats"))]
+            allocations: self
+                .active()
+                .then(crate::runtime_profile_alloc::thread_snapshot),
         }
     }
 
     /// Reports the preceding slow frame and starts a new attribution window.
     pub fn begin_frame(&self, focused: bool, occluded: bool) {
+        crate::runtime_profile_uploads::finish_frame();
+        #[cfg(any(test, feature = "alloc-stats"))]
+        let allocations = self.state.allocations.finish_frame();
+        #[cfg(any(test, feature = "alloc-stats"))]
+        allocations.plot();
         self.state.frame_id.fetch_add(1, Ordering::Relaxed);
         if let Some(slow) = &self.state.slow {
             let (event, report) = slow.begin_frame(Instant::now(), focused, occluded);
@@ -505,8 +518,15 @@ impl RuntimeStageProfiler {
             {
                 trace.slow_frame(event);
             }
-            if let Some(report) = report {
-                self.report(report);
+            if let Some(report) = report
+                && self.state.diagnostic_sink.get().is_some()
+            {
+                self.report(diagnostic::SlowFrameDiagnostic {
+                    timing: report,
+                    #[cfg(any(test, feature = "alloc-stats"))]
+                    allocations,
+                    uploads: crate::runtime_profile_uploads::snapshot(),
+                });
             }
         }
     }
@@ -660,6 +680,8 @@ pub struct RuntimeStageSpans {
     open: [Option<(Instant, u64)>; RuntimeStage::ALL.len()],
     /// Each stage's most recently closed span.
     last: [Duration; RuntimeStage::ALL.len()],
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: [Option<test_alloc::Allocations>; RuntimeStage::ALL.len()],
 }
 
 #[cfg(any(test, feature = "publication-test-support"))]
@@ -675,6 +697,8 @@ impl Default for RuntimeStageSpans {
         Self {
             open: [None; RuntimeStage::ALL.len()],
             last: [Duration::ZERO; RuntimeStage::ALL.len()],
+            #[cfg(any(test, feature = "alloc-stats"))]
+            allocations: [None; RuntimeStage::ALL.len()],
         }
     }
 }
@@ -689,6 +713,10 @@ pub fn begin_stage_span<const S: usize>(
             Instant::now(),
             profiler.as_ref().map_or(0, |profiler| profiler.frame_id()),
         ));
+        #[cfg(any(test, feature = "alloc-stats"))]
+        {
+            spans.allocations[S] = Some(test_alloc::global_allocations());
+        }
     }
 }
 
@@ -708,6 +736,13 @@ pub fn end_stage_span<const S: usize>(
     if let Some(profiler) = profiler
         && profiler.active()
     {
+        #[cfg(any(test, feature = "alloc-stats"))]
+        if let Some(before) = spans.allocations[S].take() {
+            profiler
+                .state
+                .allocations
+                .record_global_since(RuntimeStage::ALL[S], before);
+        }
         record_elapsed(
             &profiler.state,
             frame_id,
@@ -737,6 +772,13 @@ pub fn end_render_frame_span(
     if let Some(profiler) = profiler
         && profiler.active()
     {
+        #[cfg(any(test, feature = "alloc-stats"))]
+        if let Some(before) = spans.allocations[FRAME].take() {
+            profiler
+                .state
+                .allocations
+                .record_global_since(RuntimeStage::RenderFrame, before);
+        }
         record_elapsed(
             &profiler.state,
             profiler.frame_id(),
@@ -753,11 +795,17 @@ pub struct RuntimeStageTimer<'a> {
     stage: RuntimeStage,
     frame_id: u64,
     started: Option<Instant>,
+    #[cfg(any(test, feature = "alloc-stats"))]
+    allocations: Option<crate::runtime_profile_alloc::ThreadSnapshot>,
 }
 
 impl Drop for RuntimeStageTimer<'_> {
     fn drop(&mut self) {
         if let (Some(state), Some(started)) = (self.state, self.started) {
+            #[cfg(any(test, feature = "alloc-stats"))]
+            if let Some(before) = self.allocations {
+                state.allocations.record_since(self.stage, before);
+            }
             record_elapsed(state, self.frame_id, self.stage, started, started.elapsed());
         }
     }
@@ -794,3 +842,8 @@ fn duration_nanos(duration: Duration) -> u64 {
 
 #[cfg(test)]
 mod tests;
+
+mod diagnostic;
+
+#[cfg(test)]
+mod allocation_tests;

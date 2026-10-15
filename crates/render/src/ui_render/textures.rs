@@ -1,5 +1,6 @@
 //! Retained dimension buckets and transactional dirty-page write planning.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::render::{
     render_resource::{
         BindGroup, Extent3d, Origin3d, TexelCopyBufferLayout, TexelCopyTextureInfo, Texture,
@@ -267,7 +268,7 @@ impl UiGpuTextures {
                     page.pixels().len() as u64,
                 );
             }
-            queue.write_texture(
+            queue.profiled_write_texture(
                 TexelCopyTextureInfo {
                     texture: &buckets[location.bucket].texture,
                     mip_level: 0,

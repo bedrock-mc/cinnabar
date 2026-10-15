@@ -1,5 +1,6 @@
 //! Shared UI GPU resource creation, publication admission and arena accounting.
 
+use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{UiGlintSettings, UiRenderSceneResource, UiRenderStatsResource};
 
 use super::*;
@@ -272,7 +273,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = upload.vertices.len() * size_of::<FontAtlasVertex>(),
         )
         .entered();
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             buffer,
             (upload.vertices.start * size_of::<FontAtlasVertex>()) as u64,
             bytemuck::cast_slice(&gpu.textures.fonts.vertices[upload.vertices.clone()]),
@@ -299,7 +300,7 @@ pub(crate) fn prepare_ui_resources(
             bytes = upload.indices.len() * size_of::<u32>(),
         )
         .entered();
-        render_queue.write_buffer(
+        render_queue.profiled_write_buffer(
             buffer,
             (upload.indices.start * size_of::<u32>()) as u64,
             bytemuck::cast_slice(&input.indices[upload.indices.clone()]),

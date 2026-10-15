@@ -849,6 +849,12 @@ these changes do not close the movement, camera, or actor parity gates.
   more render-work headroom. Unloaded tail results remain adverse and unexplained:
   the hitch and 120 Hz display gates remain incomplete. See
   [frame-pacing evidence](docs/evidence/zeqa-frame-pacing.md).
+- The opt-in `alloc-stats` feature counts requested allocations and bytes per frame
+  and timed CPU stage, with either System or mimalloc. Frame and schedule-span totals
+  cover all threads, including concurrent background work; RAII timers include nested work
+  on their calling thread. Labelled GPU-write counters
+  split retained staging and queue staging, including partial uploads. Tracy plots and
+  slow-frame fields report these diagnostics; hardware performance acceptance remains open.
 - Opt-in Tracy spans cover Bevy and owned streaming/render work; Metal pass
   durations are delayed plots. macOS zones alone cannot separate preemption from waits.
 - Per-packet ingress admission preserves queued events when consumer fan-out fills
@@ -1412,6 +1418,7 @@ acceptance gate.
   instanced draw after opaque geometry; casters and parameters upload only when they change.
 - Caster rules (radius table, babies, slimes, projectiles, burning, invisible, dead, submerged,
   riders, ghast drops) follow [the vanilla rules](docs/reference/entity-shadows.md).
+- Width-based radii share collision scaling and its minimum size, including player fallback bounds.
 - Rigged casters follow the actor frame's drawn bodies. Incomplete parity: sign shadows are not
   drawn; the breathing point, item and local volume culling remain provisional.
 - Volumes containing the camera draw no shadow. Camera-inside and ordinary outside
@@ -1562,11 +1569,13 @@ acceptance gate.
   against both programs through their own pipelines.
 - `CINNABAR_GPU_NODES=1` plots per-node and per-section GPU times under Tracy, and Tracy
   builds expose wgpu's encode and submit zones; see the live-testing guide.
-- Metal reports `gpu_frame_completion_latency` through the stage profiler and Tracy,
-  as an informational field that never counts towards slow frames or GPU budget
-  violations. Three in-flight callback slots bound diagnostics without waiting. This CPU
-  interval includes submission, queue and polling delays; it is not GPU execution time. Incomplete: native whole-frame GPU time and shared
-  per-draw categories remain unavailable with the current command-buffer access API.
+- Metal reports `gpu_frame` from the GPU host times of two empty marker command buffers that
+  open and close the render graph's submission, read back without waiting and counted against
+  the GPU budget. It runs from the later of submission and the end of earlier queued work to
+  the end of the frame's work; submissions outside the graph are not included.
+  `gpu_frame_completion_latency` stays a separate informational CPU interval that never counts
+  towards slow frames. Incomplete: shared per-draw categories, because Apple GPUs sample
+  timestamps only at pass boundaries.
 - Evidence: [render frame time](docs/evidence/render-frame-time.md), measured on DX12 before
   Windows defaulted to Vulkan; `WGPU_BACKEND=dx12` selects that backend.
 

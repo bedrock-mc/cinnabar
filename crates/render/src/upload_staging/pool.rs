@@ -129,14 +129,20 @@ impl Pool {
         self.shape.name
     }
 
-    /// Stages writes in issue order until the pool fills, without allocating or polling.
+    /// Stages writes in issue order until the pool fills, without allocating staging storage or polling.
     /// Returns the first write not wholly staged and how many of its bytes were.
+    #[track_caller]
     pub(super) fn stage_prefix(&mut self, writes: &[BufferWrite<'_>]) -> Option<(usize, u64)> {
         for (index, &(target, offset, bytes)) in writes.iter().enumerate() {
             if bytes.is_empty() {
                 continue;
             }
             let staged = self.stage(target, offset, bytes);
+            render_scene::runtime_profile_uploads::record(
+                render_scene::runtime_profile_uploads::UploadKind::Buffer,
+                render_scene::runtime_profile_uploads::UploadPath::Staged,
+                staged,
+            );
             if staged < bytes.len() as u64 {
                 return Some((index, staged));
             }

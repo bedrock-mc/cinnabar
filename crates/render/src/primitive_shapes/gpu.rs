@@ -1,5 +1,6 @@
 //! GPU ownership and dirty uploads; growth preserves old slots with a GPU copy and splits
 //! arenas at the device storage-binding limit.
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::{
     prelude::*,
     render::{
@@ -118,7 +119,7 @@ impl Arena {
             let local = slot % self.chunk_slots;
             let count = values.len().min(self.chunk_slots - local);
             let bytes = bytemuck::cast_slice(&values[..count]);
-            queue.write_buffer(buffer, local as u64 * self.bytes, bytes);
+            queue.profiled_write_buffer(buffer, local as u64 * self.bytes, bytes);
             work.uploads += 1;
             work.bytes += bytes.len() as u64;
             slot += count;
@@ -250,7 +251,7 @@ pub(super) fn prepare(
         0,
     ];
     if gpu.frame_value != frame {
-        queue.write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
+        queue.profiled_write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
         gpu.frame_value = frame;
         work.uploads += 1;
         work.bytes += 16;
@@ -315,7 +316,7 @@ pub(super) fn prepare(
             let [x, y, width, height] = cell.cell;
             work.uploads += 1;
             work.bytes += cell.rgba8.len() as u64;
-            queue.write_texture(
+            queue.profiled_write_texture(
                 TexelCopyTextureInfo {
                     texture: &gpu.atlas,
                     mip_level: 0,

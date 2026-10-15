@@ -1,5 +1,6 @@
 //! GPU particle atlas and instance uploads, with depth-writing, blended and additive draws.
 
+use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
@@ -263,7 +264,7 @@ fn write_rect(
 ) {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("particles.texture_write", bytes = rgba.len()).entered();
-    queue.write_texture(
+    queue.profiled_write_texture(
         TexelCopyTextureInfo {
             texture,
             mip_level: 0,
