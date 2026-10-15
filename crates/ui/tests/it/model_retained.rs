@@ -573,3 +573,92 @@ fn changing_a_parent_clip_rebuilds_before_drawing_its_children() {
     assert!(redraw(&mut draw, &nodes).is_none());
     assert_equal(&retained(&nodes), &nodes);
 }
+
+/// Reuses one triangle's source vertices while reserving the requested number of emitted corners.
+fn repeated_mesh(corners: usize) -> Arc<UiMesh> {
+    let source = mesh(0.0);
+    let indices: Vec<u32> = (0..corners).map(|index| (index % 3) as u32).collect();
+    let mut batch = source.batches()[0].clone();
+    batch.index_range = 0..corners as u32;
+    Arc::new(UiMesh::new(source.vertices().into(), indices.into(), vec![batch].into()).unwrap())
+}
+
+#[test]
+fn over_budget_replacements_are_refused_before_materializing_a_mesh() {
+    let small = mesh(0.0);
+    let large = repeated_mesh((UiLimits::MAX_UI_VERTICES / 4) / 3 * 3);
+    let mut previous: Vec<_> = (1..=5)
+        .map(|number| {
+            UiNode::new(id(number), None, rect(0.0, 0.0, 10.0, 10.0))
+                .with_visual(UiVisual::Mesh(Arc::clone(&small)))
+        })
+        .collect();
+    let mut retained = RetainedDraw::build(
+        &previous,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let next: Vec<_> = previous
+        .iter()
+        .map(|node| node.clone().with_visual(UiVisual::Mesh(Arc::clone(&large))))
+        .collect();
+    let before = test_alloc::thread_allocated_bytes();
+    let result = retained.update(
+        &mut previous,
+        &next,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    );
+    let allocated = test_alloc::thread_allocated_bytes() - before;
+    assert!(result.is_none());
+    assert!(
+        allocated < (large.indices().len() * std::mem::size_of::<ui::UiVertex>()) as u64,
+        "rejected update allocated {allocated} bytes before aggregate admission"
+    );
+}
+
+#[test]
+fn a_later_shrink_keeps_an_earlier_growth_within_the_final_budget() {
+    let small = mesh(0.0);
+    let large = repeated_mesh((UiLimits::MAX_UI_VERTICES * 3 / 4) / 3 * 3);
+    let mut previous = vec![
+        UiNode::new(id(1), None, rect(0.0, 0.0, 10.0, 10.0))
+            .with_visual(UiVisual::Mesh(small.clone())),
+        UiNode::new(id(2), None, rect(0.0, 0.0, 10.0, 10.0))
+            .with_visual(UiVisual::Mesh(large.clone())),
+    ];
+    let mut retained = RetainedDraw::build(
+        &previous,
+        viewport(),
+        UiScale::default(),
+        SafeArea::ZERO,
+        TextEffects::default(),
+    )
+    .unwrap();
+    let next = vec![
+        previous[0].clone().with_visual(UiVisual::Mesh(large)),
+        previous[1].clone().with_visual(UiVisual::Mesh(small)),
+    ];
+    retained
+        .update(
+            &mut previous,
+            &next,
+            viewport(),
+            UiScale::default(),
+            SafeArea::ZERO,
+            TextEffects::default(),
+        )
+        .unwrap();
+    let mut full = UiTree::new(next).unwrap();
+    full.layout(viewport(), UiScale::default(), SafeArea::ZERO)
+        .unwrap();
+    let expected = full.build_draw_list().unwrap();
+    assert_eq!(retained.draw_list().vertices, expected.vertices);
+    assert_eq!(retained.draw_list().indices, expected.indices);
+    assert_eq!(retained.draw_list().batches, expected.batches);
+}
