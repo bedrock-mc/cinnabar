@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -95,6 +96,15 @@ class BuildIdTests(unittest.TestCase):
                 with self.subTest(profile=profile):
                     (source / "Cargo.toml").write_text("[profile.release]\n" + profile)
                     self.assertEqual(symbols.has_symbols(source), expected)
+
+    def test_packaging_overrides_debug_generation_in_an_older_source_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            (source / "Cargo.toml").write_text("[profile.release]\ndebug = false\n")
+            with patch.dict(os.environ, {"CARGO_PROFILE_RELEASE_DEBUG": "line-tables-only"}):
+                self.assertTrue(symbols.has_symbols(source))
+            with patch.dict(os.environ, {"CARGO_PROFILE_RELEASE_DEBUG": "false"}):
+                self.assertFalse(symbols.has_symbols(SOURCE))
 
     def test_every_cargo_runtime_binary_and_the_prep_kit_compiler_need_symbols(self):
         cargo = [name for name, rust in symbols.runtime_binaries(SOURCE) if rust]

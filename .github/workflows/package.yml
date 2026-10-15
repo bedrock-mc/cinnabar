@@ -41,6 +41,10 @@ env:
   CARGO_BUILD_BUILD_DIR: "{workspace-root}/target"
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
+  # These overrides also enable symbols when packaging an older source checkout.
+  CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
+  CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: "packed"
+  CARGO_PROFILE_RELEASE_STRIP: "debuginfo"
   CINNABAR_SOURCE_ROOT: ${{ github.workspace }}/source
 
 jobs:
@@ -605,7 +609,7 @@ jobs:
             > "$RUNNER_TEMP/$UPDATE_MANIFEST.partial"
           mv "$RUNNER_TEMP/$UPDATE_MANIFEST.partial" "$RUNNER_TEMP/$UPDATE_MANIFEST"
       - name: Verify all downloads and checksum the release
-        # An older source branch without split debug info publishes no symbol archives.
+        # Use the same effective debug-generation setting as the native packaging jobs.
         run: |
           symbols=()
           [[ "$(python3 "$GITHUB_WORKSPACE/release-tools/packaging/release-symbols.py" has-symbols)" == true ]] ||

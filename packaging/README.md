@@ -126,7 +126,8 @@ or Intel DMG. The website is deployed separately and links directly to GitHub's 
 
 ## Release symbols
 
-Release builds (`[profile.release]`) keep line tables only in split debug files: a PDB per Windows
+Native packaging enables line tables with Cargo profile environment overrides, including when
+packaging an older source checkout. It keeps them in split debug files: a PDB per Windows
 executable, a `.dSYM` per macOS binary, and on Linux a `.debug` file that
 `packaging/release-symbols.py split` moves out of each binary after linking (the Linux job keeps
 debug info at link time, since the linker's `--strip-debug` would also drop what a `.dwp` needs).
@@ -137,8 +138,9 @@ id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-a
 the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
 print symbolized tracebacks themselves and have no symbol files. Android APKs are CI artifacts built
 with the `play` profile, which has no release debug info, so they have no archive. Releasing an older
-source branch whose release profile has no split debug info publishes no archives, with a workflow
-warning; `release-symbols.py has-symbols` makes that decision for both the package and publish jobs.
+source branch without debug info publishes no archives when run without those overrides, with a
+workflow warning; `release-symbols.py has-symbols` checks the effective setting for both the package
+and publish jobs.
 
 To symbolicate a user's crash, ask for the crash folder (`crashes/<UTC time>-<id>/` under the
 user data directory, or the `devtool diag` bundle that includes it), download the symbol

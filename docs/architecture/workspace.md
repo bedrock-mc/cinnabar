@@ -173,6 +173,7 @@ the SDK for their own host contract; they do not import client runtime authority
 
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
+| `crates/crash-report` | `crash-report` | Crash report schema, folder layout, session log sections and retention with caller-supplied time. | `devtool` reads reports for offline symbolication. |
 | `crates/diagnostics` | `diagnostics` | Runtime metrics, logging and shared diagnostic markers; use its bounded logs and observation contracts. | `acceptance` evaluates evidence; subsystem owners produce observations. |
 | `crates/acceptance` | `acceptance` | Optional acceptance evidence over committed runtime observations; use its control and witness adapters. | `diagnostics` owns marker contracts; world and render owners publish committed observations. |
 | `crates/developer-control` | `developer-control` | Authenticated loopback control protocol, client/server and recording primitives; use it to drive developer builds. | `app` applies commands; `cinnabar-mcp` exposes them as tools. |

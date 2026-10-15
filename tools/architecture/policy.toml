@@ -301,6 +301,14 @@ forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
+# Crash report schema, folder layout, log sections and retention; offline and clock-free.
+[[crates]]
+name = "crash-report"
+path = "crates/crash-report"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio", "hyper"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*", "reqwest", "tokio", "hyper*"]
+
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
@@ -1070,6 +1078,7 @@ dependency_free = true
 # Domain crates take `now` from their caller; only edge code reads the clock.
 [timing]
 clock_free_crates = [
+    "crates/crash-report",
     "crates/block-transform",
     "crates/input",
     "crates/inventory",
