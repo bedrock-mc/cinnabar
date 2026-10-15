@@ -65,6 +65,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     crate::app::logging::install(crate::app::logging::Process::Client);
     launched_at();
     let layout = InstallLayout::discover().context("resolve install layout")?;
+    crate::app::logging::apply_saved_verbose_setting(&layout);
     crash::prune_reports(&layout);
     // The monitor starts first, so it can report even a failure of the rest of startup.
     let monitor = if cfg!(target_os = "android") {

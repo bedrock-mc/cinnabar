@@ -17,6 +17,20 @@ pub(crate) fn stamp(unix_ms: u64) -> String {
     )
 }
 
+/// Formats `unix_ms` as `yyyy-mm-ddThh:mm:ss.mmmZ`.
+pub(crate) fn iso_ms(unix_ms: u64) -> String {
+    let seconds = unix_ms / 1000;
+    let (year, month, day) = civil_from_days(seconds / SECONDS_PER_DAY);
+    let time = seconds % SECONDS_PER_DAY;
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        time / 3600,
+        time / 60 % 60,
+        time % 60,
+        unix_ms % 1000
+    )
+}
+
 /// Parses a stamp back to the Unix milliseconds of its first instant.
 pub(crate) fn parse(stamp: &str) -> Option<u64> {
     let bytes = stamp.as_bytes();

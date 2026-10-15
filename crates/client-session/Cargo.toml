@@ -11,6 +11,7 @@ test-support = []
 [dependencies]
 simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
+crash-report = { path = "../crash-report" }
 crossbeam-channel = "0.5"
 bytes.workspace = true
 protocol = { path = "../protocol" }

@@ -175,7 +175,12 @@ A native fault's folder is written once the client is gone. Each folder,
 backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session ID,
 renderer attempt and game state — session phase, server kind without its address, dimension,
 server pack count; native faults add a `native` object), plus `client.log` and `core.log` with
-this session's part of each log, up to 1 MiB apiece. When the client dies, the monitor opens the
+this session's part of each log, up to 1 MiB apiece, `packets.txt` (the last 4,096 packet
+headers by name), `decode-samples/` (bodies of packets the session rejected, when any) and
+`flight.log` (the last 2,000 lines of the log flight recorder, `debug` for network, session,
+core and packs). The last three come from the session's `crashes/.live-<session id>/` staging
+directory, whose rings are mapped files that outlive any crash; the crash window lists the last
+packets in its details. When the client dies, the monitor opens the
 crash window (Restart, Copy report, Open folder, Close, Join our Discord) for the fault, or for
 the panic that ended it. A client that dies without a dump (a fail-fast abort such as
 `0xC0000409`, an out-of-memory or external kill) gets a `kind: abort` report from its exit status;
@@ -189,7 +194,8 @@ then shows that folder instead of writing an abort report.
 Without a GPU for the window the monitor uses a native dialog with the same actions. Until the
 monitor is connected, or where it cannot run (Android), the client writes the folder itself, and
 a monitor that connects later reports nothing more; folders from fatal Unix signals then end in
-`-signal`. The newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
+`-signal` and, written with async-signal-safe calls only, lack the three staging files. The
+newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
 `CINNABAR_FULL_DUMP=1` writes full-memory dumps (Windows). `devtool diag` bundles the latest
 session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
 uploaded.

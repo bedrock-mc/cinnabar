@@ -78,7 +78,7 @@ pub struct HangWatch {
     pub stall_after_ms: u64,
 }
 
-/// Who the client is and where its logs are.
+/// Who the client is and where its logs and crash staging directory are.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub identity: Identity,
@@ -86,6 +86,8 @@ pub struct Hello {
     pub core_log: PathBuf,
     /// Dumps should hold all process memory.
     pub full_dump: bool,
+    /// The crash staging directory whose rings and samples reports attach; `None` without one.
+    pub staging: Option<PathBuf>,
 }
 
 /// How to start the client again; the monitor runs its own executable, the client's.

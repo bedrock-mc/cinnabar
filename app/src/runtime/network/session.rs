@@ -2,7 +2,8 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use client_runtime::network::NetworkHandle;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 pub type NetworkControlEvent = client_session::NetworkControlEvent<PackApplication>;
 
@@ -24,6 +25,8 @@ pub struct NetworkConfig {
     pub ui_catalog: Option<std::sync::Arc<json_ui::Catalog>>,
     /// Where an opted-in packet capture goes by default.
     pub log_dir: PathBuf,
+    /// The Record network session setting as the session starts.
+    pub record_session: bool,
 }
 
 /// Starts the domain worker with presentation preparation at its original bootstrap boundary.
@@ -43,8 +46,9 @@ pub fn spawn_network(
             client_blob_cache: config.client_blob_cache,
             player_skin: config.player_skin.to_client_skin(),
             login_settings: config.login_settings,
-            packet_capture: client_session::packet_log::PacketCaptureRequest::from_setting(
+            packet_capture: packet_capture_request(
                 std::env::var_os(client_session::markers::PACKET_CAPTURE).as_deref(),
+                config.record_session,
                 &config.log_dir,
                 unix_time_ms(),
             ),
@@ -91,6 +95,35 @@ pub fn spawn_network(
     .map(|inner| NetworkHandle::connected(inner, socket_dir))
 }
 
+/// The session's capture: [`client_session::markers::PACKET_CAPTURE`] decides when set
+/// non-empty, even to `0`; otherwise the Record network session setting records into
+/// `log_dir`.
+pub(crate) fn packet_capture_request(
+    environment: Option<&OsStr>,
+    record_setting: bool,
+    log_dir: &Path,
+    started_unix_ms: u64,
+) -> Option<client_session::packet_log::PacketCaptureRequest> {
+    let value = environment
+        .filter(|value| !value.is_empty())
+        .or(record_setting.then_some(OsStr::new("1")));
+    client_session::packet_log::PacketCaptureRequest::from_setting(value, log_dir, started_unix_ms)
+}
+
+/// Whether new sessions record a capture, by the same precedence as
+/// [`packet_capture_request`], naming the environment variable when it decides.
+pub(crate) fn packet_capture_label(
+    environment: Option<&OsStr>,
+    record_setting: bool,
+) -> &'static str {
+    match environment.filter(|value| !value.is_empty()) {
+        Some(value) if value == "0" => "off (CINNABAR_PACKET_CAPTURE)",
+        Some(_) => "on (CINNABAR_PACKET_CAPTURE)",
+        None if record_setting => "on",
+        None => "off",
+    }
+}
+
 /// Wall-clock milliseconds since the Unix epoch, as a capture header records its start.
 fn unix_time_ms() -> u64 {
     std::time::SystemTime::now()
@@ -122,4 +155,41 @@ mod tests {
     mod language;
     #[path = "mining_mode.rs"]
     mod mining_mode;
+
+    #[test]
+    fn the_capture_variable_beats_the_record_setting() {
+        let logs = Path::new("logs");
+        let in_logs = Some(client_session::packet_log::PacketCaptureRequest {
+            path: logs.join(format!(
+                "packets-7.{}",
+                client_session::packet_log::CAPTURE_EXTENSION
+            )),
+            started_unix_ms: 7,
+        });
+        assert_eq!(packet_capture_request(None, true, logs, 7), in_logs);
+        assert_eq!(
+            packet_capture_request(Some(OsStr::new("")), true, logs, 7),
+            in_logs
+        );
+        assert_eq!(packet_capture_request(None, false, logs, 7), None);
+        assert_eq!(
+            packet_capture_request(Some(OsStr::new("0")), true, logs, 7),
+            None
+        );
+        assert_eq!(
+            packet_capture_request(Some(OsStr::new("run.cnbrcap")), false, logs, 7)
+                .map(|request| request.path),
+            Some(PathBuf::from("run.cnbrcap"))
+        );
+        assert_eq!(packet_capture_label(None, false), "off");
+        assert_eq!(packet_capture_label(None, true), "on");
+        assert_eq!(
+            packet_capture_label(Some(OsStr::new("0")), true),
+            "off (CINNABAR_PACKET_CAPTURE)"
+        );
+        assert_eq!(
+            packet_capture_label(Some(OsStr::new("1")), false),
+            "on (CINNABAR_PACKET_CAPTURE)"
+        );
+    }
 }

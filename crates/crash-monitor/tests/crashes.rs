@@ -8,6 +8,10 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
+use ::protocol::packet_tap::{
+    PacketBody, PacketDirection, PacketName, PacketOutcome, carries_secrets,
+};
+use bytes::Bytes;
 use crash_report::{
     folder,
     report::{Identity, Kind, Thread},
@@ -85,6 +89,7 @@ fn client_fixture() {
         stall_after: STALL_AFTER,
     };
     crash::install(&layout(&root), identity, hooks, Some(&command));
+    record_traffic();
     if kind == "early_panic" {
         // The monitor listens only after this panic, so it is written in-process.
         panic_on_a_thread();
@@ -172,6 +177,55 @@ fn panic_on_a_thread() {
     assert!(panicked.is_err());
 }
 
+/// The packet ID the fixture sends: the first whose body samples keep.
+fn fixture_packet() -> u32 {
+    (1..0x400)
+        .find(|id| !carries_secrets(*id))
+        .expect("a packet without secrets")
+}
+
+/// Logs a debug line only the flight recorder keeps and sends three packets through a session
+/// tap, rejecting one, after moving both rings into the crash staging directory as the client
+/// does.
+fn record_traffic() {
+    diagnostics::logging::install(diagnostics::logging::Options {
+        base_filter: "info".into(),
+        flight_recorder: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let staging = crash::staging_dir().expect("a crash staging directory");
+    diagnostics::logging::flight::attach(staging).unwrap();
+    client_session::packet_log::global()
+        .attach(staging)
+        .unwrap();
+    tracing::debug!(target: "client_session::fixture", "fixture flight line");
+    let tap = client_session::packet_log::fixture_tap();
+    let body = Bytes::from_static(&[1, 2, 3]);
+    let packet = fixture_packet();
+    tap.record(
+        PacketDirection::Clientbound,
+        packet,
+        PacketBody::whole(&body),
+    );
+    let rejected = tap.record(
+        PacketDirection::Clientbound,
+        packet,
+        PacketBody::whole(&body),
+    );
+    tap.reject(
+        rejected,
+        packet,
+        PacketOutcome::Failed,
+        PacketBody::whole(&body),
+    );
+    tap.record(
+        PacketDirection::Serverbound,
+        packet,
+        PacketBody::whole(&body),
+    );
+}
+
 /// Another process connects to the monitor beside the client and claims a panic, a failure
 /// and the client's identity, with a wrong token and with none.
 fn intrude() {
@@ -188,6 +242,7 @@ fn intrude() {
         client_log: PathBuf::from("forged.log"),
         core_log: PathBuf::from("forged.log"),
         full_dump: false,
+        staging: None,
     })
     .unwrap();
     let panic = serde_json::to_vec(&protocol::Panic {
@@ -273,8 +328,8 @@ fn crash(kind: &str) -> Run {
     }
 }
 
-/// Asserts `folder` holds a `kind` report, with a dump when `dumped`, and the client's log
-/// section.
+/// Asserts `folder` holds a `kind` report, with a dump when `dumped`, the client's log section,
+/// and what [`record_traffic`] left in the staging directory.
 fn assert_report(folder: &Path, kind: Kind, dumped: bool) {
     let report = folder::read(folder).unwrap();
     assert_eq!(report.kind, kind, "{}", report.message);
@@ -288,6 +343,30 @@ fn assert_report(folder: &Path, kind: Kind, dumped: bool) {
         fs::read_to_string(folder.join(folder::CLIENT_LOG_FILE))
             .unwrap()
             .contains("fixture client line")
+    );
+    assert_traffic(folder);
+}
+
+/// Asserts `folder` carries the packets, sample and log line [`record_traffic`] recorded.
+fn assert_traffic(folder: &Path) {
+    let packets = fs::read_to_string(folder.join(folder::PACKETS_FILE)).unwrap();
+    let name = format!("{} ({})", PacketName(fixture_packet()), fixture_packet());
+    assert!(
+        packets.starts_with("packet headers: 3 recorded, last 3 kept\n"),
+        "{packets}"
+    );
+    assert_eq!(packets.matches(&name).count(), 3, "{packets}");
+    assert!(
+        packets.contains("serverbound") && packets.contains("failed"),
+        "{packets}"
+    );
+    let index =
+        fs::read_to_string(folder.join(folder::DECODE_SAMPLES_DIR).join("index.txt")).unwrap();
+    assert!(index.contains("1 kept (3 bytes)"), "{index}");
+    let flight = fs::read_to_string(folder.join(folder::FLIGHT_LOG_FILE)).unwrap();
+    assert!(
+        flight.contains("DEBUG") && flight.contains("fixture flight line"),
+        "{flight}"
     );
 }
 
@@ -364,7 +443,10 @@ fn a_fault_after_a_survived_panic_gets_its_own_report() {
 fn a_crash_before_the_monitor_connects_is_reported_once() {
     let run = crash("early_panic");
     assert_eq!(run.folders.len(), 1, "{:?}", run.folders);
-    assert_eq!(folder::read(&run.folders[0]).unwrap().kind, Kind::Panic);
+    let report = folder::read(&run.folders[0]).unwrap();
+    assert_eq!(report.kind, Kind::Panic);
+    // Written in-process, with the same attachments the monitor adds.
+    assert_traffic(&run.folders[0]);
     assert_eq!(run.shown, None);
 }
 

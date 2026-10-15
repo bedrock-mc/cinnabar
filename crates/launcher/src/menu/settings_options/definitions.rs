@@ -609,4 +609,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     FullDetailDistance => "full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    VerboseLogging => "verbose_logging", toggle("Verbose logging", false),
+        [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
+    RecordNetworkSession => "record_network_session", toggle("Record network session", false),
+        [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
 }

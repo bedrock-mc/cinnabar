@@ -1,6 +1,7 @@
-//! Local, redacted diagnostics; raw account data is never added to an archive.
+//! Local diagnostics redacted by `crash_report::redact`; raw account data is never added to an
+//! archive.
 use crate::DevtoolError;
-use crash_report::{folder, section};
+use crash_report::{folder, redact, section};
 use regex::Regex;
 use std::{
     fs,
@@ -11,89 +12,6 @@ use std::{
 };
 use zip::{ZipWriter, write::SimpleFileOptions};
 const LOG_LIMIT: u64 = 8 << 20;
-const PRIVATE_FIELDS: &str = "authorization|access[_-]?token|refresh[_-]?token|id[_-]?token|token|password|secret|xuid|gamertag|display[_-]?name|player[_-]?name|user[_-]?name|username|server[_-]?(?:address|host)?|target|address|hostname|host|from|to|owner[_-]?id|user[_-]?id|email|identity|socket[_-]?dir|endpoint";
-const MAX_ESCAPE_DEPTH: usize = 4;
-/// An authorization value of any scheme: quoted whole, or unquoted as the scheme plus one credential.
-const AUTHORIZATION: &str = r#"(?i)\b(?:proxy-)?authorization\b["']?\s*[:=]\s*("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[^\s"',}\]\[{:][^\s"',}\]]*(?:[ \t]+[^\s"',}\]]+)?)"#;
-/// An Xbox Live authorization value, which is sensitive even without a label.
-const XBL_TOKEN: &str = r#"XBL3\.0 (x=[^\s;"]+;[^\s"]+)"#;
-/// A home folder prefix and its username; a name with spaces runs to the next separator or quote,
-/// and an apostrophe followed by a name character stays part of the name.
-const HOME_FOLDER: &str = r#"(?i)(?:/Users/|/home/|[a-z]:\\Users\\)(?:([^/\\\r\n"'<>|:*?,=]+(?:'[^/\\\s"'<>|:*?,=][^/\\\r\n"'<>|:*?,=]*)*)(?:[\\/"]|'(?:$|[/\\\s"'<>|:*?,=]))|([^/\\\s"']+(?:'[^/\\\s"']+)*))"#;
-
-/// Removes ANSI styling, which a terminal formatter can place between a field name and `=`.
-fn strip_ansi(text: &str) -> String {
-    static ANSI: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    ANSI.get_or_init(|| Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]").unwrap())
-        .replace_all(text, "")
-        .into_owned()
-}
-
-/// Decodes JSON and common debug escapes without requiring the surrounding log to be JSON.
-fn decode_escapes(text: &str) -> String {
-    static ESCAPES: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let escapes = ESCAPES.get_or_init(|| {
-        Regex::new(r#"\\(?:u\{[0-9a-fA-F]{1,6}\}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}(?:\\u[0-9a-fA-F]{4})?|["\\/bfnrt])"#).unwrap()
-    });
-    escapes
-        .replace_all(text, |capture: &regex::Captures<'_>| {
-            let escaped = &capture[0];
-            let hex = escaped.strip_prefix("\\x").or_else(|| {
-                escaped
-                    .strip_prefix("\\u{")
-                    .and_then(|value| value.strip_suffix('}'))
-            });
-            if let Some(value) = hex
-                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
-                .and_then(char::from_u32)
-            {
-                value.to_string()
-            } else {
-                serde_json::from_str::<String>(&format!("\"{escaped}\""))
-                    .unwrap_or_else(|_| escaped.into())
-            }
-        })
-        .into_owned()
-}
-
-/// Retains raw and decoded views, rejecting bundles whose escape layers exceed the bound.
-fn decoded_views(text: &str) -> Result<Vec<String>, DevtoolError> {
-    let mut views = vec![strip_ansi(text)];
-    for _ in 0..MAX_ESCAPE_DEPTH {
-        let next = strip_ansi(&decode_escapes(views.last().unwrap()));
-        if next == *views.last().unwrap() {
-            return Ok(views);
-        }
-        views.push(next);
-    }
-    if decode_escapes(views.last().unwrap()) != *views.last().unwrap() {
-        return Err(escape_depth_error());
-    }
-    Ok(views)
-}
-
-/// Rejects text nested deeper than redaction decodes.
-fn escape_depth_error() -> DevtoolError {
-    DevtoolError::Usage("diagnostic escape depth exceeds the redaction limit".into())
-}
-
-/// Builds literal spellings for learned values, including quote-only and nested JSON escaping.
-fn encoded_values(values: Vec<String>) -> Vec<String> {
-    let mut spellings = std::collections::BTreeSet::new();
-    for value in values.into_iter().filter(|value| !value.is_empty()) {
-        spellings.insert(value.replace('"', "\\\""));
-        let mut escaped = value;
-        for _ in 0..=MAX_ESCAPE_DEPTH {
-            spellings.insert(escaped.clone());
-            let json = serde_json::to_string(&escaped).unwrap();
-            escaped = json[1..json.len() - 1].into();
-        }
-    }
-    let mut values: Vec<_> = spellings.into_iter().collect();
-    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
-    values
-}
-
 /// Bundles the latest local session without uploading any data.
 pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let root = match args {
@@ -134,6 +52,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
             folder::REPORT_FILE,
             folder::CLIENT_LOG_FILE,
             folder::CORE_LOG_FILE,
+            folder::PACKETS_FILE,
+            folder::FLIGHT_LOG_FILE,
         ] {
             let path = crash.join(member);
             if fs::metadata(&path).is_ok_and(|meta| meta.len() <= LOG_LIMIT)
@@ -273,310 +193,30 @@ fn tail(path: &Path) -> std::io::Result<String> {
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
-/// Scrubs learned values and contextual patterns from the raw text and every decoded layer.
-///
-/// Emits the shallowest layer that needed no further redaction, so literal backslashes such as
-/// Windows paths survive unless a deeper decode revealed something private.
-fn redact(text: &str, values: &[String]) -> Result<String, DevtoolError> {
-    let scrub = |view: &str| redact_patterns(&redact_values(view, values));
-    let mut layer = scrub(&strip_ansi(text));
-    let mut emitted = layer.clone();
-    for _ in 0..MAX_ESCAPE_DEPTH {
-        let decoded = strip_ansi(&decode_escapes(&layer));
-        if decoded == layer {
-            return Ok(emitted);
-        }
-        // A later decode can disguise a value, such as turning `\b` into a backspace.
-        layer = scrub(&decoded);
-        if layer != decoded {
-            emitted = layer.clone();
-        }
-    }
-    if strip_ansi(&decode_escapes(&layer)) != layer {
-        return Err(escape_depth_error());
-    }
-    Ok(emitted)
-}
-
-/// Replaces every learned spelling before decoding can alter quote or backslash boundaries.
-fn redact_values(text: &str, values: &[String]) -> String {
-    let mut result = text.to_owned();
-    for value in values {
-        let pattern = Regex::new(&format!("(?i){}", regex::escape(value))).unwrap();
-        result = pattern.replace_all(&result, "[redacted]").into_owned();
-    }
-    result
-}
-
-/// Applies credential and address rules to both raw and decoded text.
-fn redact_patterns(text: &str) -> String {
-    let mut result = text.to_owned();
-    let contextual = format!(
-        r#"(?i)\b({PRIVATE_FIELDS})\b["']?\s*[:=]\s*("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[^\s,}}\]:][^\s,}}\]]*)"#
-    );
-    let patterns = [
-        AUTHORIZATION,
-        XBL_TOKEN,
-        contextual.as_str(),
-        r"(?i)\bbearer\s+\S+",
-        r#"(?i)\b[a-z][a-z0-9+.-]*://[^\s"<>]+"#,
-        r"\b[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]+\b",
-        r#"\b[^\s@"<>]+@[^\s@"<>]+\b"#,
-    ];
-    for pattern in patterns {
-        result = Regex::new(pattern)
-            .unwrap()
-            .replace_all(&result, "[redacted]")
-            .into_owned();
-    }
-    result = redact_ipv6(&result);
-    result = Regex::new(r"\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b")
-        .unwrap()
-        .replace_all(&result, "[redacted]")
-        .into_owned();
-    for pattern in [
-        r"(?i)\b[a-z][a-z0-9_.-]*:\d{2,5}\b",
-        r"\b\d{10,}\b",
-        r"(?i)\b[a-z0-9](?:[a-z0-9_-]*\.)+[a-z]{2,}(?::\d+)?\b",
-    ] {
-        let sources = source_locations(&result);
-        result = Regex::new(pattern)
-            .unwrap()
-            .replace_all(&result, |capture: &regex::Captures<'_>| {
-                let span = capture.get(0).unwrap().range();
-                if sources
-                    .iter()
-                    .any(|source| source.start <= span.start && span.end <= source.end)
-                {
-                    capture[0].to_owned()
-                } else {
-                    "[redacted]".to_owned()
-                }
-            })
-            .into_owned();
-    }
-    Regex::new(HOME_FOLDER)
-        .unwrap()
-        .replace_all(&result, |capture: &regex::Captures<'_>| {
-            let whole = capture.get(0).unwrap();
-            let name = capture.get(1).or(capture.get(2)).unwrap();
-            format!(
-                "[redacted]{}",
-                &whole.as_str()[name.end() - whole.start()..]
-            )
-        })
-        .into_owned()
-}
-
-/// Byte ranges of `<file>.rs:<line>` (or `.go`) source locations after a path separator or with a column.
-fn source_locations(text: &str) -> Vec<std::ops::Range<usize>> {
-    Regex::new(r"(?i)[\w.-]+\.(?:rs|go):\d+(:\d+)?")
-        .unwrap()
-        .captures_iter(text)
-        .filter(|capture| {
-            capture.get(1).is_some()
-                || text[..capture.get(0).unwrap().start()].ends_with(['/', '\\'])
-        })
-        .map(|capture| capture.get(0).unwrap().range())
-        .collect()
-}
-
-/// Redacts standalone IPv6 addresses, leaving `::`-joined symbols and `h:m:s` times intact.
-fn redact_ipv6(text: &str) -> String {
-    let candidate =
-        Regex::new(r"(?i)\[?(?:[0-9a-f]{0,4}:){2,}[0-9a-f.]*(?:%[0-9a-z]+)?\]?(?::\d{1,5})?")
-            .unwrap();
-    let identifier = |c: char| c.is_alphanumeric() || c == '_';
-    // `<u32 as Add>::add` and `{{closure}}::fade` are Rust paths that also parse as addresses.
-    let path = |c: char| identifier(c) || matches!(c, '>' | '}' | ')' | ':');
-    candidate
-        .replace_all(text, |capture: &regex::Captures<'_>| {
-            let span = capture.get(0).unwrap();
-            let mut address = span.as_str().trim_end_matches('.');
-            // A prose colon after an address, as in `via ::1: timeout`, is not part of it.
-            if !ipv6_address(address) && address.ends_with(':') && !address.ends_with("::") {
-                address = &address[..address.len() - 1];
-            }
-            let standalone = !text[..span.start()].ends_with(path)
-                && !text[span.start() + address.len()..].starts_with(identifier);
-            if standalone && ipv6_address(address) {
-                format!("[redacted]{}", &span.as_str()[address.len()..])
-            } else {
-                span.as_str().to_owned()
-            }
-        })
-        .into_owned()
-}
-
-/// Whether a candidate, with optional brackets, zone, and port, is an address with a hex group.
-fn ipv6_address(candidate: &str) -> bool {
-    let mut addresses = Vec::new();
-    match candidate.strip_prefix('[') {
-        Some(rest) => addresses.push(rest.split_once(']').map_or(rest, |(address, _)| address)),
-        None => {
-            addresses.push(candidate);
-            if let Some((address, port)) = candidate.rsplit_once(':')
-                && !port.is_empty()
-                && port.bytes().all(|byte| byte.is_ascii_digit())
-            {
-                addresses.push(address);
-            }
-        }
-    }
-    addresses.into_iter().any(|address| {
-        let address = address
-            .split_once('%')
-            .map_or(address, |(address, _)| address);
-        address.parse::<std::net::Ipv6Addr>().is_ok()
-            && address.split(':').any(|group| !group.is_empty())
-    })
-}
-
-/// Learns identity and credential values from every raw and decoded view for bundle-wide removal.
-fn sensitive_values(texts: &[String]) -> Vec<String> {
-    let pattern = Regex::new(&format!(
-        r#"(?i)\b(?:{PRIVATE_FIELDS})\b["']?\s*[:=]\s*("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|[^\s,}}\]\[{{"':][^\s,}}\]\[{{"']*)"#
-    )).unwrap();
-    let bearer = Regex::new(r#"(?i)\bbearer\s+([^\s"']+)"#).unwrap();
-    let home = Regex::new(HOME_FOLDER).unwrap();
-    let authorization = Regex::new(AUTHORIZATION).unwrap();
-    let xbl = Regex::new(XBL_TOKEN).unwrap();
-    let mut values = Vec::new();
-    for text in texts {
-        embedded_json_values(text, &mut values);
-        for capture in authorization
-            .captures_iter(text)
-            .chain(xbl.captures_iter(text))
-        {
-            let raw = capture.get(1).unwrap().as_str();
-            if raw.ends_with('\\') {
-                continue;
-            }
-            let value = serde_json::from_str::<String>(raw)
-                .unwrap_or_else(|_| raw.trim_matches(['"', '\'']).into());
-            if let Some((_, credential)) = value.trim().split_once([' ', '\t']) {
-                values.push(credential.trim().to_owned());
-            }
-            values.push(value);
-        }
-        values.extend(home.captures_iter(text).filter_map(|capture| {
-            capture
-                .get(1)
-                .or(capture.get(2))
-                .map(|name| name.as_str().to_owned())
-        }));
-        for capture in pattern.captures_iter(text) {
-            let raw = &capture[1];
-            // A trailing backslash is a cut escape; the decoded view learns the whole value.
-            if raw.ends_with('\\') {
-                continue;
-            }
-            let value = serde_json::from_str::<String>(raw)
-                .unwrap_or_else(|_| raw.trim_matches(['"', '\'']).into());
-            values.push(value);
-        }
-        values.extend(
-            bearer
-                .captures_iter(text)
-                .map(|capture| capture[1].to_owned())
-                .filter(|value| !value.ends_with('\\')),
-        );
-    }
-    values
-}
-
-/// Learns private values from JSON objects and arrays embedded in log text or messages.
-fn embedded_json_values(text: &str, values: &mut Vec<String>) {
-    let mut start = 0;
-    while let Some(offset) = text[start..].find(['{', '[']) {
-        let at = start + offset;
-        let mut stream =
-            serde_json::Deserializer::from_str(&text[at..]).into_iter::<serde_json::Value>();
-        start = match stream.next() {
-            Some(Ok(value)) => {
-                json_sensitive_values(&value, values, false);
-                at + stream.byte_offset()
-            }
-            _ => at + 1,
-        };
-    }
-}
-
-/// Collects values under private JSON fields, including values nested in arrays or objects.
-fn json_sensitive_values(value: &serde_json::Value, values: &mut Vec<String>, private: bool) {
-    match value {
-        serde_json::Value::String(text) if private => values.push(text.clone()),
-        serde_json::Value::Number(number) if private => values.push(number.to_string()),
-        serde_json::Value::Array(items) => {
-            for item in items {
-                json_sensitive_values(item, values, private);
-            }
-        }
-        serde_json::Value::Object(items) => {
-            let fields = Regex::new(&format!("(?i)^(?:{PRIVATE_FIELDS})$")).unwrap();
-            for (key, item) in items {
-                json_sensitive_values(item, values, private || fields.is_match(key));
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Scrubs decoded JSON values while preserving the report's structure and valid escaping.
-fn redact_json(value: &mut serde_json::Value, names: &[String]) -> Result<(), DevtoolError> {
-    match value {
-        serde_json::Value::String(text) => *text = redact(text, names)?,
-        serde_json::Value::Array(values) => {
-            for value in values {
-                redact_json(value, names)?;
-            }
-        }
-        serde_json::Value::Object(values) => {
-            let fields = Regex::new(&format!("(?i)^(?:{PRIVATE_FIELDS})$")).unwrap();
-            for (key, mut value) in std::mem::take(values) {
-                // The same contextual field rules apply to structured and plain-text values.
-                if fields.is_match(decoded_views(&key)?.last().unwrap()) {
-                    value = serde_json::Value::String("[redacted]".into());
-                } else {
-                    redact_json(&mut value, names)?;
-                }
-                let key = redact(&key, names)?;
-                if values.insert(key, value).is_some() {
-                    return Err(DevtoolError::Usage(
-                        "redaction would merge diagnostic JSON keys".into(),
-                    ));
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 /// Writes only scrubbed text using fixed member names and atomically publishes a completed zip.
 fn bundle(path: &Path, entries: &[(String, String)]) -> Result<(), DevtoolError> {
     let mut reports = Vec::new();
-    let mut names = Vec::new();
+    let mut learned = redact::Learned::default();
     for (name, text) in entries {
-        names.extend(sensitive_values(&decoded_views(text)?));
+        learned.text(text).map_err(redaction_error)?;
         if name.starts_with("crashes/") && name.ends_with(".json") {
             let value: serde_json::Value = serde_json::from_str(text)?;
-            json_sensitive_values(&value, &mut names, false);
+            learned.json(&value);
             reports.push(Some(value));
         } else {
             reports.push(None);
         }
     }
-    let names = encoded_values(names);
+    let redactor = learned.redactor();
     let mut temporary = tempfile::NamedTempFile::new_in(path.parent().unwrap_or(Path::new(".")))
         .map_err(io_error)?;
     let mut archive = ZipWriter::new(temporary.as_file_mut());
     for ((name, text), report) in entries.iter().zip(reports) {
         let scrubbed = if let Some(mut value) = report {
-            redact_json(&mut value, &names)?;
+            redactor.json(&mut value).map_err(redaction_error)?;
             serde_json::to_string_pretty(&value)?
         } else {
-            redact(text, &names)?
+            redactor.text(text).map_err(redaction_error)?
         };
         archive
             .start_file(
@@ -593,6 +233,11 @@ fn bundle(path: &Path, entries: &[(String, String)]) -> Result<(), DevtoolError>
         .persist_noclobber(path)
         .map_err(|error| io_error(error.error))?;
     Ok(())
+}
+
+/// Refuses to publish a bundle that could not be redacted safely.
+fn redaction_error(error: redact::Error) -> DevtoolError {
+    DevtoolError::Usage(format!("diagnostic bundle not written: {error}"))
 }
 
 /// Converts local filesystem failures into the command error type.
