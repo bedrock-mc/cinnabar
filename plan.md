@@ -317,6 +317,14 @@ vector adds transient allocation and copying; fragmented commands can still publ
 span. Regression coverage is written but unrun, and lock/allocation measurements remain pending.
 Indexed receipt storage and span reuse remain separate; no performance or parity gate closes.
 
+Actor endpoint matrices retain bounded GPU slots independently of draw order. Exact byte
+comparisons upload changed previous/current ranges while instance scalars still update.
+The renderer projects matching instance and receipt offsets; CPU publications stay dense
+for motion history. One CPU mirror is bounded by the existing endpoint arena, with no GPU
+budget increase. Fragmented allocations compact without changing admission. Regression
+tests are written but unrun; compilation, rendered parity and measured performance remain
+pending. Dense CPU publication copies and other matrix-cache work remain separate.
+
 ## Player interaction ownership
 
 `client-interaction` owns the movement and interaction resource wrappers, item-use
