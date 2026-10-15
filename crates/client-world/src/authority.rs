@@ -38,6 +38,7 @@ mod actors;
 mod biomes;
 mod block_events;
 mod block_identities;
+pub use block_identities::PreparedBlockIdentities;
 mod combat;
 mod commits;
 mod contracts;

@@ -1,7 +1,9 @@
 //! Local-world control intents and their model inputs.
 use super::{LocalWorldCard, MenuField};
 use crate::local_worlds::world::{Difficulty, World};
-use crate::local_worlds::{Input, PromptButton, Tab, game_mode_label, world_type_label};
+use crate::local_worlds::{
+    Input, PromptButton, Tab, backend_label, game_mode_label, world_type_label,
+};
 use bridge::{Backend, GameMode};
 
 /// A press on a local-world screen or modal; the menu forwards it to the module.
@@ -68,6 +70,7 @@ pub fn world_card(world: &World) -> LocalWorldCard {
         name: world.name.clone(),
         game_mode: game_mode_label(world.game_mode).to_owned(),
         world_type: world_type_label(world.generator).to_owned(),
+        server: backend_label(world.backend).to_owned(),
         date: civil_date(world.last_played_unix.max(world.created_unix)),
         size: file_size(world.size_bytes),
         thumbnail: None,
