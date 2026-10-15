@@ -81,9 +81,23 @@ pub(crate) fn flush_trace_on_exit(
     }
 }
 
-/// Runs the app and completes trace export after the frame loop has returned.
+/// Completes export when native termination clears the world without returning from the runner.
+#[derive(Resource)]
+struct TraceExportOnTeardown(RuntimeStageProfiler);
+
+impl Drop for TraceExportOnTeardown {
+    /// Flushes and joins even while the runner's profiler handle remains alive.
+    fn drop(&mut self) {
+        self.0.flush_trace();
+        self.0.wait_for_trace_export();
+    }
+}
+
+/// Completes export during world teardown or after a runner retains its world and returns.
 pub(crate) fn run(app: &mut App) -> AppExit {
     let profiler = app.world().resource::<RuntimeStageProfiler>().clone();
+    // Like TeardownWatchdog, install before runner cleanup adds blocking render teardown resources.
+    app.insert_resource(TraceExportOnTeardown(profiler.clone()));
     let exit = app.run();
     profiler.flush_trace();
     profiler.wait_for_trace_export();
@@ -93,6 +107,29 @@ pub(crate) fn run(app: &mut App) -> AppExit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Native teardown must finish export before the runner returns, without an exit message.
+    #[test]
+    fn trace_export_finishes_during_world_teardown_before_runner_returns() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("teardown.json");
+        let profiler = RuntimeStageProfiler::with_trace(true, Some(path.clone()));
+        profiler.begin_frame(true, false);
+        profiler.trace_frame(true, false, 0.0);
+        let mut app = App::new();
+        app.insert_resource(profiler);
+        app.set_runner(move |mut owned| {
+            assert!(owned.should_exit().is_none());
+            owned.world_mut().clear_all();
+            let saved: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&path).expect("trace exported during teardown"),
+            )
+            .unwrap();
+            assert_eq!(saved["traceEvents"][0]["frame_id"], 1);
+            AppExit::Success
+        });
+        assert!(run(&mut app).is_success());
+    }
 
     /// A runner retaining its world cannot leave an unfinished export at process exit.
     #[test]

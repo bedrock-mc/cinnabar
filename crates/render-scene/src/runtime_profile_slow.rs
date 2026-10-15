@@ -569,7 +569,7 @@ mod tests {
         let interval = Duration::from_secs_f64(1.0 / 120.0);
         recorder.set_interval(interval);
         let now = Instant::now();
-        assert!(recorder.begin_frame(now, true, false).is_none());
+        assert!(recorder.begin_frame(now, true, false).0.is_none());
         for latency in [interval, Duration::from_millis(100)] {
             assert!(
                 recorder
@@ -583,7 +583,12 @@ mod tests {
             );
         }
         recorder.record(RuntimeStage::MainFrame, Duration::from_millis(1));
-        assert!(recorder.begin_frame(now + interval, true, false).is_none());
+        assert!(
+            recorder
+                .begin_frame(now + interval, true, false)
+                .0
+                .is_none()
+        );
         assert_eq!(recorder.counts(), SlowFrameCounts::default());
     }
 
