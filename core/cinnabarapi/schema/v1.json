@@ -109,13 +109,9 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "Lookup": {
-      "description": "At least one identifier array must be non-empty. Their combined length must not exceed lookup_batch_max (128); the server enforces the combined limit.",
+      "description": "Both identifier arrays are optional and may be empty. Their combined length must not exceed lookup_batch_max (128); the server enforces the combined limit.",
       "type": "object",
       "required": ["type", "id"],
-      "anyOf": [
-        { "required": ["xuids"], "properties": { "xuids": { "minItems": 1 } } },
-        { "required": ["uuids"], "properties": { "uuids": { "minItems": 1 } } }
-      ],
       "properties": {
         "type": { "const": "lookup" },
         "id": { "$ref": "#/$defs/U32" },
