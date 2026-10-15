@@ -232,6 +232,16 @@ pub const STATES: &[State] = &[
         fixture: || settings_video_option(SettingId::FullDetailDistance),
     },
     State {
+        name: "settings-storage",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::Menu(Box::new(settings(
+                SettingSection::StorageManagement.definition().name,
+            )))
+        },
+    },
+    State {
         name: "settings-keyboard",
         size: SIZE,
         gui_scale: GUI_SCALE,

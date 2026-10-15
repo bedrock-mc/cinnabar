@@ -7,6 +7,14 @@ use {super::*, launcher::menu::MenuAction, launcher::menu::auth::AuthState};
 
 /// Draws the account panel and returns its visible text and available actions.
 fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
+    panel(view, account)
+}
+
+/// Draws one settings panel and returns its visible text and available actions.
+fn panel(
+    view: &MenuView,
+    draw: fn(&mut Content<'_, '_>) -> Result<(), PaintError>,
+) -> (Vec<String>, Vec<MenuAction>) {
     let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
         let mut content = Content {
             canvas,
@@ -17,7 +25,7 @@ fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
             translate: &|_| None,
             nested: false,
         };
-        account(&mut content).unwrap();
+        draw(&mut content).unwrap();
     });
     let labels = nodes
         .iter()
@@ -77,6 +85,19 @@ fn account_settings_follow_profile_saved_account_and_local_fallback() {
     assert!(!labels.iter().any(|label| label == launcher::PRODUCT_NAME));
     assert!(actions.contains(&MenuAction::StartSignIn));
     assert!(!actions.contains(&MenuAction::SignOut));
+}
+
+#[test]
+fn storage_offers_to_open_the_worlds_and_resource_packs_folders() {
+    use launcher::menu::settings_storage::{StorageAction, StorageFolder};
+    let (_, actions) = panel(&MenuView::new(true, launcher::PRODUCT_NAME.into()), storage);
+    for folder in [StorageFolder::Worlds, StorageFolder::ResourcePacks] {
+        assert!(
+            actions.contains(&MenuAction::SettingsStorage(StorageAction::OpenFolder(
+                folder
+            )))
+        );
+    }
 }
 
 #[test]

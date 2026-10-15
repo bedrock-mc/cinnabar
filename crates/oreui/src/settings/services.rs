@@ -7,7 +7,7 @@ use launcher::menu::settings_sections::SettingSection;
 use launcher::menu::{
     MenuAction,
     auth::AuthState,
-    settings_storage::{CATEGORIES, StorageAction},
+    settings_storage::{CATEGORIES, StorageAction, StorageFolder},
     settings_support::{SupportAction, SupportLink},
 };
 use ui_engine::engine::screen::PaintError;
@@ -217,6 +217,28 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 )?;
             }
         }
+    }
+    for (folder, title, description) in [
+        (
+            StorageFolder::Worlds,
+            "options.cinnabar.worldsFolder",
+            "options.cinnabar.worldsFolder.description",
+        ),
+        (
+            StorageFolder::ResourcePacks,
+            "options.cinnabar.resourcePacksFolder",
+            "options.cinnabar.resourcePacksFolder.description",
+        ),
+    ] {
+        action_row(
+            content,
+            title,
+            description,
+            "options.cinnabar.openFolder.buttonLabel",
+            Some(MenuAction::SettingsStorage(StorageAction::OpenFolder(
+                folder,
+            ))),
+        )?;
     }
     action_row(
         content,
