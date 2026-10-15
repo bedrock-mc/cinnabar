@@ -26,7 +26,7 @@ fn parallel_extraction_writes_every_file() {
         .collect();
     let archive = archive_file(dir.path(), &listing);
     let root = dir.path().join("root");
-    extract_archive(&root, &archive, &BDS_LIMITS).expect("extract");
+    extract_archive(&root, &archive, &BDS_LIMITS, &|| false).expect("extract");
     for (name, body) in &files {
         assert_eq!(&fs::read(root.join(name)).expect(name), body, "{name}");
     }
@@ -67,7 +67,7 @@ fn listings_over_the_limits_write_nothing() {
         let root = dir.path().join("root");
         fs::create_dir_all(&root).expect("root");
         assert!(
-            extract_archive(&root, &archive, &limits).is_err(),
+            extract_archive(&root, &archive, &limits, &|| false).is_err(),
             "{case} accepted"
         );
         let written = fs::read_dir(root).expect("root").count();

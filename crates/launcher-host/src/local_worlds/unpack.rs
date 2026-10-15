@@ -105,7 +105,7 @@ impl Provisioner {
         digest: &str,
         size: u64,
     ) -> Result<(), WorldError> {
-        extract_archive(partial, archive, &BDS_LIMITS)?;
+        extract_archive(partial, archive, &BDS_LIMITS, &|| false)?;
         let binary = partial.join(self.binary_name());
         if fs::metadata(&binary).is_err() {
             return Err(failed("dedicated server archive has no server binary"));
@@ -205,6 +205,7 @@ pub(super) fn extract_archive(
     root: &Path,
     archive: &Path,
     limits: &UnpackLimits,
+    cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<(), WorldError> {
     let (files, dirs) = plan_extraction(root, &mut open_archive(archive, limits.label)?, limits)?;
     for dir in &dirs {
@@ -227,6 +228,9 @@ pub(super) fn extract_archive(
                 };
                 let mut buffer = vec![0u8; 256 << 10];
                 while lock(&failure).is_none() {
+                    if cancelled() {
+                        return record(WorldError::Cancelled);
+                    }
                     let Some(job) = files.get(next.fetch_add(1, Ordering::Relaxed)) else {
                         return;
                     };

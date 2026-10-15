@@ -20,11 +20,13 @@ const PREFS_FILE: &str = "prefs.json";
 /// The Bedrock world folder (`level.dat`, `db/`) inside a world's directory.
 pub(crate) const LEVEL_DIR: &str = "db";
 /// A world's menu thumbnail, beside its metadata, named as vanilla names its world icon.
-pub(crate) const THUMBNAIL_FILE: &str = "world_icon.jpeg";
+const THUMBNAIL_FILE: &str = "world_icon.jpeg";
 /// Scratch folders of imports in progress; ids never start with it, so listings skip them.
 const STAGING_PREFIX: &str = ".import-";
 /// Beside each scratch folder, a file its importer holds locked until the folder is gone.
 const STAGING_LOCK_SUFFIX: &str = ".lock";
+/// Where an archive unpacks inside its scratch folder, beside the world being assembled.
+const UNPACKED_DIR: &str = "unpacked";
 
 /// An import's scratch folder, removed when dropped. Its lock file stays locked until then, so
 /// other clients sharing the worlds folder leave it alone.
@@ -35,8 +37,14 @@ pub(crate) struct Staging {
 }
 
 impl Staging {
+    #[cfg(test)]
     pub(crate) fn path(&self) -> &Path {
         &self.dir
+    }
+
+    /// Where the archive unpacks.
+    pub(crate) fn unpacked(&self) -> PathBuf {
+        self.dir.join(UNPACKED_DIR)
     }
 }
 
@@ -223,20 +231,7 @@ impl Store {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        let raw = serde_json::to_vec_pretty(&Record {
-            id: &world.id,
-            name: &world.name,
-            game_mode: world.game_mode,
-            generator: world.generator,
-            difficulty: world.difficulty,
-            backend: world.backend,
-            seed: world.seed,
-            created_unix: world.created_unix,
-            last_played_unix: world.last_played_unix,
-        })
-        .map_err(|error| failed(error.to_string()))?;
-        write_atomic(&dir, META_FILE, &raw)
-            .map_err(|error| failed(format!("write world metadata: {error}")))
+        write_record(&dir, world)
     }
 
     /// Validates `world` and saves it with a fresh id.
@@ -248,7 +243,7 @@ impl Store {
         Ok(world)
     }
 
-    /// A scratch folder beside the worlds, so adopting from it is a rename. Its lock is taken
+    /// A scratch folder beside the worlds, so publishing from it is a rename. Its lock is taken
     /// before the folder exists, so no other client ever sees it unlocked.
     pub(crate) fn staging(&self) -> Result<Staging, WorldError> {
         let error = |error: io::Error| failed(format!("create import folder: {error}"));
@@ -271,7 +266,7 @@ impl Store {
             .lock
             .try_lock()
             .map_err(|locked| error(io::Error::other(locked)))?;
-        create_private_dir(&staging.dir).map_err(error)?;
+        create_private_dir(&staging.unpacked()).map_err(error)?;
         Ok(staging)
     }
 
@@ -280,48 +275,47 @@ impl Store {
         reclaim_abandoned_imports(&self.root);
     }
 
-    /// Moves the Bedrock world folder `level` into a new world saved as `world`. The world gets a
-    /// directory no other world has used, and nothing is left behind if the move fails.
-    pub(crate) fn adopt(&self, level: &Path, world: &NewWorld) -> Result<World, WorldError> {
-        let state = self.lock();
-        let (id, dir) = self.fresh_dir()?;
-        let adopted = new_record(&state, id, world).and_then(|world| {
-            fs::rename(level, dir.join(LEVEL_DIR))
-                .map_err(|error| failed(format!("move imported world: {error}")))?;
-            self.write(&world)?;
-            Ok(world)
-        });
-        let mut world = match adopted {
-            Ok(world) => world,
-            Err(error) => {
-                let _ = fs::remove_dir_all(&dir);
-                return Err(error);
-            }
-        };
-        let icon = dir.join(LEVEL_DIR).join(THUMBNAIL_FILE);
+    /// Publishes the Bedrock world folder `level`, unpacked inside `staging`, as a new world.
+    /// Its metadata and thumbnail are written inside the staging folder, which then becomes the
+    /// world in one rename, so no world folder ever lacks its metadata. A cancelled import never
+    /// publishes; its staging folder is removed with the [`Staging`].
+    pub(crate) fn publish(
+        &self,
+        staging: &Staging,
+        level: &Path,
+        world: &NewWorld,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<World, WorldError> {
+        let prepare = |error: io::Error| failed(format!("prepare imported world: {error}"));
+        fs::rename(level, staging.dir.join(LEVEL_DIR)).map_err(prepare)?;
+        if let Err(error) = fs::remove_dir_all(staging.unpacked())
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            return Err(prepare(error));
+        }
+        let icon = staging.dir.join(LEVEL_DIR).join(THUMBNAIL_FILE);
         if fs::metadata(&icon).is_ok_and(|icon| icon.is_file() && icon.len() <= MAX_THUMBNAIL_BYTES)
         {
-            let _ = fs::copy(icon, dir.join(THUMBNAIL_FILE));
+            let _ = fs::copy(icon, staging.dir.join(THUMBNAIL_FILE));
         }
+        // Listings take the same lock, so once a detach cancels, no later listing can miss a
+        // world this import still publishes.
+        let state = self.lock();
+        if cancelled() {
+            return Err(WorldError::Cancelled);
+        }
+        let mut id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
+        while fs::exists(self.root.join(&id)).map_err(prepare)? {
+            id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
+        }
+        let mut world = new_record(&state, id, world)?;
+        write_record(&staging.dir, &world)?;
+        let dir = self.root.join(&world.id);
+        fs::rename(&staging.dir, &dir)
+            .map_err(|error| failed(format!("publish imported world: {error}")))?;
+        drop(state);
         world.size_bytes = dir_size(&dir);
         Ok(world)
-    }
-
-    /// Creates the directory of a new random id, retrying the rare id already on disk.
-    fn fresh_dir(&self) -> Result<(String, PathBuf), WorldError> {
-        let mut builder = fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        for _ in 0..8 {
-            let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
-            let dir = self.root.join(&id);
-            match builder.create(&dir) {
-                Ok(()) => return Ok((id, dir)),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-                Err(error) => return Err(failed(format!("create world directory: {error}"))),
-            }
-        }
-        Err(failed("no unused world id"))
     }
 
     pub(crate) fn get(&self, id: &str) -> Result<World, WorldError> {
@@ -426,6 +420,24 @@ fn valid_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// Writes `world.json` for `world` into `dir`.
+fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
+    let raw = serde_json::to_vec_pretty(&Record {
+        id: &world.id,
+        name: &world.name,
+        game_mode: world.game_mode,
+        generator: world.generator,
+        difficulty: world.difficulty,
+        backend: world.backend,
+        seed: world.seed,
+        created_unix: world.created_unix,
+        last_played_unix: world.last_played_unix,
+    })
+    .map_err(|error| failed(error.to_string()))?;
+    write_atomic(dir, META_FILE, &raw)
+        .map_err(|error| failed(format!("write world metadata: {error}")))
 }
 
 /// A new world's record, stamped now; a missing seed or backend gets a random seed or the default.

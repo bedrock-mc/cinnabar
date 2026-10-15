@@ -45,16 +45,19 @@ const MAC_METADATA_DIR: &str = "__MACOSX";
 const MAX_LEVEL_DAT_BYTES: u64 = 1 << 20;
 const FALLBACK_NAME: &str = "Imported world";
 
-/// Unpacks `archive` into a new world on `backend`; a refused archive leaves nothing behind.
+/// Unpacks `archive` into a new world on `backend`. A refused or cancelled import leaves nothing
+/// behind; `cancelled` is checked between entries and before publishing.
 pub(super) fn import(
     store: &Store,
     archive: &Path,
     backend: Backend,
     limits: &UnpackLimits,
+    cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<World, WorldError> {
     let staging = store.staging()?;
-    extract_archive(staging.path(), archive, limits)?;
-    let level = world_root(staging.path())?;
+    let unpacked = staging.unpacked();
+    extract_archive(&unpacked, archive, limits, cancelled)?;
+    let level = world_root(&unpacked)?;
     let settings = read_level_dat(&level.join(LEVEL_DAT));
     let name = [
         read_level_name(&level),
@@ -67,7 +70,8 @@ pub(super) fn import(
     .flatten()
     .find_map(|name| clean_name(&name))
     .unwrap_or_else(|| FALLBACK_NAME.to_owned());
-    store.adopt(
+    store.publish(
+        &staging,
         &level,
         &NewWorld {
             name,
@@ -77,6 +81,7 @@ pub(super) fn import(
             backend: Some(backend),
             seed: settings.seed,
         },
+        cancelled,
     )
 }
 

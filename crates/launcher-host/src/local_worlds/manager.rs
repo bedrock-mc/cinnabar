@@ -215,13 +215,18 @@ impl Manager {
     }
 
     /// Imports the `.mcworld` at `archive` as a new world on this machine's default backend.
-    pub fn import(&self, archive: &std::path::Path) -> Result<World, WorldError> {
+    pub fn import(
+        &self,
+        archive: &std::path::Path,
+        cancelled: &(dyn Fn() -> bool + Sync),
+    ) -> Result<World, WorldError> {
         let backend = self.creatable_backend(None)?;
         super::import::import(
             &self.inner.store,
             archive,
             backend,
             &super::import::WORLD_LIMITS,
+            cancelled,
         )
     }
 

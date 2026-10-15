@@ -26,8 +26,8 @@ use model::{Effect, Event, Input, Screen, WorldsMenu};
 
 use client::WorldsClient;
 
-const IMPORT_NOT_READY: &str = "Local worlds are not ready yet; try again in a moment.";
-const IMPORT_INTERRUPTED: &str = "Local worlds restarted before the import finished.";
+/// Shown for an import with no attached worker; one cut off by a detach never publishes.
+const IMPORT_UNAVAILABLE: &str = "Local worlds are not ready; try the import again in a moment.";
 
 /// Menu model plus the world manager and the worker that serves it.
 #[derive(Resource)]
@@ -99,7 +99,7 @@ impl LocalWorlds {
         if let Some(client) = self.client.take() {
             client.revoke();
         }
-        self.end_import(IMPORT_INTERRUPTED);
+        self.end_import();
         self.playing = false;
         if let Some(manager) = &self.manager {
             manager.close();
@@ -114,16 +114,16 @@ impl LocalWorlds {
         let effects = self.menu.update(input);
         self.dispatch(effects);
         if self.client.is_none() {
-            self.end_import(IMPORT_NOT_READY);
+            self.end_import();
         }
     }
 
     /// Fails an import no worker will answer, so its modal never stays up.
-    fn end_import(&mut self, reason: &str) {
+    fn end_import(&mut self) {
         if self.menu.screen() == Screen::Importing {
             let effects = self.menu.apply(Event::Imported {
                 worlds: Vec::new(),
-                errors: vec![reason.to_owned()],
+                errors: vec![IMPORT_UNAVAILABLE.to_owned()],
             });
             self.dispatch(effects);
         }

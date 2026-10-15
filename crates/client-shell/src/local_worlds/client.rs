@@ -134,7 +134,8 @@ impl WorldsClient {
                     // Only an open holds the gate, so a revoked client never starts a world
                     // while slow requests (a Docker probe) never delay a detach.
                     let gate = matches!(effect, Effect::Open(_)).then_some(gate);
-                    let event = execute(&manager, &route, effect);
+                    let cancelled = || *lock(&worker_revoked);
+                    let event = execute(&manager, &route, effect, &cancelled);
                     drop(gate);
                     let event = event.map(|event| match event {
                         Event::Failed(message) if preferences => Event::FailedPrefs(message),
@@ -191,7 +192,13 @@ fn prefs_event(manager: &Manager, route: &CoreRoute, update: PrefsUpdate) -> Eve
 }
 
 /// Runs one effect; reported statuses hold a running world at starting until the core routes it.
-fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event> {
+/// `cancelled` reports a detach, which an import in progress obeys by publishing nothing.
+fn execute(
+    manager: &Manager,
+    route: &CoreRoute,
+    effect: Effect,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Option<Event> {
     Some(match effect {
         Effect::List => manager.list().map_or_else(failed, Event::Listed),
         Effect::Create(world) => manager.create(&world).map_or_else(failed, Event::Created),
@@ -224,9 +231,9 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
         Effect::AcceptEula => manager
             .accept_eula()
             .map_or_else(failed, |()| Event::EulaAccepted),
-        Effect::Import(Some(files)) => import_files(manager, files),
+        Effect::Import(Some(files)) => import_files(manager, files, cancelled),
         Effect::Import(None) => match picker::pick(&WORLD_FILES) {
-            Ok(file) => import_files(manager, file.into_iter().collect()),
+            Ok(file) => import_files(manager, file.into_iter().collect(), cancelled),
             Err(error) => Event::Imported {
                 worlds: Vec::new(),
                 errors: vec![error],
@@ -250,11 +257,15 @@ fn execute(manager: &Manager, route: &CoreRoute, effect: Effect) -> Option<Event
 }
 
 /// Imports each file in turn; a refusal names its file.
-fn import_files(manager: &Manager, files: Vec<PathBuf>) -> Event {
+fn import_files(
+    manager: &Manager,
+    files: Vec<PathBuf>,
+    cancelled: &(dyn Fn() -> bool + Sync),
+) -> Event {
     let mut worlds = Vec::new();
     let mut errors = Vec::new();
     for file in files {
-        match manager.import(&file) {
+        match manager.import(&file, cancelled) {
             Ok(world) => worlds.push(world),
             Err(error) => {
                 bevy::log::warn!(%error, "could not import a world");

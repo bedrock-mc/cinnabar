@@ -74,7 +74,13 @@ impl Fixture {
     }
 
     fn import(&self, archive: &Path) -> Result<World, WorldError> {
-        import(&self.store, archive, Backend::Dragonfly, &WORLD_LIMITS)
+        import(
+            &self.store,
+            archive,
+            Backend::Dragonfly,
+            &WORLD_LIMITS,
+            &|| false,
+        )
     }
 
     /// Everything in the worlds folder, so a refused import is seen to leave nothing.
@@ -184,8 +190,8 @@ fn a_duplicate_import_gets_its_own_folder() {
         build_zip(&[("level.dat", &level_dat()), ("levelname.txt", b"Twice")]),
     )
     .expect("archive");
-    let first = manager.import(&archive).expect("first");
-    let second = manager.import(&archive).expect("second");
+    let first = manager.import(&archive, &|| false).expect("first");
+    let second = manager.import(&archive, &|| false).expect("second");
     assert_ne!(first.id, second.id);
     assert_eq!(first.name, second.name);
     let mut listed: Vec<String> = manager
@@ -265,7 +271,14 @@ fn refused_archives_leave_nothing_behind() {
         let fixture = fixture();
         let archive = fixture.archives.join("bad.mcworld");
         fs::write(&archive, bytes).expect("archive");
-        let error = import(&fixture.store, &archive, Backend::Dragonfly, limits).expect_err(case);
+        let error = import(
+            &fixture.store,
+            &archive,
+            Backend::Dragonfly,
+            limits,
+            &|| false,
+        )
+        .expect_err(case);
         assert!(
             matches!(&error, WorldError::Rejected(text) if text.contains(message)),
             "{case}: {error:?}"
@@ -295,4 +308,71 @@ fn a_starting_client_keeps_a_running_import() {
     assert!(partial.is_file(), "the running import lost its folder");
     drop(staging);
     assert!(fixture.leftovers().is_empty(), "{:?}", fixture.leftovers());
+}
+
+/// Leaves only finished worlds and nothing else in the worlds folder, once reclaimed.
+fn assert_only_listed_worlds(fixture: &Fixture) {
+    fixture.store.reclaim_abandoned_imports();
+    let mut listed: Vec<String> = fixture
+        .store
+        .list()
+        .expect("list")
+        .into_iter()
+        .map(|world| world.id)
+        .collect();
+    listed.sort();
+    let mut left = fixture.leftovers();
+    left.sort();
+    assert_eq!(left, listed, "a folder exists that is not a listed world");
+}
+
+/// A client killed while publishing an import leaves no folder that is not a listed world.
+#[test]
+fn a_kill_while_publishing_leaves_no_invisible_world() {
+    let fixture = fixture();
+    let archive = fixture.archive("Killed.mcworld", &[("level.dat", &level_dat())]);
+    // Dies once the world folder has been moved into place, the last step before publishing.
+    let worlds = fixture.worlds.clone();
+    let kill = move || {
+        let moved = fs::read_dir(&worlds)
+            .expect("worlds")
+            .flatten()
+            .any(|entry| entry.path().join(LEVEL_DIR).is_dir());
+        assert!(!moved, "killed while publishing");
+        false
+    };
+    let killed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        import(
+            &fixture.store,
+            &archive,
+            Backend::Dragonfly,
+            &WORLD_LIMITS,
+            &kill,
+        )
+    }));
+    assert!(killed.is_err());
+    assert_only_listed_worlds(&fixture);
+}
+
+/// A cancelled import publishes nothing and leaves nothing; retrying it makes exactly one world.
+#[test]
+fn a_cancelled_import_publishes_nothing_and_a_retry_makes_one_world() {
+    let fixture = fixture();
+    let archive = fixture.archive("Retry.mcworld", &[("level.dat", &level_dat())]);
+    let cancelled = import(
+        &fixture.store,
+        &archive,
+        Backend::Dragonfly,
+        &WORLD_LIMITS,
+        &|| true,
+    );
+    assert!(
+        matches!(cancelled, Err(WorldError::Cancelled)),
+        "{cancelled:?}"
+    );
+    assert_only_listed_worlds(&fixture);
+    assert!(fixture.leftovers().is_empty());
+    fixture.import(&archive).expect("retry");
+    assert_eq!(fixture.store.list().expect("list").len(), 1);
+    assert_only_listed_worlds(&fixture);
 }
