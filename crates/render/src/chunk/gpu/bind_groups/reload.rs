@@ -75,19 +75,19 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
                 replacement: (prepared, uploaded, geometry),
             } = gpu_assets.staged.take().expect("matching staged atlas");
             let epoch = request.geometry_epoch();
-            if let Some(geometry) = geometry.filter(|_| epoch == source_epoch) {
-                if let Err(geometry) = geometry.publish(
+            if let Some(geometry) = geometry.filter(|_| epoch == source_epoch)
+                && let Err(geometry) = geometry.publish(
                     &mut commands,
                     &instances,
                     &mut arena,
                     coverage.as_deref_mut(),
-                ) {
-                    gpu_assets.staged = Some(StagedTextures {
-                        request,
-                        replacement: (prepared, uploaded, Some(geometry)),
-                    });
-                    return;
-                }
+                )
+            {
+                gpu_assets.staged = Some(StagedTextures {
+                    request,
+                    replacement: (prepared, uploaded, Some(geometry)),
+                });
+                return;
             }
             gpu_assets.prepared = Some(prepared);
             gpu_assets.attempted_identity = Some(identity);

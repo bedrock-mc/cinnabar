@@ -614,7 +614,7 @@ fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback(
     });
     let partial = Arc::new(mesh_tile(&TileGrid::build(key, &[(known, solid.clone())])));
     let mut gpu = FarTerrainGpu::new(&device);
-    assert!(gpu.apply_tiles(&device, &queue, &[partial.clone()]));
+    assert!(gpu.apply_tiles(&device, &queue, std::slice::from_ref(&partial)));
     assert!(gpu.covers_column(known));
     assert!(!gpu.covers_column(unknown));
     let residency = render_scene::FarTerrainResidency::default();
@@ -659,7 +659,7 @@ fn partial_summary_builds_never_prove_unknown_columns_or_replace_their_fallback(
             .map(|pos| (pos, solid.clone()))
             .collect::<Vec<_>>(),
     )));
-    populate(&mut gpu, &device, &queue, &[original.clone()]);
+    populate(&mut gpu, &device, &queue, std::slice::from_ref(&original));
     let replacements: Vec<_> = [(0, 0), (1, 0), (0, 1), (1, 1)]
         .into_iter()
         .map(|(x, z)| {
