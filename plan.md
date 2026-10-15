@@ -1,3 +1,12 @@
+## Shared solid-actor collision snapshots
+
+Actor state retains ordered solid bounds as poses, metadata and membership change. Movement
+and correction adapters share their converted bounds until the source changes. Mover and
+mount filters refresh before queries, and historical prediction readers keep their old bounds.
+Incomplete: behavior, query and allocation-work regressions are written but unrun.
+Compilation, live comparisons and performance measurements remain pending; no behavior or
+performance acceptance gate closes here.
+
 ## Shared menu list snapshots
 
 Menu views share saved servers, featured cards, realms, friends and local worlds with their
@@ -13,8 +22,7 @@ Actor ingress retains sleeping actors and their streamed bed positions. Presenta
 only those beds, clears unavailable headings, and reads direction facts compiled with each
 runtime-ID registry. Wake-up, bed changes, replacement and reset discard stale samples.
 Incomplete: regression tests are written but unrun; rendered comparisons and performance
-measurements remain pending. Collider snapshot caching remains separate. No parity or
-performance acceptance gate closes here.
+measurements remain pending. No parity or performance acceptance gate closes here.
 
 ## Single-cell palette edits
 
