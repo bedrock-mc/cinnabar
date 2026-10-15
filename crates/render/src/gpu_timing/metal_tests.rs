@@ -441,8 +441,15 @@ impl SpinWork {
         }
     }
 
-    /// The pass's own GPU duration, read after the caller waited for the frame.
-    fn pass_duration(&self, device: &RenderDevice, period_ns: f32) -> std::time::Duration {
+    /// Resolves completed pass timestamps separately so resolution cannot overtake sampling.
+    fn pass_duration(&self, device: &RenderDevice, queue: &RenderQueue) -> std::time::Duration {
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("completed frame span regression timestamps"),
+        });
+        encoder.resolve_query_set(&self.queries, 0..2, &self.resolve, 0);
+        encoder.copy_buffer_to_buffer(&self.resolve, 0, &self.readback, 0, 2 * TIMESTAMP_BYTES);
+        queue.submit([encoder.finish()]);
         let slice = self.readback.slice(..);
         slice.map_async(wgpu::MapMode::Read, |result| result.unwrap());
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -454,11 +461,14 @@ impl SpinWork {
             .collect();
         self.readback.unmap();
         assert!(ticks[0] != 0 && ticks[1] > ticks[0], "pass ticks {ticks:?}");
-        render_scene::gpu_times::ticks_to_duration(ticks[1] - ticks[0], period_ns)
+        render_scene::gpu_times::ticks_to_duration(
+            ticks[1] - ticks[0],
+            queue.get_timestamp_period(),
+        )
     }
 }
 
-/// Draws the timed fragment work and resolves its pass timestamps in the same frame.
+/// Draws the timed fragment work, leaving its timestamps for completed-frame readback.
 fn draw_spin_work(work: Res<SpinWork>, mut context: RenderContext) {
     let encoder = context.command_encoder();
     {
@@ -485,8 +495,6 @@ fn draw_spin_work(work: Res<SpinWork>, mut context: RenderContext) {
         pass.set_pipeline(&work.pipeline);
         pass.draw(0..3, 0..1);
     }
-    encoder.resolve_query_set(&work.queries, 0..2, &work.resolve, 0);
-    encoder.copy_buffer_to_buffer(&work.resolve, 0, &work.readback, 0, 2 * TIMESTAMP_BYTES);
 }
 
 /// The marker span covers the frame's measured pass and stays below the CPU-observed latency.
@@ -539,10 +547,6 @@ fn metal_frame_span_brackets_the_graph_work_it_submits() {
             assert_eq!((execution.count, latency.count), (0, 0));
         }
         world.run_schedule(Render);
-        previous = Some(
-            world
-                .resource::<SpinWork>()
-                .pass_duration(&device, queue.get_timestamp_period()),
-        );
+        previous = Some(world.resource::<SpinWork>().pass_duration(&device, &queue));
     }
 }
