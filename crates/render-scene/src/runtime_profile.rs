@@ -618,7 +618,7 @@ pub struct RuntimeStageSpans {
     /// Each stage's most recently closed span.
     last: [Duration; RuntimeStage::ALL.len()],
     #[cfg(any(test, feature = "alloc-stats"))]
-    allocations: [Option<crate::runtime_profile_alloc::ThreadSnapshot>; RuntimeStage::ALL.len()],
+    allocations: [Option<test_alloc::Allocations>; RuntimeStage::ALL.len()],
 }
 
 #[cfg(any(test, feature = "publication-test-support"))]
@@ -646,7 +646,7 @@ pub fn begin_stage_span<const S: usize>(spans: Option<ResMut<RuntimeStageSpans>>
         spans.open[S] = Some(Instant::now());
         #[cfg(any(test, feature = "alloc-stats"))]
         {
-            spans.allocations[S] = Some(crate::runtime_profile_alloc::thread_snapshot());
+            spans.allocations[S] = Some(test_alloc::global_allocations());
         }
     }
 }
@@ -672,7 +672,7 @@ pub fn end_stage_span<const S: usize>(
             profiler
                 .state
                 .allocations
-                .record_since(RuntimeStage::ALL[S], before);
+                .record_global_since(RuntimeStage::ALL[S], before);
         }
         record_elapsed(&profiler.state, RuntimeStage::ALL[S], started, elapsed);
     }
@@ -702,7 +702,7 @@ pub fn end_render_frame_span(
             profiler
                 .state
                 .allocations
-                .record_since(RuntimeStage::RenderFrame, before);
+                .record_global_since(RuntimeStage::RenderFrame, before);
         }
         record_elapsed(&profiler.state, RuntimeStage::RenderFrame, started, elapsed);
     }

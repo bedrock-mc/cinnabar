@@ -63,11 +63,91 @@ fn system_spans_count_requests_between_boundaries() {
     let (profiler_resource, spans) = parameters.get_mut(&mut world).unwrap();
     end_stage_span::<STAGE>(profiler_resource, spans);
     std::hint::black_box(bytes);
+    assert_stage_allocations(&profiler, RuntimeStage::UiPublication, 1, 128);
+}
+
+/// Phase boundaries may migrate while allocating systems run on different executor threads.
+#[test]
+fn system_spans_count_parallel_requests_across_boundary_threads() {
+    use bevy::{
+        ecs::{schedule::MultiThreadedExecutor, system::NonSendMarker},
+        prelude::*,
+        tasks::{ComputeTaskPool, TaskPoolBuilder},
+    };
+    use std::sync::{Arc, Barrier};
+
+    ComputeTaskPool::get_or_init(|| TaskPoolBuilder::new().num_threads(2).build());
+    const BYTES: usize = 1024 * 1024;
+    for stage in [RuntimeStage::MainUpdate, RuntimeStage::RenderFrame] {
+        let profiler = RuntimeStageProfiler::new(true);
+        let mut world = World::new();
+        world.insert_resource(profiler.clone());
+        world.init_resource::<RuntimeStageSpans>();
+        let owner = std::thread::current().id();
+        let barrier = Arc::new(Barrier::new(2));
+        let worker_barrier = Arc::clone(&barrier);
+        let begin = move |_: NonSendMarker, spans: Option<ResMut<RuntimeStageSpans>>| {
+            assert_eq!(std::thread::current().id(), owner);
+            match stage {
+                RuntimeStage::MainUpdate => {
+                    begin_stage_span::<{ RuntimeStage::MainUpdate as usize }>(spans);
+                }
+                _ => begin_stage_span::<{ RuntimeStage::RenderFrame as usize }>(spans),
+            }
+        };
+        let main_work = move |_: NonSendMarker| {
+            assert_eq!(std::thread::current().id(), owner);
+            barrier.wait();
+            std::hint::black_box(vec![0_u8; BYTES]);
+        };
+        let worker_work = move || {
+            assert_ne!(std::thread::current().id(), owner);
+            worker_barrier.wait();
+            std::hint::black_box(vec![0_u8; BYTES]);
+        };
+        let end = move |profiler: Option<Res<RuntimeStageProfiler>>,
+                        spans: Option<ResMut<RuntimeStageSpans>>| {
+            assert_ne!(std::thread::current().id(), owner);
+            match stage {
+                RuntimeStage::MainUpdate => {
+                    end_stage_span::<{ RuntimeStage::MainUpdate as usize }>(profiler, spans);
+                }
+                _ => end_render_frame_span(profiler, spans),
+            }
+        };
+        let mut schedule = Schedule::default();
+        schedule.set_executor(MultiThreadedExecutor::new());
+        schedule.add_systems((begin, (main_work, worker_work), end).chain());
+        schedule.run(&mut world);
+        assert_stage_allocations(&profiler, stage, 2, 2 * BYTES);
+    }
+}
+
+/// Process totals include concurrent executor and test-harness work, so known requests are a floor.
+fn assert_stage_allocations(
+    profiler: &RuntimeStageProfiler,
+    stage: RuntimeStage,
+    calls: usize,
+    bytes: usize,
+) {
     let mut fields = String::new();
     profiler
         .state
         .allocations
         .finish_frame()
         .append_fields(&mut fields);
-    assert!(fields.contains("ui_publication:1:128"), "{fields}");
+    let allocations = fields
+        .split_once("stage_allocations=")
+        .unwrap()
+        .1
+        .split_whitespace()
+        .next()
+        .unwrap();
+    let sample = allocations
+        .split(',')
+        .find_map(|sample| sample.strip_prefix(&format!("{}:", stage.name())))
+        .unwrap_or_else(|| panic!("missing {} allocations: {fields}", stage.name()));
+    let (actual_calls, actual_bytes) = sample.split_once(':').unwrap();
+    assert!(actual_calls.parse::<usize>().unwrap() >= calls, "{fields}");
+    assert!(actual_bytes.parse::<usize>().unwrap() >= bytes, "{fields}");
 }

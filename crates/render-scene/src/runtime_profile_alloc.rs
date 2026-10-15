@@ -1,5 +1,6 @@
-//! Requested allocations, not live heap usage. Stage samples include nested work on the
-//! calling thread; frame samples include all threads and may straddle concurrent requests.
+//! Requested allocations, not live heap usage. Frames and schedule spans count all threads,
+//! including unrelated concurrent work. RAII timers count nested work on their calling thread.
+//! Global snapshots may straddle concurrent requests; nested spans deliberately overlap.
 
 use crate::RuntimeStage;
 use std::{fmt::Write, sync::Mutex};
@@ -60,7 +61,7 @@ impl Default for Window {
     }
 }
 
-/// Closed process-wide interval and inclusive calling-thread stage totals.
+/// Closed process-wide interval and inclusive stage totals from schedule spans and timers.
 #[derive(Debug)]
 pub(super) struct AllocationFrame {
     total: Option<Allocations>,
@@ -68,6 +69,11 @@ pub(super) struct AllocationFrame {
 }
 
 impl AllocationProfiler {
+    /// Records process-wide work between schedule boundaries, even when their threads differ.
+    pub(super) fn record_global_since(&self, stage: RuntimeStage, before: Allocations) {
+        self.record(stage, delta(test_alloc::global_allocations(), before));
+    }
+
     /// Records a span's calling-thread work, skipping spans that moved to another thread.
     pub(super) fn record_since(&self, stage: RuntimeStage, before: ThreadSnapshot) {
         if let Some(sample) = before.elapsed() {
@@ -128,7 +134,7 @@ impl AllocationFrame {
             );
             separator = ",";
         }
-        line.push_str(" alloc_scope=process_frame+inclusive_thread_stages");
+        line.push_str(" alloc_scope=process_frame+inclusive_process_spans+inclusive_thread_timers");
     }
 
     /// Publishes a complete window, including zero samples after previously busy stages.
