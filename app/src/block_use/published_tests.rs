@@ -10,7 +10,7 @@ use client_ui::ui_runtime::UiRuntime;
 use protocol::{ContainerIdentity, InventoryEvent, InventorySlotEvent, SlotIdentity};
 use simulation_clock::PhysicsTick;
 use simulation_clock::identity::SessionGeneration;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use {
     super::*,
     client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose},
@@ -93,15 +93,10 @@ fn fixture() -> (World, client_session::CapturedPackets) {
             }]),
         )
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while stream.committed_sequence() < 2 {
+    test_time::eventually_within(Duration::from_secs(5), "synthetic terrain decode", || {
         stream.poll(position, 0);
-        assert!(
-            Instant::now() < deadline,
-            "synthetic terrain decode did not finish"
-        );
-        std::thread::yield_now();
-    }
+        stream.committed_sequence() >= 2
+    });
     let mut sample = gameplay::test_support::survival_mining::completed(101);
     sample.position = position;
     let (network, captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
@@ -505,12 +500,10 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
         stream
             .submit(3, protocol::WorldEvent::BlockUpdates(floor))
             .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while stream.committed_sequence() < 3 {
+        test_time::eventually_within(Duration::from_secs(5), "fixture floor commit", || {
             stream.poll(start, 0);
-            assert!(Instant::now() < deadline, "floor did not commit");
-            std::thread::yield_now();
-        }
+            stream.committed_sequence() >= 3
+        });
     }
     world.resource_scope(|world, mut ui: Mut<UiRuntimeResource>| {
         let mut player = world.resource_mut::<client_state::PlayerRuntime>();
