@@ -21,7 +21,7 @@ use bevy::{
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
             BufferInitDescriptor, BufferSize, BufferUsages, CachedRenderPipelineId, Canonical,
             ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Extent3d,
-            FilterMode, FragmentState, PipelineCache, RenderPassDescriptor, RenderPipeline,
+            FilterMode, FragmentState, LoadOp, PipelineCache, RenderPassDescriptor, RenderPipeline,
             RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
             Specializer, SpecializerKey, StoreOp, Texture, TextureDataOrder, TextureDescriptor,
             TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
@@ -454,10 +454,15 @@ fn draw_panorama(world: &World, query: ViewQuery<PanoramaQuery>, mut context: Re
             crate::render_bounds::viewport(&viewport, crate::render_bounds::extent(color.view))
         },
     );
+    // Covered terrain must not supply depth to the panorama's post-processing.
+    let mut depth = depth.get_attachment(StoreOp::Store);
+    if let Some(ops) = &mut depth.depth_ops {
+        ops.load = LoadOp::Clear(0.0);
+    }
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("panorama over world geometry"),
         color_attachments: &[Some(color)],
-        depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+        depth_stencil_attachment: Some(depth),
         timestamp_writes: crate::gpu_timing::render_pass_timestamps(
             world,
             render_scene::RuntimeStage::GpuPanorama,
