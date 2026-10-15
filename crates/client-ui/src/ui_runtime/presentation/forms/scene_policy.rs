@@ -55,6 +55,12 @@ impl UiPresentationRuntime {
         runtime: &UiRuntime,
         menu: &dyn MenuScene,
     ) -> bool {
+        if self
+            .loading_stage
+            .is_some_and(ui::LoadingStage::is_world_entry)
+        {
+            return false;
+        }
         let engine = self.engine.as_deref();
         let settings = |reference: &str| {
             engine.map_or_else(ScreenSettings::default, |engine| {

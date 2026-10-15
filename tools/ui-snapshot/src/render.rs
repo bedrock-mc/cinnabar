@@ -1,5 +1,7 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod panorama;
+
 use std::{
     collections::HashMap,
     path::Path,
@@ -48,6 +50,11 @@ impl RemoteSource for Offline {
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
+    let show_panorama = match &fixture {
+        Fixture::Menu(view) => view.out_of_game(),
+        Fixture::Loading(stage) => stage.is_world_entry(),
+        Fixture::Chat { .. } => false,
+    };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
@@ -284,6 +291,9 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
     canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
     let mut pixels = canvas.into_rgba();
+    if show_panorama {
+        panorama::composite(&mut pixels, state.size, &carriers.ui)?;
+    }
     if !menu {
         // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
         for pixel in pixels.as_chunks_mut::<4>().0 {

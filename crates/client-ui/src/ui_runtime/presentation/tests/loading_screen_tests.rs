@@ -6,6 +6,33 @@ use super::engine_hud_tests::{engine_presentation, engine_presentation_with};
 use super::*;
 use ui::LoadingStage;
 
+#[test]
+fn world_entry_loading_leaves_the_menu_panorama_visible() {
+    let player = player_state::PlayerState::new(1);
+    let runtime = UiRuntime::new(1);
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    for stage in [LoadingStage::Connecting, LoadingStage::BuildingTerrain] {
+        presentation.set_loading_stage(Some(stage));
+        presentation
+            .build(
+                &player,
+                &runtime,
+                1_000,
+                [1280, 720],
+                DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        assert!(
+            !presentation.last_frame.as_ref().unwrap().nodes.iter().any(|node| {
+                node.bounds().width() >= 1280.0
+                    && node.bounds().height() >= 720.0
+                    && matches!(node.visual(), ui::UiVisual::Solid { color, .. } if color[3] == 255)
+            }),
+            "{stage:?} must not cover the panorama with an opaque fill"
+        );
+    }
+}
+
 fn texts(presentation: &UiPresentationRuntime) -> Vec<String> {
     presentation
         .loading_draw_nodes()
