@@ -140,6 +140,18 @@ pub const STATES: &[State] = &[
         fixture: out_of_game::reset_settings,
     },
     State {
+        name: "play-worlds",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds,
+    },
+    State {
+        name: "play-worlds-importing",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds_importing,
+    },
+    State {
         name: "chat-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,

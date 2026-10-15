@@ -9132,6 +9132,19 @@ The resource-pack transaction now builds the block-entity atlas on its worker an
 
 Incomplete parity: full pack-reload galleries and streaming frame budgets remain open.
 
+Live pack changes also prepare held terrain models and their artwork on the resource worker.
+Publishing a replacement retires cached block meshes, including non-cube models, and removal
+restores startup resources. Compatible authored carried sheets remain available without
+replacing shaped terrain models. Startup and reload use one held-block generation builder;
+pack UV grids and source-sized mips use the same face sampler as pack icon preparation.
+Far-terrain reloads discard old summary jobs and resummarize
+resident columns when the carrier or terrain cache identity changes, including when the carrier
+is reused. Disk colors stay separate for each set of terrain resource inputs while
+sharing one destination's disk quota. Regression tests cover warmed models, both hands,
+authored sheets, byte-identical fresh and reloaded sheets, UV-grid cropping, restoration,
+mesh-slot reuse, resource generations, and shared disk quotas.
+Rendered acceptance and the full pack-reload gallery remain incomplete.
+
 ## Loom banner previews
 
 JSON-UI banner controls draw ordered front-cloth layers from the active artwork. Loom pattern choices and results publish bounded pattern and dye bindings, including existing banner layers.

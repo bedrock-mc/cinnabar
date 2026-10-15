@@ -94,6 +94,133 @@ pub(super) fn settle(app: &mut App, revision: u64) -> (Duration, Duration) {
     (start.elapsed(), peak)
 }
 
+/// Drains one resident column through the stream's normal decode and summary workers.
+fn far_summary(app: &mut App) -> chunk_pipeline::FarColumnSummary {
+    let mut summaries = Vec::new();
+    test_time::eventually("the resident far-terrain summary", || {
+        let mut world = app.world_mut().resource_mut::<ClientWorld>();
+        let stream = world.stream.as_mut().unwrap();
+        stream.poll([0.0, 65.0, 0.0], 0);
+        stream.drain_far_summaries(&mut summaries);
+        !summaries.is_empty()
+    });
+    assert_eq!(summaries.len(), 1);
+    summaries.pop().unwrap()
+}
+
+#[test]
+fn terrain_identity_only_reload_resummarizes_settled_columns() {
+    let _sounds = client_audio::audio::SERVER_SOUNDS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut app = app();
+    app.world_mut()
+        .resource_mut::<PackReload>()
+        .request_globals(stack(&[]));
+    settle(&mut app, 1);
+    let mut payload = vec![1, 0];
+    let sections = protocol::vanilla_dimension_range(0)
+        .unwrap()
+        .sub_chunk_count;
+    payload.extend(std::iter::repeat_n(0xff, sections - 1));
+    payload.push(0);
+    {
+        let mut world = app.world_mut().resource_mut::<ClientWorld>();
+        let stream = world.stream.as_mut().unwrap();
+        stream.set_far_terrain_enabled(true);
+        stream
+            .submit(1, protocol::WorldEvent::ChunkRadiusUpdated(64))
+            .unwrap();
+        stream
+            .submit(
+                2,
+                protocol::WorldEvent::LevelChunk(protocol::LevelChunkEvent {
+                    dimension: 0,
+                    x: 30,
+                    z: 0,
+                    mode: protocol::LevelChunkMode::Inline { count: 0 },
+                    payload,
+                }),
+            )
+            .unwrap();
+    }
+    let mut previous = far_summary(&mut app);
+    assert!(previous.resident);
+    assert!(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .far_summaries_idle()
+    );
+    let carrier = Arc::clone(
+        app.world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap()
+            .runtime_assets(),
+    );
+    for files in [
+        vec![("blocks.json", br#"{"format_version":[1,1,0]}"#.as_slice())],
+        Vec::new(),
+    ] {
+        let identity = app
+            .world()
+            .resource::<ClientWorld>()
+            .terrain_resource_identity;
+        let revision = app
+            .world_mut()
+            .resource_mut::<PackReload>()
+            .request_globals(stack(&files));
+        settle(&mut app, revision);
+        let world = app.world().resource::<ClientWorld>();
+        let stream = world.stream.as_ref().unwrap();
+        assert!(Arc::ptr_eq(stream.runtime_assets(), &carrier));
+        assert_ne!(world.terrain_resource_identity, identity);
+        assert!(
+            !stream.far_summaries_idle(),
+            "a new terrain namespace needs replacement summaries even with the same carrier"
+        );
+        let fresh = far_summary(&mut app);
+        assert_eq!(fresh.column, previous.column);
+        assert!(fresh.resident);
+        assert!(fresh.generation > previous.generation);
+        previous = fresh;
+    }
+    let identity = app
+        .world()
+        .resource::<ClientWorld>()
+        .terrain_resource_identity;
+    let revision = app
+        .world_mut()
+        .resource_mut::<PackReload>()
+        .request_globals(stack(&[("texts/en_US.lang", b"test.reload=unrelated")]));
+    settle(&mut app, revision);
+    let world = app.world().resource::<ClientWorld>();
+    assert_eq!(world.terrain_resource_identity, identity);
+    assert!(world.stream.as_ref().unwrap().far_summaries_idle());
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .set_far_terrain_enabled(false);
+    let revision = app
+        .world_mut()
+        .resource_mut::<PackReload>()
+        .request_globals(stack(&[("blocks.json", br#"{"format_version":[1,1,0]}"#)]));
+    settle(&mut app, revision);
+    let mut world = app.world_mut().resource_mut::<ClientWorld>();
+    let stream = world.stream.as_mut().unwrap();
+    assert!(stream.far_summaries_idle());
+    stream.set_far_terrain_enabled(true);
+    let fresh = far_summary(&mut app);
+    assert_eq!(fresh.column, previous.column);
+    assert!(fresh.generation > previous.generation);
+}
+
 #[test]
 fn optional_reload_reuses_unchanged_subscribers_and_removes_absent_ui() {
     let definition = br#"{"namespace":"reload_fixture","panel":{"type":"panel","size":[23,17]}}"#;
