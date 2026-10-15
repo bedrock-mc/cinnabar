@@ -146,5 +146,5 @@ fn committed_boss_bars_retire_only_when_their_actor_leaves_authority() {
     let mut ui = app.world_mut().resource_mut::<UiRuntimeResource>();
     assert_eq!(ui.boss_bars().stacked()[0].target_entity_id, -18);
     assert_eq!(ui.flush_boss_responses(|_| Ok(())), Ok(1));
-    assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+    assert!(app.world().resource::<FatalError>().0.is_none());
 }

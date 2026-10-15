@@ -25,6 +25,10 @@ pub const OCCLUSION_SIDE: i32 = 64;
 pub const OCCLUSION_BLOCKED: i32 = i32::MAX;
 /// Occlusion height of an unloaded column; precipitation shows at any height.
 pub const OCCLUSION_OPEN: i32 = i32::MIN;
+/// Cells in one occlusion plane.
+const OCCLUSION_PLANE: usize = (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize;
+/// Grid origins within this magnitude recentre by a constant in-place index shift.
+const OCCLUSION_SHIFT_LIMIT: u32 = 1 << 30;
 /// Simulation ticks per second.
 pub const PRECIPITATION_TICKS_PER_SECOND: f64 = simulation_clock::TICKS_PER_SECOND as f64;
 
@@ -345,19 +349,27 @@ impl OcclusionGrid {
         cursor: &mut usize,
         refresh: usize,
     ) {
-        let plane = (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize;
-        let mut stale = vec![!self.filled; plane];
+        let plane = OCCLUSION_PLANE;
+        let mut stale = [!self.filled; OCCLUSION_PLANE];
         if self.filled && origin != self.origin {
-            let previous = std::mem::take(self);
-            self.origin = origin;
-            for (index, stale) in stale.iter_mut().enumerate() {
-                let (x, z) = self.world(index);
-                match previous.column(x, z) {
-                    Some([rain, snow]) => {
-                        self.heights[index] = rain;
-                        self.heights[plane + index] = snow;
+            if origin
+                .iter()
+                .chain(&self.origin)
+                .all(|value| value.unsigned_abs() <= OCCLUSION_SHIFT_LIMIT)
+            {
+                self.shift(origin, &mut stale);
+            } else {
+                let previous = std::mem::take(self);
+                self.origin = origin;
+                for (index, stale) in stale.iter_mut().enumerate() {
+                    let (x, z) = self.world(index);
+                    match previous.column(x, z) {
+                        Some([rain, snow]) => {
+                            self.heights[index] = rain;
+                            self.heights[plane + index] = snow;
+                        }
+                        None => *stale = true,
                     }
-                    None => *stale = true,
                 }
             }
         }
@@ -373,6 +385,34 @@ impl OcclusionGrid {
             self.heights[index] = rain;
             self.heights[plane + index] = snow;
         }
+    }
+
+    /// Recentres on `origin` without reallocating: each overlapping column moves to its new cell
+    /// and every other cell is marked in `stale`. Requires both origins within
+    /// [`OCCLUSION_SHIFT_LIMIT`], where world columns never saturate, so the move is one constant
+    /// index offset per plane; copying away from the offset's direction reads each source first.
+    fn shift(&mut self, origin: [i32; 2], stale: &mut [bool; OCCLUSION_PLANE]) {
+        let plane = OCCLUSION_PLANE;
+        let side = i64::from(OCCLUSION_SIDE);
+        let dx = i64::from(origin[0]) - i64::from(self.origin[0]);
+        let dz = i64::from(origin[1]) - i64::from(self.origin[1]);
+        let mut move_cell = |index: usize| {
+            let source_x = index as i64 % side + dx;
+            let source_z = index as i64 / side + dz;
+            if (0..side).contains(&source_x) && (0..side).contains(&source_z) {
+                let source = (source_z * side + source_x) as usize;
+                self.heights[index] = self.heights[source];
+                self.heights[plane + index] = self.heights[plane + source];
+            } else {
+                stale[index] = true;
+            }
+        };
+        if dz * side + dx > 0 {
+            (0..plane).for_each(&mut move_cell);
+        } else {
+            (0..plane).rev().for_each(&mut move_cell);
+        }
+        self.origin = origin;
     }
 
     fn world(&self, index: usize) -> (i32, i32) {

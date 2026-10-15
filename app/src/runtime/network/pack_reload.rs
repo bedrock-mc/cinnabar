@@ -382,17 +382,24 @@ pub(crate) fn reload_resource_packs(
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())
                     && !Arc::ptr_eq(current.assets(), &prepared.assets)
                 {
-                    if let Err(error) = reload.geometry.request(
+                    match reload.geometry.request(
                         &candidate,
                         current,
                         world.stream.as_ref(),
                         &chunks,
                         gpu,
                     ) {
-                        gpu.cancel_except(current.identity());
-                        reload.error = Some(error);
-                        reload.applied = reload.revision;
-                        return;
+                        Ok(true) => {}
+                        Ok(false) => {
+                            reload.ready = Some(prepared);
+                            return;
+                        }
+                        Err(error) => {
+                            gpu.cancel_except(current.identity());
+                            reload.error = Some(error);
+                            reload.applied = reload.revision;
+                            return;
+                        }
                     }
                     match gpu.status(candidate.identity()) {
                         None => {

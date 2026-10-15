@@ -5,8 +5,10 @@ use bevy::prelude::*;
 use client_shell::ui_resources::UiRuntimeResource;
 use render_scene::ModRenderScene;
 use {
-    crate::runtime::world::ClientWorld, client_presentation::camera::FlyCamera,
-    client_shell::menu::MenuRuntime, client_state::ClientFrameSet,
+    crate::runtime::{shutdown::FatalError, world::ClientWorld},
+    client_presentation::camera::FlyCamera,
+    client_shell::menu::MenuRuntime,
+    client_state::ClientFrameSet,
 };
 
 pub(super) fn configure(app: &mut App) {
@@ -62,6 +64,7 @@ impl SmoothedPosition {
 pub(crate) fn publish(
     snapshot: Option<Res<RealPositionSnapshot>>,
     world: Option<Res<ClientWorld>>,
+    fatal_error: Option<Res<FatalError>>,
     menu: Option<Res<MenuRuntime>>,
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
@@ -70,9 +73,8 @@ pub(crate) fn publish(
     mut smooth: Local<SmoothedPosition>,
     mut scene: ResMut<ModRenderScene>,
 ) {
-    let visible = !world
-        .as_deref()
-        .is_none_or(|world| world.stream.is_none() || world.fatal_error.is_some())
+    let visible = !world.as_deref().is_none_or(|world| world.stream.is_none())
+        && fatal_error.as_deref().is_none_or(|fatal| fatal.0.is_none())
         && !menu.as_deref().is_some_and(MenuRuntime::is_visible)
         && ui
             .as_deref()
@@ -94,7 +96,7 @@ pub(crate) fn publish(
         }
         Some(bounds)
     });
-    scene.set_position_box(bounds);
+    super::render::update_overlay(&mut scene, |scene| scene.set_position_box(bounds));
 }
 
 #[cfg(test)]

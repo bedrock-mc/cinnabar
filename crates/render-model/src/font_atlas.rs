@@ -1,6 +1,7 @@
 //! Bounded glyph-rectangle residency shared by GPU preparation and offline checks.
 
-use std::collections::HashMap;
+use foldhash::fast::FixedState;
+use hashbrown::HashMap;
 
 #[cfg(test)]
 mod bench_tests;
@@ -52,7 +53,9 @@ impl Shelf {
 pub struct FontAtlas {
     side: u32,
     shelf: Shelf,
-    resident: HashMap<FontRect, [u16; 2]>,
+    /// Looked up for every glyph triangle each prepared frame; never iterated, so the
+    /// hasher choice cannot affect placement order.
+    resident: HashMap<FontRect, [u16; 2], FixedState>,
     uploads: Vec<FontRect>,
 }
 
@@ -61,7 +64,7 @@ impl Default for FontAtlas {
         Self {
             side: FONT_ATLAS_SIDE,
             shelf: Shelf::default(),
-            resident: HashMap::new(),
+            resident: HashMap::default(),
             uploads: Vec::new(),
         }
     }

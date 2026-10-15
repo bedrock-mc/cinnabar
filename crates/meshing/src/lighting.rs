@@ -223,8 +223,10 @@ const HALO_WORDS: usize = HALO_VOLUME.div_ceil(64);
 
 /// Per-mesh memo of light samples and native solid-render bits over the one-block
 /// halo, filled lazily so sparse sub-chunks resolve only what their faces touch.
+/// Misses read the mesh's per-palette-value bits rather than resolving each cell.
 pub(crate) struct MeshLightingCache<'a, 'n, S: MeshLightSampler + ?Sized> {
     direct: DirectInputs<'a, 'n, S>,
+    bits: &'a crate::palette_bits::NeighbourhoodBlockBits<'a, 'n>,
     light: [Cell<MeshLightSample>; HALO_VOLUME],
     light_known: [Cell<u64>; HALO_WORDS],
     occluder_known: [Cell<u64>; HALO_WORDS],
@@ -240,6 +242,7 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
         network_id_mode: NetworkIdMode,
         neighbourhood: &'a MeshNeighbourhood<'n>,
         sampler: &'a S,
+        bits: &'a crate::palette_bits::NeighbourhoodBlockBits<'a, 'n>,
     ) -> Self {
         Self {
             direct: DirectInputs {
@@ -249,6 +252,7 @@ impl<'a, 'n, S: MeshLightSampler + ?Sized> MeshLightingCache<'a, 'n, S> {
                 neighbourhood,
                 sampler,
             },
+            bits,
             light: [const { Cell::new(MeshLightSample::FULL_BRIGHT) }; HALO_VOLUME],
             light_known: [const { Cell::new(0) }; HALO_WORDS],
             occluder_known: [const { Cell::new(0) }; HALO_WORDS],
@@ -263,7 +267,7 @@ impl<S: MeshLightSampler + ?Sized> MeshLightingCache<'_, '_, S> {
     fn occludes_at(&self, index: usize, coordinate: [i32; 3]) -> bool {
         let (word, bit) = (index / 64, 1_u64 << (index % 64));
         if self.occluder_known[word].get() & bit == 0 {
-            if self.direct.occludes(coordinate) {
+            if self.bits.solid_render(coordinate) {
                 self.occluders[word].set(self.occluders[word].get() | bit);
             }
             self.occluder_known[word].set(self.occluder_known[word].get() | bit);
@@ -274,7 +278,9 @@ impl<S: MeshLightSampler + ?Sized> MeshLightingCache<'_, '_, S> {
     fn shade_darkened_at(&self, index: usize, coordinate: [i32; 3]) -> bool {
         let (word, bit) = (index / 64, 1_u64 << (index % 64));
         if self.shade_known[word].get() & bit == 0 {
-            if self.occludes_at(index, coordinate) || self.direct.leaf_shaded(coordinate) {
+            if self.occludes_at(index, coordinate)
+                || self.bits.layer(0, coordinate) & crate::palette_bits::SHADE_LEAF != 0
+            {
                 self.darkened_shades[word].set(self.darkened_shades[word].get() | bit);
             }
             self.shade_known[word].set(self.shade_known[word].get() | bit);

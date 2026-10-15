@@ -229,7 +229,8 @@ impl SceneClocks {
     /// Notes `stack` (bottom first) as this frame's scenes at `now` seconds.
     pub fn observe(&mut self, stack: &[Scene], now: f64) {
         if !std::mem::replace(&mut self.started, true) {
-            self.previous = stack.to_vec();
+            self.previous.clear();
+            self.previous.extend_from_slice(stack);
             return;
         }
         for (index, scene) in stack.iter().enumerate() {
@@ -257,7 +258,8 @@ impl SceneClocks {
                 None => false,
             }
         });
-        self.previous = stack.to_vec();
+        self.previous.clear();
+        self.previous.extend_from_slice(stack);
     }
 
     /// The event clocks `scene`'s screen reads this frame.

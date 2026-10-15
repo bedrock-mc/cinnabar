@@ -228,23 +228,27 @@ fn light_sample(world: &dyn ParticleWorld, cell: [i32; 3]) -> f32 {
 }
 
 /// Samples each visible lit cell once, writing the packed light back without reordering instances.
+/// `cells` is caller-owned scratch; its previous contents are discarded.
 fn sample_particle_light(
     world: &dyn ParticleWorld,
     instances: &mut [(f32, ParticleInstance, Material)],
+    cells: &mut Vec<([i32; 3], usize)>,
 ) -> (usize, usize) {
-    let mut cells: Vec<_> = instances
-        .iter()
-        .enumerate()
-        .filter(|(_, (_, instance, _))| instance.axis_y[3] != 0.0)
-        .map(|(index, (_, instance, _))| {
-            let [x, y, z, _] = instance.center_light;
-            ([x, y, z].map(|c| c.floor() as i32), index)
-        })
-        .collect();
+    cells.clear();
+    cells.extend(
+        instances
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, instance, _))| instance.axis_y[3] != 0.0)
+            .map(|(index, (_, instance, _))| {
+                let [x, y, z, _] = instance.center_light;
+                ([x, y, z].map(|c| c.floor() as i32), index)
+            }),
+    );
     cells.sort_unstable_by_key(|&(cell, _)| cell);
     let mut last = None;
     let mut lookups = 0;
-    for &(cell, index) in &cells {
+    for &(cell, index) in cells.iter() {
         let sample = match last {
             Some((previous, sample)) if previous == cell => sample,
             _ => {
@@ -391,6 +395,13 @@ fn emit_emitter(
     }
 }
 
+/// Frame-to-frame buffers for draw-list building; contents never outlive one build.
+#[derive(Default)]
+pub(super) struct DrawScratch {
+    instances: Vec<(f32, ParticleInstance, Material)>,
+    cells: Vec<([i32; 3], usize)>,
+}
+
 impl ParticleSystem {
     /// Builds the frame's draw lists against `view`, evaluating per-render expressions.
     pub fn build_draw(&mut self, view: &ParticleView, world: &dyn ParticleWorld) -> DrawLists {
@@ -406,33 +417,47 @@ impl ParticleSystem {
         mut hides_box: impl FnMut([f32; 3], [f32; 3]) -> bool,
     ) -> DrawLists {
         let cos_limit = (view.half_diagonal + 0.15).min(3.0).cos();
-        let mut collected = Vec::new();
+        let mut scratch = std::mem::take(&mut self.draw_scratch);
+        let collected = &mut scratch.instances;
+        collected.clear();
         let mut cave_hidden = 0;
         for emitter in self.emitters_mut() {
             emit_emitter(
                 emitter,
                 view,
                 cos_limit,
-                &mut collected,
+                collected,
                 &mut hides_box,
                 &mut cave_hidden,
             );
         }
-        let (light_lookups, light_cache_hits) = sample_particle_light(world, &mut collected);
+        let (light_lookups, light_cache_hits) =
+            sample_particle_light(world, collected, &mut scratch.cells);
         collected.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
+        let (mut opaque, mut add) = (0, 0);
+        for (_, _, material) in collected.iter() {
+            match material {
+                Material::Alpha | Material::Opaque => opaque += 1,
+                Material::Blend => {}
+                Material::Add => add += 1,
+            }
+        }
         let mut lists = DrawLists {
+            opaque: Vec::with_capacity(opaque),
+            blend: Vec::with_capacity(collected.len() - opaque - add),
+            add: Vec::with_capacity(add),
             cave_hidden,
             light_lookups,
             light_cache_hits,
-            ..DrawLists::default()
         };
-        for (_, instance, material) in collected {
+        for &(_, instance, material) in collected.iter() {
             match material {
                 Material::Alpha | Material::Opaque => lists.opaque.push(instance),
                 Material::Blend => lists.blend.push(instance),
                 Material::Add => lists.add.push(instance),
             }
         }
+        self.draw_scratch = scratch;
         lists
     }
 }

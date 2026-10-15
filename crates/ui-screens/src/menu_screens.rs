@@ -15,9 +15,12 @@ use ui_engine::engine::screen::{Translate, translated};
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
-/// The retail desktop context for this build's platform.
+/// The retail desktop context for this build's platform. It is built once; clones share its
+/// variables, so screens built over it compare their contexts by pointer.
 pub fn retail_context() -> Context {
-    Context::retail(cfg!(target_os = "macos"))
+    static RETAIL: std::sync::LazyLock<Context> =
+        std::sync::LazyLock::new(|| Context::retail(cfg!(target_os = "macos")));
+    RETAIL.clone()
 }
 
 /// Vanilla start screen variables for a full-game, non-edu

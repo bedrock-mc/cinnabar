@@ -26,6 +26,27 @@ pub(super) fn publish(scene: Option<ResMut<ModRenderScene>>, runtime: &mut super
         .collect();
 }
 
+/// Applies a host-owned overlay setter with change detection bypassed, marking the scene
+/// changed only when the setter replaced an overlay vertex buffer. The scene's overlay setters
+/// replace their buffer exactly when their inputs change, and the renderer reads overlays only
+/// through those buffers, so steady frames extract nothing.
+pub(super) fn update_overlay(
+    scene: &mut ResMut<ModRenderScene>,
+    update: impl FnOnce(&mut ModRenderScene),
+) {
+    let overlays = |scene: &ModRenderScene| {
+        (
+            std::sync::Arc::as_ptr(&scene.marker_vertices).cast::<()>(),
+            std::sync::Arc::as_ptr(&scene.block_vertices).cast::<()>(),
+        )
+    };
+    let before = overlays(scene);
+    update(scene.bypass_change_detection());
+    if overlays(scene) != before {
+        scene.set_changed();
+    }
+}
+
 /// Scene depth becomes sampleable once a mod holds both render grants.
 pub(super) fn grant_depth_sampling(
     runtime: Option<Res<super::ModRuntime>>,

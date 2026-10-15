@@ -21,7 +21,7 @@ impl CollisionRegistry {
         runtime_id: u32,
         component: block_transform::random_offset::RandomOffsetComponent,
     ) -> bool {
-        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.random_offset = Some((component, component.offset([0; 3])));
@@ -37,7 +37,7 @@ impl CollisionRegistry {
         if !component.is_valid() {
             return false;
         }
-        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.random_offset = Some((component, [0.0; 3]));

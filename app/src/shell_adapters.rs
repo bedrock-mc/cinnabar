@@ -95,11 +95,12 @@ pub(crate) fn configure_observations(app: &mut App) {
 /// Samples session presence at the same end-of-frame boundary as the Discord driver.
 pub(crate) fn publish_presence_observation(
     world: Res<ClientWorld>,
+    fatal_error: Res<crate::runtime::shutdown::FatalError>,
     session: Res<crate::session::SessionController>,
     mut observation: ResMut<client_state::PresenceObservation>,
 ) {
     observation.has_world = world.stream.is_some();
-    observation.failed = world.fatal_error.is_some();
+    observation.failed = fatal_error.0.is_some();
     observation.players = world
         .stream
         .as_ref()

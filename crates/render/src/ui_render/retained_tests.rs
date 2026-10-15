@@ -103,8 +103,16 @@ fn retained_publication_plans_no_vertex_or_index_uploads() {
         .unwrap()
         .clone();
     let mut gpu = world.resource_mut::<UiGpu>();
+    let UiGpu {
+        uploads, textures, ..
+    } = &mut *gpu;
+    // A warm font frame remaps the retained publication without writing glyphs.
+    textures
+        .fonts
+        .prepare(&input, |_, _, _, _| panic!("warm glyph uploaded twice"))
+        .unwrap();
     let before = test_alloc::thread_allocations();
-    let plan = gpu.uploads.plan(&input, false, false);
+    let plan = uploads.plan(&input, &textures.fonts, false, false);
     let allocations = test_alloc::thread_allocations() - before;
     assert!(plan.vertices.is_empty());
     assert!(plan.indices.is_empty());

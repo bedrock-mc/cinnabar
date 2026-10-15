@@ -215,6 +215,10 @@ impl BlobCacheResolver {
         self.pending_by_hash = HashMap::new();
         self.resolved_pending = BTreeSet::new();
         self.ready = BTreeMap::new();
+        self.pending_hash_set_capacity = 0;
+        self.pending_accounted_bytes = 0;
+        self.ready_accounted_bytes = 0;
+        self.retained_column_slots = 0;
         self.enqueue_recoveries(recoveries);
         self.refresh_pending_accounting()
     }
@@ -231,6 +235,10 @@ impl BlobCacheResolver {
         self.pending_by_hash = HashMap::new();
         self.resolved_pending = BTreeSet::new();
         self.ready = BTreeMap::new();
+        self.pending_hash_set_capacity = 0;
+        self.pending_accounted_bytes = 0;
+        self.ready_accounted_bytes = 0;
+        self.retained_column_slots = 0;
         self.immediate_ready = BTreeMap::new();
         self.recovery_ready = BTreeMap::new();
         self.fast_transfer_reset_armed = false;
