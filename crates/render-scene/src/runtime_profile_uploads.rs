@@ -16,13 +16,44 @@ pub enum UploadPath {
     Queue,
 }
 
+#[cfg(feature = "publication-test-support")]
+thread_local! {
+    static TEST_WRITES: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Returns `work`'s result and its nonempty profiled (write count, bytes) on this thread.
+/// Nested measurements each include their own work without resetting shared diagnostics.
+#[cfg(feature = "publication-test-support")]
+pub fn measure<T>(work: impl FnOnce() -> T) -> (T, (u64, u64)) {
+    let before = TEST_WRITES.get();
+    let result = work();
+    let after = TEST_WRITES.get();
+    (
+        result,
+        (
+            after.0.wrapping_sub(before.0),
+            after.1.wrapping_sub(before.1),
+        ),
+    )
+}
+
 /// Records a nonempty upload at its original call site when diagnostics are compiled in.
 #[inline]
 #[track_caller]
 pub fn record(kind: UploadKind, path: UploadPath, bytes: u64) {
-    #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
+    #[cfg(any(
+        test,
+        feature = "alloc-stats",
+        feature = "tracy",
+        feature = "publication-test-support"
+    ))]
     record_at(std::panic::Location::caller(), kind, path, bytes);
-    #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]
+    #[cfg(not(any(
+        test,
+        feature = "alloc-stats",
+        feature = "tracy",
+        feature = "publication-test-support"
+    )))]
     let _ = (kind, path, bytes);
 }
 
@@ -34,6 +65,10 @@ pub fn record_at(
     path: UploadPath,
     bytes: u64,
 ) {
+    #[cfg(feature = "publication-test-support")]
+    if bytes != 0 {
+        TEST_WRITES.update(|(calls, total)| (calls.wrapping_add(1), total.wrapping_add(bytes)));
+    }
     #[cfg(any(test, feature = "alloc-stats", feature = "tracy"))]
     enabled::record(site, kind, path, bytes);
     #[cfg(not(any(test, feature = "alloc-stats", feature = "tracy")))]

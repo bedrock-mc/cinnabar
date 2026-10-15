@@ -108,6 +108,42 @@ fn moving_cloud_window_reuses_its_gpu_storage() {
     assert_eq!(buffer_id(&world, view), first);
 }
 
+/// Rebuilds count their record payload once; cached frames emit no upload request.
+#[test]
+fn rebuild_uploads_are_profiled_and_cached_frames_are_idle() {
+    let mut world = world();
+    let view = spawn_view(&mut world, Vec3::ZERO);
+    let (_, cold) = render_scene::runtime_profile_uploads::measure(|| {
+        world.run_system_once(prepare_cloud_records).unwrap();
+    });
+    let records = world.resource::<CloudGpu>().views[&view].record_count;
+    let bytes = u64::from(records) * size_of::<ViewportCloudQuad>() as u64;
+    assert!(bytes > 0);
+    assert_eq!(cold, (1, bytes));
+    let buffer = buffer_id(&world, view);
+
+    let (_, idle) = render_scene::runtime_profile_uploads::measure(|| {
+        world.run_system_once(prepare_cloud_records).unwrap();
+    });
+    assert_eq!(idle, (0, 0));
+    world
+        .get_mut::<ExtractedView>(view)
+        .unwrap()
+        .world_from_view = GlobalTransform::from_xyz(16.0, 0.0, 0.0);
+    let (_, moved) = render_scene::runtime_profile_uploads::measure(|| {
+        world.run_system_once(prepare_cloud_records).unwrap();
+    });
+    let records = world.resource::<CloudGpu>().views[&view].record_count;
+    assert_eq!(
+        moved,
+        (
+            1,
+            u64::from(records) * size_of::<ViewportCloudQuad>() as u64
+        )
+    );
+    assert_eq!(buffer_id(&world, view), buffer);
+}
+
 fn spawn_view(world: &mut World, position: Vec3) -> Entity {
     let entity = world.spawn_empty().id();
     world.entity_mut(entity).insert((
