@@ -522,10 +522,16 @@ fn place_subtree<'a>(
         },
     );
     let paint = spaces.0;
-    let (own_alpha, anim, inherit) =
-        inherited.apply(control, style.alpha, own_anims, clips, spaces, |node| {
-            place::sprite_rest(control, node)
-        });
+    let filter = crate::filter::FilterGroup::place(inherited.filter.as_ref(), style.filter, &key);
+    let (own_alpha, anim, inherit) = inherited.apply(
+        control,
+        style.alpha,
+        own_anims,
+        clips,
+        spaces,
+        filter,
+        |node| place::sprite_rest(control, node),
+    );
     let absolute_layer = parent_layer.saturating_add(style.layer);
     let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     // A bar panel hidden or shown again frees or takes back its space: solve again.

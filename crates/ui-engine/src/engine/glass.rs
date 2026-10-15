@@ -113,7 +113,7 @@ pub fn paint_world_backdrop(
         cache
             .borrow_mut()
             .get_or_build((frame.solid_page, paint_bits(paint)), |(page, _)| {
-                world_quad(page, paint)
+                cover_quad(page, paint, UiBlendMode::Backdrop)
             })
     }) else {
         return Ok(());
@@ -145,19 +145,19 @@ thread_local! {
 }
 
 /// Bit patterns identifying a bounded paint.
-fn paint_bits(paint: UiBackdropPaint) -> [u32; 3] {
+pub(super) fn paint_bits(paint: UiBackdropPaint) -> [u32; 3] {
     [paint.blur, paint.saturation, paint.brightness].map(f32::to_bits)
 }
 
-/// One fully covered quad over its node.
-fn world_quad(page: u16, paint: UiBackdropPaint) -> Option<UiMesh> {
+/// One fully covered quad over its node, drawn with `blend`.
+pub(super) fn cover_quad(page: u16, paint: UiBackdropPaint, blend: UiBlendMode) -> Option<UiMesh> {
     let vertices: Vec<_> = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]
         .map(|position| backdrop_vertex(position, 1.0, 255, paint))
         .into();
     UiMesh::new(
         vertices.into(),
         Arc::from([0, 1, 2, 0, 2, 3]),
-        Arc::from([backdrop_batch(page, 6)]),
+        Arc::from([backdrop_batch(page, 6, blend)]),
     )
     .ok()
 }
@@ -182,12 +182,12 @@ fn backdrop_vertex(
     }
 }
 
-/// The single backdrop material of a shape with `indices` indices.
-fn backdrop_batch(page: u16, indices: u32) -> UiMeshBatch {
+/// The single `blend` material of a shape with `indices` indices.
+fn backdrop_batch(page: u16, indices: u32, blend: UiBlendMode) -> UiMeshBatch {
     UiMeshBatch {
         texture_page: page,
         index_range: 0..indices,
-        blend: UiBlendMode::Backdrop,
+        blend,
         depth_test: false,
         depth_write: false,
         alpha_cutoff: None,
@@ -205,7 +205,11 @@ fn backdrop_of(shape: &UiMesh, opacity: u8, paint: UiBackdropPaint) -> Option<Ui
     UiMesh::new(
         vertices.into(),
         Arc::from(shape.indices()),
-        Arc::from([backdrop_batch(page, shape.indices().len() as u32)]),
+        Arc::from([backdrop_batch(
+            page,
+            shape.indices().len() as u32,
+            UiBlendMode::Backdrop,
+        )]),
     )
     .ok()
 }

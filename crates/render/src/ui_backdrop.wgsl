@@ -1,5 +1,6 @@
 // Mod-surface backdrops: replaces the scene under each backdrop shape with the scene blurred,
-// saturated and brightened by its vertex paint, sampled from one shared blur pyramid.
+// saturated and brightened by its vertex paint, sampled from one shared blur pyramid. Element
+// filters reuse the same sampling over an offscreen UI group.
 
 struct UiViewport {
     viewport_size: vec2<f32>,
@@ -60,9 +61,9 @@ fn level_for(sigma: f32) -> f32 {
     return 0.5 * log2((sigma * sigma + 0.25) * 1.5);
 }
 
-// The scene at `pixel` blurred with a Gaussian-like kernel of standard deviation `sigma`.
-fn blurred(pixel: vec2<f32>, sigma: f32) -> vec3<f32> {
-    let exact = textureLoad(scene, vec2<i32>(pixel), 0).rgb;
+// The source at `pixel` blurred with a Gaussian-like kernel of standard deviation `sigma`.
+fn blurred(pixel: vec2<f32>, sigma: f32) -> vec4<f32> {
+    let exact = textureLoad(scene, vec2<i32>(pixel), 0);
     if sigma <= 0.0 {
         return exact;
     }
@@ -75,8 +76,8 @@ fn blurred(pixel: vec2<f32>, sigma: f32) -> vec3<f32> {
     sum += textureSampleLevel(pyramid, pyramid_sampler, uv + offset, lod);
     sum += textureSampleLevel(pyramid, pyramid_sampler, uv + vec2<f32>(offset.x, -offset.y), lod);
     sum += textureSampleLevel(pyramid, pyramid_sampler, uv - vec2<f32>(offset.x, -offset.y), lod);
-    let soft = sum.rgb * 0.25;
-    // Below the first level, fade in from the exact scene.
+    let soft = sum * 0.25;
+    // Below the first level, fade in from the exact source.
     let first = sqrt(2.0 / 3.0 * 4.0 - 0.25);
     return mix(exact, soft, clamp(sigma / first, 0.0, 1.0));
 }
@@ -88,9 +89,16 @@ fn backdrop_fragment(input: BackdropOutput) -> @location(0) vec4<f32> {
         discard;
     }
     // CSS filters act on sRGB-encoded values; Rec. 709 luma weights match `saturate()`.
-    var srgb = linear_to_srgb(blurred(input.clip_position.xy, input.paint.x));
+    var srgb = linear_to_srgb(blurred(input.clip_position.xy, input.paint.x).rgb);
     let luma = dot(srgb, vec3<f32>(0.2126, 0.7152, 0.0722));
     srgb = (vec3<f32>(luma) + (srgb - vec3<f32>(luma)) * input.paint.y) * input.paint.z;
     let linear = srgb_to_linear(clamp(srgb, vec3<f32>(0.0), vec3<f32>(1.0)));
     return vec4<f32>(linear * alpha, alpha);
+}
+
+// Composites a filter group's premultiplied gamma-space drawing, blurred, into its UI layer.
+@fragment
+fn filter_fragment(input: BackdropOutput) -> @location(0) vec4<f32> {
+    let alpha = clamp(input.coverage, 0.0, 1.0);
+    return blurred(input.clip_position.xy, input.paint.x) * alpha;
 }

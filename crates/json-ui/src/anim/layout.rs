@@ -22,6 +22,8 @@ pub(crate) struct Inherited {
     clip_movers: Vec<Arc<ControlAnims>>,
     /// The paint transform and screen clip transformed ancestors hand down.
     pub(crate) space: crate::transform::PaintSpace,
+    /// The filtered subtree an ancestor opened.
+    pub(crate) filter: Option<Arc<crate::filter::FilterGroup>>,
 }
 
 /// A control's own animation context before layout gives it pixels.
@@ -43,6 +45,7 @@ impl Inherited {
             && same(&self.movers, &other.movers)
             && same(&self.clip_movers, &other.clip_movers)
             && self.space == other.space
+            && self.filter == other.filter
     }
 
     /// The creation clock `control` animates on.
@@ -59,7 +62,12 @@ impl Inherited {
     }
 
     /// The control's static alpha, its draws' animations, and what its children inherit.
-    /// `space` is where the control's own draws paint and `inner` what its children inherit.
+    /// `space` is where the control's own draws paint and `inner` what its children inherit;
+    /// `filter` is the filtered subtree the control and its children paint into.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "independent per-control layout results"
+    )]
     pub(crate) fn apply(
         &self,
         control: &ResolvedControl,
@@ -67,6 +75,7 @@ impl Inherited {
         own: Option<Arc<ControlAnims>>,
         clips: bool,
         (space, inner): (crate::transform::PaintSpace, crate::transform::PaintSpace),
+        filter: Option<Arc<crate::filter::FilterGroup>>,
         sprite: impl FnOnce(&mut NodeAnim),
     ) -> (f32, Option<Arc<NodeAnim>>, Inherited) {
         let context = self.own(control);
@@ -88,7 +97,8 @@ impl Inherited {
             || !alpha_anims.is_empty()
             || !movers.is_empty()
             || !self.clip_movers.is_empty()
-            || space.transform.is_some();
+            || space.transform.is_some()
+            || filter.is_some();
         let node = animated.then(|| {
             let mut node = NodeAnim {
                 own: own.clone(),
@@ -97,6 +107,7 @@ impl Inherited {
                 movers: movers.clone(),
                 clip_movers: self.clip_movers.clone(),
                 transform: space.transform,
+                filter: filter.clone(),
                 ..NodeAnim::default()
             };
             sprite(&mut node);
@@ -126,6 +137,7 @@ impl Inherited {
             },
             movers,
             space: inner,
+            filter,
         };
         (full, node, children)
     }

@@ -376,6 +376,7 @@ impl RetainedDraw {
                 transform: node.transform.as_ref().map(|transform| {
                     FrameAffine::for_node(transform, place.bounds, self.frame.scale.get())
                 }),
+                filter: node.filter_group,
             },
             effects,
             &mut scratch.vertices,
@@ -519,6 +520,7 @@ fn append(
             && last.depth_test == batch.depth_test
             && last.depth_write == batch.depth_write
             && last.world_projection == batch.world_projection
+            && last.filter_group == batch.filter_group
             && last.index_range.end == range.start
         {
             last.index_range.end = range.end;

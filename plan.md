@@ -444,13 +444,14 @@ subtrees cannot clip. `cinnabar_glass` panels show the world behind them blurred
 filtered like CSS `backdrop-filter`, and the reserved `#world_blur`, `#world_brightness` and
 `#world_saturation` bindings blur and dim the world behind an open panel; one dual-Kawase
 pyramid of the post-processed scene serves every backdrop in a frame, built only while one
-is published. These are Cinnabar extensions for mod
+is published. `cinnabar_filter` blurs a control's subtree as one image through an offscreen
+group, animatable through `#cinnabar_blur`. These are Cinnabar extensions for mod
 surfaces; server-pack JSON-UI is unchanged.
 
 Incomplete toward expressive mod menus:
-- Element blur.
-- The shared scene blur is unmeasured on the reference hardware tiers. Backdrops blur only
-  the 3-D scene: UI beneath a glass panel, including the HUD and nested glass, stays sharp.
+- The shared scene blur and element blur are unmeasured on the reference hardware tiers.
+- Backdrops blur only the 3-D scene: UI beneath a glass panel, including the HUD and nested
+  glass, stays sharp.
 - Exits between routes: replacing an open panel's surface swaps it at once without playing
   the old surface's exit values.
 

@@ -75,7 +75,7 @@ fn transform_fields(transform: &Value) -> Result<f64, String> {
 }
 
 /// The binding targets a control's bindings write.
-fn bound_targets(object: &Map<String, Value>) -> Vec<&str> {
+pub(super) fn bound_targets(object: &Map<String, Value>) -> Vec<&str> {
     object
         .get("bindings")
         .and_then(Value::as_array)

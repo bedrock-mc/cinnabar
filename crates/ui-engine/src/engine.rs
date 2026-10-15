@@ -20,6 +20,7 @@ use {crate::text_metrics::TextMetrics, ui::FONT_DESIGN_PIXEL_TEXELS};
 mod banner_renderer;
 mod dependencies;
 mod fill_renderers;
+mod filter;
 mod formatting_colors;
 pub mod glass;
 pub mod host_edit;
@@ -544,6 +545,8 @@ pub struct Canvas<'a> {
     length_scale: f32,
     /// The paint transform left for the current draw's nodes, in logical px.
     residual: Option<json_ui::transform::Affine>,
+    /// The filter group receiving the current draws.
+    filter: Option<filter::OpenFilter>,
 }
 
 impl<'a> Canvas<'a> {
@@ -731,6 +734,7 @@ impl Canvas<'_> {
         let start = self.nodes.len();
         let painted = self.paint_draw(node, renderers);
         self.transform_painted(start);
+        self.tag_filtered(start);
         self.length_scale = 1.0;
         painted
     }

@@ -1,8 +1,10 @@
-//! Glass panels and the world backdrop: mod-surface extensions that blur the 3-D scene.
+//! Glass panels, the world backdrop and element filters: mod-surface extensions that blur
+//! the 3-D scene or a control's own drawing.
 //!
 //! Neither reaches server or resource-pack JSON-UI: only mod surfaces may name
 //! [`GLASS_RENDERER`], and only their hosts read the reserved world bindings.
 
+use json_ui::filter::{BLUR_BINDING, FILTER_PROPERTY, MAX_BLUR as MAX_FILTER_BLUR};
 use serde_json::{Map, Value};
 
 use super::{SurfaceValue, bounded};
@@ -89,6 +91,41 @@ pub(super) fn validate_glass(object: &Map<String, Value>) -> Result<(), String> 
         }
     }
     Ok(())
+}
+
+/// Checks one control's filter and returns whether its subtree is filtered. `filtered`
+/// reports a filtering ancestor: filters do not nest.
+pub(super) fn filter(object: &Map<String, Value>, filtered: bool) -> Result<bool, String> {
+    let declared = object.get(FILTER_PROPERTY);
+    let bound = super::paint_transform::bound_targets(object).contains(&BLUR_BINDING);
+    if declared.is_none() {
+        if bound {
+            return Err(format!(
+                "surface blur bindings require a {FILTER_PROPERTY} property"
+            ));
+        }
+        return Ok(filtered);
+    }
+    if filtered {
+        return Err("surface filters cannot nest".into());
+    }
+    let fields = declared
+        .and_then(Value::as_object)
+        .ok_or("surface filter must be an object")?;
+    for (name, value) in fields {
+        if name != "blur" {
+            return Err(format!("surface {FILTER_PROPERTY} field is unsupported"));
+        }
+        if !value
+            .as_f64()
+            .is_some_and(|blur| blur.is_finite() && (0.0..=MAX_FILTER_BLUR).contains(&blur))
+        {
+            return Err(format!(
+                "surface {FILTER_PROPERTY} blur must be a number from 0 to {MAX_FILTER_BLUR}"
+            ));
+        }
+    }
+    Ok(true)
 }
 
 /// Rejects a reserved world-backdrop binding that is not a number within its bound.
@@ -181,6 +218,48 @@ mod tests {
                     .is_err(),
                 "{name}"
             );
+        }
+    }
+
+    /// A surface whose root panel holds `pane`.
+    fn holding(pane: Value) -> Surface {
+        Surface {
+            screen: "glass.root".into(),
+            document: serde_json::json!({"namespace":"glass","root":{
+                "type":"panel","controls":[{"pane":pane}]
+            }})
+            .to_string(),
+            bindings: BTreeMap::new(),
+            transitions: Default::default(),
+        }
+    }
+
+    #[test]
+    fn filters_accept_one_bounded_blur_and_never_nest() {
+        let label = serde_json::json!({"type":"label","text":"hi"});
+        let filtered = |filter: Value, child: Value| {
+            serde_json::json!({"type":"panel","cinnabar_filter":filter,
+                "controls":[{"child":child}]})
+        };
+        holding(filtered(serde_json::json!({"blur":5}), label.clone()))
+            .validate()
+            .unwrap();
+        holding(serde_json::json!({"type":"panel","cinnabar_filter":{},
+            "bindings":[{"binding_name":"#entering","binding_name_override":"#cinnabar_blur"}]}))
+        .validate()
+        .unwrap();
+        for invalid in [
+            filtered(serde_json::json!({"blur":17}), label.clone()),
+            filtered(serde_json::json!({"blur":2,"spread":1}), label.clone()),
+            filtered(serde_json::json!(5), label.clone()),
+            filtered(
+                serde_json::json!({"blur":2}),
+                serde_json::json!({"type":"panel","cinnabar_filter":{"blur":1}}),
+            ),
+            serde_json::json!({"type":"panel",
+                "bindings":[{"binding_name":"#entering","binding_name_override":"#cinnabar_blur"}]}),
+        ] {
+            assert!(holding(invalid.clone()).validate().is_err(), "{invalid}");
         }
     }
 

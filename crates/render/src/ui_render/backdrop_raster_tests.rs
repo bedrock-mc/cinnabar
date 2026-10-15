@@ -10,6 +10,30 @@ use wgpu::util::DeviceExt;
 const SIDE: u32 = SNAPSHOT_SIDE;
 const SCENE: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
+/// What a raster composites: backdrops over a copied sRGB scene, or a blurred element filter
+/// group into a cleared gamma-space UI layer.
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Backdrop,
+    Filter,
+}
+
+impl Mode {
+    fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Mode::Backdrop => SCENE,
+            Mode::Filter => super::super::composite::UI_LAYER_FORMAT,
+        }
+    }
+
+    fn entry(self) -> &'static str {
+        match self {
+            Mode::Backdrop => "backdrop_fragment",
+            Mode::Filter => "filter_fragment",
+        }
+    }
+}
+
 /// The vertex fields the backdrop shader reads, at the shader locations of the UI layout.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -55,8 +79,14 @@ fn module(gpu: &Gpu, source: &'static str) -> wgpu::ShaderModule {
         })
 }
 
-/// Draws `shapes` over `scene` (sRGB bytes, [`SIDE`] square) and returns the result.
+/// Draws backdrop `shapes` over `scene` (sRGB bytes, [`SIDE`] square) and returns the result.
 fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
+    raster(gpu, Mode::Backdrop, scene, shapes)
+}
+
+/// Composites `shapes` in `mode` from `source` (bytes in the mode's format) and reads back
+/// the target.
+fn raster(gpu: &Gpu, mode: Mode, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
     let device = &gpu.device;
     let filter = module(gpu, include_str!("../ui_backdrop_filter.wgsl"));
     let apply = module(gpu, include_str!("../ui_backdrop.wgsl"));
@@ -73,7 +103,7 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: SCENE,
+            format: mode.format(),
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         },
@@ -97,7 +127,7 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: SCENE,
+        format: mode.format(),
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
@@ -131,7 +161,7 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
         })
     };
     let downsample = filter_pipeline("downsample", PYRAMID_FORMAT);
-    let copy = filter_pipeline("copy", SCENE);
+    let copy = filter_pipeline("copy", mode.format());
     let attributes =
         wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x2, 2 => Unorm8x4, 6 => Float32x4];
     let blend = wgpu::BlendComponent {
@@ -157,10 +187,10 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
         multisample: Default::default(),
         fragment: Some(wgpu::FragmentState {
             module: &apply,
-            entry_point: Some("backdrop_fragment"),
+            entry_point: Some(mode.entry()),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: SCENE,
+                format: mode.format(),
                 blend: Some(wgpu::BlendState {
                     color: blend,
                     alpha: blend,
@@ -274,9 +304,12 @@ fn draw(gpu: &Gpu, scene: &[u8], shapes: &[Shape]) -> Vec<u8> {
             color_attachments: &[Some(target(&output_view))],
             ..Default::default()
         });
-        pass.set_pipeline(&copy);
-        pass.set_bind_group(0, &copy_group, &[]);
-        pass.draw(0..3, 0..1);
+        // A filter composites into a layer that already holds its earlier draws; here, none.
+        if mode == Mode::Backdrop {
+            pass.set_pipeline(&copy);
+            pass.set_bind_group(0, &copy_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
         pass.set_pipeline(&shapes_pipeline);
         pass.set_bind_group(0, &viewport_group, &[]);
         pass.set_bind_group(1, &scene_group, &[]);
@@ -472,5 +505,54 @@ fn blur_spreads_a_line_by_the_requested_standard_deviation_and_keeps_its_energy(
             (deviation - f64::from(sigma)).abs() < (f64::from(sigma) * 0.12).max(0.4),
             "blur {sigma} spread the line by {deviation}"
         );
+    }
+}
+
+#[test]
+fn element_filters_blur_their_premultiplied_group_without_losing_coverage() {
+    let Some(gpu) = Gpu::for_fixture("UI element filter raster") else {
+        return;
+    };
+    let (low, high) = (SIDE / 2 - 16, SIDE / 2 + 16);
+    let square = |x: u32, y: u32| (low..high).contains(&x) && (low..high).contains(&y);
+    let group = scene(|x, y| if square(x, y) { [255; 4] } else { [0; 4] });
+    let sigma = 6.0f32;
+    let output = raster(
+        &gpu,
+        Mode::Filter,
+        &group,
+        &[everywhere(UiBackdropPaint {
+            blur: sigma,
+            ..UiBackdropPaint::IDENTITY
+        })],
+    );
+    save("element-filter-square", &output);
+    let row: Vec<f64> = (0..SIDE)
+        .map(|x| f64::from(at(&output, x, SIDE / 2)[3]) / 255.0)
+        .collect();
+    let energy: f64 = row.iter().sum();
+    let mean = row
+        .iter()
+        .enumerate()
+        .map(|(x, alpha)| x as f64 * alpha)
+        .sum::<f64>()
+        / energy;
+    let spread = (row
+        .iter()
+        .enumerate()
+        .map(|(x, alpha)| (x as f64 - mean).powi(2) * alpha)
+        .sum::<f64>()
+        / energy)
+        .sqrt();
+    // A 32-pixel box has variance 32^2 / 12; the blur adds sigma^2.
+    let expected = (32.0f64.powi(2) / 12.0 + f64::from(sigma).powi(2)).sqrt();
+    assert!((energy - 32.0).abs() < 1.5, "coverage changed to {energy}");
+    assert!((spread - expected).abs() < 1.0, "{spread} vs {expected}");
+    assert!(row[(low - 3 * sigma as u32) as usize] < 0.02);
+    assert!(row[(low - 2) as usize] > 0.2 && row[(SIDE / 2) as usize] > 0.97);
+    // Premultiplied white stays white wherever it spreads.
+    for x in 0..SIDE {
+        let pixel = at(&output, x, SIDE / 2);
+        assert!(pixel[0].abs_diff(pixel[3]) <= 1, "{pixel:?} at {x}");
     }
 }

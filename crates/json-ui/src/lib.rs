@@ -21,6 +21,7 @@ mod context;
 mod emit;
 mod env;
 mod expr;
+pub mod filter;
 mod form;
 mod hud;
 mod input;

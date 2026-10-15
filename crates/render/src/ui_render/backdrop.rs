@@ -52,9 +52,11 @@ pub(crate) fn pyramid_extent(size: [u32; 2]) -> ([u32; 2], u32) {
 
 #[derive(Resource)]
 pub(crate) struct UiBackdropPipeline {
-    filter_layout: BindGroupLayoutDescriptor,
-    apply_layout: BindGroupLayoutDescriptor,
+    pub(super) filter_layout: BindGroupLayoutDescriptor,
+    pub(super) apply_layout: BindGroupLayoutDescriptor,
     downsample: Option<CachedRenderPipelineId>,
+    /// The element-filter composite into the UI layer.
+    filter: Option<CachedRenderPipelineId>,
     /// Copy and apply pipelines for each main-texture format.
     formats: HashMap<TextureFormat, (CachedRenderPipelineId, CachedRenderPipelineId)>,
 }
@@ -87,6 +89,7 @@ impl FromWorld for UiBackdropPipeline {
                 &[texture(0), texture(1), sampler(2)],
             ),
             downsample: None,
+            filter: None,
             formats: HashMap::new(),
         }
     }
@@ -121,8 +124,12 @@ impl UiBackdropPipeline {
         }
     }
 
-    /// Backdrop shapes over a `format` main texture, reading UI vertices and the viewport.
-    fn apply_descriptor(&self, format: TextureFormat) -> RenderPipelineDescriptor {
+    /// Shapes drawn into `format` through `entry`, reading UI vertices and the viewport.
+    fn apply_descriptor(
+        &self,
+        format: TextureFormat,
+        entry: &'static str,
+    ) -> RenderPipelineDescriptor {
         let ui = pipeline::ui_pipeline_descriptor(pipeline::ui_bind_group_layout());
         RenderPipelineDescriptor {
             label: Some("UI backdrop shapes".into()),
@@ -135,7 +142,7 @@ impl UiBackdropPipeline {
             },
             fragment: Some(FragmentState {
                 shader: UI_BACKDROP_SHADER_HANDLE,
-                entry_point: Some("backdrop_fragment".into()),
+                entry_point: Some(entry.into()),
                 targets: vec![Some(ColorTargetState {
                     format,
                     blend: Some(pipeline::ui_alpha_blend_state()),
@@ -144,6 +151,31 @@ impl UiBackdropPipeline {
                 ..default()
             }),
             ..default()
+        }
+    }
+
+    /// Queues the pyramid downsample once.
+    pub(super) fn downsample(&mut self, cache: &PipelineCache) -> CachedRenderPipelineId {
+        match self.downsample {
+            Some(id) => id,
+            None => {
+                let descriptor = self.filter_descriptor("downsample", PYRAMID_FORMAT);
+                *self
+                    .downsample
+                    .insert(cache.queue_render_pipeline(descriptor))
+            }
+        }
+    }
+
+    /// Queues the element-filter composite into the UI layer once.
+    pub(super) fn filter_composite(&mut self, cache: &PipelineCache) -> CachedRenderPipelineId {
+        match self.filter {
+            Some(id) => id,
+            None => {
+                let descriptor =
+                    self.apply_descriptor(composite::UI_LAYER_FORMAT, "filter_fragment");
+                *self.filter.insert(cache.queue_render_pipeline(descriptor))
+            }
         }
     }
 
@@ -172,7 +204,8 @@ impl UiBackdropPipeline {
         };
         if !self.formats.contains_key(&format) {
             let copy = cache.queue_render_pipeline(self.filter_descriptor("copy", format));
-            let apply = cache.queue_render_pipeline(self.apply_descriptor(format));
+            let apply =
+                cache.queue_render_pipeline(self.apply_descriptor(format, "backdrop_fragment"));
             self.formats.insert(format, (copy, apply));
         }
         let (copy, apply) = self.formats[&format];
@@ -189,22 +222,48 @@ impl crate::pipeline_warmup::PrewarmPipelines for UiBackdropPipeline {
         ids: &mut crate::pipeline_warmup::WarmupIds,
     ) -> Result<(), BevyError> {
         let (downsample, copy, apply) = self.specialize(cache, view.hdr);
-        ids.extend([downsample, copy, apply]);
+        ids.extend([downsample, copy, apply, self.filter_composite(cache)]);
         Ok(())
     }
 }
 
 /// One view's blur pyramid and the bind groups between its own levels.
-struct Pyramid {
-    scene: [u32; 2],
+pub(super) struct Pyramid {
+    pub(super) scene: [u32; 2],
     /// Each level as a render target and as a single-level source.
-    levels: Vec<TextureView>,
+    pub(super) levels: Vec<TextureView>,
     /// Every level, sampled by backdrop shapes.
-    all: TextureView,
+    pub(super) all: TextureView,
     /// Level `m` read while writing level `m + 1`.
-    chain: Vec<BindGroup>,
-    /// For each main texture the scene may be in: its filter source and its shape bindings.
-    sources: Vec<(TextureViewId, BindGroup, BindGroup)>,
+    pub(super) chain: Vec<BindGroup>,
+    /// For each texture the source may be in: its filter source and its shape bindings.
+    pub(super) sources: Vec<(TextureViewId, BindGroup, BindGroup)>,
+}
+
+impl Pyramid {
+    /// Binds `source` as this pyramid's first input and as what its shapes sample, once.
+    pub(super) fn bind_source(
+        &mut self,
+        device: &RenderDevice,
+        layouts: [&BindGroupLayout; 2],
+        sampler: &Sampler,
+        source: &TextureView,
+    ) {
+        if self.sources.iter().any(|(id, _, _)| *id == source.id()) {
+            return;
+        }
+        let filter = device.create_bind_group(
+            "UI backdrop source",
+            layouts[0],
+            &BindGroupEntries::sequential((source, sampler)),
+        );
+        let shapes = device.create_bind_group(
+            "UI backdrop shapes",
+            layouts[1],
+            &BindGroupEntries::sequential((source, &self.all, sampler)),
+        );
+        self.sources.push((source.id(), filter, shapes));
+    }
 }
 
 /// Per-view pyramids, kept only while the accepted publication draws backdrops.
@@ -215,6 +274,8 @@ pub(crate) struct UiBackdropStore {
     views: HashMap<Entity, Pyramid>,
     /// Pipelines for each view this frame: downsample, copy and apply.
     pipelines: HashMap<Entity, [CachedRenderPipelineId; 3]>,
+    /// Per-view element-filter targets, kept only while filters are published.
+    pub(super) filters: HashMap<Entity, super::filter::FilterTargets>,
 }
 
 impl UiBackdropStore {
@@ -238,18 +299,30 @@ pub(crate) fn prepare_ui_backdrops(
     let store = &mut *store;
     if store.device.as_ref() != Some(device.wgpu_device()) {
         store.views.clear();
+        store.filters.clear();
         store.sampler = None;
         store.device = Some(device.wgpu_device().clone());
     }
-    let wanted = gpu
-        .as_ref()
-        .is_some_and(|gpu| gpu.accepted_revision.is_some() && gpu.batches.iter().any(is_backdrop));
+    let published = |wanted: fn(&UiRenderBatch) -> bool| {
+        gpu.as_ref()
+            .is_some_and(|gpu| gpu.accepted_revision.is_some() && gpu.batches.iter().any(wanted))
+    };
+    let (backdrops, filters) = (
+        published(is_backdrop),
+        published(super::filter::is_filter_composite),
+    );
     store.pipelines.clear();
-    if !wanted {
+    if !backdrops {
         store.views.clear();
+    }
+    if !filters {
+        store.filters.clear();
+    }
+    if !backdrops && !filters {
         return;
     }
     store.views.retain(|entity, _| views.contains(*entity));
+    store.filters.retain(|entity, _| views.contains(*entity));
     let sampler = store
         .sampler
         .get_or_insert_with(|| {
@@ -266,6 +339,20 @@ pub(crate) fn prepare_ui_backdrops(
         .clone();
     let filter = cache.get_bind_group_layout(&pipeline.filter_layout);
     let shapes = cache.get_bind_group_layout(&pipeline.apply_layout);
+    if filters {
+        super::filter::prepare(
+            store,
+            &mut pipeline,
+            &cache,
+            &device,
+            [&filter, &shapes],
+            &sampler,
+            views.iter().map(|(entity, target, _)| (entity, target)),
+        );
+    }
+    if !backdrops {
+        return;
+    }
     for (entity, target, camera) in &views {
         let size = target.main_texture().size();
         let scene = [size.width, size.height];
@@ -284,19 +371,7 @@ pub(crate) fn prepare_ui_backdrops(
             .sources
             .retain(|(id, _, _)| mains.iter().any(|main| main.id() == *id));
         for main in mains {
-            if pyramid.sources.iter().all(|(id, _, _)| *id != main.id()) {
-                let source = device.create_bind_group(
-                    "UI backdrop scene source",
-                    &filter,
-                    &BindGroupEntries::sequential((main, &sampler)),
-                );
-                let shape = device.create_bind_group(
-                    "UI backdrop shapes",
-                    &shapes,
-                    &BindGroupEntries::sequential((main, &pyramid.all, &sampler)),
-                );
-                pyramid.sources.push((main.id(), source, shape));
-            }
+            pyramid.bind_source(&device, [&filter, &shapes], &sampler, main);
         }
         let (downsample, copy, apply) = pipeline.specialize(&cache, camera.hdr);
         store.pipelines.insert(entity, [downsample, copy, apply]);
@@ -304,7 +379,7 @@ pub(crate) fn prepare_ui_backdrops(
 }
 
 /// Allocates the levels below `scene` and binds each as the next one's source.
-fn pyramid(
+pub(super) fn pyramid(
     device: &RenderDevice,
     layout: &BindGroupLayout,
     sampler: &Sampler,

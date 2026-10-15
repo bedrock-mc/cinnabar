@@ -37,6 +37,8 @@ use bevy::{
         view::{ExtractedView, ViewTarget},
     },
 };
+#[path = "ui_render/filter.rs"]
+pub(crate) mod filter;
 #[path = "ui_render/font_atlas.rs"]
 mod font_atlas;
 #[cfg(test)]

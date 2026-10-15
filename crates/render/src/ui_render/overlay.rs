@@ -6,7 +6,7 @@ use super::segments::plan_ui_passes;
 use super::*;
 use super::{
     damage::UiDamage,
-    layer::{UiLayerDraw, draw_batches, draw_ui_layer, model_depth_attachment},
+    layer::{UiLayerDraw, draw_batches, model_depth_attachment},
 };
 #[path = "world.rs"]
 mod world;
@@ -534,6 +534,7 @@ pub(crate) fn ui_overlay(
             viewport: viewport.as_ref(),
             skip: skip.as_ref(),
             clear: composite.clear_pipeline(pipeline_cache),
+            keep: false,
         };
         let content = retained
             .filter(|_| segment.independent_depth(&batches))
@@ -605,7 +606,7 @@ pub(crate) fn ui_overlay(
             }
             encoded
         } else {
-            let drawn = draw_ui_layer(
+            let drawn = super::filter::draw_layer(
                 context,
                 &layer_draw,
                 layered,
@@ -615,6 +616,7 @@ pub(crate) fn ui_overlay(
                 } else {
                     None
                 },
+                publication.as_deref(),
             );
             raster.hold_publication(
                 content

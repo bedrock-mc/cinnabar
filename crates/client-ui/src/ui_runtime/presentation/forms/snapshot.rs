@@ -7,8 +7,8 @@ use std::path::Path;
 
 use image::{Rgba, RgbaImage};
 use render_model::{
-    UI_BLEND_BACKDROP, UI_BLEND_INVERT, UI_STYLE_RADIAL_GRADIENT, UiRenderInput, UiRenderVertex,
-    UiTextureFormat,
+    UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_RADIAL_GRADIENT, UiRenderInput,
+    UiRenderVertex, UiTextureFormat,
 };
 
 const SNAPSHOT_ENV: &str = "CINNABAR_FORM_SNAPSHOT_DIR";
@@ -75,11 +75,12 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
     let [width, height] = input.viewport_size;
     let mut image = RgbaImage::from_pixel(width, height, Rgba([70, 90, 110, 255]));
     let pages = input.textures.pages();
-    // Backdrops process the 3-D scene, which this rasterizer does not have.
+    // Backdrops process the 3-D scene, which this rasterizer does not have; filtered groups
+    // draw unblurred in place of their composites.
     for batch in input
         .batches
         .iter()
-        .filter(|batch| batch.blend_mode != UI_BLEND_BACKDROP)
+        .filter(|batch| !matches!(batch.blend_mode, UI_BLEND_BACKDROP | UI_BLEND_FILTER))
     {
         let Some(page) = pages.get(batch.texture_page as usize) else {
             continue;

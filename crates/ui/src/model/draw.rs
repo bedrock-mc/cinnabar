@@ -14,6 +14,8 @@ pub(super) struct DrawSpace<'a> {
     pub(super) node: super::UiNodeId,
     /// The node's paint transform in frame coordinates, applied to every emitted vertex.
     pub(super) transform: Option<FrameAffine>,
+    /// The filter group every emitted batch draws into.
+    pub(super) filter: Option<u32>,
 }
 
 /// A 2-D affine map in frame coordinates: `p -> linear * p + translation`, `linear`
@@ -683,6 +685,7 @@ fn emit_colored_quad(
                 .is_some_and(|projection| projection.depth_write)
         && batch.world_projection == clip.projection.is_some()
         && batch.isolated_depth_scope.is_none()
+        && batch.filter_group == clip.filter
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -710,6 +713,7 @@ fn emit_colored_quad(
             .is_some_and(|projection| projection.depth_write),
         world_projection: clip.projection.is_some(),
         isolated_depth_scope: None,
+        filter_group: clip.filter,
         index_range: start..end,
     });
     Ok(())

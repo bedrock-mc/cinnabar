@@ -195,6 +195,24 @@ fn only_published_backdrops_allocate_a_pyramid_and_steady_frames_allocate_nothin
 }
 
 #[test]
+fn only_published_filters_allocate_an_offscreen_group() {
+    let (mut world, view) = view_world();
+    let mut prepare = IntoSystem::into_system(prepare_ui_backdrops);
+    prepare.initialize(&mut world);
+    publish(&mut world, 1, render_model::UI_BLEND_FILTER);
+    prepare.run((), &mut world).unwrap();
+    let store = world.resource::<UiBackdropStore>();
+    assert!(store.filters.contains_key(&view));
+    assert!(!store.allocated(), "a filter alone never blurs the scene");
+    let allocated = test_alloc::thread_allocations();
+    prepare.run((), &mut world).unwrap();
+    assert_eq!(test_alloc::thread_allocations(), allocated);
+    publish(&mut world, 2, UI_BLEND_ALPHA);
+    prepare.run((), &mut world).unwrap();
+    assert!(world.resource::<UiBackdropStore>().filters.is_empty());
+}
+
+#[test]
 fn backdrops_neither_enter_nor_damage_retained_layers() {
     let (mut world, _) = view_world();
     publish(&mut world, 1, UI_BLEND_BACKDROP);
@@ -228,7 +246,7 @@ fn backdrops_neither_enter_nor_damage_retained_layers() {
 }
 
 #[test]
-fn backdrops_are_rejected_on_world_projected_or_depth_tested_batches() {
+fn backdrops_and_filters_are_rejected_outside_screen_space_alpha_batches() {
     let (mut world, _) = view_world();
     publish(&mut world, 1, UI_BLEND_BACKDROP);
     let input = world
@@ -256,12 +274,31 @@ fn backdrops_are_rejected_on_world_projected_or_depth_tested_batches() {
         assert!(with(alpha).is_ok(), "{alpha:?}");
         assert!(with(batch).is_err(), "{batch:?}");
     }
+    for invalid in [
+        UiRenderBatch {
+            blend_mode: render_model::UI_BLEND_FILTER + 1,
+            ..input.batches[0]
+        },
+        UiRenderBatch {
+            blend_mode: render_model::UI_BLEND_FILTER,
+            ..input.batches[0].with_world_projection(true)
+        },
+        input.batches[0].with_filter_group(Some(3)),
+        UiRenderBatch {
+            blend_mode: UI_BLEND_ALPHA,
+            ..input.batches[0]
+                .with_filter_group(Some(3))
+                .with_world_projection(true)
+        },
+    ] {
+        assert!(with(invalid).is_err(), "{invalid:?}");
+    }
     assert!(
         with(UiRenderBatch {
-            blend_mode: UI_BLEND_BACKDROP + 1,
-            ..input.batches[0]
+            blend_mode: UI_BLEND_ALPHA,
+            ..input.batches[0].with_filter_group(Some(3))
         })
-        .is_err()
+        .is_ok()
     );
     assert!(input.validate().is_ok());
 }

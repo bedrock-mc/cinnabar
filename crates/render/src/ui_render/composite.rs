@@ -130,7 +130,7 @@ impl UiLayerTexture {
         self.present.store(true, Ordering::Relaxed);
     }
 
-    #[cfg(test)]
+    /// A raster outside the per-view retained set, such as an element filter's offscreen group.
     pub(crate) fn detached(texture: Texture, view: TextureView) -> Self {
         Self {
             texture,

@@ -72,7 +72,7 @@ fn world_backdrop_covers_its_node_completely() {
     }
     .paint(2.0);
     assert_eq!(paint.blur, 6.0);
-    let quad = world_quad(1, paint).unwrap();
+    let quad = cover_quad(1, paint, UiBlendMode::Backdrop).unwrap();
     assert_eq!(quad.batches()[0].blend, UiBlendMode::Backdrop);
     let corners: Vec<_> = quad
         .vertices()

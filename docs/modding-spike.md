@@ -410,6 +410,24 @@ antialiasing, so rotate a `cinnabar_rounded_rectangle` rather than a filled
 image. Only extension surfaces honour the property; resource packs and server
 UI ignore it.
 
+A control may declare `cinnabar_filter` to blur how it and all its descendants are
+drawn, as one image, like CSS `filter: blur()`:
+
+```json
+"cinnabar_filter": { "blur": 5 },
+"bindings": [{ "binding_name": "#menu_blur", "binding_name_override": "#cinnabar_blur" }]
+```
+
+`blur` is a Gaussian standard deviation in GUI pixels within 0–16 (default 0); the
+`#cinnabar_blur` binding target replaces it on a control that declares the property, so a
+transition with `"from": 5` blurs a menu in as it opens. Bound values are clamped. Filters
+cannot nest, and a blur binding without the property is rejected. A zero blur draws the
+subtree directly at no extra cost. Layout and hits are unchanged, and the blur spreads up
+to three standard deviations beyond what the subtree draws. While the blurred subtree's
+layer redraws, the client draws the subtree offscreen, downsamples it within those bounds
+and composites it blurred in its place; an unchanged layer reuses the result. Controls in
+other layers that interleave with the subtree split it into separately blurred groups.
+
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has
 an initial ordinary `panel` and a `surfaces` object mapping route identifiers to

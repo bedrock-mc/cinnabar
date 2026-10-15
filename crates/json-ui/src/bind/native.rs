@@ -151,6 +151,17 @@ pub(super) fn apply(
         }
         return;
     }
+    if target == crate::filter::BLUR_BINDING {
+        let key = crate::filter::FILTER_PROPERTY;
+        let current = native
+            .props
+            .get(key)
+            .or_else(|| control.properties.get(key));
+        if let Some(filter) = crate::filter::bind(value, current) {
+            native.props.insert(key.to_owned(), filter);
+        }
+        return;
+    }
     let props = &mut native.props;
     let mut set = |key: &str, value: Value| {
         props.insert(key.to_owned(), value);

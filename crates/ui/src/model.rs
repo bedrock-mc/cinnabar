@@ -41,13 +41,16 @@ impl UiNodeId {
 /// `Invert` is the classic crosshair blend — src*(1-dst) + dst*(1-src) — so a
 /// white sprite reads against any background. `Backdrop` draws no UI pixels: its geometry
 /// shows the 3-D scene processed by each vertex's [`render_api::UiBackdropPaint`], applied
-/// before any UI layer composites. Quads with different blends never share a draw batch.
+/// before any UI layer composites. `Filter` closes the filter group of the batches just
+/// before it: its geometry shows what that group drew, blurred by the vertex paint's `blur`.
+/// Quads with different blends never share a draw batch.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum UiBlendMode {
     #[default]
     Alpha,
     Invert,
     Backdrop,
+    Filter,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -152,6 +155,7 @@ pub struct UiNode {
     visual: UiVisual,
     world_projection: Option<UiWorldProjection>,
     transform: Option<UiTransform>,
+    filter_group: Option<u32>,
 }
 
 impl UiNode {
@@ -167,7 +171,19 @@ impl UiNode {
             visual: UiVisual::None,
             world_projection: None,
             transform: None,
+            filter_group: None,
         }
+    }
+
+    /// Draws this node's own visual into filter group `group` instead of straight into its
+    /// layer; a later [`UiBlendMode::Filter`] batch composites the group.
+    pub fn with_filter_group(mut self, group: u32) -> Self {
+        self.filter_group = Some(group);
+        self
+    }
+
+    pub const fn filter_group(&self) -> Option<u32> {
+        self.filter_group
     }
 
     /// Moves this node's own drawn vertices by `transform`; world-projected nodes ignore it.
@@ -376,6 +392,8 @@ pub struct UiDrawBatch {
     pub world_projection: bool,
     /// One model control's private depth lifetime; never the world depth buffer.
     pub isolated_depth_scope: Option<u32>,
+    /// The filter group this batch draws into, composited by a later filter batch.
+    pub filter_group: Option<u32>,
     pub index_range: Range<u32>,
 }
 
@@ -724,6 +742,7 @@ impl UiTree {
                         transform: node.transform.as_ref().map(|transform| {
                             draw::FrameAffine::for_node(transform, bounds, frame.scale)
                         }),
+                        filter: node.filter_group,
                     },
                     effects,
                     &mut vertices,
