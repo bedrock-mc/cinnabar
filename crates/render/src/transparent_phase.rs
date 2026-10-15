@@ -39,19 +39,18 @@ pub(crate) fn sort(
     mut phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     mut particles: Option<ResMut<crate::particle_render::ParticlePhase>>,
 ) {
+    if let Some(particles) = particles.as_mut() {
+        particles.retain_views(&phases);
+    }
     for (view, phase) in phases.iter_mut() {
         if let Some(draws) = particles
             .as_mut()
-            .and_then(|pending| pending.0.remove(view))
+            .and_then(|pending| pending.0.get_mut(view))
         {
             draws.merge(phase);
         } else {
             phase.sort();
         }
-    }
-    if let Some(mut particles) = particles {
-        // A view can disappear after queueing, including during panorama transitions.
-        particles.0.clear();
     }
 }
 
@@ -59,15 +58,14 @@ pub(crate) fn sort(
 pub(crate) fn add(phase: &mut SortedRenderPhase<Transparent3d>, item: Transparent3d) {
     let mut index =
         u32::try_from(phase.items.len()).expect("transparent phase exceeds entity index capacity");
-    add_with_reserved(phase, item, &mut index, |_| false);
+    add_with_cursor(phase, item, &mut index);
 }
 
-/// Adds a transient draw, advancing `index` past keys reserved by items awaiting a merge.
-pub(crate) fn add_with_reserved(
+/// Adds a transient draw, advancing `index` past every occupied key.
+pub(crate) fn add_with_cursor(
     phase: &mut SortedRenderPhase<Transparent3d>,
     item: Transparent3d,
     index: &mut u32,
-    reserved: impl Fn(&(Entity, MainEntity)) -> bool,
 ) {
     let key = loop {
         let slot =
@@ -77,7 +75,7 @@ pub(crate) fn add_with_reserved(
             .expect("transparent phase exceeds entity index capacity");
         // Bevy hashes the last entity in the pair, so that part must vary per draw.
         let key = (Entity::PLACEHOLDER, MainEntity::from(slot));
-        if !phase.items.contains_key(&key) && !reserved(&key) {
+        if !phase.items.contains_key(&key) {
             break key;
         }
     };

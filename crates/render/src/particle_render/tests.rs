@@ -85,7 +85,7 @@ fn additive_particles_compose_at_their_depth_with_only_cutout_particles_present(
         let terrain = functions.id::<DrawParticles<{ ParticleMode::Blend as u8 }>>();
         drop(functions);
         let pending = &app.world().resource::<ParticlePhase>().0[&view];
-        let item = &pending.streams[0].template;
+        let item = pending.streams[0].template.as_ref().unwrap();
         let extra = Transparent3d {
             sorting_info: bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
             entity: item.entity,
@@ -316,7 +316,7 @@ fn queued_particle_ranges_use_the_extracted_frame_before_gpu_preparation() {
 /// Adds translucent terrain between the particles before the shared phase merge.
 fn add_glass(app: &mut App, view: RetainedViewEntity, glass: DrawFunctionId) {
     let pending = &app.world().resource::<ParticlePhase>().0[&view];
-    let first = &pending.streams[0].template;
+    let first = pending.streams[0].template.as_ref().unwrap();
     let (entity, pipeline) = (first.entity, first.pipeline);
     let mut phases = app
         .world_mut()
@@ -361,7 +361,7 @@ fn per_instance_reference(
 ) -> SortedRenderPhase<Transparent3d> {
     let mut reference = SortedRenderPhase::default();
     for insertion in 0..=phase.items.len() {
-        for stream in &pending.streams {
+        for stream in &pending.streams[..pending.active] {
             if stream.insertion != insertion {
                 continue;
             }
@@ -369,7 +369,7 @@ fn per_instance_reference(
             let mut instances = stream.instances.as_slice().to_vec();
             instances.sort_by_key(|&(_, index)| index);
             for (distance, index) in instances {
-                let mut item = copy_item(&stream.template);
+                let mut item = copy_item(stream.template.as_ref().unwrap());
                 item.distance = distance.0;
                 item.extra_index = PhaseItemExtraIndex::IndirectParametersIndex {
                     range: index..index + 1,
@@ -704,7 +704,13 @@ fn each_camera_orders_the_extracted_instances_independently() {
     };
     assert_eq!(coverage(first), [1, 2, 4, 3]);
     assert_eq!(coverage(second), [3, 4, 2, 1]);
-    assert!(app.world().resource::<ParticlePhase>().0.is_empty());
+    assert!(
+        app.world()
+            .resource::<ParticlePhase>()
+            .0
+            .values()
+            .all(|draws| !draws.has_pending())
+    );
 }
 
 #[test]
@@ -835,3 +841,6 @@ fn particle_keys_cannot_replace_later_retained_draws_and_expire_with_the_phase()
     assert_eq!(phases[&view].items.len(), 1);
     assert_eq!(phases[&view].items[&reserved].draw_function, other);
 }
+
+#[path = "storage_tests.rs"]
+mod storage_tests;
