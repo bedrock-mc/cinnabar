@@ -221,7 +221,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "client-session"
 path = "crates/client-session"
-allowed_dependencies = ["simulation-clock", "bridge", "protocol", "server-experience", "world", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "bridge", "crash-report", "protocol", "server-experience", "world", "protocol-ids"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-presentation", "acceptance", "launcher", "client-ui", "client-world", "chunk-pipeline", "inventory", "player-state", "semantic-input", "ui", "json-ui", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "pack-runtime", "bevy", "bevy_*", "wgpu*"]
 test_support_features = ["test-support"]
 
@@ -304,7 +304,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "diagnostics"
 path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "env-compat", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
+allowed_dependencies = ["assets", "chunk-pipeline", "crash-report", "env-compat", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
 forbidden_dependencies = ["bevy", "protocol"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 
