@@ -521,6 +521,7 @@ fn emit_submission(
 mod tests {
     use super::*;
     use crate::block_entity::{
+        MIN_DYNAMIC_ATLAS_WIDTH,
         chest::{ChestModel, ChestPair, ChestVariant},
         mesh::Facing,
     };
@@ -536,9 +537,9 @@ mod tests {
             };
         let bytes = assets::encode_block_entity_catalog(
             b"{}",
-            128,
+            MIN_DYNAMIC_ATLAS_WIDTH,
             64,
-            &vec![255u8; 128 * 64 * 4],
+            &vec![255u8; MIN_DYNAMIC_ATLAS_WIDTH as usize * 64 * 4],
             &[
                 placement("textures/entity/chest/normal", 0, 64, 64),
                 placement("textures/environment/destroy_stage_0", 64, 16, 16),

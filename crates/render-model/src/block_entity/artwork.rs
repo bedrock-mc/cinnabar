@@ -143,25 +143,26 @@ mod tests {
 
     #[test]
     fn admission_counts_mob_shelves_and_gutters() {
+        let width = super::super::atlas::MIN_DYNAMIC_ATLAS_WIDTH;
         let textures: Vec<_> = (0..3)
             .map(|index| StaticTexture {
                 name: format!("mob/{index}"),
-                width: 512,
+                width: width / 2,
                 height: 64,
-                rgba8: Arc::from(vec![7; 512 * 64 * 4]),
+                rgba8: Arc::from(vec![7; (width / 2 * 64 * 4) as usize]),
             })
             .collect();
         let preparer = BlockEntityArtworkPreparer::new(&textures);
         let appended = 3 * 64 + 2;
         let limit = MAX_ATLAS_SIDE;
         let carrier_height = limit - dynamic_height(MAX_TEXT_PAGES as u32) - appended;
-        assert!(preparer.accepts_size([1024, carrier_height]));
-        assert!(!preparer.accepts_size([1024, carrier_height + 1]));
+        assert!(preparer.accepts_size([width, carrier_height]));
+        assert!(!preparer.accepts_size([width, carrier_height + 1]));
         let bytes = assets::encode_block_entity_catalog(
             b"{}",
-            1024,
+            width,
             carrier_height,
-            &vec![255; (1024 * carrier_height * 4) as usize],
+            &vec![255; (width * carrier_height * 4) as usize],
             &[],
         )
         .unwrap();
@@ -171,7 +172,7 @@ mod tests {
         assert_eq!(
             prepared
                 .atlas()
-                .texture("mob/2", [512.0, 64.0])
+                .texture("mob/2", [(width / 2) as f32, 64.0])
                 .unwrap()
                 .rect
                 .y,

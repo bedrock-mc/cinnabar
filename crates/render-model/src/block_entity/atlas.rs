@@ -25,8 +25,8 @@ pub const MAP_CELL: [u32; 2] = [128, 128];
 const MAP_COLUMNS: u32 = 8;
 const MAP_ROWS: u32 = 2;
 const MAP_STRIP_HEIGHT: u32 = MAP_CELL[1] * MAP_ROWS;
-/// Every fixed map/text row must fit within the atlas stride.
-pub(super) const MIN_DYNAMIC_ATLAS_WIDTH: u32 = {
+/// Minimum carrier width that fits every fixed map and text row in a prepared scene.
+pub const MIN_DYNAMIC_ATLAS_WIDTH: u32 = {
     let maps = MAP_COLUMNS * MAP_CELL[0];
     let text = TEXT_COLUMNS * TEXT_CELL[0];
     if maps > text { maps } else { text }
@@ -554,7 +554,7 @@ mod tests {
     #[test]
     fn a_burst_of_new_texts_rasterizes_within_the_frame_budget() {
         const TEXTS: usize = 300;
-        let mut text = DynamicCells::new(1024).unwrap();
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let mut most = 0;
         for frame in 1.. {
             let mut made = 0;
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn text_slots_reuse_hits_and_evict_least_recently_used() {
-        let mut text = DynamicCells::new(1024).unwrap();
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let first = text.text_slot(1, || canvas(1)).unwrap();
         assert_eq!(
             text.text_slot(1, || panic!("a hit must not rasterize")),
@@ -620,7 +620,10 @@ mod tests {
         text.begin_frame();
         let replaced = text.text_slot(1_000, || canvas(9)).unwrap();
         assert_eq!(replaced, first);
-        assert_eq!(text.pixels()[1024 * MAP_STRIP_HEIGHT as usize * 4], 9);
+        assert_eq!(
+            text.pixels()[(MIN_DYNAMIC_ATLAS_WIDTH * MAP_STRIP_HEIGHT * 4) as usize],
+            9
+        );
         assert!(text.text_slot(2_000, || vec![0; 3]).is_none());
     }
 
@@ -628,7 +631,7 @@ mod tests {
     /// rects already handed out; the page cap only bounds memory.
     #[test]
     fn a_full_frame_grows_a_page_instead_of_evicting_its_own_slots() {
-        let mut text = DynamicCells::new(1024).unwrap();
+        let mut text = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let page: Vec<u64> = (0..TEXT_SLOT_COUNT as u64).collect();
         let slots = settle(&mut text, &page, 1);
         assert_eq!(slots, (0..TEXT_SLOT_COUNT).collect::<Vec<_>>());
@@ -662,7 +665,7 @@ mod tests {
 
     #[test]
     fn map_cells_lead_the_text_pages_and_share_the_revision() {
-        let mut cells = DynamicCells::new(1024).unwrap();
+        let mut cells = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
         let before = cells.revision();
         let slot = cells
             .map_slot(7, || vec![5; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize])
@@ -671,12 +674,16 @@ mod tests {
         assert_ne!(cells.revision(), before);
         // The map strip opens the upload block so growing text pages never move it.
         assert_eq!(cells.pixels()[0], 5);
-        assert_eq!(cells.pixels().len(), 1024 * dynamic_height(1) as usize * 4);
+        assert_eq!(
+            cells.pixels().len(),
+            (MIN_DYNAMIC_ATLAS_WIDTH * dynamic_height(1) * 4) as usize
+        );
     }
 
     #[test]
     fn changed_atlas_width_preserves_cached_signs_maps_and_page_rows() {
-        let mut cells = DynamicCells::new(1024).unwrap();
+        let width = MIN_DYNAMIC_ATLAS_WIDTH;
+        let mut cells = DynamicCells::new(width).unwrap();
         let keys: Vec<_> = (0..32).collect();
         let slots = settle(&mut cells, &keys, 128);
         cells
@@ -684,19 +691,17 @@ mod tests {
             .unwrap();
         let before = cells.pixels();
         let revision = cells.revision();
-        cells.resize_width(2048).unwrap();
+        cells.resize_width(width * 2).unwrap();
         assert_ne!(cells.revision(), revision);
         let wide = cells.pixels();
         for (source, target) in before
-            .as_chunks::<{ 1024 * 4 }>()
-            .0
-            .iter()
-            .zip(wide.as_chunks::<{ 2048 * 4 }>().0.iter())
+            .chunks_exact(width as usize * 4)
+            .zip(wide.chunks_exact(width as usize * 2 * 4))
         {
             assert_eq!(&target[..source.len()], source);
             assert!(target[source.len()..].iter().all(|pixel| *pixel == 0));
         }
-        cells.resize_width(1024).unwrap();
+        cells.resize_width(width).unwrap();
         assert_eq!(cells.pixels(), before);
         for (key, slot) in keys.into_iter().zip(slots) {
             assert_eq!(

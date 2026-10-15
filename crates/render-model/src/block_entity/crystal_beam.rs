@@ -179,7 +179,8 @@ pub(super) fn emit(builder: &mut MeshBuilder, atlas: &BlockEntityAtlas, model: &
 mod tests {
     use super::*;
     use crate::block_entity::{
-        BlockEntityKind, BlockEntityScene, BlockEntitySubmission, SceneClock,
+        BlockEntityKind, BlockEntityScene, BlockEntitySubmission, MIN_DYNAMIC_ATLAS_WIDTH,
+        SceneClock,
     };
     use std::sync::Arc;
 
@@ -187,9 +188,9 @@ mod tests {
     fn scene() -> BlockEntityScene {
         let encoded = assets::encode_block_entity_catalog(
             b"{}",
+            MIN_DYNAMIC_ATLAS_WIDTH,
             16,
-            16,
-            &[255; 16 * 16 * 4],
+            &vec![255; MIN_DYNAMIC_ATLAS_WIDTH as usize * 16 * 4],
             &[assets::BlockEntityPlacement {
                 name: assets::CRYSTAL_BEAM_TEXTURE.into(),
                 x: 0,
