@@ -4,7 +4,6 @@ set -euo pipefail
 expected_bds_sha256='19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
 expected_bds_release='1.26.52.3'
 pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
-pinned_protocolgen_commit='dec7334ac3981b0b79146fa53c82af91d70f9f62'
 pinned_jolyne_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
 usage() {
@@ -142,6 +141,22 @@ if (download.get("Path") != expected["Path"] or download.get("Version") != expec
     or commit[:12] != revision):
     raise SystemExit("resolved gophertunnel module origin does not match the expected exact commit")
 print(commit)
+PYCODE
+}
+
+# Reads the exact generator revision from the shared target policy, not vendor metadata.
+resolve_pinned_protocolgen_commit() {
+    python3 - "$1/assets/bedrock-target.json" <<'PYCODE'
+import json
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+revision = json.loads(path.read_text(encoding="utf-8")).get("protocolgen_commit")
+if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+    raise SystemExit("Bedrock target manifest must pin a full lowercase protocolgen_commit")
+print(revision)
 PYCODE
 }
 
@@ -620,6 +635,9 @@ os.replace(temporary, output_path)
 PY
 }
 
+project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+pinned_protocolgen_commit=$(resolve_pinned_protocolgen_commit "$project_root") || die 'protocolgen target policy is invalid'
+
 if [[ ${CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY:-} == 1 ]]; then
     return 0 2>/dev/null || exit 0
 fi
@@ -660,7 +678,6 @@ if [[ -n $upstream ]]; then
     (( upstream_port_value >= 1 && upstream_port_value <= 65535 )) || die "upstream port is out of range: $upstream_port"
 fi
 
-project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 pinned_gophertunnel_commit=$(resolve_pinned_gophertunnel_commit "$project_root") || die 'gophertunnel module provenance validation failed'
 assert_protocol_dependency_provenance "$project_root" || die 'protocol dependency provenance validation failed'
 metrics_out=$(absolute_path "$metrics_out")
