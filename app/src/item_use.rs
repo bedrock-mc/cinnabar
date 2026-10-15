@@ -284,7 +284,7 @@ fn produce_use(
     }
 }
 
-/// Admits use on its logical clock, holding assisted release behind its completed facing input.
+/// Admits use on its logical clock and fences releases behind their captured action facing.
 #[allow(clippy::too_many_arguments)]
 fn admit_with_action_aim(
     runtime: &mut gameplay::item_use::ItemUseRuntime,
@@ -307,8 +307,7 @@ fn admit_with_action_aim(
         tick: movement.completed_tick().saturating_add(1),
         ..frame.clone()
     });
-    let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0)
-        && movement.newest_unsent_sample().is_some();
+    let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0);
     let mut deferred = None;
     admit_on_tick(
         runtime,
@@ -328,7 +327,7 @@ fn admit_with_action_aim(
         },
     );
     if let Some(packets) = deferred {
-        if let Some(rotation) = aim_rotation {
+        if let Some(rotation) = aim_rotation.or_else(|| riptide_fence.then(|| view.rotation())) {
             client_interaction::camera::aim_assist::apply_action_rotation(
                 rotation, view, movement, frame.tick,
             );

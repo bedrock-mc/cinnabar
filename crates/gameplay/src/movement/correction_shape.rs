@@ -264,6 +264,7 @@ pub fn reconcile_physics_anchor(
         };
         let mut candidate_physics = physics.clone();
         let mut candidate_ticker = ticker.clone();
+        let riptide_after_snap = candidate_ticker.riptide_request_after_snap(&candidate_physics);
         if matches!(mode, PhysicsCorrectionMode::ReplayIfRetained)
             && let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick()
         {
@@ -294,6 +295,9 @@ pub fn reconcile_physics_anchor(
                     PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
                 }
             })?;
+        if matches!(mode, PhysicsCorrectionMode::Snap) {
+            candidate_physics.restore_riptide_request(riptide_after_snap);
+        }
         candidate_ticker.apply_correction_plan(&plan)?;
         Ok((candidate_ticker, candidate_physics, plan.outcome))
     };

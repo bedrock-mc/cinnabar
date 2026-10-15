@@ -10,6 +10,9 @@ use gameplay::{
 };
 use protocol::{NetworkItemStack, VerifiedNetworkItemStack};
 
+mod assisted;
+mod snap;
+
 /// Supplies the selected stack shared by use frames and prediction checks.
 fn held_stack() -> NetworkItemStack {
     NetworkItemStack {

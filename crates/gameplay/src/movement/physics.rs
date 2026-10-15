@@ -221,6 +221,13 @@ pub struct LocalPhysicsFrame {
     pub samples: Vec<PhysicsMovementSample>,
 }
 
+/// An admitted launch and the completed facing tick that must precede it.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::movement) struct RiptideRequest {
+    launch: sim::RiptideLaunch,
+    after_tick: u64,
+}
+
 /// Locally predicted fixed-tick player state and render interpolation.
 ///
 /// This resource never owns a network sender or changes [`super::MovementTicker`]
@@ -260,7 +267,7 @@ pub struct LocalPhysicsController {
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
     /// One admitted release waiting for a successful movement tick.
-    riptide_pending: Option<sim::RiptideLaunch>,
+    riptide_pending: Option<RiptideRequest>,
     /// Bounded spawn-anchor depenetration state (provisional recovery
     /// policy): the pending probe, per-epoch failure budget, and any frozen
     /// embedded-anchor hold.
@@ -555,7 +562,10 @@ impl LocalPhysicsController {
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
         for tick_index in 0..allowed {
-            input.riptide = self.riptide_pending;
+            input.riptide = self
+                .riptide_pending
+                .filter(|request| state.tick >= request.after_tick)
+                .map(|request| request.launch);
             let mut tick_input = self.input_edges.sample(context.input);
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
@@ -833,7 +843,9 @@ impl LocalPhysicsController {
                             .expect("completed controller retained"),
                     );
                     self.jump_edge_pending = false;
-                    self.riptide_pending = None;
+                    if input.riptide.is_some() {
+                        self.riptide_pending = None;
+                    }
                     self.input_edges = Default::default();
                     self.jump_pulse_held = self.jump_pulse_pending;
                     self.jump_pulse_pending = false;

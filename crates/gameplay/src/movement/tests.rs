@@ -203,6 +203,26 @@ fn held_release_survives_an_authority_change_after_its_facing_was_written() {
     assert!(released);
 }
 
+#[test]
+fn discarding_a_future_release_drops_its_reserved_facing() {
+    use crate::test_support::survival_mining::completed;
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, completed(101).position);
+    ticker.set_source(MovementSource::Physics);
+    ticker.enqueue_completed_physics(completed(101)).unwrap();
+    let written = flush_identities(&mut ticker, 1);
+    assert!(ticker.acknowledge_physics_send(written[0]));
+    assert!(ticker.override_action_rotation(102, -30.0, 90.0));
+    ticker.hold_release_after_tick(102, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.correction_authority_changed();
+    assert!(!ticker.has_held_release());
+    let next = completed(102);
+    ticker.enqueue_completed_physics(next.clone()).unwrap();
+    let snapshot = ticker.pending_snapshots()[0];
+    assert_eq!((snapshot.pitch, snapshot.yaw), (next.pitch, next.yaw));
+    ticker.send_held_release(|_| panic!("the discarded release must not return"));
+}
+
 /// A reanchor that keeps the tick number retires an action flag latched under the old authority.
 #[test]
 fn a_reanchor_drops_a_flag_latched_for_the_next_tick() {

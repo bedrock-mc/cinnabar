@@ -73,7 +73,7 @@ pub(super) struct HeldRelease {
     tick: u64,
     packets: Vec<Packet>,
     facing_sent: bool,
-    riptide: bool,
+    riptide: Option<super::physics::RiptideRequest>,
 }
 
 /// Recent tick-end states by tick, fed wherever a tick completes, is replayed or is
@@ -423,7 +423,7 @@ impl MovementTicker {
             tick,
             packets,
             facing_sent: false,
-            riptide: false,
+            riptide: None,
         });
     }
 
@@ -434,10 +434,14 @@ impl MovementTicker {
         level: u8,
         rotation: [f32; 2],
     ) {
-        if physics.request_riptide(level, rotation)
+        let tick = self
+            .held_release
+            .as_ref()
+            .map_or(self.completed_tick(), |held| held.tick);
+        if let Some(request) = physics.request_riptide_after_tick(level, rotation, tick)
             && let Some(held) = self.held_release.as_mut()
         {
-            held.riptide = true;
+            held.riptide = Some(request);
         }
     }
 
@@ -445,8 +449,24 @@ impl MovementTicker {
     pub(super) fn unconfirmed_riptide_release_tick(&self) -> Option<u64> {
         self.held_release
             .as_ref()
-            .filter(|held| held.riptide && !held.facing_sent)
+            .filter(|held| held.riptide.is_some() && !held.facing_sent)
             .map(|held| held.tick)
+    }
+
+    /// Preserves a written release's request, or an already-admitted pending launch, on snap.
+    pub(super) fn riptide_request_after_snap(
+        &self,
+        physics: &super::LocalPhysicsController,
+    ) -> Option<super::physics::RiptideRequest> {
+        match self
+            .held_release
+            .as_ref()
+            .filter(|held| held.riptide.is_some())
+        {
+            Some(held) if held.facing_sent => held.riptide,
+            Some(_) => None,
+            None => physics.pending_riptide_request(),
+        }
     }
 
     /// Whether a held release still waits; later uses must not overtake it.
@@ -580,7 +600,11 @@ impl MovementTicker {
     /// A correction revokes in-flight interactions but keeps the player's pending action flags.
     pub(super) fn correction_authority_changed(&mut self) {
         let flags = self.take_next_tick_flags();
-        let rotation = self.next_tick_rotation.take();
+        let discarded_facing = self
+            .held_release
+            .as_ref()
+            .is_some_and(|held| !held.facing_sent && held.tick == self.next_tick);
+        let rotation = self.next_tick_rotation.take().filter(|_| !discarded_facing);
         self.position_authority_changed();
         self.next_tick_flags = flags;
         self.next_tick_rotation = rotation;

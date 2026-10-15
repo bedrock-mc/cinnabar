@@ -6512,7 +6512,9 @@ tick states; correction/rewind handling (`CorrectPlayerMovePrediction`).
   Water and lava travel read the underwater and lava movement attributes, and a swimmer's
   dolphin boost scales speed and drag as vanilla does. Riptide charge and release now feed an
   additive level-dependent launch, retained release facing, spin lifetime and start/stop input flags.
-  Discarding an unsent release cancels its pending and replayed launch. Impulses beyond the
+  Ordinary releases reserve their captured facing on the next input before launching, without
+  extending charge time. Written release fences retain their launch through snaps and replay
+  fallback; discarded releases cancel their pending and replayed launch. Impulses beyond the
   collision-query budget are skipped and logged instead of stalling prediction; this safety
   bound is a known divergence for unsupported enchantment levels.
   Riptide parity remains incomplete: positional rain temperature, precise rain occlusion,
