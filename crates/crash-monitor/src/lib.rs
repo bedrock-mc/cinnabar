@@ -8,6 +8,7 @@ mod describe;
 mod dump;
 mod hang;
 mod outcome;
+mod panic_history;
 mod parent;
 mod run;
 mod server;

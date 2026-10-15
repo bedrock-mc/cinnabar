@@ -148,6 +148,75 @@ fn v2_captures_from_another_protocol_are_rejected() {
     );
 }
 
+/// Terrain requiring blobs outside the capture must fail before a replay endpoint is opened.
+#[test]
+fn cached_terrain_captures_are_rejected_explicitly() {
+    let mut accepted_cached = Vec::new();
+    for cached in [true, false] {
+        for packet in protocol::test_support::packets::terrain_cache_packets(cached) {
+            let batch = protocol::session_wire::batch_frame_from_bedrock(
+                &protocol::encode(&packet).unwrap(),
+            )
+            .unwrap();
+            let protocol::session_wire::CoreMessage::Batch(mut packets) =
+                protocol::session_wire::decode_core_message(batch).unwrap()
+            else {
+                panic!("terrain batch");
+            };
+            let wire = packets.pop().unwrap();
+            // The ID's canonical header length comes from the protocol encoder.
+            let id = packet.kind().id();
+            let header_len = protocol::session_wire::packet_from_body(id, &[])
+                .unwrap()
+                .len();
+            let body = wire.slice(header_len..);
+            for v2 in [false, true] {
+                let mut data = fixtures::capture();
+                if v2 {
+                    let mut writer = CaptureWriter::new(
+                        Vec::new(),
+                        CaptureHeader {
+                            protocol_version: protocol::PROTOCOL_VERSION,
+                            started_unix_ms: STARTED_UNIX_MS,
+                        },
+                    )
+                    .unwrap();
+                    for (packet_id, body) in
+                        fixture_packets().into_iter().chain([(id, body.clone())])
+                    {
+                        writer
+                            .write(&CaptureRecord::Packet {
+                                direction: PacketDirection::Clientbound,
+                                packet_id,
+                                elapsed_us: 0,
+                                body,
+                            })
+                            .unwrap();
+                    }
+                    data = writer.into_inner();
+                } else {
+                    data.extend(fixtures::record(id, &body));
+                }
+                let result = read(data);
+                if cached {
+                    match result {
+                        Err(error) => {
+                            assert!(format!("{error:#}").contains("blob-cache"), "{error:#}")
+                        }
+                        Ok(_) => accepted_cached.push((id, if v2 { 2 } else { 1 })),
+                    }
+                } else {
+                    assert!(result.is_ok(), "uncached terrain: {:?}", result.err());
+                }
+            }
+        }
+    }
+    assert!(
+        accepted_cached.is_empty(),
+        "cached terrain must not silently lose its blobs: {accepted_cached:?}"
+    );
+}
+
 #[test]
 fn original_timing_needs_recorded_arrival_times() {
     let v1 = read(fixtures::capture()).unwrap();

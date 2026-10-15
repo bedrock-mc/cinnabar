@@ -8,16 +8,17 @@
 //! captures.
 //!
 //! Once [`PacketLog::attach`]ed to the session's crash staging directory, the ring lives in a
-//! mapped file there and each sample change is written beside it, so crash reports read both
-//! after any crash, including native faults.
+//! mapped file there. A bounded background writer coalesces sample changes beside it, so
+//! crash reports can read persisted samples after native faults. Pending sample changes may
+//! be lost if the process exits before the writer runs.
 
 mod capture;
 mod samples;
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
 use std::time::{Duration, Instant};
 
 use crash_report::{
@@ -30,8 +31,8 @@ use protocol::packet_tap::{
 };
 
 pub use capture::{
-    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_RECORDS, LOG_DIR_CAPTURE_BYTES,
-    LOG_DIR_CAPTURES_KEPT, PacketCaptureRequest,
+    CAPTURE_BUFFER_BYTES, CAPTURE_EXTENSION, CAPTURE_QUEUE_BYTES, CAPTURE_QUEUE_RECORDS,
+    LOG_DIR_CAPTURE_BYTES, LOG_DIR_CAPTURES_KEPT, PacketCaptureRequest,
 };
 pub(crate) use capture::{CAPTURE_FINISH_TIMEOUT, CaptureFeed, CaptureFinisher};
 use samples::FailureSamples;
@@ -69,13 +70,14 @@ impl HeaderRecord {
 /// Packet headers and rejected bodies recorded by this process's sessions.
 pub struct PacketLog {
     ring: PacketRing,
-    samples: Mutex<FailureSamples>,
+    samples: Arc<Mutex<FailureSamples>>,
     /// Where sample changes are written once attached.
-    samples_dir: OnceLock<PathBuf>,
+    samples_writer: OnceLock<samples::writer::SampleWriter>,
+    missed_samples: Arc<AtomicU64>,
     sessions: AtomicU64, // sessions begun so far
 }
 
-static PACKET_LOG: PacketLog = PacketLog::new();
+static PACKET_LOG: LazyLock<PacketLog> = LazyLock::new(PacketLog::new);
 
 /// The process-wide packet log every session records to.
 #[must_use]
@@ -84,11 +86,12 @@ pub fn global() -> &'static PacketLog {
 }
 
 impl PacketLog {
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             ring: PacketRing::new(),
-            samples: Mutex::new(FailureSamples::new()),
-            samples_dir: OnceLock::new(),
+            samples: Arc::new(Mutex::new(FailureSamples::new())),
+            samples_writer: OnceLock::new(),
+            missed_samples: Arc::new(AtomicU64::new(0)),
             sessions: AtomicU64::new(0),
         }
     }
@@ -102,9 +105,15 @@ impl PacketLog {
         self.ring
             .attach(&staging_dir.join(staging::PACKET_RING_FILE))?;
         let dir = staging_dir.join(staging::DECODE_SAMPLES_DIR);
-        let samples = self.lock_samples();
-        let _ = self.samples_dir.set(dir.clone());
-        samples.persist_all(&dir)
+        self.lock_samples().clone().persist_all(&dir)?;
+        let writer = samples::writer::SampleWriter::start(
+            dir,
+            Arc::clone(&self.samples),
+            Arc::clone(&self.missed_samples),
+        )?;
+        let _ = self.samples_writer.set(writer);
+        self.samples_writer.get().unwrap().changed();
+        Ok(())
     }
 
     /// Numbers a new session, from 1; its rejected bodies replace older sessions' samples.
@@ -139,14 +148,21 @@ impl PacketLog {
         body: &[u8],
     ) {
         self.ring.settle(sequence, outcome as u8);
-        let mut samples = self.lock_samples();
-        let Some(offered) = samples.offer(session, sequence, packet_id, outcome, body) else {
-            return;
-        };
-        if let Some(dir) = self.samples_dir.get()
-            && let Err(error) = samples.persist(dir, offered)
-        {
-            tracing::warn!(dir = %dir.display(), %error, "could not save a rejected packet sample");
+        match self.samples.try_lock() {
+            Ok(mut samples) => {
+                samples.offer(session, sequence, packet_id, outcome, body);
+            }
+            Err(TryLockError::Poisoned(error)) => {
+                error
+                    .into_inner()
+                    .offer(session, sequence, packet_id, outcome, body);
+            }
+            Err(TryLockError::WouldBlock) => {
+                self.missed_samples.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if let Some(writer) = self.samples_writer.get() {
+            writer.changed();
         }
     }
 
@@ -166,6 +182,7 @@ impl PacketLog {
         self.lock_samples().samples().to_vec()
     }
 
+    /// Locks the in-memory snapshot for readers outside ingress.
     fn lock_samples(&self) -> MutexGuard<'_, FailureSamples> {
         self.samples.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -231,6 +248,7 @@ impl<'log> SessionTap<'log> {
         }
     }
 
+    /// Returns monotonic milliseconds since this tap began.
     fn elapsed_ms(&self, now: Instant) -> u64 {
         millis(now.saturating_duration_since(self.epoch))
     }
@@ -281,6 +299,7 @@ impl PacketTap for SessionTap<'_> {
     }
 }
 
+/// Converts elapsed time without overflowing the wire field.
 fn millis(elapsed: Duration) -> u64 {
     u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX)
 }

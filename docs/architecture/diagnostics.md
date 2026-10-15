@@ -25,7 +25,8 @@ reloadable filter, the file and console formatter, the JSON sink, the flight rec
 Android logcat and any caller layer such as Tracy. Categories (`net`, `world`, `render`,
 `ui`, `packs`, `audio`, `input`, `core`, `session`) map to crate targets in one table; a test
 fails when a crate that logs belongs to none. The console writer thread is the only writer:
-warnings and errors use reserved queue capacity and are never dropped. The Go core receives
+warnings and errors use reserved record and byte capacity. Overflow is counted, and an error
+waits only a bounded time for room. The Go core receives
 its level from the `core` category and labels every line with its process role.
 
 ## Crash flow
@@ -34,7 +35,8 @@ The client starts the monitor first and connects over a private socket authentic
 token passed on the monitor's stdin. A fault or panic only requests a dump; the monitor
 writes the folder after the client is gone so the logs include the final lines, then opens
 the crash window. Exits without a dump (fail-fast aborts, kills) are reported from the exit
-status. A panic the client survives is saved without a window. A main-thread stall outside
+status. A panic the client survives is saved without a window. The monitor retains one log snapshot
+for the current panic cascade and bounds pending reports. A main-thread stall outside
 loading phases produces a `hang` report while the game keeps running. Before the monitor
 connects, and on Android, in-process writers produce the same folder layout.
 

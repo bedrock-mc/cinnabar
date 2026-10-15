@@ -1,4 +1,5 @@
 use std::ffi::OsStr;
+use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -351,6 +352,7 @@ fn attached_samples_follow_the_latest_session_on_disk() {
     );
     log.reject(3, second, 9, PacketOutcome::Failed, &[7, 8]);
     log.reject(3, 0, secret_packet_id(), PacketOutcome::Failed, &[1]);
+    log.samples_writer.get().unwrap().flush();
     let first_name = log.samples()[0].file_name();
     assert_eq!(
         first_name,
@@ -382,42 +384,11 @@ fn attached_samples_follow_the_latest_session_on_disk() {
         PacketOutcome::Accepted,
     );
     log.reject(4, third, 9, PacketOutcome::Failed, &[1]);
+    log.samples_writer.get().unwrap().flush();
     assert!(!dir.join(&first_name).exists());
     let index = std::fs::read_to_string(dir.join(samples::INDEX_FILE)).unwrap();
     assert!(
         index.starts_with("rejected packet samples from session 4: 1 kept"),
-        "{index}"
-    );
-}
-
-/// Rejects past the per-packet bound are only counted: they write nothing, however many arrive,
-/// and the index's drop count catches up at the next kept sample.
-#[test]
-fn rejects_past_the_sample_bounds_write_no_files() {
-    let log = fresh_log();
-    let staging = tempfile::tempdir().unwrap();
-    let dir = staging.path().join(staging::DECODE_SAMPLES_DIR);
-    log.attach(staging.path()).unwrap();
-    for sequence in 0..MAX_SAMPLES_PER_PACKET as u64 {
-        log.reject(5, sequence, 9, PacketOutcome::Skipped, &[1]);
-    }
-    let index = dir.join(samples::INDEX_FILE);
-    std::fs::remove_file(&index).unwrap();
-    let files = std::fs::read_dir(&dir).unwrap().count();
-
-    for sequence in 0..1_000 {
-        log.reject(5, 100 + sequence, 9, PacketOutcome::Skipped, &[1]);
-    }
-    assert!(!index.exists(), "an only-counted reject rewrote the index");
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), files);
-
-    log.reject(5, 2_000, 20, PacketOutcome::Skipped, &[2]);
-    let index = std::fs::read_to_string(index).unwrap();
-    let kept = MAX_SAMPLES_PER_PACKET + 1;
-    assert!(
-        index.starts_with(&format!(
-            "rejected packet samples from session 5: {kept} kept ({kept} bytes), 0 withheld as credential-bearing, 1000 over the bounds"
-        )),
         "{index}"
     );
 }
@@ -791,4 +762,307 @@ fn a_session_capture_keeps_packets_but_never_credential_bearing_bodies() {
         ))
     );
     assert_eq!(read_file(&path).records.len(), 2);
+}
+
+#[test]
+fn capture_byte_budget_drops_before_record_slots_fill_and_recovers_after_drain() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES / 2 + 1]);
+    for _ in 0..2 {
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+    }
+    assert_eq!(
+        queue.take_queued().len(),
+        1,
+        "the byte budget must drop the second body"
+    );
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    let records = queue.take_queued();
+    assert!(matches!(
+        records.as_slice(),
+        [
+            CaptureRecord::Gap { dropped: 1, .. },
+            CaptureRecord::Packet { .. }
+        ]
+    ));
+}
+
+#[test]
+fn capture_refuses_a_body_larger_than_its_byte_budget() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES + 1]);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    assert!(
+        queue.take_queued().is_empty(),
+        "an oversized body must never be retained"
+    );
+    drop(feed);
+    let written = queue
+        .drain(CaptureWriter::new(Vec::new(), header(1)).unwrap())
+        .unwrap();
+    let file = read_capture(Bytes::from(written)).unwrap();
+    assert!(matches!(
+        file.records.as_slice(),
+        [CaptureRecord::Gap { dropped: 1, .. }]
+    ));
+}
+
+#[test]
+fn queued_capture_bodies_release_unrelated_batch_storage() {
+    let started = Instant::now();
+    let (feed, queue, _stop) = channel(8, started);
+    let batch = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES]);
+    let body = batch.slice(..1);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    drop(body);
+    assert!(
+        batch.is_unique(),
+        "queued packets must not retain the batch allocation"
+    );
+    assert_eq!(queue.take_queued(), [packet(9, 0, &[7])]);
+}
+
+#[test]
+fn capture_charges_the_body_while_disk_output_is_blocked() {
+    use std::sync::atomic::AtomicBool;
+
+    /// Stops the first armed write until the test has tried another capture admission.
+    struct GatedWriter {
+        armed: Arc<AtomicBool>,
+        entered: crossbeam_channel::Sender<()>,
+        release: crossbeam_channel::Receiver<()>,
+        bytes: Vec<u8>,
+    }
+    impl Write for GatedWriter {
+        /// Stores output, with one deterministic pause after the file header is written.
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.armed.swap(false, Ordering::SeqCst) {
+                self.entered.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        /// Has no buffered output beyond the test's owned byte vector.
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let started = Instant::now();
+    let (feed, queue, stop) = channel(8, started);
+    let body = Bytes::from(vec![7; super::capture::CAPTURE_QUEUE_BYTES / 2 + 1]);
+    let armed = Arc::new(AtomicBool::new(false));
+    let (entered, writing) = crossbeam_channel::bounded(1);
+    let (release, blocked) = crossbeam_channel::bounded(1);
+    let writer = CaptureWriter::new(
+        GatedWriter {
+            armed: Arc::clone(&armed),
+            entered,
+            release: blocked,
+            bytes: Vec::new(),
+        },
+        header(1),
+    )
+    .unwrap();
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    armed.store(true, Ordering::SeqCst);
+    let thread = std::thread::spawn(move || queue.drain(writer).unwrap().bytes);
+    writing.recv().unwrap();
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    stop.send(()).unwrap();
+    release.send(()).unwrap();
+    let file = read_capture(Bytes::from(thread.join().unwrap())).unwrap();
+    assert!(matches!(
+        file.records.as_slice(),
+        [
+            CaptureRecord::Packet { .. },
+            CaptureRecord::Gap { dropped: 1, .. }
+        ]
+    ));
+}
+
+/// A closed capture must leave no packet-copying overhead on the network producer.
+#[test]
+fn an_exited_capture_writer_stops_allocating_packet_bodies() {
+    let started = Instant::now();
+    let body = Bytes::from(vec![7; 4096]);
+    for limited in [false, true] {
+        let (feed, queue, _stop) = channel(8, started);
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+        if limited {
+            let writer = CaptureWriter::with_limit(
+                Vec::new(),
+                header(3),
+                CAPTURE_HEADER_BYTES + RECORD_HEADER_BYTES,
+            )
+            .unwrap();
+            queue.drain(writer).unwrap();
+        } else {
+            drop(queue);
+        }
+        let (_, allocations) = test_alloc::count(|| {
+            feed.packet(
+                PacketDirection::Clientbound,
+                9,
+                started,
+                PacketBody::whole(&body),
+            );
+        });
+        assert_eq!(allocations, 0, "the stopped writer must skip body copies");
+    }
+}
+
+/// A disk error disables copying just like a size-limit or normal writer exit.
+#[test]
+fn a_failed_capture_write_stops_allocating_packet_bodies() {
+    struct HeaderOnly(usize);
+    impl std::io::Write for HeaderOnly {
+        /// Accepts the file header, then simulates a full disk on the first record.
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if bytes.len() > self.0 {
+                return Err(std::io::Error::other("disk full"));
+            }
+            self.0 -= bytes.len();
+            Ok(bytes.len())
+        }
+
+        /// The unbuffered fixture has nothing left to flush.
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let started = Instant::now();
+    let body = Bytes::from(vec![7; 4096]);
+    let (feed, queue, _stop) = channel(8, started);
+    feed.packet(
+        PacketDirection::Clientbound,
+        9,
+        started,
+        PacketBody::whole(&body),
+    );
+    let writer = CaptureWriter::new(HeaderOnly(CAPTURE_HEADER_BYTES as usize), header(3)).unwrap();
+    assert!(queue.drain(writer).is_err());
+    let (_, allocations) = test_alloc::count(|| {
+        feed.packet(
+            PacketDirection::Clientbound,
+            9,
+            started,
+            PacketBody::whole(&body),
+        );
+    });
+    assert_eq!(allocations, 0, "a failed writer must skip body copies");
+}
+
+/// Ingress must return even while opening a sample file would wait for a reader.
+#[cfg(unix)]
+#[test]
+fn rejected_samples_do_not_wait_for_filesystem_consumers() {
+    let dir = tempfile::tempdir().unwrap();
+    let log = Arc::new(PacketLog::new());
+    log.reject(1, 1, 9, PacketOutcome::Failed, b"first");
+    log.attach(dir.path()).unwrap();
+    let samples = dir.path().join(staging::DECODE_SAMPLES_DIR);
+    let fifo = samples.join(
+        FailureSample {
+            session: 1,
+            sequence: 2,
+            packet_id: 9,
+            outcome: PacketOutcome::Failed,
+            len: 6,
+            body: Vec::new(),
+        }
+        .file_name(),
+    );
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (done, finished) = std::sync::mpsc::channel();
+    let producer = Arc::clone(&log);
+    let worker = std::thread::spawn(move || {
+        producer.reject(1, 2, 9, PacketOutcome::Failed, b"second");
+        done.send(()).unwrap();
+    });
+    let completed = finished
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .is_ok();
+    // Opening the read end releases a blocked old writer before asserting the regression.
+    let mut reader = std::process::Command::new("cat")
+        .arg(&fifo)
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    if !completed {
+        finished
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+    }
+    worker.join().unwrap();
+    if reader.try_wait().unwrap().is_none() {
+        reader.kill().unwrap();
+        reader.wait().unwrap();
+    }
+    assert!(
+        completed,
+        "network ingress waited for a sample file consumer"
+    );
+}
+
+#[test]
+fn empty_rejections_still_obey_a_total_sample_bound() {
+    let mut samples = FailureSamples::new();
+    for id in 10000..10000 + packets::CAPACITY as u32 * 2 {
+        samples.offer(1, u64::from(id), id, PacketOutcome::Skipped, b"");
+    }
+    assert_eq!(samples.samples().len(), packets::CAPACITY);
+    assert_eq!(samples.dropped(), packets::CAPACITY as u64);
+}
+
+#[test]
+fn a_busy_sample_snapshot_never_blocks_ingress_and_counts_the_offer() {
+    let log = fresh_log();
+    let locked = log.lock_samples();
+    log.reject(1, 1, 9, PacketOutcome::Failed, b"sample");
+    drop(locked);
+    assert_eq!(log.missed_samples.load(Ordering::Relaxed), 1);
 }

@@ -20,7 +20,7 @@ use crate::{
 /// Exit codes of a deliberate exit that skipped its announcement: success, and Ctrl+C.
 const CLEAN_EXIT_CODES: [u32; 2] = [0, 130];
 /// Panics at most this far apart are one failure spreading across threads.
-const CASCADE_MS: u64 = 1_000;
+pub(crate) const CASCADE_MS: u64 = 1_000;
 
 /// How the client ended.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,16 +76,6 @@ fn clean_after_panic(exit: Option<i32>, exit_code: Option<u32>) -> bool {
         Some(announced) => u32::try_from(announced).ok(),
     };
     code.is_some_and(|code| CLEAN_EXIT_CODES.contains(&code))
-}
-
-/// Of the panics reported in order with these uptimes, the one that ended the client: the
-/// first of the last cascade.
-pub(crate) fn fatal_panic(uptimes_ms: &[u64]) -> Option<usize> {
-    let mut first = uptimes_ms.len().checked_sub(1)?;
-    while first > 0 && uptimes_ms[first].saturating_sub(uptimes_ms[first - 1]) <= CASCADE_MS {
-        first -= 1;
-    }
-    Some(first)
 }
 
 /// Builds the report for an `ending` that needs a new folder at `now_ms`; `None` for clean,
@@ -168,6 +158,7 @@ pub(crate) fn write(
     now_ms: u64,
 ) -> std::io::Result<(PathBuf, Logs)> {
     let logs = Logs::read(&LogSources {
+        session_id: Some(&hello.identity.session_id),
         client: &hello.client_log,
         core: &hello.core_log,
         started_at_ms: hello.identity.started_at_ms,
@@ -350,10 +341,18 @@ mod tests {
 
     #[test]
     fn the_fatal_panic_starts_the_last_cascade() {
-        assert_eq!(fatal_panic(&[]), None);
-        assert_eq!(fatal_panic(&[5_000]), Some(0));
-        assert_eq!(fatal_panic(&[1_000, 60_000, 60_200, 60_900]), Some(1));
-        assert_eq!(fatal_panic(&[1_000, 60_000]), Some(1));
+        for (uptimes, expected) in [
+            (vec![], None),
+            (vec![5_000], Some(0)),
+            (vec![1_000, 60_000, 60_200, 60_900], Some(1)),
+            (vec![1_000, 60_000], Some(1)),
+        ] {
+            let mut history = crate::panic_history::PanicHistory::default();
+            for (index, uptime) in uptimes.into_iter().enumerate() {
+                history.record(uptime, index);
+            }
+            assert_eq!(history.take(), expected);
+        }
     }
 
     #[test]

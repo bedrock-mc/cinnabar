@@ -3,7 +3,7 @@
 
 use std::{
     ffi::OsString,
-    io::{Read, Write},
+    io::Write,
     path::PathBuf,
     sync::{
         Arc, Mutex, PoisonError,
@@ -24,6 +24,7 @@ use crate::{
     actions, describe,
     hang::{self, Stall, Watchdog},
     outcome::{self, Ending},
+    panic_history::PanicHistory,
     parent::Parent,
     server::{Event, Handler, Liveness, Observed},
     window::{self, Choice, CrashSummary},
@@ -81,7 +82,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         .map_err(|error| format!("crash monitor could not listen: {error}"))?;
     let observed = Arc::new(Mutex::new(Observed::default()));
     let liveness = Arc::new(Liveness::default());
-    let (events, received) = mpsc::channel();
+    let (events, received) = mpsc::sync_channel(1);
     let handler = Handler::new(
         Arc::clone(&observed),
         args.crash_dir.clone(),
@@ -115,7 +116,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
     std::thread::Builder::new()
         .name("crash-lifeline".into())
         .spawn(move || {
-            let _ = std::io::stdin().read_to_end(&mut Vec::new());
+            let _ = std::io::copy(&mut std::io::stdin(), &mut std::io::sink());
             let _ = events.send(Event::ClientGone);
         })
         .map_err(|error| error.to_string())?;
@@ -123,10 +124,10 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         .hang
         .as_ref()
         .and_then(|hang| watch_hangs(args, hang, &observed));
-    let mut panics = Vec::new();
+    let mut panics = PanicHistory::default();
     for event in &received {
         match event {
-            Event::PanicDumped => panics.extend(write_panics(args, &observed)),
+            Event::PanicDumped => write_panics(args, &observed, &mut panics),
             Event::ClientGone => break,
         }
     }
@@ -141,7 +142,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
         shutdown.store(true, Ordering::Relaxed);
     }
     let _ = serving.join();
-    panics.extend(write_panics(args, &observed));
+    write_panics(args, &observed, &mut panics);
     let observed = observed
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -149,10 +150,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
     let ending = outcome::ending(&observed, !panics.is_empty(), exit_code);
     tracing::info!("client ended: {ending:?} (exit code {exit_code:?})");
     let shown = match ending {
-        Ending::Panicked => {
-            let uptimes: Vec<u64> = panics.iter().map(|panic| panic.report.uptime_ms).collect();
-            outcome::fatal_panic(&uptimes).map(|fatal| panics.swap_remove(fatal))
-        }
+        Ending::Panicked => panics.take(),
         // Killed while not responding: the hang's report already tells what happened.
         Ending::Abort(_) if hung.is_some() => hung,
         _ => report(args, &observed, &ending),
@@ -194,7 +192,7 @@ fn start_log(layout: &InstallLayout, args: &Args) {
 }
 
 /// Writes the folders of panics dumped since the last call, while the client may live on.
-fn write_panics(args: &Args, observed: &Mutex<Observed>) -> Vec<Written> {
+fn write_panics(args: &Args, observed: &Mutex<Observed>, panics: &mut PanicHistory<Written>) {
     let (hello, dumped) = {
         let mut observed = observed.lock().unwrap_or_else(PoisonError::into_inner);
         (
@@ -203,30 +201,27 @@ fn write_panics(args: &Args, observed: &Mutex<Observed>) -> Vec<Written> {
         )
     };
     let Some(hello) = hello else {
-        return Vec::new();
+        return;
     };
-    dumped
-        .iter()
-        .filter_map(|dumped| {
-            let now_ms = now_ms();
-            let report = outcome::dumped_panic_report(&hello, dumped, now_ms);
-            let dump = dumped.dump.path.as_deref();
-            match outcome::write(&args.crash_dir, &hello, &report, dump, now_ms) {
-                Ok((folder, logs)) => {
-                    tracing::info!("panic report saved to {}", folder.display());
-                    Some(Written {
+    for dumped in &dumped {
+        let now_ms = now_ms();
+        let report = outcome::dumped_panic_report(&hello, dumped, now_ms);
+        let dump = dumped.dump.path.as_deref();
+        match outcome::write(&args.crash_dir, &hello, &report, dump, now_ms) {
+            Ok((folder, logs)) => {
+                tracing::info!("panic report saved to {}", folder.display());
+                panics.record(
+                    report.uptime_ms,
+                    Written {
                         report,
                         logs,
                         folder,
-                    })
-                }
-                Err(error) => {
-                    tracing::error!("panic report could not be written: {error}");
-                    None
-                }
+                    },
+                );
             }
-        })
-        .collect()
+            Err(error) => tracing::error!("panic report could not be written: {error}"),
+        }
+    }
 }
 
 /// Watches the client's heartbeat for hangs, each written by [`write_hang`]; `None` when the

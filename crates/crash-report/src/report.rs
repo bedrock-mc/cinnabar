@@ -136,6 +136,7 @@ impl Report {
 mod tests {
     use super::*;
 
+    /// Supplies a stable session identity for report serialization fixtures.
     fn identity() -> Identity {
         Identity {
             session_id: "0123456789abcdef".into(),
@@ -146,6 +147,7 @@ mod tests {
         }
     }
 
+    /// Fills every optional context field for report round-trip tests.
     fn complete() -> Report {
         let mut report = Report::new(Kind::Native, "fault".into(), &identity(), 4_500);
         report.thread = Thread {

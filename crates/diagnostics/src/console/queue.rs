@@ -12,6 +12,12 @@ use std::{
 pub(super) const SHARED_CAPACITY: usize = 4096;
 /// Further writes only warnings and errors may use.
 pub(super) const RESERVED_CAPACITY: usize = 1024;
+/// Heap bytes normal writes may retain while the console is stalled.
+const SHARED_BYTES: usize = SHARED_CAPACITY * 2048;
+/// Byte reserve kept for warnings and errors, separate from normal writes.
+const RESERVED_BYTES: usize = RESERVED_CAPACITY * 2048;
+/// Pending flush and redirect requests, independent of write capacity.
+pub(super) const CONTROL_CAPACITY: usize = 64;
 /// Longest an error waits for space once even the reserve is full.
 pub(super) const ERROR_WAIT: Duration = Duration::from_millis(50);
 
@@ -52,6 +58,7 @@ pub(super) struct State {
     items: VecDeque<(Message, bool)>,
     /// Queued messages that count against capacity.
     writes: usize,
+    bytes: usize,
     closed: bool,
 }
 
@@ -74,6 +81,7 @@ impl Queue {
             state: Mutex::new(State {
                 items: VecDeque::new(),
                 writes: 0,
+                bytes: 0,
                 closed: false,
             }),
             ready: Condvar::new(),
@@ -86,16 +94,25 @@ impl Queue {
         self.state.lock().unwrap_or_else(|error| error.into_inner())
     }
 
-    fn admits(state: &State, priority: Priority) -> bool {
+    fn admits(state: &State, priority: Priority, bytes: usize) -> bool {
         let limit = match priority {
             Priority::Normal => SHARED_CAPACITY,
             Priority::Warn | Priority::Error => SHARED_CAPACITY + RESERVED_CAPACITY,
         };
+        let byte_limit = match priority {
+            Priority::Normal => SHARED_BYTES,
+            Priority::Warn | Priority::Error => SHARED_BYTES + RESERVED_BYTES,
+        };
         state.writes < limit
+            && state
+                .bytes
+                .checked_add(bytes)
+                .is_some_and(|total| total <= byte_limit)
     }
 
     fn enqueue(&self, mut state: MutexGuard<'_, State>, message: Message, counted: bool) {
         state.writes += usize::from(counted);
+        state.bytes += message.retained_bytes();
         state.items.push_back((message, counted));
         drop(state);
         self.ready.notify_one();
@@ -113,7 +130,7 @@ impl Queue {
         if state.closed {
             return Err(Rejected::Closed(message));
         }
-        if !Self::admits(&state, priority) {
+        if !Self::admits(&state, priority, message.retained_bytes()) {
             return Err(Rejected::Full);
         }
         self.enqueue(state, message, true);
@@ -128,7 +145,7 @@ impl Queue {
             if state.closed {
                 return Err(Rejected::Closed(message));
             }
-            if Self::admits(&state, priority) {
+            if Self::admits(&state, priority, message.retained_bytes()) {
                 self.enqueue(state, message, true);
                 return Ok(());
             }
@@ -139,10 +156,10 @@ impl Queue {
         }
     }
 
-    /// Queues a control message regardless of capacity; it occupies no write slot.
+    /// Queues a bounded control request without consuming a write slot.
     pub(super) fn push_control(&self, message: Message) -> Result<(), Message> {
         let state = self.lock();
-        if state.closed {
+        if state.closed || state.items.len() - state.writes >= CONTROL_CAPACITY {
             return Err(message);
         }
         self.enqueue(state, message, false);
@@ -155,6 +172,7 @@ impl Queue {
         loop {
             if let Some((message, counted)) = state.items.pop_front() {
                 state.writes -= usize::from(counted);
+                state.bytes -= message.retained_bytes();
                 drop(state);
                 if counted {
                     self.space.notify_all();
@@ -207,6 +225,7 @@ mod tests {
         }
     }
 
+    /// Creates a small owned console write for queue admission fixtures.
     fn write(text: &str, priority: Priority) -> Message {
         Message::Write {
             stream: Stream::Stderr,
@@ -215,6 +234,7 @@ mod tests {
         }
     }
 
+    /// Supplies a clock that advances directly to each requested deadline.
     fn queue_with_jumping_clock() -> (Queue, Arc<Jumping>) {
         let start = Instant::now();
         let clock = Arc::new(Jumping {
@@ -222,6 +242,32 @@ mod tests {
             start,
         });
         (Queue::new(Box::new(Arc::clone(&clock))), clock)
+    }
+
+    #[test]
+    fn large_writes_respect_the_byte_reserve_and_release_their_capacity() {
+        let (queue, _clock) = queue_with_jumping_clock();
+        let message = |capacity| {
+            let mut bytes = Vec::with_capacity(capacity);
+            bytes.push(b'x');
+            Message::Write {
+                stream: Stream::Stderr,
+                priority: Priority::Normal,
+                bytes,
+            }
+        };
+        assert!(queue.push(message(SHARED_BYTES)).is_ok());
+        assert!(matches!(
+            queue.push(write("extra", Priority::Normal)),
+            Err(Rejected::Full)
+        ));
+        assert!(queue.push(write("warning", Priority::Warn)).is_ok());
+        drop(queue.pop());
+        assert!(queue.push(message(SHARED_BYTES / 2)).is_ok());
+        assert!(matches!(
+            queue.push(message(SHARED_BYTES + RESERVED_BYTES + 1)),
+            Err(Rejected::Full)
+        ));
     }
 
     #[test]
@@ -251,6 +297,20 @@ mod tests {
         let result = queue.push(write("error", Priority::Error));
         assert!(matches!(result, Err(Rejected::Full)));
         assert_eq!(*clock.now.lock().unwrap() - clock.start, ERROR_WAIT);
+    }
+
+    #[test]
+    fn stalled_writers_cannot_accumulate_unlimited_control_requests() {
+        let (queue, _clock) = queue_with_jumping_clock();
+        let mut admitted = 0;
+        for _ in 0..CONTROL_CAPACITY + 1 {
+            let (done, _flushed) = std::sync::mpsc::sync_channel(1);
+            admitted += usize::from(queue.push_control(Message::Flush(done)).is_ok());
+        }
+        assert_eq!(admitted, CONTROL_CAPACITY);
+        drop(queue.pop());
+        let (done, _flushed) = std::sync::mpsc::sync_channel(1);
+        assert!(queue.push_control(Message::Flush(done)).is_ok());
     }
 
     #[test]

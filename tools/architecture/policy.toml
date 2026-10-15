@@ -301,20 +301,20 @@ forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
-[[crates]]
-name = "diagnostics"
-path = "crates/diagnostics"
-allowed_dependencies = ["assets", "chunk-pipeline", "crash-report", "env-compat", "libc", "meshing", "render-model", "rustix", "windows-sys", "world"]
-forbidden_dependencies = ["bevy", "protocol"]
-forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
-
-# Crash report schema, folder layout, log sections and retention; Bevy-free and offline.
+# Crash report schema, folder layout, log sections and retention; offline and clock-free.
 [[crates]]
 name = "crash-report"
 path = "crates/crash-report"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio", "hyper"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*", "reqwest", "tokio", "hyper*"]
+
+[[crates]]
+name = "diagnostics"
+path = "crates/diagnostics"
+allowed_dependencies = ["assets", "chunk-pipeline", "crash-report", "env-compat", "libc", "meshing", "render-model", "rustix", "test-time", "windows-sys", "world"]
+forbidden_dependencies = ["bevy", "protocol"]
+forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "render"]
 
 [[crates]]
 name = "acceptance"
@@ -541,7 +541,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["crash-report", "workspace-declarations"]
+allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -1096,8 +1096,8 @@ dependency_free = true
 # Domain crates take `now` from their caller; only edge code reads the clock.
 [timing]
 clock_free_crates = [
-    "crates/block-transform",
     "crates/crash-report",
+    "crates/block-transform",
     "crates/input",
     "crates/inventory",
     "crates/json-ui",

@@ -62,8 +62,9 @@ pub(super) fn capture_core(layout: &InstallLayout) {
     let family = Family::new(layout.log_dir(), CORE_LOG_STEM, "log");
     // Crash reports and `devtool diag` match sections to this session by exactly this header.
     let header = format!(
-        "{CORE_SESSION_START} timestamp_ms={}\n",
-        session::started_at_ms()
+        "{CORE_SESSION_START} timestamp_ms={} session={}\n",
+        session::started_at_ms(),
+        session::id()
     );
     let log = match SessionLog::open(family.clone(), Retention::DEFAULT, header.into_bytes()) {
         Ok(log) => log,

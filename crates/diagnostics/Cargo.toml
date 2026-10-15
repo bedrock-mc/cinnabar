@@ -45,6 +45,7 @@ client-ui = { path = "../client-ui" }
 criterion.workspace = true
 tempfile = "3"
 test-alloc = { path = "../test-alloc" }
+test-time = { path = "../test-time" }
 toml = "0.9"
 
 [[bench]]

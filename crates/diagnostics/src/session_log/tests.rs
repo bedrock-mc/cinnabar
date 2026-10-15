@@ -111,7 +111,7 @@ fn retention_deletes_the_oldest_archives_past_the_byte_budget() {
     let family = Family::new(dir.path(), "client", "log");
     for (index, size) in [40usize, 30, 20, 10].into_iter().enumerate() {
         let at = UNIX_EPOCH + Duration::from_secs(index as u64 * 3600);
-        fs::write(family.archive_path(at), vec![b'x'; size]).unwrap();
+        fs::write(family.archive_path(at).unwrap(), vec![b'x'; size]).unwrap();
     }
     family
         .prune(Retention {
@@ -137,7 +137,7 @@ fn retention_never_keeps_an_archive_older_than_one_it_deleted() {
     let family = Family::new(dir.path(), "client", "log");
     for (index, size) in [1usize, 4, 7, 8].into_iter().enumerate() {
         let at = UNIX_EPOCH + Duration::from_secs(index as u64 * 3600);
-        fs::write(family.archive_path(at), vec![b'x'; size]).unwrap();
+        fs::write(family.archive_path(at).unwrap(), vec![b'x'; size]).unwrap();
     }
     family
         .prune(Retention {
@@ -221,5 +221,42 @@ fn shared_writers_append_whole_writes_to_one_session() {
     assert_eq!(
         fs::read_to_string(family.current()).unwrap(),
         "stdout line\nstderr line\n"
+    );
+}
+
+/// Pruning a timestamp's lowest suffix must not make a later archive look older.
+#[test]
+fn same_second_rotation_keeps_the_newest_archives_after_pruning() {
+    let dir = tempfile::tempdir().unwrap();
+    let family = Family::new(dir.path(), "client", "log");
+    let retention = Retention {
+        session_bytes: 16,
+        archives: 3,
+        archive_bytes: 1024,
+    };
+    let mut log = SessionLog::open_with_clock(
+        family.clone(),
+        retention,
+        b"H\n".to_vec(),
+        Box::new(|| UNIX_EPOCH),
+    )
+    .unwrap();
+    for index in 0..24 {
+        writeln!(log, "part {index:02} abc").unwrap();
+    }
+    log.flush().unwrap();
+    let kept: Vec<_> = family
+        .archives()
+        .unwrap()
+        .iter()
+        .map(|path| fs::read_to_string(path).unwrap())
+        .collect();
+    assert_eq!(
+        kept,
+        ["H\npart 20 abc\n", "H\npart 21 abc\n", "H\npart 22 abc\n"]
+    );
+    assert_eq!(
+        fs::read_to_string(family.current()).unwrap(),
+        "H\npart 23 abc\n"
     );
 }

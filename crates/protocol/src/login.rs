@@ -223,6 +223,7 @@ impl PlaySession {
             ) {
                 self.reset_blob_cache_pending();
             }
+            self.transport.accept_current();
             return Ok(packet);
         }
     }
@@ -261,7 +262,20 @@ impl PlaySession {
         })
     }
 
+    /// Settles accepted packets before the caller can pause world admission.
     async fn recv_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> Result<WorldIngress, ProtocolError> {
+        let result = self.recv_world_ingress_inner(current_dimension).await;
+        if result.is_ok() {
+            self.transport.accept_current();
+        }
+        result
+    }
+
+    /// Routes raw world packets through the enabled cache and decoding lanes.
+    async fn recv_world_ingress_inner(
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldIngress, ProtocolError> {
@@ -293,6 +307,7 @@ impl PlaySession {
             }
             if raw.id == PacketId::LevelChunk {
                 let raw = raw.into_retention_bounded();
+                self.transport.compact_current(&raw);
                 let packet = match self.decode_world_candidate(raw)? {
                     Some(packet) => packet,
                     None => continue,
@@ -526,6 +541,7 @@ impl PlaySession {
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
             let raw = detach_cached_chunk(raw);
+            self.transport.compact_current(&raw);
 
             if matches!(packet_name, PacketId::Transfer | PacketId::Disconnect) {
                 if self.absorb_boundary_packet(raw, packet_name).await? {
@@ -570,13 +586,18 @@ impl PlaySession {
                     &packet,
                 )?;
                 if let packets::Packet::ClientCacheMissResponse(response) = *packet.data {
-                    if let Err(error) = self
+                    match self
                         .blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver")
                         .accept_miss_response(response)
                     {
-                        return Err(error.into());
+                        Ok(true) => {}
+                        Ok(false) => self.transport.reject_current(PacketOutcome::Skipped),
+                        Err(error) => {
+                            self.transport.reject_current(PacketOutcome::Failed);
+                            return Err(error.into());
+                        }
                     }
                     continue;
                 }

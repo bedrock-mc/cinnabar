@@ -1,5 +1,7 @@
 //! Raw bodies of packets ingress rejected, bounded per packet ID and in total for one session.
 
+pub(crate) mod writer;
+
 use std::{fmt::Write as _, fs, io, path::Path};
 
 use protocol::packet_tap::{PacketName, PacketOutcome, carries_secrets};
@@ -35,22 +37,12 @@ impl FailureSample {
     }
 }
 
-/// What an accepted offer changed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Offered {
-    /// The offer's session replaced an older one's samples.
-    pub(crate) replaced: bool,
-    /// The body was kept as the newest sample, rather than only counted.
-    pub(crate) kept: bool,
-    /// The body was counted as withheld because it can carry secrets.
-    pub(crate) withheld: bool,
-}
-
 /// One session's samples, and what that session turned away.
 ///
 /// The samples belong to the newest session that rejected a packet: the first sample a newer
 /// session offers replaces the older session's samples and counts, so a crash report still
 /// shows the last session's failures until a later one has its own.
+#[derive(Clone)]
 pub(crate) struct FailureSamples {
     session: u64,
     samples: Vec<FailureSample>,
@@ -82,7 +74,7 @@ impl FailureSamples {
         packet_id: u32,
         outcome: PacketOutcome,
         body: &[u8],
-    ) -> Option<Offered> {
+    ) -> Option<()> {
         if session < self.session {
             return None;
         }
@@ -93,15 +85,9 @@ impl FailureSamples {
                 ..Self::new()
             };
         }
-        let mut offered = Offered {
-            replaced,
-            kept: false,
-            withheld: false,
-        };
         if carries_secrets(packet_id) {
             self.withheld += 1;
-            offered.withheld = true;
-            return Some(offered);
+            return Some(());
         }
         let per_packet = self
             .samples
@@ -109,9 +95,12 @@ impl FailureSamples {
             .filter(|sample| sample.packet_id == packet_id)
             .count();
         let room = MAX_SAMPLE_BYTES - self.bytes;
-        if per_packet == MAX_SAMPLES_PER_PACKET || (room == 0 && !body.is_empty()) {
+        if per_packet == MAX_SAMPLES_PER_PACKET
+            || self.samples.len() == crash_report::ring::packets::CAPACITY
+            || (room == 0 && !body.is_empty())
+        {
             self.dropped += 1;
-            return Some(offered);
+            return Some(());
         }
         let kept = body.len().min(room);
         self.bytes += kept;
@@ -123,40 +112,45 @@ impl FailureSamples {
             len: body.len(),
             body: body[..kept].to_vec(),
         });
-        offered.kept = true;
-        Some(offered)
+        Some(())
     }
 
-    /// Brings `dir` up to date after `offered`: an older session's files go, a kept body is
-    /// written under [`FailureSample::file_name`], and [`INDEX_FILE`] is rewritten. An offer only
-    /// counted as over the bounds writes nothing; the index catches up at the next change, so a
-    /// stream of rejects past the bounds costs no file writes.
-    pub(crate) fn persist(&self, dir: &Path, offered: Offered) -> io::Result<()> {
-        if offered.replaced {
-            return self.persist_all(dir);
-        }
-        if !offered.kept && !offered.withheld {
-            return Ok(());
-        }
-        if offered.kept
-            && let Some(sample) = self.samples.last()
-        {
+    /// Writes new bodies and coalesced counters after a snapshot, resetting older sessions.
+    pub(crate) fn persist_since(
+        &self,
+        dir: &Path,
+        previous: Option<(u64, usize)>,
+        missed: u64,
+    ) -> io::Result<()> {
+        let begin = match previous {
+            Some((session, count)) if session == self.session => count,
+            _ => {
+                match fs::remove_dir_all(dir) {
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                    _ => {}
+                }
+                fs::create_dir_all(dir)?;
+                0
+            }
+        };
+        for sample in &self.samples[begin..] {
             fs::write(dir.join(sample.file_name()), &sample.body)?;
         }
-        fs::write(dir.join(INDEX_FILE), self.index())
+        let mut index = self.index();
+        if missed != 0 {
+            let _ = writeln!(
+                index,
+                "{missed} sample offers skipped while the snapshot was busy"
+            );
+        }
+        let temporary = dir.join(".index.tmp");
+        fs::write(&temporary, index)?;
+        fs::rename(temporary, dir.join(INDEX_FILE))
     }
 
-    /// Replaces whatever `dir` holds with these samples and their index.
+    /// Replaces the on-disk samples with this snapshot.
     pub(crate) fn persist_all(&self, dir: &Path) -> io::Result<()> {
-        match fs::remove_dir_all(dir) {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-            _ => {}
-        }
-        fs::create_dir_all(dir)?;
-        for sample in &self.samples {
-            fs::write(dir.join(sample.file_name()), &sample.body)?;
-        }
-        fs::write(dir.join(INDEX_FILE), self.index())
+        self.persist_since(dir, None, 0)
     }
 
     /// A summary line, then one line per sample naming its file.

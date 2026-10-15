@@ -146,6 +146,9 @@ static SCRATCH: std::sync::atomic::AtomicPtr<u8> =
 pub(super) fn prepare(context: &Context) {
     use std::sync::atomic::Ordering;
 
+    if READING.load(Ordering::SeqCst) {
+        return;
+    }
     if SCRATCH.load(Ordering::Acquire).is_null() {
         let scratch: *mut [u8] =
             Box::into_raw(vec![0_u8; crash_report::prepared::SCRATCH_BYTES].into_boxed_slice());
@@ -200,10 +203,30 @@ pub(super) fn write_native(crash: &crash_handler::CrashContext) {
 /// The signal, its code and the fault address.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn fault(crash: &crash_handler::CrashContext) -> crash_report::prepared::SignalFault {
+    const {
+        assert!(
+            std::mem::size_of::<libc::siginfo_t>() == std::mem::size_of::<libc::signalfd_siginfo>()
+        );
+    }
+    // The handler stores the original siginfo_t bytes in its siginfo carrier.
+    // SAFETY: Both carriers hold the same-sized native signal record. Reading unaligned
+    // avoids imposing siginfo_t alignment on the carrier's field.
+    let info =
+        unsafe { std::ptr::read_unaligned((&raw const crash.siginfo).cast::<libc::siginfo_t>()) };
+    let kernel_fault = info.si_code > 0
+        && matches!(
+            info.si_signo,
+            libc::SIGSEGV | libc::SIGBUS | libc::SIGILL | libc::SIGFPE | libc::SIGTRAP
+        );
     crash_report::prepared::SignalFault {
-        signal: crash.siginfo.ssi_signo as i32,
-        code: crash.siginfo.ssi_code,
-        address: crash.siginfo.ssi_addr,
+        signal: info.si_signo,
+        code: info.si_code,
+        // SAFETY: These kernel fault signals initialize the si_addr member of the union.
+        address: if kernel_fault {
+            unsafe { info.si_addr() as usize as u64 }
+        } else {
+            0
+        },
     }
 }
 

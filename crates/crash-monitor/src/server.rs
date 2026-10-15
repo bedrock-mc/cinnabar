@@ -8,7 +8,7 @@ use std::{
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
-        mpsc::Sender,
+        mpsc::SyncSender,
     },
 };
 
@@ -105,7 +105,7 @@ pub(crate) struct Handler {
     crash_dir: PathBuf,
     now_ms: fn() -> u64,
     token: Token,
-    events: Sender<Event>,
+    events: SyncSender<Event>,
     liveness: Arc<Liveness>,
     /// Numbers pending dump files, so a dump never overwrites one not yet moved.
     dumps: AtomicU32,
@@ -119,7 +119,7 @@ impl Handler {
         crash_dir: PathBuf,
         now_ms: fn() -> u64,
         token: Token,
-        events: Sender<Event>,
+        events: SyncSender<Event>,
         liveness: Arc<Liveness>,
     ) -> Self {
         Self {
@@ -205,11 +205,20 @@ impl ServerHandler for Handler {
         match observed.panic.take() {
             Some(panic) => {
                 let state = observed.state.clone();
+                if observed.dumped_panics.len() == crash_report::folder::MAX_REPORTS {
+                    let discarded = observed.dumped_panics.remove(0);
+                    if let Some(path) = discarded.dump.path {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    tracing::warn!(
+                        "pending panic reports reached their retention bound; discarded the oldest dump"
+                    );
+                }
                 observed
                     .dumped_panics
                     .push(DumpedPanic { panic, dump, state });
                 drop(observed);
-                let _ = self.events.send(Event::PanicDumped);
+                let _ = self.events.try_send(Event::PanicDumped);
             }
             None => observed.dump = Some(dump),
         }
@@ -290,7 +299,7 @@ mod tests {
 
     fn handler() -> (Handler, Arc<Mutex<Observed>>, mpsc::Receiver<Event>) {
         let observed = Arc::new(Mutex::new(Observed::default()));
-        let (events, received) = mpsc::channel();
+        let (events, received) = mpsc::sync_channel(1);
         let handler = Handler::new(
             Arc::clone(&observed),
             std::env::temp_dir(),
@@ -388,6 +397,21 @@ mod tests {
         let observed = observed.lock().unwrap();
         assert_eq!(observed.dumped_panics.len(), 1);
         assert!(observed.panic.is_none());
+    }
+
+    #[test]
+    fn panic_bursts_bound_pending_dumps_and_coalesce_wakeups() {
+        let (handler, observed, received) = handler();
+        for _ in 0..128 {
+            handler.on_message(protocol::PANIC, signed(&TOKEN, &panic()));
+            handler.on_message(protocol::DUMP_REQUEST, signed(&TOKEN, &[]));
+            handler.on_minidump_created(Err(minidumper::Error::ProtocolError("fixture dump")));
+        }
+        assert_eq!(
+            observed.lock().unwrap().dumped_panics.len(),
+            crash_report::folder::MAX_REPORTS
+        );
+        assert_eq!(received.try_iter().count(), 1);
     }
 
     #[test]

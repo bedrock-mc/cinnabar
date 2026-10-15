@@ -96,6 +96,11 @@ and pack stack are replaced by the session handoff. Supplied local archives
 are handed off in command-line order. Their hashes and identities are recorded;
 the original offer, experiments, encryption and download timing are not reproduced.
 Other pre-StartGame packets and all packets from StartGame onward are retained.
+Cache-enabled LevelChunk and SubChunk packets are rejected before the listener opens:
+the capture does not include the original client's pre-existing blob store. Terrain
+packets whose cache mode cannot be decoded are also rejected. Use an uncached session
+for terrain replay.
+
 Exactly one StartGame is required. This exercises archive handoff and session
 setup, but does not prove fidelity of the original server's login handshake.
 

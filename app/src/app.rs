@@ -368,6 +368,7 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 }
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
+    let app = App::new();
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
@@ -478,6 +479,14 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_audio::named_audio::NamedAudio::new(if sound_bank.is_some() { None } else { pcm });
     let audio_engine = client_audio::audio::AudioEngine::new(sound_bank);
     let particle_assets = carriers.particles;
+    let flame_texture = particle_assets
+        .as_deref()
+        .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE));
+    let (actor_flames, actor_artwork) =
+        client_presentation::actor_publication::WorldActorFlames::prepare(
+            actor_artwork,
+            flame_texture,
+        );
     let particle_icons = crate::particles::ParticleIcons(Arc::clone(icon_assets.runtime()));
     let mut block_entity_scene =
         crate::block_entities::block_entity_scene(carriers.block_entities.as_deref());
@@ -521,11 +530,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .set_gui_models(&loaded_assets.runtime, &entity_runtime)
         .context("prepare native GUI model geometry and original texture pages")?;
     ui_presentation
-        .set_gui_fire_texture(
-            particle_assets
-                .as_deref()
-                .and_then(|assets| assets.texture(assets::ACTOR_FLAME_TEXTURE)),
-        )
+        .set_gui_fire_texture(flame_texture)
         .context("prepare native HUD actor flame texture frames")?;
     ui_presentation.set_gui_scale_preference(args.gui_scale);
     ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
@@ -547,6 +552,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     crate::runtime::network::set_base_actor_artwork(actor_artwork.clone(), entity_runtime.clone());
     actor_render_scene.configure_artwork(actor_artwork.clone());
+    if let Some(geometry) = actor_flames.geometry() {
+        actor_render_scene
+            .insert_geometry(geometry)
+            .map_err(|error| anyhow::anyhow!("prepare world actor flame geometry: {error:?}"))?;
+    }
     // A dedicated single-instance builder for the local player's first-person rig, sharing the
     // same validated geometry catalog as the third-person actor pass.
     let hand_rig_builder =
@@ -685,7 +695,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     );
     #[cfg(feature = "developer-control")]
     let primary_window = crate::developer_control::primary_window(primary_window);
-    let mut app = App::new();
+    // Rebind after the cleanup guards so app-owned processes stop before their directories drop.
+    let mut app = app;
     configure_client_frame_schedule(&mut app);
     let renderer = RendererSetup {
         data_root: renderer_data_root,
@@ -751,6 +762,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(network)
     .insert_resource(ResourcePackAdmissionState::default())
     .insert_resource(render_scene::ActorArtworkResource(actor_artwork))
+    .insert_resource(actor_flames)
     .insert_resource(ClientWorld::new_with_entity_assets(
         Arc::clone(&runtime_assets),
         Arc::clone(&entity_runtime),

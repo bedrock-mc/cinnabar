@@ -100,22 +100,28 @@ impl Family {
         valid.then(|| (stamp.to_owned(), suffix))
     }
 
-    /// A free archive path stamped with `at`.
-    fn archive_path(&self, at: SystemTime) -> PathBuf {
+    /// An archive path after every retained collision at `at`, so pruned suffixes stay unused.
+    fn archive_path(&self, at: SystemTime) -> io::Result<PathBuf> {
         let stamp = utc_stamp(at);
-        let mut suffix = 0u32;
-        loop {
-            let name = if suffix == 0 {
-                format!("{}-{stamp}.{}", self.stem, self.ext)
-            } else {
-                format!("{}-{stamp}-{suffix}.{}", self.stem, self.ext)
-            };
-            let path = self.dir.join(name);
-            if !path.exists() {
-                return path;
-            }
-            suffix += 1;
-        }
+        let newest = self
+            .archives()?
+            .iter()
+            .filter_map(|path| {
+                let (existing, suffix) = self.archive_key(path.file_name()?.to_str()?)?;
+                (existing == stamp).then_some(suffix)
+            })
+            .max();
+        let suffix = newest.map_or(Ok(0), |suffix| {
+            suffix.checked_add(1).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::AlreadyExists, "log archive suffix exhausted")
+            })
+        })?;
+        let name = if suffix == 0 {
+            format!("{}-{stamp}.{}", self.stem, self.ext)
+        } else {
+            format!("{}-{stamp}-{suffix}.{}", self.stem, self.ext)
+        };
+        Ok(self.dir.join(name))
     }
 
     /// Moves `path` into the archive set when it exists.
@@ -123,7 +129,7 @@ impl Family {
         if !path.exists() {
             return Ok(());
         }
-        fs::rename(path, self.archive_path(at))
+        fs::rename(path, self.archive_path(at)?)
     }
 
     /// Keeps the newest archives while both the count and byte budgets hold, then deletes the
@@ -200,6 +206,8 @@ pub struct SessionLog {
     file: Option<File>,
     bytes: u64,
     clock: Clock,
+    #[cfg(unix)]
+    signal_log: bool,
 }
 
 impl SessionLog {
@@ -236,9 +244,19 @@ impl SessionLog {
             file: None,
             bytes: 0,
             clock,
+            #[cfg(unix)]
+            signal_log: false,
         };
         log.start()?;
         Ok(log)
+    }
+
+    /// Follows this log's owned file through rotation for fatal-signal output.
+    #[cfg(unix)]
+    pub(crate) fn follow_on_signal(&mut self) -> io::Result<()> {
+        crate::console::signal_drain::publish_log(self.file.as_ref().unwrap())?;
+        self.signal_log = true;
+        Ok(())
     }
 
     /// The family this log writes.
@@ -254,6 +272,10 @@ impl SessionLog {
         File::create(&path)?;
         let mut file = OpenOptions::new().append(true).open(&path)?;
         file.write_all(&self.header)?;
+        #[cfg(unix)]
+        if self.signal_log {
+            crate::console::signal_drain::publish_log(&file)?;
+        }
         self.bytes = self.header.len() as u64;
         self.file = Some(file);
         Ok(())

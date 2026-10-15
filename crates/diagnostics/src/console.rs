@@ -10,7 +10,7 @@
 mod queue;
 mod raw_stderr;
 #[cfg(unix)]
-mod signal_drain;
+pub(crate) mod signal_drain;
 mod synchronized;
 mod terminal;
 #[cfg(test)]
@@ -90,6 +90,14 @@ enum Message {
 }
 
 impl Message {
+    /// Heap byte capacity retained by an ordinary queued write.
+    fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Write { bytes, .. } | Self::WriteConsole(_, bytes) => bytes.capacity(),
+            Self::Report(..) | Self::Redirect(_) | Self::Flush(_) => 0,
+        }
+    }
+
     /// The priority the queue admits this message at.
     fn priority(&self) -> Priority {
         match self {
@@ -279,7 +287,7 @@ impl Console {
         }
     }
 
-    /// Waits until every write queued before this call has reached its stream.
+    /// Waits for queued output unless its bounded flush request cannot be admitted.
     pub fn flush(&self) {
         let Some(queue) = &self.queue else {
             return;
@@ -307,7 +315,7 @@ impl Console {
         }
         let (done, flushed) = sync_channel(1);
         if queue.push_control(Message::Flush(done)).is_err() {
-            return true;
+            return false;
         }
         flushed
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
@@ -334,11 +342,13 @@ impl Console {
                     "session files already attached",
                 ));
             }
-            let log = SessionLog::open(
+            let mut log = SessionLog::open(
                 Family::new(files.dir, files.stem, "log"),
                 files.retention,
                 format!("{}\n", files.header).into_bytes(),
             )?;
+            #[cfg(unix)]
+            log.follow_on_signal()?;
             sinks.attach_log(log);
             // The JSON record is optional tooling output; failing to open it keeps the plain
             // session log and says why in it.
@@ -360,10 +370,7 @@ impl Console {
             return Ok(());
         };
         #[cfg(unix)]
-        signal_drain::publish_destinations(
-            destination.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
-            &Family::new(files.dir, files.stem, "log").current(),
-        );
+        signal_drain::publish_terminal(destination.as_ref().map(std::os::fd::AsRawFd::as_raw_fd));
         let destination: Box<dyn Write + Send> = match destination {
             Some(file) => terminal::writer(file),
             None => Box::new(io::sink()),
@@ -512,8 +519,9 @@ pub fn flush_before_exit() -> bool {
 }
 
 /// For fatal-signal handlers, which must not lock or allocate: copies raw stderr still in the
-/// capture pipe, such as an abort message written just before the signal, to the launcher's
-/// stderr and the end of the session log. Async-signal-safe; acts once, and only on Unix
+/// capture pipe, such as an abort message written just before the signal, to the session log.
+/// It forwards to the launcher's stderr only when that destination already uses
+/// nonblocking I/O. Async-signal-safe; acts once, and only on Unix
 /// once raw stderr is captured. Queued output is not flushed.
 pub fn drain_raw_stderr_on_signal() {
     #[cfg(unix)]

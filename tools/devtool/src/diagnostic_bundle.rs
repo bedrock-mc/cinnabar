@@ -2,6 +2,7 @@
 //! archive.
 use crate::DevtoolError;
 use crash_report::{folder, redact, section};
+use diagnostics::session_log::{Family, Retention};
 use regex::Regex;
 use std::{
     fs,
@@ -23,10 +24,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
         _ => return Err(DevtoolError::Usage("diag [--data-root <path>]".into())),
     };
     let mut entries = Vec::new();
-    // `client.log` holds only the current session; earlier ones are archived beside it, and a
-    // session that outgrew its file repeats the header at the top of the current one.
-    let client = tail(&root.join("logs/client.log")).unwrap_or_default();
-    let client = section::latest(&client, section::CLIENT_SESSION_START);
+    let client = client_session_logs(&root.join("logs")).unwrap_or_default();
+    let client = client.as_str();
     entries.push(("client.log".to_owned(), client.to_owned()));
     let core = core_session_tail(&root.join("logs/core.log"), client).unwrap_or_default();
     let timeline = core
@@ -83,6 +82,38 @@ pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     bundle(&path, &entries)?;
     println!("{}", path.display());
     Ok(())
+}
+
+/// Collects the current session's retained log segments, oldest first, with a bounded read
+/// per file and at most the configured number of archives. Repeated headers identify segments
+/// from the same session; logs without a header cannot safely select older files.
+fn client_session_logs(log_dir: &Path) -> std::io::Result<String> {
+    let family = Family::new(log_dir, "client", "log");
+    let current = tail(&family.current())?;
+    let current = section::latest(&current, section::CLIENT_SESSION_START);
+    let header = current
+        .lines()
+        .find(|line| line.contains(section::CLIENT_SESSION_START));
+    let Some(header) = header else {
+        return Ok(current.to_owned());
+    };
+    let archives = family.archives()?;
+    let mut combined = String::new();
+    for path in archives
+        .iter()
+        .skip(archives.len().saturating_sub(Retention::DEFAULT.archives))
+    {
+        let Ok(text) = tail(path) else { continue };
+        let segment = section::latest(&text, section::CLIENT_SESSION_START);
+        if segment.lines().next() == Some(header) {
+            combined.push_str(segment);
+            if !combined.ends_with('\n') {
+                combined.push('\n');
+            }
+        }
+    }
+    combined.push_str(current);
+    Ok(combined)
 }
 
 /// The newest crash folders of the session whose header is `header`, newest first.
