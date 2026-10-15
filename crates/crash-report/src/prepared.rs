@@ -242,7 +242,7 @@ unsafe fn current_source(
         if fd < 0 {
             return None;
         }
-        let count = scratch.len().min(section::session::HEADER_BYTES);
+        let count = scratch.len().min(section::HEADER_BYTES);
         let filled = read_full(fd, &mut scratch[..count]);
         if section::session::matches_header(&scratch[..filled], marker, session_id) {
             Some(fd)
