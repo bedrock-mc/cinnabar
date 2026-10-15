@@ -523,7 +523,7 @@ pub(crate) const fn word_count(bits_per_index: u8) -> usize {
     if bits_per_index == 0 {
         return 0;
     }
-    let values_per_word = 32 / usize::from(bits_per_index);
+    let values_per_word = 32 / bits_per_index as usize;
     BLOCKS_PER_SUB_CHUNK.div_ceil(values_per_word)
 }
 
