@@ -171,6 +171,8 @@ pub(super) fn prepare(
     liquids.last_indirect_identity = Some((snapshot.buffer_slot(), snapshot.refs().len()));
     model_manifest.sort_by_key(|entry| (entry.key, entry.draw_range.start));
     let model_address = TransparentModelAddressIdentity {
+        revision: 0,
+        _retained_assets: Some(Arc::clone(assets.assets())),
         asset_identity: assets.identity(),
         allocations: model_manifest.into(),
     };

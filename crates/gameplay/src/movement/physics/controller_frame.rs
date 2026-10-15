@@ -1,5 +1,16 @@
 use super::*;
 
+impl PhysicsSampleContext {
+    /// Expires release slowdown and sprint blocking together before the next fixed tick.
+    pub(super) fn for_next_tick(mut self, completed_tick: u64) -> Self {
+        self.release_use_modifier = self
+            .release_use_modifier
+            .filter(|(through_tick, _)| completed_tick < *through_tick);
+        self.mode_intent.sprint_start_blocked |= self.release_use_modifier.is_some();
+        self
+    }
+}
+
 /// Input edges and controller state retained alongside one completed simulation tick.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ControllerFrame {
@@ -8,7 +19,7 @@ pub(super) struct ControllerFrame {
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
-    pub eye_height: f32,
+    pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
     pub jump_down: bool,
@@ -31,6 +42,16 @@ pub(super) struct ControllerFrame {
 }
 
 impl ControllerFrame {
+    /// Advances the pose eye once after a successful tick and retains its interpolation state.
+    pub(super) fn finish_eye(&mut self, eye: &mut eye::LocalEyeOffset, state: &PlayerState) {
+        eye.tick(
+            self.input.mode,
+            self.input.sneaking,
+            state.spin_attack_ticks.is_some(),
+        );
+        self.eye_offset = *eye;
+    }
+
     /// Re-evaluates pose, jump edges and ride placement from the corrected pre-tick state.
     pub(super) fn prepare(
         &mut self,
@@ -61,7 +82,8 @@ impl ControllerFrame {
         if input.sprinting != self.input.sprinting {
             self.sprint_override = Some(input.sprinting);
         }
-        input.liquid_contact_height = Some(modes.contact_height());
+        input.liquid_contact_height =
+            Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
@@ -86,6 +108,7 @@ impl ControllerFrame {
             liquid_attach_height: input
                 .liquid_attach_height
                 .map_or(protocol::PLAYER_NETWORK_OFFSET, |height| height as f32),
+            liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
         };

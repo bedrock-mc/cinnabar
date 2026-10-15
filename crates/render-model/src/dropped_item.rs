@@ -11,7 +11,7 @@ mod native;
 mod rope;
 pub use atlas::atlas_layer_limit;
 pub use block::block_mesh;
-pub use bounds::{DroppedItemBounds, DroppedItemCullView};
+pub use bounds::{DroppedItemBounds, DroppedItemCullView, DroppedItemFrustum};
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,

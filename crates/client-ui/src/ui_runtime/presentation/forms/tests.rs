@@ -859,14 +859,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let base = |menu: &WorldsMenu| {
         let mut view = runtime.clone();
         view.local = menu.view();
-        view.local_worlds = vec![launcher::menu::LocalWorldCard {
-            name: flat.name.clone(),
-            game_mode: "Creative".to_owned(),
-            world_type: launcher::local_worlds::world_type_label(flat.generator).to_owned(),
-            date: String::new(),
-            size: String::new(),
-            thumbnail: None,
-        }];
+        view.local_worlds = vec![launcher::menu::worlds_tab::world_card(&flat)].into();
         view
     };
     let has = |texts: &[String], wanted: &str| texts.iter().any(|text| text.contains(wanted));
@@ -875,6 +868,8 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     menu.apply(Event::Listed(vec![flat.clone()]));
     let list = oreui_texts(&base(&menu));
     assert!(has(&list, FLAT_WORLD_LABEL), "worlds list: {list:?}");
+    let server = launcher::local_worlds::backend_label(flat.backend);
+    assert!(has(&list, server), "worlds list server: {list:?}");
 
     menu.update(Input::BeginCreate);
     menu.update(Input::SelectTab(Tab::Advanced));

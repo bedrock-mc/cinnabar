@@ -11,19 +11,21 @@ const OVERSIZED: usize = 600;
 
 /// Uses NOOP's real buffer copies to check final bytes without driver scheduling assumptions.
 fn setup() -> (RenderDevice, RenderQueue, Staging, wgpu::Buffer) {
+    setup_shape(Shape {
+        slot_bytes: 64,
+        ..FRAME
+    })
+}
+
+/// Uses the same ordering fixture with either tiny slots or the complete production frame pool.
+fn setup_shape(shape: Shape) -> (RenderDevice, RenderQueue, Staging, wgpu::Buffer) {
     let (device, queue) = wgpu::Device::noop(&Default::default());
     let device = RenderDevice::from(device);
     let queue = RenderQueue::new(queue);
-    let staging = Staging::new(
-        &device,
-        Shape {
-            slot_bytes: 64,
-            ..FRAME
-        },
-    );
+    let staging = Staging::new(&device, shape);
     let target = device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("upload ordering destination"),
-        size: 1024,
+        size: (shape.slots as u64 * shape.slot_bytes).max(1024),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -82,19 +84,28 @@ fn batches_larger_than_the_pool_queue_only_the_overflow() {
 /// Unstaged bytes that overlap older staged copies land after them; later staged bytes land last.
 #[test]
 fn overlapping_fallback_preserves_pooled_fallback_and_later_pooled_bytes() {
-    let (device, queue, staging, target) = setup();
-    staging.write_batch(&device, &queue, &[(&target, 0, &[1; CAPACITY])]);
-    staging.write_batch(&device, &queue, &[(&target, 8, &[2; 16])]);
-    let stats = staging.lock().stats;
-    assert_eq!(stats.fallback_bytes, 16);
-    assert_eq!(stats.overflow_submissions, 1);
-    staging.write_batch(&device, &queue, &[(&target, 16, &[3; 4])]);
-    let bytes = finish(&device, &queue, &staging, &target);
-    assert_eq!(&bytes[..8], &[1; 8]);
-    assert_eq!(&bytes[8..16], &[2; 8]);
-    assert_eq!(&bytes[16..20], &[3; 4]);
-    assert_eq!(&bytes[20..24], &[2; 4]);
-    assert!(bytes[24..CAPACITY].iter().all(|byte| *byte == 1));
+    for shape in [
+        Shape {
+            slot_bytes: 64,
+            ..FRAME
+        },
+        FRAME,
+    ] {
+        let (device, queue, staging, target) = setup_shape(shape);
+        let capacity = (shape.slots as u64 * shape.slot_bytes) as usize;
+        staging.write_batch(&device, &queue, &[(&target, 0, &vec![1; capacity])]);
+        staging.write_batch(&device, &queue, &[(&target, 8, &[2; 16])]);
+        let stats = staging.lock().stats;
+        assert_eq!(stats.fallback_bytes, 16);
+        assert_eq!(stats.overflow_submissions, 1);
+        staging.write_batch(&device, &queue, &[(&target, 16, &[3; 4])]);
+        let bytes = finish(&device, &queue, &staging, &target);
+        assert_eq!(&bytes[..8], &[1; 8]);
+        assert_eq!(&bytes[8..16], &[2; 8]);
+        assert_eq!(&bytes[16..20], &[3; 4]);
+        assert_eq!(&bytes[20..24], &[2; 4]);
+        assert!(bytes[24..capacity].iter().all(|byte| *byte == 1));
+    }
 }
 
 #[test]

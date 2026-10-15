@@ -25,7 +25,7 @@ pub use stream::{
     WorldStreamStats, world_worker_threads,
 };
 #[cfg(feature = "publication-test-support")]
-pub use stream::{PublicationFixtureIdentity, PublicationFixtureSnapshot};
+pub use stream::{FarSummaryFixture, PublicationFixtureIdentity, PublicationFixtureSnapshot};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use stream::on_idle_world_cores;

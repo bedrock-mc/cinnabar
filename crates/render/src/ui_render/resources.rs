@@ -62,6 +62,7 @@ pub(super) fn init_ui_gpu(
         batches: Arc::from([]),
         accepted_revision: None,
         animated: false,
+        animation_damage: Arc::from([]),
         last_admitted_revision: None,
         last_admitted_publication: Weak::new(),
         index_count: 0,
@@ -101,6 +102,7 @@ pub(crate) fn prepare_ui_resources(
     let Some(input) = scene.input.as_ref() else {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
         stats.update(|s| {
             s.accepted_revision = None;
             s.draw_calls = 0;
@@ -110,6 +112,7 @@ pub(crate) fn prepare_ui_resources(
     if !device_valid {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
         record_render_rejection(
             &stats,
             input.revision,
@@ -173,6 +176,7 @@ pub(crate) fn prepare_ui_resources(
         if let Some(reason) = reason {
             gpu.accepted_revision = None;
             gpu.batches = Arc::from([]);
+            gpu.animation_damage = Arc::from([]);
             record_render_rejection(&stats, input.revision, reason);
             return;
         }
@@ -184,6 +188,7 @@ pub(crate) fn prepare_ui_resources(
         {
             gpu.accepted_revision = None;
             gpu.batches = Arc::from([]);
+            gpu.animation_damage = Arc::from([]);
             record_render_rejection(
                 &stats,
                 input.revision,
@@ -195,6 +200,7 @@ pub(crate) fn prepare_ui_resources(
     if let Err(reason) = input.validate() {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
@@ -206,6 +212,7 @@ pub(crate) fn prepare_ui_resources(
     ) {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
@@ -216,6 +223,7 @@ pub(crate) fn prepare_ui_resources(
     {
         gpu.accepted_revision = None;
         gpu.batches = Arc::from([]);
+        gpu.animation_damage = Arc::from([]);
         record_render_rejection(&stats, input.revision, reason);
         return;
     }
@@ -319,6 +327,7 @@ pub(crate) fn prepare_ui_resources(
     gpu.textures.fonts.commit_vertices();
     gpu.viewport_size = input.viewport_size;
 
+    gpu.animation_damage = super::damage::animated_batches(input).into();
     gpu.batches = Arc::clone(&input.batches);
     gpu.animated = animated;
     gpu.index_count = input.indices.len();

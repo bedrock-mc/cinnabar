@@ -13,6 +13,7 @@ mod publication;
 mod region;
 mod store;
 mod summary;
+mod surface_slice;
 mod tile_coverage;
 mod tile_mesh;
 mod tile_set;
@@ -29,15 +30,16 @@ pub use region::{
 
 pub use colours::SurfaceColours;
 pub use config::FarTerrainConfig;
-pub use extract::{ColumnSnapshot, SurfaceContext, summarise_column};
+pub use extract::{ColumnSnapshot, SurfaceContext, SurfaceScan, summarise_column};
 pub use store::{Admission, ColumnPos, SummaryStore, Versioned};
 pub use summary::{
     COLUMN_CELLS, COLUMN_SIDE, ColumnSummary, EncodedSummary, SummaryDecodeError, SurfaceCell,
 };
+pub use surface_slice::SurfaceSlice;
+pub use tile_coverage::TileCoverage;
 pub use tile_mesh::{
     FACE_NEGATIVE_X, FACE_NEGATIVE_Z, FACE_POSITIVE_X, FACE_POSITIVE_Z, FACE_UP, TileGrid,
     TileMesh, mesh_tile,
 };
-pub use tile_coverage::TileCoverage;
 pub use tile_set::FarTiles;
 pub use tiles::{NearMask, TileKey, TileView, select_tiles};

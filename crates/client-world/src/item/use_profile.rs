@@ -98,6 +98,7 @@ pub fn resolve_item_use(
 impl ItemStateStore {
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
+        self.presentation_generation = Arc::new(());
         // Category generations prevent a previous registry timer from blocking new definitions.
         static NEXT_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let generation = NEXT_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

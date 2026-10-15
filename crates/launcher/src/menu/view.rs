@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
-use super::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTab, auth::AuthState};
+use super::{
+    MenuAction, MenuDialog, MenuField, MenuList, MenuScreen, MenuServerTab, auth::AuthState,
+};
 use ui::IconRef;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub struct LocalWorldCard {
     pub game_mode: String,
     /// The saved world generator label.
     pub world_type: String,
+    /// The server hosting the world, so Dragonfly and BDS worlds of one name stay distinct.
+    pub server: String,
     pub date: String,
     pub size: String,
     /// Its last captured view, once one was taken.
@@ -525,10 +529,10 @@ pub struct MenuView {
     /// Session VSync forced by a launch flag; the saved toggle is shown locked to it.
     pub vsync_override: Option<bool>,
     pub display_name: String,
-    pub servers: Vec<SavedServer>,
-    pub featured: Vec<MenuServerCard>,
-    pub realms: Vec<MenuRealmCard>,
-    pub friends: Vec<MenuFriendCard>,
+    pub servers: MenuList<SavedServer>,
+    pub featured: MenuList<MenuServerCard>,
+    pub realms: MenuList<MenuRealmCard>,
+    pub friends: MenuList<MenuFriendCard>,
     pub featured_icon: Option<IconRef>,
     pub realm_icon: Option<IconRef>,
     pub friend_icon: Option<IconRef>,
@@ -555,7 +559,7 @@ pub struct MenuView {
     pub can_reconnect: bool,
     /// The saved server the add screen is editing.
     pub editing: Option<usize>,
-    pub local_worlds: Vec<LocalWorldCard>,
+    pub local_worlds: MenuList<LocalWorldCard>,
     /// The local-world create, edit and template screens and their modals.
     pub local: crate::local_worlds::WorldsView,
     pub settings_options: std::sync::Arc<super::settings_options::SettingsOptions>,
@@ -783,10 +787,10 @@ impl MenuView {
             render_mode: ui::RenderMode::Vanilla,
             vsync_override: None,
             display_name,
-            servers: Vec::new(),
-            featured: Vec::new(),
-            realms: Vec::new(),
-            friends: Vec::new(),
+            servers: MenuList::default(),
+            featured: MenuList::default(),
+            realms: MenuList::default(),
+            friends: MenuList::default(),
             featured_icon: None,
             realm_icon: None,
             friend_icon: None,
@@ -808,7 +812,7 @@ impl MenuView {
             disconnect_message: None,
             can_reconnect: false,
             editing: None,
-            local_worlds: Vec::new(),
+            local_worlds: MenuList::default(),
             local: Default::default(),
             settings_options: Default::default(),
             storage: Default::default(),

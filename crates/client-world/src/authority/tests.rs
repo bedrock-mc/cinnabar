@@ -54,6 +54,7 @@ fn local_health_feed() -> crate::LocalPlayerFeed {
         on_ground: true,
         flying: false,
         gliding: false,
+        spinning: false,
         fall_fly_ticks: 0,
         yaw: 0.0,
         head_yaw: 0.0,

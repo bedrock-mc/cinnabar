@@ -15,7 +15,8 @@ fn extra_large_servers_keeps_scrolled_group_drag_inside_small_windows() {
                     address: "fixture.test:19132".into(),
                     favorite: false,
                     last_joined_unix: 0,
-                }];
+                }]
+                .into();
                 Arc::make_mut(&mut view.settings_options)
                     .set(option_index(EXTRA_LARGE_UI), enabled);
                 let metrics = TextMetrics::for_viewport(

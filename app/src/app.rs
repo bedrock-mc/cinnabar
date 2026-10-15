@@ -620,6 +620,10 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     crate::runtime::network::await_overlay_texture_device();
     let network = if connection_requested {
         match spawn_network(NetworkConfig {
+            registry_base: crate::runtime::network::session_registries::RegistryBase::new(
+                &runtime_assets,
+                &collision_registries,
+            ),
             session_generation: simulation_clock::identity::SessionGeneration::new(1),
             socket_dir,
             display_name: args.display_name.clone(),

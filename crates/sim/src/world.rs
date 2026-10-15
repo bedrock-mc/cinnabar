@@ -613,6 +613,10 @@ pub struct ProvenancedCollider {
     /// Wire runtime id (widened from the registry's `u32` key space) of the
     /// palette entry on the contributing layer.
     pub runtime_id: Option<u64>,
+    /// Whether any layer of `block` is scaffolding, read under the enclosing
+    /// collision query's identity. `None` requires a lazy material query when
+    /// classification is needed; actors and boundaries have no cell fact.
+    pub cell_has_scaffolding: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -678,6 +682,7 @@ struct CollisionInstance {
     shape: Aabb,
     block: Option<[i32; 3]>,
     runtime_id: Option<u32>,
+    cell_has_scaffolding: Option<bool>,
 }
 
 impl<'a> PaletteWorld<'a> {
@@ -825,6 +830,7 @@ impl CollisionWorld for PaletteWorld<'_> {
                     aabb: instance.shape,
                     block: instance.block,
                     runtime_id: instance.runtime_id.map(u64::from),
+                    cell_has_scaffolding: instance.cell_has_scaffolding,
                 })
                 .collect(),
             identity: instances.identity,

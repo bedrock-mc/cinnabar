@@ -162,3 +162,36 @@ fn draining_with_a_deadline_waits_for_issued_summaries() {
     assert!(inbox.is_idle());
     assert_eq!(summaries.len(), 1);
 }
+
+/// The final owner-thread edit survives eviction and stream drop before summary admission.
+#[test]
+fn final_edit_before_eviction_survives_stream_retirement() {
+    let mut stream = stream(true);
+    stream
+        .submit(1, inline_block_entity_event(1, 7, Vec::new()))
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream
+        .submit(
+            2,
+            WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                dimension: 0,
+                position: [19, -40, 9],
+                layer: 0,
+                network_id: 1,
+            }]),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    stream.evict_column(ChunkKey::new(0, 1, 0));
+    let mut inbox = stream.retire_far_terrain();
+    drop(stream);
+    let mut out = Vec::new();
+    test_time::eventually("final edited retirement summary", || {
+        inbox.drain_budgeted(&mut out, &mut far_terrain::SummaryBudget::default());
+        inbox.is_idle()
+    });
+    assert_eq!(out.len(), 1);
+    let summary = far_terrain::ColumnSummary::decode(&out[0].summary.bytes).unwrap();
+    assert_eq!(summary.cell(3, 9).height, -39);
+}

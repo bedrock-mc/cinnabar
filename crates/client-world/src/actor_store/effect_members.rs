@@ -1,7 +1,7 @@
 //! Ordered candidate membership for actor effects, retained at ingress.
 
 use protocol_ids::ActorDataKey;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use assets::facts::entity::NativeEntityClass;
 
@@ -14,15 +14,25 @@ pub(super) struct EffectMembers {
     pub crystals: BTreeSet<u64>,
     pub dragons: BTreeSet<u64>,
     pub paintings: BTreeSet<u64>,
-    pub collidable: BTreeSet<u64>,
+    pub collidable: super::colliders::ActorColliders,
+    /// Streamed bed positions for actors currently sleeping in a known bed.
+    pub sleepers: BTreeMap<u64, [i32; 3]>,
 }
 
 impl EffectMembers {
     /// Refreshes candidate membership after the actor's kind or metadata changes.
-    pub fn update(&mut self, actor: &ActorSnapshot) {
+    pub fn update(&mut self, actor: &mut ActorSnapshot) {
         let class = actor.entity_fact.native_class;
         let runtime = actor.runtime_id;
-        set(&mut self.collidable, runtime, actor.is_collidable());
+        let bed = actor.is_sleeping().then(|| actor.bed_position()).flatten();
+        let previous = match bed {
+            Some(bed) => self.sleepers.insert(runtime, bed),
+            None => self.sleepers.remove(&runtime),
+        };
+        if previous != bed {
+            actor.status.sleep_rotation = None;
+        }
+        self.collidable.update(actor);
         set(
             &mut self.paintings,
             runtime,
@@ -62,7 +72,8 @@ impl EffectMembers {
         self.crystals.remove(&runtime);
         self.dragons.remove(&runtime);
         self.paintings.remove(&runtime);
-        self.collidable.remove(&runtime);
+        self.collidable.remove(runtime);
+        self.sleepers.remove(&runtime);
     }
 }
 

@@ -87,7 +87,9 @@ fn every_late_hitch_gets_a_window_even_when_they_overlap() {
         assert_eq!(saved["hitch"]["frame_id"], 1000 + index);
         assert_eq!(saved["hitch"]["complete"], true);
         assert!(saved["overwritten_events"].as_u64().unwrap() > 0);
-        assert_eq!(saved["retained_events"], 32);
+        let frames = saved["traceEvents"].as_array().unwrap().iter();
+        let earliest = frames.filter_map(|event| event["frame_id"].as_u64()).min();
+        assert_eq!(earliest, Some(1000 + index as u64 - HITCH_PRE_FRAMES));
         assert!(
             saved["traceEvents"]
                 .as_array()
@@ -146,11 +148,41 @@ fn hitch_reports_bound_snapshots_separately_from_export_capacity() {
     let reports = trace.frame(5003, true, false, 0.0);
     assert_eq!(reports.len(), 1);
     let snapshot = reports[0].snapshot.json();
-    assert_eq!(snapshot["retained_events"], GAMEPLAY_CAPACITY);
+    // The window's frame starts, 4996 through the 5003 boundary, plus the slow-frame marker.
+    assert_eq!(snapshot["retained_events"], 9);
     assert_eq!(snapshot["overwritten_events"], 0);
     assert!(snapshot["omitted_events"].as_u64().unwrap() > 0);
     assert_eq!(snapshot["truncated"], true);
     assert!(reports[0].pre_complete && reports[0].post_complete);
+}
+
+/// A machine that hitches every frame logs a bounded number of reports and counts the rest.
+#[test]
+fn constant_hitching_cannot_flood_the_log() {
+    let trace = FrameTrace::build(None, Instant::now(), GAMEPLAY_CAPACITY);
+    let frames = 10 * HITCH_REPORT_REFILL_FRAMES;
+    let mut reports = Vec::new();
+    for frame_id in 1..=frames {
+        trace.slow_frame(SlowFrameEvent {
+            frame_id,
+            hard_hitch: true,
+            reasons: 1,
+            frame: Duration::from_millis(40),
+        });
+        reports.extend(trace.frame(frame_id + 1, true, false, 0.0));
+    }
+    let allowed = HITCH_REPORT_BURST as usize + (frames / HITCH_REPORT_REFILL_FRAMES) as usize;
+    assert!(reports.len() <= allowed, "{} reports", reports.len());
+    assert!(
+        reports.len() > HITCH_REPORT_BURST as usize,
+        "the budget refills"
+    );
+    let later = reports.last().unwrap().snapshot.json();
+    assert!(later["suppressed_hitch_reports"].as_u64().unwrap() > 0);
+    assert!(
+        later["retained_events"].as_u64().unwrap() < 32,
+        "a report holds only its window"
+    );
 }
 
 /// A late-session stage must survive after the recording budget has been filled.
@@ -353,7 +385,7 @@ fn export_serializes_events_only_as_the_writer_consumes_them() {
     for frame_id in 1..=4096 {
         trace.frame(frame_id, true, false, 0.0);
     }
-    let snapshot = trace.snapshot(&trace.events.lock().unwrap(), usize::MAX);
+    let snapshot = trace.snapshot(&trace.events.lock().unwrap(), usize::MAX, None);
     let (result, allocations) =
         test_alloc::measure(|| serde_json::to_writer(PrefixWriter(1024), &snapshot));
     assert!(result.is_err());

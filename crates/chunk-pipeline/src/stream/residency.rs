@@ -159,7 +159,7 @@ impl WorldStream {
                 drop((retired, retired_indexes));
             });
         }
-        self.far_terrain.retiring.extend(far_retiring);
+        self.spawn_far_summaries(far_retiring);
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours

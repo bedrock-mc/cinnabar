@@ -98,8 +98,8 @@ struct State {
     layout: Option<HostLayout>,
     session: Arc<SessionData>,
     screens: ModScreens,
-    /// This callback's screen output, applied to a copy of `screens`; committed on return.
-    pending_screens: Option<ModScreens>,
+    /// This callback's screen transaction, reused across writes and committed on return.
+    pending_screens: Option<player_mod::ScreenTransaction>,
     /// Host calls and screen output bytes of the running callback.
     calls: usize,
     output: usize,
@@ -943,7 +943,11 @@ fn commit_event(store: &mut Store<State>) {
     if let Some(text) = state.pending.take() {
         state.label = (!text.is_empty()).then_some(text);
     }
-    if let Some(screens) = state.pending_screens.take() {
+    if let Some(screens) = state
+        .pending_screens
+        .take()
+        .and_then(player_mod::ScreenTransaction::commit)
+    {
         state.screens = screens;
     }
 }

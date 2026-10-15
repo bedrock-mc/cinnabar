@@ -17,6 +17,9 @@ mod admission;
 #[path = "tests/multipart.rs"]
 mod multipart;
 
+#[path = "tests/sleeping.rs"]
+mod sleeping;
+
 /// Reads the checkout's shared target manifest for registry fixtures.
 fn active_content_registry_protocol() -> u32 {
     serde_json::from_str::<serde_json::Value>(include_str!(
@@ -635,4 +638,63 @@ fn bootstrap_registration_preserves_palette_mapping_and_replaces_custom_collisio
     let registration = registries.begin_session_blocks(&protocol::CustomBlocks::default(), true);
     assert!(registration.supported);
     assert!(!registries.hashed.contains_runtime_id(hash));
+}
+
+/// Capturing a base shares its large tables; custom mutation stays isolated on the worker copy.
+#[test]
+fn session_registry_snapshots_share_carrier_tables_and_isolate_custom_mutation() {
+    let version = active_content_registry_protocol();
+    let base = bind(
+        BREG_V2193,
+        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
+        version,
+    )
+    .unwrap();
+    let mut pending = base.clone();
+    assert!(base.shares_carrier_with(&pending));
+    assert!(Arc::ptr_eq(
+        &base.interaction_blocks,
+        &pending.interaction_blocks
+    ));
+    assert!(Arc::ptr_eq(
+        &base.hashed_interaction_blocks,
+        &pending.hashed_interaction_blocks
+    ));
+    assert!(Arc::ptr_eq(
+        &base.canonical_states,
+        &pending.canonical_states
+    ));
+    assert!(Arc::ptr_eq(
+        &base.hashed_canonical_states,
+        &pending.hashed_canonical_states
+    ));
+    assert!(Arc::ptr_eq(&base.state_ids, &pending.state_ids));
+    assert!(Arc::ptr_eq(
+        &base.named_block_identities,
+        &pending.named_block_identities
+    ));
+    let custom = protocol::CustomBlocks {
+        blocks: Arc::from([custom_block("test:prepared_registry", 1)]),
+        ..Default::default()
+    };
+    let id = pending
+        .begin_session_blocks(&custom, false)
+        .custom_ids
+        .unwrap()
+        .start;
+    assert!(pending.sequential.contains_runtime_id(id));
+    assert!(!base.sequential.contains_runtime_id(id));
+    assert!(base.shares_carrier_with(&pending));
+    assert!(Arc::ptr_eq(
+        &base.canonical_states,
+        &pending.canonical_states
+    ));
+    assert!(Arc::ptr_eq(&base.state_ids, &pending.state_ids));
+    let unrelated = bind(
+        BREG_V2193,
+        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
+        version,
+    )
+    .unwrap();
+    assert!(!base.shares_carrier_with(&unrelated));
 }

@@ -20,9 +20,24 @@ fn control(sequence: u64, state: u8, position: [f32; 3]) -> CommittedControlEven
 fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor() {
     let mut lifecycle = RespawnLifecycle::default();
     let mut movement = MovementTicker::default();
+    let mut physics = LocalPhysicsController::default();
     let position = [3.5, 70.0, -4.5];
-    assert!(lifecycle.consume_nonspatial_phase(7, &control(1, 0, position), 42, &mut movement));
-    assert!(!lifecycle.consume_nonspatial_phase(7, &control(2, 1, position), 42, &mut movement));
+    assert!(lifecycle.consume_nonspatial_phase(
+        7,
+        &control(1, 0, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
+    assert!(!lifecycle.consume_nonspatial_phase(
+        7,
+        &control(2, 1, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None
+    ));
     assert!(lifecycle.input_held());
     assert!(matches!(
         lifecycle.queue_completion(|packet| Err(PacketSendError::Full(packet))),
@@ -43,7 +58,9 @@ fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor(
             7,
             &control(duplicate, 1, position),
             42,
-            &mut movement
+            &mut movement,
+            &mut physics,
+            None
         ));
     }
     lifecycle
@@ -56,20 +73,49 @@ fn respawn_ready_retries_without_duplicate_packets_or_the_server_sentinel_actor(
 fn respawn_search_and_session_replacement_drop_obsolete_completion() {
     let mut lifecycle = RespawnLifecycle::default();
     let mut movement = MovementTicker::default();
+    let mut physics = LocalPhysicsController::default();
     let position = [3.5, 70.0, -4.5];
-    lifecycle.consume_nonspatial_phase(7, &control(1, 1, position), 42, &mut movement);
-    lifecycle.consume_nonspatial_phase(7, &control(2, 0, position), 42, &mut movement);
+    lifecycle.consume_nonspatial_phase(
+        7,
+        &control(1, 1, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None,
+    );
+    lifecycle.consume_nonspatial_phase(
+        7,
+        &control(2, 0, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None,
+    );
     lifecycle
         .queue_completion(|_| panic!("completion from preceding respawn"))
         .unwrap();
     assert!(lifecycle.input_held());
-    lifecycle.consume_nonspatial_phase(7, &control(3, 1, position), 42, &mut movement);
+    lifecycle.consume_nonspatial_phase(
+        7,
+        &control(3, 1, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None,
+    );
     lifecycle.synchronize_session(Some(8));
     assert!(!lifecycle.input_held());
     lifecycle
         .queue_completion(|_| panic!("completion from replaced session"))
         .unwrap();
-    assert!(!lifecycle.consume_nonspatial_phase(8, &control(1, 1, position), 56, &mut movement));
+    assert!(!lifecycle.consume_nonspatial_phase(
+        8,
+        &control(1, 1, position),
+        56,
+        &mut movement,
+        &mut physics,
+        None
+    ));
     lifecycle
         .queue_completion(|packet| {
             assert_eq!(packet, protocol::respawn_ready_packet(56));
@@ -84,14 +130,24 @@ fn respawn_search_and_session_replacement_drop_obsolete_completion() {
 fn respawn_unknown_phases_are_nonspatial_and_preserve_the_current_search() {
     let mut lifecycle = RespawnLifecycle::default();
     let mut movement = MovementTicker::default();
+    let mut physics = LocalPhysicsController::default();
     let position = [3.5, 70.0, -4.5];
-    lifecycle.consume_nonspatial_phase(7, &control(1, 0, position), 42, &mut movement);
+    lifecycle.consume_nonspatial_phase(
+        7,
+        &control(1, 0, position),
+        42,
+        &mut movement,
+        &mut physics,
+        None,
+    );
     for (sequence, state) in [(2, 2), (3, u8::MAX)] {
         assert!(lifecycle.consume_nonspatial_phase(
             7,
             &control(sequence, state, [f32::NAN; 3]),
             42,
-            &mut movement
+            &mut movement,
+            &mut physics,
+            None
         ));
     }
     assert!(lifecycle.input_held());

@@ -259,13 +259,14 @@ impl ActorStore {
                 actor.set_current_pose(pose);
                 self.animation.mark_reset(runtime_id);
             }
+            self.effect_members.collidable.update(actor);
             return;
         }
         let mut actor =
             ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
-        self.effect_members.update(&actor);
+        self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
         self.apply_pending_local_health(runtime_id);
@@ -577,6 +578,7 @@ impl ActorStore {
                 actor.teleported = movement.teleported;
                 actor.player_mode = movement.player_mode;
                 actor.source_tick = movement.source_tick;
+                self.effect_members.collidable.update(actor);
                 if movement.teleported {
                     self.animation.mark_reset(movement.runtime_id);
                     if let Some(lifetime) = self.lifetime(movement.runtime_id) {

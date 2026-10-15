@@ -108,6 +108,97 @@ fn identical_resend_reuses_blocks_without_new_decode_work() {
     assert!(!stream.lighting.jobs.pending.contains_key(&key));
 }
 
+/// Equal resends after warm single edits preserve resident snapshots, light and mesh work.
+#[test]
+fn edited_section_resends_reuse_blocks_without_remesh_or_relight() {
+    let (mut stream, key) = settled_column(7);
+    let original = stream.authority.terrain().sub_chunk(key).unwrap();
+    for (index, (y, value)) in [(0, 8), (1, 8), (0, 7), (1, 7)].into_iter().enumerate() {
+        stream
+            .submit(
+                index as u64 + 2,
+                WorldEvent::BlockUpdates(vec![BlockUpdateEvent {
+                    dimension: key.dimension,
+                    position: [key.x * 16, key.y * 16 + y, key.z * 16],
+                    layer: 0,
+                    network_id: value,
+                }]),
+            )
+            .unwrap();
+        complete_pending_decode_jobs(&mut stream);
+    }
+    let edited = stream.authority.terrain().sub_chunk(key).unwrap();
+    assert!(!Arc::ptr_eq(&original, &edited));
+    assert!(original.blocks_match(&edited));
+    install_current_light(&mut stream, key, 0, 15, false);
+    stream.mesh_jobs.pending.clear();
+    stream.mesh_jobs.clear_queued();
+
+    let mut equivalent = vec![8, 1, 3];
+    for _ in 0..world::BLOCKS_PER_SUB_CHUNK.div_ceil(u32::BITS as usize) {
+        equivalent.extend(0xaaaa_aaaa_u32.to_le_bytes());
+    }
+    equivalent.extend([4, 7 << 1, 7 << 1]);
+    equivalent.extend(biome_payload(0, 1));
+    let equivalent = WorldEvent::LevelChunk(LevelChunkEvent {
+        dimension: key.dimension,
+        x: key.x,
+        z: key.z,
+        mode: LevelChunkMode::Inline { count: 1 },
+        payload: equivalent,
+    });
+    for (index, event) in [
+        inline_block_entity_event(1, 7, Vec::new()),
+        inline_block_entity_event(1, 7, Vec::new()),
+        equivalent.clone(),
+        equivalent,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let before = stream.stats();
+        let pending_lights = stream
+            .lighting
+            .jobs
+            .pending
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        stream.submit(index as u64 + 6, event).unwrap();
+        complete_pending_decode_jobs(&mut stream);
+        let after = stream.stats();
+        assert!(Arc::ptr_eq(
+            &edited,
+            &stream.authority.terrain().sub_chunk(key).unwrap()
+        ));
+        assert!(stream.mesh_jobs.pending.is_empty());
+        assert_eq!(
+            stream
+                .lighting
+                .jobs
+                .pending
+                .keys()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            pending_lights
+        );
+        assert!(stream.light_is_current(key));
+        assert_eq!(
+            after.publication_stages.mesh_jobs_completed,
+            before.publication_stages.mesh_jobs_completed
+        );
+        let decoded = after.publication_stages.inline_sections_decoded
+            - before.publication_stages.inline_sections_decoded;
+        let reused = after.publication_stages.inline_sections_reused
+            - before.publication_stages.inline_sections_reused;
+        assert_eq!(
+            (decoded, reused),
+            if index % 2 == 0 { (1, 0) } else { (0, 1) }
+        );
+    }
+    assert_eq!(original.runtime_id(0, 0, 1, 0), Some(7));
+}
+
 /// Four packed sections, with an optional light-neutral replacement of the top one.
 fn packed_column_payload(changed_top: bool) -> Vec<u8> {
     let range = vanilla_dimension_range(0).unwrap();

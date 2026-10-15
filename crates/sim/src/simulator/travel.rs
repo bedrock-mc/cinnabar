@@ -54,7 +54,7 @@ pub(super) fn tick_without_travel(
     let mut identity = sampled.identity.clone();
     super::inside::after_move(
         world,
-        next.collision_box(input.mode.hitbox_height(input.sneaking)),
+        next.collision_box(next.hitbox_height(input)),
         &mut next.velocity,
         &input,
         &mut sampled,
@@ -169,7 +169,7 @@ pub(super) fn tick_mode(
         _ => {}
     }
 
-    let height = input.mode.hitbox_height(input.sneaking);
+    let height = next.hitbox_height(input);
     let collision_box = next.collision_box(height);
     let view = ScaffoldingView::new(world, collision_box, sampled.descend_through);
     let stuck = super::inside::stuck_multiplier(&sampled, &input);

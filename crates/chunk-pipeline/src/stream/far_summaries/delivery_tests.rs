@@ -10,11 +10,11 @@ fn finish(inbox: &mut FarSummaryInbox, x: i32) -> ChunkKey {
     let generation = inbox.issue(column);
     inbox
         .tx
-        .send(Finished {
+        .send(Event::Finished(Finished {
             column,
             generation,
             summary: far_terrain::ColumnSummary::default().encode(),
-        })
+        }))
         .unwrap();
     column
 }
@@ -48,11 +48,11 @@ fn deferred_results_still_obey_generation_order() {
     let generation = inbox.issue(column);
     inbox
         .tx
-        .send(Finished {
+        .send(Event::Finished(Finished {
             column,
             generation,
             summary: far_terrain::ColumnSummary::default().encode(),
-        })
+        }))
         .unwrap();
     inbox.drain_budgeted(&mut out, &mut SummaryBudget::new(1, usize::MAX));
     assert!(out.is_empty());

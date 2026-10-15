@@ -8,6 +8,7 @@ pub mod inbox;
 pub mod invite;
 pub mod join_progress;
 pub mod join_requests;
+mod list;
 pub mod profile;
 pub mod profile_achievements;
 pub mod realm_membership;
@@ -21,6 +22,7 @@ pub mod updates;
 pub mod view;
 pub mod worlds_tab;
 
+pub use list::MenuList;
 pub use profile::{
     ProfileTab, profile_banner_index, profile_count_display, profile_minutes_display,
 };

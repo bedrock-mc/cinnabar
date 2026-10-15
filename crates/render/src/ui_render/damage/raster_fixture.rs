@@ -16,6 +16,7 @@ pub(super) struct Raster {
     pub(super) gpu: Gpu,
     pub(super) binding: wgpu::BindGroup,
     pub(super) item_glint: wgpu::Texture,
+    pub(super) viewport: wgpu::Buffer,
     pub(super) materials: [wgpu::RenderPipeline; 4],
     pub(super) clear: wgpu::RenderPipeline,
 }
@@ -131,6 +132,16 @@ impl Raster {
 
     /// Uses the production shader with an explicit fixture shine intensity.
     pub(super) fn with_glint(input: &UiRenderInput, strength: f32) -> Option<Self> {
+        Self::with_glint_pattern(input, strength, [1, 1], &[80, 40, 120, 255])
+    }
+
+    /// Uses synthetic varying artwork so clock-only changes have observable pixels.
+    pub(super) fn with_glint_pattern(
+        input: &UiRenderInput,
+        strength: f32,
+        size: [u32; 2],
+        pixels: &[u8],
+    ) -> Option<Self> {
         let gpu = Gpu::for_fixture("retained UI damage exact pixel parity")?;
         let entries = ui_bind_group_layout();
         let bindings = gpu
@@ -191,7 +202,7 @@ impl Raster {
         let viewport = buffer(
             &gpu,
             bytemuck::cast_slice(&[SIDE as f32, SIDE as f32, 0.0, strength]),
-            wgpu::BufferUsages::UNIFORM,
+            wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         );
         let format = buffer(
             &gpu,
@@ -211,8 +222,8 @@ impl Raster {
             &wgpu::TextureDescriptor {
                 label: Some("synthetic UI item glint"),
                 size: wgpu::Extent3d {
-                    width: 1,
-                    height: 1,
+                    width: size[0],
+                    height: size[1],
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,
@@ -223,7 +234,7 @@ impl Raster {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            &[80, 40, 120, 255],
+            pixels,
         );
         let glint_view = item_glint.create_view(&Default::default());
         let glint_sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -274,6 +285,7 @@ impl Raster {
             gpu,
             binding,
             item_glint,
+            viewport,
         })
     }
 }

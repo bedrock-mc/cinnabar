@@ -185,6 +185,11 @@ impl ActorStore {
         self.items.apply_registry(registry)
     }
 
+    /// Retains the identity of the facts used to resolve item presentation.
+    pub(crate) fn item_presentation_generation(&self) -> &std::sync::Arc<()> {
+        self.items.presentation_generation()
+    }
+
     pub(crate) fn get(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
         self.actors.get(&runtime_id)
     }

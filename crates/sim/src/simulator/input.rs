@@ -5,6 +5,9 @@ use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MovementInput {
+    /// One released trident, retaining its facing independently of this tick's look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub riptide: Option<super::RiptideLaunch>,
     /// Spectator travel ignores terrain collision and block contact effects.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub spectator: bool,

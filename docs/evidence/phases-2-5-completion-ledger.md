@@ -1,5 +1,15 @@
 # Phases 2-5 Completion Ledger
 
+Single-cell palette edits retain bounded physical slots and live counts while preserving
+canonical palette order. Last-use removal and width shrink defer word packing until an exact
+word view is requested; snapshot-local caches and exact mutation results avoid eager equality
+materialization. Untouched decoded representations, no-ops and snapshot isolation are preserved.
+Memory admission accounts for physical storage, historical slots and possible canonical caches;
+existing process-wide capacity limits are unchanged.
+Regression tests and benchmark fixtures have not been compiled or run. Output verification,
+consumer-cadence, retained-memory and measured performance evidence remain incomplete.
+This change advances no phase completion, parity or hardware performance gate.
+
 Verified chunk blobs now persist through a bounded background store. Restart, corruption,
 miss reporting and memory pressure coverage belong to `client-runtime` and `protocol`;
 this storage change advances no rendered, live-join or broader parity completion gate.
@@ -43,6 +53,12 @@ Flight, remote movement/reset, local catch-up and authored-rotation regressions 
 compiled or executed. Rendered-frame validation and the exact Bedrock flap calculation remain
 incomplete. This change closes no parity or performance gate.
 
+Far-summary extraction now has global copied-work admission, a background lane and an
+explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
+sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
+releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
+performance qualification remain incomplete. No phase or performance gate closes here.
+
 ## P2.5-NATIVE-BIOME
 
 | Field | Evidence |
@@ -77,6 +93,28 @@ incomplete. This change closes no parity or performance gate.
 | Final status | Open — numbered PNG/TGA/JPEG skyboxes are implemented; HDR/KTX, enhanced rendering and broader atmosphere acceptance remain open. |
 
 ## P3-MOVEMENT
+
+Riptide releases now carry a level-dependent launch and spin lifetime through fixed ticks,
+correction replay, input start/stop flags and local actor presentation. Charge and admission
+regressions cover wetness, queue rejection, captured ordinary and assisted release facing,
+snap/replay lifetime and cancellation with a discarded release. Ordinary and assisted releases retain
+release-edge eligibility before waiting for interaction sampling or facing input, including movement
+FIFO backpressure, and retain use slowdown through that tick. An accepted use keeps its facing
+fence while pending inventory gestures hide the selected stack. The first release observation
+retains its selected item, eligibility and effective action facing for the input and launch,
+without replacing later physical look outside that action fence. Release
+sprint blocking expires on the same fixed tick independently of render-frame grouping. Admitted
+launches survive a snap or replay fallback until their movement input is written, including late
+socket receipts. Cancellation replay rebuilds the pose eye and interpolation, retained aim and
+liquid attachment heights from retained eye state. Locomotion selection, travel and replay share
+the preceding spin's compact liquid probe so water sensing also gates glide entry. Respawn search and ready anchors discard old
+releases, temporary use modifiers
+and pending launches, including unreleased item-use charges and reserved use input/facing. Item-use admission waits for
+respawn completion without resetting inventory or cooldown policy. Suppressed travel uses the compact spin body for block contacts. Unsupported
+impulses are retired at the
+collision-query budget, a known safety divergence for oversized levels. Exact positional rain eligibility, actor-hit
+termination, server spin metadata, audio and integrated acceptance remain incomplete; this
+change closes no movement parity or performance gate.
 
 Remaining double intermediates in processed controls, block-height contact, support
 offsets, climb requests and fallback travel drag now use f32 operations. Precision

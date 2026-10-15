@@ -117,6 +117,7 @@ impl LocomotionState {
         movement_speed: &mut LocalMovementSpeedAuthority,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
         self.observe_dismount(&frame, movement_ticker.session_generation);
         let PhysicsFrameInput {
@@ -242,6 +243,7 @@ impl LocomotionState {
                         sprint_start_blocked: facts.sprint_start_blocked,
                         stop_sprinting: controlled.stop_sprinting,
                     },
+                    release_use_modifier: movement_ticker.release_use_modifier(),
                     input: super::TickInput {
                         movement_buttons: frame.movement_buttons,
                         jump,

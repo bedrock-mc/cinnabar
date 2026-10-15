@@ -392,3 +392,63 @@ fn waking_attachments_restore_physics_or_server_feet_instead_of_the_free_camera(
         assert_eq!(stream.authority().actor(2).unwrap().position, expected);
     }
 }
+
+#[test]
+fn changed_and_missing_bed_facts_refresh_without_actor_ticks() {
+    let mut app = pose_app();
+    sleep_state(&mut app, 4, true, Some(BED));
+    for heading in [Some(270.0), None, Some(90.0)] {
+        app.world_mut()
+            .resource_mut::<TestCollisions>()
+            .bed_rotation = heading;
+        app.world_mut()
+            .run_system_cached(resolve_presentation)
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .resource::<TestWorld>()
+                .0
+                .authority()
+                .actor(2)
+                .unwrap()
+                .status
+                .sleep_rotation,
+            heading
+        );
+        assert_eq!(
+            app.world().resource::<LocalViewPose>().camera_rotation(),
+            crate::local_player::sleeping_view_rotation(heading.unwrap_or(0.0))
+        );
+    }
+    // Move the sleep target outside resident terrain; an old registry fact cannot keep its heading.
+    sleep_state(&mut app, 5, true, Some([BED[0] + 1024, BED[1], BED[2]]));
+    app.world_mut()
+        .run_system_cached(resolve_presentation)
+        .unwrap();
+    assert_eq!(
+        app.world()
+            .resource::<TestWorld>()
+            .0
+            .authority()
+            .actor(2)
+            .unwrap()
+            .status
+            .sleep_rotation,
+        None
+    );
+    sleep_state(&mut app, 6, true, Some(BED));
+    app.world_mut()
+        .run_system_cached(resolve_presentation)
+        .unwrap();
+    assert_eq!(
+        app.world()
+            .resource::<TestWorld>()
+            .0
+            .authority()
+            .actor(2)
+            .unwrap()
+            .status
+            .sleep_rotation,
+        Some(90.0)
+    );
+}
