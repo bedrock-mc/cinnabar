@@ -17,6 +17,7 @@ use {
 mod committed_ui;
 mod control_apply;
 mod dimension;
+mod input_locks;
 mod local_retention;
 mod respawn;
 pub(crate) use committed_ui::drain_committed_ui_before_authority;
@@ -326,6 +327,8 @@ type WorldPollInputs<'w, 's> = (
     Option<Res<'w, client_presentation::camera::ServerCameraView>>,
     Local<'s, gameplay::movement::CorrectionContextLog>,
     Option<ResMut<'w, client_interaction::item_use::ItemUseRuntime>>,
+    ResMut<'w, client_interaction::movement::LocomotionState>,
+    ResMut<'w, client_presentation::camera::look::LookSmoother>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -352,6 +355,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         server_camera_view,
         mut correction_log,
         mut item_use,
+        mut locomotion,
+        mut look_smoother,
     ): WorldPollInputs<'_, '_>,
 ) {
     let _timer = profiler
@@ -431,6 +436,17 @@ pub(crate) fn reconcile_world_stream_before_physics(
 
     let mut controls = controls.into_iter();
     while let Some(control) = controls.next() {
+        if let CommittedControlEvent::ClientInputLocks { locks, .. } = control {
+            input_locks::apply_committed_input_locks(
+                clock.session_generation(),
+                locks,
+                &mut player_runtime.facts,
+                &mut local_physics,
+                &mut locomotion,
+                &mut look_smoother,
+            );
+            continue;
+        }
         if let CommittedControlEvent::DimensionChangeAck {
             dimension_epoch, ..
         } = control

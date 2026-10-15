@@ -259,6 +259,12 @@ pub const STATES: &[State] = &[
         fixture: || settings_video_option(SettingId::FullDetailDistance),
     },
     State {
+        name: "settings-storage",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_storage,
+    },
+    State {
         name: "settings-keyboard",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -443,6 +449,13 @@ pub fn settings(section: &str) -> MenuView {
 /// Shows an ordinary OreUI route without account, world or network services.
 fn settings_video() -> Fixture {
     Fixture::Menu(Box::new(settings(SettingSection::Video.definition().name)))
+}
+
+/// Shows Storage as a desktop host fills it, with the folder buttons.
+fn settings_storage() -> Fixture {
+    let mut view = settings(SettingSection::StorageManagement.definition().name);
+    Arc::make_mut(&mut view.storage).opens_folders = true;
+    Fixture::Menu(Box::new(view))
 }
 
 /// Reveals the distance controls through the same focus scrolling as the client.

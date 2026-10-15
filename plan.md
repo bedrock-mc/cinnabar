@@ -1180,6 +1180,15 @@ these changes do not close the movement, camera, or actor parity gates.
   Named and inline splines have independent progress/rotation tracks. Aim selection
   uses retained physics-tick poses, item categories, priorities and visibility,
   with separate interaction direction and action-triggered rotation.
+- Attachments belong to individual boom rigs. Selecting first person after an
+  attached tutorial returns to the player; attaching alone does not select a
+  camera. Clear and detach release only the selected rig's attachment.
+- Server input locks commit in packet order independently of camera selection.
+  Camera, movement, jump, sneak, dismount and directional locks filter input;
+  raw movement vectors remain available and unlocking restores held controls.
+  Mount permission routing and exact attachment actor-loss behavior remain incomplete.
+  Dimension, respawn, game-mode and initialization interactions, plus the full
+  current-version aim-assist and presentation-effects audit, remain unverified.
 - Incomplete parity: animated attachment anchors, definition-authored actor hitboxes,
   complete native block tags, touch pick-range remapping, equal-score actor order,
   historical remote geometry during catch-up, and fire-resistance lava fog remain
