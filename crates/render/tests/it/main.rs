@@ -76,6 +76,7 @@ mod model_alpha;
 mod model_tint_raster;
 mod model_uv_raster;
 mod nametag_opacity;
+mod nametag_transparency;
 mod native_sky;
 mod oreui_font;
 mod plugin;

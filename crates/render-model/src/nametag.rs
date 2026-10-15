@@ -83,15 +83,15 @@ pub struct NametagRecord {
 impl NametagRecord {
     /// Evaluates a software label fragment, rejecting low atlas coverage before color opacity.
     /// Flat plates ignore the supplied texel; sampled RGB is already in the desired color space.
+    /// Fully transparent cosmetic fragments leave both scene color and alpha untouched.
     #[must_use]
     pub fn fragment_color(&self, texel: [f32; 4]) -> Option<[f32; 4]> {
         let texel = if self.uv[2] < 0.0 { [1.0; 4] } else { texel };
         if texel[3] <= NAMETAG_ALPHA_CUTOFF {
             return None;
         }
-        Some(std::array::from_fn(|channel| {
-            self.color[channel] * texel[channel]
-        }))
+        let color = std::array::from_fn(|channel| self.color[channel] * texel[channel]);
+        (color[3] > 0.0).then_some(color)
     }
 
     /// Builds the screen-aligned world quad from the camera's world rotation, as in the shader.
@@ -243,6 +243,23 @@ mod tests {
             },
         ] {
             assert!(invalid.world_corners(Quat::IDENTITY).is_none());
+        }
+    }
+
+    #[test]
+    fn transparent_cosmetics_discard_without_rejecting_faint_visible_fragments() {
+        for uv in [[0., 0., -1., -1.], [0., 0., 1., 1.]] {
+            let invisible = NametagRecord {
+                uv,
+                color: [0.; 4],
+                ..Default::default()
+            };
+            assert_eq!(invisible.fragment_color([1.; 4]), None);
+            let faint = NametagRecord {
+                color: [0., 0., 0., 0.01],
+                ..invisible
+            };
+            assert_eq!(faint.fragment_color([1.; 4]), Some(faint.color));
         }
     }
 

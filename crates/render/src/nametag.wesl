@@ -71,5 +71,10 @@ fn nametag_fragment(input: VertexOutput) -> @location(0) vec4<f32> {
         }
         color = color * texel;
     }
+    // A cosmetic background or opacity can disable a quad. Alpha replacement must
+    // not punch a transparent rectangle into the scene behind it.
+    if (color.a <= 0.0) {
+        discard;
+    }
     return color;
 }
