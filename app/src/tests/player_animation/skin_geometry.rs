@@ -25,11 +25,19 @@ fn skinned_player_publishes_a_drawable_body_and_cape_on_the_skin_page() {
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
     let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
     let mut capes = cape::CapeState::default();
-    let cape_rig = capes.rig(Some(&entities)).expect("cape geometry resolves");
+    let (cape_rig, preparation) = capes.rig(Some(&entities)).expect("cape geometry resolves");
+    let profile = world.authority().actor_player_profile(42).unwrap();
+    let PlayerSkin::Standard(skin) = &profile.skin else {
+        panic!("standard skin fixture");
+    };
+    preparation.request(skin.cape.as_ref().expect("cape fixture"));
+    preparation.submit();
+    preparation.finish_fixture_batch();
     scene.insert_geometry(cape_rig.geometry.clone()).unwrap();
     cape::apply_capes(
         &mut batch,
         cape_rig,
+        preparation,
         |runtime_id| world.authority().actor_rig(runtime_id),
         |runtime_id| world.authority().actor_player_profile(runtime_id),
         |_| None,
