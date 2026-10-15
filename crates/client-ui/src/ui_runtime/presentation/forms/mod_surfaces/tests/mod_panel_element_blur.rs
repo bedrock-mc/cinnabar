@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use mod_ui::PanelUiOwner;
 use render_api::UiBackdropPaint;
-use render_model::{UI_BLEND_ALPHA, UI_BLEND_FILTER, UiRenderInput};
+use render_model::{UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UiRenderInput};
 use serde_json::json;
 use ui::{
     DpiScale,
@@ -17,7 +17,7 @@ use crate::test_support::mini_engine_presentation;
 use crate::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
 use mod_ui::test_support::sample_panel as panel;
 
-/// A card at (60, 60) holding a green fill and a label, blurred by `#entering`, which eases
+/// A glass card at (60, 60) holding a green fill and a label, blurred by `#entering`, which eases
 /// in from 5 GUI pixels to 0 over a quarter second, beside an unfiltered red marker.
 fn entering_panel() -> Panel {
     let fill = |color: [f64; 4], offset: [f64; 2]| {
@@ -33,7 +33,9 @@ fn entering_panel() -> Panel {
                 {"card":{"type":"panel","size":[100,60],"offset":[60,60],
                     "anchor_from":"top_left","anchor_to":"top_left","cinnabar_filter":{},
                     "bindings":[{"binding_name":"#entering","binding_name_override":"#cinnabar_blur"}],
-                    "controls":[{"fill":fill([0.0, 1.0, 0.0, 1.0], [0.0, 0.0])},
+                    "controls":[{"glass":{"type":"custom","renderer":"cinnabar_glass",
+                            "size":["100%","100%"],"blur":8,"color":[0,0,0,0.5]}},
+                        {"fill":fill([0.0, 1.0, 0.0, 1.0], [0.0, 0.0])},
                         {"title":{"type":"label","text":"Modules","offset":[0,30],
                             "anchor_from":"top_left","anchor_to":"top_left","color":[1,1,1,1]}}]}},
                 {"marker":fill([1.0, 0.0, 0.0, 1.0], [300.0, 60.0])}
@@ -71,7 +73,10 @@ fn groups(input: &UiRenderInput) -> Vec<(usize, f32)> {
     let mut groups = Vec::new();
     let mut members = 0;
     for batch in input.batches.iter() {
-        if batch.filter_group.is_some() {
+        if batch.blend_mode == UI_BLEND_BACKDROP {
+            // Glass inside the group still samples the world, not the group.
+            assert_eq!(batch.filter_group, None);
+        } else if batch.filter_group.is_some() {
             assert_eq!(batch.blend_mode, UI_BLEND_ALPHA);
             members += 1;
         } else if batch.blend_mode == UI_BLEND_FILTER {
@@ -110,7 +115,16 @@ fn a_filtered_subtree_blurs_as_one_group_while_its_entrance_eases() {
     let [(members, blur)] = groups(&opening)[..] else {
         panic!("one filter group: {:?}", groups(&opening));
     };
-    assert!(members >= 2, "the fill and the label share the group");
+    assert!(
+        members >= 3,
+        "the glass tint, fill and label share the group"
+    );
+    assert!(
+        opening
+            .batches
+            .iter()
+            .any(|batch| batch.blend_mode == UI_BLEND_BACKDROP)
+    );
     assert_eq!(blur, 5.0 * px);
     // Unblurred, the CPU snapshot still shows the group's draws and the marker outside it.
     let image = snapshot::rasterize(&opening);

@@ -14,8 +14,16 @@ pub(super) struct DrawSpace<'a> {
     pub(super) node: super::UiNodeId,
     /// The node's paint transform in frame coordinates, applied to every emitted vertex.
     pub(super) transform: Option<FrameAffine>,
-    /// The filter group every emitted batch draws into.
+    /// The filter group every emitted alpha batch draws into.
     pub(super) filter: Option<u32>,
+}
+
+impl DrawSpace<'_> {
+    /// The filter group a batch of `blend` draws into: only alpha draws filter, while
+    /// inverted, backdrop and filter geometry keep their own compositing.
+    pub(super) fn filter_for(&self, blend: UiBlendMode) -> Option<u32> {
+        self.filter.filter(|_| blend == UiBlendMode::Alpha)
+    }
 }
 
 /// A 2-D affine map in frame coordinates: `p -> linear * p + translation`, `linear`
@@ -685,7 +693,7 @@ fn emit_colored_quad(
                 .is_some_and(|projection| projection.depth_write)
         && batch.world_projection == clip.projection.is_some()
         && batch.isolated_depth_scope.is_none()
-        && batch.filter_group == clip.filter
+        && batch.filter_group == clip.filter_for(blend)
         && batch.index_range.end == start
     {
         batch.index_range.end = end;
@@ -713,7 +721,7 @@ fn emit_colored_quad(
             .is_some_and(|projection| projection.depth_write),
         world_projection: clip.projection.is_some(),
         isolated_depth_scope: None,
-        filter_group: clip.filter,
+        filter_group: clip.filter_for(blend),
         index_range: start..end,
     });
     Ok(())

@@ -427,6 +427,8 @@ to three standard deviations beyond what the subtree draws. While the blurred su
 layer redraws, the client draws the subtree offscreen, downsamples it within those bounds
 and composites it blurred in its place; an unchanged layer reuses the result. Controls in
 other layers that interleave with the subtree split it into separately blurred groups.
+Glass inside a filtered subtree blurs its tint, border and highlight with the subtree,
+while its backdrop keeps sampling the world.
 
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has
