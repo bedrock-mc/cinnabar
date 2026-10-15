@@ -26,12 +26,42 @@ const PATH_CAPACITY: usize = 32_768;
 /// Room for a long directory path and hundreds of selected file names.
 const MULTI_FILE_CAPACITY: usize = PATH_CAPACITY * 4;
 
+pub(crate) mod crash_dialog;
+
 /// Runs console helpers without a console window while preserving their configured streams.
 pub fn hide_console(command: &mut std::process::Command) {
     use std::os::windows::process::CommandExt;
     use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
     command.creation_flags(CREATE_NO_WINDOW);
+}
+
+/// Whether this executable is linked for the GUI subsystem, so failures have no console to
+/// reach and must be shown in a window.
+pub fn gui_subsystem() -> bool {
+    #[cfg(target_pointer_width = "32")]
+    use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS32 as Headers;
+    #[cfg(target_pointer_width = "64")]
+    use windows_sys::Win32::System::Diagnostics::Debug::IMAGE_NT_HEADERS64 as Headers;
+    use windows_sys::Win32::System::{
+        Diagnostics::Debug::IMAGE_SUBSYSTEM_WINDOWS_GUI, LibraryLoader::GetModuleHandleW,
+        SystemServices::IMAGE_DOS_HEADER,
+    };
+
+    // SAFETY: A null name selects this executable's image, which stays mapped and starts with
+    // valid DOS and NT headers.
+    unsafe {
+        let base = GetModuleHandleW(ptr::null()).cast::<u8>();
+        if base.is_null() {
+            return false;
+        }
+        let dos = base.cast::<IMAGE_DOS_HEADER>().read_unaligned();
+        let headers = base
+            .offset(dos.e_lfanew as isize)
+            .cast::<Headers>()
+            .read_unaligned();
+        headers.OptionalHeader.Subsystem == IMAGE_SUBSYSTEM_WINDOWS_GUI
+    }
 }
 
 /// Total physical RAM in bytes.

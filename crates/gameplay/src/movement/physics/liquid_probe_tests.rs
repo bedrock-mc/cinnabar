@@ -88,7 +88,8 @@ fn assert_replay(
     let flags: Vec<_> = ticker
         .pending_snapshots()
         .iter()
-        .map(|input| input.flags)
+        .filter(|input| input.tick > anchor.tick)
+        .map(|input| (input.tick, input.flags))
         .collect();
     reconcile_candidate_physics_correction(
         ticker,
@@ -107,7 +108,7 @@ fn assert_replay(
         ticker
             .pending_snapshots()
             .iter()
-            .map(|input| input.flags)
+            .map(|input| (input.tick, input.flags))
             .collect::<Vec<_>>(),
         flags
     );

@@ -1,9 +1,13 @@
 //! One background signed-release check and the launcher's explicit update decisions.
 
+mod announcements;
 mod handoff;
+mod releases;
 #[cfg(test)]
 mod tests;
 mod worker;
+
+use announcements::Announcement;
 
 use launcher::{
     install_layout::InstallLayout,
@@ -21,7 +25,8 @@ use time::OffsetDateTime;
 use update_installer::startup;
 use update_manifest::channel::Channel;
 
-const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// Fallback poll between launch checks and release notices.
+const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const CHECK_POLL_INTERVAL: Duration = Duration::from_secs(60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(15);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -47,14 +52,13 @@ impl Ready {
         stage: PathBuf,
         reader: std::fs::File,
         selected: update_installer::stage::Selection,
-        channel: Channel,
         switch_now: bool,
         writable: bool,
     ) -> Self {
         Self {
             expires: selected.manifest.expires,
             stage,
-            channel,
+            channel: Channel::parse(&selected.manifest.channel).expect("verified release channel"),
             switch_now,
             lease: Some(std::sync::Arc::new(reader)),
             notice: Notice {
@@ -80,6 +84,9 @@ struct State {
     message: Option<String>,
     generation: u64,
     running: bool,
+    /// A launch or release notice wants a fresh check regardless of the completion stamp.
+    check_now: bool,
+    announcement: Option<Announcement>,
     startup: StartupPhase,
 }
 
@@ -92,7 +99,7 @@ enum StartupPhase {
 }
 
 impl State {
-    /// Polls the persisted completion stamp; skipped polls never move the daily deadline.
+    /// Polls the persisted completion stamp; skipped polls never move the next deadline.
     fn tick(&mut self, root: &std::path::Path, now: u64) -> bool {
         if self.running
             || self.requested
@@ -124,11 +131,15 @@ impl State {
         }
         let channel_changed = self.preferences.channel != preferences.channel;
         if channel_changed {
+            self.announcement = None;
             self.ready = None;
             self.dismissed = false;
             self.switch_now = false;
             self.switch_available = false;
             self.message = None;
+        }
+        if !preferences.checks {
+            self.announcement = None;
         }
         self.preferences = preferences;
         self.generation += 1;
@@ -191,6 +202,8 @@ impl State {
             message: None,
             generation: 0,
             running: false,
+            check_now: false,
+            announcement: None,
             startup: StartupPhase::Preparing,
         }
     }
@@ -215,6 +228,52 @@ impl State {
         self.requested = true;
         self.generation += 1;
         true
+    }
+
+    /// Coalesces newer release hints on the selected channel without trusting their payloads.
+    fn release_published(
+        &mut self,
+        release: &bridge::CinnabarRelease,
+        current: (&str, u64),
+        now: u64,
+        jitter: u64,
+    ) -> bool {
+        if !self.preferences.checks || release.channel != self.preferences.channel.name() {
+            return false;
+        }
+        let hint = Announcement::new(&release.version, release.build, now, jitter);
+        // Older v1 notices omit the build; their same-version pushes still request a fresh check.
+        let legacy = release.build == 0 && release.version == current.0;
+        if (!legacy && !hint.ahead_of(current.0, current.1))
+            || self
+                .announcement
+                .as_ref()
+                .is_some_and(|pending| !hint.ahead_of(&pending.version, pending.build))
+        {
+            return false;
+        }
+        self.announcement = Some(hint);
+        true
+    }
+
+    /// Retains a bounded retry only for the hint this worker actually checked.
+    fn finish_announcement(
+        &mut self,
+        checked: Option<&Announcement>,
+        behind: bool,
+        now: u64,
+        jitter: u64,
+    ) {
+        if checked.is_some()
+            && self.announcement.as_ref() == checked
+            && (!behind
+                || !self
+                    .announcement
+                    .as_mut()
+                    .is_some_and(|hint| hint.retry(now, jitter)))
+        {
+            self.announcement = None;
+        }
     }
 
     /// Only the current worker may change stages, and accepted shutdown freezes its choice.
@@ -399,6 +458,7 @@ pub fn acknowledge_startup() {
         }
         if let Ok(mut state) = STATE.lock() {
             state.startup = StartupPhase::Complete;
+            state.check_now = true;
         }
         worker::start(false);
     });
@@ -463,12 +523,27 @@ fn startup_marker(layout: &InstallLayout) -> Option<PathBuf> {
     .then_some(marker)
 }
 
-/// A corrected clock cannot suppress the next daily check.
+/// Starts a fresh signed-manifest check for a release the Cinnabar API announced.
+pub fn release_published(release: &bridge::CinnabarRelease) {
+    let wanted = STATE.lock().is_ok_and(|mut state| {
+        state.release_published(
+            release,
+            (env!("CARGO_PKG_VERSION"), update_manifest::build_number()),
+            worker::now_secs(),
+            announcements::jitter(),
+        )
+    });
+    if wanted {
+        worker::start(false);
+    }
+}
+
+/// A corrected clock cannot suppress the next periodic check.
 fn due(last: Option<u64>, now: u64) -> bool {
     last.is_none_or(|last| now < last || now - last >= CHECK_INTERVAL.as_secs())
 }
 
-/// Retries the lifetime updater role and starts a check only on this process's daily tick.
+/// Retries the lifetime updater role and starts a check only when this process's poll is due.
 fn tick(now: OffsetDateTime) {
     let Some(layout) = LAYOUT.get() else {
         return;

@@ -1,5 +1,7 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
+mod panorama;
+
 use std::{
     collections::HashMap,
     path::Path,
@@ -18,7 +20,10 @@ use ui_engine::{
     sources::{ImageWork, RemoteImage, RemoteSource},
     text_metrics::TextMetrics,
 };
-use ui_screens::chat_screen::{ChatInput, ChatScreen};
+use ui_screens::{
+    chat_screen::{ChatInput, ChatScreen},
+    player_list::PlayerList,
+};
 
 use crate::{
     carriers::{self, Error},
@@ -47,7 +52,12 @@ impl RemoteSource for Offline {
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     let fixture = (state.fixture)();
-    let menu = matches!(&fixture, Fixture::Menu(_));
+    let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
+    let show_panorama = match &fixture {
+        Fixture::Menu(view) => view.out_of_game(),
+        Fixture::Loading(stage) => stage.is_world_entry(),
+        Fixture::Chat { .. } | Fixture::TabList(_) => false,
+    };
     let mut carriers = carriers::load(dir, menu)?;
     let size = state.size.map(|value| value as f32);
     let metrics = TextMetrics::for_viewport(
@@ -126,6 +136,32 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                     .unwrap()
                     .apply_entrance(frame.nodes, size)
                     .map_err(|error| error.to_string())?;
+                let popup = if let Some(prompt) = view.server_trust_prompt() {
+                    Some(launcher::menu::dialogs::server_trust(
+                        &prompt.url,
+                        frame.translate,
+                    ))
+                } else if let Some(name) = view.join_request_prompt() {
+                    Some(launcher::menu::dialogs::join_request(name, frame.translate))
+                } else {
+                    view.dialog
+                        .filter(|dialog| {
+                            !matches!(
+                                dialog,
+                                launcher::menu::MenuDialog::MinecraftImport
+                                    | launcher::menu::MenuDialog::Accounts
+                                    | launcher::menu::MenuDialog::Exit
+                            )
+                        })
+                        .map(|dialog| {
+                            launcher::menu::dialogs::dialog(&view, dialog, frame.translate)
+                        })
+                };
+                if let Some(popup) = popup {
+                    screen
+                        .paint_popup(&view, &popup, size, &scrolls, &mut frame)
+                        .map_err(|error| error.to_string())?;
+                }
                 if view.dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
                     screen
                         .paint_minecraft_import(&view, size, &mut scrolls, &mut frame)
@@ -133,33 +169,57 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
                 }
             }
         }
+        Fixture::TabList(rows) => {
+            let mut engine = json_engine(&carriers)?;
+            let mut list = PlayerList::default();
+            for now in [0.0, CAPTURE_SECONDS] {
+                frame.nodes.clear();
+                *frame.next = 1;
+                frame.now = now;
+                list.paint(&engine, &rows, &mut frame)
+                    .map_err(|error| error.to_string())?;
+            }
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
+        Fixture::Loading(stage) => {
+            carriers::validate_oreui(dir)?;
+            let images = oreui::images::load_optional_oreui_images(dir)
+                .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            let first = carriers.pages.len() as u16;
+            let artwork = HashMap::new();
+            carriers.pages.extend(images.pages.iter().map(|page| Page {
+                width: page.dimensions[0],
+                height: page.dimensions[1],
+                rgba: Arc::clone(&page.pixels),
+            }));
+            let mut screen = oreui_screen(first, images);
+            let words = launcher::menu::join_progress::loading_words(stage, &|key, fallback| {
+                ui_engine::engine::screen::translated(frame.translate, key, fallback)
+            });
+            frame.now = CAPTURE_SECONDS;
+            screen
+                .paint_loading(
+                    oreui::loading_screen::LoadingInput {
+                        stage,
+                        words: [&words[0], &words[1]],
+                        size,
+                        title_artwork: None,
+                        destination_icon: None,
+                        artwork: &artwork,
+                        dimension: 0,
+                    },
+                    &mut frame,
+                )
+                .map_err(|error| error.to_string())?;
+        }
         Fixture::Chat {
             draft,
             suggestions,
             messages,
             options,
         } => {
-            let catalog = json_ui::Catalog::from_files(
-                carriers
-                    .ui
-                    .ui_files()
-                    .iter()
-                    .map(|file| (&*file.path, &*file.bytes)),
-            )
-            .map_err(|error| error.to_string())?;
-            let mut engine = FormEngine::new(
-                Arc::clone(&carriers.ui),
-                catalog,
-                carriers.ui_page,
-                &REGISTRY,
-                Arc::new(Offline),
-                ImageWork::inline(),
-            );
-            engine.set_server_atlas(
-                ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
-                    .with_image_work(ImageWork::inline()),
-                carriers.pages.len() as u16,
-            );
+            let mut engine = json_engine(&carriers)?;
+
             let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES)
                 .map_err(|error| format!("{error:?}"))?;
             editor.set_text(draft);
@@ -190,17 +250,7 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
             if screen.nodes().is_empty() {
                 return Err(Error::Invalid("native chat screen did not resolve".into()));
             }
-            if let Some(pages) = engine.take_server_pages() {
-                // The inline image work finishes before painting; page order comes from the atlas.
-                carriers.pages.extend(pages.iter().map(|page| {
-                    let [width, height] = page.dimensions();
-                    Page {
-                        width,
-                        height,
-                        rgba: page.pixels().into(),
-                    }
-                }));
-            }
+            add_server_pages(&mut engine, &mut carriers.pages);
         }
     }
     if nodes.is_empty() {
@@ -212,19 +262,24 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
     tree.layout(viewport, UiScale::default(), SafeArea::ZERO)
         .map_err(|error| error.to_string())?;
     let list = tree.build_draw_list().map_err(|error| error.to_string())?;
-    if list.batches.iter().any(|batch| {
+    if let Some(batch) = list.batches.iter().find(|batch| {
         carriers
             .pages
             .get(usize::from(batch.texture_page))
             .is_none()
     }) {
-        return Err(Error::Invalid(
-            "screen sampled an unavailable texture page".into(),
-        ));
+        return Err(Error::Invalid(format!(
+            "screen sampled unavailable texture page {} ({} loaded)",
+            batch.texture_page,
+            carriers.pages.len()
+        )));
     }
     let mut canvas = Canvas::new(state.size[0], state.size[1]);
     canvas.draw(&list, |page| carriers.pages.get(usize::from(page)));
     let mut pixels = canvas.into_rgba();
+    if show_panorama {
+        panorama::composite(&mut pixels, state.size, &carriers.ui)?;
+    }
     if !menu {
         // An anonymous backdrop makes transparent in-world UI visible in an ordinary image viewer.
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -246,6 +301,46 @@ pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
         )
         .map_err(|error| error.to_string())?;
     Ok(png)
+}
+
+/// A JSON-UI engine over the vanilla carrier whose server atlas loads built-in images inline.
+fn json_engine(carriers: &carriers::Carriers) -> Result<FormEngine, Error> {
+    let catalog = json_ui::Catalog::from_files(
+        carriers
+            .ui
+            .ui_files()
+            .iter()
+            .map(|file| (&*file.path, &*file.bytes)),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut engine = FormEngine::new(
+        Arc::clone(&carriers.ui),
+        catalog,
+        carriers.ui_page,
+        &REGISTRY,
+        Arc::new(Offline),
+        ImageWork::inline(),
+    );
+    engine.set_server_atlas(
+        ui_engine::atlas::ServerAtlas::new(&[], None, ui_engine::pages::SERVER_UI_PAGES)
+            .with_image_work(ImageWork::inline()),
+        carriers.pages.len() as u16,
+    );
+    Ok(engine)
+}
+
+/// Appends the server atlas pages after painting; page order comes from the atlas.
+fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
+    if let Some(server) = engine.take_server_pages() {
+        pages.extend(server.iter().map(|page| {
+            let [width, height] = page.dimensions();
+            Page {
+                width,
+                height,
+                rgba: page.pixels().into(),
+            }
+        }));
+    }
 }
 
 /// Gives each Mods-tab icon its own page under the key its card draws, as the client's

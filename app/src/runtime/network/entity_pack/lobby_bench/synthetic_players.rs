@@ -33,6 +33,7 @@ fn add_players(world: &mut World, players: u64) {
                         unique_id: -(runtime_id as i64),
                         username: "offline benchmark".into(),
                         verified: true,
+                        xuid: "".into(),
                         skin: PlayerSkin::Standard(StandardSkin {
                             width: render_model::STANDARD_SKIN_SIDE as u32,
                             height: render_model::STANDARD_SKIN_SIDE as u32,

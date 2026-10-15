@@ -161,6 +161,7 @@ impl PackReload {
         catalog: Option<Arc<json_ui::Catalog>>,
         environment_base: Option<EnvironmentBase>,
         current_artwork: Option<render_model::ActorArtworkPages>,
+        block_items: Option<client_presentation::presentation::equipment::BlockItemPreparer>,
     ) {
         let globals = self.globals.clone();
         let server = self.server.clone();
@@ -278,8 +279,21 @@ impl PackReload {
                                 .unwrap_or(current)
                                 .clone()
                         });
-                        application
-                            .prepare_actor_artwork(artwork.as_ref().filter(|_| generation != 0));
+                        let blocks =
+                            block_items
+                                .as_ref()
+                                .filter(|_| generation != 0)
+                                .and_then(|preparer| {
+                                    previous
+                                        .as_ref()
+                                        .and_then(|old| old.prepared_actor_artwork.as_ref())
+                                        .and_then(|prepared| prepared.block_items_for(&assets))
+                                        .or_else(|| preparer.prepare(&assets))
+                                });
+                        application.prepare_actor_artwork(
+                            artwork.as_ref().filter(|_| generation != 0),
+                            blocks,
+                        );
                     }
                     if let (Some(pack), Some(catalog)) =
                         (application.server_ui.as_ref(), catalog.as_ref())
@@ -292,6 +306,10 @@ impl PackReload {
                             application.server_ui =
                                 Some(resource_packs::ui_catalog::prepare(pack, catalog));
                         }
+                    }
+                    if changes.blocks {
+                        application.terrain_identity =
+                            resource_packs::terrain_identity(&stack, &application.dependencies);
                     }
                     let elapsed = start.elapsed();
                     bevy::log::debug!(
@@ -326,6 +344,7 @@ pub(crate) fn reload_resource_packs(
     mut environment: EnvironmentPublication,
     mut block_entity_scene: Option<ResMut<render_scene::BlockEntitySceneResource>>,
     mut entity_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
+    equipment: Option<Res<client_presentation::presentation::equipment::EquipmentRuntime>>,
     gpu_reload: Option<Res<render_scene::ChunkTextureReload>>,
     mut chunks: Query<&mut render_scene::ChunkRenderInstance>,
     mut render_queue: Option<ResMut<render_scene::ChunkRenderQueue>>,
@@ -382,17 +401,24 @@ pub(crate) fn reload_resource_packs(
                 if let (Some(gpu), Some(current)) = (gpu_reload.as_ref(), textures.as_ref())
                     && !Arc::ptr_eq(current.assets(), &prepared.assets)
                 {
-                    if let Err(error) = reload.geometry.request(
+                    match reload.geometry.request(
                         &candidate,
                         current,
                         world.stream.as_ref(),
                         &chunks,
                         gpu,
                     ) {
-                        gpu.cancel_except(current.identity());
-                        reload.error = Some(error);
-                        reload.applied = reload.revision;
-                        return;
+                        Ok(true) => {}
+                        Ok(false) => {
+                            reload.ready = Some(prepared);
+                            return;
+                        }
+                        Err(error) => {
+                            gpu.cancel_except(current.identity());
+                            reload.error = Some(error);
+                            reload.applied = reload.revision;
+                            return;
+                        }
                     }
                     match gpu.status(candidate.identity()) {
                         None => {
@@ -447,6 +473,9 @@ pub(crate) fn reload_resource_packs(
                     environment.publish(prepared);
                 }
                 let packs = prepared.application;
+                let terrain_identity_changed =
+                    world.terrain_resource_identity != packs.terrain_identity;
+                world.terrain_resource_identity = packs.terrain_identity;
                 if art_changed
                     && let (Some(scene), Some(art)) =
                         (block_entity_scene.as_mut(), packs.block_entity_art.as_ref())
@@ -460,7 +489,13 @@ pub(crate) fn reload_resource_packs(
                     current.0 = (**next).clone();
                 }
                 if let Some(stream) = world.stream.as_mut() {
-                    stream.reload_resource_assets(prepared.assets.clone());
+                    if terrain_identity_changed
+                        && Arc::ptr_eq(stream.runtime_assets(), &prepared.assets)
+                    {
+                        stream.reload_far_terrain_resources();
+                    } else {
+                        stream.reload_resource_assets(prepared.assets.clone());
+                    }
                     if let Some(tints) = biome_tints.as_mut() {
                         crate::runtime::world::synchronize_biome_tints(stream, tints);
                     }
@@ -529,6 +564,9 @@ pub(crate) fn reload_resource_packs(
                 .and_then(|presentation| presentation.pack_catalog_base()),
             environment.base(),
             entity_artwork.as_deref().map(|artwork| artwork.0.clone()),
+            equipment
+                .as_deref()
+                .and_then(|equipment| equipment.block_item_preparer()),
         );
     }
 }

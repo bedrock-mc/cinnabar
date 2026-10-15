@@ -415,6 +415,16 @@ pub(super) fn card(
     face: Face<'_>,
     body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
 ) -> Result<(), PaintError> {
+    card_with_summary(content, face, |_| Ok(()), body)
+}
+
+/// Draws a card with permanent controls before its optional revealed details.
+pub(super) fn card_with_summary(
+    content: &mut Content<'_, '_>,
+    face: Face<'_>,
+    summary: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
+    body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
+) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let header = [left, content.y, right, content.y + content.canvas.r(7.2)];
     widgets::row(
@@ -462,32 +472,42 @@ pub(super) fn card(
         face.details,
     )?;
     content.y = header[3];
+    let top = content.y;
+    let background = content.canvas.nodes.len();
+    content.canvas.fill(
+        [left, top, right, top + content.canvas.r(EDGE)],
+        theme::NEUTRAL80.fill,
+    )?;
+    let span = content.span;
+    content.span = [span[0] + pad, span[1] - pad];
+    content.y += pad;
+    summary(content)?;
+    if content.y == top + pad {
+        content.y = top;
+    }
     reveal(
         content,
         face.details,
         face.expanded && face.interactive,
         |content| {
-            let top = content.y;
-            let background = content.canvas.nodes.len();
-            content.canvas.fill(
-                [left, top, right, top + content.canvas.r(EDGE)],
-                theme::NEUTRAL80.fill,
-            )?;
-            let span = content.span;
-            content.span = [span[0] + pad, span[1] - pad];
-            content.y += content.canvas.r(1.2);
-            body(content)?;
-            content.y += content.canvas.r(1.2);
-            content.span = span;
-            content
-                .canvas
-                .resize_fill(background, [left, top, right, content.y])?;
-            content
-                .canvas
-                .frame([left, top, right, content.y], EDGE, theme::BORDER)?;
-            Ok(())
+            if content.y == top {
+                content.y += pad;
+            }
+            body(content)
         },
     )?;
+    if content.y > top {
+        content.y += pad;
+        content
+            .canvas
+            .resize_fill(background, [left, top, right, content.y])?;
+        content
+            .canvas
+            .frame([left, top, right, content.y], EDGE, theme::BORDER)?;
+    } else {
+        content.canvas.nodes.truncate(background);
+    }
+    content.span = span;
     content.y += content.canvas.r(0.8);
     Ok(())
 }

@@ -562,10 +562,11 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     texture_assets: Res<ChunkTextureAssets>,
     biome_tints: Res<ChunkBiomeTints>,
     mut mixed: ResMut<crate::chunk::transparent::mixed::MixedTerrainRuntime>,
-    (arena, mut unsorted, mut water_order): (
+    (arena, mut unsorted, mut water_order, mut scratch): (
         Res<ChunkGpuArena>,
         Local<UnsortedWaterDiagnostics>,
         Local<VisibleWaterOrder>,
+        Local<TransparentQueueScratch>,
     ),
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
@@ -609,8 +610,9 @@ pub(in crate::chunk) fn queue_transparent_chunks(
         else {
             continue;
         };
-        let mut models = BTreeMap::new();
-        let mut water = Vec::new();
+        let TransparentQueueScratch { models, water } = &mut *scratch;
+        models.clear();
+        water.clear();
         for (entity, main) in visible_entities
             .get::<ChunkRenderInstance>()
             .into_iter()
@@ -621,7 +623,12 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 continue;
             };
             if transparent_model_direct_draw_command(allocation).is_some() {
-                models.insert(allocation.key, (entity, main));
+                models.push(QueuedTransparentModel {
+                    key: allocation.key,
+                    entity,
+                    main,
+                    merged: false,
+                });
             }
             // Like opaque terrain, water waits for its re-upload under a new tint table.
             if transparent_liquid_direct_draw_command(allocation).is_some()
@@ -638,11 +645,14 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 });
             }
         }
+        // Key order with the last visible entity of each key, as a map insert would keep.
+        models.reverse();
+        models.sort_by_key(|model| model.key);
+        models.dedup_by_key(|model| model.key);
         // Equal phase distances keep insertion order, so water enters in key order.
-        let water = water_order.update(water);
+        let water = water_order.update(water.drain(..));
         // Displaced water can overlap itself even when flat, so such views sort all of it.
         let direct_order_independent = !view_displaces_water(enhanced.is_some());
-        let mut merged = HashSet::new();
         let snapshot = runtime.state.committed();
         let groups = snapshot.and_then(TransparentOrderedSnapshot::phase_groups);
         if snapshot.is_some() && groups.is_none() {
@@ -691,7 +701,8 @@ pub(in crate::chunk) fn queue_transparent_chunks(
             };
             // Native deferred water uses layer 2, not ordinary blend layer 3.
             if enhanced.is_none()
-                && let Some(&(entity, main)) = models.get(&group.key)
+                && let Ok(model_index) = models.binary_search_by_key(&group.key, |model| model.key)
+                && let Some(&QueuedTransparentModel { entity, main, .. }) = models.get(model_index)
                 && let (Ok(instance), Ok(allocation)) =
                     (instances.get(entity), allocations.get(entity))
                 && let Some(index) = mixed.plan(
@@ -707,7 +718,7 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                     pipeline_id,
                 )
             {
-                merged.insert(entity);
+                models[model_index].merged = true;
                 crate::transparent_phase::add(
                     phase,
                     Transparent3d {
@@ -745,10 +756,13 @@ pub(in crate::chunk) fn queue_transparent_chunks(
                 },
             );
         }
-        for (&model_key, &(entity, main)) in &models {
-            if merged.contains(&entity) {
-                continue;
-            }
+        for &QueuedTransparentModel {
+            key: model_key,
+            entity,
+            main,
+            ..
+        } in models.iter().filter(|model| !model.merged)
+        {
             crate::transparent_phase::add(
                 phase,
                 Transparent3d {
@@ -767,6 +781,24 @@ pub(in crate::chunk) fn queue_transparent_chunks(
     }
     mixed.finish_frame();
     unsorted.finish_frame();
+}
+
+/// A visible sub-chunk with transparent models, queued unless its group merged it with water.
+#[derive(Clone, Copy)]
+pub(in crate::chunk) struct QueuedTransparentModel {
+    key: SubChunkKey,
+    entity: Entity,
+    main: MainEntity,
+    /// Drawn inside its water group's mixed order instead of on its own.
+    merged: bool,
+}
+
+/// Per-view lists the transparent queue refills each frame without reallocating.
+#[derive(Default)]
+pub(in crate::chunk) struct TransparentQueueScratch {
+    /// Sorted by key with one entry per key once a view's visible set is gathered.
+    models: Vec<QueuedTransparentModel>,
+    water: Vec<VisibleWater>,
 }
 
 const UNSORTED_WATER_LOG_INTERVAL: Duration = Duration::from_secs(5);

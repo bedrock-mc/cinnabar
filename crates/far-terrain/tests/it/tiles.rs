@@ -99,6 +99,38 @@ fn near_mask_bounds_its_columns() {
     assert_eq!(NearMask::from_columns(centre, 64, []).inner_blocks(), 0.0);
 }
 
+/// Air extends occlusion in either direction without changing geometry bounds or tile detail.
+#[test]
+fn distant_air_masks_columns_without_refining_tiles() {
+    let (centre, radius, horizon) = ([5, -3], 16, 160);
+    let handoff = ColumnPos::new(centre[0] + 30, centre[1]);
+    let air = [
+        ColumnPos::new(centre[0] + 128, centre[1]),
+        ColumnPos::new(centre[0], centre[1] - 128),
+        handoff,
+    ];
+    let geometry = NearMask::around(centre, horizon, radius, [handoff]);
+    let mask = NearMask::around_with_empty(
+        centre,
+        horizon,
+        radius,
+        [handoff],
+        air.into_iter()
+            .chain([ColumnPos::new(centre[0] + horizon + 1, centre[1])]),
+    );
+    for column in air {
+        assert!(mask.contains(column));
+    }
+    assert!(!mask.contains(ColumnPos::new(centre[0] + horizon + 1, centre[1])));
+    assert_eq!(mask.inner_blocks(), geometry.inner_blocks());
+    assert_eq!(mask.outer_blocks(), geometry.outer_blocks());
+    let view = TileView::around(centre, &mask, radius, horizon);
+    let geometry_view = TileView::around(centre, &geometry, radius, horizon);
+    assert_eq!(view, geometry_view);
+    assert_eq!(select_tiles(view), select_tiles(geometry_view));
+    assert!(geometry.outer_blocks() > NearMask::around(centre, horizon, radius, []).outer_blocks());
+}
+
 /// Inside the near edge but outside the skipped disc, only finest tiles are selected.
 #[test]
 fn tiles_between_the_skipped_disc_and_the_near_edge_are_finest() {

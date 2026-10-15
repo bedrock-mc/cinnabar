@@ -3,6 +3,7 @@
 //! Each admitted event carries a footprint. A later event commits as soon as no earlier
 //! unfinished event conflicts with it, so final state equals strict wire-order application.
 
+use hashbrown::HashSet;
 use protocol::{ActorEvent, AudioEvent, ItemActorEvent, ParticleEvent, UiEvent, WorldEvent};
 use world::ChunkKey;
 
@@ -67,7 +68,49 @@ pub struct Footprint {
     pub heavy: bool,
     pub consumers: Consumers,
     /// Sorted, deduplicated terrain columns read or written.
-    pub columns: Vec<ChunkKey>,
+    pub columns: FootprintColumns,
+}
+
+/// Sorted, deduplicated terrain columns of one footprint. Nearly every terrain event addresses
+/// one column, which stays inline so classifying a packet does not allocate.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum FootprintColumns {
+    #[default]
+    None,
+    One(ChunkKey),
+    /// At least two distinct columns.
+    Many(Vec<ChunkKey>),
+}
+
+impl FromIterator<ChunkKey> for FootprintColumns {
+    /// Sorts and deduplicates, allocating only once a second distinct column appears.
+    fn from_iter<I: IntoIterator<Item = ChunkKey>>(columns: I) -> Self {
+        let mut columns = columns.into_iter();
+        let Some(first) = columns.next() else {
+            return Self::None;
+        };
+        let Some(second) = columns.find(|&column| column != first) else {
+            return Self::One(first);
+        };
+        let mut many = vec![first, second];
+        many.extend(columns);
+        many.sort_unstable();
+        many.dedup();
+        Self::Many(many)
+    }
+}
+
+impl std::ops::Deref for FootprintColumns {
+    type Target = [ChunkKey];
+
+    /// Views the columns as one sorted slice.
+    fn deref(&self) -> &[ChunkKey] {
+        match self {
+            Self::None => &[],
+            Self::One(column) => std::slice::from_ref(column),
+            Self::Many(columns) => columns,
+        }
+    }
 }
 
 impl Footprint {
@@ -99,12 +142,9 @@ impl Footprint {
 
     #[must_use]
     pub fn terrain(columns: impl IntoIterator<Item = ChunkKey>, heavy: bool) -> Self {
-        let mut columns = columns.into_iter().collect::<Vec<_>>();
-        columns.sort_unstable();
-        columns.dedup();
         Self {
             heavy,
-            columns,
+            columns: columns.into_iter().collect(),
             ..Self::default()
         }
     }
@@ -269,6 +309,10 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             Footprint::session(C::AUDIO.with(C::ACTORS))
         }
         WorldEvent::Audio(_) => Footprint::session(C::AUDIO),
+        WorldEvent::Camera(protocol::CameraEvent::InputLocks(_)) => Footprint {
+            local_authority: true,
+            ..Footprint::session(C::CONTROLS)
+        },
         // Camera switches, targets and attachments resolve actors when consumed.
         WorldEvent::Camera(_) => Footprint::session(C::CAMERA.with(C::AUDIO).with(C::ACTORS)),
         WorldEvent::PrimitiveShapes(_) => Footprint::session(C::SHAPES),
@@ -342,7 +386,9 @@ pub(crate) struct EarlierEvents {
     terrain: bool,
     mutation: bool,
     consumers: Consumers,
-    columns: Vec<ChunkKey>,
+    /// Distinct earlier columns; a hash set keeps each conflict check constant-time while
+    /// many unfinished terrain events wait ahead of the scanned one.
+    columns: HashSet<ChunkKey>,
 }
 
 impl EarlierEvents {
@@ -368,7 +414,7 @@ impl EarlierEvents {
         self.terrain |= !earlier.columns.is_empty();
         self.mutation |= earlier.mutation;
         self.consumers = self.consumers.with(earlier.consumers);
-        self.columns.extend_from_slice(&earlier.columns);
+        self.columns.extend(earlier.columns.iter().copied());
     }
 
     /// Whether `later` must wait for some earlier event folded into this summary.

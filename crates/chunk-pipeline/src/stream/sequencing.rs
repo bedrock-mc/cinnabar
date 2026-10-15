@@ -31,13 +31,15 @@ impl WorldStream {
         self.commit_block_mutations_with_relight(prepared, &relight)
     }
 
-    /// Publishes an atomic prepared batch using its already computed light summary.
+    /// Publishes an atomic prepared batch using its already computed light summary. A key
+    /// whose change provably leaves every mesh unchanged keeps its meshes.
     pub(super) fn commit_block_mutations_with_relight(
         &mut self,
         prepared: Vec<PreparedSubChunkMutation>,
         relight: &BTreeSet<SubChunkKey>,
     ) -> bool {
         self.diagnose_light_mutations(&prepared, relight);
+        let mesh_neutral = self.mesh_neutral_mutations(&prepared, relight);
         let mut reach = BTreeMap::<SubChunkKey, (NeighbourReach, Vec<BlockPos>)>::new();
         for mutation in &prepared {
             let (key_reach, cells) = reach
@@ -54,6 +56,10 @@ impl WorldStream {
             self.reconcile_block_crack_column(key.chunk());
             self.refresh_block_entity_visuals_for_sub_chunk(key);
             self.sync_resident(key);
+            if mesh_neutral.contains(&key) {
+                self.mark_mesh_neutral_block_change(key);
+                continue;
+            }
             let (key_reach, cells) = reach
                 .get(&key)
                 .map_or((NeighbourReach::ALL, &[][..]), |(reach, cells)| {
@@ -144,7 +150,6 @@ impl WorldStream {
                 self.diagnose_inline_column(&event, &stored_keys);
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
-                self.note_far_column_complete(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
                 self.resident.replace_column(key, new_keys.iter().copied());
                 for old in &old_air {
@@ -171,6 +176,7 @@ impl WorldStream {
                     &light_neutral,
                     now,
                 );
+                self.note_far_column_complete(key);
                 self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {
@@ -189,147 +195,20 @@ impl WorldStream {
                 self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
                 let mut committed_any = false;
                 for entry in entries {
-                    let key = SubChunkKey::new(
-                        dimension,
-                        entry.position[0],
-                        entry.position[1],
-                        entry.position[2],
-                    );
-                    if !self.column_is_data_interesting(key.chunk()) {
-                        self.stats.publication_outcomes.stale =
-                            self.stats.publication_outcomes.stale.saturating_add(1);
-                        continue;
-                    }
-                    let admitted = self.requests.consume_admitted_reply(key);
-                    if !self.requests.is_expected(key) {
-                        self.stats.publication_outcomes.stale =
-                            self.stats.publication_outcomes.stale.saturating_add(1);
-                        if admitted && self.requests.consume_correlated_attempt(key) {
-                            continue;
-                        }
-                        self.record_normalization_error(
-                            NormalizationErrorReason::UnexpectedSubChunk,
-                        );
-                        continue;
-                    }
-                    self.requests.consume_confirmed_attempt(key);
-                    self.requests.disarm_deadline(key);
-                    let mut arrival_source =
-                        self.diagnose_sub_chunk_reply(key, &entry.result, entry.diagnostics);
-                    let (completed, committed) = match entry.result {
-                        PreparedSubChunkResult::Decoded(decoded) => {
-                            self.stats.publication_outcomes.success =
-                                self.stats.publication_outcomes.success.saturating_add(1);
-                            let decoded_air = decoded.sub_chunk().has_no_storages();
-                            let committed =
-                                match self.authority.commit_decoded_sub_chunk(key, decoded) {
-                                    Ok(Some(changed)) => {
-                                        if decoded_air {
-                                            self.record_known_air(changed);
-                                        } else {
-                                            self.sync_resident(changed);
-                                        }
-                                        self.mark_changed(changed, Instant::now());
-                                        true
-                                    }
-                                    Ok(None) => {
-                                        if decoded_air && self.record_known_air(key) {
-                                            self.mark_changed(key, Instant::now());
-                                        }
-                                        true
-                                    }
-                                    Err(error) => {
-                                        if chunk_commit_is_mutation_failure(&error) {
-                                            self.record_normalization_error(
-                                                NormalizationErrorReason::BlockMutationFailure,
-                                            );
-                                        } else {
-                                            self.stats.decode_errors =
-                                                self.stats.decode_errors.saturating_add(1);
-                                        }
-                                        false
-                                    }
-                                };
-                            (true, committed)
-                        }
-                        PreparedSubChunkResult::AllAir => {
-                            self.stats.publication_outcomes.all_air =
-                                self.stats.publication_outcomes.all_air.saturating_add(1);
-                            match self.authority.apply_all_air(key) {
-                                Ok(changed) => {
-                                    let became_known = self.record_known_air(key);
-                                    if changed.is_some() || became_known {
-                                        self.mark_changed(key, Instant::now());
-                                    }
-                                    (true, true)
-                                }
-                                Err(_) => {
-                                    self.record_normalization_error(
-                                        NormalizationErrorReason::BlockMutationFailure,
-                                    );
-                                    (true, false)
-                                }
-                            }
-                        }
-                        PreparedSubChunkResult::Unavailable(unavailable) => {
-                            self.stats.publication_outcomes.unavailable = self
-                                .stats
-                                .publication_outcomes
-                                .unavailable
-                                .saturating_add(1);
-                            self.stats.unavailable_sub_chunks =
-                                self.stats.unavailable_sub_chunks.saturating_add(1);
-                            match unavailable {
-                                client_world::ingestion::SubChunkUnavailable::InvalidDimension => {
-                                    self.record_normalization_error(
-                                        NormalizationErrorReason::InvalidDimensionSubChunk,
-                                    );
-                                    (true, false)
-                                }
-                                client_world::ingestion::SubChunkUnavailable::ChunkNotFound
-                                | client_world::ingestion::SubChunkUnavailable::PlayerNotFound => {
-                                    (self.retry_or_complete_sub_chunk(key), false)
-                                }
-                                // Vanilla writes nothing; an empty slot lights as air.
-                                client_world::ingestion::SubChunkUnavailable::YIndexOutOfBounds => {
-                                    if self.authority.terrain().sub_chunk(key).is_none()
-                                        && self.record_known_air(key)
-                                    {
-                                        self.mark_changed(key, Instant::now());
-                                    } else {
-                                        // An out-of-bounds reply preserves data already known here.
-                                        arrival_source = None;
-                                    }
-                                    (true, true)
-                                }
-                                client_world::ingestion::SubChunkUnavailable::Undefined
-                                | client_world::ingestion::SubChunkUnavailable::Unknown(_) => {
-                                    (true, false)
-                                }
-                            }
-                        }
-                    };
-                    committed_any |= committed;
-                    if committed {
-                        self.diagnose_sub_chunk_commit(key, arrival_source);
-                        self.record_sub_chunk_arrival(key, Instant::now());
-                        self.stats.publication_stages.subchunks_committed = self
-                            .stats
-                            .publication_stages
-                            .subchunks_committed
-                            .saturating_add(1);
-                    }
-                    if committed {
-                        self.refresh_block_entity_visuals_for_sub_chunk(key);
-                        self.reconcile_block_crack_column(key.chunk());
-                    }
-                    if completed {
-                        self.complete_requested_sub_chunk(key, committed);
-                    }
+                    committed_any |= self.apply_prepared_sub_chunk(dimension, entry);
                 }
                 if committed_any {
-                    let now = Instant::now();
-                    self.stats.last_chunk_commit_at = Some(now);
+                    self.stats.last_chunk_commit_at = Some(Instant::now());
+                }
+            }
+            PreparedWorldEvent::SubChunk {
+                dimension,
+                entry,
+                duration,
+            } => {
+                self.stats.max_decode_duration = self.stats.max_decode_duration.max(duration);
+                if self.apply_prepared_sub_chunk(dimension, entry) {
+                    self.stats.last_chunk_commit_at = Some(Instant::now());
                 }
             }
             PreparedWorldEvent::BlockUpdates { result, duration } => {
@@ -411,6 +290,144 @@ impl WorldStream {
                 self.record_normalization_error(NormalizationErrorReason::EmptySubChunkBatch);
             }
         }
+    }
+    /// Applies one prepared sub-chunk reply and reports whether it committed terrain.
+    fn apply_prepared_sub_chunk(
+        &mut self,
+        dimension: i32,
+        entry: client_world::ingestion::PreparedSubChunk,
+    ) -> bool {
+        let key = SubChunkKey::new(
+            dimension,
+            entry.position[0],
+            entry.position[1],
+            entry.position[2],
+        );
+        if !self.column_is_data_interesting(key.chunk()) {
+            self.stats.publication_outcomes.stale =
+                self.stats.publication_outcomes.stale.saturating_add(1);
+            return false;
+        }
+        let admitted = self.requests.consume_admitted_reply(key);
+        if !self.requests.is_expected(key) {
+            self.stats.publication_outcomes.stale =
+                self.stats.publication_outcomes.stale.saturating_add(1);
+            if admitted && self.requests.consume_correlated_attempt(key) {
+                return false;
+            }
+            self.record_normalization_error(NormalizationErrorReason::UnexpectedSubChunk);
+            return false;
+        }
+        self.requests.consume_confirmed_attempt(key);
+        self.requests.disarm_deadline(key);
+        let mut arrival_source =
+            self.diagnose_sub_chunk_reply(key, &entry.result, entry.diagnostics);
+        let (completed, committed) = match entry.result {
+            PreparedSubChunkResult::Decoded(decoded) => {
+                self.stats.publication_outcomes.success =
+                    self.stats.publication_outcomes.success.saturating_add(1);
+                let decoded_air = decoded.sub_chunk().has_no_storages();
+                let committed = match self.authority.commit_decoded_sub_chunk(key, decoded) {
+                    Ok(Some(changed)) => {
+                        if decoded_air {
+                            self.record_known_air(changed);
+                        } else {
+                            self.sync_resident(changed);
+                        }
+                        self.mark_changed(changed, Instant::now());
+                        true
+                    }
+                    Ok(None) => {
+                        if decoded_air && self.record_known_air(key) {
+                            self.mark_changed(key, Instant::now());
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        if chunk_commit_is_mutation_failure(&error) {
+                            self.record_normalization_error(
+                                NormalizationErrorReason::BlockMutationFailure,
+                            );
+                        } else {
+                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                        }
+                        false
+                    }
+                };
+                (true, committed)
+            }
+            PreparedSubChunkResult::AllAir => {
+                self.stats.publication_outcomes.all_air =
+                    self.stats.publication_outcomes.all_air.saturating_add(1);
+                match self.authority.apply_all_air(key) {
+                    Ok(changed) => {
+                        let became_known = self.record_known_air(key);
+                        if changed.is_some() || became_known {
+                            self.mark_changed(key, Instant::now());
+                        }
+                        (true, true)
+                    }
+                    Err(_) => {
+                        self.record_normalization_error(
+                            NormalizationErrorReason::BlockMutationFailure,
+                        );
+                        (true, false)
+                    }
+                }
+            }
+            PreparedSubChunkResult::Unavailable(unavailable) => {
+                self.stats.publication_outcomes.unavailable = self
+                    .stats
+                    .publication_outcomes
+                    .unavailable
+                    .saturating_add(1);
+                self.stats.unavailable_sub_chunks =
+                    self.stats.unavailable_sub_chunks.saturating_add(1);
+                match unavailable {
+                    client_world::ingestion::SubChunkUnavailable::InvalidDimension => {
+                        self.record_normalization_error(
+                            NormalizationErrorReason::InvalidDimensionSubChunk,
+                        );
+                        (true, false)
+                    }
+                    client_world::ingestion::SubChunkUnavailable::ChunkNotFound
+                    | client_world::ingestion::SubChunkUnavailable::PlayerNotFound => {
+                        (self.retry_or_complete_sub_chunk(key), false)
+                    }
+                    // Vanilla writes nothing; an empty slot lights as air.
+                    client_world::ingestion::SubChunkUnavailable::YIndexOutOfBounds => {
+                        if self.authority.terrain().sub_chunk(key).is_none()
+                            && self.record_known_air(key)
+                        {
+                            self.mark_changed(key, Instant::now());
+                        } else {
+                            // An out-of-bounds reply preserves data already known here.
+                            arrival_source = None;
+                        }
+                        (true, true)
+                    }
+                    client_world::ingestion::SubChunkUnavailable::Undefined
+                    | client_world::ingestion::SubChunkUnavailable::Unknown(_) => (true, false),
+                }
+            }
+        };
+        if committed {
+            self.diagnose_sub_chunk_commit(key, arrival_source);
+            self.record_sub_chunk_arrival(key, Instant::now());
+            self.stats.publication_stages.subchunks_committed = self
+                .stats
+                .publication_stages
+                .subchunks_committed
+                .saturating_add(1);
+        }
+        if committed {
+            self.refresh_block_entity_visuals_for_sub_chunk(key);
+            self.reconcile_block_crack_column(key.chunk());
+        }
+        if completed {
+            self.complete_requested_sub_chunk(key, committed);
+        }
+        committed
     }
     pub(super) fn apply_immediate(&mut self, event: WorldEvent, sequence: Option<u64>) {
         match event {
@@ -514,6 +531,7 @@ impl WorldStream {
                 self.replace_block_crack_dimension(sequence);
                 self.clear_block_events();
                 self.evict_all_resident();
+                self.reset_far_terrain_dimension();
                 self.block_entity_visuals.clear();
                 self.biome_records = None;
                 self.authority.reset_dimension(sequence, change.dimension);

@@ -5,16 +5,12 @@
 
 use std::cell::Cell;
 
-use assets::{
-    BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF, BLOCK_VISUAL_VARIANT_SEASONAL_LEAF,
-    BLOCK_VISUAL_VARIANT_TOP_SNOW, BlockFlags,
-};
-use world::MeshSample;
-
-use super::{models::PaletteResolutionContext, opaque::face_offset};
+use super::opaque::face_offset;
 use crate::{
     Face, SIDE,
-    contributors::{ResolvedPaletteEntry, resolve_palette_entry},
+    palette_bits::{
+        ENTRY_LEAF, ENTRY_LEAF_VARIANT, ENTRY_OCCLUDES, ENTRY_TOP_SNOW, NeighbourhoodBlockBits,
+    },
 };
 
 // Only the center and its one-block halo can own a tested shared plane. Each
@@ -23,30 +19,23 @@ const CACHE_SIDE: usize = SIDE + 2;
 const CACHE_WORDS: usize = (CACHE_SIDE * CACHE_SIDE * CACHE_SIDE).div_ceil(u64::BITS as usize);
 
 pub(crate) struct LeafOcclusion<'assets, 'chunks> {
-    context: PaletteResolutionContext<'assets, 'chunks>,
+    bits: &'assets NeighbourhoodBlockBits<'assets, 'chunks>,
     known: [Cell<u64>; CACHE_WORDS],
     deep: [Cell<u64>; CACHE_WORDS],
 }
 
 impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
-    pub(crate) fn new(context: PaletteResolutionContext<'assets, 'chunks>) -> Self {
+    pub(crate) fn new(bits: &'assets NeighbourhoodBlockBits<'assets, 'chunks>) -> Self {
         Self {
-            context,
+            bits,
             known: std::array::from_fn(|_| Cell::new(0)),
             deep: std::array::from_fn(|_| Cell::new(0)),
         }
     }
 
-    fn primary(&self, coordinate: [i32; 3]) -> ResolvedPaletteEntry {
-        match self.context.neighbourhood.sample(0, coordinate) {
-            MeshSample::Open => ResolvedPaletteEntry::AIR,
-            MeshSample::Block(id) => resolve_palette_entry(
-                self.context.classifier,
-                self.context.visuals,
-                self.context.network_id_mode,
-                id,
-            ),
-        }
+    /// Resolved-entry bits of the primary storage, zero for open space.
+    fn primary(&self, coordinate: [i32; 3]) -> u8 {
+        self.bits.layer(0, coordinate)
     }
 
     pub(crate) fn is_deep(&self, coordinate: [i32; 3]) -> bool {
@@ -60,16 +49,11 @@ impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
         }
         // Both native leaf types use this predicate; only ordinary leaves
         // add the seasonal colour material flag.
-        let deep = self.primary(coordinate).variant
-            & (BLOCK_VISUAL_VARIANT_SEASONAL_LEAF | BLOCK_VISUAL_VARIANT_NONSEASONAL_LEAF)
-            != 0
+        let deep = self.primary(coordinate) & ENTRY_LEAF_VARIANT != 0
             && Face::ALL.into_iter().all(|face| {
                 let neighbour = self.primary(adjacent(coordinate, face));
-                neighbour
-                    .flags
-                    .intersects(BlockFlags::LEAF_MODEL | BlockFlags::OCCLUDES_FULL_FACE)
-                    || (face == Face::PositiveY
-                        && neighbour.variant & BLOCK_VISUAL_VARIANT_TOP_SNOW != 0)
+                neighbour & (ENTRY_LEAF | ENTRY_OCCLUDES) != 0
+                    || (face == Face::PositiveY && neighbour & ENTRY_TOP_SNOW != 0)
             });
         self.known[word].set(self.known[word].get() | bit);
         if deep {
@@ -81,17 +65,13 @@ impl<'assets, 'chunks> LeafOcclusion<'assets, 'chunks> {
     pub(crate) fn culls_face(&self, coordinate: [usize; 3], face: Face) -> bool {
         let source = coordinate.map(|value| value as i32);
         let neighbour = adjacent(source, face);
-        if !self
-            .primary(neighbour)
-            .flags
-            .contains(BlockFlags::LEAF_MODEL)
-        {
+        if self.primary(neighbour) & ENTRY_LEAF == 0 {
             return false;
         }
         if self.is_deep(neighbour) {
             return true;
         }
-        self.primary(source).flags.contains(BlockFlags::LEAF_MODEL)
+        self.primary(source) & ENTRY_LEAF != 0
             && !self.is_deep(source)
             && matches!(face, Face::PositiveY | Face::NegativeZ | Face::NegativeX)
     }

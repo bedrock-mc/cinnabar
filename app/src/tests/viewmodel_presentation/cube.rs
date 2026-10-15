@@ -227,6 +227,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     app.insert_resource(UiRuntimeResource(runtime))
         .insert_resource(player_runtime.clone())
         .insert_resource(world)
+        .init_resource::<crate::runtime::shutdown::FatalError>()
         .insert_resource(movement)
         .insert_resource(visibility)
         .init_resource::<HandAdapter>()
@@ -309,6 +310,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .insert_resource(acceptance::model_witness::ModelWitnessFileSource::new(None))
         .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<client_interaction::movement::LocomotionState>()
+        .init_resource::<client_presentation::camera::look::LookSmoother>()
         .init_resource::<Time<bevy::time::Real>>()
         .init_resource::<render_scene::ChunkUploadBudget>()
         .init_resource::<client_presentation::camera::CameraSettingsAuthority>()
@@ -407,7 +410,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             )
             .unwrap();
         assert_cube_scene(&app, true);
-        assert!(app.world().resource::<ClientWorld>().fatal_error.is_none());
+        assert!(
+            app.world()
+                .resource::<crate::runtime::shutdown::FatalError>()
+                .0
+                .is_none()
+        );
     }
     assert!(
         input

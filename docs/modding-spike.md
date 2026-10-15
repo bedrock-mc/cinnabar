@@ -587,8 +587,14 @@ resets guest state and preserves current companion preferences. Hot replacement 
 the same path. Permission changes reload only the affected mod; revoked authority is
 released before admission completes. A guest trap quarantines only that guest.
 
-Each expanded card has a Permissions section generated from `ModGrants`. Optional
-grants default off. A binary component may declare its requested grants as JSON in the
+Cards show how many requested permissions are allowed and warn about allowed
+capabilities that can change gameplay. Customize opens a compact requested-first
+grid; Show all permissions reveals the remaining capabilities. Hover or focus a
+permission to read its description. Allow requested grants exactly the declared
+requests, while Revoke all clears the card's grants. Both save once through the
+same path as individual toggles. Undeclared components offer Customize only.
+Permission names and gameplay warnings come from `ModGrants`. Optional grants
+default off. A binary component may declare its requested grants as JSON in the
 optional top-level custom section `cinnabar:grants`; declarations never grant authority.
 For example, `{"camera":true,"controls":true,"commands":["ability"]}` marks those
 requests. Command permissions enable only the declared command names; undeclared

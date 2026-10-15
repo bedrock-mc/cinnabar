@@ -549,7 +549,7 @@ pub fn select_actor_presentations_for_view(
 
     let mut artwork = HashMap::with_capacity(selected.len());
     let mut skin_families = Vec::<SkinRgba8>::new();
-    let mut skin_layer_of = HashMap::<SkinRgba8, usize>::new();
+    let mut skin_layer_of = bevy::platform::collections::HashMap::<SkinRgba8, usize>::default();
     let mut submissions = Vec::with_capacity(selected.len());
     for mut presentation in selected {
         if presentation.submission.route == ActorRigRoute::NoDraw {
@@ -569,15 +569,15 @@ pub fn select_actor_presentations_for_view(
             continue;
         };
         let layer = match skin_layer_of.entry(skin) {
-            std::collections::hash_map::Entry::Occupied(layer) => *layer.get(),
-            std::collections::hash_map::Entry::Vacant(layer)
+            bevy::platform::collections::hash_map::Entry::Occupied(layer) => *layer.get(),
+            bevy::platform::collections::hash_map::Entry::Vacant(layer)
                 if skin_families.len() < MAX_RENDERED_PLAYERS =>
             {
                 let index = skin_families.len();
                 skin_families.push(layer.key().clone());
                 *layer.insert(index)
             }
-            std::collections::hash_map::Entry::Vacant(_) => {
+            bevy::platform::collections::hash_map::Entry::Vacant(_) => {
                 presentation.submission.route = ActorRigRoute::NoDraw;
                 presentation.submission.texture_layer = u32::MAX;
                 submissions.push(presentation.submission);

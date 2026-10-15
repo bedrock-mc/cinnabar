@@ -316,30 +316,31 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         .single(world)
         .unwrap()
         .to_bits();
-    let mut gpu = world.resource_mut::<ActorGpu>();
-    assert!(gpu.draw_batch(view).is_some());
-    assert!(gpu.draw_batch(view ^ 1).is_none());
-    gpu.artwork_identity[0] ^= 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.artwork_identity[0] ^= 1;
-    gpu.skin_revision += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.skin_revision -= 1;
-    gpu.geometry_revision += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.geometry_revision -= 1;
-    gpu.frame_generation += 1;
-    assert!(gpu.draw_batch(view).is_none());
-    gpu.frame_generation -= 1;
-    let manifest = Arc::clone(&gpu.manifest);
-    gpu.manifest = gpu.manifest.to_vec().into();
-    assert!(
-        gpu.draw_batch(view).is_none(),
-        "equal manifest contents are a distinct prepared identity"
-    );
-    gpu.manifest = manifest;
-    assert!(gpu.draw_batch(view).is_some());
-    drop(gpu);
+    {
+        let mut gpu = world.resource_mut::<ActorGpu>();
+        assert!(gpu.draw_batch(view).is_some());
+        assert!(gpu.draw_batch(view ^ 1).is_none());
+        gpu.artwork_identity[0] ^= 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.artwork_identity[0] ^= 1;
+        gpu.skin_revision += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.skin_revision -= 1;
+        gpu.geometry_revision += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.geometry_revision -= 1;
+        gpu.frame_generation += 1;
+        assert!(gpu.draw_batch(view).is_none());
+        gpu.frame_generation -= 1;
+        let manifest = Arc::clone(&gpu.manifest);
+        gpu.manifest = gpu.manifest.to_vec().into();
+        assert!(
+            gpu.draw_batch(view).is_none(),
+            "equal manifest contents are a distinct prepared identity"
+        );
+        gpu.manifest = manifest;
+        assert!(gpu.draw_batch(view).is_some());
+    }
     world.run_system_once(prepare_actor_resources).unwrap();
     assert!(
         world.resource::<ActorGpu>().draw_batch(view).is_none(),
@@ -350,7 +351,7 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         super::super::phase::QueueActorParams<'_, '_>,
         Local<u64>,
     )>::new(world);
-    let (params, mut generation) = state.get_mut(world);
+    let (params, mut generation) = state.get_mut(world).unwrap();
     *generation = u64::MAX;
     super::super::phase::queue_actors(params, generation);
     assert!(world.resource::<ActorGpu>().draw_batch(view).is_none());

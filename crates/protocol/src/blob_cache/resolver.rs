@@ -60,6 +60,10 @@ impl BlobCacheResolver {
             fast_transfer_reset_armed: false,
             next_ready_sequence: 0,
             stats: BlobCacheStats::default(),
+            pending_hash_set_capacity: 0,
+            pending_accounted_bytes: 0,
+            ready_accounted_bytes: 0,
+            retained_column_slots: 0,
         }
     }
 
@@ -388,12 +392,14 @@ impl BlobCacheResolver {
                 accounted_bytes,
             },
         );
+        self.pending_accounted_bytes += accounted_bytes;
+        self.retained_column_slots += columns.len();
         self.pending_order.insert(sequence);
         for hash in status.missing().iter().chain(status.outstanding().iter()) {
-            self.pending_by_hash
-                .entry(*hash)
-                .or_default()
-                .insert(sequence);
+            let transactions = self.pending_by_hash.entry(*hash).or_default();
+            let previous_capacity = transactions.capacity();
+            transactions.insert(sequence);
+            self.pending_hash_set_capacity += transactions.capacity() - previous_capacity;
         }
         self.relieve_cached_ready_pressure()?;
         self.refresh_pending_accounting()?;
@@ -408,21 +414,22 @@ impl BlobCacheResolver {
             self.resolved_pending.insert(sequence);
             self.drain_ready()?;
         }
-        if admission.is_some()
-            && (self.pending.contains_key(&sequence) || self.ready.contains_key(&sequence))
-        {
+        status.accepted =
+            self.pending.contains_key(&sequence) || self.ready.contains_key(&sequence);
+        if admission.is_some() && status.accepted {
             status.set_admission(admission);
         }
         Ok(status)
     }
 
+    /// Accepts verified blobs, returning false when the response was skipped with recovery.
     pub(crate) fn accept_miss_response(
         &mut self,
         response: ClientCacheMissResponse,
-    ) -> Result<(), BlobCacheError> {
+    ) -> Result<bool, BlobCacheError> {
         if response.missing_blobs.is_empty() {
             self.stats.empty_miss_responses = self.stats.empty_miss_responses.saturating_add(1);
-            return Ok(());
+            return Ok(true);
         }
         let response_bytes = response.missing_blobs.iter().fold(
             response.missing_blobs.capacity() * size_of::<MissingBlobData>(),
@@ -437,11 +444,12 @@ impl BlobCacheResolver {
             .collect::<Vec<_>>();
         let rejected = u64::try_from(response.missing_blobs.len().max(1)).unwrap_or(u64::MAX);
         match self.accept_miss_response_inner(response) {
-            Ok(()) => Ok(()),
+            Ok(()) => Ok(true),
             Err(BlobCacheError::UnsolicitedBlob(_)) => {
                 self.stats.miss_response_unsolicited =
                     self.stats.miss_response_unsolicited.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(BlobCacheError::HashMismatch { .. } | BlobCacheError::ConflictingDuplicate(_)) => {
                 self.stats.miss_response_integrity_rejection = self
@@ -450,11 +458,13 @@ impl BlobCacheResolver {
                     .saturating_add(1);
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(BlobCacheError::PinnedPayloadPressure | BlobCacheError::CacheEntryPressure) => {
                 self.stats.miss_response_cache_pressure =
                     self.stats.miss_response_cache_pressure.saturating_add(1);
                 self.recover_skipped_miss_response(&response_hashes)
+                    .map(|()| false)
             }
             Err(error) => {
                 self.stats.rejected_blobs = self.stats.rejected_blobs.saturating_add(rejected);
@@ -494,6 +504,8 @@ impl BlobCacheResolver {
                 .ready
                 .remove(&sequence)
                 .expect("cached sequence was present");
+            self.ready_accounted_bytes -= ready.accounted_bytes;
+            self.retained_column_slots -= ready.columns.len();
             self.refresh_pending_accounting()
                 .expect("retained ready accounting cannot overflow after a pop");
             return Some(ready.value);
@@ -572,6 +584,7 @@ impl BlobCacheResolver {
             .remove_pending_transaction(sequence)
             .expect("resolved transaction remains pending");
         self.cache.unpin_all(&transaction.unique_hashes);
+        self.retained_column_slots += transaction.columns.len();
         self.ready.insert(
             sequence,
             ReadyTransaction {
@@ -581,6 +594,7 @@ impl BlobCacheResolver {
                 sequence,
             },
         );
+        self.ready_accounted_bytes += ready_bytes;
         self.relieve_cached_ready_pressure()?;
         self.refresh_pending_accounting()
     }
@@ -589,6 +603,7 @@ impl BlobCacheResolver {
         let Some(transactions) = self.pending_by_hash.remove(&hash) else {
             return Ok(());
         };
+        self.pending_hash_set_capacity -= transactions.capacity();
         for sequence in transactions {
             let Some(transaction) = self.pending.get_mut(&sequence) else {
                 continue;
@@ -605,15 +620,20 @@ impl BlobCacheResolver {
         self.pending_order.remove(&sequence);
         self.resolved_pending.remove(&sequence);
         let transaction = self.pending.remove(&sequence)?;
+        self.pending_accounted_bytes -= transaction.accounted_bytes;
+        self.retained_column_slots -= transaction.columns.len();
         for hash in &transaction.unique_hashes {
             let remove_hash = if let Some(transactions) = self.pending_by_hash.get_mut(hash) {
+                // A removal that leaves a tombstone reduces the set's reported capacity.
+                let previous_capacity = transactions.capacity();
                 transactions.remove(&sequence);
+                self.pending_hash_set_capacity -= previous_capacity - transactions.capacity();
                 transactions.is_empty()
             } else {
                 false
             };
-            if remove_hash {
-                self.pending_by_hash.remove(hash);
+            if remove_hash && let Some(removed) = self.pending_by_hash.remove(hash) {
+                self.pending_hash_set_capacity -= removed.capacity();
             }
         }
         Some(transaction)
@@ -692,6 +712,7 @@ impl BlobCacheResolver {
             .checked_add(added_bytes)
             .ok_or(BlobCacheError::ByteCountOverflow)?;
         transaction.owned_hashes.push(hash);
+        self.pending_accounted_bytes += added_bytes;
         Ok(())
     }
 
@@ -700,26 +721,20 @@ impl BlobCacheResolver {
     }
 
     fn retained_recovery_slot_count(&self) -> usize {
+        self.debug_assert_running_totals();
         self.recovery_ready
             .len()
-            .saturating_add(
-                self.pending
-                    .values()
-                    .map(|transaction| transaction.columns.len())
-                    .sum::<usize>(),
-            )
-            .saturating_add(
-                self.ready
-                    .values()
-                    .map(|transaction| transaction.columns.len())
-                    .sum::<usize>(),
-            )
+            .saturating_add(self.retained_column_slots)
     }
 
     /// Conservative, unverified ordering: ordinary updates for a column wait until every earlier
     /// cached chunk for that column has reconstructed and been emitted. Mojang's behavior here is
     /// connection-wide rather than per-column; aligning this scan remains open parity work.
+    /// Work naming no column can conflict with nothing, so it skips the retained-work scan.
     fn sequence_is_unblocked(&self, sequence: u64, columns: &[ColumnKey]) -> bool {
+        if columns.is_empty() {
+            return true;
+        }
         let conflicts = |earlier_sequence: &u64, earlier_columns: &[ColumnKey]| {
             *earlier_sequence < sequence
                 && earlier_columns

@@ -18,6 +18,7 @@ pub struct BlobCacheStatus {
     admission: Option<SubChunkReplyAdmissionEvent>,
     classified_hashes: usize,
     staged_bytes: usize,
+    pub(super) accepted: bool,
     _classified: ClassifiedStatus,
 }
 
@@ -43,6 +44,7 @@ impl BlobCacheStatus {
             admission: None,
             classified_hashes,
             staged_bytes,
+            accepted: false,
             _classified: ClassifiedStatus,
         }
     }
@@ -87,6 +89,11 @@ impl BlobCacheStatus {
 
     pub(super) const fn staged_bytes(&self) -> usize {
         self.staged_bytes
+    }
+
+    /// Whether this candidate survived classification and reconstruction instead of recovery.
+    pub(crate) const fn accepted(&self) -> bool {
+        self.accepted
     }
 
     pub(super) fn set_recovery(&mut self, recovery: Option<ChunkResyncEvent>) {

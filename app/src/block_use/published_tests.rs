@@ -29,6 +29,24 @@ mod riptide_tests;
 #[path = "published_tests/attack_swing.rs"]
 mod attack_swing_tests;
 
+#[path = "published_tests/attack_hit_position.rs"]
+mod attack_hit_position_tests;
+
+#[path = "published_tests/attack_fields.rs"]
+mod attack_fields_tests;
+
+#[path = "published_tests/attack_admission.rs"]
+mod attack_admission_tests;
+
+#[path = "published_tests/attack_validation.rs"]
+mod attack_validation_tests;
+
+#[path = "published_tests/attack_frame.rs"]
+mod attack_frame_tests;
+
+#[path = "published_tests/attack_progress.rs"]
+mod attack_progress_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 
@@ -177,6 +195,7 @@ fn fixture() -> (World, client_session::CapturedPackets) {
         stream: Some(stream),
         ..Default::default()
     });
+    world.init_resource::<crate::runtime::shutdown::FatalError>();
     world.insert_resource(collisions);
     world.init_resource::<LocalMovementEffectTimeline>();
     world.init_resource::<MeleeRuntime>();
@@ -554,6 +573,7 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 

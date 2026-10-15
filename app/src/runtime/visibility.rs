@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use bevy::platform::collections::HashMap;
 
 use bevy::prelude::{
     Add, Entity, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
@@ -23,6 +23,8 @@ pub(crate) struct CaveVisibilityCache {
     pub(crate) visible: CaveVisibleSet,
     next_visible: CaveVisibleSet,
     scratch: chunk_pipeline::CaveVisibilityScratch,
+    /// Rendered entity per sub-chunk; trusted keys use Bevy's fixed fast hasher, since every
+    /// chunk spawn, despawn and visibility flip looks one up.
     pub(crate) rendered: HashMap<SubChunkKey, Entity>,
     pub(crate) visible_rendered: usize,
     pub(crate) initialized: bool,

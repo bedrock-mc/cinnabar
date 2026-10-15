@@ -95,8 +95,8 @@ impl GameplayContext<'_> {
         )
     }
 
-    /// Returns the current walking authority only while local movement can accept input.
-    fn movement_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+    /// Returns walking ownership independently of temporary server input permissions.
+    fn walking_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
@@ -127,13 +127,25 @@ impl GameplayContext<'_> {
         Some((authority.actor_session_id(), authority.current_dimension()))
     }
 
+    /// Admits new mod jump requests only while their walking owner has permission.
+    fn movement_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+        let scope = self.walking_scope(ui)?;
+        (!self
+            .player
+            .as_ref()?
+            .facts
+            .input_locks()
+            .blocks(protocol::ClientInputLock::Jump))
+        .then_some(scope)
+    }
+
     /// Revokes pending jump input when its gameplay ownership changes.
     pub(super) fn synchronize_jump_scope(
         &mut self,
         granted: bool,
         ui: &client_ui::ui_runtime::UiRuntime,
     ) {
-        let scope = granted.then(|| self.movement_scope(ui)).flatten();
+        let scope = granted.then(|| self.walking_scope(ui)).flatten();
         if let Some(physics) = self.physics.as_mut() {
             physics.set_jump_pulse_scope(scope);
         }
@@ -246,6 +258,14 @@ impl GameplayContext<'_> {
 
     /// Called only for a successfully committed, once-consumed current-frame delta.
     pub(super) fn apply(&mut self, delta: CameraDelta) {
+        if self.player.as_ref().is_some_and(|player| {
+            player
+                .facts
+                .input_locks()
+                .blocks(protocol::ClientInputLock::Camera)
+        }) {
+            return;
+        }
         if let Some(view) = self.view.as_mut() {
             apply_delta(view, delta);
         }

@@ -1,5 +1,15 @@
 # Phases 2-5 Completion Ledger
 
+Settings mod cards now show permission summaries, explicit requested-grant consent
+and a compact customization grid. Capability metadata supplies gameplay warnings;
+batch grant edits preserve the existing registration format and enforcement.
+Owner visual approval and native cross-platform acceptance remain incomplete.
+This changes no broader parity or performance gate.
+
+Single-cell palette edits retain usage counts and patch canonical storage when existing
+indices and width stay valid. Structural changes still rebuild, and equality ignores only
+derived bookkeeping. Regression tests and benchmark fixtures have not been compiled or run;
+broader lazy compaction, output verification and measured performance remain incomplete.
 Single-cell palette edits retain bounded physical slots and live counts while preserving
 canonical palette order. Last-use removal and width shrink defer word packing until an exact
 word view is requested; snapshot-local caches and exact mutation results avoid eager equality

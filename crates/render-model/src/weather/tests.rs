@@ -230,6 +230,52 @@ fn occlusion_grid_recentres_and_keeps_overlap() {
     );
 }
 
+/// Encodes each column's world position and sampling pass in its occlusion height,
+/// alternating rain and snow so both planes carry distinct values.
+struct Marked(i32);
+
+impl ColumnSampler for Marked {
+    fn sample(&mut self, x: i32, z: i32) -> Option<ColumnSample> {
+        Some(ColumnSample {
+            surface_y: self.0 * 1_000_000 + x * 1_000 + z,
+            temperature: if (x + z) % 2 == 0 { 1.0e9 } else { -1.0e9 },
+            downfall: 0.5,
+        })
+    }
+}
+
+#[test]
+fn occlusion_grid_recentring_keeps_every_overlapping_column_in_each_direction() {
+    let start = [-32, -32];
+    for step in [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [5, -7],
+        [-63, 63],
+        [64, 0],
+        [-70, 3],
+    ] {
+        let mut grid = OcclusionGrid::default();
+        grid.update(start, &mut Marked(1), &mut 0, 0);
+        let moved = [start[0] + step[0], start[1] + step[1]];
+        grid.update(moved, &mut Marked(2), &mut 0, 0);
+        for z in moved[1]..moved[1] + OCCLUSION_SIDE {
+            for x in moved[0]..moved[0] + OCCLUSION_SIDE {
+                let kept = (start[0]..start[0] + OCCLUSION_SIDE).contains(&x)
+                    && (start[1]..start[1] + OCCLUSION_SIDE).contains(&z);
+                let pass = if kept { 1 } else { 2 };
+                assert_eq!(
+                    grid.column(x, z),
+                    Some(column_heights(Marked(pass).sample(x, z))),
+                    "step {step:?} column {x},{z}"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn splashes_land_on_rain_columns_and_scale_with_level() {
     let mut grid = OcclusionGrid::default();

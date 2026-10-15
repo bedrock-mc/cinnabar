@@ -416,16 +416,20 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
     // 1.26.40 tags every record individually, so an add list and a remove list
     // are just two different entry variants -- there is no packet-level action,
     // no shared record count, and no trailing verified array to cross-check.
+    let mut steve = add_entry(
+        77,
+        "Steve",
+        SerializedSkinRef {
+            // The "verified" bit is the skin's own trusted flag, serialised as a string.
+            trusted_skin_flag: "true".into(),
+            ..Default::default()
+        },
+    );
+    if let PlayerListData::AddEntry { xbl_xuid, .. } = &mut steve {
+        *xbl_xuid = "2535400000000001".into();
+    }
     let add = protocol::Packet::new(PlayerListPacket {
-        entries: vec![add_entry(
-            77,
-            "Steve",
-            SerializedSkinRef {
-                // The "verified" bit is the skin's own trusted flag, serialised as a string.
-                trusted_skin_flag: "true".into(),
-                ..Default::default()
-            },
-        )],
+        entries: vec![steve],
     });
     let remove = protocol::Packet::new(PlayerListPacket {
         entries: vec![PlayerListData::RemoveEntry {
@@ -446,6 +450,7 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
             unique_id: 77,
             username: "Steve".into(),
             verified: true,
+            xuid: "2535400000000001".into(),
             skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions),
         }]
     );
@@ -459,6 +464,29 @@ fn player_list_add_and_remove_normalize_to_fifo_roster_deltas() {
         remove.entries.as_ref(),
         [PlayerListEntry::Remove { uuid: [0; 16] }]
     );
+}
+
+/// A malformed XUID is dropped without rejecting the roster entry.
+#[test]
+fn player_list_keeps_entries_with_malformed_xuids() {
+    for xuid in ["12a", "123456789012345678901", ""] {
+        let mut entry = add_entry(5, "Alex", SerializedSkinRef::default());
+        if let PlayerListData::AddEntry { xbl_xuid, .. } = &mut entry {
+            *xbl_xuid = xuid.into();
+        }
+        let packet = protocol::Packet::new(PlayerListPacket {
+            entries: vec![entry],
+        });
+        let Some(WorldEvent::Actor(ActorEvent::PlayerList(update))) =
+            into_world_event(packet, 0).expect("malformed XUIDs are not fatal")
+        else {
+            panic!("expected player-list add")
+        };
+        let PlayerListEntry::Add { xuid, .. } = &update.entries[0] else {
+            panic!("expected add entry")
+        };
+        assert!(xuid.is_empty(), "{xuid:?} kept");
+    }
 }
 
 #[test]

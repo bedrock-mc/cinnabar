@@ -8,10 +8,24 @@ use simulation_clock::identity::SessionGeneration;
 use super::resource_packs::{PackApplication, session_runtime_assets};
 
 /// Cheap snapshots of the exact carrier inputs a join will publish over.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct RegistryBase {
     assets: Arc<assets::RuntimeAssets>,
     collisions: PhysicsCollisionRegistries,
+}
+
+impl std::fmt::Debug for RegistryBase {
+    /// Shows registry counts without formatting the opaque carrier asset tables.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RegistryBase")
+            .field("visual_count", &self.assets.visual_count())
+            .field(
+                "collision_records",
+                &self.collisions.available_record_count(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl RegistryBase {
@@ -84,7 +98,7 @@ impl RegistryBase {
 }
 
 /// A complete registry bundle awaiting the matching session's atomic bootstrap boundary.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(super) struct PreparedSessionRegistries {
     generation: SessionGeneration,
     hashed: bool,
@@ -94,6 +108,18 @@ pub(super) struct PreparedSessionRegistries {
     pub(super) registration: SessionBlockRegistration,
     pub(super) identities: client_world::PreparedBlockIdentities,
     pub(super) assets: Arc<assets::RuntimeAssets>,
+}
+
+impl std::fmt::Debug for PreparedSessionRegistries {
+    /// Shows session identity and counts without formatting the opaque carrier asset tables.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PreparedSessionRegistries")
+            .field("generation", &self.generation)
+            .field("hashed", &self.hashed)
+            .field("custom_blocks", &self.custom.blocks.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl PreparedSessionRegistries {

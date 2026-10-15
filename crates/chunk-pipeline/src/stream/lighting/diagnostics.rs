@@ -1,6 +1,10 @@
 use super::super::*;
 
 impl WorldStream {
+    #[expect(
+        clippy::print_stderr,
+        reason = "CINNABAR_LIGHT_MUTATION is a stderr marker line read during live lighting runs"
+    )]
     pub(in crate::stream) fn diagnose_light_mutations(
         &self,
         prepared: &[PreparedSubChunkMutation],
@@ -42,6 +46,10 @@ impl WorldStream {
     }
 
     /// Samples exponentially so a stalled queue cannot flood the frame thread's logs.
+    #[expect(
+        clippy::print_stderr,
+        reason = "CINNABAR_STALE_LIGHT is a stderr marker line read during live lighting runs"
+    )]
     pub(in crate::stream) fn record_stale_light(
         &mut self,
         key: SubChunkKey,

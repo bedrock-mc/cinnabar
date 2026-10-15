@@ -45,6 +45,9 @@ fn tools_list_names_every_tool() {
             "sign_in_fixture",
             "test_accounts",
             "global_packs",
+            "log_filter_set",
+            "log_filter_get",
+            "crash",
             "state",
             "wait_for",
             "screenshot",
@@ -238,6 +241,58 @@ fn pointer_wheel_and_cape_tools_preserve_arguments() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn log_filter_tools_become_commands() {
+    let repo = Path::new("/repo");
+    let (command, _) = commands::command(
+        "log_filter_set",
+        &json!({ "spec": "net=debug,wgpu=warn" }),
+        repo,
+        repo,
+    )
+    .unwrap();
+    assert_eq!(
+        command,
+        Command::LogFilterSet {
+            spec: "net=debug,wgpu=warn".into()
+        }
+    );
+    let (command, _) = commands::command("log_filter_get", &json!({}), repo, repo).unwrap();
+    assert_eq!(command, Command::LogFilterGet);
+    assert!(commands::command("log_filter_set", &json!({}), repo, repo).is_err());
+    assert!(
+        commands::command(
+            "log_filter_set",
+            &json!({ "spec": "net=debug", "level": "trace" }),
+            repo,
+            repo
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn log_filter_set_documents_every_log_category() {
+    let definitions = crate::definitions::definitions();
+    let description = definitions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "log_filter_set")
+        .unwrap()["description"]
+        .as_str()
+        .unwrap();
+    for category in diagnostics::logging::Category::ALL {
+        let name = category.name();
+        assert!(
+            description
+                .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .any(|word| word == name),
+            "log_filter_set does not document the `{name}` category"
+        );
+    }
 }
 
 #[test]

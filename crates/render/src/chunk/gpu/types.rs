@@ -342,9 +342,12 @@ pub(in crate::chunk) fn summarize_model_workload<'a>(
 ) -> ModelWorkloadCount {
     allocations
         .into_iter()
+        // Both model commands need a model stream; testing it first skips building their
+        // stream addresses for the many sub-chunks without models.
         .filter(|allocation| {
-            model_direct_draw_command(allocation).is_some()
-                || transparent_model_direct_draw_command(allocation).is_some()
+            allocation.model_range.is_some()
+                && (model_direct_draw_command(allocation).is_some()
+                    || transparent_model_direct_draw_command(allocation).is_some())
         })
         .fold(ModelWorkloadCount::default(), |mut total, allocation| {
             let model_ref_count = model_ref_count_for_witness(allocation);

@@ -129,6 +129,39 @@ fn unknown_commands_and_fields_are_rejected() {
 }
 
 #[test]
+fn log_filter_commands_parse_from_their_wire_form() {
+    assert_eq!(
+        parse(json!({ "cmd": "log_filter_set", "spec": "net=debug,wgpu=warn" })).unwrap(),
+        Command::LogFilterSet {
+            spec: "net=debug,wgpu=warn".into()
+        }
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "log_filter_set", "spec": "" })).unwrap(),
+        Command::LogFilterSet { spec: "".into() }
+    );
+    assert_eq!(
+        parse(json!({ "cmd": "log_filter_get" })).unwrap(),
+        Command::LogFilterGet
+    );
+    assert!(parse(json!({ "cmd": "log_filter_set" })).is_err());
+    assert!(parse(json!({ "cmd": "log_filter_set", "spec": "net=debug", "level": 1 })).is_err());
+    let line = request_line(
+        4,
+        "t",
+        &Command::LogFilterSet {
+            spec: "ui=trace".into(),
+        },
+    );
+    assert_eq!(
+        Request::parse(&line).unwrap().command().unwrap(),
+        Command::LogFilterSet {
+            spec: "ui=trace".into()
+        }
+    );
+}
+
+#[test]
 fn envelopes_without_tokens_are_unauthenticated() {
     let missing = Request::parse(r#"{"id":3,"cmd":"state"}"#).unwrap_err();
     assert_eq!(missing.id, json!(3));

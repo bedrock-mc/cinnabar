@@ -384,6 +384,7 @@ fn menu_input_leak_real_producer_to_hand_adapter_keeps_cpu_until_completion_and_
                     unique_id: 1,
                     username: "test".into(),
                     verified: true,
+                    xuid: "".into(),
                     skin: PlayerSkin::Standard(StandardSkin {
                         geometry: None,
                         cape: None,

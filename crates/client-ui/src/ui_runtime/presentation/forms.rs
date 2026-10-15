@@ -44,6 +44,8 @@ mod preview_renderer;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
+#[cfg(test)]
+mod session_renderer_tests;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
 pub(crate) mod compatibility_tests;
@@ -372,18 +374,14 @@ impl UiPresentationRuntime {
         let changed = self.screens.mod_ui.refresh_experience_modal_pages()
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
-        // Server textures too big for a server page draw from full-resolution art.
-        let set = super::menu_artwork::ArtworkSet {
-            logo: self.menu_artwork_set.logo.clone(),
-            paths: self.menu_artwork_set.paths.clone(),
-            images: self.menu_artwork_set.images.clone(),
-            oversized: self.oversized_ui_textures(),
-            skins: self.menu_artwork_set.skins.clone(),
-            capes: self.menu_artwork_set.capes.clone(),
-        };
-        if !set.same(&self.menu_artwork_set) {
-            self.menu_artwork_set = set.clone();
-            self.menu_artwork_loader.request(set);
+        // Server textures too big for a server page draw from full-resolution art. Only the
+        // oversized list can differ from the requested set, so the rest is not copied to compare.
+        let oversized = self.oversized_ui_textures();
+        if !super::menu_artwork::same_engine_textures(&oversized, &self.menu_artwork_set.oversized)
+        {
+            self.menu_artwork_set.oversized = oversized;
+            self.menu_artwork_loader
+                .request(self.menu_artwork_set.clone());
         }
         if changed {
             self.rebuild_dynamic_textures();
@@ -519,7 +517,7 @@ impl UiPresentationRuntime {
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
     pub fn publish_scene_inputs(&self, runtime: &mut UiRuntime) {
-        runtime.observe_presentation(self.loading_stage.is_some(), self.screen_settings());
+        runtime.observe_presentation(self.loading_stage, self.screen_settings());
     }
 
     fn refresh_screen_settings(&mut self) {

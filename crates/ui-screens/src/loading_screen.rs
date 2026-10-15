@@ -80,6 +80,9 @@ pub fn paint(
     input: LoadingInput<'_>,
     frame: &mut PaintFrame<'_>,
 ) -> Result<Option<[String; 2]>, PaintError> {
+    if input.stage != LoadingStage::ChangingDimension {
+        return Ok(None);
+    }
     let LoadingInput {
         stage,
         dimension,
@@ -96,16 +99,7 @@ pub fn paint(
     };
     let mut data = DataSource::new();
     data.set_strict(true);
-    // Vanilla's world generation handler titles the terrain wait.
-    let title = match stage {
-        LoadingStage::Connecting => text(
-            "progressScreen.title.connectingExternal",
-            "Connecting to external server",
-        ),
-        LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
-            text("progressScreen.generating", "Generating World")
-        }
-    };
+    let [title, detail] = launcher::menu::join_progress::loading_words(stage, &text);
     let destination_title = (stage == LoadingStage::ChangingDimension).then(|| {
         let (key, fallback) = dimension
             .and_then(|dimension| DIMENSION_TITLES.get(dimension))
@@ -113,12 +107,6 @@ pub fn paint(
             .unwrap_or(("cinnabar.progress.changingDimension", "Changing dimension"));
         text(key, fallback)
     });
-    let detail = match stage {
-        LoadingStage::Connecting => text("progressScreen.message.locating", "Locating server"),
-        LoadingStage::BuildingTerrain | LoadingStage::ChangingDimension => {
-            text("progressScreen.message.building", "Building terrain")
-        }
-    };
     data.set_global("#title_text", Scalar::Text(title.clone()));
     data.set_global("#progress_text", Scalar::Text(detail.clone()));
     data.set_global(

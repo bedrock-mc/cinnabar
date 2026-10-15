@@ -6,6 +6,7 @@ mod blob_cache;
 mod block_edit;
 mod boss;
 mod camera;
+pub mod capture;
 mod codec;
 mod credits;
 mod dimension;
@@ -21,6 +22,7 @@ mod login;
 mod movement;
 mod nbt_tree;
 mod packet;
+pub mod packet_tap;
 mod particle;
 mod permissions;
 mod primitive_shapes;
@@ -30,7 +32,8 @@ mod respawn;
 mod settings;
 mod skin_change;
 pub use skin_change::{
-    cape_content_id, player_skin_packet, set_skin_packet_engine_version, set_skin_packet_uuid,
+    builtin_skin_id, cape_content_id, custom_skin_id, player_skin_packet,
+    set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
 pub mod session_wire;
@@ -89,8 +92,9 @@ pub use camera::{
     CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSpline, CameraSplineInstruction, CameraSplineKind,
     CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame, CameraSwitchEvent,
-    CameraTargetInstruction, MAX_CAMERA_AIM_ASSIST_ENTRIES, MAX_CAMERA_EASE_IDENTIFIER_BYTES,
-    MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS, camera_aim_assist_activation_packet,
+    CameraTargetInstruction, ClientInputLock, ClientInputLocks, MAX_CAMERA_AIM_ASSIST_ENTRIES,
+    MAX_CAMERA_EASE_IDENTIFIER_BYTES, MAX_CAMERA_PRESETS, MAX_CAMERA_SPLINE_POINTS,
+    camera_aim_assist_activation_packet,
 };
 pub use codec::{
     PacketDecodeError, PacketEncodeError, ProtocolError, SessionError, decode_batch, encode,

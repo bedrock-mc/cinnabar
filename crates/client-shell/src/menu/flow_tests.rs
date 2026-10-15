@@ -126,6 +126,37 @@ fn settings_background_follows_the_world_or_launcher_below() {
 }
 
 #[test]
+fn world_entry_loading_hides_partial_terrain_while_the_menu_is_closed() {
+    let mut menu = MenuRuntime::new(true, 2, "Tester".into());
+    menu.show_world();
+    let player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let ui = client_ui::ui_runtime::UiRuntime::new(1);
+    let mut presentation = client_ui::test_support::mini_engine_presentation();
+    for stage in [
+        ui::LoadingStage::Connecting,
+        ui::LoadingStage::BuildingTerrain,
+    ] {
+        presentation.set_loading_stage(Some(stage));
+        assert!(
+            !crate::screen_policy::renders_game(
+                &player,
+                Some(&ui),
+                Some(&menu),
+                Some(&presentation)
+            ),
+            "{stage:?} must hide unfinished terrain beneath the panorama"
+        );
+    }
+    presentation.set_loading_stage(None);
+    assert!(crate::screen_policy::renders_game(
+        &player,
+        Some(&ui),
+        Some(&menu),
+        Some(&presentation)
+    ));
+}
+
+#[test]
 fn death_screen_opens_once_per_death_and_requests_respawn() {
     let mut menu = MenuRuntime::new(false, 2, "Steve".to_owned());
     menu.open_death();

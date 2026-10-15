@@ -15,7 +15,7 @@ impl DebugContext<'_, '_> {
         let _zone = bevy::log::info_span!("ui.f3.world").entered();
         let Some(stream) = self.client_world.stream.as_ref() else {
             lines.left.push("World: disconnected");
-            if let Some(error) = &self.client_world.fatal_error {
+            if let Some(error) = &self.fatal_error.0 {
                 lines.left.push(format_args!("Session error: {error}"));
             }
             return;
@@ -111,7 +111,7 @@ impl DebugContext<'_, '_> {
             stats.max_light_duration.as_secs_f64() * 1_000.0,
             stats.max_remesh_latency.as_secs_f64() * 1_000.0
         ));
-        if let Some(error) = &self.client_world.fatal_error {
+        if let Some(error) = &self.fatal_error.0 {
             lines.left.push(format_args!("Session error: {error}"));
         }
     }

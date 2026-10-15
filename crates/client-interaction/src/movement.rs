@@ -1,6 +1,10 @@
 //! Bevy resources for movement authority and prediction.
 use bevy::prelude::Resource;
 
+/// Shared movement requests reached by both committed controls and prediction.
+#[derive(Resource, Default, bevy::prelude::Deref, bevy::prelude::DerefMut)]
+pub struct LocomotionState(pub gameplay::movement::LocomotionState);
+
 /// Passes application-owned diagnostic names before gameplay resources are created.
 fn configure_diagnostics() {
     gameplay::movement::diagnostics_config::configure(

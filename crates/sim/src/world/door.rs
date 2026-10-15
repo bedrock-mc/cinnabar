@@ -25,7 +25,7 @@ pub struct DoorState {
 impl CollisionRegistry {
     /// Attaches paired-door behavior to an existing registered runtime ID.
     pub fn set_door_state(&mut self, runtime_id: u32, state: DoorState) -> bool {
-        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.door = Some(state);

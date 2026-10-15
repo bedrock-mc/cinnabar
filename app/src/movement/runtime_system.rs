@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
-    prelude::{EulerRot, Local, Res, ResMut, Time, Vec3},
+    prelude::{EulerRot, Res, ResMut, Time, Vec3},
     time::Real,
 };
 use client_runtime::network::NetworkHandle;
@@ -23,7 +23,7 @@ use client_interaction::movement::{
     MovementTicker, PhysicsCollisionRegistries,
 };
 
-use gameplay::movement::LocomotionState as LocomotionLocals;
+use client_interaction::movement::LocomotionState;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
@@ -41,7 +41,7 @@ pub(crate) fn advance_local_physics(
     settings: Option<Res<RuntimeSettings>>,
     player: Option<Res<PlayerRuntime>>,
     item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
-    mut locals: Local<LocomotionLocals>,
+    mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
     if acceptance.deadline_reached(Instant::now()) {
@@ -110,8 +110,8 @@ pub(crate) fn advance_local_physics(
             },
         ),
     };
-    locals.observe_dismount(&frame, movement_ticker.session_generation());
     if !movement_ticker.can_advance_physics_frame() {
+        locals.observe_dismount(&frame, movement_ticker.session_generation());
         // Retain presses and publish the pose while transport pauses simulation.
         publish_physics_view(&physics, &mut view);
         return;

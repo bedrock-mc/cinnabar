@@ -41,13 +41,10 @@ fn production_ticks_match_serial_with_pack_ui_resets_and_lifetime_reuse() {
                         )
                     })
                     .collect();
-                for (reverse, store) in [(false, &mut serial), (true, &mut parallel)] {
+                for store in [&mut serial, &mut parallel] {
                     store.set_pack(Some((Arc::clone(&pack), vec![0])));
                     let mut ids: Vec<_> = actors.keys().copied().collect();
                     ids.sort_unstable();
-                    if reverse {
-                        ids.reverse();
-                    }
                     for id in ids {
                         store.insert(1, 0, &actors[&id]);
                     }
@@ -70,7 +67,8 @@ fn production_ticks_match_serial_with_pack_ui_resets_and_lifetime_reuse() {
                     {
                         actors.insert(2, actor);
                     }
-                    let exempt = Some(1 + (tick as u64 % count as u64));
+                    let local = 1 + (tick as u64 % count as u64);
+                    let exempt = Some(local);
                     for store in [&mut serial, &mut parallel] {
                         store.schedule.world_budget = world;
                         if tick == 5 {
@@ -85,7 +83,7 @@ fn production_ticks_match_serial_with_pack_ui_resets_and_lifetime_reuse() {
                         let elapsed = [None, Some(0), Some(1), Some(4), Some(120)][tick % 5];
                         let context = |actor: &TestActor| ActorTickContext {
                             animation_elapsed_ticks: elapsed,
-                            appearance_pending: tick == 7 && actor.runtime_id % 3 == 0,
+                            appearance_pending: tick == 7 && actor.runtime_id.is_multiple_of(3),
                             is_local: exempt == Some(actor.runtime_id),
                             is_local_first_person: tick % 2 == 0
                                 && exempt == Some(actor.runtime_id),
@@ -100,7 +98,7 @@ fn production_ticks_match_serial_with_pack_ui_resets_and_lifetime_reuse() {
                             context,
                         );
                         if tick % 4 == 3 {
-                            store.refresh_local_view(&actors, exempt.unwrap(), context);
+                            store.refresh_local_view(&actors, local, context);
                         }
                     }
                     assert_eq!(

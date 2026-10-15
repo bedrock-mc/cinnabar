@@ -19,7 +19,7 @@ fn session_clear_removes_all_diagnostic_counts_and_advances_revision() {
     for id in 1..=2 {
         tracker.upsert(
             SubChunkKey::new(0, id, 0, 0),
-            DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+            &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
                 Some(id as u32),
                 id as u32,
                 5,
@@ -50,10 +50,10 @@ fn globally_folded_identity_removal_cannot_subtract_a_later_tracked_contribution
     };
     let mut tracker = DiagnosticQuadTracker::with_identity_capacity(1);
 
-    tracker.upsert(tracked_first, summary(1, 1));
-    tracker.upsert(folded_first, summary(2, 5));
+    tracker.upsert(tracked_first, &summary(1, 1));
+    tracker.upsert(folded_first, &summary(2, 5));
     tracker.remove(tracked_first);
-    tracker.upsert(tracked_later, summary(2, 7));
+    tracker.upsert(tracked_later, &summary(2, 7));
     tracker.remove(folded_first);
 
     let snapshot = tracker.snapshot();
@@ -813,11 +813,11 @@ fn diagnostic_quad_tracker_keeps_the_current_resident_total() {
 
     tracker.upsert(
         first,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(Some(54), 54, 9)]),
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(Some(54), 54, 9)]),
     );
     tracker.upsert(
         second,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(0),
             973_836_165,
             4,
@@ -827,7 +827,7 @@ fn diagnostic_quad_tracker_keeps_the_current_resident_total() {
 
     tracker.upsert(
         first,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(0),
             973_836_165,
             2,
@@ -843,7 +843,7 @@ fn diagnostic_quad_tracker_keeps_the_current_resident_total() {
     tracker.remove(second);
     assert_eq!(tracker.total(), 2);
 
-    tracker.upsert(first, DiagnosticGeometrySummary::default());
+    tracker.upsert(first, &DiagnosticGeometrySummary::default());
     assert_eq!(tracker.total(), 0);
     tracker.remove(first);
     assert_eq!(tracker.total(), 0);
@@ -855,7 +855,7 @@ fn diagnostic_tracker_reports_hashed_identity_with_canonical_name() {
     let mut tracker = DiagnosticQuadTracker::default();
     tracker.upsert(
         key,
-        DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
+        &DiagnosticGeometrySummary::from_counts([DiagnosticGeometryCount::new(
             Some(54),
             537_536_753,
             6,
@@ -877,7 +877,7 @@ fn diagnostic_top_reporting_is_bounded_and_deterministic() {
         .map(|id| DiagnosticGeometryCount::new(Some(id as u32), id as u32, 1));
     let summary = DiagnosticGeometrySummary::from_counts(counts);
     let mut tracker = DiagnosticQuadTracker::default();
-    tracker.upsert(world::SubChunkKey::new(0, 0, 0, 0), summary);
+    tracker.upsert(world::SubChunkKey::new(0, 0, 0, 0), &summary);
 
     let snapshot = tracker.snapshot();
     assert_eq!(snapshot.top.len(), DIAGNOSTIC_TOP_LIMIT);

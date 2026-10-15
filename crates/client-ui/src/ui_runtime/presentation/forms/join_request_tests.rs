@@ -1,5 +1,4 @@
-//! A Discord join request asks the host through vanilla's modal popup over the launcher and
-//! pause screens; only its Accept and Decline buttons take presses.
+//! A join request uses OreUI in the launcher and JSON-UI during play.
 
 use std::sync::Arc;
 
@@ -79,11 +78,7 @@ fn join_request_buttons_read_the_active_language() {
         "gui.decline" => Some(Arc::<str>::from("Ablehnen")),
         _ => None,
     };
-    let json_ui::FormModel::Modal(modal) =
-        ui_screens::menu_screens::join_request_model("Alex", &translate)
-    else {
-        panic!("a join request is a modal popup");
-    };
+    let modal = launcher::menu::dialogs::join_request("Alex", &translate);
     assert_eq!(
         (
             modal.title.as_str(),

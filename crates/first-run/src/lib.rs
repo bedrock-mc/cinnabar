@@ -13,7 +13,6 @@ mod status;
 #[cfg(test)]
 mod test_support;
 mod window;
-pub mod window_icon;
 
 use std::{fs, path::PathBuf, sync::atomic::AtomicBool};
 
@@ -171,7 +170,11 @@ fn ensure_with(
     if !needs_preparation(layout) {
         return Ok(Outcome::NotNeeded);
     }
-    let title = setup_title(std::env::var("CINNABAR_WINDOW_TITLE").ok().as_deref());
+    let title = setup_title(
+        std::env::var(bootstrap_ui::window::TITLE_ENV)
+            .ok()
+            .as_deref(),
+    );
     let mut report = reporter(layout, |_| {});
     if !env_consent && !consent_recorded(layout) {
         report(Status::awaiting_consent());

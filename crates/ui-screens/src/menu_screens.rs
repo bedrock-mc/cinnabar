@@ -9,15 +9,18 @@ use serde_json::Value;
 
 use super::{menu_caret::with_caret, play_screen};
 use launcher::menu::settings_sections::{SETTINGS_SECTIONS, SettingSection};
-use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuView, auth::AuthState};
+use launcher::menu::{MenuAction, MenuField, MenuScreen, MenuView, auth::AuthState};
 use ui_engine::engine::screen::{Translate, translated};
 
 /// Lang key the vanilla start and pause controllers give the unlock-full-game text.
 const UNLOCK_FULL_GAME_TEXT: &str = "trial.pauseScreen.buyGame";
 
-/// The retail desktop context for this build's platform.
+/// The retail desktop context for this build's platform. It is built once; clones share its
+/// variables, so screens built over it compare their contexts by pointer.
 pub fn retail_context() -> Context {
-    Context::retail(cfg!(target_os = "macos"))
+    static RETAIL: std::sync::LazyLock<Context> =
+        std::sync::LazyLock::new(|| Context::retail(cfg!(target_os = "macos")));
+    RETAIL.clone()
 }
 
 /// Vanilla start screen variables for a full-game, non-edu
@@ -64,13 +67,16 @@ pub(super) fn flags(data: &mut DataSource, on: &[&str]) {
 
 use launcher::menu::menu_reference;
 
-/// The vanilla screen for `view`, or `None` for states without one (the
+/// The in-session screen for `view`, or `None` for states without one (the
 /// programmatic launcher then draws them). `now_unix` is the wall-clock time in seconds.
 pub fn screen_data(
     view: &MenuView,
     translate: Translate<'_>,
     now_unix: i64,
 ) -> Option<MenuScreenData> {
+    if view.out_of_game() {
+        return None;
+    }
     let mut data = DataSource::new();
     data.set_strict(true);
     let mut context = base_context();
@@ -85,7 +91,7 @@ pub fn screen_data(
         let words = launcher::menu::disconnect::describe(error);
         data.set_global(
             "#title_text",
-            text(translated(translate, words.title, words.title)),
+            text(translated(translate, words.title.0, words.title.1)),
         );
         let body = match words.body {
             launcher::menu::disconnect::DisconnectBody::Key(key) => translated(translate, key, key),
@@ -344,153 +350,6 @@ fn version_label(game_version: &str) -> String {
         "v{}",
         game_version.strip_prefix("1.").unwrap_or(game_version)
     )
-}
-
-/// The vanilla two-button popup a launcher dialog opens, and the action its
-/// left (confirm) button takes; the right button dismisses.
-pub fn dialog_model(
-    view: &MenuView,
-    dialog: MenuDialog,
-    translate: Translate<'_>,
-) -> (json_ui::FormModel, MenuAction) {
-    let (title, body, button1, button2, confirm) = match dialog {
-        MenuDialog::MinecraftImport => {
-            let snapshot = &view.minecraft_import;
-            let confirm = snapshot
-                .actions()
-                .first()
-                .copied()
-                .unwrap_or(launcher::minecraft_import::Action::Close);
-            (
-                snapshot.title().into(),
-                snapshot.body().to_owned(),
-                snapshot.label(confirm).into(),
-                "Close".into(),
-                MenuAction::MinecraftImport(confirm),
-            )
-        }
-        MenuDialog::Accounts => (
-            "Accounts".into(),
-            String::new(),
-            "Close".into(),
-            "Close".into(),
-            MenuAction::DismissDialog,
-        ),
-        MenuDialog::SettingsResetGroup(group) => {
-            return super::settings_reset::dialog_model(group, translate);
-        }
-        MenuDialog::SettingsResetBindings(gamepad) => (
-            translated(
-                translate,
-                "controllerLayoutScreen.resetAllBindings",
-                "Reset to Default",
-            ),
-            translated(
-                translate,
-                "controllerLayoutScreen.confirmation.reset",
-                "Reset all bindings to their defaults?",
-            ),
-            translated(translate, "options.continue", "Continue"),
-            translated(translate, "controllerLayoutScreen.cancel", "Cancel"),
-            MenuAction::SettingsConfirmResetBindings(gamepad),
-        ),
-        MenuDialog::SettingsSupport(dialog) => {
-            return super::settings_support::dialog_model(dialog, translate);
-        }
-        MenuDialog::StorageDelete | MenuDialog::StorageError => {
-            return super::settings_storage::dialog_model(view, dialog, translate);
-        }
-        MenuDialog::Exit => (
-            translated(
-                translate,
-                "gui.warning.exitGameWarning",
-                "Do you want to exit Minecraft?",
-            ),
-            String::new(),
-            translated(translate, "gui.yes", "Yes"),
-            translated(translate, "gui.no", "No"),
-            MenuAction::ConfirmExit,
-        ),
-        MenuDialog::DeathQuit => (
-            translated(
-                translate,
-                "deathScreen.quit.confirmToMainMenuTitleWarning",
-                "Quit to Main Menu?",
-            ),
-            translated(
-                translate,
-                "deathScreen.quit.confirmToMainMenuWarning",
-                "Are you sure you want to exit the game to the main menu?",
-            ),
-            translated(translate, "globalPauseScreen.quit", "Quit"),
-            translated(translate, "gui.cancel", "Cancel"),
-            MenuAction::ConfirmDeathQuit,
-        ),
-        // The popup's title is one line, so the server names it and the body asks.
-        MenuDialog::RemoveSaved(index) => (
-            view.servers
-                .get(index)
-                .map(|server| server.name.clone())
-                .unwrap_or_default(),
-            translated(
-                translate,
-                "addExternalServerScreen.removeConfirmation",
-                "Are you sure you want to remove this server?",
-            ),
-            translated(
-                translate,
-                "addExternalServerScreen.removeButtonLabel",
-                "Remove",
-            ),
-            translated(translate, "gui.cancel", "Cancel"),
-            MenuAction::ConfirmRemoveSaved(index),
-        ),
-    };
-    let model = json_ui::FormModel::Modal(json_ui::ModalForm {
-        title,
-        body,
-        button1,
-        button2,
-    });
-    (model, confirm)
-}
-
-/// Vanilla's first-join question for a NetherNet server reached over plain http, in the
-/// active language or vanilla's English.
-pub fn server_trust_model(url: &str, translate: Translate<'_>) -> json_ui::FormModel {
-    let message = translated(
-        translate,
-        "permissions.servertrust.message",
-        "You are connecting to %1$s for the first time. Only trust servers you recognize.",
-    );
-    json_ui::FormModel::Modal(json_ui::ModalForm {
-        title: translated(
-            translate,
-            "permissions.servertrust.title",
-            "Trust this server?",
-        ),
-        body: message.replace("%1$s", url),
-        button1: translated(
-            translate,
-            "permissions.servertrust.button.trust",
-            "Trust and Join",
-        ),
-        button2: translated(
-            translate,
-            "permissions.servertrust.button.doNotTrust",
-            "Don't Trust",
-        ),
-    })
-}
-
-/// The host's answer to `name`'s Discord join request, with vanilla's Accept and Decline.
-pub fn join_request_model(name: &str, translate: Translate<'_>) -> json_ui::FormModel {
-    json_ui::FormModel::Modal(json_ui::ModalForm {
-        title: launcher::menu::join_requests::title(name),
-        body: String::new(),
-        button1: translated(translate, "gui.accept", "Accept"),
-        button2: translated(translate, "gui.decline", "Decline"),
-    })
 }
 
 fn add_server_screen(view: &MenuView, data: &mut DataSource, translate: Translate<'_>) {

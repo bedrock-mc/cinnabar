@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "the architecture check reports policy diagnostics and errors on stderr"
+)]
+
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};

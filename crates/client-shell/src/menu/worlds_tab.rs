@@ -72,6 +72,12 @@ impl MenuRuntime {
             .flatten()
     }
 
+    /// Whether the Worlds tab is on screen, where dropped world files import.
+    #[must_use]
+    pub fn showing_worlds(&self) -> bool {
+        self.visible && self.screen == MenuScreen::Play
+    }
+
     /// The core's stable local-world identifier, independent of a rename or invite.
     pub fn local_world_identity(&self) -> Option<&str> {
         self.local_ui.world_id.as_deref()
@@ -105,7 +111,7 @@ impl MenuRuntime {
     pub fn sync_local_worlds(&mut self, worlds: &mut LocalWorlds, in_session: bool) {
         self.sync_storage_worlds(worlds);
         self.push_local_text(worlds);
-        let on_worlds = self.visible && self.screen == MenuScreen::Play;
+        let on_worlds = self.showing_worlds();
         if on_worlds && !self.local_ui.prepared {
             worlds.prepare();
         }
@@ -275,6 +281,8 @@ impl MenuRuntime {
         }
         match view.screen {
             Screen::List | Screen::Opening | Screen::BackendPrompt => None,
+            // The import modal has no buttons and the copy cannot be interrupted.
+            Screen::Importing => Some(Vec::new()),
             Screen::Create => match view.tab {
                 Tab::General => local(&[
                     A::Create,
@@ -418,6 +426,22 @@ mod tests {
         assert!(menu.view().local_worlds.is_empty());
         menu.activate(MenuAction::PlayLocalWorld(0));
         assert_eq!(menu.take_local_world_request(), None);
+    }
+
+    /// Keyboard and gamepad focus cannot reach the tab or navigation behind the import modal.
+    #[test]
+    fn importing_blocks_focus_behind_its_modal() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        menu.local_ui.view.screen = Screen::Importing;
+        assert_eq!(menu.focus_actions(), Vec::<MenuAction>::new());
+        menu.move_focus(1);
+        menu.activate_focused();
+        assert_eq!(menu.view().screen, MenuScreen::Play);
+        assert!(
+            menu.local_ui.actions.is_empty(),
+            "nothing reached the module"
+        );
     }
 
     #[test]

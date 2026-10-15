@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
@@ -49,7 +50,7 @@ func (h *friendHosting) run(ctx context.Context) {
 			h.stop()
 		} else if h.current() == nil && retry == nil {
 			if err := h.start(ctx, world); err != nil {
-				h.log.Warn("friends: cannot host local world", "error", err)
+				h.log.Warn("friends: cannot host local world", "error", redact.Error(err))
 				retry = time.After(friendHostRetry)
 			}
 		}
@@ -112,7 +113,7 @@ func (h *friendHosting) stop() {
 		return
 	}
 	if err := host.Close(); err != nil {
-		h.log.Debug("friends: stop hosting", "error", err)
+		h.log.Debug("friends: stop hosting", "error", redact.Error(err))
 	}
 	_ = xbox.Close()
 }

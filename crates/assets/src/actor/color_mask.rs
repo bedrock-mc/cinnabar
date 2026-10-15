@@ -1,7 +1,7 @@
 //! Content-pinned native material witnesses, shared by admission and GPU routing.
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-use crate::{EntityAssetSource, RuntimeEntityAssets};
+use crate::{EntityAssetSource, EntityAssetSymbol, EntityRigBinding, RuntimeEntityAssets};
 
 #[derive(serde::Deserialize)]
 struct Policy {
@@ -38,17 +38,31 @@ pub fn native_actor_texture_preserves_fractional_alpha(source: &EntityAssetSourc
 
 /// Only the witnessed vanilla entity/controller pair can group texture slots. Reusing the
 /// same raster in a custom material does not turn that controller into a three-sampler draw.
+/// Reads the answer [`multitexture_rigs`] computed when the catalog was admitted.
 pub fn native_actor_uses_multitexture(entities: &RuntimeEntityAssets, binding: usize) -> bool {
-    let Some(rig) = entities.rig_bindings().get(binding) else {
-        return false;
-    };
+    entities.multitexture_rig(binding)
+}
+
+/// [`native_actor_uses_multitexture`] for every rig binding, from the catalog's symbols and
+/// sources; computed once at admission because the witnesses never change afterwards.
+pub(crate) fn multitexture_rigs(
+    rig_bindings: &[EntityRigBinding],
+    symbols: &[EntityAssetSymbol],
+    sources: &[EntityAssetSource],
+) -> Arc<[bool]> {
     let source = |symbol: u32| {
-        let symbol = entities.symbols().get(symbol as usize)?;
-        entities.sources().get(symbol.source_index as usize)
+        let symbol = symbols.get(symbol as usize)?;
+        sources.get(symbol.source_index as usize)
     };
-    source(rig.entity_symbol).is_some_and(|source| matches(&policy().multitexture_entities, source))
-        && source(rig.render_controller)
-            .is_some_and(|source| matches(&policy().multitexture_controllers, source))
+    rig_bindings
+        .iter()
+        .map(|rig| {
+            source(rig.entity_symbol)
+                .is_some_and(|source| matches(&policy().multitexture_entities, source))
+                && source(rig.render_controller)
+                    .is_some_and(|source| matches(&policy().multitexture_controllers, source))
+        })
+        .collect()
 }
 
 fn policy() -> &'static Policy {

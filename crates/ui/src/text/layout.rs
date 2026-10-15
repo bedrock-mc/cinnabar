@@ -462,6 +462,7 @@ impl Lines<'_> {
         Ok(TextLayout {
             id,
             key,
+            obfuscated: self.glyphs.iter().any(|glyph| glyph.style.obfuscated),
             glyphs: self.glyphs.into_boxed_slice(),
             source_indices: self
                 .marks

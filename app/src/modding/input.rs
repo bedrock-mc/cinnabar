@@ -273,7 +273,7 @@ pub(super) fn prepare_mod_input(
                 extension.panel_ui_owner(owner),
                 extension.hosts.host(owner).panel(),
             ) {
-                eprintln!("Cinnabar extension panel rejected: {error}");
+                warn!("Cinnabar extension panel rejected: {error}");
             }
             presentation.mod_ui_mut().set_mod_panel_open(false);
         }

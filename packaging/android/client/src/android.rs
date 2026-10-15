@@ -37,6 +37,10 @@ fn layout(files_dir: &Path, native_library_dir: &Path) -> InstallLayout {
 }
 
 #[bevy::prelude::bevy_main]
+#[expect(
+    clippy::print_stderr,
+    reason = "startup can fail before client logging is installed, so stderr is the only sink"
+)]
 fn main() {
     let code = match run_client() {
         Ok(()) => 0,

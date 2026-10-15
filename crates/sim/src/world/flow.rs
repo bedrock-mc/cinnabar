@@ -30,7 +30,7 @@ pub struct FlowBlockFacts {
 impl CollisionRegistry {
     /// Retains independently established native flow facts for a runtime ID.
     pub fn set_flow_facts(&mut self, runtime_id: u32, facts: FlowBlockFacts) -> bool {
-        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(&runtime_id) else {
+        let Some(block) = std::sync::Arc::make_mut(&mut self.blocks).get_mut(runtime_id) else {
             return false;
         };
         block.flow = Some(facts);
@@ -74,13 +74,17 @@ impl Samples<'_, '_> {
 
     fn liquid(&mut self, block: [i32; 3]) -> Result<Option<LiquidCell>, WorldQueryError> {
         self.record(block);
-        let ids = self.world.runtime_ids_at(block)?;
+        let mut section = super::section::SectionCache::default();
+        let layers = self.world.layers_at(block, &mut section)?;
         // Vanilla's liquid lookup: extra layer unless it is air, then primary.
-        let runtime_id = ids
+        let runtime_id = layers
             .get(1)
-            .copied()
             .filter(|id| *id != self.world.registry.air_runtime_id)
-            .unwrap_or(ids[0]);
+            .unwrap_or_else(|| {
+                layers
+                    .get(0)
+                    .expect("validated palette storage resolves every local coordinate")
+            });
         let physics = self
             .world
             .registry

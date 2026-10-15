@@ -166,6 +166,7 @@ pub fn update_look(
     spyglass: (f32, Option<Res<fov::CameraFovInputs>>),
     window_width: u32,
     input: crate::observations::InputObservation<'_>,
+    input_locks: protocol::ClientInputLocks,
     auto_fly: Res<AutoFly>,
     mut settings: ResMut<CameraSettingsAuthority>,
     time: Res<Time>,
@@ -174,7 +175,11 @@ pub fn update_look(
     mut server: Option<ResMut<ServerCameraView>>,
 ) {
     let death_view = settings.death_view();
-    let held = input.phase(Action::Freelook).held && !auto_fly.presentation_paused() && !death_view;
+    let camera_locked = input_locks.blocks(protocol::ClientInputLock::Camera);
+    let held = input.phase(Action::Freelook).held
+        && (!camera_locked || settings.freelook)
+        && !auto_fly.presentation_paused()
+        && !death_view;
     if settings.freelook != held {
         smoother.reset();
     }
@@ -184,7 +189,7 @@ pub fn update_look(
         smoother.reset();
         return;
     }
-    if auto_fly.presentation_paused() {
+    if camera_locked || auto_fly.presentation_paused() {
         return;
     }
     let mode = input
@@ -238,8 +243,13 @@ pub fn update_look(
 }
 
 /// Advances acceptance movement or the local non-physics fly camera.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Input permissions and independently scheduled resources have separate owners."
+)]
 pub fn update_movement(
     input: crate::observations::InputObservation<'_>,
+    input_locks: protocol::ClientInputLocks,
     time: Res<Time>,
     mut auto_fly: ResMut<AutoFly>,
     local_physics: Option<&dyn crate::observations::PhysicsObservation>,
@@ -273,11 +283,15 @@ pub fn update_movement(
         return;
     }
 
-    let movement = input.movement();
+    let movement = input_locks.movement(input.movement());
     let axes = Vec3::new(
         movement[0],
-        f32::from(u8::from(input.phase(Action::Jump).held))
-            - f32::from(u8::from(input.phase(Action::Sneak).held)),
+        f32::from(u8::from(
+            input.phase(Action::Jump).held && !input_locks.blocks(protocol::ClientInputLock::Jump),
+        )) - f32::from(u8::from(
+            input.phase(Action::Sneak).held
+                && !input_locks.blocks(protocol::ClientInputLock::Sneak),
+        )),
         movement[1],
     );
     let axes = axes.normalize_or_zero();

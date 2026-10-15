@@ -80,13 +80,12 @@ fn partial_subchunk_batch_retains_its_frontier_and_admission() {
     for y in 0..2 {
         let Some(CommitStep::Apply {
             sequence: 7,
-            event: PreparedWorldEvent::SubChunks { entries, .. },
+            event: PreparedWorldEvent::SubChunk { entry, .. },
         }) = state.next_commit()
         else {
             panic!("one original batch entry must apply next");
         };
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].position[1], y);
+        assert_eq!(entry.position[1], y);
         assert_eq!(state.committed_sequence(), 7);
         assert_eq!(state.pending_batch_sequence(), Some(7));
         assert!(state.is_heavy_admitted(7));

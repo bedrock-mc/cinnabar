@@ -140,6 +140,63 @@ fn delay_fix_allows_a_throw_while_attacking_without_changing_native_timing() {
 }
 
 #[test]
+fn pending_melee_preserves_an_active_crossbow_release_before_charge_completion() {
+    let (mut world, mut captured) = fixture();
+    hold_air_item(&mut world, "minecraft:crossbow", 1, [].into());
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Creative);
+    produce_air_use(&mut world);
+    let (started, duration) = world
+        .resource::<client_interaction::item_use::ItemUseRuntime>()
+        .active_timing()
+        .expect("the crossbow starts charging");
+    captured.drain();
+    let release_tick = started + u64::from(duration) - 1;
+    for tick in started..release_tick {
+        let mut sample = gameplay::test_support::survival_mining::completed(tick);
+        sample.position = [4.5, 2.620_01, 8.5];
+        world
+            .resource_mut::<MovementTicker>()
+            .enqueue_completed_physics(sample)
+            .unwrap();
+    }
+    let snapshot = world
+        .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                mouse_buttons: vec![1],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(snapshot.phases[Action::Use as usize].released);
+    world.insert_resource(client_state::SemanticInputSnapshot(
+        semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
+    ));
+    world
+        .resource_mut::<MeleeRuntime>()
+        .observe_input(true, true);
+    produce_air_use(&mut world);
+    assert!(world.resource::<MeleeRuntime>().press_pending());
+    let packets = captured.drain();
+    assert!(
+        packets.iter().any(|packet| {
+            protocol::test_support::transactions::observe_transaction(packet)
+                .is_some_and(|tx| tx.release().is_some())
+        }),
+        "an accepted early release must leave while the melee waits"
+    );
+    assert!(
+        !world
+            .resource::<client_interaction::item_use::ItemUseRuntime>()
+            .is_using()
+    );
+}
+
+#[test]
 fn a_written_release_does_not_hold_later_inputs_for_another_frame() {
     let (mut world, mut captured) = fixture();
     hold_snowball(&mut world);

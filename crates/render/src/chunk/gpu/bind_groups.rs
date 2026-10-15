@@ -5,8 +5,8 @@ use bevy::color::ColorToPacked;
 
 use render_scene::{
     BiomeTint, ChunkAnimationClock, ChunkBiomeTints, ChunkRenderInstance,
-    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTextureReload, TextureArrayLimits,
-    TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
+    ChunkTextureAssetIdentity, ChunkTextureAssets, ChunkTexturePreparation, ChunkTextureReload,
+    TextureArrayLimits, TextureMipUploadPlan, TextureUploadPlanError, diagnostic_texture_page,
     plan_texture_mip_uploads, plan_texture_page_bindings, texture_asset_needs_rebuild,
 };
 
@@ -15,6 +15,9 @@ mod water_tint_tests;
 
 #[cfg(test)]
 mod clock_tests;
+
+#[cfg(test)]
+mod reload_tests;
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::chunk) struct ChunkBindGroupBuffers {
@@ -223,7 +226,17 @@ type PreparedReplacement = (
     Option<PreparedResourceGeometry>,
 );
 
-type PendingTextures = std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>;
+/// One render worker and the immutable request whose completion it may acknowledge.
+struct PendingTextures {
+    request: ChunkTexturePreparation,
+    result: std::sync::Mutex<std::sync::mpsc::Receiver<Option<PreparedReplacement>>>,
+}
+
+/// GPU resources retained for publication of the request that prepared them.
+struct StagedTextures {
+    request: ChunkTexturePreparation,
+    replacement: PreparedReplacement,
+}
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkGpuTextureAssets {
@@ -231,8 +244,7 @@ pub(in crate::chunk) struct ChunkGpuTextureAssets {
     pub(in crate::chunk) _attempted_assets: Option<Arc<RuntimeAssets>>,
     pub(in crate::chunk) prepared: Option<PreparedChunkTextureAssets>,
     pending: Option<PendingTextures>,
-    pending_identity: Option<ChunkTextureAssetIdentity>,
-    staged: Option<PreparedReplacement>,
+    staged: Option<StagedTextures>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -264,6 +276,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let identity = assets.identity();
     let completed = gpu_assets.pending.as_ref().and_then(|pending| {
         match pending
+            .result
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .try_recv()
@@ -274,28 +287,31 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         }
     });
     if let Some(completed) = completed {
-        gpu_assets.pending = None;
-        if let Some(pending) = gpu_assets.pending_identity.take() {
-            reload.finish(pending, completed.is_some());
+        let pending = gpu_assets.pending.take().expect("completed worker");
+        if reload.finish(&pending.request, completed.is_some()) {
+            gpu_assets.staged = completed.map(|replacement| StagedTextures {
+                request: pending.request,
+                replacement,
+            });
         }
-        gpu_assets.staged = completed;
     }
-    let requested = reload.requested();
-    if gpu_assets.staged.as_ref().is_some_and(|(prepared, _, _)| {
-        prepared.identity != identity
-            && requested
-                .as_ref()
-                .is_none_or(|candidate| candidate.identity() != prepared.identity)
+    let requested = reload.preparation();
+    // A newer request cannot retire resources the CPU has already selected but the renderer
+    // has not consumed yet. Publishing that snapshot leaves the newer mailbox attempt intact.
+    if gpu_assets.staged.as_ref().is_some_and(|staged| {
+        staged.replacement.0.identity != identity && !reload.is_current(&staged.request)
     }) {
         gpu_assets.staged = None;
     }
     if gpu_assets
         .staged
         .as_ref()
-        .is_some_and(|(prepared, _, _)| prepared.identity == identity)
+        .is_some_and(|staged| staged.replacement.0.identity == identity)
     {
-        let (prepared, uploaded, geometry) =
-            gpu_assets.staged.take().expect("matching staged atlas");
+        let StagedTextures {
+            request,
+            replacement: (prepared, uploaded, geometry),
+        } = gpu_assets.staged.take().expect("matching staged atlas");
         // Geometry built for chunks a session reset retired cannot publish. The main world
         // already meshes against this atlas, so it still installs and the reload completes.
         if let Some(geometry) = geometry
@@ -303,7 +319,7 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         {
             bevy::log::warn!("discarding resource geometry with retired chunk keys");
         }
-        reload.published();
+        reload.published(&request);
         gpu_assets.prepared = Some(prepared);
         gpu_assets.attempted_identity = Some(identity);
         gpu_assets._attempted_assets = Some(Arc::clone(assets.assets()));
@@ -320,9 +336,10 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
             *stats = uploaded;
         }
     }
-    let Some(candidate) = requested else {
+    let Some(request) = requested else {
         return;
     };
+    let candidate = request.assets().clone();
     if candidate.identity() == identity
         || gpu_assets.pending.is_some()
         || reload.status(candidate.identity()).is_some()
@@ -332,9 +349,11 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
     let device = render_device.clone();
     let queue = render_queue.clone();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    gpu_assets.pending_identity = Some(candidate.identity());
-    gpu_assets.pending = Some(std::sync::Mutex::new(receiver));
-    let geometry = reload.geometry();
+    let geometry = request.geometry().cloned();
+    gpu_assets.pending = Some(PendingTextures {
+        request,
+        result: std::sync::Mutex::new(receiver),
+    });
     let view = views
         .iter()
         .min_by_key(|(entity, ..)| *entity)

@@ -15,6 +15,21 @@ impl ActorStore {
         })
     }
 
+    /// [`Self::spawned_player_unique_id`] for every spawned UUID from one pass over the actors.
+    /// Each UUID keeps the first actor that pass visits, the actor the per-UUID search returns
+    /// while the actor set is unchanged.
+    pub(super) fn spawned_player_unique_ids(&self) -> FastHashMap<[u8; 16], i64> {
+        let mut ids = FastHashMap::new();
+        for actor in self.actors.values() {
+            if self.remote_state_excluded_runtime_id != Some(actor.runtime_id)
+                && let ActorKind::Player { uuid, .. } = &actor.kind
+            {
+                ids.entry(*uuid).or_insert(actor.unique_id);
+            }
+        }
+        ids
+    }
+
     /// Relinks the listed appearance of the remote player at `runtime_id` to its spawned ID.
     pub(super) fn adopt_spawned_unique_id(&mut self, runtime_id: u64) {
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
@@ -39,15 +54,18 @@ impl ActorStore {
         let Some(profile) = self.players.remove(uuid) else {
             return;
         };
-        if self.actors.values().any(|actor| {
-            actor.unique_id == profile.unique_id
-                && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. }
-                    if actor_uuid == uuid || (self.remote_state_excluded_runtime_id == Some(actor.runtime_id)
-                        && self.synthetic_local_uuid == Some(*actor_uuid)))
-        }) {
+        if appearance_in_use(
+            &self.actors,
+            &self.unique_to_runtime,
+            self.remote_state_excluded_runtime_id,
+            self.synthetic_local_uuid,
+            uuid,
+            profile.unique_id,
+        ) {
             self.unlisted_players.insert(*uuid, profile);
         } else {
-            self.retained_player_skin_bytes = self.retained_player_skin_bytes
+            self.retained_player_skin_bytes = self
+                .retained_player_skin_bytes
                 .saturating_sub(retained_skin_bytes(&profile.skin));
         }
     }
@@ -55,19 +73,47 @@ impl ActorStore {
     /// Releases unlisted appearances when their actor lifetime ends, including replacements.
     pub(super) fn prune_unlisted_players(&mut self) {
         self.unlisted_players.retain(|uuid, profile| {
-            let live = self.actors.values().any(|actor| {
-                actor.unique_id == profile.unique_id
-                    && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. }
-                    if actor_uuid == uuid || (self.remote_state_excluded_runtime_id == Some(actor.runtime_id)
-                        && self.synthetic_local_uuid == Some(*actor_uuid)))
-            });
+            let live = appearance_in_use(
+                &self.actors,
+                &self.unique_to_runtime,
+                self.remote_state_excluded_runtime_id,
+                self.synthetic_local_uuid,
+                uuid,
+                profile.unique_id,
+            );
             if !live {
-                self.retained_player_skin_bytes = self.retained_player_skin_bytes
+                self.retained_player_skin_bytes = self
+                    .retained_player_skin_bytes
                     .saturating_sub(retained_skin_bytes(&profile.skin));
             }
             live
         });
     }
+}
+
+/// Whether a live actor still shows the appearance listed under `uuid` for `unique_id`: a player
+/// actor with that unique ID carrying `uuid`, or the local actor carrying its synthetic profile.
+/// The actor indexed under `unique_id` answers without a scan; only a miss scans every actor,
+/// which also covers actors the index does not name.
+fn appearance_in_use(
+    actors: &HashMap<u64, ActorSnapshot>,
+    unique_to_runtime: &FastHashMap<i64, u64>,
+    excluded_runtime_id: Option<u64>,
+    synthetic_local_uuid: Option<[u8; 16]>,
+    uuid: &[u8; 16],
+    unique_id: i64,
+) -> bool {
+    let shows = |actor: &ActorSnapshot| {
+        actor.unique_id == unique_id
+            && matches!(&actor.kind, ActorKind::Player { uuid: actor_uuid, .. }
+                if actor_uuid == uuid || (excluded_runtime_id == Some(actor.runtime_id)
+                    && synthetic_local_uuid == Some(*actor_uuid)))
+    };
+    unique_to_runtime
+        .get(&unique_id)
+        .and_then(|runtime_id| actors.get(runtime_id))
+        .is_some_and(shows)
+        || actors.values().any(shows)
 }
 
 #[cfg(test)]
@@ -77,6 +123,8 @@ mod tests {
     use render_api::{CLASSIC_SKIN_SIDE, StandardSkin};
     use std::sync::Arc;
 
+    const ROSTER_XUID: &str = "11";
+
     /// Lists a player with an identifiable skin and a retained custom-model source.
     fn add(byte: u8) -> ActorEvent {
         ActorEvent::PlayerList(PlayerListUpdateEvent {
@@ -85,6 +133,7 @@ mod tests {
                 unique_id: 1,
                 username: "player".into(),
                 verified: true,
+                xuid: ROSTER_XUID.into(),
                 skin: PlayerSkin::Standard(StandardSkin {
                     width: CLASSIC_SKIN_SIDE as u32,
                     height: CLASSIC_SKIN_SIDE as u32,
@@ -114,6 +163,7 @@ mod tests {
                     uuid,
                     username,
                     verified,
+                    xuid,
                     skin,
                     ..
                 } => PlayerListEntry::Add {
@@ -121,6 +171,7 @@ mod tests {
                     unique_id,
                     username,
                     verified,
+                    xuid,
                     skin,
                 },
                 other => other,
@@ -238,6 +289,47 @@ mod tests {
                 .player_profile(2)
                 .unwrap_or_else(|| panic!("no appearance when spawn_first={spawn_first}"));
             assert_eq!(&*profile.username, "player");
+        }
+    }
+
+    #[test]
+    fn a_multi_entry_roster_adopts_spawned_ids_only_for_spawned_players() {
+        const XUID: i64 = 2_535_468_296_790_551;
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, spawn());
+        let ActorEvent::PlayerList(listed) = add_listed_as(XUID) else {
+            unreachable!()
+        };
+        let PlayerListEntry::Add {
+            username,
+            verified,
+            xuid,
+            skin,
+            ..
+        } = listed.entries[0].clone()
+        else {
+            unreachable!()
+        };
+        let unspawned = PlayerListEntry::Add {
+            uuid: [4; 16],
+            unique_id: XUID + 1,
+            username,
+            verified,
+            xuid,
+            skin,
+        };
+        let entries = [listed.entries[0].clone(), unspawned];
+        store.apply(
+            1,
+            2,
+            ActorEvent::PlayerList(PlayerListUpdateEvent {
+                entries: Arc::from(entries),
+            }),
+        );
+        assert_eq!(store.players[&[1; 16]].unique_id, 1);
+        assert_eq!(store.players[&[4; 16]].unique_id, XUID + 1);
+        for uuid in [[1; 16], [4; 16]] {
+            assert_eq!(&*store.players[&uuid].xuid, ROSTER_XUID);
         }
     }
 

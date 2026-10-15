@@ -317,7 +317,7 @@ fn operation_work_and_transition_budgets_are_aggregate() {
         work_left: 1,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
         used: 0,
-        stack: Vec::new(),
+        stack: Default::default(),
         static_draw: None,
     };
     assert_eq!(budget.charge(), Ok(()));

@@ -36,6 +36,10 @@ pub fn fixture_font() -> Arc<RuntimeFontCatalog> {
 }
 
 /// Loads the installed UI carrier, reporting an absent fixture and rejecting malformed data.
+#[expect(
+    clippy::print_stderr,
+    reason = "explains on stderr why a test skips when the installed UI carrier fixture is absent"
+)]
 pub fn carrier() -> Option<Arc<RuntimeUiAssets>> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("..")
