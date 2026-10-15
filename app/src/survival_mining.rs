@@ -94,6 +94,9 @@ pub(crate) fn produce_survival_mining(
     let snapshot_present = snapshot.is_some();
     let actor_in_front = context.melee.actor_in_front();
     let active = mining_active(caps, focused, snapshot_present);
+    if context.melee.press_was_cancelled() {
+        runtime.latched_press = false;
+    }
     let mining_input =
         runtime.observe_attack_input(active, attack.pressed, attack.held, actor_in_front);
     // Retain the mining click until its block-press swing enters the same ordered path.

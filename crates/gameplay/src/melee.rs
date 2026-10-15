@@ -79,6 +79,7 @@ pub struct AdmittedActorAttack {
 #[derive(Debug, Default, Clone)]
 pub struct MeleeRuntime {
     latched_press: bool,
+    cancelled_press: bool,
     attack_revision: u64,
     admitted_attack: Option<AdmittedActorAttack>,
     actor_in_front: bool,
@@ -106,6 +107,11 @@ impl MeleeRuntime {
         self.latched_press
     }
 
+    /// Whether the last latched press was cancelled instead of resolved.
+    pub const fn press_was_cancelled(&self) -> bool {
+        self.cancelled_press
+    }
+
     /// Whether a recent attack still suppresses block use.
     pub fn blocks_use_at(&self, now_millis: u64) -> bool {
         self.last_attack_millis.is_some_and(|attack| {
@@ -125,17 +131,18 @@ impl MeleeRuntime {
             .position_authority
             .is_some_and(|previous| previous != authority)
         {
-            self.latched_press = false;
+            self.cancel();
             self.admitted_attack = None;
             self.last_attack_millis = None;
-            self.deferred_since = None;
-            self.rejected_tick = None;
         }
         self.position_authority = Some(authority);
     }
 
     /// Records this frame's attack input; returns whether a press is waiting.
     pub fn observe_input(&mut self, pressed: bool, held: bool) -> bool {
+        if pressed {
+            self.cancelled_press = false;
+        }
         self.latched_press |= pressed;
         self.latched_press || held
     }
@@ -161,7 +168,9 @@ impl MeleeRuntime {
         target
     }
 
+    /// Discards a pending press and remembers its cancellation until the next press.
     pub fn cancel(&mut self) {
+        self.cancelled_press |= self.latched_press;
         self.latched_press = false;
         self.actor_in_front = false;
         self.deferred_since = None;

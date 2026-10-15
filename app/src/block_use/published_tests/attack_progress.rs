@@ -213,6 +213,81 @@ fn attack_progress_deferred_block_press_waits_to_break_and_never_attacks_twice()
 }
 
 #[test]
+fn attack_progress_cancelled_block_press_discards_its_retained_mining_click() {
+    for expired in [true, false] {
+        let (mut world, mut captured) = fixture();
+        item_use_tests::hold_snowball(&mut world);
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        ticks(&mut world, 102, 103);
+        buttons(&mut world, vec![1]);
+        let mut app = interaction_app(world);
+        for waiting in [true, false] {
+            if !waiting {
+                buttons(app.world_mut(), vec![]);
+                if expired {
+                    app.world_mut()
+                        .resource_mut::<Time<Real>>()
+                        .advance_by(Duration::from_millis(
+                            gameplay::interaction_authority::MAX_PENDING_INTERACTION_MILLIS + 1,
+                        ));
+                } else {
+                    app.world_mut().resource_mut::<MeleeRuntime>().cancel();
+                }
+            }
+            app.world_mut()
+                .run_system_cached(crate::melee::prepare_melee)
+                .unwrap();
+            app.world_mut()
+                .run_system_cached(crate::melee::produce_melee)
+                .unwrap();
+            app.world_mut()
+                .run_system_cached(crate::survival_mining::produce_survival_mining)
+                .unwrap();
+            assert_eq!(
+                app.world().resource::<MeleeRuntime>().press_pending(),
+                waiting
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                    .len(),
+                0,
+                "a cancelled click must never predict a break"
+            );
+        }
+        assert!(
+            !app.world()
+                .resource::<client_interaction::survival_mining::SurvivalMiningRuntime>()
+                .latched_press
+        );
+        app.world_mut().run_schedule(Update);
+        ticks(app.world_mut(), 103, 104);
+        buttons(app.world_mut(), vec![]);
+        app.world_mut().run_schedule(Update);
+        let packets = captured.drain();
+        let inputs: Vec<_> = packets
+            .iter()
+            .filter_map(protocol::player_auth_input_trace_sample)
+            .collect();
+        assert!(inputs.iter().any(|input| input.tick == 103));
+        assert!(
+            inputs
+                .iter()
+                .all(|input| !input.flag_names.contains(&"PerformBlockActions"))
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            0
+        );
+    }
+}
+
+#[test]
 fn attack_progress_active_crossbow_completes_while_melee_waits() {
     let (mut world, mut captured) = fixture();
     item_use_tests::hold_air_item(&mut world, "minecraft:crossbow", 1, [].into());
