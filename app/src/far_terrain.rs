@@ -19,6 +19,10 @@ use render_scene::FarTerrainScene;
 
 use crate::{runtime::world::ClientWorld, session::SessionController};
 
+#[cfg(test)]
+#[path = "far_terrain/publication_tests.rs"]
+mod publication_tests;
+
 /// The far-terrain cache, the selected tiles and the view they were chosen for.
 #[derive(Resource)]
 pub(crate) struct FarTerrain {
@@ -78,7 +82,7 @@ impl FarTerrain {
         radius: i32,
         horizon: i32,
     ) -> bool {
-        let (revision, drawn) = stream.near_drawn_columns();
+        let (revision, drawn) = stream.near_mask_columns();
         let view = ([centre.x, centre.z], radius, revision);
         if self.near_view == Some(view) {
             return false;
@@ -411,7 +415,7 @@ pub(crate) fn feed_far_terrain(
         for column in covered {
             stream.finish_far_handoff(column);
         }
-        // Remove the far mask with the near withdrawal, so the next extraction has a drawer.
+        // Outgoing columns stay masked until their actual mesh removals are acknowledged.
         if far.update_near(stream, centre, near_radius, loaded + reach) {
             scene.near = Arc::clone(&far.near);
         }

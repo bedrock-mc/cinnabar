@@ -295,11 +295,12 @@ impl FarTerrainGpu {
                                 })
                         }
                         None => {
-                            key.overlaps(mesh.key)
-                                && tiles
-                                    .iter()
-                                    .filter(|tile| key.overlaps(tile.key))
-                                    .all(|tile| tile.key == mesh.key || self.current(tile))
+                            // A completed fallback can free space anywhere in the batch,
+                            // including when this upload does not overlap its replacements.
+                            tiles
+                                .iter()
+                                .filter(|tile| key.overlaps(tile.key))
+                                .all(|tile| tile.key == mesh.key || self.current(tile))
                         }
                     }
             })

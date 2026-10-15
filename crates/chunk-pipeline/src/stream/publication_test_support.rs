@@ -22,6 +22,14 @@ pub struct PublicationFixtureSnapshot {
 }
 
 impl WorldStream {
+    /// Marks a fixture column complete; its sections still need real upload acknowledgements.
+    #[doc(hidden)]
+    pub fn load_publication_fixture_column(&mut self, column: ChunkKey) {
+        assert!(self.resident.column(column).next().is_some());
+        self.loaded_columns.insert(column);
+        self.note_near_drawn(column);
+    }
+
     /// Prepares fixture appearances without changing the simulation clock under test.
     #[doc(hidden)]
     pub fn prepare_actor_appearance_fixture(&mut self) {

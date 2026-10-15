@@ -130,6 +130,7 @@ impl WorldStream {
         }
         self.revisions.clear_if_current(key, generation);
         self.note_near_drawn(key.chunk());
+        self.note_near_withdrawal(key.chunk());
         self.acknowledge_actor_block_syncs(key, generation);
         self.stats.publication_stages.mesh_uploads_acknowledged = self
             .stats

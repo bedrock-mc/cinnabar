@@ -20,14 +20,33 @@ fn meshes(keys: impl IntoIterator<Item = TileKey>) -> Vec<Arc<TileMesh>> {
 
 /// Creates a no-op device with an explicit layer ceiling for boundary transitions.
 fn device(slots: u32) -> (RenderDevice, RenderQueue) {
+    capacity_device(slots, None)
+}
+
+/// Constrains layers or quad storage independently enough to exercise either allocation path.
+fn capacity_device(slots: u32, quads: Option<u32>) -> (RenderDevice, RenderQueue) {
+    let mut limits = wgpu::Limits {
+        max_texture_array_layers: slots,
+        ..Default::default()
+    };
+    if let Some(quads) = quads {
+        limits.max_storage_buffer_binding_size = u64::from(quads) * QUAD_BYTES;
+    }
     let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
-        required_limits: wgpu::Limits {
-            max_texture_array_layers: slots,
-            ..Default::default()
-        },
+        required_limits: limits,
         ..Default::default()
     });
     (RenderDevice::from(device), RenderQueue::new(queue))
+}
+
+/// Gives every tile the same allocation size while keeping visible geometry over its area.
+fn sized_meshes(keys: impl IntoIterator<Item = TileKey>, quads: usize) -> Vec<Arc<TileMesh>> {
+    let mut tiles = meshes(keys);
+    for mesh in &mut tiles {
+        let mesh = Arc::get_mut(mesh).unwrap();
+        mesh.quads = vec![mesh.quads[0]; quads].into_boxed_slice();
+    }
+    tiles
 }
 
 /// Covers a row of coarse tiles with its sixteen finest tiles per coarse square.
@@ -153,6 +172,73 @@ fn final_replacement_can_reuse_its_covering_slot_at_the_layer_limit() {
 }
 
 #[test]
+fn interleaved_replacements_reclaim_unrelated_completed_cover_at_capacity() {
+    for (layers, capacity, quads) in [(16, None, 1), (64, Some(64), 4)] {
+        let (device, queue) = capacity_device(layers, capacity);
+        let mut gpu = FarTerrainGpu::new(&device);
+        let unchanged = sized_meshes((1..=8).map(|x| TileKey { level: 2, x, z: 0 }), quads);
+        let mut old = unchanged.clone();
+        old.extend(sized_meshes(
+            (0..2).map(|z| TileKey { level: 1, x: 0, z }),
+            quads,
+        ));
+        populate(&mut gpu, &device, &queue, &old);
+        // The first parent finishes on upload six; upload seven needs its unrelated slot.
+        let mut desired = sized_meshes(
+            (0..2).flat_map(|x| (0..4).map(move |z| TileKey { level: 0, x, z })),
+            quads,
+        );
+        desired.extend(unchanged.iter().cloned());
+        let (complete, (writes, bytes)) = render_scene::runtime_profile_uploads::measure(|| {
+            gpu.apply_tiles(&device, &queue, &desired)
+        });
+        assert!(complete);
+        assert_eq!(writes, 3 * UPLOAD_TILES_PER_FRAME as u64);
+        assert!(bytes <= UPLOAD_BYTES_PER_FRAME);
+        assert_covered(&gpu, &old);
+        assert_eq!(gpu.resident.len(), desired.len());
+        for mesh in &desired {
+            assert!(Arc::ptr_eq(&gpu.resident[&mesh.key].mesh, mesh));
+            assert!(gpu.resident[&mesh.key].visible);
+        }
+    }
+}
+
+#[test]
+fn insufficient_replacement_capacity_keeps_partial_children_hidden_and_old_coverage_drawn() {
+    for (layers, capacity, quads) in [(11, None, 1), (64, Some(44), 4)] {
+        let (device, queue) = capacity_device(layers, capacity);
+        let mut gpu = FarTerrainGpu::new(&device);
+        let mut old = sized_meshes((10..18).map(|x| TileKey { level: 0, x, z: 0 }), quads);
+        let mut desired = old.clone();
+        old.extend(sized_meshes(
+            [TileKey {
+                level: 1,
+                x: 0,
+                z: 0,
+            }],
+            quads,
+        ));
+        populate(&mut gpu, &device, &queue, &old);
+        desired.extend(sized_meshes(
+            (0..2).flat_map(|x| (0..2).map(move |z| TileKey { level: 0, x, z })),
+            quads,
+        ));
+        for _ in 0..3 {
+            assert!(!gpu.apply_tiles(&device, &queue, &desired));
+            assert_covered(&gpu, &old);
+            assert_eq!(gpu.resident.len(), 11);
+            assert!(old.iter().all(|mesh| gpu.resident[&mesh.key].visible));
+            assert!(desired[8..].iter().all(|mesh| {
+                gpu.resident
+                    .get(&mesh.key)
+                    .is_none_or(|resident| !resident.visible)
+            }));
+        }
+    }
+}
+
+#[test]
 fn a_replacement_that_cannot_fit_keeps_the_old_draw_and_remains_pending() {
     let (device, queue) = device(1);
     let mut gpu = FarTerrainGpu::new(&device);
@@ -235,7 +321,7 @@ fn same_key_handoff_acknowledgements_require_the_current_revision() {
 }
 
 #[test]
-fn near_handoffs_wait_for_drawable_replacements_and_update_the_mask_together() {
+fn near_handoff_receipts_are_bounded_to_drawable_replacements() {
     use bevy::{ecs::system::RunSystemOnce, prelude::World};
     let (device, queue) = device(256);
     let mut world = World::new();
@@ -247,30 +333,26 @@ fn near_handoffs_wait_for_drawable_replacements_and_update_the_mask_together() {
         .iter()
         .map(|mesh| mesh.key.columns().next().unwrap())
         .collect();
-    let mut scene = FarTerrainScene {
+    let scene = FarTerrainScene {
         tiles: replacement.clone().into(),
         ..Default::default()
     };
-    scene.near = Arc::new(NearMask::from_columns([0, 0], 32, handoffs.iter().copied()));
     world.insert_resource(scene);
     for batch in 0..2 {
         world.run_system_once(prepare_far_terrain).unwrap();
-        let mut scene = world.resource_mut::<FarTerrainScene>();
+        let scene = world.resource::<FarTerrainScene>();
         let released: Vec<_> = handoffs
             .iter()
             .copied()
-            .filter(|column| ready(&scene, *column))
+            .filter(|column| ready(scene, *column))
             .collect();
         assert_eq!(released.len(), UPLOAD_TILES_PER_FRAME);
         handoffs.retain(|column| !released.contains(column));
-        scene.near = Arc::new(NearMask::from_columns([0, 0], 32, handoffs.iter().copied()));
         for column in &handoffs {
-            assert!(scene.near.contains(*column));
-            assert!(!ready(&scene, *column));
+            assert!(!ready(scene, *column));
         }
         for column in released {
-            assert!(!scene.near.contains(column));
-            assert!(ready(&scene, column));
+            assert!(ready(scene, column));
         }
         assert_eq!(handoffs.is_empty(), batch == 1);
     }

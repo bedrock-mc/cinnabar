@@ -6,6 +6,8 @@ use super::*;
 #[derive(Default)]
 pub(super) struct NearDrawn {
     columns: HashSet<ChunkKey>,
+    /// Columns whose outgoing geometry still awaits its final removal acknowledgement.
+    withdrawing: HashSet<ChunkKey>,
     revision: u64,
 }
 
@@ -15,6 +17,18 @@ impl WorldStream {
         (
             self.near_drawn.revision,
             self.near_drawn.columns.iter().copied(),
+        )
+    }
+
+    /// Columns that keep far terrain masked, including outgoing meshes awaiting publication.
+    pub fn near_mask_columns(&self) -> (u64, impl Iterator<Item = ChunkKey> + '_) {
+        (
+            self.near_drawn.revision,
+            self.near_drawn
+                .columns
+                .iter()
+                .chain(&self.near_drawn.withdrawing)
+                .copied(),
         )
     }
 
@@ -42,6 +56,7 @@ impl WorldStream {
                     && self.revisions.dirty(*key).is_none()
             });
         if uploaded {
+            self.near_drawn.withdrawing.remove(&column);
             self.near_drawn.columns.insert(column);
             self.near_drawn.revision += 1;
         }
@@ -53,8 +68,36 @@ impl WorldStream {
 
     /// Forgets every drawn column, as when far terrain turns off.
     pub(super) fn clear_near_drawn(&mut self) {
-        if !self.near_drawn.columns.is_empty() {
+        if !self.near_drawn.columns.is_empty() || !self.near_drawn.withdrawing.is_empty() {
             self.near_drawn.columns = HashSet::new();
+            self.near_drawn.withdrawing = HashSet::new();
+            self.near_drawn.revision += 1;
+        }
+    }
+
+    /// Ends full-detail membership while retaining the mask over geometry still on screen.
+    pub(super) fn withdraw_near_drawn(&mut self, column: ChunkKey) {
+        if self.near_drawn.columns.remove(&column) {
+            self.near_drawn.withdrawing.insert(column);
+            self.near_drawn.revision += 1;
+        }
+    }
+
+    /// Releases an outgoing mask only after all published sections acknowledge removal.
+    pub(super) fn note_near_withdrawal(&mut self, column: ChunkKey) {
+        if !self.near_drawn.withdrawing.contains(&column) || self.wants_mesh(column) {
+            return;
+        }
+        let still_published = self
+            .resident
+            .column(column)
+            .chain(self.known_air.column(column))
+            .any(|key| {
+                self.applied_mesh_generations.contains_key(key)
+                    && !self.withdrawn_meshes.contains(key)
+            });
+        if !still_published {
+            self.near_drawn.withdrawing.remove(&column);
             self.near_drawn.revision += 1;
         }
     }
@@ -67,6 +110,7 @@ impl WorldStream {
         let mut changed = false;
         for column in columns {
             changed |= self.near_drawn.columns.remove(column);
+            changed |= self.near_drawn.withdrawing.remove(column);
         }
         if changed {
             self.near_drawn.revision += 1;

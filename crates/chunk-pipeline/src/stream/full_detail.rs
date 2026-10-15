@@ -388,7 +388,7 @@ impl WorldStream {
 
     /// Queues removal of the column's near meshes after its far coverage is ready.
     fn withdraw_full_detail_column(&mut self, column: ChunkKey) {
-        self.forget_near_drawn([&column]);
+        self.withdraw_near_drawn(column);
         let keys: Vec<SubChunkKey> = self
             .resident
             .column(column)
