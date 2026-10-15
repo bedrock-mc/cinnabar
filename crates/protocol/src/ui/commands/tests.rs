@@ -302,6 +302,69 @@ fn out_of_range_enum_index_degrades_to_a_word_parameter() {
 }
 
 #[test]
+fn overlapping_enum_rows_share_pool_text_and_preserve_entries() {
+    let packet = AvailableCommands {
+        enum_values: vec![
+            "first".into(),
+            wire::Str::from(bytes::Bytes::from_static(b"bad\xff")),
+            "unused".into(),
+        ],
+        enum_data: vec![
+            CommandEnum {
+                name: "one".into(),
+                values: vec![
+                    wire::U32LE(1),
+                    wire::U32LE(0),
+                    wire::U32LE(1),
+                    wire::U32LE(99),
+                ],
+            },
+            CommandEnum {
+                name: "two".into(),
+                values: vec![wire::U32LE(0), wire::U32LE(1)],
+            },
+        ],
+        commands: vec![
+            command(
+                "one",
+                "any",
+                0,
+                vec![param("value", ARG_ENUM | VALID, false)],
+            ),
+            command(
+                "two",
+                "any",
+                1,
+                vec![param("value", ARG_ENUM | VALID | 1, false)],
+            ),
+        ],
+        ..Default::default()
+    };
+    let UiEvent::AvailableCommands(event) = normalize_available_commands(packet) else {
+        panic!("expected a command tree");
+    };
+    let one = &event.commands[0].aliases;
+    let two = &event.commands[1].aliases;
+    assert_eq!(
+        one.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        ["bad\u{fffd}", "first", "bad\u{fffd}"]
+    );
+    assert_eq!(
+        two.iter().map(AsRef::as_ref).collect::<Vec<&str>>(),
+        ["first", "bad\u{fffd}"]
+    );
+    assert!(Arc::ptr_eq(&one[0], &one[2]));
+    assert!(Arc::ptr_eq(&one[0], &two[1]));
+    assert!(Arc::ptr_eq(&one[1], &two[0]));
+    for command in event.commands.iter() {
+        let CommandParamKind::Enum { values, .. } = &command.overloads[0][0].kind else {
+            panic!("expected an enum parameter");
+        };
+        assert!(Arc::ptr_eq(values, &command.aliases));
+    }
+}
+
+#[test]
 fn plain_chat_mentions_offer_here_and_roster_names_without_commands() {
     let players = [
         Arc::from("Steve"),
