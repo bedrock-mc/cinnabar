@@ -1089,7 +1089,7 @@ these changes do not close the movement, camera, or actor parity gates.
 - Named schedule traces and bounded frame recordings separate main work, render
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.
-- Ordinary direct terrain draws retain CPU-selected units of at most 64 quads,
+- Ordinary direct terrain draws group retained CPU-selected units into indexed instances,
   retain unchanged section descriptors in stable GPU slots, and upload ordered
   visibility references separately after current occlusion results. Both regions
   share one storage binding. Changed sections update only their descriptor spans;
