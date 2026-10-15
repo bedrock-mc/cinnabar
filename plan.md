@@ -9129,3 +9129,20 @@ resource-pack fixture checks title-selected panels through indexed pack overlays
 Incomplete: the reported server form flash-close needs the affected pack and an
 ordered packet/input trace. The separate data-driven screen packet family remains
 unsupported. Live visual parity and performance acceptance remain open.
+
+## Retained HUD alpha segments
+
+The UI renderer keeps bounded independent alpha rasters around invert draws.
+Each invert still reads the current resolved world and earlier alpha segments;
+the final segment keeps the existing output-composite policy. Removed segments,
+resizes and device/view changes release their old storage. Large segment sets
+use the original single-raster replay path.
+
+Accepted publications prepare conservative glint coverage once. Clock-only
+frames restore those pixels and replay overlapping translucent and model batches
+in painter order. Shared depth scopes across invert boundaries and unsupported
+projection or pipeline states use conservative full replay.
+
+Incomplete validation: the focused segment/lifetime and shader pixel fixtures
+are written but unrun. Matched crosshair, enchanted-item, resize and model-depth
+captures and measured renderer work remain outstanding; no speedup is claimed.
