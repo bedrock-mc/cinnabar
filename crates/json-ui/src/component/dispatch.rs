@@ -519,7 +519,7 @@ impl Dispatcher {
             }
         }
         if region.widget.slider.is_some() {
-            self.slider_button(region, fired, input, components, out);
+            self.slider_button(regions, region, fired, input, components, out);
         }
         if let Some(meta) = &region.widget.edit
             && fired.interacted
@@ -528,7 +528,7 @@ impl Dispatcher {
             if selected && mapping.handle_deselect && meta.can_be_deselected {
                 deselect(region, components, out);
             } else if !selected && mapping.handle_select {
-                select(region, components, out);
+                select(regions, region, components, out);
             }
         }
     }
@@ -536,6 +536,7 @@ impl Dispatcher {
     /// A slider's response to a button event.
     fn slider_button(
         &mut self,
+        regions: &[HitRegion],
         region: &HitRegion,
         fired: &ButtonEvent,
         input: &ButtonInput<'_>,
@@ -570,6 +571,9 @@ impl Dispatcher {
         } else if id == meta.small_increase_button.as_deref() && selected {
             step_slider(region, 1, components, out);
         } else if id == meta.selected_button.as_deref() {
+            if !selected {
+                deselect_previous(regions, components, out);
+            }
             set_slider_selected(region, !selected, components);
         } else if id == meta.deselected_button.as_deref() && selected {
             set_slider_selected(region, false, components);
@@ -612,6 +616,9 @@ impl Dispatcher {
             && meta.select_on_hover
             && region.enabled
         {
+            if hovered && components.selected() != Some(region.key.as_str()) {
+                deselect_previous(regions, components, out);
+            }
             set_slider_selected(region, hovered, components);
         }
         if let Some(meta) = &region.widget.edit
@@ -845,10 +852,30 @@ fn set_slider_selected(region: &HitRegion, selected: bool, components: &mut Comp
     );
 }
 
-fn select(region: &HitRegion, components: &mut Components, out: &mut Dispatch) {
+/// Releases the previous edit or slider's writes before another control takes selection.
+fn deselect_previous(regions: &[HitRegion], components: &mut Components, out: &mut Dispatch) {
+    let Some(key) = components.selected.take() else {
+        return;
+    };
+    if let Some(previous) = regions.iter().find(|region| region.key == key) {
+        if previous.widget.edit.is_some() {
+            deselect(previous, components, out);
+        } else if previous.widget.slider.is_some() {
+            set_slider_selected(previous, false, components);
+        }
+    }
+}
+
+fn select(
+    regions: &[HitRegion],
+    region: &HitRegion,
+    components: &mut Components,
+    out: &mut Dispatch,
+) {
     let Some(meta) = &region.widget.edit else {
         return;
     };
+    deselect_previous(regions, components, out);
     components.set_selected(Some(region.key.clone()));
     let text = components.edit_mut(&region.key, &meta.text).text.clone();
     write_text(region, &text, true, components);

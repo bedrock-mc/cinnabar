@@ -32,6 +32,8 @@ pub enum Fixture {
     },
     /// The held tab roster's rows.
     TabList(Vec<RosterRow>),
+    /// Two original custom-form inputs after selection moves from the first to the second.
+    EditSelection,
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -43,6 +45,12 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "edit-selection-transfer",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::EditSelection,
+    },
     State {
         name: "loading-connecting",
         size: SIZE,
