@@ -7,6 +7,17 @@ use protocol_ids::ActorDataKey;
 pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
+    /// Bounds for movement use constructor dimensions when the server omits them.
+    pub(super) fn movement_collision_bounds(&self) -> Option<ActorCollisionBounds> {
+        self.bounding_box_with_defaults(
+            self.position,
+            self.entity_fact.collision.unwrap_or([
+                DEFAULT_ACTOR_COLLISION_WIDTH,
+                DEFAULT_ACTOR_COLLISION_HEIGHT,
+            ]),
+        )
+    }
+
     /// Uses the synced collision flag when supplied, otherwise the default definition.
     #[must_use]
     pub fn is_collidable(&self) -> bool {
@@ -177,27 +188,15 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
-    /// Visits solid actor bounds in stable runtime order, excluding the mover and its mount.
-    pub(crate) fn movement_colliders(
+    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount.
+    pub(crate) fn movement_collider_snapshot(
         &self,
         mover: u64,
         rider: i64,
-    ) -> impl Iterator<Item = ([f32; 3], [f32; 3])> + '_ {
-        let mount = self.ridden_unique_id(rider);
+    ) -> std::sync::Arc<[ActorCollisionBounds]> {
         self.effect_members
             .collidable
-            .iter()
-            .filter_map(|runtime| self.actors.get(runtime))
-            .filter(move |actor| actor.runtime_id != mover && Some(actor.unique_id) != mount)
-            .filter_map(|actor| {
-                actor.bounding_box_with_defaults(
-                    actor.position,
-                    actor.entity_fact.collision.unwrap_or([
-                        DEFAULT_ACTOR_COLLISION_WIDTH,
-                        DEFAULT_ACTOR_COLLISION_HEIGHT,
-                    ]),
-                )
-            })
+            .snapshot(mover, self.ridden_unique_id(rider))
     }
 }
 
