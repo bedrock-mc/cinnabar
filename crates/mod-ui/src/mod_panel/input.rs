@@ -202,7 +202,7 @@ impl ModPanel {
                     self.drag = None;
                     return Vec::new();
                 };
-                let raw = *min + region.fraction_at(point[0]) as f32 * (*max - *min);
+                let raw = *min + region.fraction_at(region.local(point)[0]) as f32 * (*max - *min);
                 let next = (*min + ((raw - *min) / *step).round() * *step).clamp(*min, *max);
                 if *value == next {
                     return Vec::new();

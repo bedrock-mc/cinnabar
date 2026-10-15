@@ -127,6 +127,17 @@ pub enum TextShadow {
     Offset64(u32),
 }
 
+/// A paint-time 2-D affine map of one node's own visual, in that node's coordinates:
+/// points relative to its bounds' top-left, in the same units as its bounds. It moves only
+/// the drawn vertices; layout, the node's clip scissor, children and input bounds stay put.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiTransform {
+    /// Column-major `[a, b, c, d]`: `x' = a x + c y + e`, `y' = b x + d y + f`.
+    pub linear: [f32; 4],
+    /// `[e, f]`.
+    pub translation: [f32; 2],
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct UiNode {
     id: UiNodeId,
@@ -138,6 +149,7 @@ pub struct UiNode {
     viewport_clip: Option<UiRect>,
     visual: UiVisual,
     world_projection: Option<UiWorldProjection>,
+    transform: Option<UiTransform>,
 }
 
 impl UiNode {
@@ -152,7 +164,18 @@ impl UiNode {
             viewport_clip: None,
             visual: UiVisual::None,
             world_projection: None,
+            transform: None,
         }
+    }
+
+    /// Moves this node's own drawn vertices by `transform`; world-projected nodes ignore it.
+    pub fn with_transform(mut self, transform: UiTransform) -> Self {
+        self.transform = Some(transform);
+        self
+    }
+
+    pub const fn transform(&self) -> Option<&UiTransform> {
+        self.transform.as_ref()
     }
 
     pub fn with_focusable(mut self, focusable: bool) -> Self {
@@ -296,6 +319,8 @@ pub struct UiFrame {
     effective_clips: BTreeMap<UiNodeId, UiRect>,
     focus_order: Box<[UiNodeId]>,
     draw_order: Box<[UiNodeId]>,
+    /// Frame units per node unit, which scales node transforms' translations.
+    scale: f32,
 }
 
 impl UiFrame {
@@ -573,6 +598,7 @@ impl UiTree {
             effective_clips,
             focus_order: focus_order.into_iter().map(|(_, _, _, _, id)| id).collect(),
             draw_order: draw_order.into_boxed_slice(),
+            scale: scale.get(),
         };
         self.revision = next_revision;
         self.frame = Some(frame.clone());
@@ -693,6 +719,9 @@ impl UiTree {
                         clip,
                         projection: node.world_projection.as_ref(),
                         node: id,
+                        transform: node.transform.as_ref().map(|transform| {
+                            draw::FrameAffine::for_node(transform, bounds, frame.scale)
+                        }),
                     },
                     effects,
                     &mut vertices,
@@ -770,6 +799,7 @@ impl UiTree {
             effective_clips: BTreeMap::new(),
             focus_order: Box::new([]),
             draw_order: Box::new([]),
+            scale: 1.0,
         })
     }
 

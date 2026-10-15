@@ -20,6 +20,8 @@ pub(crate) struct Inherited {
     clock: Option<String>,
     movers: Vec<Arc<ControlAnims>>,
     clip_movers: Vec<Arc<ControlAnims>>,
+    /// The paint transform and screen clip transformed ancestors hand down.
+    pub(crate) space: crate::transform::PaintSpace,
 }
 
 /// A control's own animation context before layout gives it pixels.
@@ -40,6 +42,7 @@ impl Inherited {
             && same(&self.alpha_anims, &other.alpha_anims)
             && same(&self.movers, &other.movers)
             && same(&self.clip_movers, &other.clip_movers)
+            && self.space == other.space
     }
 
     /// The creation clock `control` animates on.
@@ -56,12 +59,14 @@ impl Inherited {
     }
 
     /// The control's static alpha, its draws' animations, and what its children inherit.
+    /// `space` is where the control's own draws paint and `inner` what its children inherit.
     pub(crate) fn apply(
         &self,
         control: &ResolvedControl,
         rest: f32,
         own: Option<Arc<ControlAnims>>,
         clips: bool,
+        (space, inner): (crate::transform::PaintSpace, crate::transform::PaintSpace),
         sprite: impl FnOnce(&mut NodeAnim),
     ) -> (f32, Option<Arc<NodeAnim>>, Inherited) {
         let context = self.own(control);
@@ -82,7 +87,8 @@ impl Inherited {
         let animated = own.is_some()
             || !alpha_anims.is_empty()
             || !movers.is_empty()
-            || !self.clip_movers.is_empty();
+            || !self.clip_movers.is_empty()
+            || space.transform.is_some();
         let node = animated.then(|| {
             let mut node = NodeAnim {
                 own: own.clone(),
@@ -90,6 +96,7 @@ impl Inherited {
                 alpha_static: unanimated,
                 movers: movers.clone(),
                 clip_movers: self.clip_movers.clone(),
+                transform: space.transform,
                 ..NodeAnim::default()
             };
             sprite(&mut node);
@@ -118,6 +125,7 @@ impl Inherited {
                 self.clip_movers.clone()
             },
             movers,
+            space: inner,
         };
         (full, node, children)
     }

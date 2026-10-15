@@ -434,14 +434,17 @@ compiled or executed and closes no parity gate.
 ## Mod surface motion
 
 Personal-panel and HUD-editor surfaces may declare `transitions` that ease numeric bindings
-from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points
+from their displayed value toward each new value, with JSON-UI curves or cubic-bezier points,
 an optional opening value and an optional exit value that personal-panel surfaces ease to
 when they close (`docs/modding-spike.md`). Surface transitions, exits and `motion: true`
-feedback follow the Screen animations setting. This is a Cinnabar extension for mod
+feedback follow the Screen animations setting. Controls may declare `cinnabar_transform`
+to scale about an origin and rotate their drawing and hits without changing layout,
+bindable through `#cinnabar_scale`, `#cinnabar_rotation` and `#cinnabar_origin`; rotated
+subtrees cannot clip. These are Cinnabar extensions for mod
 surfaces; server-pack JSON-UI is unchanged.
 
 Incomplete toward expressive mod menus:
-- Transforms that leave layout unchanged (scale with an origin, rotation) and element blur.
+- Element blur.
 - A shared blurred-world material for glass panels and blurring the world behind an open
   menu, measured against the frame budget.
 - Exits between routes: replacing an open panel's surface swaps it at once without playing

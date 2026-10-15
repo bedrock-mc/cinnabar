@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+mod paint_transform;
 mod static_templates;
 mod transition;
 use static_templates::{acyclic, authored, bound_expansion, local_reference, resolved_value};
@@ -116,7 +117,7 @@ impl Surface {
         let root = self.resolved_root()?;
         let mut count = 0;
         let mut actions = Vec::new();
-        node(&root, 0, &mut count, &mut actions)?;
+        node(&root, 0, &mut count, &mut actions, false)?;
         Ok(actions)
     }
     /// Resolves only static local templates before validating the emitted tree.
@@ -176,7 +177,8 @@ impl Surface {
             ("ui/_ui_defs.json", &files[..]),
             ("ui/extension_surface.json", self.document.as_bytes()),
         ])
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .with_paint_transforms();
         if !catalog.diagnostics().is_empty() {
             return Err(catalog.diagnostics().join("; "));
         }
@@ -197,7 +199,7 @@ impl Surface {
         let root = resolved_value(root)?;
         let mut count = 0;
         let mut actions = Vec::new();
-        node(&root, 0, &mut count, &mut actions)?;
+        node(&root, 0, &mut count, &mut actions, false)?;
         Ok(root)
     }
 }
@@ -221,12 +223,14 @@ fn identifier(name: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || b"_-.".contains(&byte))
 }
 
-/// Checks a finite authored tree without resolving factories or inheritance.
+/// Checks a finite authored tree without resolving factories or inheritance; `rotated`
+/// reports an ancestor that may rotate its descendants.
 fn node(
     value: &Value,
     depth: usize,
     count: &mut usize,
     actions: &mut Vec<String>,
+    rotated: bool,
 ) -> Result<(), String> {
     *count += 1;
     if depth > 32 || *count > MAX_SURFACE_NODES {
@@ -283,6 +287,7 @@ fn node(
             return Err("surface dynamic expansion is unsupported".into());
         }
     }
+    let rotated = paint_transform::control(object, rotated)?;
     if let Some(bindings) = object.get("bindings") {
         for binding in bindings
             .as_array()
@@ -353,7 +358,7 @@ fn node(
             if !identifier(name) || name.contains('@') {
                 return Err("surface child inheritance is unsupported".into());
             }
-            node(body, depth + 1, count, actions)?;
+            node(body, depth + 1, count, actions, rotated)?;
         }
     }
     Ok(())

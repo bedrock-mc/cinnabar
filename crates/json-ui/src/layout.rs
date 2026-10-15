@@ -178,6 +178,8 @@ pub struct LaidOut<'a> {
     pub alpha: f32,
     /// Animations reaching this control's draws, evaluated at paint time.
     pub anim: Option<std::sync::Arc<NodeAnim>>,
+    /// Where Cinnabar paint transforms move this control's draws and hits.
+    pub paint: crate::transform::PaintSpace,
     pub visible: bool,
     /// False when this control or an ancestor is disabled (locked styling, no input).
     pub enabled: bool,
@@ -468,6 +470,7 @@ fn place_subtree<'a>(
             layer: parent_layer,
             alpha: 1.0,
             anim: None,
+            paint: Default::default(),
             visible: shown,
             enabled: enabled_above,
             clip_ratio: None,
@@ -507,8 +510,20 @@ fn place_subtree<'a>(
         ctx.disabled += 1;
     }
     let own_anims = control_anims(control, &key, rect, parent_rect, inherited, packed, ctx.env);
+    let spaces = inherited.space.place(
+        style.transform,
+        crate::transform::ClipInputs {
+            rect,
+            parent: parent_clip,
+            clips,
+            clip_offset: style.clip_offset,
+            allows,
+            screen: ctx.screen,
+        },
+    );
+    let paint = spaces.0;
     let (own_alpha, anim, inherit) =
-        inherited.apply(control, style.alpha, own_anims, clips, |node| {
+        inherited.apply(control, style.alpha, own_anims, clips, spaces, |node| {
             place::sprite_rest(control, node)
         });
     let absolute_layer = parent_layer.saturating_add(style.layer);
@@ -780,6 +795,7 @@ fn place_subtree<'a>(
         layer: absolute_layer,
         alpha: own_alpha,
         anim,
+        paint,
         visible: shown && own_visible,
         enabled,
         children,

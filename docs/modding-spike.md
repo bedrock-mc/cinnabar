@@ -376,6 +376,40 @@ still drawing.
 When the player turns off the Screen animations setting, transitions, exits
 and `motion: true` feedback change at once, including values already moving.
 
+A control may declare `cinnabar_transform` to scale and rotate how it and all its
+descendants are drawn, like CSS `transform`, without changing layout:
+
+```json
+"cinnabar_transform": { "scale": 1.15, "rotation": 45, "origin": [0.5, 0.5] }
+```
+
+`scale` is a number or `[x, y]` pair within 0–4 (default 1), `rotation` is
+clockwise degrees within ±360 (default 0), and `origin` is an `[x, y]` pair of
+fractions of the control's box within −1–2 (default the centre). Every field is
+optional, so `{}` declares a control whose transform only bindings set. Nested
+transforms compose like CSS. The binding targets `#cinnabar_scale`,
+`#cinnabar_rotation` and `#cinnabar_origin` replace one field on a control that
+declares the property, so `transitions` can animate a press scale of `0.975`, a
+hover scale of `1.15`, a panel entrance from `0.97` or a chevron turning to `45`:
+
+```json
+"bindings": [{ "binding_name": "#chevron_turn", "binding_name_override": "#cinnabar_rotation" }]
+```
+
+Bound values outside the bounds are clamped. Presses, hover, slider and scroll
+drags use the drawn position, so a scaled or rotated button is hit where it
+appears. A scaled control's `clips_children` and scroll views clip to their
+scaled boxes. Clips are axis-aligned, so a control that may rotate (a non-zero
+`rotation` or a `#cinnabar_rotation` binding) cannot be or contain a clipping
+control or scroll view; validation rejects the surface instead. Rounded
+rectangles and vector art are rebuilt at their drawn size, keeping a one-pixel
+antialiased edge; other art and text scale their vertices. Text keeps
+sampling its glyph atlas as at any other size, and distance-field faces keep
+one-pixel edges; pixel faces sample nearest texels. Plain solid quads have no
+antialiasing, so rotate a `cinnabar_rounded_rectangle` rather than a filled
+image. Only extension surfaces honour the property; resource packs and server
+UI ignore it.
+
 For larger local menus, `CINNABAR_MOD_UI` selects a bounded JSON bundle, or a
 running-client registration can supply its absolute path in `ui`. The bundle has
 an initial ordinary `panel` and a `surfaces` object mapping route identifiers to

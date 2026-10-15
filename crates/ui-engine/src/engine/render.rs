@@ -118,6 +118,8 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         nodes: &mut *frame.nodes,
         next: &mut *frame.next,
         clip: None,
+        length_scale: 1.0,
+        residual: None,
         animator: textures
             .animator
             .lock()

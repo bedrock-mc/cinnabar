@@ -15,6 +15,8 @@ pub(super) struct Style {
     pub(super) enabled: bool,
     pub(super) alpha: f32,
     pub(super) layer: i32,
+    /// A paint transform its catalog kept.
+    pub(super) transform: Option<crate::transform::ControlTransform>,
 }
 
 impl Style {
@@ -32,6 +34,10 @@ impl Style {
             enabled: widgets::enabled(control),
             alpha: alpha(control),
             layer: layer(control),
+            transform: control
+                .properties
+                .get(crate::transform::TRANSFORM_PROPERTY)
+                .and_then(crate::transform::ControlTransform::parse),
         }
     }
 }

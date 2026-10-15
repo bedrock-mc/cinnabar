@@ -40,6 +40,7 @@ mod sidecar;
 mod sprite;
 mod state;
 mod template_equivalence;
+pub mod transform;
 mod tree;
 pub mod vanilla;
 pub mod vector_path;

@@ -80,6 +80,7 @@ impl Canvas<'_> {
                 .filter(|value| value.is_finite())
                 .unwrap_or(default) as f32
                 * self.px
+                * self.length_scale
         };
         // A bound `#name` wins over the authored `name`.
         let color = |bound: &str, name: &str| {
