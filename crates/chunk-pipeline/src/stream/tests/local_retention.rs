@@ -235,24 +235,36 @@ fn server_position_retention_replaces_a_stale_local_grid() {
     assert!(!stream.retain_for_server_position());
 }
 
-/// A stream lent to a between-frames service evicts at its next poll, which the service runs
-/// off the frame thread, instead of inside the frame's retention call.
+/// Serviced retention starts at the next poll and resumes within later allocations.
 #[test]
-fn serviced_streams_evict_at_the_next_poll() {
+fn serviced_retention_resumes_across_bounded_polls() {
     let mut stream = stream();
     let original = populate_view(&mut stream, [0, 0]);
     stream.between_frames_service = true;
+    let before = stream.maintenance_items;
     assert!(stream.retain_local([320.5, 70.0, 0.5]));
+    assert_eq!(stream.maintenance_items, before, "the request does no work");
     assert_eq!(
         stream.loaded_columns.len(),
         original,
         "the request evicts nothing"
     );
-    let leaving = ChunkKey::new(0, -2, 0);
-    assert!(stream.loaded_columns.contains(&leaving));
+    let leaving = *stream.loaded_columns.first().unwrap();
 
+    stream.poll_deadline = Some(Instant::now());
     stream.poll([320.5, 70.0, 0.5], 0);
+    assert_eq!(stream.maintenance_items - before, 1);
     assert!(!stream.loaded_columns.contains(&leaving));
+    assert_eq!(stream.loaded_columns.len(), original - 1);
+    assert!(stream.retention_due, "remaining eviction resumes later");
+
+    test_time::eventually("bounded retention completion", || {
+        stream.poll_deadline = Some(Instant::now());
+        let before = stream.maintenance_items;
+        stream.poll([320.5, 70.0, 0.5], 0);
+        assert!(stream.maintenance_items - before <= 1);
+        !stream.retention_due
+    });
     assert!(
         stream
             .tracked_columns()
