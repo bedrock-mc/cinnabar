@@ -968,7 +968,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .add_systems(First, crate::lifecycle::acknowledge_startup);
     startup::install_first_frame_log(&mut app);
     let terminal_cause = TerminalCause::install(&mut app);
-    let exit = frame_profile::run(&mut app);
+    let exit = crate::runtime::frame_profile::run(&mut app);
     PlatformClipboard::shutdown();
     client_shell::discord_presence::shutdown(&mut app);
     if let Some(mut network) = app
