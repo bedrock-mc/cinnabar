@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod handoffs;
+
 fn stream() -> WorldStream {
     let mut stream = WorldStream::new(WorldBootstrap {
         local_player_unique_id: 1,

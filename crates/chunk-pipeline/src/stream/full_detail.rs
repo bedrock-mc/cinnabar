@@ -355,27 +355,39 @@ impl WorldStream {
         }
     }
 
-    /// Columns leaving full detail whose current summary has been delivered; each is
-    /// withdrawn by [`WorldStream::finish_far_handoff`] once far terrain draws it.
+    /// Outgoing columns whose current summary has been delivered. Target changes take
+    /// effect here even before maintenance reaches them.
     pub fn far_handoffs(&self) -> impl Iterator<Item = ChunkKey> + '_ {
         self.full_detail
             .handoffs
             .iter()
-            .filter(|(_, handoff)| handoff.delivered)
+            .filter(|(column, handoff)| handoff.delivered && self.far_handoff_is_outgoing(**column))
             .map(|(column, _)| *column)
     }
 
-    /// Withdraws a column's meshes now that far terrain draws it from a delivered summary.
+    /// Withdraws a delivered column only if it still leaves the latest detail target.
     pub fn finish_far_handoff(&mut self, column: ChunkKey) {
-        if self
-            .full_detail
-            .handoffs
-            .get(&column)
-            .is_some_and(|handoff| handoff.delivered)
+        if self.far_handoff_is_outgoing(column)
+            && self
+                .full_detail
+                .handoffs
+                .get(&column)
+                .is_some_and(|handoff| handoff.delivered)
         {
             self.full_detail.handoffs.remove(&column);
             self.withdraw_full_detail_column(column);
         }
+    }
+
+    /// Published handoffs inside the latest target's hysteresis band keep near coverage.
+    fn far_handoff_is_outgoing(&self, column: ChunkKey) -> bool {
+        self.full_detail.radius.is_some_and(|radius| {
+            !column_scan::Disk {
+                centre: self.player_chunk(),
+                radius: radius.saturating_add(FULL_DETAIL_HYSTERESIS_CHUNKS),
+            }
+            .contains(column)
+        })
     }
 
     /// True once every loaded column holding sections is drawn by near terrain.

@@ -4,6 +4,7 @@ Retention and full-detail transitions share the poll deadline and resume between
 Moving views skip unchanged row interiors. Server teleports use the same retention scan;
 later commits wait for preceding retention, and reclaim requests stop before the next item.
 Near/far terrain still hands coverage over only after its summaries and uploads are ready.
+Outgoing handoffs recheck the latest radius and player centre before withdrawing coverage.
 Poll reports count maintenance work and its maximum item time; trace spans record commit
 sizes and reclaim waits.
 
