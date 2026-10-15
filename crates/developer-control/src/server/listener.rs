@@ -70,17 +70,8 @@ fn accept(
             if event.token() == STOP {
                 return;
             }
-            loop {
-                if stopped.load(Ordering::Acquire) {
-                    return;
-                }
-                let stream = match listener.accept() {
-                    Ok((stream, peer)) if is_loopback(&peer) => TcpStream::from(stream),
-                    Ok(_) => continue,
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(_) => return,
-                };
+            while let Some(stream) = next_connection(&stopped, || listener.accept()) {
+                let stream = TcpStream::from(stream);
                 if stream.set_nonblocking(false).is_err() {
                     continue;
                 }
@@ -92,3 +83,28 @@ fn accept(
         }
     }
 }
+
+/// Retries individual connection failures; no ready connection yields control back to Poll.
+/// Shutdown is checked before every retry, including a run of interrupted or aborted accepts.
+fn next_connection<S>(
+    stopped: &AtomicBool,
+    mut accept: impl FnMut() -> io::Result<(S, SocketAddr)>,
+) -> Option<S> {
+    while !stopped.load(Ordering::Acquire) {
+        match accept() {
+            Ok((stream, peer)) if is_loopback(&peer) => return Some(stream),
+            Ok(_) => continue,
+            Err(error) => match error.kind() {
+                io::ErrorKind::Interrupted
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::ConnectionRefused => continue,
+                _ => return None,
+            },
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests;
