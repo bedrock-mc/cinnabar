@@ -20,4 +20,5 @@ serde_json = "1"
 workspace = true
 
 [dev-dependencies]
+diagnostics = { path = "../../crates/diagnostics" }
 test-time = { path = "../../crates/test-time" }

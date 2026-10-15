@@ -73,6 +73,7 @@ fn player_world(entities: Arc<assets::RuntimeEntityAssets>) -> ClientWorld {
                     unique_id: 1,
                     username: "Tester".into(),
                     verified: true,
+                    xuid: "".into(),
                     skin: PlayerSkin::Standard(StandardSkin {
                         geometry: None,
                         cape: None,

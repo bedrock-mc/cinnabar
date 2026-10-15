@@ -112,7 +112,7 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
     let link = install.join("worlds").join(&spec.world.id);
     assert_eq!(
         fs::canonicalize(&link).expect("link"),
-        fs::canonicalize(world_dir.join("db")).expect("world data")
+        fs::canonicalize(world_dir.join(LEVEL_DIR)).expect("world data")
     );
     assert!(!instance.can_pause(), "BDS cannot pause");
     instance
@@ -125,7 +125,7 @@ fn the_native_runner_links_the_world_and_cleans_up_on_stop() {
         "the world link survived the stop"
     );
     assert!(
-        world_dir.join("db").is_dir(),
+        world_dir.join(LEVEL_DIR).is_dir(),
         "world data must survive the stop"
     );
 }

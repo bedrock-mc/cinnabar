@@ -178,7 +178,7 @@ struct Triangle {
     uv_anim: [f32; 4],
 }
 
-#[allow(
+#[expect(
     clippy::print_stderr,
     reason = "the entity render report explains each drawn or skipped actor on stderr"
 )]
@@ -355,7 +355,7 @@ fn rasterize(image: &mut image::RgbaImage, triangles: &[Triangle], artwork: &Act
 
 /// Prints the actor page count and bytes of the startup artwork (vanilla actor, equipment,
 /// icon, world and block-entity carriers in `dir`) and after the pack's artwork joins it.
-#[allow(
+#[expect(
     clippy::print_stderr,
     reason = "the entity render report prints artwork page budgets on stderr"
 )]

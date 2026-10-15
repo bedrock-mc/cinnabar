@@ -40,7 +40,7 @@ fn screens() -> Vec<Screen> {
 #[test]
 fn setup_actions_and_wrapped_text_fit_gui_scales_and_dpi() {
     let mut text = font();
-    let logo = super::super::decode_logo();
+    let logo = bootstrap_ui::decode_logo();
     for size in [[560, 420], [1024, 640], [2048, 1280]] {
         for offset in [-3, 0] {
             for screen in screens() {
@@ -82,7 +82,7 @@ fn render_bootstrap_states_without_downloaded_assets() {
     let root = std::env::temp_dir().join("cinnabar-first-run-style");
     std::fs::create_dir_all(&root).unwrap();
     let mut text = font();
-    let logo = super::super::decode_logo();
+    let logo = bootstrap_ui::decode_logo();
     for (name, screen) in [
         "consent",
         "starting",

@@ -229,6 +229,17 @@ pub enum Command {
     GlobalPacks {
         action: Option<GlobalPackAction>,
     },
+    /// Replaces the runtime log filter spec layered over the defaults and `RUST_LOG`; the reply
+    /// is the resulting `{spec, effective}` filter, or the error when `spec` does not parse.
+    LogFilterSet {
+        spec: String,
+    },
+    /// Reports the active log filter as `{spec, effective}`.
+    LogFilterGet,
+    /// Crashes the client on purpose, so crash capture and the crash window can be exercised.
+    Crash {
+        kind: CrashKind,
+    },
     State,
     WaitFor {
         condition: Condition,
@@ -240,6 +251,16 @@ pub enum Command {
     RecordStart(RecordSettings),
     RecordStop,
     Quit,
+}
+
+/// How [`Command::Crash`] ends the client.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CrashKind {
+    Panic,
+    AccessViolation,
+    StackOverflow,
+    Abort,
 }
 
 /// A request line split into its envelope and still-unparsed command.

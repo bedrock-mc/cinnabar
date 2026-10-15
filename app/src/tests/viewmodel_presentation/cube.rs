@@ -310,6 +310,8 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         .insert_resource(acceptance::model_witness::ModelWitnessFileSource::new(None))
         .init_resource::<client_interaction::movement::LocalMovementEffectTimeline>()
         .init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>()
+        .init_resource::<client_interaction::movement::LocomotionState>()
+        .init_resource::<client_presentation::camera::look::LookSmoother>()
         .init_resource::<Time<bevy::time::Real>>()
         .init_resource::<render_scene::ChunkUploadBudget>()
         .init_resource::<client_presentation::camera::CameraSettingsAuthority>()

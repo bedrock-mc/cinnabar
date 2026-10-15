@@ -1,5 +1,5 @@
 use super::*;
-use assets::{ContributorRole, NO_MODEL_TEMPLATE, TextureRef};
+use assets::{ContributorRole, NO_MODEL_TEMPLATE, TextureMip, TextureRef};
 
 fn overlay(flags: BlockFlags, material_flags: u32, size: u32) -> BlockOverlay {
     let mut mips = Vec::new();

@@ -1,4 +1,8 @@
 //! Checks real carrier diagnostics and the panic hook without a terminal or window.
+use diagnostics::{
+    console::SessionFiles,
+    session_log::{Family, Retention},
+};
 use std::{
     fs,
     path::PathBuf,
@@ -37,7 +41,12 @@ fn logging_layout(root: &std::path::Path) -> launcher::install_layout::InstallLa
 
 /// Returns the fixture's client log using the production layout's directory policy.
 fn client_log(root: &std::path::Path) -> PathBuf {
-    logging_layout(root).log_dir().join("client.log")
+    client_logs(root).current()
+}
+
+/// The fixture's client session files.
+fn client_logs(root: &std::path::Path) -> Family {
+    Family::new(logging_layout(root).log_dir(), "client", "log")
 }
 
 #[test]
@@ -51,7 +60,18 @@ fn client_logging_child() {
     } else {
         FIXTURE_LOG_LIMIT * 4
     };
-    diagnostics::console::initialize_log(&client_log(&root), limit).unwrap();
+    let dir = logging_layout(&root).log_dir();
+    diagnostics::console::initialize_log(&SessionFiles {
+        dir: &dir,
+        stem: "client",
+        header: "CLIENT_SESSION_START fixture",
+        json: false,
+        retention: Retention {
+            session_bytes: limit,
+            ..Retention::DEFAULT
+        },
+    })
+    .unwrap();
     eprintln!("{RAW_STDERR_MARKER}");
     diagnostics::log_stderr!("{QUEUED_STDERR_MARKER}");
     if std::env::var_os("CLIENT_LOGGING_ROTATE").is_some() {
@@ -63,7 +83,7 @@ fn client_logging_child() {
         assert!(diagnostics::console::flush_before_exit());
         return;
     }
-    client_logs::install_panic_hook(&logging_layout(&root));
+    client_logs::install_crash_capture(&logging_layout(&root), None);
     assert!(particle_carrier::load_optional_carrier(&root.join("missing-world")).is_none());
     panic!("{PANIC_MARKER}");
 }
@@ -92,6 +112,15 @@ fn startup_carrier_and_panic_diagnostics_reach_the_file_without_a_terminal() {
             "lost or repeated file output: {text}"
         );
     }
+    let crashes = crash_report::folder::list(&logging_layout(root.path()).crash_dir());
+    assert_eq!(crashes.len(), 1);
+    let snapshot =
+        fs::read_to_string(crashes[0].join(crash_report::folder::CLIENT_LOG_FILE)).unwrap();
+    assert_eq!(
+        snapshot.matches(PANIC_MARKER).count(),
+        1,
+        "missing or repeated panic in snapshot: {snapshot}"
+    );
 }
 
 #[test]
@@ -134,13 +163,10 @@ fn raw_stderr_uses_the_same_bounded_rotation() {
         .status()
         .unwrap();
     assert!(status.success());
-    for name in ["client.log", "client.log.1"] {
-        assert!(
-            fs::metadata(logging_layout(root.path()).log_dir().join(name))
-                .unwrap()
-                .len()
-                <= FIXTURE_LOG_LIMIT
-        );
+    let archives = client_logs(root.path()).archives().unwrap();
+    assert!(!archives.is_empty(), "an oversized session must rotate");
+    for path in archives.iter().chain([&client_log(root.path())]) {
+        assert!(fs::metadata(path).unwrap().len() <= FIXTURE_LOG_LIMIT);
     }
     assert!(
         fs::read_to_string(client_log(root.path()))

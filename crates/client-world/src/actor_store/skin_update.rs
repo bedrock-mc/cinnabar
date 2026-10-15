@@ -64,6 +64,7 @@ mod tests {
                 unique_id: 42,
                 username: "fixture".into(),
                 verified: true,
+                xuid: "".into(),
                 skin: skin(1),
             }]),
         });

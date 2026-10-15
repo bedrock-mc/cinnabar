@@ -140,13 +140,18 @@ pub(crate) fn produce_survival_mining(
     let client_world = &mut context.client_world;
     let completed_tick = movement.completed_tick();
     let authority = authority.unwrap_or(BlockBreakingAuthority::Server);
-    let mut swing = |tick| {
-        if let Some(local_runtime_id) = local_runtime_id
-            && swings.try_swing(
-                tick,
-                swing_duration(context.effects.mining_tick(tick, completed_tick).0),
-            )
-        {
+    let mut swing = |tick, press_completion| {
+        let Some(local_runtime_id) = local_runtime_id else {
+            return;
+        };
+        let duration = swing_duration(context.effects.mining_tick(tick, completed_tick).0);
+        // A press and its instant completion can both swing before this tick advances.
+        let started = if press_completion {
+            swings.try_attack_swing(tick, duration)
+        } else {
+            swings.try_swing(tick, duration)
+        };
+        if started {
             let _ = network.send_inventory_packet(protocol::swing_arm_packet(
                 local_runtime_id,
                 protocol::SwingSource::Mine,
@@ -159,12 +164,18 @@ pub(crate) fn produce_survival_mining(
             stream.predict_block(position, 0, air);
         }
     };
-    runtime.break_on_press(&movement, input, authority, &mut swing, &mut predict_break);
+    runtime.break_on_press(
+        &movement,
+        input,
+        authority,
+        |tick| swing(tick, true),
+        &mut predict_break,
+    );
     let unsent = runtime.step_ticks(
         &mut movement,
         input,
         authority,
-        &mut swing,
+        |tick| swing(tick, false),
         |slot, damage| {
             player_runtime
                 .inventory
