@@ -164,6 +164,9 @@ fn editable_caret_and_pointer_share_scrolled_text_and_placeholder_geometry() {
 fn editable_scrolling_keeps_the_animated_caret_visible_during_a_long_paste() {
     let mut transitions = Transitions::default();
     transitions.configure_motion(true);
+    let font = fixture_font();
+    let metrics = TextMetrics::for_viewport([1280, 720], ui::DpiScale::new(1.0).unwrap(), Some(2));
+    let mut layouts = TextLayoutCache::new(32, 65536);
     let long = "02".repeat(40);
     for (seconds, value) in [
         (0.0, "0"),
@@ -172,23 +175,24 @@ fn editable_scrolling_keeps_the_animated_caret_visible_during_a_long_paste() {
         (2.0, long.as_str()),
     ] {
         transitions.begin_frame(None, false, seconds);
-        let (_, _, nodes) = crate::review_tests::paint(Default::default(), |canvas| {
-            canvas.seconds = seconds;
-            canvas.transitions = Some(&mut transitions);
-            let mut view = MenuView::new(true, "Fixture".into());
-            view.caret.byte = value.len();
-            view.caret.shown = true;
-            widgets::text_field(
-                canvas,
-                &view,
-                [90.0, 90.0, 260.0, 150.0],
-                value,
-                "",
-                true,
-                Some(MenuAction::AddName),
-            )
-            .unwrap();
-        });
+        let (mut nodes, mut next) = (Vec::new(), 1);
+        let mut canvas = Canvas::new(&mut nodes, &mut next, &mut layouts, &font, metrics, 0, None);
+        canvas.seconds = seconds;
+        canvas.transitions = Some(&mut transitions);
+        let mut view = MenuView::new(true, "Fixture".into());
+        view.caret.byte = value.len();
+        view.caret.shown = true;
+        widgets::text_field(
+            &mut canvas,
+            &view,
+            [90.0, 90.0, 260.0, 150.0],
+            value,
+            "",
+            true,
+            Some(MenuAction::AddName),
+        )
+        .unwrap();
+        drop(canvas);
         transitions.end_frame();
         let caret = nodes.iter().find(|node| matches!(node.visual(), UiVisual::Solid { color, .. } if *color == crate::theme::FIELD_CARET)).unwrap();
         let bounds = world_bounds(caret, &nodes);
