@@ -264,6 +264,7 @@ pub fn advance_presentation_state(
     } else {
         ViewEffect::NONE
     };
+    let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
         Quat::from_mat4(&hurt.view_matrix(yaw)),
         settings.feel().damage_bob,
