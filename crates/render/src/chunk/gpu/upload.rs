@@ -5,6 +5,10 @@ use render_scene::{
     ChunkUploadBudget, RuntimeStageProfiler,
 };
 mod arena_writes;
+#[allow(
+    dead_code,
+    reason = "the word-vector encoder serves chunk regression tests"
+)]
 mod lighting;
 #[cfg(test)]
 mod liquid_tests;

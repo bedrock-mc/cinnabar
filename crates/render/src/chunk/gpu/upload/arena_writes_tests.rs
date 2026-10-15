@@ -370,7 +370,7 @@ fn overlapping_ranges_preserve_original_stream_order_in_both_destinations() {
                     buffer,
                     std::mem::size_of_val(&expected) as u64
                 ),
-                bytemuck::cast_slice(&expected)
+                bytemuck::cast_slice::<u32, u8>(&expected)
             );
         }
     }
