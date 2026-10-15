@@ -901,9 +901,11 @@ these changes do not close the movement, camera, or actor parity gates.
   handoff, drawable acquisition, command submission and presentation. Metal
   timestamp queries use owned render passes and leave uncovered stages absent.
 - Ordinary direct terrain draws retain CPU-selected units of at most 64 quads,
-  compact visible lists after current occlusion results, and submit one instanced
-  draw per pipeline and list page. The per-section fallback and transparency paths
-  remain available. Incomplete: Metal pixel identity and paired hardware captures
+  retain unchanged section descriptors in stable GPU slots, and upload ordered
+  visibility references separately after current occlusion results. Both regions
+  share one storage binding. Changed sections update only their descriptor spans;
+  streams exceeding that binding's capacity keep complete ordered page draws.
+  The per-section fallback and transparency paths remain available. Incomplete: Metal pixel identity and paired hardware captures
   must qualify the change before closing rendering or frame-budget acceptance.
 - Unchanged hand and cloud uniforms, inactive portals and empty item scenes skip
   redundant staging work. Regression tests assert allocations, writes and retained

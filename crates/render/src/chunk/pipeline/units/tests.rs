@@ -109,8 +109,7 @@ fn direct_batches_collapse_section_draws_and_keep_their_exact_quad_order() {
     let view = batches.views.values().next().unwrap();
     for (stream, expected) in view.streams.iter().zip(&expected) {
         let actual = stream
-            .visible
-            .iter()
+            .visible_units()
             .flat_map(|unit| {
                 (0..unit.quad_count).map(move |quad| (unit.origin_slot, unit.stream_start + quad))
             })
@@ -222,8 +221,7 @@ fn check_solid_pass_order(
             })
             .collect::<Vec<_>>();
         let actual = batch
-            .visible
-            .iter()
+            .visible_units()
             .flat_map(|unit| {
                 (0..unit.quad_count).map(move |quad| (unit.origin_slot, unit.stream_start + quad))
             })
@@ -335,4 +333,62 @@ fn descriptors_preserve_every_validated_stream_and_facing_class() {
             assert_eq!(actual, expected, "stream {stream}, camera {camera:?}");
         }
     }
+}
+
+/// Builds source publications through the production allocation query and validation.
+fn source_snapshot(
+    world: &mut World,
+    entities: &[Entity],
+    previous: Option<&UnitSources>,
+) -> UnitSources {
+    let mut state = bevy::ecs::system::SystemState::<Query<&GpuChunkAllocation>>::new(world);
+    let allocations = state.get(world);
+    let drawable = entities
+        .iter()
+        .map(|&entity| {
+            crate::chunk::pipeline::batches::DrawableTerrain::new(
+                entity,
+                MainEntity::from(entity),
+                allocations.get(entity).unwrap(),
+                true,
+            )
+        })
+        .collect::<Vec<_>>();
+    UnitSources::build(&drawable, &allocations, previous)
+}
+
+#[test]
+fn source_refresh_reuses_unchanged_descriptors_and_invalidates_reused_addresses() {
+    let mut world = World::new();
+    let [a, b] = [(); 2].map(|_| world.spawn(mixed_allocation()).id());
+    let first = source_snapshot(&mut world, &[a, b], None);
+    world.get_mut::<GpuChunkAllocation>(a).unwrap().generation += 1;
+    let changed = source_snapshot(&mut world, &[a, b], Some(&first));
+    for stream in 0..4 {
+        let old_a = &first.streams[stream][first.lookup[stream][&a]];
+        let new_a = &changed.streams[stream][changed.lookup[stream][&a]];
+        let old_b = &first.streams[stream][first.lookup[stream][&b]];
+        let new_b = &changed.streams[stream][changed.lookup[stream][&b]];
+        assert!(!Arc::ptr_eq(old_a, new_a));
+        assert!(Arc::ptr_eq(old_b, new_b));
+        assert!(
+            new_a
+                .units
+                .iter()
+                .all(|unit| unit.allocation_generation == 18)
+        );
+    }
+    // Metadata relocation must refresh even if the mesh generation is unchanged.
+    world
+        .get_mut::<GpuChunkAllocation>(a)
+        .unwrap()
+        .metadata_index = 21;
+    let relocated = source_snapshot(&mut world, &[a, b], Some(&changed));
+    for stream in 0..4 {
+        let source = &relocated.streams[stream][relocated.lookup[stream][&a]];
+        assert!(source.units.iter().all(|unit| unit.origin_slot == 21));
+    }
+    // A removed source cannot remain reachable through the cached section lookup.
+    let removed = source_snapshot(&mut world, &[b], Some(&relocated));
+    assert!(removed.lookup.iter().all(|lookup| !lookup.contains_key(&a)));
 }
