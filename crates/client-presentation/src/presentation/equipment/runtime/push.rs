@@ -299,26 +299,11 @@ impl EquipmentRuntime {
             && from_pack
             && let Some((_, selected)) = selected
         {
-            presentation.submission.material = render_model::ActorMaterial {
-                color_mask,
-                kind: selected.material,
-                state: selected.material_state,
-                dissolve_multiplier: selected.overlay[3],
-                light_color_multiplier: selected.light_color_multiplier,
-                glint: render_model::ActorGlint {
-                    profile,
-                    ..Default::default()
-                },
+            presentation.submission.material.glint = render_model::ActorGlint {
+                profile,
+                ..Default::default()
             };
-            if selected.color != [1.0; 4] {
-                presentation.submission.tint = render_model::pack_overlay_rgba8(selected.color);
-            }
-            presentation.submission.overlay_rgba8 =
-                render_model::pack_overlay_rgba8(selected.overlay);
-            presentation.submission.uv_anim = selected.uv_anim;
-            if selected.ignore_lighting {
-                presentation.submission.light = render_model::pack_actor_light_without_lightmap();
-            }
+            super::style::LayerStyle::from_layer(&selected).apply(&mut presentation.submission);
         }
         layers.push(presentation);
     }

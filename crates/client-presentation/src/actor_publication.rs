@@ -205,6 +205,7 @@ pub fn prepare_actor_render_frame(
         params.equipment.as_deref_mut(),
         &mut new_geometries,
     );
+    let local_flame_feet = flames::LocalFlameFeet::capture(local.as_ref(), visibility);
     let camera_position = cull_view.map(|view| view.camera_position.to_array());
     let mut batch = select_actor_presentations_for_view(
         bodies.local_runtime_id,
@@ -267,6 +268,7 @@ pub fn prepare_actor_render_frame(
             stream.map(WorldStream::authority),
             yaw,
             step.partial_tick,
+            local_flame_feet,
             &mut batch,
         );
     }

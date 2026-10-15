@@ -254,6 +254,11 @@ pub(super) fn sample<'a>(
                     let Some(mut presentation) = presentation else {
                         continue;
                     };
+                    presentation.may_replace_geometry =
+                        crate::presentation::actors::rig_may_replace_geometry(
+                            &rig,
+                            render_frame.as_ref(),
+                        );
                     presentation.submission.overlay_rgba8 =
                         crate::presentation::combat::overlay(actor, combat_visuals);
                     if rig.actor.runtime_id == local_runtime_id {

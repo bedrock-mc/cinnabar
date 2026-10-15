@@ -106,7 +106,7 @@ fn batch(world: &client_world::WorldAuthority) -> ActorPresentationBatch {
 }
 
 /// Original three-frame marker art distinguishes retained animation frames.
-fn texture() -> assets::ParticleTexture {
+pub(in crate::actor_publication) fn texture() -> assets::ParticleTexture {
     assets::ParticleTexture {
         path: assets::ACTOR_FLAME_TEXTURE.into(),
         width: 8,
@@ -153,7 +153,7 @@ fn metadata_ignition_extinguishing_and_invisibility_control_flames_without_respa
     ] {
         set_flags(&mut world, flags, tick);
         let mut output = batch(&world);
-        flames.append(Some(&world), 0.0, 0.5, &mut output);
+        flames.append(Some(&world), 0.0, 0.5, None, &mut output);
         assert_eq!(output.submissions.len(), expected, "flags at update {tick}");
     }
 }
@@ -164,7 +164,7 @@ fn authoritative_burning_zombie_reaches_the_world_draw_builder_with_original_fra
     let (mut flames, pages) =
         WorldActorFlames::prepare(ActorArtworkPages::default(), Some(&texture()));
     let mut output = batch(&world);
-    flames.append(Some(&world), 0.0, 0.5, &mut output);
+    flames.append(Some(&world), 0.0, 0.5, None, &mut output);
     assert_eq!(output.submissions.len(), 2);
     let fire = output.submissions.pop().unwrap();
     assert_eq!(fire.input.identity.runtime_id, 7);
@@ -193,19 +193,19 @@ fn extinguished_hidden_unselected_and_missing_art_actors_have_no_flames() {
     let (mut flames, _) = WorldActorFlames::prepare(ActorArtworkPages::default(), Some(&texture()));
     let unlit = world(false);
     let mut output = batch(&unlit);
-    flames.append(Some(&unlit), 0.0, 0.5, &mut output);
+    flames.append(Some(&unlit), 0.0, 0.5, None, &mut output);
     assert_eq!(output.submissions.len(), 1);
     let burning = world(true);
     let mut output = batch(&burning);
     output.submissions[0].route = ActorRigRoute::NoDraw;
-    flames.append(Some(&burning), 0.0, 0.5, &mut output);
+    flames.append(Some(&burning), 0.0, 0.5, None, &mut output);
     assert_eq!(output.submissions.len(), 1);
     output.submissions.clear();
-    flames.append(Some(&burning), 0.0, 0.5, &mut output);
+    flames.append(Some(&burning), 0.0, 0.5, None, &mut output);
     assert!(output.submissions.is_empty());
     let (mut missing, _) = WorldActorFlames::prepare(ActorArtworkPages::default(), None);
     let mut output = batch(&burning);
-    missing.append(Some(&burning), 0.0, 0.5, &mut output);
+    missing.append(Some(&burning), 0.0, 0.5, None, &mut output);
     assert_eq!(output.submissions.len(), 1);
 }
 
@@ -214,9 +214,15 @@ fn flames_follow_the_fresh_camera_and_collision_box_without_following_body_yaw()
     let world = world(true);
     let (mut flames, _) = WorldActorFlames::prepare(ActorArtworkPages::default(), Some(&texture()));
     let mut front = batch(&world);
-    flames.append(Some(&world), 0.0, 0.5, &mut front);
+    flames.append(Some(&world), 0.0, 0.5, None, &mut front);
     let mut side = batch(&world);
-    flames.append(Some(&world), std::f32::consts::FRAC_PI_2, 0.5, &mut side);
+    flames.append(
+        Some(&world),
+        std::f32::consts::FRAC_PI_2,
+        0.5,
+        None,
+        &mut side,
+    );
     let a = front.submissions[1].world_from_actor;
     let b = side.submissions[1].world_from_actor;
     assert!((a[0][0] + 0.84).abs() < 1e-6);
@@ -231,6 +237,58 @@ fn flames_follow_the_fresh_camera_and_collision_box_without_following_body_yaw()
     assert!(b[0][3] > 3.0, "side-view flames must sit toward the camera");
     assert_eq!(a[1][3], 70.0);
     assert_eq!(b[1][3], 70.0);
-    flames.append(None, 0.0, 0.5, &mut side);
+    flames.append(None, 0.0, 0.5, None, &mut side);
     assert!(flames.playback.is_empty());
+}
+
+#[test]
+fn local_physical_feet_override_only_the_matching_body_publication() {
+    let world = world(true);
+    let (mut flames, _) = WorldActorFlames::prepare(ActorArtworkPages::default(), Some(&texture()));
+    let body = batch(&world).submissions.remove(0);
+    let placement = LocalFlameFeet {
+        identity: body.input.identity,
+        feet: [30.0, 80.0, 90.0],
+    };
+    let mut output = batch(&world);
+    flames.append(Some(&world), 0.0, 0.5, Some(placement), &mut output);
+    assert_eq!(output.submissions[1].world_from_actor[1][3], 80.0);
+    for identity in [
+        render_model::ActorRenderIdentity {
+            session_id: placement.identity.session_id + 1,
+            ..placement.identity
+        },
+        render_model::ActorRenderIdentity {
+            dimension: placement.identity.dimension + 1,
+            ..placement.identity
+        },
+        render_model::ActorRenderIdentity {
+            runtime_id: placement.identity.runtime_id + 1,
+            ..placement.identity
+        },
+        render_model::ActorRenderIdentity {
+            spawn_revision: placement.identity.spawn_revision + 1,
+            ..placement.identity
+        },
+        render_model::ActorRenderIdentity {
+            pose_generation: render_api::PoseGeneration::new(999),
+            ..placement.identity
+        },
+    ] {
+        let mut output = batch(&world);
+        flames.append(
+            Some(&world),
+            0.0,
+            0.5,
+            Some(LocalFlameFeet {
+                identity,
+                ..placement
+            }),
+            &mut output,
+        );
+        assert_eq!(
+            output.submissions[1].world_from_actor[1][3], 70.0,
+            "a stale or other actor's sample must use remote interpolation"
+        );
+    }
 }

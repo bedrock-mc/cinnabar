@@ -44,3 +44,12 @@ pub(crate) fn sample_candidate_scale<'a>(
 ) -> Option<actor_animation::ActorRigSnapshot<'a>> {
     actor_is_render_candidate(actor, partial_tick, view).then(|| sample(rig))
 }
+
+/// Reads cached geometry choices without evaluating controllers or spending their frame budget.
+pub(crate) fn rig_may_replace_geometry(
+    rig: &actor_animation::ActorRigSnapshot<'_>,
+    frame: Option<&actor_animation::ActorRenderFrame<'_>>,
+) -> bool {
+    rig.render.iter().any(|layer| layer.geometry.is_some())
+        || frame.is_some_and(|frame| frame.may_replace_body_geometry(rig.actor.runtime_id))
+}
