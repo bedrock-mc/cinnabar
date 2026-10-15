@@ -4,6 +4,7 @@
 //! an opaque generic payload: the session publishes it only at the original bootstrap point.
 
 pub mod connection;
+pub mod markers;
 mod session;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -11,7 +12,7 @@ pub use session::handle_state::CapturedPackets;
 pub use session::{
     BatchSendError, CONTROL_EVENT_CAPACITY, NetworkConfig, NetworkControlEvent,
     NetworkFailureOrigin, NetworkHandle, PacketSendError, PreparedSession, SequencedWorldEvent,
-    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, session_failure_display,
+    SessionTransferTarget, WORLD_EVENT_CAPACITY, WorldIngress, packet_log, session_failure_display,
     spawn_network,
 };
 

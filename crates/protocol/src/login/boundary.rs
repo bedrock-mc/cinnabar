@@ -25,6 +25,8 @@ impl PlaySession {
             Ok(None) => false,
             Err(_) => {
                 self.transfer_skips = self.transfer_skips.saturating_add(1);
+                self.transport
+                    .reject_current(crate::packet_tap::PacketOutcome::Skipped);
                 false
             }
         }

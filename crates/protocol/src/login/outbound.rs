@@ -1,20 +1,25 @@
+use std::sync::Arc;
+
 use bridge::FrameQueue;
 
 use super::PlaySession;
+use crate::packet_tap::PacketTap;
 use crate::{Packet, ProtocolError};
 
 /// The write half of a play session: frames whole batches without borrowing the session.
 pub struct PlayOutbound {
     frames: FrameQueue,
     finish_loading: Vec<Packet>,
+    tap: Option<Arc<dyn PacketTap>>,
 }
 
 impl PlaySession {
-    /// Detaches the write half; batches it sends share the session's own send FIFO.
+    /// Detaches the write half; batches it sends share the session's own send FIFO and tap.
     pub fn outbound(&mut self) -> Result<PlayOutbound, ProtocolError> {
         Ok(PlayOutbound {
             frames: self.transport.frame_queue(),
             finish_loading: self.take_finish_loading_packets(),
+            tap: self.transport.tap(),
         })
     }
 }
@@ -32,6 +37,9 @@ impl PlayOutbound {
         let Some(frame) = crate::session_transport::batch_frame(&packets) else {
             return Ok(());
         };
+        if let Some(tap) = &self.tap {
+            crate::packet_tap::record_serverbound(tap.as_ref(), &frame);
+        }
         self.frames
             .send(frame)
             .await

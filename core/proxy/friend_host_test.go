@@ -1,7 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/sandertv/gophertunnel/minecraft/p2p"
@@ -78,5 +82,21 @@ func TestFriendSessionPropertiesDecodeAsAVanillaWorld(t *testing.T) {
 	}
 	if !world.Listed("2", false, func(string) bool { return false }) {
 		t.Fatal("friends of friends cannot see the world")
+	}
+}
+
+// A friend's ended session is logged without the friend's XUID or the addresses in its error.
+func TestFriendSessionEndNamesNoFriend(t *testing.T) {
+	var output bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logFriendSessionEnded(log, "2535400000000000", errors.New("read udp 198.51.100.4:7551: connection reset"))
+	line := output.String()
+	for _, private := range []string{"2535400000000000", "198.51.100"} {
+		if strings.Contains(line, private) {
+			t.Fatalf("log line %q holds %q", line, private)
+		}
+	}
+	if !strings.Contains(line, "xuid=[redacted:") || !strings.Contains(line, "connection reset") {
+		t.Fatalf("log line %q lost its hashed XUID or error", line)
 	}
 }
