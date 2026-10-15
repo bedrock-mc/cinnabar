@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 /// Parses the small CLI and reports missing local fixtures without emitting a fake image.
 fn main() {
+    init_logging();
     if let Err(message) = run() {
         eprintln!("{message}");
         std::process::exit(1);
@@ -82,4 +83,12 @@ fn run() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     println!("{metadata}");
     Ok(())
+}
+
+/// Installs stderr diagnostics before any artwork loader can fall back.
+fn init_logging() {
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .try_init();
 }

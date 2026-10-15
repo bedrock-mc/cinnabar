@@ -293,7 +293,9 @@ impl Catalog {
         self.ui_defs.contains(entry)
     }
 
-    pub(crate) fn list(&mut self, entries: impl IntoIterator<Item = String>) {
+    /// Register paths from pack indexes before applying the stack's documents.
+    /// A declaration can select a document from any layer.
+    pub fn include_paths(&mut self, entries: impl IntoIterator<Item = String>) {
         self.ui_defs.extend(entries);
     }
 

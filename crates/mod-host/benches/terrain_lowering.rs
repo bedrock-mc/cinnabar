@@ -1,8 +1,4 @@
 //! Component-boundary cost of delivering one terrain region to a polling guest per frame.
-#![expect(
-    clippy::print_stderr,
-    reason = "the benchmark reports allocation counts per delivered frame on stderr"
-)]
 
 // The bench polls without per-frame checks, so the test expectations stay unused.
 #[allow(dead_code)]
@@ -250,6 +246,11 @@ fn frames(host: &mut ModHost, supply: &mut Supply, budget: usize, iterations: u6
     total
 }
 
+/// Reports allocation totals alongside the terrain lowering benchmark timings.
+#[expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports allocation measurements directly to its caller"
+)]
 fn lowering_benches(criterion: &mut Criterion) {
     let grants = ModGrants {
         terrain: true,

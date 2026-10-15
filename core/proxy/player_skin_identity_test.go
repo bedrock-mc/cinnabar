@@ -76,7 +76,7 @@ func TestRelayPlayerSkinUsesUpstreamIdentityAndPreservesPayload(t *testing.T) {
 				original := &packet.PlayerSkin{
 					UUID: local,
 					Skin: protocol.Skin{
-						SkinID:            "selected",
+						SkinID:            login.DefaultSkinID("slim"),
 						SkinImageWidth:    64,
 						SkinImageHeight:   64,
 						SkinData:          pixels,

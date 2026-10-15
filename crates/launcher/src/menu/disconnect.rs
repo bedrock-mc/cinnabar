@@ -5,8 +5,8 @@
 /// The screen's title and body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DisconnectText {
-    /// A lang key.
-    pub title: &'static str,
+    /// A lang key and vanilla's English text for it.
+    pub title: (&'static str, &'static str),
     pub body: DisconnectBody,
 }
 
@@ -18,7 +18,11 @@ pub enum DisconnectBody {
     Server(String),
 }
 
-const DISCONNECTED: &str = "disconnectionScreen.disconnected";
+const DISCONNECTED: (&str, &str) = (
+    "disconnectionScreen.disconnected",
+    "Disconnected from Server",
+);
+const CONNECT_FAILED: (&str, &str) = ("connect.failed", "Failed to connect to the server");
 /// The prefix the session puts before a server's disconnect reason.
 const SERVER_PREFIX: &str = "server disconnected: ";
 
@@ -67,7 +71,7 @@ pub fn describe(error: &str) -> DisconnectText {
         "bridge connection failed",
     ]) {
         return text(
-            "connect.failed",
+            CONNECT_FAILED,
             DisconnectBody::Key("disconnectionScreen.cantConnect"),
         );
     } else if has(&["closed", "end of stream"]) {
@@ -179,7 +183,7 @@ mod tests {
             key("disconnectionScreen.outdatedServer")
         );
         let unreachable = describe("bridge connection failed: Connection refused (os error 61)");
-        assert_eq!(unreachable.title, "connect.failed");
+        assert_eq!(unreachable.title, CONNECT_FAILED);
         assert_eq!(unreachable.body, key("disconnectionScreen.cantConnect"));
         assert_eq!(body("something odd"), key("disconnectionScreen.noReason"));
         assert_eq!(describe("closed").title, DISCONNECTED);

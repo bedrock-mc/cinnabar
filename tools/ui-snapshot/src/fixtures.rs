@@ -2,6 +2,7 @@
 
 mod minecraft_import;
 mod mods;
+mod out_of_game;
 
 use std::sync::Arc;
 
@@ -21,6 +22,7 @@ pub struct State {
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
     Menu(Box<MenuView>),
+    Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
@@ -38,6 +40,102 @@ const TALL_SIZE: [u32; 2] = [1280, 900];
 const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 
 pub const STATES: &[State] = &[
+    State {
+        name: "loading-connecting",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::Loading(ui::LoadingStage::Connecting),
+    },
+    State {
+        name: "loading-terrain",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::Loading(ui::LoadingStage::BuildingTerrain),
+    },
+    State {
+        name: "disconnect",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect,
+    },
+    State {
+        name: "disconnect-ban",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_ban,
+    },
+    State {
+        name: "disconnect-no-retry",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::disconnect_no_retry,
+    },
+    State {
+        name: "connect-failed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::connect_failed,
+    },
+    State {
+        name: "server-trust",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::server_trust,
+    },
+    State {
+        name: "join-request",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::join_request,
+    },
+    State {
+        name: "remove-server",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::remove_server,
+    },
+    State {
+        name: "storage-delete",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_delete,
+    },
+    State {
+        name: "storage-error",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_error,
+    },
+    State {
+        name: "storage-error-long",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::storage_error_long,
+    },
+    State {
+        name: "settings-help",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_help,
+    },
+    State {
+        name: "font-license",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::font_license,
+    },
+    State {
+        name: "reset-bindings",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::reset_bindings,
+    },
+    State {
+        name: "reset-settings",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::reset_settings,
+    },
     State {
         name: "chat-background-transparent",
         size: SIZE,
@@ -61,6 +159,23 @@ pub const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: chat_command_background,
+    },
+    State {
+        name: "chat-command-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat_completion("/give @", &["@a", "@e", "@p"]),
+    },
+    State {
+        name: "chat-command-completion-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || {
+            chat_completion(
+                "/tell ExamplePlayer AnotherPlayerWithALongName @",
+                &["@Alex", "@ExamplePlayerWithALongName", "@Bo"],
+            )
+        },
     },
     State {
         name: "import-confirmation",
@@ -252,13 +367,18 @@ fn chat_background(percent: i32) -> Fixture {
 
 /// Shows the command input and suggestions with chat backgrounds set to zero percent.
 fn chat_command_background() -> Fixture {
+    chat_completion("/", &["/give", "/help", "/say"])
+}
+
+/// Shows completions after an anonymous draft with transparent message backgrounds.
+fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;
 
     let mut options = SettingsOptions::default();
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {
-        draft: "/",
-        suggestions: ["/give", "/help", "/say"].map(Arc::from).into(),
+        draft,
+        suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
         messages: Default::default(),
         options: Arc::new(options),
     }

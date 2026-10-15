@@ -10,12 +10,22 @@ use ui_screens::menu_renderers::splashes::{MAX_SPLASH_SOURCE_BYTES, SplashSource
 
 /// Bound on definition bytes handed to the form engine across the whole stack.
 const MAX_SERVER_UI_BYTES: usize = 16 * 1024 * 1024;
-const INDEX: &str = "ui/_ui_defs.json";
+use json_ui::UI_DEFS_PATH as INDEX;
 
 /// Collects indexed definitions and records dependencies for lazily loaded artwork.
 pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPack>> {
     let mut total = 0usize;
     let mut declared = BTreeSet::new();
+    let mut index_bytes = 0usize;
+    for index in view.read_layers_capped(INDEX, MAX_SERVER_UI_BYTES as u64) {
+        index_bytes += index.len();
+        if index_bytes > MAX_SERVER_UI_BYTES {
+            break;
+        }
+        if let Ok(paths) = json_ui::Catalog::declared_paths(&index) {
+            declared.extend(paths);
+        }
+    }
     let mut pack = ServerUiPack {
         item_glint: pack_runtime::pack_textures::decode_pack_texture(
             view,
@@ -39,12 +49,6 @@ pub(super) fn collect_server_ui(view: &LayeredPackView) -> Option<Arc<ServerUiPa
         ..Default::default()
     };
     for layer in view.layers() {
-        let remaining = MAX_SERVER_UI_BYTES.saturating_sub(total) as u64;
-        if let Some(index) = layer.read_file_with_limit(INDEX, remaining).ok().flatten()
-            && let Ok(paths) = json_ui::Catalog::declared_paths(&index)
-        {
-            declared.extend(paths);
-        }
         let paths: BTreeSet<_> = layer
             .files_under("ui/")
             .iter()

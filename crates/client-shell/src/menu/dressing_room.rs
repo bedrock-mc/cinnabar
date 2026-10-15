@@ -38,17 +38,17 @@ struct Outcome {
 }
 
 impl Outcome {
+    /// Publishes an appearance update when pixels, model metadata or the selected skin ID change.
     fn new(
         view: &DressingRoomView,
         before: Option<render_api::StandardSkin>,
-        previous_model: Option<(SkinModel, Arc<str>)>,
+        previous_model: Option<(SkinModel, Arc<str>, String)>,
         uuid: [u8; 16],
         completed_command: bool,
     ) -> Self {
         let active = view.active_skin();
         let selected = view.selected_skin();
-        let changed = before != active
-            || previous_model != selected.map(|entry| (entry.model, entry.engine_version.clone()));
+        let changed = before != active || previous_model != selected.map(selection_key);
         let mut packet = changed
             .then(|| {
                 active.as_ref().zip(selected).map(|(skin, entry)| {
@@ -56,7 +56,7 @@ impl Outcome {
                         uuid,
                         skin,
                         entry.model.arm_size(),
-                        &entry.id,
+                        &crate::player_skin::selected_skin_id(entry),
                         &entry.name,
                     )
                 })
@@ -74,6 +74,17 @@ impl Outcome {
             completed_command,
         }
     }
+}
+
+/// Returns the non-image selection state that must reach login and PlayerSkin together.
+fn selection_key(
+    entry: &launcher::dressing_room::DressingRoomSkin,
+) -> (SkinModel, Arc<str>, String) {
+    (
+        entry.model,
+        entry.engine_version.clone(),
+        crate::player_skin::selected_skin_id(entry),
+    )
 }
 
 impl Worker {
@@ -104,7 +115,11 @@ impl Worker {
                     .send(Outcome::new(
                         &view,
                         Some(fallback.standard_skin()),
-                        Some((fallback.model(), fallback.engine_version.clone())),
+                        Some((
+                            fallback.model(),
+                            fallback.engine_version.clone(),
+                            fallback.skin_id.clone(),
+                        )),
                         fallback.local_uuid,
                         true,
                     ))
@@ -126,9 +141,7 @@ impl Worker {
                 }
                 loop {
                     let before = view.active_skin();
-                    let previous_model = view
-                        .selected_skin()
-                        .map(|entry| (entry.model, entry.engine_version.clone()));
+                    let previous_model = view.selected_skin().map(selection_key);
                     let completed_command = crossbeam_channel::select! {
                         recv(incoming)->job=>{
                             let Ok(job)=job else {break;};
@@ -309,6 +322,7 @@ impl MenuRuntime {
                 {
                     if let Some(active) = result.view.active_skin() {
                         self.player_skin.set_selection(&active, selected.model);
+                        self.player_skin.skin_id = crate::player_skin::selected_skin_id(selected);
                         self.player_skin.engine_version = selected.engine_version.clone();
                     }
                     self.skin_update_pending = true;

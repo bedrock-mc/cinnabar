@@ -345,7 +345,6 @@ fn full_export_does_not_allocate_per_event_on_the_caller() {
         "export caller allocated {} bytes",
         allocations.bytes
     );
-    println!("export caller: {} bytes for 4096 events", allocations.bytes);
     trace.record(
         5000,
         RuntimeStage::ChunkExtraction,
@@ -389,7 +388,6 @@ fn export_serializes_events_only_as_the_writer_consumes_them() {
     let (result, allocations) =
         test_alloc::measure(|| serde_json::to_writer(PrefixWriter(1024), &snapshot));
     assert!(result.is_err());
-    println!("stream prefix: {} bytes for 4096 events", allocations.bytes);
     assert!(
         allocations.bytes < 64 * 1024,
         "stream prefix allocated {} bytes",

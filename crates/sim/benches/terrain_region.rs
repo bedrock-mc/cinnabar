@@ -1,8 +1,4 @@
 //! Host-side terrain region construction over mixed terrain.
-#![expect(
-    clippy::print_stderr,
-    reason = "the benchmark reports allocation counts per case on stderr"
-)]
 
 #[path = "terrain_region/fixture.rs"]
 mod fixture;
@@ -58,6 +54,11 @@ fn flat(
     (sample, metadata)
 }
 
+/// Reports allocation totals alongside the terrain region sampling timings.
+#[expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports allocation measurements directly to its caller"
+)]
 fn region_benches(criterion: &mut Criterion) {
     let store = fixture::store();
     let registry = fixture::registry();
