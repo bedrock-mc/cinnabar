@@ -5,8 +5,8 @@ use bedrock_protocol_1_26_51::wire;
 use bytes::Bytes;
 
 use crate::blob_cache::ResolverReady;
-use crate::packet_tap::PacketOutcome;
 use crate::packet::GameHeader;
+use crate::packet_tap::PacketOutcome;
 use crate::raw_packet::RawPacket;
 use crate::session_transport::{Inbound, SessionTransport};
 use crate::{

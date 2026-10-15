@@ -206,14 +206,10 @@ mod tests {
             }),
             ..LogStatus::default()
         };
-        assert!(
-            environment
-                .refresh(true)
-                .ends_with(&format!(
-                    "| Capture: off ({})",
-                    client_session::markers::PACKET_CAPTURE
-                ))
-        );
+        assert!(environment.refresh(true).ends_with(&format!(
+            "| Capture: off ({})",
+            client_session::markers::PACKET_CAPTURE
+        )));
         environment.refresh(false);
         assert_eq!(
             environment.formats, 1,

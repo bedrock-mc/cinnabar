@@ -216,10 +216,9 @@ mod tests {
                 .map(|request| request.path),
             Some(PathBuf::from("run.cnbrcap"))
         );
-        let label =
-            |environment: Option<&str>, setting| {
-                packet_capture_choice(environment.map(OsStr::new), setting).to_string()
-            };
+        let label = |environment: Option<&str>, setting| {
+            packet_capture_choice(environment.map(OsStr::new), setting).to_string()
+        };
         let variable = client_session::markers::PACKET_CAPTURE;
         assert_eq!(label(None, false), "off");
         assert_eq!(label(None, true), "on");

@@ -486,11 +486,14 @@ fn log_dir_captures_keep_only_the_newest_across_sessions() {
     }
     let stale = 2 * LOG_DIR_CAPTURES_KEPT as u64;
     for started in 1..=stale {
-        std::fs::write(custom.join(format!("packets-{started}.{CAPTURE_EXTENSION}")), b"").unwrap();
+        std::fs::write(
+            custom.join(format!("packets-{started}.{CAPTURE_EXTENSION}")),
+            b"",
+        )
+        .unwrap();
     }
     let named_path = custom.join(format!("packets-{}.{CAPTURE_EXTENSION}", stale + 1));
-    let named =
-        PacketCaptureRequest::from_setting(Some(named_path.as_os_str()), &logs, 1).unwrap();
+    let named = PacketCaptureRequest::from_setting(Some(named_path.as_os_str()), &logs, 1).unwrap();
     assert!(!named.in_log_dir);
     capture_session(&named);
     assert_eq!(file_names(&custom).len(), stale as usize + 1);
@@ -516,7 +519,11 @@ fn capture_pruning_keeps_the_newest_within_both_budgets() {
     let dir = tempfile::tempdir().unwrap();
     let names = ["packets-1", "packets-2", "packets-3", "packets-3-9"];
     for name in names {
-        std::fs::write(dir.path().join(format!("{name}.{CAPTURE_EXTENSION}")), [0; 10]).unwrap();
+        std::fs::write(
+            dir.path().join(format!("{name}.{CAPTURE_EXTENSION}")),
+            [0; 10],
+        )
+        .unwrap();
     }
     super::capture::prune_captures(dir.path(), 10, 25).unwrap();
     assert_eq!(
