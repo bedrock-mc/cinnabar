@@ -53,9 +53,9 @@ fn labels(catalog: &Catalog, model: &FormModel, context: &Context) -> Vec<String
     )
     .expect("form resolves")
     .nodes
-    .into_iter()
-    .filter_map(|node| match node.draw {
-        Draw::Text { text, .. } => Some(text),
+    .iter()
+    .filter_map(|node| match &node.draw {
+        Draw::Text { text, .. } => Some(text.clone()),
         _ => None,
     })
     .collect()

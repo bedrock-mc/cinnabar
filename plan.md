@@ -1,3 +1,10 @@
+## Held input across HUD toggles
+
+Display-setting replacements retain the controls revision when controls are unchanged.
+Gameplay input uses that revision, so hiding and showing the HUD or paper doll preserves
+held movement, jump and attack. Changed controls still release held input until it is
+pressed again. Regression tests are written but unrun; compilation and live acceptance
+remain pending. No parity gate closes here.
 ## Prepared session block registries
 
 Session preparation constructs collision registrations, custom state identities and merged
@@ -19,6 +26,16 @@ Incomplete: controlled-future and framing regressions are written but unrun. Com
 version-matched protocol evidence and measured receive gaps remain pending. Status-writer
 restructuring is separate; no performance or parity gate closes here.
 
+## Shared solid-actor collision snapshots
+
+Actor state retains ordered solid bounds as poses, metadata and membership change. Movement
+and correction adapters share their converted bounds until the source changes. Mover and
+mount filters refresh before queries, and historical prediction readers keep their old bounds.
+Effect-driven pose changes, including the dragon death lift, refresh bounds at the mutation.
+Incomplete: behavior, query and allocation-work regressions are written but unrun.
+Compilation, live comparisons and performance measurements remain pending; no behavior or
+performance acceptance gate closes here.
+
 ## Shared menu list snapshots
 
 Menu views share saved servers, featured cards, realms, friends and local worlds with their
@@ -26,7 +43,14 @@ semantic owners. Vector edits detach retained views, and equal feed deliveries p
 current list storage. Interaction state and service details still publish independently.
 Incomplete: behavioral and copy-count regressions are written but unrun. Compilation,
 rendered comparisons and measured menu publication cost remain pending; no performance or
-output-parity gate closes here. Form texture-dependency caching remains separate.
+output-parity gate closes here.
+
+Published form draw nodes share immutable snapshots. A bounded engine cache retains logical
+base texture paths and renderer names for the exact snapshot and omission values; overlays,
+renderer callbacks, source resolution and atlas residency still update every prepare.
+Oversized entries use uncached discovery. Regression coverage is written but unrun; compilation,
+rendered comparisons and measured dependency-discovery cost remain pending. Artwork generation,
+edit-text/report copies and other form work remain separate; no F4 or performance gate closes.
 
 ## Sleeper-only bed sampling
 
@@ -34,8 +58,7 @@ Actor ingress retains sleeping actors and their streamed bed positions. Presenta
 only those beds, clears unavailable headings, and reads direction facts compiled with each
 runtime-ID registry. Wake-up, bed changes, replacement and reset discard stale samples.
 Incomplete: regression tests are written but unrun; rendered comparisons and performance
-measurements remain pending. Collider snapshot caching remains separate. No parity or
-performance acceptance gate closes here.
+measurements remain pending. No parity or performance acceptance gate closes here.
 
 ## Single-cell palette edits
 
@@ -7898,6 +7921,12 @@ The client reads them under its configured cache directory and rejects invalid
 paths or bytes during the join. Cache misses retain the streamed archive fallback;
 pack order, required flags, sub-packs and content keys remain unchanged. Live
 performance acceptance of the cache-reference handoff remains incomplete.
+
+Pack admission and join-stage logging declare static packet interests. Unrelated streaming
+bodies skip observer copies when no unrestricted payload observer is installed. Stage timing,
+offer admission and legacy callback ownership retain their existing contracts. Regression
+fixtures are written but unrun; compilation and measured performance acceptance remain open.
+
 The Rust `bedrock-replay` tool uses the protocol crate's session messages and keeps
 the raw capture and report formats. Acceptance endpoint waiters use the session
 endpoint. The real core-session test covers large binary frames in both directions.
