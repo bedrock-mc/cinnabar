@@ -202,6 +202,42 @@ fn attack_hit_position_retires_the_pick_after_a_position_reset() {
 }
 
 #[test]
+fn attack_hit_position_recasts_after_a_position_reset_with_new_movement() {
+    let (mut world, mut captured) = attack_fixture(7.5);
+    let previous = picked_point(&world);
+    let position = [4.6, 2.620_01, 8.5];
+    {
+        let mut movement = world.resource_mut::<MovementTicker>();
+        movement.reset(7, 101, position);
+        movement.set_source(gameplay::movement::MovementSource::Physics);
+        let mut sample = gameplay::test_support::survival_mining::completed(102);
+        sample.position = position;
+        movement.enqueue_completed_physics(sample).unwrap();
+    }
+    world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
+        let network = world.resource::<NetworkHandle<PackApplication>>();
+        gameplay::movement::flush_player_auth_inputs_guarded(
+            &mut movement,
+            gameplay::movement::OUTBOX_CAPACITY,
+            Some(gameplay::test_support::survival_mining::evidence()),
+            |identity, packet, guard| network.send_physics_packet(identity, packet, guard),
+        )
+        .unwrap();
+    });
+    captured.drain();
+    let ray = frame_origin(&world, Vec3::new(4.6, 2.5, 8.5), Quat::IDENTITY);
+    world.insert_resource(ray);
+    let current = picked_point(&world);
+    assert_ne!(previous, current);
+    attack(&mut world);
+    let packets = captured.drain();
+    let tx = packets.iter().find_map(observe_transaction).unwrap();
+    let actor = tx.actor_use().unwrap();
+    assert_eq!(actor.from_position, position);
+    assert_eq!(actor.hit_position, current);
+}
+
+#[test]
 fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry() {
     for moved_x in [None, Some(6.5), Some(60.5)] {
         let (mut world, mut captured) = attack_fixture(7.5);

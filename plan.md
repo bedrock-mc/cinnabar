@@ -3615,7 +3615,8 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced
-or dead actors cannot receive an attack from old frame geometry. The one pick result
+or dead actors cannot receive an attack from old frame geometry. Position-authority
+changes use the current frame instead. The one pick result
 also owns mining/use vetoes; the explicit item-use timing override remains available. Attacks
 use the network pose before this frame's first movement input, including catch-up frames,
 and enter the queue before their swing and those inputs. Older queued inputs and held

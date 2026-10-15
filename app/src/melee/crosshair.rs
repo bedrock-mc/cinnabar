@@ -25,6 +25,7 @@ struct FrameActor {
 #[derive(Default)]
 struct Frame {
     origin: InteractionOriginSnapshot,
+    position_authority: PositionAuthorityGeneration,
     actors: Vec<FrameActor>,
     index: HashMap<u64, usize>,
     boxes: Vec<([f32; 3], [f32; 3])>,
@@ -48,10 +49,15 @@ pub(crate) struct FrameInputs {
 
 impl FrameInputs {
     /// Publishes the current ray and frame-positioned actor boxes together, reusing storage.
-    pub(super) fn publish(&mut self, context: &MeleeContext) {
+    pub(super) fn publish(
+        &mut self,
+        context: &MeleeContext,
+        position_authority: PositionAuthorityGeneration,
+    ) {
         std::mem::swap(&mut self.previous, &mut self.current);
         let frame = &mut self.current;
         frame.origin.clone_from(&context.origin);
+        frame.position_authority = position_authority;
         frame.assisted = context.aim.target;
         frame.actors.clear();
         frame.index.clear();
@@ -76,9 +82,11 @@ impl FrameInputs {
         );
     }
 
-    /// A first-frame press uses the first complete input snapshot.
-    fn published(&self) -> &Frame {
-        if self.previous.origin.outbound_ray().is_some() {
+    /// A first-frame press or position reset uses the current complete input snapshot.
+    fn published(&self, position_authority: PositionAuthorityGeneration) -> &Frame {
+        if self.previous.position_authority == position_authority
+            && self.previous.origin.outbound_ray().is_some()
+        {
             &self.previous
         } else {
             &self.current
@@ -94,7 +102,7 @@ pub(super) fn resolve_crosshair(
     position_authority: PositionAuthorityGeneration,
 ) -> Option<Crosshair> {
     context.origin.outbound_ray()?;
-    let frame = frames.published();
+    let frame = frames.published(position_authority);
     let ray = frame.origin.outbound_ray()?;
     let stream = context.client_world.stream.as_ref()?;
     if !ray_is_current(ray, SessionGeneration::new(context.ui.session_id()), stream) {

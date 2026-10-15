@@ -249,8 +249,11 @@ fn produce_use(
     let Some(sample) = sample else {
         return;
     };
-    // Native item use waits for earlier block and attack presses to resolve.
-    if context.block_use.press_pending() || (!delay_fix_enabled && context.melee.press_pending()) {
+    // New item use waits for earlier presses; accepted uses must still observe release.
+    if !runtime.is_releasing(held)
+        && (context.block_use.press_pending()
+            || (!delay_fix_enabled && context.melee.press_pending()))
+    {
         return;
     }
     let frame = UseFrame {

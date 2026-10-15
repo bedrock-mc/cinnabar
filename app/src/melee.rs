@@ -64,7 +64,7 @@ pub(crate) fn prepare_melee(
     mut frames: Local<crosshair::FrameInputs>,
 ) {
     target.0 = None;
-    frames.publish(&context);
+    frames.publish(&context, movement.interaction_authority_identity().1);
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
