@@ -6,7 +6,7 @@
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
     ecs::system::SystemParam,
-    prelude::{Query, Real, Res, ResMut, Resource, Time, Window, With},
+    prelude::{Local, Query, Real, Res, ResMut, Resource, Time, Window, With},
     window::PrimaryWindow,
 };
 use client_interaction::melee::{MeleeRuntime, SwingTracker};
@@ -31,12 +31,9 @@ use {
 
 use gameplay::melee::{Crosshair, PressContext, press_admission, resolve_and_send, swing_duration};
 
-/// The published frame pick and the press awaiting admission before its movement input.
+/// This frame's resolved press awaiting admission before its movement input.
 #[derive(Resource, Default)]
-pub(crate) struct MeleeTarget {
-    published: Option<crosshair::FrameTarget>,
-    pressed: Option<Crosshair>,
-}
+pub(crate) struct MeleeTarget(Option<Crosshair>);
 
 #[derive(SystemParam)]
 pub(crate) struct MeleeContext<'w, 's> {
@@ -55,7 +52,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     mod_interaction: Option<Res<'w, ModInteraction>>,
 }
 
-/// Retains this frame's pick and resolves presses against the previously published hit.
+/// Publishes frame inputs and resolves presses through the single published-frame pick.
 /// Open screens and spectator mode cancel the press.
 pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
@@ -64,9 +61,10 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
+    mut frames: Local<crosshair::FrameInputs>,
 ) {
-    target.pressed = None;
-    let previous = target.published.take();
+    target.0 = None;
+    frames.publish(&context);
     let item_timing = selected_attack_timing(&player_runtime, &context.client_world);
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -104,26 +102,25 @@ pub(crate) fn prepare_melee(
         runtime.defer(now_millis);
         return;
     }
-    let Some((published, crosshair)) = resolve_crosshair(
+    if !pending {
+        runtime.cancel();
+        return;
+    }
+    let Some(crosshair) = resolve_crosshair(
         &player_runtime,
         &context,
-        movement.interaction_authority_identity(),
-        previous,
+        &frames,
+        movement.interaction_authority_identity().1,
     ) else {
         drop("no_interaction_ray");
         runtime.defer(now_millis);
         return;
     };
-    target.published = published;
-    if !pending {
-        runtime.cancel();
-        return;
-    }
     let crosshair = runtime.observe_attack_target(
         crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),
     );
-    target.pressed = Some(crosshair);
+    target.0 = Some(crosshair);
 }
 
 /// Admits the picked press before this frame's inputs, using their preceding pose.
@@ -137,7 +134,7 @@ pub(crate) fn produce_melee(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
     let (Some(crosshair), Some(input), Some(stream)) = (
-        target.pressed,
+        target.0,
         context.input.snapshot(),
         context.client_world.stream.as_ref(),
     ) else {

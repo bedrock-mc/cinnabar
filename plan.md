@@ -3592,14 +3592,12 @@ box separately, retaining all boxes of an actor admitted before its candidate
 threshold. Collision, placement obstruction and F3 retain collision geometry.
 Definition-authored boxes and multipart actor picking remain incomplete.
 
-2026-10-15 actor attacks retain the previously published frame's actor and world-space
-hit point through later movement and look input, including selected aim-assist coordinates.
-Assisted hits retain their selected candidate box for the input-specific pick limit.
-Fresh and retained geometry pass through one current target validator before they can
-own an attack or its mining/use vetoes. Assisted candidates carry their captured actor
-lifetime; current reach, distance, obstruction and eligibility apply to every proposal.
-Absent or rejected proposals fall back to an ordinary pick, which supplies its own point.
-The explicit item-use timing override remains available. Position resets retire old geometry. Attacks
+2026-10-15 actor attacks run the ordinary pick once against the published frame's
+camera ray, ordered actor boxes and lifetime identities, using current admission policy.
+Published inputs contain no cached hit or acceptance result. Assisted picks use that
+frame's selected point and box for their input-specific reach check. Removed, replaced
+or dead actors cannot receive an attack from old frame geometry. The one pick result
+also owns mining/use vetoes; the explicit item-use timing override remains available. Attacks
 use the network pose before this frame's first movement input, including catch-up frames,
 and enter the queue before their swing and those inputs. Older queued inputs and held
 releases must drain first. Lowered visual eyes do not change the network anchor. Exact

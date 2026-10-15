@@ -1,4 +1,4 @@
-//! Fresh and retained attack proposals share current target validity.
+//! Published frame inputs preserve current attack admission rules.
 
 use super::attack_hit_position_tests::{
     attack, attack_fixture, picked_point, unpublished_attack_fixture,
@@ -7,7 +7,7 @@ use super::*;
 use client_presentation::aim_assist::{AimAssistFrame, ServerAimAssist};
 use protocol::test_support::transactions::observe_transaction;
 
-/// Counts actor attacks without treating a missed swing as an accepted actor proposal.
+/// Counts actor attacks without treating a missed swing as an actor attack.
 fn attacks(captured: &mut client_session::CapturedPackets) -> usize {
     captured
         .drain()
@@ -151,7 +151,7 @@ fn attack_validation_input_and_game_mode_changes_revalidate_pick_distance() {
     }
 }
 
-/// Independent current-world mutations that make the original actor proposal invalid.
+/// Current facts that reject an attack from the published frame.
 #[derive(Clone, Copy, Debug)]
 enum Invalidity {
     Reach(f32),

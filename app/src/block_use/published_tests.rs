@@ -41,6 +41,9 @@ mod attack_admission_tests;
 #[path = "published_tests/attack_validation.rs"]
 mod attack_validation_tests;
 
+#[path = "published_tests/attack_frame.rs"]
+mod attack_frame_tests;
+
 #[path = "published_tests/ledge.rs"]
 mod ledge_tests;
 

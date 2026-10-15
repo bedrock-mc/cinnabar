@@ -177,16 +177,16 @@ fn attack_hit_position_keeps_the_ray_origin_for_an_enclosing_box() {
 }
 
 #[test]
-fn attack_hit_position_uses_fresh_geometry_after_runtime_id_replacement() {
+fn attack_hit_position_does_not_redirect_published_geometry_to_a_reused_runtime_id() {
     let (mut world, mut captured) = attack_fixture(7.5);
-    let old_point = picked_point(&world);
     actor_use_tests::spawn(&mut world, 7.8);
-    let fresh_point = picked_point(&world);
-    assert_ne!(old_point, fresh_point);
     attack(&mut world);
     let packets = captured.drain();
-    let tx = packets.iter().find_map(observe_transaction).unwrap();
-    assert_eq!(tx.actor_use().unwrap().hit_position, fresh_point);
+    assert!(
+        packets.iter().all(|packet| {
+            observe_transaction(packet).is_none_or(|tx| tx.actor_use().is_none())
+        })
+    );
 }
 
 #[test]
@@ -231,15 +231,20 @@ fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry()
             .unwrap();
         attack(&mut world);
         let packets = captured.drain();
-        if moved_x == Some(60.5) {
-            assert!(packets.iter().all(|packet| {
-                observe_transaction(packet).is_none_or(|tx| tx.actor_use().is_none())
-            }));
-            continue;
-        }
         let tx = packets.iter().find_map(observe_transaction).unwrap();
         let actor = tx.actor_use().unwrap();
         assert_eq!(actor.runtime_id, 99);
         assert_eq!(actor.hit_position, point.to_array());
     }
+}
+
+#[test]
+fn attack_hit_position_uses_the_published_actor_pose_after_a_large_press_frame_move() {
+    let (mut world, mut captured) = attack_fixture(7.5);
+    let point = picked_point(&world);
+    move_actor(&mut world, [Some(60.5), None, None], 3);
+    attack(&mut world);
+    let packets = captured.drain();
+    let tx = packets.iter().find_map(observe_transaction).unwrap();
+    assert_eq!(tx.actor_use().unwrap().hit_position, point);
 }
