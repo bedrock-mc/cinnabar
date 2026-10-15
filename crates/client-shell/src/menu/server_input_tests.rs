@@ -438,6 +438,68 @@ impl Drop for Harness {
 }
 
 #[test]
+fn real_carrier_server_fields_hide_selection_when_dialog_closes() {
+    let Some(mut h) = Harness::new(1.0) else {
+        return;
+    };
+    {
+        let mut menu = h.app.world_mut().resource_mut::<MenuRuntime>();
+        Arc::make_mut(&mut menu.settings_options).set(
+            launcher::menu::settings_options::SettingId::ScreenAnimations.index(),
+            1,
+        );
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+        menu.activate(MenuAction::PlayAddServer);
+        menu.activate(MenuAction::AddName);
+    }
+    h.app.update();
+    h.paste("Local server");
+    h.select_all();
+    h.app.world_mut().resource_mut::<FrameTime>().0 += 1000;
+    h.app.update();
+    assert!(
+        h.app
+            .world()
+            .resource::<Frame>()
+            .0
+            .batches
+            .iter()
+            .any(|batch| batch.blend_mode == render_model::UI_BLEND_INVERT)
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<MenuRuntime>()
+        .activate(MenuAction::AddBack);
+    h.app.update();
+    h.app.world_mut().resource_mut::<FrameTime>().0 += 24;
+    h.app.update();
+    snapshot::write(
+        &h.app.world().resource::<Frame>().0,
+        "server-input-selection-exit",
+    );
+    let presentation = h.app.world().resource::<UiPresentationResource>();
+    let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
+    assert!(
+        nodes.iter().any(
+            |node| matches!(node.visual(), UiVisual::Text { layout, color, .. }
+        if layout.glyphs().iter().map(|glyph| glyph.codepoint).collect::<String>() == "Local server"
+        && color[3] > 0 && color[3] < 255)
+        ),
+        "the outgoing dialog is still fading"
+    );
+    assert!(
+        h.app
+            .world()
+            .resource::<Frame>()
+            .0
+            .batches
+            .iter()
+            .all(|batch| batch.blend_mode != render_model::UI_BLEND_INVERT),
+        "departing selection must not invert the screen behind the dialog"
+    );
+}
+
+#[test]
 fn real_carrier_server_fields_click_type_select_paste_save_and_play() {
     for dpi in [1.0, 2.0] {
         exercise_server_fields(dpi);

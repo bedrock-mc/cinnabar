@@ -9,6 +9,8 @@ mod cache_tests;
 mod clip;
 mod motion;
 mod reveal;
+#[cfg(test)]
+mod selection_tests;
 mod sprites;
 mod typing;
 pub(super) use motion::Effects;
@@ -300,9 +302,9 @@ impl<'a> Canvas<'a> {
         Ok(())
     }
 
-    /// Inverts the already drawn pixels inside the current clipping scope.
+    /// Inverts pixels inside the current clip only while the surface is fully opaque.
     pub(super) fn invert(&mut self, bounds: Bounds) -> Result<(), PaintError> {
-        if bounds[2] > bounds[0] && bounds[3] > bounds[1] {
+        if self.alpha >= 1.0 && bounds[2] > bounds[0] && bounds[3] > bounds[1] {
             self.push(
                 bounds,
                 UiVisual::InvertedSprite {
