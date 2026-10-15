@@ -18,18 +18,23 @@ pub(super) fn tick(
         sneaking: false,
         ..input
     });
-    apply_relative_movement(
-        &mut next.velocity,
-        movement_impulse(controls.move_vector[0]),
-        movement_impulse(controls.move_vector[1]),
-        input.yaw_degrees,
-        flight::horizontal_speed(&input),
-    );
-    flight::apply_vertical_control(&mut next.velocity, &input, controls.move_vector);
-    next.requested_movement = next.velocity;
-    next.movement = next.velocity;
-    next.position = (next.position + next.velocity).rounded();
-    flight::apply_drag(&mut next.velocity, &input, controls.move_vector, 1.0);
+    if input.skip_travel {
+        next.requested_movement = crate::Vec3::ZERO;
+        next.movement = crate::Vec3::ZERO;
+    } else {
+        apply_relative_movement(
+            &mut next.velocity,
+            movement_impulse(controls.move_vector[0]),
+            movement_impulse(controls.move_vector[1]),
+            input.yaw_degrees,
+            flight::horizontal_speed(&input),
+        );
+        flight::apply_vertical_control(&mut next.velocity, &input, controls.move_vector);
+        next.requested_movement = next.velocity;
+        next.movement = next.velocity;
+        next.position = (next.position + next.velocity).rounded();
+        flight::apply_drag(&mut next.velocity, &input, controls.move_vector, 1.0);
+    }
     next.collision_shape = None;
     next.on_ground = false;
     next.collisions = AxisCollisions::default();

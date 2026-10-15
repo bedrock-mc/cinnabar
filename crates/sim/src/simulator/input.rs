@@ -18,6 +18,9 @@ pub struct MovementInput {
     /// Tick-captured authority that disables travel without discarding device input.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub immobile: bool,
+    /// Suppresses this tick's travel while jump state and block contacts still update.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skip_travel: bool,
     /// Axes precede item and pose slowdown. False preserves historical
     /// already-processed input clamping; true retains partial-axis magnitude.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
