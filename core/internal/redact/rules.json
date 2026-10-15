@@ -58,22 +58,16 @@
     "log",
     "mcpack",
     "mcworld",
-    "md",
     "pdb",
     "png",
     "ps1",
-    "py",
-    "rs",
-    "sh",
-    "so",
     "sys",
     "toml",
     "txt",
     "wgsl",
     "xml",
     "yaml",
-    "yml",
-    "zip"
+    "yml"
   ],
   "rules": [
     {
@@ -247,6 +241,16 @@
       "name": "bare hostname",
       "input": "joining geo.hivebedrock.network now",
       "output": "joining [redacted] now"
+    },
+    {
+      "name": "hostname on a file-extension-like top-level domain",
+      "input": "connect play.example.rs:19132 failed",
+      "output": "connect [redacted] failed"
+    },
+    {
+      "name": "dns error names the host",
+      "input": "lookup play.example.sh: no such host",
+      "output": "lookup [redacted]: no such host"
     },
     {
       "name": "windows home folder with a space",
