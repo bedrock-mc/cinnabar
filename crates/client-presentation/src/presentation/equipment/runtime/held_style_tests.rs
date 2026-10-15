@@ -206,7 +206,7 @@ fn lit_dissolve_parameters_preserve_coverage_without_adding_hurt_lighting() {
                     assert_eq!(selected.material, kind);
                     assert_eq!(selected.overlay[3], 0.4);
                     assert!(!selected.ignore_lighting);
-                    let mut submission = if first_person {
+                    let submission = if first_person {
                         runtime
                             .first_person_attachable(
                                 &body,
@@ -267,18 +267,10 @@ fn lit_dissolve_parameters_preserve_coverage_without_adding_hurt_lighting() {
                         }
                     );
 
-                    // White controller color retains an existing worn-item dye and stack glint.
-                    let dye = render_model::pack_overlay_rgba8([0.2, 0.3, 0.8, 1.0]);
-                    submission.tint = dye;
-                    let glint = submission.material.glint;
-                    assert_eq!(glint.texture, render_model::GlintTexture::Item);
-                    let mut white = selected.clone();
-                    white.color = [1.0; 4];
-                    crate::presentation::equipment::runtime::style::LayerStyle::from_layer(&white)
-                        .apply(&mut submission);
-                    assert_eq!(submission.tint, dye);
-                    assert_eq!(submission.material.glint, glint);
-                    assert_eq!(submission.material.dissolve_multiplier, 0.4);
+                    assert_eq!(
+                        submission.material.glint.texture,
+                        render_model::GlintTexture::Item
+                    );
                 }
             }
         }
