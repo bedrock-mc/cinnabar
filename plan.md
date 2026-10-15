@@ -1,3 +1,13 @@
+## Raw intake during blob disk reads
+
+Blob prefetch shares the transport's existing bounded raw-frame storage while its one disk
+future is pending. Disk completion is checked between frames; reaching the byte bound or a
+terminal marker stops reads and keeps waiting on the same future. Classification, status
+writes, admissions and ready-event ordering retain their existing paths.
+Incomplete: controlled-future and framing regressions are written but unrun. Compilation,
+version-matched protocol evidence and measured receive gaps remain pending. Status-writer
+restructuring is separate; no performance or parity gate closes here.
+
 ## Shared menu list snapshots
 
 Menu views share saved servers, featured cards, realms, friends and local worlds with their

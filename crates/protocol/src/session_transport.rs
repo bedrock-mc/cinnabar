@@ -12,7 +12,7 @@ use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 
 /// A server may batch a whole pack transfer, or a large item registry, into one batch,
 /// so the local leg accepts batches far larger than a typical client's 16 MiB default.
@@ -184,13 +184,27 @@ impl SessionTransport {
     /// ends the session, so short preparation or world-admission pauses do not block the core.
     /// Cancelling the wait loses nothing.
     pub(crate) async fn read_ahead(&mut self, max_bytes: usize) {
-        while self.ahead_bytes < max_bytes && !self.ahead.back().is_some_and(ends_session) {
-            let next = self.reader.next().await;
-            if let Some(Ok(frame)) = &next {
-                self.ahead_bytes += frame.len();
-            }
-            self.ahead.push_back(next);
+        while poll_fn(|cx| self.poll_read_ahead_one(max_bytes, cx)).await {}
+    }
+
+    /// Stages at most one unparsed reader item, retaining partial frames across cancellation.
+    /// Returns false at the shared byte bound or a terminal, error or EOF marker. As with
+    /// `read_ahead`, accepting a whole frame may cross the bound by that frame's size.
+    pub(crate) fn poll_read_ahead_one(
+        &mut self,
+        max_bytes: usize,
+        cx: &mut Context<'_>,
+    ) -> Poll<bool> {
+        if self.ahead_bytes >= max_bytes || self.ahead.back().is_some_and(ends_session) {
+            return Poll::Ready(false);
         }
+        let next = ready!(Pin::new(&mut self.reader).poll_next(cx));
+        if let Some(Ok(frame)) = &next {
+            self.ahead_bytes += frame.len();
+        }
+        let more = self.ahead_bytes < max_bytes && !ends_session(&next);
+        self.ahead.push_back(next);
+        Poll::Ready(more)
     }
 
     /// Puts `packets` back ahead of every unread packet, in their order.
