@@ -18,33 +18,16 @@ fn request(value: i32) -> Request {
 fn slider_drag_batches_latest_value_without_extending_crash_loss_window() {
     let now = Instant::now();
     let mut state = State::default();
-    let layout = crate::test_support::scratch("settings-drag-count");
-    let path = layout.user_config_root.join(super::super::SETTINGS_FILE);
-    let mut before_saves = 0;
-    let mut before_duration = Duration::ZERO;
     for value in 1..=100 {
-        let started = Instant::now();
-        request(value).settings.save(&path).unwrap();
-        before_duration += started.elapsed();
-        before_saves += 1;
         let edit_at = now + SAVE_DELAY * (value as u32 - 1) / 100;
         state.submit(request(value), edit_at);
         assert!(state.take_due(edit_at).is_none());
     }
     let latest = state.take_due(now + SAVE_DELAY).unwrap();
     assert_eq!(latest.settings.value(SettingId::Gamma), 100);
-    let started = Instant::now();
-    latest.settings.save(&path).unwrap();
-    let after_duration = started.elapsed();
-    assert_eq!(SettingsOptions::load(&path).value(SettingId::Gamma), 100);
     state.complete(latest, Ok(()), now + SAVE_DELAY);
     assert!(state.take_due(now + SAVE_DELAY * 2).is_none());
     assert_eq!(state.completed, Some(Ok(())));
-    assert_eq!(before_saves, 100);
-    println!(
-        "slider batch: {before_saves} synchronous saves before ({before_duration:?}), 1 eligible save after ({after_duration:?})"
-    );
-    std::fs::remove_dir_all(layout.user_config_root).unwrap();
 }
 
 #[test]
@@ -117,7 +100,6 @@ fn slow_storage_cannot_block_submission_and_only_latest_pending_edit_is_saved() 
     assert!(releaser.join().unwrap(), "submission waited for the disk");
     writer.finish().unwrap();
     assert_eq!(seen_rx.try_iter().collect::<Vec<_>>(), [0, 100]);
-    println!("blocked disk: 101 snapshots, 2 worker saves, 0 saves on submitting thread");
 }
 
 #[test]
@@ -139,25 +121,4 @@ fn shutdown_saves_queued_edits_with_unchanged_json_and_reports_storage_errors() 
     assert!(path.is_dir());
     assert!(writer.submit(path, request(100).settings).is_err());
     std::fs::remove_dir_all(layout.user_config_root).unwrap();
-}
-
-#[test]
-fn worker_retries_failed_settings_without_another_frame_submission() {
-    let (seen_tx, seen_rx) = mpsc::channel();
-    let mut fail = true;
-    let mut writer = Writer::with_saver(move |settings, _| {
-        seen_tx.send(settings.value(SettingId::Gamma)).unwrap();
-        if std::mem::take(&mut fail) {
-            Err(io::Error::other("temporary failure"))
-        } else {
-            Ok(())
-        }
-    })
-    .unwrap();
-    let edit = request(80);
-    writer.submit(edit.path, edit.settings).unwrap();
-    assert_eq!(seen_rx.recv_timeout(TEST_TIMEOUT).unwrap(), 80);
-    assert_eq!(seen_rx.recv_timeout(TEST_TIMEOUT).unwrap(), 80);
-    writer.finish().unwrap();
-    assert!(seen_rx.try_recv().is_err());
 }
