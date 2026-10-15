@@ -373,3 +373,145 @@ fn interleaved_contexts_match_their_synchronous_builder() {
         assert_eq!(finished.summary, expected[&finished.column]);
     }
 }
+
+/// Installs the manual executor in a live stream without changing its admission owner on disable.
+fn manual_stream(owner: &Arc<Admission>, manual: &Manual) -> WorldStream {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    stream.far_terrain.inbox = inbox(owner, manual);
+    stream.set_far_terrain_enabled(true);
+    stream
+}
+
+/// Every publication/cancellation ordering releases cancelled output while the live stream stays off.
+#[test]
+fn disabling_live_far_terrain_releases_results_without_polling_it() {
+    #[derive(Clone, Copy)]
+    enum CancelAt {
+        Preparing,
+        Queued,
+        Returned,
+        Deferred,
+    }
+    for at in [
+        CancelAt::Preparing,
+        CancelAt::Queued,
+        CancelAt::Returned,
+        CancelAt::Deferred,
+    ] {
+        let owner = owner(1);
+        let manual = Manual::default();
+        let mut live = manual_stream(&owner, &manual);
+        let assets = Arc::clone(live.runtime_assets());
+        live.spawn_far_summaries(vec![(ChunkKey::new(0, 1, 0), snapshot(1, 1))]);
+        live.far_terrain.inbox.pump();
+        // The retiring session shares admission but has an independent delivery lifetime.
+        let mut retiring = [inbox(&owner, &manual)];
+        retiring[0].enqueue(ChunkKey::new(-1, 2, 0), snapshot(2, 1), context(&assets));
+        if !matches!(at, CancelAt::Preparing) {
+            assert!(manual.run());
+            live.far_terrain.inbox.pump();
+        }
+        if matches!(at, CancelAt::Returned | CancelAt::Deferred) {
+            assert!(manual.run());
+        }
+        if matches!(at, CancelAt::Deferred) {
+            live.far_terrain
+                .inbox
+                .drain_budgeted(&mut Vec::new(), &mut SummaryBudget::new(0, 0));
+            assert!(live.far_terrain.inbox.deferred.is_some());
+        }
+        assert_eq!(owner.usage().jobs, 1);
+        retiring[0].pump();
+        live.set_far_terrain_enabled(false);
+        if matches!(at, CancelAt::Preparing | CancelAt::Queued) {
+            assert_eq!(
+                owner.usage().jobs,
+                1,
+                "accepted work retains capacity until it returns"
+            );
+            assert!(manual.run());
+        }
+        assert_eq!(owner.usage().jobs, 0);
+        assert_eq!(owner.usage().bytes, 0);
+        let out = settle(&mut retiring, &manual, &owner);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].column, ChunkKey::new(-1, 2, 0));
+        assert!(!live.far_terrain_enabled());
+        assert!(live.far_summaries_idle());
+        assert!(!live.has_far_summaries());
+    }
+}
+
+/// Returning cancelled work cannot acknowledge a newer issue after far terrain is enabled again.
+#[test]
+fn cancelled_delivery_is_disconnected_from_reenabled_generation() {
+    let owner = owner(2);
+    let manual = Manual::default();
+    let mut live = manual_stream(&owner, &manual);
+    let column = ChunkKey::new(0, 1, 0);
+    live.spawn_far_summaries(vec![(column, snapshot(1, 1))]);
+    live.far_terrain.inbox.pump();
+    assert!(manual.run());
+    live.far_terrain.inbox.pump();
+    let old_generation = live.far_terrain_issued_generation();
+    live.set_far_terrain_enabled(false);
+    live.set_far_terrain_enabled(true);
+    live.spawn_far_summaries(vec![(column, snapshot(0, 1))]);
+    assert!(live.far_terrain_issued_generation() > old_generation);
+    // Publish new work before allowing the cancelled job to return.
+    live.far_terrain.inbox.pump();
+    let preparation = manual.0.lock().unwrap().pop_back().unwrap();
+    preparation();
+    live.far_terrain.inbox.pump();
+    let newest = manual.0.lock().unwrap().pop_back().unwrap();
+    newest();
+    assert!(manual.run());
+    let mut out = Vec::new();
+    live.far_terrain.inbox.drain(&mut out);
+    assert_eq!(out.len(), 1);
+    assert!(
+        far_terrain::ColumnSummary::decode(&out[0].summary.bytes)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(live.far_summaries_idle());
+    assert_eq!(owner.usage().jobs, 0);
+}
+
+/// A group wait observes a deferred result even when every channel has already been emptied.
+#[test]
+fn group_wait_sees_deferred_delivery_in_another_inbox() {
+    let owner = owner(1);
+    let manual = Manual::default();
+    let assets = Arc::new(RuntimeAssets::diagnostic());
+    let mut pending = inbox(&owner, &manual);
+    let mut ready = inbox(&owner, &manual);
+    ready.enqueue(ChunkKey::new(0, 1, 0), snapshot(1, 1), context(&assets));
+    ready.pump();
+    assert!(manual.run());
+    ready.pump();
+    assert!(manual.run());
+    pending.enqueue(ChunkKey::new(1, 2, 0), snapshot(2, 1), context(&assets));
+    let mut out = Vec::new();
+    pending.drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    ready.drain_budgeted(&mut out, &mut SummaryBudget::new(0, 0));
+    assert!(pending.rx.is_empty());
+    assert!(ready.rx.is_empty());
+    assert!(ready.deferred.is_some());
+    assert!(FarSummaryInbox::wait_for_any(
+        [&pending, &ready],
+        Instant::now()
+    ));
+    assert_eq!(owner.usage().jobs, 1);
+    ready.drain(&mut out);
+    assert_eq!(out.len(), 1);
+    assert_eq!(settle(&mut [pending, ready], &manual, &owner).len(), 1);
+}

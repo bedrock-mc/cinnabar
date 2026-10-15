@@ -78,7 +78,11 @@ copied job inputs and undelivered results across live and retired streams; retai
 snapshots and immutable asset registries remain separate source memory. Large sources advance
 through bounded copies of the relevant layers and biomes. A shared asset identity prepares
 its colours before any dependent summary runs. Retired inboxes keep deferred sources alive
-and advance them during draining, within the existing bounded exit wait. Focused regression
+and advance them during draining, within the existing bounded exit wait. Shutdown gives all
+retiring inboxes a bounded drain turn before waiting for activity in any of them, so one
+session's ready results can release capacity for another. Disabling live far terrain closes
+its previous result receiver: queued results are discarded and running copies release their
+reservations when they finish, independently of enabled polling. Focused regression
 fixtures are written; execution, transfer timing and output qualification remain unverified.
 Summaries hash their content, so an identical resend leaves the cache unchanged. The in-memory cache keeps them
 compressed under a byte budget and drops the least recently used first. Cache bounds live in

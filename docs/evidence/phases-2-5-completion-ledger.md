@@ -45,7 +45,8 @@ incomplete. This change closes no parity or performance gate.
 
 Far-summary extraction now has global copied-work admission, a background lane and an
 explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
-sources. Regression fixtures are written but unrun; output, transfer timing and hardware
+sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
+releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
 performance qualification remain incomplete. No phase or performance gate closes here.
 
 ## P2.5-NATIVE-BIOME

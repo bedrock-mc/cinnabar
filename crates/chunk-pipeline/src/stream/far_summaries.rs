@@ -1,6 +1,6 @@
 //! Far-terrain summaries of complete and retiring columns, extracted on world workers.
 
-use crossbeam_channel::unbounded;
+use crossbeam_channel::{Select, unbounded};
 use far_terrain::{ColumnSnapshot, EncodedSummary, SummaryBudget, SurfaceColours, SurfaceContext};
 
 use super::*;
@@ -8,6 +8,10 @@ use super::*;
 mod admission;
 mod preparation;
 mod producer;
+#[cfg(feature = "publication-test-support")]
+mod test_support;
+#[cfg(feature = "publication-test-support")]
+pub use test_support::FarSummaryFixture;
 
 use preparation::{PendingContext, PreparedAssets};
 use producer::{Event, Producer, Progress};
@@ -93,11 +97,13 @@ impl FarSummaryInbox {
         self.producer.pump(&self.tx, JOBS_PER_POLL);
     }
 
-    /// Cancels source ownership; already-running copies are discarded when they return.
+    /// Disconnects cancelled delivery without releasing work still owned by a worker.
+    /// Dropping the old receiver discards queued/deferred results; later sends discard their
+    /// results at the worker. Neither path depends on the disabled stream being polled.
     fn cancel_pending(&mut self) {
-        for (column, _) in self.producer.clear() {
-            self.acknowledge(column);
-        }
+        let mut replacement = Self::new(self.producer.empty());
+        replacement.next_generation = self.next_generation;
+        *self = replacement;
     }
 
     /// Issues one generation even if its source cannot yet enter the worker queue.
@@ -159,6 +165,28 @@ impl FarSummaryInbox {
             self.accept(event, out);
             self.drain(out);
         }
+    }
+
+    /// Waits for any non-idle inbox after the caller has given every inbox a drain turn.
+    /// Deferred results are already ready. Waiting does not consume output or transfer its
+    /// session ownership, and the caller supplies one shared deadline for the whole group.
+    pub fn wait_for_any<'a>(
+        inboxes: impl IntoIterator<Item = &'a Self>,
+        deadline: Instant,
+    ) -> bool {
+        let mut ready = Select::new();
+        let mut waiting = false;
+        for inbox in inboxes {
+            if inbox.is_idle() {
+                continue;
+            }
+            if inbox.deferred.is_some() {
+                return true;
+            }
+            ready.recv(&inbox.rx);
+            waiting = true;
+        }
+        waiting && ready.ready_deadline(deadline).is_ok()
     }
 
     /// Releases one issue only when it is delivered, discarded as stale, or cancelled.

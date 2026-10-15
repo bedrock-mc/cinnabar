@@ -100,13 +100,13 @@ impl Admission {
     }
 
     /// Exposes the fixture's actual limits without duplicating policy in assertions.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "publication-test-support"))]
     pub(super) fn policy(&self) -> Policy {
         self.policy
     }
 
     /// Observes reservations without clocks or worker execution.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "publication-test-support"))]
     pub(super) fn usage(&self) -> Usage {
         *self
             .usage

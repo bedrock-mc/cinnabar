@@ -230,14 +230,9 @@ impl Producer {
         });
     }
 
-    /// Drops deferred source work while running copies retain their own bounded reservations.
-    pub(super) fn clear(&mut self) -> Vec<(ChunkKey, u64)> {
-        self.pending.clear();
-        let pending = self.queued.drain().collect();
-        self.sources.clear();
-        self.contexts.clear();
-        self.subscriptions.clear();
-        pending
+    /// Starts a new delivery lifetime with the same global admission owner and executor.
+    pub(super) fn empty(&self) -> Self {
+        Self::new(Arc::clone(&self.admission), Arc::clone(&self.executor))
     }
 
     /// Measures logical source payload independently of admitted copied work.
