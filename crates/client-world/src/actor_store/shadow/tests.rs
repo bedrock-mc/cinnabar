@@ -6,7 +6,9 @@ use protocol::{
     ActorSpawnEvent,
 };
 
-use super::super::ActorStore;
+use super::super::{
+    ActorApplyResult, ActorStore, DEFAULT_ACTOR_COLLISION_WIDTH, spatial::MIN_COLLISION_DIMENSION,
+};
 
 fn spawn(store: &mut ActorStore, runtime_id: u64, identifier: &str, width: f32) {
     let kind = if identifier == "player" {
@@ -131,10 +133,10 @@ fn scaled_player_shadow_uses_the_collision_width() {
     for width in [None, Some(0.6), Some(0.3)] {
         let mut store = ActorStore::new(1, 0);
         spawn(&mut store, 1, "player", width.unwrap_or(0.0));
-        for scale in [0.5, 2.0, 1.0, 0.0] {
-            store.apply(
+        for (sequence, scale) in (2..).zip([0.5, 2.0, 1.0, 0.0]) {
+            let result = store.apply(
                 1,
-                2,
+                sequence,
                 ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
                     dimension: 0,
                     runtime_id: 1,
@@ -143,13 +145,25 @@ fn scaled_player_shadow_uses_the_collision_width() {
                         value: ActorMetadataValue::Float(scale),
                     }]),
                     properties: Arc::from([]),
-                    tick: 2,
+                    tick: sequence,
                 }),
             );
+            assert_eq!(
+                result,
+                ActorApplyResult::Updated,
+                "width {width:?}, scale {scale}"
+            );
+            let expected_width = (width.unwrap_or(DEFAULT_ACTOR_COLLISION_WIDTH) * scale)
+                .max(MIN_COLLISION_DIMENSION);
             let actor = store.get(1).unwrap();
             let (min, max) = actor.bounding_box_at([0.0; 3]).unwrap();
+            assert_eq!(
+                max[0] - min[0],
+                expected_width,
+                "collision width {width:?}, scale {scale}"
+            );
             assert!(
-                close(radius(&store, 1), max[0] - min[0]),
+                close(radius(&store, 1), expected_width),
                 "width {width:?}, scale {scale}: {:?}",
                 radius(&store, 1)
             );

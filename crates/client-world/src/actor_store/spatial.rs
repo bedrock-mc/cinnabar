@@ -4,7 +4,7 @@ use super::*;
 use protocol_ids::ActorDataKey;
 
 /// Collision dimensions retain a small positive extent after server scaling.
-const MIN_COLLISION_DIMENSION: f32 = 0.005;
+pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
     /// Uses the synced collision flag when supplied, otherwise the default definition.
