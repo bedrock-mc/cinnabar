@@ -287,6 +287,12 @@ restores failed macOS/Linux starts. Read-only installs offer the manual download
 Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
 API release notice for the selected channel checks immediately.
 
+Nightly checks both the nightly and beta signed manifests and offers the newer release while
+keeping the Nightly preference. Release ordering compares the version core, then the shared
+publication number, then SemVer prerelease precedence. An unavailable or invalid beta manifest
+leaves nightly usable. Cached offers and retained stages use the same order to prevent automatic
+downgrades when the winning publishing channel changes. Beta remains the default channel.
+
 Incomplete: CI must compile and run the written regression tests on all platforms. The package
 workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
 the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
@@ -687,9 +693,54 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   changes and Graphics API selections, including reselecting Auto, clear exclusions at startup.
   If no non-excluded candidate succeeds, startup clears allowed exclusions for one more attempt pass.
   Startup log boundaries flush the file directly without waiting for terminal output.
-- The driver blocklist has one data source and bounded numeric version rules. Native Windows
-  exception capture and Unix fatal-signal capture retain local renderer context and normal OS
-  crash handling.
+- The driver blocklist has one data source and bounded numeric version rules. Crash capture
+  attributes the renderer attempt pushed to the crash monitor and keeps normal OS crash handling.
+- Diagnostics Phase 3, crash monitor and window: the client re-runs itself as
+  `--crash-monitor` before startup; `crash-handler` faults and panics request a `minidumper`
+  dump, and the monitor writes the folder (dump, report, log sections read after the client
+  died), prunes to 8 and shows the crash window (shared `bootstrap-ui` window stack) or a native
+  dialog. Game state (renderer attempt, session phase, server kind, dimension, server packs) is
+  pushed on change; exits without a dump report `kind: abort`; GUI-build `main` failures show
+  `kind: startup`. In-process folders remain the fallback before connection and on Android.
+  Verified locally on Windows: panic, access violation, stack overflow, abort (fail-fast) and
+  external kill each give one folder of the right kind (dump where native/panic), clean exit gives
+  none and the monitor exits with its client. Incomplete: Linux and macOS fixtures run only in
+  CI; the window and native dialog are not visually verified on macOS or Linux; dumps are not
+  yet walked with `minidump-stackwalk`; next-launch notices for unshown reports and the optional
+  user comment remain open.
+- Diagnostics Phase 4, hang watchdog: the client maps a small heartbeat file in its crash
+  directory that the monitor also maps; the main thread ticks a frame counter once per frame in
+  `First` (one relaxed load and store), and a loading count covers each world join until two
+  in-world frames finished. Nothing counts before the first frame, so carrier loading, first-run
+  preparation and renderer setup are never hangs; pack compilation runs off the main thread and
+  needs no loading phase. The monitor samples ten times per 10 s window; no progress outside
+  loading writes one `kind: hang` folder (report, log sections, minidump of every thread taken
+  from the monitor side) and keeps the client running, without a window. Progress then a new
+  stall writes a new folder; killing a hung client shows its hang folder instead of an abort
+  folder. A client in a debugger, one being dumped for a crash, and gaps in the monitor's own
+  sampling (system sleep) are not hangs. Verified locally on Windows: detection unit tests on a
+  manual clock, and fixture clients where a stall then kill gives exactly one hang folder with a
+  dump holding the watched thread, a loading stall gives none, and recovery then a second stall
+  gives two. Incomplete: Linux (`ptrace` dump after `PR_SET_PTRACER`) and macOS (report without
+  a dump; the task port needs privileges) fixtures run only in CI; a real client hang has not
+  been reproduced; a Windows title-bar drag or resize that blocks frames for 10 s would be
+  reported as a hang.
+- Diagnostics Phase 5, core process wiring: every bedrock-core spawn (game, account, sign-in
+  and catalog helpers) gets `-log-level` from the `core` log category (trace and debug map to
+  debug, off to error) and `-crash-output` in the session's crash staging directory (`core/`,
+  pruned with it once the client is gone). A reader thread per process
+  labels stderr lines without a `process=` attribute with role and pid and queues them for one
+  `core.log` writer (a per-session family with the `CORE_SESSION_START` header and the client
+  log's mid-session size cap); a full queue drops and counts lines, never blocking a core.
+  Exit statuses are recorded; an exit nobody asked for other than status 0 or the core's own
+  `core failed` status 1, or any Go crash output, writes a `kind: core` folder with the client
+  and core log sections, the staged packet and flight attachments and `core-crash.txt`, without
+  a crash window; the staged file is
+  deleted afterwards. The account core restarts with `RestartBackoff` (0.5 s doubling to 8 s,
+  giving up after five quick exits until sign-in changes or a refresh). Verified locally on
+  Windows with a Go stand-in core: a panic gives one folder with the traceback, clean and status
+  1 exits and kills give none, helper stderr reaches the log labelled. Incomplete: Linux and
+  macOS run only in CI; no live client run with a crashing real core.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel
@@ -9326,6 +9377,82 @@ resource-pack fixture checks title-selected panels through indexed pack overlays
 Incomplete: the reported server form flash-close needs the affected pack and an
 ordered packet/input trace. The separate data-driven screen packet family remains
 unsupported. Live visual parity and performance acceptance remain open.
+
+## Packet flight recorder and capture
+
+Sessions record the last 4,096 packet headers in both directions, with each packet's
+accept, skip or failure outcome, and keep up to four rejected bodies per packet ID from
+the latest session that rejected one. `CINNABAR_PACKET_CAPTURE` writes a capture v2 that
+`bedrock-replay` reads alongside v1, optionally on the recorded schedule. Its queue bounds
+record count and owned body bytes, including the active disk write, and detaches admitted
+bodies from their source batches. Captures that require an unavailable blob cache are
+rejected before replay starts. Login, handshake and pack-offer bodies never reach samples
+or captures.
+
+Crash reports carry the ring and samples: the header ring and the log flight recorder (last 2,000 lines,
+`debug` for net, session, core and packs under its own per-layer filter) are lock-free
+rings in mapped files under `crashes/.live-<session id>/`. A background writer coalesces
+sample changes from a store bounded by body bytes and sample count; ingress never waits
+for persistence, and contention losses are counted. The monitor and the in-process fallback attach `packets.txt`,
+`decode-samples/` and `flight.log` to every folder; the crash window lists the last packets
+from `packets.txt`. Verified locally on Windows: ring layouts round-trip through their
+readers, header recording into the mapped ring allocates nothing, and the crash-monitor
+fixtures (panic, access violation, stack overflow, fail-fast abort, external kill, early
+in-process panic) each carry the fixture's packets, sample and recorder line. Criterion,
+shared build host under load: a recorder-only `debug` event costs about 1.7 µs through the
+installed subscriber (both filters, formatting, mapped write); a disabled event about 2 ns.
+
+Incomplete: recorded times are when the client reads each batch, not socket arrival;
+no frame or join capture has measured the recorder's cost. Folders from fatal Unix
+signals written in-process lack the three attachments;
+Linux and macOS fixtures run only in CI; the recorder cost is not measured on an idle host
+or in a frame or join capture; the Settings → Advanced "Record network session" option is
+not built; recorded times are when the client read each batch, not socket arrival.
+
+## Shared redaction
+
+`crates/crash-report/data/redaction-rules.json` is the one redaction rule set: credentials
+(authorization of any scheme, XBL3.0, bearer, JWTs, token/ticket/session id/content key
+fields) and private data (IPv4/IPv6 with ports, hosts in address/target fields and bare
+hostnames, home folders, XUIDs, gamertag and other identity fields), all replaced by
+`[redacted]`. `crash_report::redact` compiles it and owns the share-time engine (learned
+values, escape layers, JSON keys) that `devtool diag` and the crash window's Copy report use.
+The Go core embeds a byte-for-byte copy in `core/internal/redact`; a crash-report test fails
+when it drifts, and the file's conformance vectors pass in both languages, with each output
+stable under a second pass. Go `redact.Error` replaces `control.RedactError` and the
+resource-pack handler's URL pattern; `redact.Secret` logs as the placeholder and
+`redact.Private` as a per-process keyed hash (`[redacted:xxxxxxxx]`) that the share-time rules
+keep, so records about one server still correlate. Upstream targets, transfer hops, the
+`core starting` upstream, the friend XUID and the raw upstream, session, friend and web-relay
+errors log redacted, with regression tests asserting no address or XUID in the output.
+
+Verified: crash-report, devtool diagnostic-bundle and crash-monitor summary tests; Go tests for
+`internal/redact`, `control`, `launcher`, `webrelay`, `cmd/bedrock-core` and `proxy`.
+Incomplete: Go applies only the single pattern pass; learned values and escape decoding are
+Rust share-time only, so an escaped credential in a Go error relies on the JWT and XBL rules.
+No Rust log site was found carrying a credential field, so no `Secret` wrapping was added; the
+`developer-control` and `launcher-host` tokens sit in `Debug` structs that are never logged.
+The core still logs its socket directory and catalog path in clear; share time redacts the
+`endpoint` value whole but only the home folder name in the catalog path.
+
+## Diagnostics settings and F3 log row
+
+Settings → General → Advanced has two toggles, both off by default and kept in
+`settings.json`. Verbose logging layers `net=debug,session=debug,core=debug,packs=debug`
+over the defaults right after launch finds the install layout, and changes the filter
+immediately when toggled; a non-empty `CINNABAR_LOG` or `RUST_LOG` wins and the setting
+then changes nothing. Record network session asks each new session for a capture in the
+log directory; its caption says the recording holds chat and player names and is never
+uploaded. A non-empty `CINNABAR_PACKET_CAPTURE`, including `0`, decides instead. F3 shows
+one row with the categories not at `info` (or `custom` for `RUST_LOG` or raw directives)
+and the capture choice. The row is formatted again only when
+`diagnostics::logging::filter_generation()` or the capture choice changes.
+
+Verified: unit tests for setting persistence, environment precedence for both settings,
+the F3 row's content and its formatting only on change, and the OreUI rows; ui-snapshot
+captures of the section. Incomplete: no live client run has toggled either setting or shown
+the F3 row on a real frame; the F3 row reports the choice for new sessions, not whether the
+running session is recording; the toggle stays enabled when the environment overrides it.
 
 ## Retained HUD alpha segments
 

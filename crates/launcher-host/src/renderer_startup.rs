@@ -10,9 +10,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
+use crate::lifecycle::crash::state as crash_state;
 use launcher::graphics_backend::{Adapter, Backend};
 
-pub(crate) mod context;
 mod owner;
 mod recovery;
 pub(crate) mod termination;
@@ -157,7 +157,7 @@ impl StartupGuard {
                 attempt: attempt.clone(),
             },
         )?;
-        context::update(&self.root, Some(&attempt));
+        crash_state::set_renderer(&self.root, Some(&attempt));
         self.pending = Some(attempt);
         Ok(())
     }
@@ -171,7 +171,7 @@ impl StartupGuard {
                 .context("clear returned renderer startup error")?;
             self.pending = None;
         }
-        context::update(&self.root, None);
+        crash_state::set_renderer(&self.root, None);
         Ok(())
     }
 
@@ -195,7 +195,7 @@ impl StartupGuard {
         save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         fs::remove_file(self.root.join(SENTINEL_FILE))
             .context("clear renderer startup sentinel")?;
-        context::update(&self.root, self.recovery.working.as_ref());
+        crash_state::set_renderer(&self.root, self.recovery.working.as_ref());
         self.pending = None;
         self.lock = None;
         Ok(())

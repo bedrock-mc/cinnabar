@@ -23,6 +23,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/cinnabarapi"
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
@@ -177,7 +178,7 @@ func (s *Service) FeaturedServersWithCounts(ctx context.Context) ([]catalog.Feat
 	}
 	counts, countErr := s.cfg.ExperienceCounts(ctx, src)
 	if countErr != nil {
-		s.logger.Warn("experience counts unavailable", "error", control.RedactError(countErr))
+		s.logger.Warn("experience counts unavailable", "error", redact.Error(countErr))
 	}
 	if _, err := s.source(); err != nil {
 		return nil, err

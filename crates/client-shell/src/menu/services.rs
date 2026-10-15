@@ -29,6 +29,7 @@ impl MenuRuntime {
                 idle,
                 client_cache_enabled,
                 local_worlds.as_deref_mut(),
+                std::time::Instant::now(),
             );
             // A held join waits for this core only while it may still start for that join.
             self.account_core = (idle && self.is_launcher()).then(|| slot.account_core());

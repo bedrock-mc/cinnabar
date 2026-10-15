@@ -2,10 +2,11 @@ use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
 use crate::codec::SessionFailure;
+use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
 use crate::raw_packet::{MAX_RAW_BATCH_PACKETS, RawPacket, decode_batch_body};
 use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
@@ -47,7 +48,9 @@ pub(crate) enum Terminal {
 ///
 /// The handed-off startup packets come first; each later Batch frame is split in place, without
 /// copying. A terminal Transfer or Disconnect ends the stream. A send is retained from its first
-/// poll until flushed, strictly in order, so cancellation neither loses nor repeats it.
+/// poll until flushed, strictly in order, so cancellation neither loses nor repeats it. An
+/// optional [`PacketTap`] sees each received packet once, as its batch is read and split (see
+/// [`crate::packet_tap`] for what that time measures), and each sent packet once.
 pub(crate) struct SessionTransport {
     reader: FramedReader,
     frames: FrameQueue,
@@ -57,6 +60,16 @@ pub(crate) struct SessionTransport {
     ahead_bytes: usize,       // frame bytes held in `ahead`
     ended: bool,              // a terminal message was delivered
     sending: VecDeque<InFlightSend>,
+    tap: Option<Arc<dyn PacketTap>>,
+    current: Option<CurrentPacket>, // the tapped packet the session is processing
+}
+
+/// The last delivered packet, kept until the session asks for the next one so an outcome
+/// report can name it.
+struct CurrentPacket {
+    record: PacketRecordId,
+    packet_id: u32,
+    body: Bytes,
 }
 
 type FrameSend = Pin<Box<dyn Future<Output = Result<(), BridgeError>> + Send>>;
@@ -89,7 +102,20 @@ impl SessionTransport {
             ahead_bytes: 0,
             ended: false,
             sending: VecDeque::new(),
+            tap: None,
+            current: None,
         }
+    }
+
+    /// Reports every packet this transport delivers or sends to `tap`.
+    pub(crate) fn with_tap(mut self, tap: Option<Arc<dyn PacketTap>>) -> Self {
+        self.tap = tap;
+        self
+    }
+
+    /// The tap shared with detached outbound batches.
+    pub(crate) fn tap(&self) -> Option<Arc<dyn PacketTap>> {
+        self.tap.clone()
     }
 
     /// The FIFO this transport's own sends share with detached outbound batches.
@@ -98,14 +124,19 @@ impl SessionTransport {
     }
 
     /// Returns the next packet or terminal message; cancelling the wait loses nothing.
+    ///
+    /// Asking for the next packet settles the previous one: an outcome reported later no longer
+    /// names it.
     pub(crate) async fn recv(&mut self) -> Result<Inbound, SessionError> {
+        self.current = None;
         loop {
             if let Some(packet) = self.received.pop_front() {
+                self.observe(&packet);
                 return Ok(Inbound::Packet(packet));
             }
             if let Some(batch) = self.startup.pop_front() {
-                self.received
-                    .extend(decode_batch_body(batch, MAX_SESSION_BATCH_BYTES)?);
+                let packets = self.split_batch(batch)?;
+                self.received.extend(packets);
                 continue;
             }
             if self.ended {
@@ -126,8 +157,8 @@ impl SessionTransport {
                 None => return Err(SessionFailure::ConnectionClosed.into()),
             };
             if let Some(body) = crate::session_wire::batch_frame_body(&frame) {
-                self.received
-                    .extend(decode_batch_body(body, MAX_SESSION_BATCH_BYTES)?);
+                let packets = self.split_batch(body)?;
+                self.received.extend(packets);
                 continue;
             }
             let terminal = match crate::session_wire::decode_core_message(frame)
@@ -176,11 +207,74 @@ impl SessionTransport {
         Poll::Ready(more)
     }
 
-    /// Puts `packets` back ahead of every unread packet, in their order.
+    /// Puts `packets` back ahead of every unread packet, in their order. The tap has already
+    /// seen them and does not see them again.
     pub(crate) fn prepend(&mut self, packets: Vec<RawPacket>) {
         let mut restored = VecDeque::from(packets);
         restored.append(&mut self.received);
         self.received = restored;
+    }
+
+    /// Releases the observed body once decoding and validation have succeeded.
+    pub(crate) fn accept_current(&mut self) {
+        self.current = None;
+    }
+
+    /// Keeps a detached packet's observer view on the same bounded allocation.
+    pub(crate) fn compact_current(&mut self, packet: &RawPacket) {
+        if let Some(current) = &mut self.current
+            && packet.record == Some(current.record)
+            && (current.body.as_ptr() != packet.body().as_ptr()
+                || current.body.len() != packet.body().len())
+        {
+            current.body = packet.body().clone();
+        }
+    }
+
+    /// Reports `outcome` for the packet the session is processing: the one [`Self::recv`]
+    /// returned last. Only the first report after each delivery counts.
+    pub(crate) fn reject_current(&mut self, outcome: PacketOutcome) {
+        if let (Some(tap), Some(current)) = (&self.tap, self.current.take()) {
+            tap.reject(
+                current.record,
+                current.packet_id,
+                outcome,
+                PacketBody::whole(&current.body),
+            );
+        }
+    }
+
+    /// Makes `packet`, which the tap recorded when its batch was split, the current packet.
+    fn observe(&mut self, packet: &RawPacket) {
+        if self.tap.is_none() {
+            return;
+        }
+        self.current = packet.record.map(|record| CurrentPacket {
+            record,
+            packet_id: packet.id as u32,
+            body: packet.body().clone(),
+        });
+    }
+
+    /// Splits a batch body and records each packet with the tap, so every packet of one batch
+    /// carries the time its batch was read; a batch that cannot be split is reported whole.
+    fn split_batch(&self, body: Bytes) -> Result<Vec<RawPacket>, SessionError> {
+        let len = body.len();
+        let mut packets = decode_batch_body(body, MAX_SESSION_BATCH_BYTES).inspect_err(|_| {
+            if let Some(tap) = &self.tap {
+                tap.reject_batch(len);
+            }
+        })?;
+        if let Some(tap) = &self.tap {
+            for packet in &mut packets {
+                packet.record = Some(tap.record(
+                    PacketDirection::Clientbound,
+                    packet.id as u32,
+                    PacketBody::whole(packet.body()),
+                ));
+            }
+        }
+        Ok(packets)
     }
 
     /// Writes `packets` as one Batch frame after every send retained before it, resolving once
@@ -192,6 +286,9 @@ impl SessionTransport {
         let Some(frame) = batch_frame(packets) else {
             return Ok(());
         };
+        if let Some(tap) = &self.tap {
+            crate::packet_tap::record_serverbound(tap.as_ref(), &frame);
+        }
         let frames = self.frames.clone();
         self.sending.push_back(InFlightSend {
             write: Mutex::new(Box::pin(async move { frames.send(frame).await })),

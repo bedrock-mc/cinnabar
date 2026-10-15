@@ -14,6 +14,20 @@ use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
 
 use crate::{Packet, WorldEvent, WorldPacketError, into_world_event};
 
+/// Builds both terrain packet shapes with the requested blob-cache mode.
+pub fn terrain_cache_packets(cache_enabled: bool) -> [Packet; 2] {
+    [
+        Packet::new(packets::LevelChunk {
+            cache_enabled,
+            ..Default::default()
+        }),
+        Packet::new(packets::SubChunk {
+            cache_enabled,
+            ..Default::default()
+        }),
+    ]
+}
+
 /// An outbound Emote packet's fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EmoteObservation {

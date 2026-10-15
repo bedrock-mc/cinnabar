@@ -11,6 +11,9 @@ macro_rules! product_name {
 /// The product name shown in window titles, defaults and the install directory.
 pub const PRODUCT_NAME: &str = product_name!();
 
+/// The community Discord invite the client links to for help.
+pub const DISCORD_INVITE_URL: &str = "https://discord.gg/MeEz7BEHcM";
+
 /// The packaged client version from the workspace manifest.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 

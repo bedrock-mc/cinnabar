@@ -58,15 +58,18 @@ impl LauncherCore {
         let directory =
             SessionDirectoryGuard::bind(socket_dir.clone()).map_err(|error| anyhow!("{error}"))?;
         clear_stale_bridge_endpoint(&socket_dir)?;
-        let child = crate::lifecycle::children::spawn(&mut launcher_command(
-            layout,
-            &executable,
-            &socket_dir,
-            auth_cache,
-            upstream_client_cache,
-            Some(language),
-            lease_game_cache,
-        ))
+        let child = crate::lifecycle::core_output::spawn(
+            &mut launcher_command(
+                layout,
+                &executable,
+                &socket_dir,
+                auth_cache,
+                upstream_client_cache,
+                Some(language),
+                lease_game_cache,
+            ),
+            crate::lifecycle::core_output::CoreRole::Account,
+        )
         .with_context(|| format!("spawn {} for the launcher", executable.display()))?;
         let mut guard = CoreProcessGuard::default();
         guard.replace(child);
@@ -142,11 +145,7 @@ fn launcher_command(
         .arg("-device-file")
         .arg(layout.device_profile_file())
         .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(
-            crate::lifecycle::core_health::open_core_log(layout)
-                .map_or_else(Stdio::null, Stdio::from),
-        );
+        .stdout(Stdio::null());
     // Direct-mode account cores run alongside game cores that own this exclusive lease.
     if lease_game_cache {
         command

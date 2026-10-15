@@ -106,7 +106,7 @@ fn a_miss_reclaims_one_shelf_and_keeps_later_hits_and_other_unused_pixels() {
 #[test]
 fn rejected_ink_never_samples_pixels_and_does_not_block_a_smaller_miss() {
     let mut atlas = full_atlas();
-    let wide: Arc<str> = "A".repeat(NAMETAG_ATLAS_SIDE as usize).into();
+    let wide: Arc<str> = "0".into();
     let small = Arc::from("A");
     let requested = [
         Arc::from("B"),
@@ -115,7 +115,7 @@ fn rejected_ink_never_samples_pixels_and_does_not_block_a_smaller_miss() {
         Arc::clone(&small),
     ];
     atlas.begin_frame(requested.iter());
-    let font = ui_engine::test_support::fixture_font();
+    let font = shelf_font();
     let mut layouts = TextLayoutCache::new(4, 1 << 20);
     let reads = Cell::new(0);
     let pages = |page| {
@@ -123,8 +123,7 @@ fn rejected_ink_never_samples_pixels_and_does_not_block_a_smaller_miss() {
         font_page(&font, page)
     };
     let measured = measure_line(&wide, &font, &mut layouts).unwrap();
-    // The bounded prefix must exceed either shelf's free half, even at a glyph boundary.
-    assert!(measured.size[0] > NAMETAG_ATLAS_SIDE / 2);
+    assert_eq!(measured.size, [NAMETAG_ATLAS_SIDE, SHORT_SHELF_HEIGHT]);
     // The previous order rasterized this ink before discovering it could not be placed.
     let _ = rasterize_line(&measured, &pages, &ui::FormattingPalette::default());
     assert!(reads.get() > 0);

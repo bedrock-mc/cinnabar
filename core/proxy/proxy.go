@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/sandertv/gophertunnel/minecraft"
 	"github.com/sandertv/gophertunnel/minecraft/device"
@@ -192,14 +193,14 @@ func connectUpstream(
 		}
 	}()
 	started := time.Now()
-	logger.Info("upstream connection starting", "target", address, "authentication", authentication)
+	logger.Info("upstream connection starting", "target", redact.Private(address), "authentication", authentication)
 	upstream, err := dialFollowingTransfers(ctx, address, logger, dial)
 	if err != nil {
-		logger.Error("upstream connection failed", "target", address, "authentication", authentication, "error", err)
+		logger.Error("upstream connection failed", "target", redact.Private(address), "authentication", authentication, "error", redact.Error(err))
 		return nil, err
 	}
 	owned = upstream
-	logger.Info("upstream connected", "target", address, "authentication", authentication, "elapsed_ms", time.Since(started).Milliseconds())
+	logger.Info("upstream connected", "target", redact.Private(address), "authentication", authentication, "elapsed_ms", time.Since(started).Milliseconds())
 	result = upstream
 	owned = nil
 	return result, nil
@@ -249,7 +250,7 @@ func dialFollowingTransfers(
 		if _, ok := seen[key]; ok {
 			return nil, fmt.Errorf("proxy: transfer cycle to %q: %w", next, err)
 		}
-		logger.Info("following pre-login server transfer", "from", address, "to", next, "hop", transfers+1)
+		logger.Info("following pre-login server transfer", "from", redact.Private(address), "to", redact.Private(next), "hop", transfers+1)
 		seen[key] = struct{}{}
 		address = next
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 )
@@ -162,7 +163,7 @@ func (server *Server) logServiceFailure(method string, err error) {
 	logger := server.logger
 	server.mu.Unlock()
 	if logger != nil {
-		logger.Warn("launcher service failed", "method", method, "error", RedactError(err))
+		logger.Warn("launcher service failed", "method", method, "error", redact.Error(err))
 	}
 }
 

@@ -253,6 +253,24 @@ pub const STATES: &[State] = &[
         fixture: settings_keyboard,
     },
     State {
+        name: "settings-general",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_general_toggle(SettingId::EcomodeToggle),
+    },
+    State {
+        name: "settings-general-advanced",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_general_toggle(SettingId::RecordNetworkSession),
+    },
+    State {
+        name: "settings-general-advanced-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: settings_general_diagnostics_on,
+    },
+    State {
         name: "settings-keyboard-physical-label",
         size: KEYBOARD_SIZE,
         gui_scale: GUI_SCALE,
@@ -428,6 +446,32 @@ fn settings_video_option(id: SettingId) -> Fixture {
 /// Shows the keyboard options and command macro modifier without a live session.
 fn settings_keyboard() -> Fixture {
     Fixture::Menu(Box::new(settings("keyboard_and_mouse_forced_index")))
+}
+
+/// Scrolls the General section to toggle `id` through the client's focus scrolling; a toggle's
+/// action carries the value it switches to.
+fn settings_general_toggle(id: SettingId) -> Fixture {
+    let mut view = settings(SettingSection::General.definition().name);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        id.index() as u16,
+        1 - view.settings_options.value(id),
+    ));
+    Fixture::Menu(Box::new(view))
+}
+
+/// The Advanced rows with Verbose logging and Record network session turned on.
+fn settings_general_diagnostics_on() -> Fixture {
+    let mut view = settings(SettingSection::General.definition().name);
+    let mut options = (*view.settings_options).clone();
+    for id in [SettingId::VerboseLogging, SettingId::RecordNetworkSession] {
+        options.set(id.index(), 1);
+    }
+    view.settings_options = Arc::new(options);
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::RecordNetworkSession.index() as u16,
+        0,
+    ));
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows the same physical hotbar binding with a fallback or an observed AZERTY label.

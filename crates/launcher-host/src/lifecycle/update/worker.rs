@@ -1,10 +1,11 @@
 //! The existing HTTPS check streams one digest-named partial file on its background thread.
+use super::releases::{cache_path, read_cached};
 use super::*;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, File},
-    io::{Read, Write},
+    io::Write,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -160,7 +161,7 @@ fn run(
     cached: bool,
     announcement: Option<&Announcement>,
 ) -> Result<()> {
-    let Some(manifest_url) = preferences.channel.manifest_url() else {
+    let Some(_) = preferences.channel.manifest_url() else {
         return Ok(());
     };
     let keys = update_manifest::parse_keys(update_installer::TRUSTED_KEYS)?;
@@ -188,7 +189,6 @@ fn run(
         ..check
     };
     let stable_cache = cache_path(&root, Channel::Stable);
-    let channel_cache = cache_path(&root, preferences.channel);
     let stable_url = Channel::Stable.manifest_url();
     if stable_url.is_some()
         && read_cached(&stable_cache).is_some_and(|cached| {
@@ -218,14 +218,7 @@ fn run(
     {
         staged = Some(selected.manifest.clone());
         let (directory, reader) = stage::retain(&destination, &lease, &selected)?;
-        publish(
-            directory,
-            reader,
-            selected,
-            preferences.channel,
-            switch_now,
-            generation,
-        );
+        publish(directory, reader, selected, switch_now, generation);
     }
     if (!preferences.checks && !switch_now) || !active(generation) {
         return Ok(());
@@ -233,11 +226,12 @@ fn run(
     let stamp_path = stamp_path(&root, preferences.channel);
     if !immediate && !switch_now && !due(last_check(&root, preferences.channel), now_secs()) {
         // The skipped check would have found the same release, so restore what it offered.
-        if cached_switch_offer(&channel_cache, &keys, check, OffsetDateTime::now_utc())
-            && let Ok(mut state) = STATE.lock()
+        let switch_available =
+            staged.is_none() && cached_switch_offer(&root, &keys, check, OffsetDateTime::now_utc());
+        if let Ok(mut state) = STATE.lock()
             && state.generation == generation
         {
-            offer_switch(&mut state);
+            set_switch_offer(&mut state, switch_available);
         }
         return Ok(());
     }
@@ -259,30 +253,34 @@ fn run(
             }
         }
         ensure!(active(generation), "update channel changed");
-        let cached = cached
-            .then(|| cached_selection(&channel_cache, &keys, check, OffsetDateTime::now_utc()))
-            .flatten();
-        let selected = if let Some(cached) = cached {
-            cached
-        } else {
-            let envelope = fetch(&client, &manifest_url).await?;
-            let selected = Selection::verify(
-                &envelope,
-                &keys,
-                Check {
-                    switch_now: true,
-                    ..check
-                },
-                OffsetDateTime::now_utc(),
-            )?;
-            if announcement.is_some_and(|hint| {
-                hint.ahead_of(&selected.manifest.version, selected.manifest.build_number)
-            }) {
-                return Err(ManifestBehind.into());
-            }
-            let _ = fs::write(&channel_cache, &envelope);
-            selected
-        };
+        let selected = releases::select(
+            &root,
+            &keys,
+            check,
+            cached,
+            OffsetDateTime::now_utc(),
+            async |channel| {
+                fetch(
+                    &client,
+                    &channel
+                        .manifest_url()
+                        .context("unpublished update channel")?,
+                )
+                .await
+            },
+        )
+        .await?;
+        if announcement.is_some_and(|hint| {
+            hint.ahead_of(&selected.manifest.version, selected.manifest.build_number)
+        }) {
+            return Err(ManifestBehind.into());
+        }
+        let switch_available = staged.is_none() && older_release(&selected.manifest, check)?;
+        if let Ok(mut state) = STATE.lock()
+            && state.generation == generation
+        {
+            set_switch_offer(&mut state, switch_available);
+        }
         if !switch_now
             && !update_manifest::select::newer_build(
                 &selected.manifest.version,
@@ -291,12 +289,6 @@ fn run(
                 check.current_build,
             )?
         {
-            if older_release(&selected.manifest, check)?
-                && let Ok(mut state) = STATE.lock()
-                && state.generation == generation
-            {
-                offer_switch(&mut state);
-            }
             return record(&stamp_path, check, now_secs());
         }
         if !supersedes(&selected.manifest, staged.as_ref(), switch_now)? {
@@ -304,6 +296,10 @@ fn run(
         }
         ensure!(active(generation), "update check cancelled");
         let artifact = selected.artifact.clone();
+        let artifact_cache = cache_path(
+            &root,
+            Channel::parse(&selected.manifest.channel).context("unknown release channel")?,
+        );
         let expires = selected.manifest.expires;
         let candidates = [
             Some(destination.as_path()),
@@ -337,7 +333,7 @@ fn run(
                 let mut response = request.send().await?;
                 if response.status() == reqwest::StatusCode::NOT_FOUND {
                     // The bounded retry must fetch a fresh manifest rather than reuse this cache.
-                    let _ = fs::remove_file(&channel_cache);
+                    let _ = fs::remove_file(&artifact_cache);
                 }
                 check_missing(response.status())?;
                 if response.status() == reqwest::StatusCode::PARTIAL_CONTENT {
@@ -381,14 +377,7 @@ fn run(
         );
         let selected = stage::verify(&directory, &keys, check, OffsetDateTime::now_utc())?;
         let (directory, reader) = stage::retain(&directory, &lease, &selected)?;
-        publish(
-            directory,
-            reader,
-            selected,
-            preferences.channel,
-            switch_now,
-            generation,
-        );
+        publish(directory, reader, selected, switch_now, generation);
         record(&stamp_path, check, now_secs())
     })
 }
@@ -414,11 +403,6 @@ pub(super) fn retained_manifest(
     .map(|selected| selected.manifest)
 }
 
-/// The last verified envelope fetched for `channel`.
-fn cache_path(root: &Path, channel: Channel) -> PathBuf {
-    root.join(format!("manifest-{}.json", channel.name()))
-}
-
 /// The sole persisted completion timestamp used by both polling and the worker.
 pub(super) fn stamp_path(root: &Path, channel: Channel) -> PathBuf {
     root.join(format!("last-check-{}.json", channel.name()))
@@ -429,25 +413,6 @@ pub(super) fn last_check(root: &Path, channel: Channel) -> Option<u64> {
     let stamp: Stamp = serde_json::from_slice(&read_cached(&stamp_path(root, channel))?).ok()?;
     (stamp.current == env!("CARGO_PKG_VERSION") && stamp.build == update_manifest::build_number())
         .then_some(stamp.checked_at)
-}
-
-/// Reuses only authenticated, unexpired cached selections for an explicit channel change.
-pub(super) fn cached_selection(
-    path: &Path,
-    keys: &TrustedKeys,
-    check: Check<'_>,
-    now: OffsetDateTime,
-) -> Option<Selection> {
-    Selection::verify(
-        &read_cached(path)?,
-        keys,
-        Check {
-            switch_now: true,
-            ..check
-        },
-        now,
-    )
-    .ok()
 }
 
 /// Renews an unchanged verified payload locally, leaving downloads for payloads that are absent.
@@ -462,18 +427,6 @@ pub(super) fn reuse_stage<'a>(
         }
     }
     Ok(None)
-}
-
-/// Reads a cached envelope no larger than a fetched one may be.
-fn read_cached(path: &Path) -> Option<Vec<u8>> {
-    let mut cached = Vec::new();
-    File::open(path)
-        .and_then(|file| {
-            file.take(update_manifest::MAX_ENVELOPE_BYTES as u64 + 1)
-                .read_to_end(&mut cached)
-        })
-        .ok()?;
-    Some(cached)
 }
 
 /// True when the channel's release is strictly older than the running build.
@@ -508,15 +461,28 @@ pub(super) fn supersedes(
         && fetched.expires > staged.expires))
 }
 
-/// Whether the cached, still-valid manifest at `path` warrants the Switch now offer.
+/// Whether the cached winner for the selected channel warrants the Switch now offer.
 pub(super) fn cached_switch_offer(
-    path: &Path,
+    root: &Path,
     keys: &TrustedKeys,
     check: Check<'_>,
     now: OffsetDateTime,
 ) -> bool {
-    cached_selection(path, keys, check, now)
+    releases::cached(root, keys, check, now)
         .is_some_and(|selected| older_release(&selected.manifest, check).unwrap_or(false))
+}
+
+/// Refreshes automatic switch offers without replacing an active manual switch's progress.
+pub(super) fn set_switch_offer(state: &mut State, available: bool) {
+    if state.switch_now {
+        return;
+    }
+    if available {
+        offer_switch(state);
+    } else if state.switch_available {
+        state.switch_available = false;
+        state.message = None;
+    }
 }
 
 /// Offers an explicit switch to the selected channel's older release.
@@ -529,14 +495,7 @@ pub(super) fn offer_switch(state: &mut State) {
 }
 
 /// Publishes only a verified artifact and the non-elevating permission decision.
-fn publish(
-    stage: PathBuf,
-    reader: File,
-    selected: Selection,
-    channel: Channel,
-    switch_now: bool,
-    generation: u64,
-) {
+fn publish(stage: PathBuf, reader: File, selected: Selection, switch_now: bool, generation: u64) {
     let newer = update_manifest::select::newer_build(
         &selected.manifest.version,
         selected.manifest.build_number,
@@ -550,7 +509,7 @@ fn publish(
             .is_ok_and(|access| access == update_installer::target::Access::Writable);
     if let Ok(mut state) = STATE.lock() {
         state.offer(
-            Ready::new(stage, reader, selected, channel, switch_now, writable),
+            Ready::new(stage, reader, selected, switch_now, writable),
             generation,
         );
     }
