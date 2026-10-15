@@ -1,6 +1,9 @@
 //! Per-column surface summaries and their compact, versioned encoding.
 
-use std::io::{Read, Write};
+use std::{
+    io::{Read, Write},
+    sync::Arc,
+};
 
 use flate2::{Compression, read::DeflateDecoder, write::DeflateEncoder};
 
@@ -57,7 +60,7 @@ impl Default for ColumnSummary {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EncodedSummary {
     pub hash: u64,
-    pub bytes: Box<[u8]>,
+    pub bytes: Arc<[u8]>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -107,7 +110,7 @@ impl ColumnSummary {
         let bytes = encoder.finish().expect("writing to a Vec cannot fail");
         EncodedSummary {
             hash: hash_planes(&planes),
-            bytes: bytes.into_boxed_slice(),
+            bytes: bytes.into(),
         }
     }
 

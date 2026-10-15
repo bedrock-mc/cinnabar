@@ -70,7 +70,10 @@ finest quads whole, coarser ones per fragment. Only finest tiles reach the near 
 meshes merge equal-height tops and runs of walls on worker threads, skirt their edges down to
 the lowest neighbouring surface, rebuild at most every 250 ms when their columns change, and
 keep a replaced tile drawn until its replacements are ready, never two over one area. The GPU holds only
-the selected tiles; a still camera uploads and rebuilds nothing. Cells are lit as sky-lit
+the selected tiles; a still camera uploads and rebuilds nothing. Encoded summaries share
+immutable bytes across caches and tile snapshots. Gathering includes skirt neighbours and
+resumes within column and byte limits. Cache completions and live or retiring summary
+admission share a per-frame budget; partial disk reads keep the highest queued version. Cells are lit as sky-lit
 terrain faces and fogged with the terrain fog, which is unchanged. The render distance is how
 far the player sees: far terrain fills the gap between what the server sends and the render
 distance, within a budget set by the device tier (`render_api::far_terrain`). Video › Far

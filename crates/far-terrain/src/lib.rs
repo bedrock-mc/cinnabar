@@ -3,6 +3,7 @@
 
 pub mod config;
 
+mod budget;
 mod cache;
 mod colours;
 mod disk;
@@ -15,6 +16,7 @@ mod tile_mesh;
 mod tile_set;
 mod tiles;
 
+pub use budget::SummaryBudget;
 pub use cache::{FarTerrainCache, RetiringSession};
 pub use disk::{DiskBounds, DiskCache, DiskEvent};
 pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
