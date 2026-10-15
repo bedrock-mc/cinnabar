@@ -276,9 +276,9 @@ impl sim::CollisionWorld for RiptideWorld {
 
 #[test]
 fn discarded_riptide_release_cancels_pending_and_replayed_launch() {
+    use client_interaction::movement::{LocalPhysicsController, MovementTicker};
     use gameplay::movement::{
-        LocalPhysicsController, MovementSource, MovementTicker, PhysicsCorrectionMode,
-        reconcile_candidate_physics_correction,
+        MovementSource, PhysicsCorrectionMode, reconcile_candidate_physics_correction,
     };
     for (predicted_ticks, corrected_tick, facing_written) in [
         (0, 110, false),
