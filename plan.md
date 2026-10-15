@@ -9014,3 +9014,29 @@ handshake and pack-offer bodies never reach samples or captures.
 Incomplete: crash reports do not dump the ring or samples yet; the Settings → Advanced
 "Record network session" option is not built; recorded times are when the client read
 each batch, not socket arrival; no frame or join capture has measured the recorder's cost.
+
+## Shared redaction
+
+`crates/crash-report/data/redaction-rules.json` is the one redaction rule set: credentials
+(authorization of any scheme, XBL3.0, bearer, JWTs, token/ticket/session id/content key
+fields) and private data (IPv4/IPv6 with ports, hosts in address/target fields and bare
+hostnames, home folders, XUIDs, gamertag and other identity fields), all replaced by
+`[redacted]`. `crash_report::redact` compiles it and owns the share-time engine (learned
+values, escape layers, JSON keys) that `devtool diag` and the crash window's Copy report use.
+The Go core embeds a byte-for-byte copy in `core/internal/redact`; a crash-report test fails
+when it drifts, and the file's conformance vectors pass in both languages, with each output
+stable under a second pass. Go `redact.Error` replaces `control.RedactError` and the
+resource-pack handler's URL pattern; `redact.Secret` logs as the placeholder and
+`redact.Private` as a per-process keyed hash (`[redacted:xxxxxxxx]`) that the share-time rules
+keep, so records about one server still correlate. Upstream targets, transfer hops, the
+`core starting` upstream, the friend XUID and the raw upstream, session, friend and web-relay
+errors log redacted, with regression tests asserting no address or XUID in the output.
+
+Verified: crash-report, devtool and crash-monitor tests; Go tests for `internal/redact`,
+`control`, `launcher`, `webrelay`, `cmd/bedrock-core` and `proxy`. Incomplete: Rust `\s`-style
+classes are avoided in the rule file and `\b` is ASCII in both languages, but learned-value
+matching is Unicode case-insensitive in Rust only (Go does not learn values). No Rust log site
+was found carrying a credential field, so no `Secret` wrapping was added; the
+`developer-control` and `launcher-host` session tokens sit in `Debug` structs that are not
+logged. The core still logs the socket directory and catalog path in clear; share time
+redacts them.
