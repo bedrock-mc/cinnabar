@@ -34,6 +34,7 @@ pub(in crate::chunk) struct ChunkUploadPublication<'w> {
     gpu_removals: Res<'w, ChunkGpuRemovalQueue>,
     terrain_generations:
         Option<ResMut<'w, crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>>,
+    coverage: Option<ResMut<'w, crate::chunk::TerrainCoverage>>,
 }
 #[allow(clippy::too_many_arguments)]
 pub(in crate::chunk) fn prepare_gpu_chunks(
@@ -60,6 +61,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         acknowledgements,
         gpu_removals,
         mut terrain_generations,
+        mut coverage,
     } = publication;
     let _timer = profiler
         .as_deref()
@@ -115,6 +117,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     );
 
     for entity in removed_instances.read() {
+        if let Some(coverage) = coverage.as_deref_mut() {
+            coverage.invalidate();
+        }
         arena.pending_removals.insert(entity);
         // Stop drawing immediately; GPU ranges retire behind their completion fence.
         if let Ok(mut entity) = commands.get_entity(entity) {
@@ -127,6 +132,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &gpu_removals,
         &acknowledgements,
         terrain_generations.as_deref_mut(),
+        coverage.as_deref_mut(),
     );
 
     let mut applied_tokens = Vec::new();
@@ -549,6 +555,9 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             metadata_index,
         };
         commands.entity(entity).insert(gpu.clone());
+        if let Some(coverage) = coverage.as_deref_mut() {
+            coverage.invalidate();
+        }
         arena.transparent_liquids.record(entity, &gpu);
         arena.allocations.insert(
             entity,

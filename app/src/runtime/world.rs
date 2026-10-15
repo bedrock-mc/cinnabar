@@ -830,6 +830,7 @@ pub(crate) fn drive_world_stream(
                             generation,
                             dirty_since,
                         },
+                        stream.terrain_removal_kind(key),
                         publication_permit,
                     ) {
                         Ok(()) => {

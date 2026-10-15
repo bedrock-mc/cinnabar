@@ -239,6 +239,59 @@ fn insufficient_replacement_capacity_keeps_partial_children_hidden_and_old_cover
 }
 
 #[test]
+fn far_drawer_stays_pinned_while_suppressed_near_resources_retire() {
+    let (device, queue) = device(1);
+    let mut gpu = FarTerrainGpu::new(&device);
+    let old = meshes([TileKey {
+        level: 2,
+        x: 0,
+        z: 0,
+    }]);
+    populate(&mut gpu, &device, &queue, &old);
+    let column = old[0].key.columns().next().unwrap();
+    gpu.protect_coverage(std::iter::once(column));
+    // A view change cannot retire the outgoing column's last drawer during backpressure.
+    gpu.apply_tiles(&device, &queue, &[]);
+    assert_covered(&gpu, &old);
+    let mut desired = old.clone();
+    desired.extend(meshes([TileKey {
+        level: 0,
+        x: 0,
+        z: 0,
+    }]));
+    gpu.apply_tiles(&device, &queue, &desired);
+    assert!(Arc::ptr_eq(&gpu.resident[&old[0].key].mesh, &old[0]));
+    assert_covered(&gpu, &old);
+    gpu.protect_coverage(std::iter::empty());
+    assert!(gpu.apply_tiles(&device, &queue, &[]));
+    assert!(
+        gpu.resident.is_empty(),
+        "released coverage follows the new empty view"
+    );
+}
+
+#[test]
+fn a_proven_empty_selection_can_replace_pinned_geometry_without_a_new_draw() {
+    let (device, queue) = device(1);
+    let mut gpu = FarTerrainGpu::new(&device);
+    let old = meshes([TileKey {
+        level: 2,
+        x: 0,
+        z: 0,
+    }]);
+    populate(&mut gpu, &device, &queue, &old);
+    let column = old[0].key.columns().next().unwrap();
+    gpu.protect_coverage(std::iter::once(column));
+    gpu.set_empty_coverage(Some(&HashSet::from([old[0].key])));
+    assert!(gpu.apply_tiles(&device, &queue, &[]));
+    assert!(
+        gpu.draws.is_empty(),
+        "empty coverage is intentional absence of geometry"
+    );
+    assert!(gpu.covers_column(column));
+}
+
+#[test]
 fn a_replacement_that_cannot_fit_keeps_the_old_draw_and_remains_pending() {
     let (device, queue) = device(1);
     let mut gpu = FarTerrainGpu::new(&device);

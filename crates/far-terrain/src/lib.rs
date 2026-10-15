@@ -9,6 +9,7 @@ mod colours;
 mod disk;
 mod extract;
 mod identity;
+mod publication;
 mod region;
 mod store;
 mod summary;
@@ -20,6 +21,7 @@ pub use budget::SummaryBudget;
 pub use cache::{FarTerrainCache, RetiringSession};
 pub use disk::{DiskBounds, DiskCache, DiskEvent};
 pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
+pub use publication::{TerrainPublication, TerrainTarget};
 pub use region::{
     REGION_SIDE, RegionDecodeError, RegionPos, decode_region, encode_region, region_index,
 };

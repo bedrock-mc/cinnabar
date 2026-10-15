@@ -4,7 +4,6 @@ use super::*;
 
 mod cancellations;
 mod handoffs;
-mod mask_publication;
 mod transitions;
 
 fn stream() -> WorldStream {

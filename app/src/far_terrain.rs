@@ -37,6 +37,8 @@ pub(crate) struct FarTerrain {
     drain_since: Option<Instant>,
     near_radius: NearRadius,
     published: Option<u64>,
+    /// Stream requirements, tile revision and viewport used by the render publication target.
+    publication: Option<((u64, u64, u64, u64, usize, Option<i32>), u64, [i32; 2], i32)>,
     retiring: Vec<Retiring>,
 }
 
@@ -70,11 +72,12 @@ impl FarTerrain {
             drain_since: None,
             near_radius: NearRadius::default(),
             published: None,
+            publication: None,
             retiring: Vec::new(),
         }
     }
 
-    /// Rebuilds the near mask when its owning radius or drawable near columns change.
+    /// Rebuilds the CPU selection mask when its radius or acknowledged near columns change.
     fn update_near(
         &mut self,
         stream: &WorldStream,
@@ -82,7 +85,7 @@ impl FarTerrain {
         radius: i32,
         horizon: i32,
     ) -> bool {
-        let (revision, drawn) = stream.near_mask_columns();
+        let (revision, drawn) = stream.near_drawn_columns();
         let view = ([centre.x, centre.z], radius, revision);
         if self.near_view == Some(view) {
             return false;
@@ -97,6 +100,25 @@ impl FarTerrain {
         ));
         self.near_view = Some(view);
         true
+    }
+
+    /// Shares current section requirements without rebuilding an unchanged publication target.
+    fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
+        let revision = stream.terrain_publication_revision();
+        let centre = stream.far_terrain_centre();
+        let key = (
+            revision,
+            self.tiles.revision(),
+            [centre.x, centre.z],
+            horizon,
+        );
+        if self.publication == Some(key) {
+            return;
+        }
+        let mut target = stream.terrain_publication_target(horizon);
+        target.empty_far.extend(self.tiles.empty_keys());
+        scene.target = Some(Arc::new(target));
+        self.publication = Some(key);
     }
 
     /// Summarises the stream's resident columns before it is dropped, so this session's
@@ -293,6 +315,7 @@ pub(crate) fn feed_far_terrain(
         far.tiles.clear();
         far.near_view = None;
         far.published = None;
+        far.publication = None;
         *scene = FarTerrainScene::default();
         active.0 = target.map(|(destination, level, dimension, generation)| {
             (destination.to_owned(), level, dimension, generation)
@@ -393,6 +416,7 @@ pub(crate) fn feed_far_terrain(
             tiles: far.tiles.drawn().into(),
             near: Arc::clone(&far.near),
             residency: scene.residency.clone(),
+            target: scene.target.clone(),
         };
         far.published = Some(revision);
     }
@@ -415,10 +439,13 @@ pub(crate) fn feed_far_terrain(
         for column in covered {
             stream.finish_far_handoff(column);
         }
-        // Outgoing columns stay masked until their actual mesh removals are acknowledged.
+        // This CPU mask selects tiles; render publication owns the effective draw mask.
         if far.update_near(stream, centre, near_radius, loaded + reach) {
             scene.near = Arc::clone(&far.near);
         }
+    }
+    if let Some(stream) = world.stream.as_ref() {
+        far.publish_target(stream, loaded + reach, &mut scene);
     }
 }
 

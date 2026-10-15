@@ -23,7 +23,8 @@ use render_scene::{
 };
 
 mod publication_schedule;
-use publication_schedule::{ChunkPublicationStage, configure_chunk_publication};
+pub(crate) use publication_schedule::ChunkPublicationStage;
+use publication_schedule::configure_chunk_publication;
 
 #[derive(Resource, Default)]
 pub(in crate::chunk) struct ChunkEntities(pub(in crate::chunk) HashMap<SubChunkKey, Entity>);
@@ -155,6 +156,7 @@ impl Plugin for ChunkRenderPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         crate::device_poll::install(render_app);
         render_app
+            .init_resource::<super::coverage::TerrainCoverage>()
             .insert_resource(self.upload_budget)
             .insert_resource(acknowledgements)
             .insert_resource(presented_frame_gate)
@@ -203,6 +205,10 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    super::coverage::begin_terrain_coverage
+                        .in_set(ChunkPublicationStage::CoverageBegin),
+                    super::coverage::publish_terrain_coverage
+                        .in_set(ChunkPublicationStage::Coverage),
                     publish_graphics_runtime_metadata.in_set(GraphicsMetadataPublication),
                     track_terrain_batch_changes
                         .in_set(RenderSystems::Queue)

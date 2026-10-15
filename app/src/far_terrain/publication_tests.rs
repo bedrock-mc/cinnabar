@@ -15,7 +15,7 @@ use chunk_pipeline::WorldMeshChange;
 use far_terrain::{COLUMN_SIDE, TileKey, TileMesh, config::TILE_CELLS};
 use render::{
     ChunkRenderPlugin, FarTerrainRenderPlugin, publication_noop_render_plugin,
-    publication_render_terminal_snapshot, settle_publication_noop_frame,
+    publication_render_terminal_snapshot, publication_terrain_draws, settle_publication_noop_frame,
 };
 use render_api::{PublicationAllowance, PublicationServiceConfig};
 use render_scene::{
@@ -66,6 +66,7 @@ fn publish_changes(app: &mut App, stream: &mut WorldStream) {
                         generation,
                         dirty_since,
                     },
+                    stream.terrain_removal_kind(key),
                     permit.expect("world admission grants a removal permit"),
                 )
                 .unwrap(),
@@ -93,7 +94,9 @@ fn acknowledge(app: &App, stream: &mut WorldStream) -> usize {
 /// Rebuilds and publishes the production near mask after stream acknowledgements.
 fn refresh_mask(app: &mut App, far: &mut FarTerrain, stream: &WorldStream) {
     far.update_near(stream, ChunkKey::new(0, 0, 0), 1, 32);
-    app.world_mut().resource_mut::<FarTerrainScene>().near = Arc::clone(&far.near);
+    let mut scene = app.world_mut().resource_mut::<FarTerrainScene>();
+    scene.near = Arc::clone(&far.near);
+    far.publish_target(stream, 32, &mut scene);
 }
 
 /// Observes actual extracted near geometry and allocations, rather than handoff membership.
@@ -103,8 +106,22 @@ fn assert_near_geometry(app: &mut App, count: usize) {
     assert_eq!(state.allocation_manifest.len(), count);
 }
 
+/// Requires one admitted draw route at every height, including physically retained sections.
+fn assert_column_coverage(app: &mut App, column: ChunkKey, near_owned: bool) {
+    let (near, far) = publication_terrain_draws(app, column);
+    for y in 0..3 {
+        let near_draw = near.contains(&SubChunkKey::from_chunk(column, y));
+        assert_eq!(
+            usize::from(near_draw) + usize::from(far),
+            1,
+            "exactly one drawer at section {y}"
+        );
+        assert_eq!(near_draw, near_owned);
+    }
+}
+
 #[test]
-fn outgoing_mask_waits_through_delayed_dispatch_and_bounded_removal_publication() {
+fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_removals() {
     let config = PublicationServiceConfig::DEFAULT;
     let allowance = PublicationAllowance::new(config);
     allowance.begin_frame(
@@ -220,12 +237,14 @@ fn outgoing_mask_waits_through_delayed_dispatch_and_bounded_removal_publication(
     let mut far = FarTerrain::new(None);
     refresh_mask(&mut app, &mut far, &stream);
     assert!(far.near.contains(pos));
+    settle_publication_noop_frame(&mut app);
+    assert_column_coverage(&mut app, column, true);
     stream.finish_far_handoff(column);
     refresh_mask(&mut app, &mut far, &stream);
     assert!(!stream.near_drawn_columns().1.any(|drawn| drawn == column));
     assert!(
-        far.near.contains(pos),
-        "scheduling a withdrawal must keep its mask"
+        !far.near.contains(pos),
+        "the CPU mask no longer owns draw publication"
     );
 
     for frame in 2..5 {
@@ -235,10 +254,7 @@ fn outgoing_mask_waits_through_delayed_dispatch_and_bounded_removal_publication(
         refresh_mask(&mut app, &mut far, &stream);
         settle_publication_noop_frame(&mut app);
         assert_near_geometry(&mut app, 3);
-        assert!(
-            far.near.contains(pos),
-            "dirty removal dispatch remains delayed"
-        );
+        assert_column_coverage(&mut app, column, false);
         assert_eq!(acknowledge(&app, &mut stream), 0);
     }
     allowance.begin_frame(5, 3, 0, 3, config.maximum_frame_items);
@@ -253,7 +269,7 @@ fn outgoing_mask_waits_through_delayed_dispatch_and_bounded_removal_publication(
         refresh_mask(&mut app, &mut far, &stream);
         settle_publication_noop_frame(&mut app);
         assert_near_geometry(&mut app, 3);
-        assert!(far.near.contains(pos), "render publication remains delayed");
+        assert_column_coverage(&mut app, column, false);
         assert_eq!(acknowledge(&app, &mut stream), 0);
         assert_eq!(app.world().resource::<ChunkRenderQueue>().retained_len(), 3);
     }
@@ -261,10 +277,10 @@ fn outgoing_mask_waits_through_delayed_dispatch_and_bounded_removal_publication(
     for remaining in (0..3).rev() {
         settle_publication_noop_frame(&mut app);
         assert_near_geometry(&mut app, remaining);
-        assert!(far.near.contains(pos), "no receipt has been applied yet");
+        assert_column_coverage(&mut app, column, false);
         assert_eq!(acknowledge(&app, &mut stream), 1);
         refresh_mask(&mut app, &mut far, &stream);
-        assert_eq!(far.near.contains(pos), remaining != 0);
+        assert_column_coverage(&mut app, column, false);
     }
     settle_publication_noop_frame(&mut app);
     assert!(

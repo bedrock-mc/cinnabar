@@ -11,6 +11,7 @@ pub(super) fn prepare_publication_removals(
     mut terrain_generations: Option<
         &mut crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations,
     >,
+    mut coverage: Option<&mut crate::chunk::TerrainCoverage>,
 ) -> bool {
     let mut retirement_pressure = false;
     let maximum_zero_byte_operations = budget
@@ -95,6 +96,9 @@ pub(super) fn prepare_publication_removals(
             }
         };
         if let Some(token) = pending.token {
+            if let Some(coverage) = coverage.as_deref_mut() {
+                coverage.publish_empty(pending.key, token.generation, pending.kind);
+            }
             acknowledgements.complete(pending.key, token, Instant::now());
             if let Some(terrain) = terrain_generations.as_deref_mut() {
                 terrain.record(pending.key, token.generation);

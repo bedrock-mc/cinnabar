@@ -209,6 +209,17 @@ impl FarTiles {
         selected.chain(self.retired.iter().cloned()).collect()
     }
 
+    /// CPU-ready empty selections, for which retiring every old GPU draw is valid coverage.
+    pub fn empty_keys(&self) -> impl Iterator<Item = TileKey> + '_ {
+        self.selected.iter().filter_map(|(&key, tile)| {
+            (!tile.dirty
+                && tile.building.is_none()
+                && tile.mesh.as_ref().is_some_and(|mesh| mesh.quads.is_empty())
+                && !self.retired.iter().any(|old| old.key.overlaps(key)))
+            .then_some(key)
+        })
+    }
+
     /// True when a selected tile over `column` is CPU-ready from its current summary.
     #[must_use]
     pub fn ready(&self, column: ColumnPos) -> bool {

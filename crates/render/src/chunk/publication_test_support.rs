@@ -125,3 +125,29 @@ pub fn publication_render_terminal_snapshot(app: &mut App) -> PublicationRenderT
         transparent_retirement_in_flight,
     }
 }
+
+/// Observes the common near draw inputs and effective far mask after render publication.
+#[doc(hidden)]
+pub fn publication_terrain_draws(
+    app: &mut App,
+    column: world::ChunkKey,
+) -> (Vec<SubChunkKey>, bool) {
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let mut query = world.query::<&GpuChunkAllocation>();
+    let mut near: Vec<_> = query
+        .iter(world)
+        .filter(|allocation| allocation.key.chunk() == column)
+        .map(|allocation| allocation.key)
+        .collect();
+    near.sort_unstable();
+    let pos = far_terrain::ColumnPos::new(column.x, column.z);
+    let mask = world
+        .resource::<super::coverage::TerrainCoverage>()
+        .mask()
+        .expect("terrain publication mask");
+    let far = !mask.contains(pos)
+        && world
+            .resource::<crate::far_terrain::FarTerrainGpu>()
+            .covers_column(pos);
+    (near, far)
+}

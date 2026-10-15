@@ -24,6 +24,7 @@ pub use frame_rate_limit::FrameRateLimit;
 pub use legacy_combat::{BEDROCK_112, Bedrock112Rules, CombatVisuals, DEFAULT_COMBAT_VISUALS};
 pub use publication::{
     PublicationAllowance, PublicationPermit, PublicationPermitStage, PublicationServiceConfig,
+    TerrainRemovalKind,
 };
 pub use skin::{
     CAPE_DIMENSIONS, CLASSIC_SKIN_SIDE, CapeImage, DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION,

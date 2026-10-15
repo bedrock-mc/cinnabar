@@ -12,15 +12,23 @@ use std::{
 #[extract_app(bevy::render::RenderApp)]
 pub struct FarTerrainScene {
     pub tiles: Arc<[Arc<TileMesh>]>,
-    /// Columns near terrain draws; far quads over them are hidden.
+    /// CPU selection mask; used directly only without a render publication target.
     pub near: Arc<NearMask>,
     /// Drawable GPU revisions for this world, shared with the render-world extraction.
     pub residency: FarTerrainResidency,
+    /// Requested near publications; render ownership determines the effective mask.
+    pub target: Option<Arc<far_terrain::TerrainTarget>>,
 }
 
 /// A world's drawable tile revisions; a new world starts with a separate acknowledgement.
 #[derive(Clone, Default)]
-pub struct FarTerrainResidency(Arc<Mutex<HashMap<TileKey, u64>>>);
+pub struct FarTerrainResidency(Arc<Mutex<Residency>>);
+
+#[derive(Default)]
+struct Residency {
+    tiles: HashMap<TileKey, u64>,
+    near: Option<std::collections::HashSet<far_terrain::ColumnPos>>,
+}
 
 impl FarTerrainResidency {
     /// Whether the CPU-ready replacement is drawable over this column without another LOD.
@@ -37,9 +45,9 @@ impl FarTerrainResidency {
         (0..LEVEL_COUNT).all(|level| {
             let key = TileKey::containing(level, block[0], block[1]);
             if key == mesh.key && !mesh.quads.is_empty() {
-                resident.get(&key) == Some(&mesh.revision)
+                resident.tiles.get(&key) == Some(&mesh.revision)
             } else {
-                !resident.contains_key(&key)
+                !resident.tiles.contains_key(&key)
             }
         })
     }
@@ -53,7 +61,23 @@ impl FarTerrainResidency {
     /// Publishes only drawable revisions, after their uploads and coverage changes are queued.
     pub fn publish(&self, tiles: impl Iterator<Item = (TileKey, u64)>) {
         let mut resident = self.0.lock().expect("far terrain residency");
-        resident.clear();
-        resident.extend(tiles);
+        resident.tiles.clear();
+        resident.tiles.extend(tiles);
+    }
+
+    /// Acknowledges actual near draw ownership, independently of physical retirement receipts.
+    pub fn publish_near(&self, columns: impl Iterator<Item = ColumnPos>) {
+        self.0.lock().expect("far terrain residency").near = Some(columns.collect());
+    }
+
+    /// Whether the render owner has stopped drawing this outgoing column's near geometry.
+    #[must_use]
+    pub fn may_remove_near(&self, column: ColumnPos) -> bool {
+        self.0
+            .lock()
+            .expect("far terrain residency")
+            .near
+            .as_ref()
+            .is_some_and(|near| !near.contains(&column))
     }
 }

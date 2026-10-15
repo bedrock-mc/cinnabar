@@ -2,6 +2,21 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 use {super::*, render_api::PublicationAllowance};
 
 impl WorldStream {
+    /// Distinguishes proven air data from withdrawing a non-empty column's near drawer.
+    pub fn terrain_removal_kind(&self, key: SubChunkKey) -> render_api::TerrainRemovalKind {
+        if self.known_air.contains(&key)
+            || self
+                .authority
+                .terrain()
+                .sub_chunk(key)
+                .is_some_and(|source| self.classifier.is_sub_chunk_air(&source))
+        {
+            render_api::TerrainRemovalKind::Empty
+        } else {
+            render_api::TerrainRemovalKind::Withdrawn
+        }
+    }
+
     /// Publishes local placement and its transition to retained pose and animation readers.
     pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
         self.authority
@@ -130,7 +145,6 @@ impl WorldStream {
         }
         self.revisions.clear_if_current(key, generation);
         self.note_near_drawn(key.chunk());
-        self.note_near_withdrawal(key.chunk());
         self.acknowledge_actor_block_syncs(key, generation);
         self.stats.publication_stages.mesh_uploads_acknowledged = self
             .stats

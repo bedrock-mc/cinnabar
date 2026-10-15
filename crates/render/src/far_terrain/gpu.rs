@@ -1,7 +1,11 @@
 //! Resident far-terrain tiles: quads in one storage buffer, cell colours in one texture array.
 
 use crate::queue_writes::ProfiledQueue as _;
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::Range,
+    sync::Arc,
+};
 
 use bevy::{
     camera::primitives::{Aabb, Frustum},
@@ -22,10 +26,16 @@ use bevy::{
         view::{ExtractedView, Msaa, ViewUniform, ViewUniforms},
     },
 };
-use far_terrain::{NearMask, TileKey, TileMesh, config::TILE_CELLS};
+use far_terrain::{
+    ColumnPos, NearMask, TileKey, TileMesh,
+    config::{LEVEL_COUNT, TILE_CELLS},
+};
 use render_scene::{FarTerrainResidency, FarTerrainScene};
 
 use super::SHADER;
+
+#[path = "gpu_coverage.rs"]
+mod coverage;
 
 const QUAD_BYTES: u64 = 8;
 const TILE_RECORD_BYTES: u64 = 16;
@@ -64,6 +74,9 @@ pub(crate) struct FarTerrainGpu {
     applied_tiles: Option<Arc<[Arc<TileMesh>]>>,
     applied_mask: Option<Arc<NearMask>>,
     applied_world: Option<FarTerrainResidency>,
+    protected: HashSet<ColumnPos>,
+    empty_far: HashSet<TileKey>,
+    publication_revision: u64,
     pub(super) draws: Vec<FarDraw>,
     layout: BindGroupLayoutDescriptor,
     pipelines: Vec<((TextureFormat, u32), CachedRenderPipelineId)>,
@@ -132,6 +145,9 @@ impl FarTerrainGpu {
             applied_tiles: None,
             applied_mask: None,
             applied_world: None,
+            protected: HashSet::new(),
+            empty_far: HashSet::new(),
+            publication_revision: 0,
             draws: Vec::new(),
             layout,
             pipelines: Vec::new(),
@@ -163,6 +179,7 @@ impl FarTerrainGpu {
         queue: &RenderQueue,
         tiles: &[Arc<TileMesh>],
     ) -> bool {
+        self.publication_revision = self.publication_revision.wrapping_add(1);
         let wanted: HashMap<TileKey, &Arc<TileMesh>> =
             tiles.iter().map(|mesh| (mesh.key, mesh)).collect();
         let stale: Vec<TileKey> = self
@@ -170,7 +187,9 @@ impl FarTerrainGpu {
             .iter()
             .filter(|(key, resident)| {
                 !wanted.contains_key(key)
-                    && (!resident.visible || !tiles.iter().any(|mesh| mesh.key.overlaps(**key)))
+                    && (!resident.visible
+                        || (!self.protects(**key)
+                            && !tiles.iter().any(|mesh| mesh.key.overlaps(**key))))
             })
             .map(|(key, _)| *key)
             .collect();
@@ -290,6 +309,7 @@ impl FarTerrainGpu {
                     || match priority.get(key) {
                         Some(other) => {
                             *other > rank
+                                && !self.protects(*key)
                                 && !self.resident.keys().any(|fallback| {
                                     !priority.contains_key(fallback) && fallback.overlaps(*key)
                                 })
@@ -297,10 +317,7 @@ impl FarTerrainGpu {
                         None => {
                             // A completed fallback can free space anywhere in the batch,
                             // including when this upload does not overlap its replacements.
-                            tiles
-                                .iter()
-                                .filter(|tile| key.overlaps(tile.key))
-                                .all(|tile| tile.key == mesh.key || self.current(tile))
+                            self.replaced(*key, tiles, Some(mesh.key))
                         }
                     }
             })
@@ -348,13 +365,7 @@ impl FarTerrainGpu {
             .resident
             .keys()
             .copied()
-            .filter(|key| {
-                !wanted.contains_key(key)
-                    && tiles
-                        .iter()
-                        .filter(|mesh| key.overlaps(mesh.key))
-                        .all(|mesh| self.current(mesh))
-            })
+            .filter(|key| !wanted.contains_key(key) && self.replaced(*key, tiles, None))
             .collect();
         for key in retired {
             let old = self.resident.remove(&key).expect("covered fallback");
@@ -401,6 +412,8 @@ impl FarTerrainGpu {
         self.draws.clear();
         self.applied_tiles = None;
         self.applied_mask = None;
+        self.protected.clear();
+        self.empty_far.clear();
     }
 
     /// Writes only one admitted tile's geometry, record and colour layer.
@@ -676,6 +689,7 @@ pub(super) fn prepare_far_terrain(
         gpu.clear_tiles();
         gpu.applied_world = Some(scene.residency.clone());
     }
+    gpu.set_empty_coverage(scene.target.as_ref().map(|target| &target.empty_far));
     if !gpu
         .applied_tiles
         .as_ref()
@@ -691,10 +705,11 @@ pub(super) fn prepare_far_terrain(
                 .map(|resident| (resident.mesh.key, resident.mesh.revision)),
         );
     }
-    if !gpu
-        .applied_mask
-        .as_ref()
-        .is_some_and(|applied| Arc::ptr_eq(applied, &scene.near))
+    if scene.target.is_none()
+        && !gpu
+            .applied_mask
+            .as_ref()
+            .is_some_and(|applied| Arc::ptr_eq(applied, &scene.near))
     {
         gpu.apply_mask(&device, &queue, &scene.near);
         gpu.applied_mask = Some(Arc::clone(&scene.near));
