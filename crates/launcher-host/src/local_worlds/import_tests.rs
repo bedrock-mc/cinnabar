@@ -134,7 +134,10 @@ fn a_root_level_world_imports_with_its_name_and_settings() {
         fixture.store.thumbnail(&world.id).as_deref(),
         Some(&b"jpeg"[..])
     );
-    assert_eq!(fixture.store.list().expect("list"), [world.clone()]);
+    assert_eq!(
+        fixture.store.list().expect("list"),
+        std::slice::from_ref(&world)
+    );
     assert_eq!(fixture.leftovers(), [world.id]);
 }
 
