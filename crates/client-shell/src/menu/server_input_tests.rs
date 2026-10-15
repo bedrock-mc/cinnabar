@@ -438,6 +438,60 @@ impl Drop for Harness {
 }
 
 #[test]
+fn real_carrier_server_fields_keep_short_text_visible_after_scrolled_edits() {
+    let Some(mut h) = Harness::new(1.0) else {
+        return;
+    };
+    {
+        let mut menu = h.app.world_mut().resource_mut::<MenuRuntime>();
+        Arc::make_mut(&mut menu.settings_options).set(
+            launcher::menu::settings_options::SettingId::ScreenAnimations.index(),
+            1,
+        );
+        menu.activate(MenuAction::Navigate(MenuScreen::Servers));
+        menu.activate(MenuAction::PlayAddServer);
+        menu.activate(MenuAction::AddName);
+    }
+    h.app.update();
+    let long = "W".repeat(launcher::menu::MAX_SERVER_NAME_BYTES);
+    for key in [KeyCode::Backspace, KeyCode::Delete, KeyCode::KeyV] {
+        h.select_all();
+        h.paste(&long);
+        h.app.world_mut().resource_mut::<FrameTime>().0 += 1000;
+        h.app.update();
+        h.select_all();
+        let wanted = if key == KeyCode::KeyV {
+            h.paste("02");
+            "02"
+        } else {
+            h.press(key, None);
+            "My server"
+        };
+        if key == KeyCode::Backspace {
+            snapshot::write(
+                &h.app.world().resource::<Frame>().0,
+                "server-input-shrink-placeholder",
+            );
+        }
+        let presentation = h.app.world().resource::<UiPresentationResource>();
+        let nodes = client_ui::test_support::pack_harness::menu_nodes(presentation);
+        let label = nodes
+            .iter()
+            .rev()
+            .find(|node| {
+                matches!(node.visual(), UiVisual::Text { layout, .. }
+            if layout.glyphs().iter().map(|g| g.codepoint).collect::<String>() == wanted)
+            })
+            .unwrap();
+        assert_eq!(
+            presentation.hit_test_menu(node_point(label, nodes)),
+            Some(MenuAction::AddName),
+            "{key:?} leaves the current field text visible during the edit animation"
+        );
+    }
+}
+
+#[test]
 fn real_carrier_server_fields_select_the_displayed_character_after_a_space() {
     let Some(mut h) = Harness::new(1.0) else {
         return;
