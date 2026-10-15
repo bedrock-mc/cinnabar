@@ -280,7 +280,9 @@ impl MenuRuntime {
             );
         }
         match view.screen {
-            Screen::List | Screen::Opening | Screen::Importing | Screen::BackendPrompt => None,
+            Screen::List | Screen::Opening | Screen::BackendPrompt => None,
+            // The import modal has no buttons and the copy cannot be interrupted.
+            Screen::Importing => Some(Vec::new()),
             Screen::Create => match view.tab {
                 Tab::General => local(&[
                     A::Create,
@@ -424,6 +426,22 @@ mod tests {
         assert!(menu.view().local_worlds.is_empty());
         menu.activate(MenuAction::PlayLocalWorld(0));
         assert_eq!(menu.take_local_world_request(), None);
+    }
+
+    /// Keyboard and gamepad focus cannot reach the tab or navigation behind the import modal.
+    #[test]
+    fn importing_blocks_focus_behind_its_modal() {
+        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+        let mut worlds = LocalWorlds::default();
+        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+        worlds.input(launcher::local_worlds::Input::Import);
+        menu.sync_local_worlds(&mut worlds, false);
+        assert_eq!(menu.view().local.screen, Screen::Importing);
+        assert_eq!(menu.focus_actions(), Vec::<MenuAction>::new());
+        menu.move_focus(1);
+        menu.activate_focused();
+        assert_eq!(menu.view().screen, MenuScreen::Play);
+        assert_eq!(worlds.menu().screen(), Screen::Importing);
     }
 
     #[test]
