@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn block_press_at_fifo_front_survives_a_maximum_catchup_frame() {
+    let count = crate::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME;
+    let movement = crate::test_support::survival_mining::ticker_with_ticks(count as u64);
+    let expected = movement.first_unsent_sample_in_frame(count).unwrap();
+    assert!(movement.interaction_before_tick(expected.tick).is_none());
+    let mut runtime = MeleeRuntime::default();
+    runtime.synchronize(movement.interaction_authority_identity());
+    runtime.observe_input(true, true);
+    let sample = runtime
+        .press_sample(Crosshair::Block, &movement, count, 1_000)
+        .expect("a block press needs the queue boundary, not an evicted preceding pose");
+    assert_eq!(sample.tick, expected.tick);
+    assert_eq!(sample.position, expected.position);
+}
+
+#[test]
 fn block_press_waits_for_older_movement_before_its_current_frame_tick() {
     for recent_ticks in [1, 0] {
         let mut movement = crate::test_support::survival_mining::ticker_with_ticks(4);

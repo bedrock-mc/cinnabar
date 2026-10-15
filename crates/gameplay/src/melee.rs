@@ -202,7 +202,7 @@ impl MeleeRuntime {
                         None
                     }
                 })
-                .filter(|sample| movement.interaction_before_tick(sample.tick).is_some())
+                .filter(|sample| movement.is_first_unsent_tick(sample.tick))
                 .map(Into::into)
         } else {
             movement

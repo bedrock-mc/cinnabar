@@ -3617,8 +3617,9 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 camera ray, ordered actor boxes and lifetime identities, using current admission policy.
 The selected frame also owns piercing direction and action-facing rotation. Assisted
 visibility follows the ray from that frame's eye to its selected point. Block presses
-wait behind older inputs and resolve before
-catch-up mining advances the shared swing clock. Accepted item uses keep advancing
+wait behind older inputs without requiring a predecessor pose, and mining retains
+those clicks until their swings are admitted. Block presses resolve before catch-up
+mining advances the shared swing clock. Accepted item uses keep advancing
 while pending interaction presses suppress new use starts.
 Published inputs contain no cached hit or acceptance result. Assisted picks use that
 frame's selected point and box for their input-specific reach check. Removed, replaced

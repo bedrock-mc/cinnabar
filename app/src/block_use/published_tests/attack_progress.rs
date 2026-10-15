@@ -117,6 +117,102 @@ fn attack_progress_block_press_is_admitted_before_catchup_mining() {
 }
 
 #[test]
+fn attack_progress_deferred_block_press_waits_to_break_and_never_attacks_twice() {
+    for actor_behind in [false, true] {
+        let (mut world, mut captured) = fixture();
+        if actor_behind {
+            actor_use_tests::spawn(&mut world, 5.5);
+        }
+        assert!(
+            world
+                .resource::<MovementTicker>()
+                .unsent_sample_at(101)
+                .is_some()
+        );
+        item_use_tests::hold_snowball(&mut world);
+        world
+            .resource_mut::<client_state::PlayerRuntime>()
+            .facts
+            .publish_player_game_mode(PlayerGameMode::Creative);
+        ticks(&mut world, 102, 103);
+        buttons(&mut world, vec![1]);
+        let mut app = interaction_app(world);
+        app.world_mut().run_schedule(Update);
+        assert!(app.world().resource::<MeleeRuntime>().press_pending());
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            0,
+            "mining must wait with the melee press behind older movement"
+        );
+        assert!(
+            captured
+                .drain()
+                .iter()
+                .filter_map(protocol::player_auth_input_trace_sample)
+                .all(|input| !input.flag_names.contains(&"PerformBlockActions"))
+        );
+
+        app.world_mut()
+            .resource_mut::<LocalMovementEffectTimeline>()
+            .begin_frame();
+        buttons(app.world_mut(), vec![]);
+        app.world_mut().run_schedule(Update);
+        assert!(!app.world().resource::<MeleeRuntime>().press_pending());
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            1,
+            "a released click must still break once after movement drains"
+        );
+        let packets = captured.drain();
+        assert!(
+            packets
+                .iter()
+                .filter_map(observe_transaction)
+                .all(|tx| tx.actor_use().is_none())
+        );
+        let swing = protocol::swing_arm_packet(42, protocol::SwingSource::Mine).kind();
+        assert_eq!(
+            packets
+                .iter()
+                .filter(|packet| packet.kind() == swing)
+                .count(),
+            2
+        );
+
+        ticks(app.world_mut(), 103, 104);
+        buttons(app.world_mut(), vec![]);
+        app.world_mut().run_schedule(Update);
+        let packets = captured.drain();
+        assert!(
+            packets
+                .iter()
+                .filter_map(observe_transaction)
+                .all(|tx| tx.actor_use().is_none())
+        );
+        let inputs: Vec<_> = packets
+            .iter()
+            .filter_map(protocol::player_auth_input_trace_sample)
+            .collect();
+        assert!(inputs.iter().any(|input| input.tick == 103));
+        assert!(
+            inputs
+                .iter()
+                .all(|input| !input.flag_names.contains(&"MissedSwing"))
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+                .len(),
+            1
+        );
+    }
+}
+
+#[test]
 fn attack_progress_active_crossbow_completes_while_melee_waits() {
     let (mut world, mut captured) = fixture();
     item_use_tests::hold_air_item(&mut world, "minecraft:crossbow", 1, [].into());

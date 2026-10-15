@@ -452,10 +452,17 @@ impl MovementTicker {
             .map(UnsentSampleView::from_queued)
     }
 
+    /// Whether an interaction precedes the first unsent input, without needing pose history.
+    pub fn is_first_unsent_tick(&self, tick: u64) -> bool {
+        self.outbox
+            .front()
+            .is_some_and(|sample| sample.snapshot.tick == tick)
+    }
+
     /// Pairs an attack with the state before the first input it precedes.
     /// Older unsent inputs must drain before an attack can use a later state.
     pub fn interaction_before_tick(&self, tick: u64) -> Option<InteractionSample> {
-        if self.outbox.front()?.snapshot.tick != tick {
+        if !self.is_first_unsent_tick(tick) {
             return None;
         }
         let previous = self.tick_ends.get(tick.checked_sub(1)?)?;
