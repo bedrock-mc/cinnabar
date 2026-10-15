@@ -84,8 +84,16 @@ struct Contents {
 struct ContentsEntry {
     #[serde(default)]
     path: String,
-    #[serde(default)]
-    key: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_key")]
+    key: Option<Zeroizing<String>>,
+}
+
+/// Arms wiping when a parsed key string is returned, including partially built entries.
+/// Serde's temporary buffers before string ownership transfers are outside this boundary.
+fn deserialize_key<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Zeroizing<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(|key| key.map(Zeroizing::new))
 }
 
 /// Returns per-file keys from a `contents.json` that is either plaintext or
@@ -109,18 +117,17 @@ pub(crate) fn contents_file_keys(
             Zeroizing::new(normalize_jsonc(&body).ok_or(AdmissionError::MalformedContentsIndex)?)
         }
     };
-    let mut contents: Contents =
+    let contents: Contents =
         serde_json::from_slice(&json).map_err(|_| AdmissionError::MalformedContentsIndex)?;
     if contents.content.len() > MAX_ENTRIES_PER_PACK {
         return Err(AdmissionError::TooManyEntries);
     }
     let mut keys = HashMap::with_capacity(contents.content.len());
-    for entry in &mut contents.content {
+    for entry in contents.content {
         let key = entry
             .key
             .as_deref()
             .and_then(|key| ContentKey::new(key.as_bytes()));
-        entry.key.zeroize();
         let path = entry.path.replace('\\', "/");
         let path = path.trim_start_matches("./");
         let Some(key) = key else {
