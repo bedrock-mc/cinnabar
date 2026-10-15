@@ -9,7 +9,7 @@
     "world_assets": ".local/assets/compiled/vanilla-v2193.mcbea"
   },
   "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
-  "codec_contract": 1,
+  "codec_contract": 2,
   "codec_crate": "bedrock-protocol-1-26-51",
   "codec_manifest_sha256": "7a0ce6c98c247c0ea12b809b1010e696e5110cd11993fdb9915acb5567f00466",
   "game_version": "1.26.50",
