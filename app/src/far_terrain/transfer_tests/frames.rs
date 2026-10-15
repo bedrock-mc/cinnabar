@@ -167,7 +167,7 @@ impl Capture {
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
         rx.recv().unwrap().unwrap();
-        let pixels = buffer.slice(..).get_mapped_range().to_vec();
+        let pixels = buffer.slice(..).get_mapped_range().unwrap().to_vec();
         buffer.unmap();
         pixels
     }
