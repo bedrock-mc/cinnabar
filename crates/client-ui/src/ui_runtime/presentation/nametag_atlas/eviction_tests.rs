@@ -285,3 +285,161 @@ fn labels_outside_the_record_budget_do_not_block_admission() {
             .all(|record| record.anchor == anchors[0].position.to_array())
     );
 }
+
+const SHORT_SHELF_HEIGHT: u32 = NAMETAG_ATLAS_SIDE / 4;
+
+/// Supplies full-width ink at one, two and three short-shelf heights.
+fn shelf_font() -> RuntimeFontCatalog {
+    let font = ui_engine::test_support::fixture_font();
+    let glyphs = [
+        ('0', SHORT_SHELF_HEIGHT),
+        ('2', SHORT_SHELF_HEIGHT * 2),
+        ('/', SHORT_SHELF_HEIGHT * 3),
+    ]
+    .map(|(codepoint, height)| assets::SheetGlyph {
+        metrics: *font.glyph(codepoint).unwrap(),
+        draw_size_64: [NAMETAG_ATLAS_SIDE * 64, height * 64],
+    });
+    font.with_glyphs(&glyphs, |_| true)
+}
+
+#[test]
+fn count_pressure_reuses_empty_and_unused_shelves_for_tall_ink() {
+    use super::super::nametags::{build_nametag_scene, tests::anchor};
+    let mut atlas = NametagAtlas::default();
+    let shelf_count = (NAMETAG_ATLAS_SIDE / SHORT_SHELF_HEIGHT) as usize;
+    let lines_per_shelf = MAX_ATLAS_LINES / shelf_count;
+    let mean_width = NAMETAG_ATLAS_SIDE / lines_per_shelf as u32;
+    assert_eq!(lines_per_shelf % 2, 0);
+    assert_eq!(mean_width * lines_per_shelf as u32, NAMETAG_ATLAS_SIDE);
+    for index in 0..MAX_ATLAS_LINES {
+        let width = if index % 2 == 0 {
+            mean_width - 1
+        } else {
+            mean_width + 1
+        };
+        seed_cell(
+            &mut atlas,
+            format!("cached {index}").into(),
+            width,
+            SHORT_SHELF_HEIGHT,
+        );
+    }
+    assert_eq!(atlas.shelves.len(), shelf_count);
+    let before = atlas.publish().0;
+    let live_indices = [
+        (shelf_count - 2) * lines_per_shelf,
+        (shelf_count - 1) * lines_per_shelf,
+    ];
+    let requested = [
+        Arc::from("2"),
+        Arc::from(format!("cached {}", live_indices[0])),
+        Arc::from(format!("cached {}", live_indices[1])),
+    ];
+    let font = shelf_font();
+    let mut layouts = TextLayoutCache::new(requested.len(), 1 << 20);
+    let reads = Cell::new(0);
+    let pages = |page| {
+        reads.set(reads.get() + 1);
+        font_page(&font, page)
+    };
+    atlas.begin_frame(requested.iter());
+    // Admission itself must reclaim a line slot, then combine the emptied shelf with its neighbor.
+    let tall = atlas
+        .line(&requested[0], &font, &mut layouts, &pages)
+        .unwrap();
+    assert_eq!(
+        tall.cell,
+        [0, 0, NAMETAG_ATLAS_SIDE, SHORT_SHELF_HEIGHT * 2]
+    );
+    assert_eq!(reads.get(), 1);
+    assert_eq!(atlas.shelves.len(), shelf_count);
+    for (&old_index, text) in live_indices.iter().zip(&requested[1..]) {
+        assert_eq!(
+            atlas.line(text, &font, &mut layouts, &pages).unwrap().cell,
+            before[old_index].cell
+        );
+        let cell = &atlas.cells[atlas.lines[text]];
+        assert!(Arc::ptr_eq(&cell.rgba8, &before[old_index].rgba8));
+    }
+    let anchors: Vec<_> = requested
+        .iter()
+        .enumerate()
+        .map(|(index, text)| {
+            let mut tag = anchor(text);
+            tag.runtime_id = index as u64 + 1;
+            tag.position.x = index as f32;
+            tag.depth_tested = index == 1;
+            tag
+        })
+        .collect();
+    let scene = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+    let built = layouts.built_layout_count();
+    for _ in 0..3 {
+        let repeated = build_nametag_scene(&anchors, 1.0, &font, &mut layouts, &mut atlas, &pages);
+        assert_eq!(repeated.records, scene.records);
+        assert!(Arc::ptr_eq(&repeated.atlas, &scene.atlas));
+        assert_eq!(repeated.atlas_revision, scene.atlas_revision);
+        assert_eq!(layouts.built_layout_count(), built);
+        assert_eq!(reads.get(), 1);
+        assert_eq!(atlas.shelves.len(), shelf_count);
+    }
+}
+
+#[test]
+fn empty_spatial_shelves_never_satisfy_count_reclamation_or_republish_pixels() {
+    let mut atlas = NametagAtlas::default();
+    let font = shelf_font();
+    let shelf_count = (NAMETAG_ATLAS_SIDE / SHORT_SHELF_HEIGHT) as usize;
+    let mut layouts = TextLayoutCache::new(shelf_count + 1, 1 << 20);
+    let reads = Cell::new(0);
+    let pages = |page| {
+        reads.set(reads.get() + 1);
+        font_page(&font, page)
+    };
+    for length in 1..=shelf_count {
+        // Distinct cache keys retain a single full-width glyph without wrapping.
+        let text = Arc::from(format!("0{}", "§r".repeat(length)));
+        let placed = atlas.line(&text, &font, &mut layouts, &pages).unwrap();
+        assert_eq!(placed.cell[2..], [NAMETAG_ATLAS_SIDE, SHORT_SHELF_HEIGHT]);
+    }
+    assert_eq!(atlas.shelves.len(), shelf_count);
+    let tall = Arc::from("/");
+    atlas.begin_frame(std::iter::once(&tall));
+    for remaining in (0..shelf_count).rev() {
+        assert!(atlas.reclaim_shelf(None));
+        assert_eq!(atlas.lines.len(), remaining);
+    }
+    let empty = atlas.publish();
+    assert!(empty.0.is_empty());
+    for _ in 0..3 {
+        assert!(!atlas.reclaim_shelf(None));
+        let unchanged = atlas.publish();
+        assert!(Arc::ptr_eq(&unchanged.0, &empty.0));
+        assert_eq!(unchanged.1, empty.1);
+    }
+    for _ in 0..2 {
+        assert!(atlas.reclaim_shelf(Some([NAMETAG_ATLAS_SIDE, SHORT_SHELF_HEIGHT * 2])));
+        assert!(!atlas.reclaim_shelf(None));
+        let unchanged = atlas.publish();
+        assert!(Arc::ptr_eq(&unchanged.0, &empty.0));
+        assert_eq!(unchanged.1, empty.1);
+    }
+    reads.set(0);
+    // This admission must cross the zero-height slot left by the earlier empty-shelf merge.
+    let placed = atlas.line(&tall, &font, &mut layouts, &pages).unwrap();
+    assert_eq!(
+        placed.cell,
+        [0, 0, NAMETAG_ATLAS_SIDE, SHORT_SHELF_HEIGHT * 3]
+    );
+    assert_eq!(reads.get(), 1);
+    assert_eq!(atlas.shelves.len(), shelf_count);
+    let published = atlas.publish();
+    atlas.begin_frame(std::iter::once(&tall));
+    assert_eq!(atlas.line(&tall, &font, &mut layouts, &pages), Some(placed));
+    assert!(!atlas.reclaim_shelf(None));
+    let unchanged = atlas.publish();
+    assert!(Arc::ptr_eq(&unchanged.0, &published.0));
+    assert_eq!(unchanged.1, published.1);
+    assert_eq!(reads.get(), 1);
+}

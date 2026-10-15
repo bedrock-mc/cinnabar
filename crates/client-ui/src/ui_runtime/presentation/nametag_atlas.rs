@@ -84,9 +84,12 @@ struct AtlasCell {
     shelf: usize,
 }
 
+#[derive(Clone)]
 struct ShelfReclamation {
     shelves: Range<usize>,
     free: Vec<Range<u32>>,
+    /// Spatially empty candidates cannot release a cached-line slot.
+    has_unused_lines: bool,
 }
 
 struct AtlasShelf {
@@ -243,19 +246,17 @@ impl NametagAtlas {
         let candidates = self.reclamation.as_ref().expect("prepared reclamation");
         let candidate = candidates
             .iter()
-            .find(|candidate| {
-                size.is_none_or(|[width, height]| {
+            .find(|candidate| match size {
+                None => candidate.has_unused_lines,
+                Some([width, height]) => {
                     self.shelves[candidate.shelves.start].height >= height
                         && candidate
                             .free
                             .iter()
                             .any(|span| span.end - span.start >= width)
-                })
+                }
             })
-            .map(|candidate| ShelfReclamation {
-                shelves: candidate.shelves.clone(),
-                free: candidate.free.clone(),
-            })
+            .cloned()
             .or_else(|| {
                 let [_, height] = size?;
                 // Several wholly unused neighboring shelves can become one taller shelf.
@@ -263,6 +264,7 @@ impl NametagAtlas {
                     let start = first.shelves.start;
                     let mut end = start;
                     let mut available = 0;
+                    let mut has_unused_lines = false;
                     for next in candidates.iter().filter(|next| next.shelves.start >= start) {
                         if self.shelves[end..next.shelves.start]
                             .iter()
@@ -273,11 +275,13 @@ impl NametagAtlas {
                         }
                         end = next.shelves.start;
                         available += self.shelves[end].height;
+                        has_unused_lines |= next.has_unused_lines;
                         end += 1;
                         if available >= height {
                             return Some(ShelfReclamation {
                                 shelves: start..end,
                                 free: Vec::from([0..NAMETAG_ATLAS_SIDE]),
+                                has_unused_lines,
                             });
                         }
                     }
@@ -288,6 +292,7 @@ impl NametagAtlas {
             return false;
         };
         let shelf = candidate.shelves.start;
+        let mut removed_lines = false;
         let mut index = 0;
         while index < self.cells.len() {
             let cell = &self.cells[index];
@@ -296,6 +301,7 @@ impl NametagAtlas {
                 continue;
             }
             let removed = self.cells.swap_remove(index);
+            removed_lines = true;
             self.lines.remove(&removed.text);
             if let Some(moved) = self.cells.get(index) {
                 *self.lines.get_mut(&moved.text).expect("retained cell") = index;
@@ -312,7 +318,9 @@ impl NametagAtlas {
         }
         self.reclamation = None;
         self.exhausted = false;
-        self.published = None;
+        if removed_lines {
+            self.published = None;
+        }
         true
     }
 
@@ -331,7 +339,8 @@ impl NametagAtlas {
             .into_iter()
             .enumerate()
             .filter_map(|(shelf, mut cells)| {
-                if !unused[shelf] {
+                // Empty shelves still contribute contiguous height to spatial reclamation.
+                if self.shelves[shelf].height == 0 || (!unused[shelf] && !cells.is_empty()) {
                     return None;
                 }
                 cells.sort_unstable_by_key(|cell| cell[0]);
@@ -349,6 +358,7 @@ impl NametagAtlas {
                 Some(ShelfReclamation {
                     shelves: shelf..shelf + 1,
                     free,
+                    has_unused_lines: unused[shelf],
                 })
             })
             .collect()
