@@ -81,6 +81,10 @@ impl WorldAuthority {
     }
 
     /// Installs an immutable identity view without enumerating custom states on the commit path.
+    #[expect(
+        clippy::print_stderr,
+        reason = "SESSION_CUSTOM_BLOCK_IDENTITIES is a stderr marker read during live sessions"
+    )]
     pub fn install_custom_block_identities(&mut self, prepared: PreparedBlockIdentities) {
         assert_eq!(prepared.mode, self.network_id_mode);
         assert_eq!(prepared.custom_ids, self.custom_block_ids);
