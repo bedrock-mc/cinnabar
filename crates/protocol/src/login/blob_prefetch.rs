@@ -39,6 +39,9 @@ impl PlaySession {
             .as_mut()
             .expect("enabled cache")
             .accept_cached_packet_with_size(packet, packet_bytes)?;
+        if !status.accepted() {
+            self.transport.reject_current(PacketOutcome::Skipped);
+        }
         let recovery = status.take_recovery();
         let admission = status.take_admission();
         let mut events = VecDeque::with_capacity(2);

@@ -6,6 +6,7 @@ use bytes::Bytes;
 
 use crate::blob_cache::ResolverReady;
 use crate::packet::GameHeader;
+use crate::packet_tap::PacketOutcome;
 use crate::raw_packet::RawPacket;
 use crate::session_transport::{Inbound, SessionTransport};
 use crate::{
@@ -176,6 +177,18 @@ impl PlaySession {
         }
     }
 
+    /// [`Self::skip_or_fail_world`] for the packet the transport delivered last, reporting
+    /// whether it was skipped or ended the session.
+    fn skip_or_fail_current(&mut self, error: ProtocolError) -> Result<(), ProtocolError> {
+        let result = self.skip_or_fail_world(error);
+        self.transport.reject_current(if result.is_ok() {
+            PacketOutcome::Skipped
+        } else {
+            PacketOutcome::Failed
+        });
+        result
+    }
+
     /// Count of world packets skipped because normalization rejected them.
     pub fn world_skip_count(&self) -> u64 {
         self.world_skips
@@ -210,6 +223,7 @@ impl PlaySession {
             ) {
                 self.reset_blob_cache_pending();
             }
+            self.transport.accept_current();
             return Ok(packet);
         }
     }
@@ -248,7 +262,20 @@ impl PlaySession {
         })
     }
 
+    /// Settles accepted packets before the caller can pause world admission.
     async fn recv_world_ingress(
+        &mut self,
+        current_dimension: i32,
+    ) -> Result<WorldIngress, ProtocolError> {
+        let result = self.recv_world_ingress_inner(current_dimension).await;
+        if result.is_ok() {
+            self.transport.accept_current();
+        }
+        result
+    }
+
+    /// Routes raw world packets through the enabled cache and decoding lanes.
+    async fn recv_world_ingress_inner(
         &mut self,
         current_dimension: i32,
     ) -> Result<WorldIngress, ProtocolError> {
@@ -280,6 +307,7 @@ impl PlaySession {
             }
             if raw.id == PacketId::LevelChunk {
                 let raw = raw.into_retention_bounded();
+                self.transport.compact_current(&raw);
                 let packet = match self.decode_world_candidate(raw)? {
                     Some(packet) => packet,
                     None => continue,
@@ -290,7 +318,7 @@ impl PlaySession {
                 match crate::world::normalize_level_chunk_payload(packet) {
                     Ok((event, payload)) => return Ok(WorldIngress::LevelChunk(event, payload)),
                     Err(error) => {
-                        self.skip_or_fail_world(error.into())?;
+                        self.skip_or_fail_current(error.into())?;
                         continue;
                     }
                 }
@@ -310,9 +338,12 @@ impl PlaySession {
                     if error.0.is_decode() {
                         self.decode_errors = self.decode_errors.saturating_add(1);
                     }
+                    if error.0.is_packet_failure() {
+                        self.transport.reject_current(PacketOutcome::Failed);
+                    }
                     return Err(ProtocolError::Session(error));
                 }
-                Err(error) => self.skip_or_fail_world(error)?,
+                Err(error) => self.skip_or_fail_current(error)?,
             }
         }
     }
@@ -510,6 +541,7 @@ impl PlaySession {
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
             let raw = detach_cached_chunk(raw);
+            self.transport.compact_current(&raw);
 
             if matches!(packet_name, PacketId::Transfer | PacketId::Disconnect) {
                 if self.absorb_boundary_packet(raw, packet_name).await? {
@@ -535,7 +567,7 @@ impl PlaySession {
                     let (event, payload) = match crate::world::normalize_level_chunk_payload(view) {
                         Ok(value) => value,
                         Err(error) => {
-                            self.skip_or_fail_world(error.into())?;
+                            self.skip_or_fail_current(error.into())?;
                             continue;
                         }
                     };
@@ -554,13 +586,18 @@ impl PlaySession {
                     &packet,
                 )?;
                 if let packets::Packet::ClientCacheMissResponse(response) = *packet.data {
-                    if let Err(error) = self
+                    match self
                         .blob_cache
                         .as_mut()
                         .expect("enabled path owns a resolver")
                         .accept_miss_response(response)
                     {
-                        return Err(error.into());
+                        Ok(true) => {}
+                        Ok(false) => self.transport.reject_current(PacketOutcome::Skipped),
+                        Err(error) => {
+                            self.transport.reject_current(PacketOutcome::Failed);
+                            return Err(error.into());
+                        }
                     }
                     continue;
                 }
@@ -573,7 +610,7 @@ impl PlaySession {
                 let event = match into_world_event(packet, current_dimension) {
                     Ok(event) => event,
                     Err(error) => {
-                        self.skip_or_fail_world(error.into())?;
+                        self.skip_or_fail_current(error.into())?;
                         continue;
                     }
                 };
@@ -603,7 +640,7 @@ impl PlaySession {
                 }
                 Ok(None) => {}
                 Err(ProtocolError::Session(error)) => return Err(self.fail_session(error)),
-                Err(error) => self.skip_or_fail_world(error)?,
+                Err(error) => self.skip_or_fail_current(error)?,
             }
         }
     }
@@ -618,7 +655,7 @@ impl PlaySession {
                 ProtocolError::Session(error) => Err(self.fail_session(error)),
                 semantic => {
                     tracing::debug!(%semantic, "skipping a world packet the codec rejected");
-                    self.skip_or_fail_world(semantic).map(|()| None)
+                    self.skip_or_fail_current(semantic).map(|()| None)
                 }
             },
         }
@@ -627,6 +664,9 @@ impl PlaySession {
     fn fail_session(&mut self, error: SessionError) -> ProtocolError {
         if error.0.is_decode() {
             self.decode_errors = self.decode_errors.saturating_add(1);
+        }
+        if error.0.is_packet_failure() {
+            self.transport.reject_current(PacketOutcome::Failed);
         }
         self.reset_blob_cache_pending();
         ProtocolError::from(error)
@@ -793,6 +833,8 @@ mod experience_ingress_tests;
 mod generic_event_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(all(test, unix))]
+mod packet_tap_ingress_tests;
 #[cfg(test)]
 mod packet_trace_tests;
 #[cfg(test)]

@@ -14,6 +14,7 @@ import (
 
 	"github.com/df-mc/go-xsapi/v2/mpsd"
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"github.com/sandertv/gophertunnel/minecraft/room"
 )
@@ -140,12 +141,12 @@ func (s *friendSession) run(ctx context.Context) {
 		s.mu.Unlock()
 		custom, err := json.Marshal(properties)
 		if err != nil {
-			s.log.Error("friends: encode session", "error", err)
+			s.log.Error("friends: encode session", "error", redact.Error(err))
 			continue
 		}
 		writeCtx, cancel := context.WithTimeout(ctx, friendSessionWriteTimeout)
 		if err := s.session.SetCustomProperties(writeCtx, custom); err != nil && ctx.Err() == nil {
-			s.log.Warn("friends: update session", "error", err)
+			s.log.Warn("friends: update session", "error", redact.Error(err))
 		}
 		cancel()
 	}

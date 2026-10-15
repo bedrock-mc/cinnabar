@@ -6,13 +6,9 @@ impl Console {
     /// Writes and flushes the file directly, then queues terminal output without waiting.
     /// A missing writer or full queue may lose terminal output but retains the file copy.
     pub fn write_synced(&self, stream: Stream, bytes: Vec<u8>) {
-        if let Some(log) = &self.log {
-            let mut log = log.lock().unwrap_or_else(|error| error.into_inner());
-            let text = AnsiFilter::default().strip(&bytes);
-            let _ = log.write_all(&text).and_then(|()| log.flush());
-        }
+        lock(&self.files).write_plain(&AnsiFilter::default().strip(&bytes));
         if let Some(queue) = &self.queue
-            && let Err(TrySendError::Full(_)) = queue.try_send(Message::WriteConsole(stream, bytes))
+            && let Err(Rejected::Full) = queue.push(Message::WriteConsole(stream, bytes))
         {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
@@ -22,6 +18,7 @@ impl Console {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::console::{queue::SHARED_CAPACITY, tests::with_log};
     use std::sync::mpsc;
 
     /// Holds terminal output until the test releases it, independently of file writes.
@@ -48,21 +45,24 @@ mod tests {
 
     #[test]
     fn file_sync_completes_while_the_console_and_its_queue_are_stalled() {
-        let path = std::env::temp_dir().join(format!("cinnabar-file-sync-{}", std::process::id()));
-        let log = crate::rotating_log::RotatingLog::open(&path, 1024 * 1024).unwrap();
+        let dir = tempfile::tempdir().unwrap();
         let (entered, started) = mpsc::channel();
         let (release, paused) = mpsc::channel();
-        let console = Arc::new(Console::spawn_with_log(
-            std::io::sink(),
-            Paused {
-                entered,
-                release: Some(paused),
-            },
-            Some(log),
-        ));
+        let (console, path) = with_log(
+            Console::spawn(
+                std::io::sink(),
+                Paused {
+                    entered,
+                    release: Some(paused),
+                },
+            ),
+            dir.path(),
+            1024 * 1024,
+        );
+        let console = Arc::new(console);
         console.write(Stream::Stderr, b"before pause\n".to_vec());
         started.recv_timeout(Duration::from_secs(10)).unwrap();
-        for _ in 0..QUEUED_WRITES {
+        for _ in 0..SHARED_CAPACITY {
             console.write(Stream::Stdout, b"queued\n".to_vec());
         }
         let (done, finished) = mpsc::channel();
@@ -83,7 +83,5 @@ mod tests {
         let saved = std::fs::read_to_string(&path).unwrap();
         assert_eq!(saved.matches("renderer boundary\n").count(), 1);
         assert_eq!(saved.matches("after resume\n").count(), 1);
-        drop(console);
-        std::fs::remove_file(path).unwrap();
     }
 }

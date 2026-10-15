@@ -125,6 +125,16 @@ impl SessionFailure {
     pub(crate) const fn is_decode(&self) -> bool {
         !matches!(self, Self::Transport(_) | Self::ConnectionClosed)
     }
+
+    /// Whether a delivered packet failed decoding or startup validation.
+    pub(crate) const fn is_packet_failure(&self) -> bool {
+        matches!(
+            self,
+            Self::PacketDecode { .. }
+                | Self::PacketTrailingBytes { .. }
+                | Self::UnexpectedStartup(_)
+        )
+    }
 }
 
 impl From<SessionFailure> for SessionError {
