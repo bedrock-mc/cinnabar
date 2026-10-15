@@ -302,7 +302,7 @@ fn assert_gpu_bytes(gpu: &FarTerrainGpu, device: &RenderDevice, queue: &RenderQu
         });
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     receive.recv().unwrap().unwrap();
-    let data = readback.slice(..).get_mapped_range();
+    let data = readback.slice(..).get_mapped_range().unwrap();
     for resident in gpu.resident.values() {
         let mesh = &resident.mesh;
         let offset = resident.quads.start as usize * QUAD_BYTES as usize;
