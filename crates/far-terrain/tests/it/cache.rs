@@ -161,6 +161,26 @@ fn uncertain_world_does_not_reuse_matching_spawn_columns() {
     assert_ne!(second.namespace(), previous);
 }
 
+/// Without disk matching, late work from an earlier visit cannot identify the current map.
+#[test]
+fn memory_only_retirement_does_not_show_the_previous_world() {
+    let now = Instant::now();
+    let mut cache = FarTerrainCache::new(FarTerrainConfig::default(), None, 0);
+    cache.begin_uncertain_visit(SERVER, 0);
+    let previous = cache.retire_session().unwrap();
+    cache.begin_uncertain_visit(SERVER, 0);
+    let ghost = ColumnPos::new(100, 100);
+    cache.persist(previous, [(ghost, flat(80).encode())], now);
+    assert!(!cache.store().contains(ghost));
+
+    let current = cache.retire_session().unwrap();
+    cache.persist(current, [(ghost, flat(90).encode())], now);
+    assert_eq!(
+        cache.store().summary(ghost).map(Result::unwrap),
+        Some(flat(90))
+    );
+}
+
 #[test]
 fn writes_wait_for_a_batch_and_dimension_changes_switch_namespace() {
     let root = tempfile::tempdir().unwrap();

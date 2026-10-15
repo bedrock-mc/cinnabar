@@ -401,6 +401,10 @@ impl FarTerrainCache {
         columns: impl IntoIterator<Item = (ColumnPos, EncodedSummary)>,
         now: Instant,
     ) {
+        // Memory-only visits cannot establish a shared namespace with an earlier map.
+        if self.disk.is_none() && session.entry != self.entry {
+            return;
+        }
         let RetiringSession {
             world,
             entry,
