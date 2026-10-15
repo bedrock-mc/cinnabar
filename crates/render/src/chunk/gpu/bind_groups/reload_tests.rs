@@ -62,3 +62,62 @@ fn obsolete_atlas_completion_cannot_stage_or_publish_replacement_geometry() {
         candidate.identity()
     );
 }
+
+#[test]
+fn acknowledged_snapshot_publishes_without_clearing_a_newer_request() {
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let candidate =
+        ChunkTextureAssets::with_revision(Arc::new(assets::RuntimeAssets::diagnostic()), 1);
+    let reload = ChunkTextureReload::default();
+    reload.request_geometry(candidate.clone(), Arc::from([]));
+    let acknowledged = reload.preparation().unwrap();
+    let (prepared, uploaded) = build_chunk_texture_assets(&candidate, &device, &queue).unwrap();
+    let material_buffer = prepared.material_buffer.id();
+    let geometry = PreparedResourceGeometry::build(
+        &[],
+        candidate.clone(),
+        device.clone(),
+        queue.clone(),
+        None,
+    )
+    .unwrap();
+    assert!(reload.finish(&acknowledged, true));
+    let newer = ChunkTextureAssets::with_revision(Arc::clone(candidate.assets()), 2);
+    reload.request_geometry(newer.clone(), Arc::from([]));
+    let pending = reload.preparation().unwrap();
+
+    let mut world = World::new();
+    world.insert_resource(device);
+    world.insert_resource(queue);
+    world.insert_resource(candidate.clone());
+    world.insert_resource(reload.clone());
+    world.insert_resource(ChunkGpuTextureAssets {
+        staged: Some(StagedTextures {
+            request: acknowledged,
+            replacement: (prepared, uploaded, Some(geometry)),
+        }),
+        ..Default::default()
+    });
+    world.init_resource::<ChunkTextureUploadStats>();
+    world.run_system_once(init_chunk_gpu_arena).unwrap();
+    world.run_system_once(prepare_chunk_texture_assets).unwrap();
+    assert_eq!(
+        world
+            .resource::<ChunkGpuTextureAssets>()
+            .prepared
+            .as_ref()
+            .unwrap()
+            .material_buffer
+            .id(),
+        material_buffer,
+        "the CPU's acknowledged snapshot must publish its staged GPU resources"
+    );
+    assert!(reload.is_current(&pending));
+    assert!(reload.status(newer.identity()).is_none());
+    test_time::eventually("the newer preparation worker", || {
+        world.run_system_once(prepare_chunk_texture_assets).unwrap();
+        reload.status(newer.identity()) == Some(Ok(()))
+    });
+}

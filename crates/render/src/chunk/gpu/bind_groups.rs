@@ -296,11 +296,11 @@ pub(in crate::chunk) fn prepare_chunk_texture_assets(
         }
     }
     let requested = reload.preparation();
-    if gpu_assets
-        .staged
-        .as_ref()
-        .is_some_and(|staged| !reload.is_current(&staged.request))
-    {
+    // A newer request cannot retire resources the CPU has already selected but the renderer
+    // has not consumed yet. Publishing that snapshot leaves the newer mailbox attempt intact.
+    if gpu_assets.staged.as_ref().is_some_and(|staged| {
+        staged.replacement.0.identity != identity && !reload.is_current(&staged.request)
+    }) {
         gpu_assets.staged = None;
     }
     if gpu_assets
