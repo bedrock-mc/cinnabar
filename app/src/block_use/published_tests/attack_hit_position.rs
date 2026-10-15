@@ -70,37 +70,40 @@ fn picked_point(world: &World) -> [f32; 3] {
     .point
 }
 
+/// Applies one ordered actor movement and advances the requested interpolation steps.
+fn move_actor(world: &mut World, position: [Option<f32>; 3], ticks: u32) {
+    let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+    let stream = client.stream.as_mut().unwrap();
+    let sequence = stream.committed_sequence() + 1;
+    stream
+        .submit(
+            sequence,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
+                dimension: 0,
+                runtime_id: 99,
+                position,
+                position_origin: protocol::ActorPositionOrigin::Feet,
+                pitch: None,
+                yaw: None,
+                head_yaw: None,
+                on_ground: None,
+                teleported: false,
+                player_mode: None,
+                source_tick: None,
+                interpolation: Default::default(),
+            })),
+        )
+        .unwrap();
+    stream.poll([4.5, 2.620_01, 8.5], 0);
+    assert_eq!(stream.committed_sequence(), sequence);
+    stream.advance_actor_interpolation_frame(ticks);
+}
+
 #[test]
 fn attack_hit_position_keeps_the_previous_frame_intercept_when_the_actor_moves() {
     let (mut world, mut captured) = attack_fixture(7.5);
     let previous = picked_point(&world);
-    {
-        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
-        let stream = client.stream.as_mut().unwrap();
-        let sequence = stream.committed_sequence() + 1;
-        stream
-            .submit(
-                sequence,
-                protocol::WorldEvent::Actor(protocol::ActorEvent::Move(protocol::ActorMoveEvent {
-                    dimension: 0,
-                    runtime_id: 99,
-                    position: [None, None, Some(7.8)],
-                    position_origin: protocol::ActorPositionOrigin::Feet,
-                    pitch: None,
-                    yaw: None,
-                    head_yaw: None,
-                    on_ground: None,
-                    teleported: false,
-                    player_mode: None,
-                    source_tick: None,
-                    interpolation: Default::default(),
-                })),
-            )
-            .unwrap();
-        stream.poll([4.5, 2.620_01, 8.5], 0);
-        assert_eq!(stream.committed_sequence(), sequence);
-        stream.advance_actor_interpolation_frame(1);
-    }
+    move_actor(&mut world, [None, None, Some(7.8)], 1);
     let current = picked_point(&world);
     assert_ne!(previous, current, "the actor must move before this press");
     attack(&mut world);
@@ -170,28 +173,33 @@ fn attack_hit_position_retires_the_pick_after_a_position_reset() {
 
 #[test]
 fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry() {
-    let (mut world, mut captured) = attack_fixture(7.5);
-    let point = Vec3::new(4.5, 2.4, 7.5);
-    let direction = (point - Vec3::new(4.5, 2.5, 8.5)).normalize();
-    world
-        .resource_mut::<client_presentation::aim_assist::AimAssistFrame>()
-        .target = Some(client_presentation::aim_assist::AimAssistTarget {
-        kind: client_presentation::aim_assist::TargetKind::Actor(99),
-        point,
-        direction,
-        score: 0.0,
-    });
-    world
-        .resource_mut::<InteractionOriginSnapshot>()
-        .assist_direction(direction);
-    world
-        .run_system_cached(crate::melee::prepare_melee)
-        .unwrap();
-    assert_ne!(picked_point(&world), point.to_array());
-    attack(&mut world);
-    let packets = captured.drain();
-    let tx = packets.iter().find_map(observe_transaction).unwrap();
-    let actor = tx.actor_use().unwrap();
-    assert_eq!(actor.runtime_id, 99);
-    assert_eq!(actor.hit_position, point.to_array());
+    for moved_off_ray in [false, true] {
+        let (mut world, mut captured) = attack_fixture(7.5);
+        let point = Vec3::new(4.5, 2.4, 7.5);
+        let direction = (point - Vec3::new(4.5, 2.5, 8.5)).normalize();
+        world
+            .resource_mut::<client_presentation::aim_assist::AimAssistFrame>()
+            .target = Some(client_presentation::aim_assist::AimAssistTarget {
+            kind: client_presentation::aim_assist::TargetKind::Actor(99),
+            point,
+            direction,
+            score: 0.0,
+        });
+        world
+            .resource_mut::<InteractionOriginSnapshot>()
+            .assist_direction(direction);
+        assert_ne!(picked_point(&world), point.to_array());
+        if moved_off_ray {
+            move_actor(&mut world, [Some(6.5), None, None], 3);
+        }
+        world
+            .run_system_cached(crate::melee::prepare_melee)
+            .unwrap();
+        attack(&mut world);
+        let packets = captured.drain();
+        let tx = packets.iter().find_map(observe_transaction).unwrap();
+        let actor = tx.actor_use().unwrap();
+        assert_eq!(actor.runtime_id, 99);
+        assert_eq!(actor.hit_position, point.to_array());
+    }
 }

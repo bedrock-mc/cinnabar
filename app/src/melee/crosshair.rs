@@ -118,31 +118,35 @@ pub(super) fn resolve_crosshair(
     });
     let block_distance = observed.map(|observed| observed.hit_distance());
     let authority = stream.authority();
-    let actor = gameplay::melee::pick_actor_by(
-        authority.remote_actors().filter(|actor| {
-            match context.aim.target.map(|target| target.kind) {
-                Some(client_presentation::aim_assist::TargetKind::Actor(id)) => {
-                    actor.runtime_id == id
-                }
-                Some(client_presentation::aim_assist::TargetKind::Block { .. }) => false,
-                None => true,
-            }
-        }),
-        |actor| authority.pick_hit_boxes(actor),
-        context.ui.gameplay_hud().mount_unique_id(),
-        origin,
-        ray.direction().to_array(),
-        actor_reach,
-    )
-    .map(|mut hit| {
-        if let Some(target) = context.aim.target
-            && target.kind == client_presentation::aim_assist::TargetKind::Actor(hit.runtime_id)
-        {
-            hit.point = target.point.to_array();
-            hit.distance = f64::from(gameplay::melee::pick_distance(origin, hit.point));
-        }
-        hit
-    });
+    let mount = context.ui.gameplay_hud().mount_unique_id();
+    let actor = match context.aim.target {
+        Some(target) => match target.kind {
+            client_presentation::aim_assist::TargetKind::Actor(runtime_id) => authority
+                .actor(runtime_id)
+                .filter(|actor| {
+                    runtime_id != stream.local_player_runtime_id()
+                        && Some(actor.unique_id) != mount
+                        && gameplay::melee::actor_is_pickable(actor)
+                })
+                .map(|_| gameplay::melee::ActorHit {
+                    runtime_id,
+                    distance: f64::from(gameplay::melee::pick_distance(
+                        origin,
+                        target.point.to_array(),
+                    )),
+                    point: target.point.to_array(),
+                }),
+            client_presentation::aim_assist::TargetKind::Block { .. } => None,
+        },
+        None => gameplay::melee::pick_actor_by(
+            authority.remote_actors(),
+            |actor| authority.pick_hit_boxes(actor),
+            mount,
+            origin,
+            ray.direction().to_array(),
+            actor_reach,
+        ),
+    };
     Some(classify(actor, block_distance, attack_reach))
 }
 
