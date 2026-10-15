@@ -76,8 +76,8 @@ pub struct SceneHost {
     pub menu: Option<MenuScreen>,
     /// The menu opened over the session's world (pause, death) rather than the launcher's.
     pub over_world: bool,
-    /// The world-loading cover is up.
-    pub loading: bool,
+    /// The world-loading cover's stage, while it is up.
+    pub loading: Option<ui::LoadingStage>,
 }
 
 impl SceneHost {
@@ -138,7 +138,11 @@ impl UiRuntime {
     }
 
     /// Takes this frame's loading cover and the presentation catalog's settings.
-    pub fn observe_presentation(&mut self, loading: bool, table: Arc<ScreenSettingsTable>) {
+    pub fn observe_presentation(
+        &mut self,
+        loading: Option<ui::LoadingStage>,
+        table: Arc<ScreenSettingsTable>,
+    ) {
         self.loading_screen = loading;
         if !Arc::ptr_eq(&table, &self.screen_settings) {
             self.screen_settings = table;

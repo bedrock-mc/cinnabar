@@ -132,8 +132,8 @@ pub(crate) struct ClientWorld {
     pub(crate) network_decode_errors: u64,
     pub(crate) client_blob_cache_enabled: bool,
     pub(crate) client_blob_cache: BlobCacheStats,
-    /// StartGame's hashed world identity, which keys far-terrain caches.
-    pub(crate) level_identity: u64,
+    /// StartGame's hashed world identity, absent when no level ID was supplied.
+    pub(crate) level_identity: Option<u64>,
 }
 
 impl Default for ClientWorld {
@@ -159,7 +159,7 @@ impl ClientWorld {
             network_decode_errors: 0,
             client_blob_cache_enabled: false,
             client_blob_cache: BlobCacheStats::default(),
-            level_identity: 0,
+            level_identity: None,
         }
     }
 

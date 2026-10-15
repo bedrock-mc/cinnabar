@@ -223,17 +223,17 @@ impl UiPresentationRuntime {
                     }
                     Scene::Loading => {
                         if let Some(stage) = self.loading_stage {
-                            // An opaque cover under the loading screen: no partial terrain or
-                            // HUD leaks through while the world settles.
-                            nodes.push(
-                                UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
-                                    UiVisual::Solid {
-                                        texture_page: self.solid_texture_page,
-                                        color: [8, 10, 14, 255],
-                                    },
-                                ),
-                            );
-                            *next = next.saturating_add(1);
+                            if !stage.is_world_entry() {
+                                nodes.push(
+                                    UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
+                                        UiVisual::Solid {
+                                            texture_page: self.solid_texture_page,
+                                            color: [8, 10, 14, 255],
+                                        },
+                                    ),
+                                );
+                                *next = next.saturating_add(1);
+                            }
                             self.append_loading_screen(
                                 runtime, stage, nodes, next, metrics, content,
                             )?;

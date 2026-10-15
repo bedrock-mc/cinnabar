@@ -564,21 +564,14 @@ fn connecting_screen_reports_the_pack_download() {
             received_bytes: 5 * 1024 * 1024,
             total_bytes: 20 * 1024 * 1024,
         }));
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping connecting_screen_reports_the_pack_download: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
     for wanted in ["Downloading packs [1 / 3]", "[5.0MB / 20.0MB]", "Cancel"] {
-        assert!(
-            texts.iter().any(|text| text == wanted),
-            "{wanted}: {texts:?}"
-        );
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
     }
 }
 
-// A Realm join lays out vanilla's Realms loading screen with the lookup's words.
+// A Realm join reports the lookup in the launcher's progress screen.
 #[test]
 fn realm_join_screen_reports_the_realm_lookup() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
@@ -587,21 +580,14 @@ fn realm_join_screen_reports_the_realm_lookup() {
     view.feeds
         .join
         .observe(Some(launcher::menu::JoinStage::Realm));
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping realm_join_screen_reports_the_realm_lookup: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
     for wanted in ["Joining Realm...", "This may take a few moments"] {
-        assert!(
-            texts.iter().any(|text| text == wanted),
-            "{wanted}: {texts:?}"
-        );
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
     }
 }
 
-// Opening a local world shows vanilla's loading screen with the current stage and its bytes.
+// Opening a local world names the current stage and its bytes.
 #[test]
 fn local_world_loading_screen_names_the_stage() {
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
@@ -610,23 +596,15 @@ fn local_world_loading_screen_names_the_stage() {
         fraction: Some(0.5),
         detail: "50.0 / 100.0 MB".to_owned(),
     });
-    let Some(texts) = screen_texts(&view) else {
-        eprintln!(
-            "skipping local_world_loading_screen_names_the_stage: fixture unavailable; requires installed local carriers (make assets)"
-        );
-        return;
-    };
-    assert!(
-        texts.iter().any(|text| text == "Starting World"),
-        "{texts:?}"
-    );
-    assert!(
-        texts
-            .iter()
-            .any(|text| text.contains("Downloading Bedrock Dedicated Server")
-                && text.contains("50.0 / 100.0 MB")),
-        "{texts:?}"
-    );
+    // OreUI draws progress titles in capitals.
+    let words = oreui_texts(&view).join("\n").to_lowercase();
+    for wanted in [
+        "Starting World",
+        "Downloading Bedrock Dedicated Server",
+        "50.0 / 100.0 MB",
+    ] {
+        assert!(words.contains(&wanted.to_lowercase()), "{wanted}: {words}");
+    }
 }
 
 // Retail desktop settings show vanilla's section set; debug, edu, touch and
@@ -645,6 +623,7 @@ fn retail_settings_hide_debug_and_automation_sections() {
     ui_screens::menu_policy::apply(&mut catalog);
     let mut view = launcher::menu::MenuView::new(true, "Steve".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
+    view.over_world = true;
     let settings = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let tree = json_ui::resolve(&catalog, settings.reference, &settings.context)
         .control
@@ -705,6 +684,7 @@ fn retail_settings_keep_navigation_and_video_options_compact() {
     .unwrap();
     let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());
     view.screen = launcher::menu::MenuScreen::Settings;
+    view.over_world = true;
     let screen = ui_screens::menu_screens::screen_data(&view, &|_| None, 0).unwrap();
     let resolved = json_ui::resolve(&catalog, screen.reference, &screen.context)
         .control
@@ -939,12 +919,13 @@ fn fallback_form_preserves_host_owned_presentation_state() {
 }
 
 #[test]
-fn review_failed_menu_modal_does_not_expose_underlying_actions() {
+fn failed_session_menu_modal_does_not_expose_underlying_actions() {
     use launcher::menu::{MenuDialog, MenuScreen};
     let player_runtime = player_state::PlayerState::new(1);
     let mut presentation = mini_engine_presentation();
     let mut view = launcher::menu::MenuView::new(true, "Test".into());
     view.screen = MenuScreen::Play;
+    view.over_world = true;
     presentation.set_menu_view(Some(view.clone()));
     presentation
         .build(
@@ -1031,13 +1012,13 @@ fn paper_doll_keeps_vanilla_placement_under_the_java_hud_overlay() {
     }
 }
 
-// The join's trust question draws vanilla's modal popup over everything, and only its answers take
+// The join's trust question draws an OreUI popup over everything, and only its answers take
 // presses, even with a launcher dialog open beneath it.
 #[test]
-fn server_trust_question_draws_the_vanilla_popup_and_owns_the_input() {
+fn server_trust_question_draws_the_oreui_popup_and_owns_the_input() {
     let Some(mut presentation) = super::pack_harness::engine_presentation() else {
         eprintln!(
-            "skipping server_trust_question_draws_the_vanilla_popup_and_owns_the_input: missing local UI carrier; make assets"
+            "skipping server_trust_question_draws_the_oreui_popup_and_owns_the_input: missing local UI carrier; make assets"
         );
         return;
     };
@@ -1085,11 +1066,7 @@ fn server_trust_question_reads_the_active_language() {
     let translate = |key: &str| {
         (key == "permissions.servertrust.message").then(|| Arc::<str>::from("Vertrauen %1$s?"))
     };
-    let json_ui::FormModel::Modal(modal) =
-        ui_screens::menu_screens::server_trust_model("http://a:1", &translate)
-    else {
-        panic!("the trust question is a modal popup");
-    };
+    let modal = launcher::menu::dialogs::server_trust("http://a:1", &translate);
     assert_eq!(
         (
             modal.title.as_str(),

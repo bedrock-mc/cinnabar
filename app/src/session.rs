@@ -374,15 +374,13 @@ fn attempt_connect(
         presence.max_players = menu.destination_max_players(&address);
     }
     session.controller.presence = Some(presence);
-    session.controller.destination_identity = Some(format!(
-        "{}:{}",
-        if local_world { "local" } else { "remote" },
-        if local_world {
-            menu.local_world_identity().unwrap_or(&address).to_owned()
+    session.controller.destination_identity = Some(
+        if let Some(id) = menu.local_world_identity().filter(|_| local_world) {
+            format!("local:{id}")
         } else {
-            address.trim().to_lowercase()
-        }
-    ));
+            format!("remote:{}", address.trim().to_lowercase())
+        },
+    );
     let launcher = session.launcher.as_deref().and_then(|slot| {
         slot.begin_join(
             &address,

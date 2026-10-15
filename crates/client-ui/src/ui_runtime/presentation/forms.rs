@@ -44,6 +44,8 @@ mod preview_renderer;
 #[cfg(test)]
 mod retained_image_tests;
 mod retained_menu;
+#[cfg(test)]
+mod session_renderer_tests;
 pub(super) use retained_menu::RetainedMenu;
 #[cfg(test)]
 pub(crate) mod compatibility_tests;
@@ -515,7 +517,7 @@ impl UiPresentationRuntime {
 
     /// Hands the runtime this frame's loading cover and the catalog's screen settings.
     pub fn publish_scene_inputs(&self, runtime: &mut UiRuntime) {
-        runtime.observe_presentation(self.loading_stage.is_some(), self.screen_settings());
+        runtime.observe_presentation(self.loading_stage, self.screen_settings());
     }
 
     fn refresh_screen_settings(&mut self) {

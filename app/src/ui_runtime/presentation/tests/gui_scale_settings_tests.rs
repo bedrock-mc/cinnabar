@@ -89,6 +89,27 @@ fn largest_font_quad_height(input: &render_model::UiRenderInput) -> f32 {
         .fold(0.0, f32::max)
 }
 
+/// The most common glyph quad height: body text, whose style is the same in every layout width.
+fn body_glyph_height(input: &render_model::UiRenderInput) -> f32 {
+    let mut counts = std::collections::BTreeMap::<u32, usize>::new();
+    for batch in input.batches.iter().filter(|batch| batch.texture_page == 0) {
+        let start = batch.first_index as usize;
+        let end = start + batch.index_count as usize;
+        for quad in input.indices[start..end].as_chunks::<6>().0 {
+            let ys = quad
+                .iter()
+                .map(|index| input.vertices[*index as usize].position[1]);
+            let height =
+                ys.clone().fold(f32::NEG_INFINITY, f32::max) - ys.fold(f32::INFINITY, f32::min);
+            *counts.entry(height.to_bits()).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map_or(0.0, |(bits, _)| f32::from_bits(bits))
+}
+
 fn native_toggle_height(app: &App, dpi: DpiScale) -> f32 {
     let presentation = app.world().resource::<UiPresentationResource>();
     let (action, bounds) = client_ui::test_support::menu_hit_targets(presentation)
@@ -239,9 +260,9 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
     let mut app = settings_app(true, None);
     let automatic = build_menu(&mut app, [1920, 1080], 1.0);
     let smaller = build_menu(&mut app, [1280, 720], 1.0);
-    assert_eq!(
-        largest_font_quad_height(&automatic),
-        largest_font_quad_height(&smaller) * 2.0,
+    // OreUI fits its scale to the window, so sizes order rather than double.
+    assert!(
+        body_glyph_height(&automatic) > body_glyph_height(&smaller),
         "automatic scale responds to the current physical window dimensions"
     );
 
@@ -251,10 +272,7 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
         .activate(MenuAction::SettingsScale(-2));
     app.update();
     let capped = build_menu(&mut app, [1280, 720], 1.0);
-    assert_eq!(
-        largest_font_quad_height(&capped),
-        largest_font_quad_height(&smaller) / 2.0
-    );
+    assert!(body_glyph_height(&capped) < body_glyph_height(&smaller));
     let menu = app.world().resource::<MenuRuntime>();
     assert_eq!(
         menu.gui_scale_offset(),
@@ -267,10 +285,7 @@ fn gui_scale_keeps_auto_responsive_and_clamps_saved_native_offset_after_resize()
         "the native option shows the clamped modifier"
     );
     let restored = build_menu(&mut app, [1920, 1080], 1.0);
-    assert_eq!(
-        largest_font_quad_height(&restored),
-        largest_font_quad_height(&automatic) / 2.0
-    );
+    assert!(body_glyph_height(&restored) < body_glyph_height(&automatic));
 }
 
 #[test]

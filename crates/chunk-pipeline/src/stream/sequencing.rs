@@ -150,7 +150,6 @@ impl WorldStream {
                 self.diagnose_inline_column(&event, &stored_keys);
                 self.reconcile_block_crack_column(key);
                 self.loaded_columns.insert(key);
-                self.note_far_column_complete(key);
                 self.requests.purge_columns(&BTreeSet::from([key]));
                 self.resident.replace_column(key, new_keys.iter().copied());
                 for old in &old_air {
@@ -177,6 +176,7 @@ impl WorldStream {
                     &light_neutral,
                     now,
                 );
+                self.note_far_column_complete(key);
                 self.stats.last_chunk_commit_at = Some(now);
             }
             PreparedWorldEvent::RequestLevelChunk {

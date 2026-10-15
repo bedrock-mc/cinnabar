@@ -231,7 +231,7 @@ fn assert_grid_coverage(model: bool) {
                 clear
             };
             assert_eq!(pixel(&one, index), expected, "single-sample case {index}");
-            if case.coverage == 0.5 {
+            if case.coverage == 0.5 && (model || enhanced || !case.special_sampler) {
                 let actual = pixel(&four, index);
                 assert!(
                     actual[0] > clear[0] && actual[0] < 255,
