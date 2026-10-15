@@ -93,7 +93,7 @@ fn decoded_and_edited_storage_reservations_fit_the_declared_maximum() {
         let reserved = storage.retained_heap_bytes_bound();
         assert!(reserved <= PalettedStorage::MAX_RETAINED_HEAP_BYTES);
         assert_eq!(storage.work.materializations.load(Ordering::Relaxed), 0);
-        storage.words();
+        let _ = storage.words();
         assert!(storage.retained_heap_bytes() <= reserved);
         assert_eq!(storage.retained_heap_bytes(), actual_heap(&storage));
     }
