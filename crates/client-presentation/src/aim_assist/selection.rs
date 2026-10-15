@@ -103,7 +103,7 @@ impl AimAssistFrustum {
 /// Stable identity retained from the world candidate; no string copies are needed per frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetKind {
-    Actor(u64),
+    Actor(actor_animation::ActorLifetimeId),
     Block { position: [i32; 3], face: u8 },
 }
 

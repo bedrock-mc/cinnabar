@@ -1,7 +1,7 @@
 //! Cached actor points retain the ordinary attack admission gates.
 
 use super::attack_hit_position_tests::{
-    actor_pick_bounds, attack, attack_fixture, unpublished_attack_fixture,
+    actor_pick_bounds, actor_pick_lifetime, attack, attack_fixture, unpublished_attack_fixture,
 };
 use super::*;
 use client_presentation::aim_assist::{AimAssistFrame, AimAssistTarget, TargetKind};
@@ -52,8 +52,9 @@ fn assisted_fixture(distance: f32, clear_block: bool) -> (World, client_session:
     }
     let point = Vec3::new(4.5, 2.5, 8.5 - distance);
     let (minimum, maximum) = actor_pick_bounds(&world);
+    let lifetime = actor_pick_lifetime(&world);
     world.resource_mut::<AimAssistFrame>().target = Some(AimAssistTarget {
-        kind: TargetKind::Actor(99),
+        kind: TargetKind::Actor(lifetime),
         minimum,
         maximum,
         point,
@@ -114,15 +115,15 @@ fn attack_admission_uncached_actor_press_does_not_mine_the_block_behind_it() {
             .resource::<Messages<client_audio::audio::LocalBlockCue>>()
             .len(),
         0,
-        "a deferred actor press must not break the block behind it"
+        "the fresh actor fallback must not break the block behind it"
     );
-    assert!(captured.drain().is_empty(), "the uncached press must wait");
+    assert_eq!(actor_attacks(&mut captured).len(), 1);
     press(&mut world, semantic_input::InputMode::KeyboardMouse);
     produce(&mut world);
     assert_eq!(
         actor_attacks(&mut captured).len(),
-        1,
-        "the same deferred press resolves from its published actor pick"
+        0,
+        "holding after the fresh fallback must not repeat the attack"
     );
 }
 
@@ -153,38 +154,9 @@ fn attack_admission_uncached_actor_press_holds_native_item_use() {
         assert_eq!(
             throws,
             usize::from(delay_fix),
-            "native use waits for the deferred attack; the explicit override permits it"
+            "native use respects the attack; the explicit override permits it"
         );
     }
-}
-
-#[test]
-fn attack_admission_expired_uncached_press_still_does_not_mine_through_an_actor() {
-    let (mut world, mut captured) = unpublished_attack_fixture(7.5);
-    world.init_resource::<client_interaction::survival_mining::SurvivalMiningRuntime>();
-    world
-        .resource_mut::<client_state::PlayerRuntime>()
-        .facts
-        .publish_player_game_mode(PlayerGameMode::Creative);
-    press(&mut world, semantic_input::InputMode::KeyboardMouse);
-    world
-        .run_system_cached(crate::melee::prepare_melee)
-        .unwrap();
-    world
-        .resource_mut::<Time<Real>>()
-        .advance_by(Duration::from_millis(
-            gameplay::interaction_authority::MAX_PENDING_INTERACTION_MILLIS + 1,
-        ));
-    world.insert_resource(crate::melee::MeleeTarget::default());
-    press(&mut world, semantic_input::InputMode::KeyboardMouse);
-    produce(&mut world);
-    assert_eq!(
-        world
-            .resource::<Messages<client_audio::audio::LocalBlockCue>>()
-            .len(),
-        0
-    );
-    assert!(captured.drain().is_empty());
 }
 
 #[test]

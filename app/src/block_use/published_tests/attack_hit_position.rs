@@ -44,6 +44,18 @@ pub(super) fn actor_pick_bounds(world: &World) -> (Vec3, Vec3) {
     (Vec3::from_array(minimum), Vec3::from_array(maximum))
 }
 
+/// Reads the complete lifetime captured with an assisted actor's geometry.
+pub(super) fn actor_pick_lifetime(world: &World) -> actor_animation::ActorLifetimeId {
+    world
+        .resource::<crate::runtime::world::ClientWorld>()
+        .stream
+        .as_ref()
+        .unwrap()
+        .authority()
+        .actor_lifetime(99)
+        .unwrap()
+}
+
 /// Admits a fresh attack through the production pick and packet producers.
 pub(super) fn attack(world: &mut World) {
     let snapshot = world
@@ -68,7 +80,7 @@ pub(super) fn attack(world: &mut World) {
 }
 
 /// Reads the ordinary actor ray without changing its frame or interaction authority.
-fn picked_point(world: &World) -> [f32; 3] {
+pub(super) fn picked_point(world: &World) -> [f32; 3] {
     let client = world.resource::<crate::runtime::world::ClientWorld>();
     let authority = client.stream.as_ref().unwrap().authority();
     let ray = world
@@ -165,15 +177,16 @@ fn attack_hit_position_keeps_the_ray_origin_for_an_enclosing_box() {
 }
 
 #[test]
-fn attack_hit_position_does_not_retarget_a_reused_runtime_id() {
+fn attack_hit_position_uses_fresh_geometry_after_runtime_id_replacement() {
     let (mut world, mut captured) = attack_fixture(7.5);
+    let old_point = picked_point(&world);
     actor_use_tests::spawn(&mut world, 7.8);
+    let fresh_point = picked_point(&world);
+    assert_ne!(old_point, fresh_point);
     attack(&mut world);
-    assert!(
-        captured.drain().iter().all(|packet| {
-            observe_transaction(packet).is_none_or(|tx| tx.actor_use().is_none())
-        })
-    );
+    let packets = captured.drain();
+    let tx = packets.iter().find_map(observe_transaction).unwrap();
+    assert_eq!(tx.actor_use().unwrap().hit_position, fresh_point);
 }
 
 #[test]
@@ -194,11 +207,12 @@ fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry()
         let (mut world, mut captured) = attack_fixture(7.5);
         let point = Vec3::new(4.5, 2.4, 7.5);
         let (minimum, maximum) = actor_pick_bounds(&world);
+        let lifetime = actor_pick_lifetime(&world);
         let direction = (point - Vec3::new(4.5, 2.5, 8.5)).normalize();
         world
             .resource_mut::<client_presentation::aim_assist::AimAssistFrame>()
             .target = Some(client_presentation::aim_assist::AimAssistTarget {
-            kind: client_presentation::aim_assist::TargetKind::Actor(99),
+            kind: client_presentation::aim_assist::TargetKind::Actor(lifetime),
             minimum,
             maximum,
             point,
@@ -217,6 +231,12 @@ fn attack_hit_position_keeps_the_assisted_actor_point_instead_of_the_box_entry()
             .unwrap();
         attack(&mut world);
         let packets = captured.drain();
+        if moved_x == Some(60.5) {
+            assert!(packets.iter().all(|packet| {
+                observe_transaction(packet).is_none_or(|tx| tx.actor_use().is_none())
+            }));
+            continue;
+        }
         let tx = packets.iter().find_map(observe_transaction).unwrap();
         let actor = tx.actor_use().unwrap();
         assert_eq!(actor.runtime_id, 99);

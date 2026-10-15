@@ -16,9 +16,8 @@ use semantic_input::Action;
 mod crosshair;
 use crosshair::resolve_crosshair;
 
-use crate::modding::interaction::{ModInteraction, effective_reach};
+use crate::modding::interaction::ModInteraction;
 use client_shell::ui_resources::UiRuntimeResource;
-use client_world::game_mode_capabilities::SURVIVAL_ATTACK_REACH;
 use {
     crate::runtime::world::ClientWorld,
     client_interaction::{
@@ -83,10 +82,10 @@ pub(crate) fn prepare_melee(
             gameplay::movement::note_click_drop("attack", reason);
         }
     };
-    let Some(input) = context.input.snapshot() else {
+    if context.input.snapshot().is_none() {
         runtime.cancel();
         return;
-    };
+    }
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
@@ -105,39 +104,21 @@ pub(crate) fn prepare_melee(
         runtime.defer(now_millis);
         return;
     }
-    let caps = player_runtime.facts.game_mode_capabilities();
-    let attack_reach = caps.map_or(SURVIVAL_ATTACK_REACH, |caps| caps.attack_reach);
-    let attack_reach = effective_reach(attack_reach, context.mod_interaction.as_deref());
-    let input_mode = protocol_input_mode(input.input_mode);
-    let Some(crosshair) = resolve_crosshair(
+    let Some((published, crosshair)) = resolve_crosshair(
         &player_runtime,
         &context,
-        input_mode,
-        attack_reach,
-        caps.is_some_and(|caps| caps.creative_reach),
-        (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
+        movement.interaction_authority_identity(),
+        previous,
     ) else {
         drop("no_interaction_ray");
         runtime.defer(now_millis);
         return;
     };
-    let authority = movement.interaction_authority_identity();
-    let world = context.client_world.stream.as_ref().unwrap().authority();
-    target.published = Some(crosshair::FrameTarget::new(crosshair, authority, world));
+    target.published = published;
     if !pending {
         runtime.cancel();
         return;
     }
-    let Some(crosshair) = previous.and_then(|pick| pick.crosshair(authority, world)) else {
-        drop("no_published_attack_pick");
-        runtime.defer(now_millis);
-        runtime.observe_attack_target(
-            crosshair,
-            item_timing.is_some_and(|timing| timing.piercing_weapon),
-        );
-        return;
-    };
     let crosshair = runtime.observe_attack_target(
         crosshair,
         item_timing.is_some_and(|timing| timing.piercing_weapon),

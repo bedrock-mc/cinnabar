@@ -242,7 +242,12 @@ fn weighted_score_golden_values_cover_modes_and_priority_clamps() {
 /// Creates an admitted cube with an independently selected center and identity.
 fn candidate(id: u64, center: Vec3, priority: i32) -> AimAssistCandidate {
     AimAssistCandidate {
-        kind: TargetKind::Actor(id),
+        kind: TargetKind::Actor(actor_animation::ActorLifetimeId {
+            session_id: 1,
+            dimension: 0,
+            runtime_id: id,
+            spawn_revision: 1,
+        }),
         minimum: center - Vec3::splat(0.2),
         maximum: center + Vec3::splat(0.2),
         point: center,
@@ -318,7 +323,7 @@ fn priority_changes_winner_and_equal_scores_preserve_candidate_order() {
         far.kind
     );
     let tie = AimAssistCandidate {
-        kind: TargetKind::Actor(3),
+        kind: candidate(3, Vec3::Z, 0).kind,
         ..near
     };
     assert_eq!(
@@ -500,7 +505,10 @@ fn full_evaluation_is_allocation_free_and_publishes_every_second_tick() {
         );
     }
     assert_eq!(test_alloc::thread_allocations() - before, 0);
-    assert_eq!(frame.target.unwrap().kind, TargetKind::Actor(2));
+    assert_eq!(
+        frame.target.unwrap().kind,
+        TargetKind::Actor(world.actor_lifetime(2).unwrap())
+    );
     let mut clear = settings(CameraAimAssistTargetMode::Distance);
     clear.action = CameraAimAssistAction::Clear;
     state.apply(2, &CameraEvent::AimAssist(clear));
@@ -623,7 +631,10 @@ fn registry_and_priority_packets_preserve_search_cycle_and_even_tick_uses_latest
             |_| &[],
         );
         let target = frame.target.unwrap();
-        assert_eq!(target.kind, TargetKind::Actor(2));
+        assert_eq!(
+            target.kind,
+            TargetKind::Actor(world.actor_lifetime(2).unwrap())
+        );
         assert_eq!(
             target.score,
             target_score(

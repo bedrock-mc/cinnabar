@@ -924,7 +924,8 @@ impl ActorStore {
         }
     }
 
-    pub(super) fn lifetime(&self, runtime_id: u64) -> Option<ActorLifetimeId> {
+    /// Resolves the full identity of the actor currently using this runtime ID.
+    pub(crate) fn lifetime(&self, runtime_id: u64) -> Option<ActorLifetimeId> {
         self.actors
             .get(&runtime_id)
             .map(|actor| self.lifetime_for(actor))

@@ -3595,9 +3595,11 @@ Definition-authored boxes and multipart actor picking remain incomplete.
 2026-10-15 actor attacks retain the previously published frame's actor and world-space
 hit point through later movement and look input, including selected aim-assist coordinates.
 Assisted hits retain their selected candidate box for the input-specific pick limit.
-An uncached actor press keeps mining and native item use waiting until the pick resolves;
-the explicit item-use timing override remains available.
-Position resets retire the pick; removed or replaced actors turn it into a miss. Attacks
+Fresh and retained geometry pass through one current target validator before they can
+own an attack or its mining/use vetoes. Assisted candidates carry their captured actor
+lifetime; current reach, distance, obstruction and eligibility apply to every proposal.
+Absent or rejected proposals fall back to an ordinary pick, which supplies its own point.
+The explicit item-use timing override remains available. Position resets retire old geometry. Attacks
 use the network pose before this frame's first movement input, including catch-up frames,
 and enter the queue before their swing and those inputs. Older queued inputs and held
 releases must drain first. Lowered visual eyes do not change the network anchor. Exact

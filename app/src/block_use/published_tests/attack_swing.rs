@@ -21,9 +21,6 @@ fn an_instant_mining_press_retains_its_press_and_completion_swings() {
         .unwrap();
     });
     captured.drain();
-    world
-        .run_system_cached(crate::melee::prepare_melee)
-        .unwrap();
     let snapshot = world
         .resource_mut::<crate::semantic_controls::SemanticInputRuntime>()
         .route_and_finalize(semantic_input::DeviceFrame {
