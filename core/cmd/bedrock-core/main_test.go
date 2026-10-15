@@ -20,6 +20,7 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/corelog"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/internal/streamnet"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
@@ -44,8 +45,8 @@ func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
 			}
 			cfg.Logger.Info("listener ready; waiting for local Rust client", "socket_dir", cfg.SocketDir, "network", "tcp", "endpoint", "127.0.0.1:43123")
 			cfg.Logger.Info("local client accepted", "socket_dir", cfg.SocketDir)
-			cfg.Logger.Info("upstream connection starting", "target", cfg.Upstream, "authentication", "microsoft")
-			cfg.Logger.Info("upstream connected", "target", cfg.Upstream, "authentication", "microsoft")
+			cfg.Logger.Info("upstream connection starting", "target", redact.Private(cfg.Upstream), "authentication", "microsoft")
+			cfg.Logger.Info("upstream connected", "target", redact.Private(cfg.Upstream), "authentication", "microsoft")
 			return nil
 		},
 	)
@@ -54,24 +55,25 @@ func TestRunReportsOrderedStartupLifecycle(t *testing.T) {
 	}
 
 	output := stderr.String()
+	upstream := redact.Private("zeqa.net:19132").String()
 	assertTextInOrder(t, output,
 		"msg=\"core build\" process=game version=unknown commit=unknown",
-		"msg=\"core starting\" process=game endpoint=run upstream=zeqa.net:19132",
+		"msg=\"core starting\" process=game endpoint=run upstream="+upstream,
 		"msg=\"authentication starting\" process=game mode=microsoft",
 		"msg=\"authentication ready\" process=game mode=microsoft",
 		"msg=\"listener ready; waiting for local Rust client\" process=game socket_dir=run network=tcp endpoint=127.0.0.1:43123",
 		"msg=\"local client accepted\" process=game socket_dir=run",
-		"msg=\"upstream connection starting\" process=game target=zeqa.net:19132 authentication=microsoft",
-		"msg=\"upstream connected\" process=game target=zeqa.net:19132 authentication=microsoft",
+		"msg=\"upstream connection starting\" process=game target="+upstream+" authentication=microsoft",
+		"msg=\"upstream connected\" process=game target="+upstream+" authentication=microsoft",
 	)
-	if strings.Contains(output, "secret-token-sentinel") || strings.Contains(output, "token.json") {
-		t.Fatalf("startup output exposed credential material or its cache path:\n%s", output)
+	if strings.Contains(output, "secret-token-sentinel") || strings.Contains(output, "token.json") || strings.Contains(output, "zeqa") {
+		t.Fatalf("startup output exposed credential material, its cache path or the server:\n%s", output)
 	}
 }
 
 func TestExecuteReportsFatalStartupError(t *testing.T) {
 	var stderr bytes.Buffer
-	wantErr := errors.New("listener bind failed")
+	wantErr := errors.New("listener bind failed after dialing 192.0.2.10:19132")
 	exitCode := execute(
 		context.Background(),
 		[]string{"-socket-dir", "run", "-upstream", "localhost:19132"},
@@ -87,10 +89,13 @@ func TestExecuteReportsFatalStartupError(t *testing.T) {
 		t.Fatalf("execute() exit code = %d, want 1", exitCode)
 	}
 	assertTextInOrder(t, stderr.String(),
-		"msg=\"core starting\" process=game endpoint=run upstream=localhost:19132",
+		"msg=\"core starting\" process=game endpoint=run upstream="+redact.Private("localhost:19132").String(),
 		"msg=\"authentication ready\" process=game mode=offline",
-		"level=ERROR msg=\"core failed\" process=game error=\"listener bind failed\"",
+		"level=ERROR msg=\"core failed\" process=game error=\"listener bind failed after dialing [redacted]\"",
 	)
+	if strings.Contains(stderr.String(), "localhost") || strings.Contains(stderr.String(), "192.0.2") {
+		t.Fatalf("startup failure names the server:\n%s", stderr.String())
+	}
 }
 
 // Invalid arguments are still reported through the root logger, labelled with the binary.

@@ -200,7 +200,7 @@ fn language_components_artwork_and_replaced_authority_refresh_their_sources() {
     });
     session_icons::observe(&mut presentation, Some(&icons));
     let packed = capture(&mut cache, &player, &runtime, &presentation, &stream);
-    assert!(packed.decorations.is_none());
+    assert!(packed.decorations.is_some());
     assert_ne!(
         packed.contents.unwrap().inventory_icons,
         original.inventory_icons
@@ -249,6 +249,7 @@ fn recipes(player: &mut player_state::PlayerState, sequence: u64, output: i32) {
     player
         .inventory
         .synchronize_crafting_frontier(1, Some((1, 0, Some(sequence))));
+    player.inventory.drain_pending_inventory();
 }
 
 #[test]

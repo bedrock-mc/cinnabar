@@ -1,16 +1,11 @@
 //! One preparation run: fetch the pack only when a stale carrier reads it, rebuild the stale
 //! carriers with a single `assetc prepare` and publish the set over the previous one.
 
-use std::{
-    fs::{self, File, OpenOptions},
-    io::Write,
-    path::Path,
-    sync::atomic::AtomicBool,
-};
+use std::{fs, io::Write, sync::atomic::AtomicBool};
 
 use anyhow::{Context, Result, bail};
-use assets::carriers::{self, COMPILED_DIR, FONT_MANIFEST, Sources};
-use serde::Deserialize;
+use assets::carriers::{self, COMPILED_DIR};
+use diagnostics::session_log::{Family, Retention, SessionLog, SharedLog};
 
 use super::{
     download,
@@ -21,22 +16,9 @@ use launcher::install_layout::InstallLayout;
 
 pub(super) const UNPACK_LABEL: &str = "Unpacking the Minecraft sample resource pack";
 
-/// The bundled UI font's file name, from the kit's copy of the font manifest.
-pub(super) fn ui_font_file(kit: &Path) -> Result<String> {
-    #[derive(Deserialize)]
-    struct FontSource {
-        font_file: String,
-    }
-    let path = Sources::Kit(kit.to_path_buf()).resolve(FONT_MANIFEST);
-    let bytes = fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let font: FontSource =
-        serde_json::from_slice(&bytes).with_context(|| format!("parse {}", path.display()))?;
-    Ok(font.font_file)
-}
-
 fn compiler<'a>(
     layout: &InstallLayout,
-    log: Option<File>,
+    log: Option<SharedLog>,
     cancel: &'a AtomicBool,
 ) -> Result<Compiler<'a>> {
     let kit = layout.prep_kit();
@@ -69,12 +51,16 @@ pub(super) fn prepare(
     cancel: &AtomicBool,
     report: &mut dyn FnMut(Status),
 ) -> Result<()> {
-    let result = open_log(layout).and_then(|log| run(layout, cancel, report, log));
+    let mut session_log = None;
+    let result = open_log(layout).and_then(|log| {
+        session_log = Some(log.clone());
+        run(layout, cancel, report, log)
+    });
     match &result {
         Ok(()) => report(Status::new(Phase::Done, 0, 0, "Ready")),
         Err(error) => {
             let message = format!("{error:#}");
-            if let Ok(mut log) = open_log(layout) {
+            if let Some(log) = &mut session_log {
                 let _ = writeln!(log, "first-run preparation failed: {message}");
             }
             report(Status::failed("Failed", &message));
@@ -83,21 +69,20 @@ pub(super) fn prepare(
     result
 }
 
-fn open_log(layout: &InstallLayout) -> Result<File> {
-    fs::create_dir_all(layout.log_dir())?;
-    let path = layout.log_dir().join("first-run.log");
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .with_context(|| format!("open {}", path.display()))
+/// Starts this run's `first-run.log`, archiving earlier runs under the client log's retention.
+fn open_log(layout: &InstallLayout) -> Result<SharedLog> {
+    let family = Family::new(layout.log_dir(), "first-run", "log");
+    let path = family.current();
+    let log = SessionLog::open(family, Retention::DEFAULT, Vec::new())
+        .with_context(|| format!("open {}", path.display()))?;
+    Ok(SharedLog::new(log))
 }
 
 fn run(
     layout: &InstallLayout,
     cancel: &AtomicBool,
     report: &mut dyn FnMut(Status),
-    log: File,
+    log: SharedLog,
 ) -> Result<()> {
     let prepared = layout.prepared_assets_dir();
     runner::recover(&prepared);

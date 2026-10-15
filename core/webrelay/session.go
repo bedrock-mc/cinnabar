@@ -15,6 +15,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/sandertv/gophertunnel/minecraft/auth"
 	"golang.org/x/oauth2"
@@ -300,7 +301,7 @@ func (session *webSession) close() {
 	// A cancelled worker still releases any account it built before it returns.
 	session.signIns.Wait()
 	if err := handler.Close(); err != nil {
-		session.relay.logger.Warn("web session close", "error", err)
+		session.relay.logger.Warn("web session close", "error", redact.Error(err))
 	}
 }
 

@@ -17,6 +17,8 @@ pub struct Options {
     pub burst_packets: usize,
     pub burst_bytes: usize,
     pub interval: Duration,
+    /// Sends each burst when its packets originally arrived; needs a v2 capture.
+    pub original_timing: bool,
     pub timeout: Duration,
     pub hold: Duration,
 }
@@ -33,6 +35,7 @@ impl Options {
             burst_packets: 32,
             burst_bytes: MAX_BURST_BYTES,
             interval: Duration::from_millis(50),
+            original_timing: false,
             timeout: Duration::from_secs(120),
             hold: Duration::ZERO,
         };
@@ -50,12 +53,19 @@ impl Options {
                 return Ok(None);
             }
             let (name, value) = match flag.split_once('=') {
-                Some((name, value)) => (name, value.to_owned()),
-                None => (
-                    flag,
-                    args.next()
-                        .ok_or_else(|| anyhow::anyhow!("missing value for {flag}"))?,
-                ),
+                Some((name, value)) => (name, Some(value.to_owned())),
+                None => (flag, None),
+            };
+            // A Go boolean flag takes no separate value.
+            if name == "original-timing" {
+                result.original_timing = value.map_or(Ok(true), |value| value.parse())?;
+                continue;
+            }
+            let value = match value {
+                Some(value) => value,
+                None => args
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("missing value for {flag}"))?,
             };
             match name {
                 "capture" => result.capture = value.into(),
@@ -157,4 +167,4 @@ fn parse_duration(text: &str) -> Result<Duration> {
     Ok(Duration::from_nanos(nanos as u64))
 }
 
-pub const HELP: &str = "bedrock-replay -capture raw.bin -socket-dir DIR -report report.json\n  -resource-pack FILE (repeat in stack order)\n  -content-key KEY (one per resource pack, in stack order; use -content-key= for plain packs)\n    Omit all content keys when every pack is plain.\n  -burst-packets 32 -burst-bytes 8388608 -burst-interval 50ms\n  -timeout 2m -hold 0s\n";
+pub const HELP: &str = "bedrock-replay -capture raw.bin -socket-dir DIR -report report.json\n  -resource-pack FILE (repeat in stack order)\n  -content-key KEY (one per resource pack, in stack order; use -content-key= for plain packs)\n    Omit all content keys when every pack is plain.\n  -burst-packets 32 -burst-bytes 8388608 -burst-interval 50ms\n  -original-timing (v2 captures: send bursts at their recorded arrival times)\n  -timeout 2m -hold 0s\n";

@@ -24,6 +24,24 @@ pub fn definitions() -> Value {
         "type": "object",
         "description": "Exactly one of: {\"in_world\": null}, {\"chunks_loaded\": {\"radius\": 4}}, {\"screen\": {\"name\": \"Gameplay\"}}, {\"entity\": {\"matches\": \"cinnabar:hollow_warden\", \"radius\": 32}}, {\"camera_finished\": null}. Unit conditions may also be given as the bare strings \"in_world\" / \"camera_finished\"."
     });
+    // Built separately: one `json!` holding every tool exceeds the macro recursion limit.
+    let log_filter_set = json!({
+        "name": "log_filter_set",
+        "description": "Replace the client's runtime log filter and return the resulting {spec, effective}. spec is comma-separated directives: category=level for the categories net, world, render, ui, packs, audio, input, core and session (levels error, warn, info, debug, trace), and raw tracing EnvFilter directives such as wgpu=warn. Each call replaces the previous runtime spec; the defaults and RUST_LOG stay underneath. An unparsable spec returns its parse error.",
+        "inputSchema": { "type": "object", "properties": { "spec": { "type": "string" } }, "required": ["spec"], "additionalProperties": false }
+    });
+    let log_filter_get = json!({
+        "name": "log_filter_get",
+        "description": "Report the client's log filter as {spec, effective}: spec is the runtime spec last set by log_filter_set (empty when none) and effective is the whole active filter, including the defaults and RUST_LOG.",
+        "inputSchema": { "type": "object", "properties": {} }
+    });
+    let crash = json!({
+        "name": "crash",
+        "description": "Crash the client on purpose to exercise crash capture: panic, access_violation, stack_overflow or abort. The crash monitor writes a crashes/ folder and shows the crash window unless CINNABAR_CRASH_UI=0; the client is gone afterwards.",
+        "inputSchema": { "type": "object", "properties": {
+            "kind": { "type": "string", "enum": ["panic", "access_violation", "stack_overflow", "abort"] }
+        }, "required": ["kind"], "additionalProperties": false }
+    });
     json!([
         {
             "name": "launch_client",
@@ -121,6 +139,9 @@ pub fn definitions() -> Value {
                 ], "description": "Indices follow the last reported available (activate) or active (deactivate) list." }
             }, "additionalProperties": false }
         },
+        log_filter_set,
+        log_filter_get,
+        crash,
         {
             "name": "state",
             "description": "Position, rotation (Bedrock degrees), health, dimension, loaded chunk columns, nearby actors (nearest first), screen stack, menu, sign-in status (signed_in, checking or signed_out), camera and recording status, and game time.",

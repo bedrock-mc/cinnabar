@@ -573,6 +573,34 @@ fn dark_mode_defaults_off_persists_and_resets_with_video_settings() {
 }
 
 #[test]
+fn diagnostics_settings_default_off_persist_and_survive_group_resets() {
+    let mut settings = SettingsOptions::default();
+    assert!(!settings.verbose_logging());
+    assert!(!settings.record_network_session());
+    assert!(settings.set(SettingId::VerboseLogging.index(), 1));
+    assert!(settings.set(SettingId::RecordNetworkSession.index(), 1));
+    let encoded = serde_json::to_value(&settings).unwrap();
+    assert_eq!(encoded["values"]["verbose_logging"], 1);
+    assert_eq!(encoded["values"]["record_network_session"], 1);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.verbose_logging());
+    assert!(loaded.record_network_session());
+    for group in [
+        SettingsGroup::Video,
+        SettingsGroup::Audio,
+        SettingsGroup::Accessibility,
+        SettingsGroup::Chat,
+    ] {
+        loaded.reset_group(group);
+    }
+    assert!(loaded.verbose_logging() && loaded.record_network_session());
+    assert!(loaded.set(SettingId::RecordNetworkSession.index(), 0));
+    let loaded = SettingsOptions::decode(&serde_json::to_vec(&loaded).unwrap()).unwrap();
+    assert!(loaded.verbose_logging());
+    assert!(!loaded.record_network_session());
+}
+
+#[test]
 fn extra_large_ui_persists_and_resets() {
     let mut settings = SettingsOptions::default();
     assert!(!settings.extra_large_ui());

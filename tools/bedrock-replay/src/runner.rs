@@ -2,7 +2,7 @@ use crate::{
     capture::{CaptureSummary, read_capture},
     options::Options,
     packs::{PackSummary, read_pack},
-    replay::{Burst, ReplayResult, plan_bursts, replay_bursts},
+    replay::{Burst, ReplayResult, Schedule, plan_bursts, replay_bursts},
 };
 use anyhow::{Result, bail, ensure};
 use bridge::SessionListener;
@@ -25,6 +25,7 @@ struct RunReport {
     burst_packets: usize,
     burst_bytes: usize,
     interval_ms: f64,
+    original_timing: bool,
     hold_ms: f64,
     started_unix_ms: u128,
     replay_started_unix_ms: u128,
@@ -45,10 +46,16 @@ pub async fn run(
 ) -> Result<()> {
     let deadline = tokio::time::Instant::now() + options.timeout;
     let captured = read_capture(File::open(&options.capture)?)?;
+    let schedule = if options.original_timing {
+        Schedule::Original
+    } else {
+        Schedule::Fixed(options.interval)
+    };
     let bursts = plan_bursts(
         &captured.packets,
         options.burst_packets,
         options.burst_bytes,
+        schedule,
     )?;
     let mut open = OpenOptions::new();
     open.write(true).create_new(true);
@@ -66,6 +73,7 @@ pub async fn run(
         burst_packets: options.burst_packets,
         burst_bytes: options.burst_bytes,
         interval_ms: options.interval.as_secs_f64() * 1000.,
+        original_timing: options.original_timing,
         hold_ms: options.hold.as_secs_f64() * 1000.,
         started_unix_ms: unix_ms(),
         replay_started_unix_ms: 0,
@@ -149,7 +157,7 @@ async fn serve(
     tokio::pin!(receive);
     report.replay_started_unix_ms = unix_ms();
     tokio::select! { biased;
-        result = replay_bursts(&mut sink, &packets, &bursts, options.interval, handoff, &archives, &mut report.replay) => result?,
+        result = replay_bursts(&mut sink, &packets, &bursts, handoff, &archives, &mut report.replay) => result?,
         result = &mut receive => { result?; bail!("client closed during replay"); }
     }
     report.complete = report.replay.sha256 == report.capture.replay_sha256

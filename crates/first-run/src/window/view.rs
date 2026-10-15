@@ -1,14 +1,12 @@
 //! Asset-independent OreUI setup drawing using the shared menu theme and our open font.
 
+use bootstrap_ui::{
+    canvas::{Canvas, Image, Rect, Text},
+    view::{ButtonState, backdrop, button_label, centred, panel_surface, raised_button},
+};
 use ui::oreui_theme::{self as theme, Appearance};
 
-use super::{
-    super::screen::{Action, Screen},
-    canvas::{Canvas, Image, Rect, Text},
-};
-
-mod controls;
-use controls::{button, centred};
+use super::super::screen::{Action, Screen};
 
 const MAX_ERROR_LINES: usize = 10;
 
@@ -145,26 +143,12 @@ pub(super) fn draw(
     let appearance = style.appearance;
     let edge = theme::EDGE * rem;
     let pad = theme::LOADING_PAD * rem;
-    let full = Rect {
-        x: 0.0,
-        y: 0.0,
-        w: canvas.width as f32,
-        h: canvas.height as f32,
-    };
-    canvas.fill(full, appearance.backdrop(theme::OVERLAY_SCREEN));
-    if let Some(logo) = style.logo {
-        canvas.image(logo, layout.logo);
-    }
-    canvas.fill(
-        Rect {
-            x: panel.x + theme::BUTTON_DEPTH * rem,
-            y: panel.y + theme::BUTTON_DEPTH * rem,
-            ..panel
-        },
-        theme::TEXT_SHADOW,
+    backdrop(
+        canvas,
+        appearance,
+        style.logo.map(|logo| (logo, layout.logo)),
     );
-    canvas.fill(panel, appearance.surface(theme::NEUTRAL80.fill));
-    canvas.frame(panel, edge, appearance.surface(theme::BORDER));
+    panel_surface(canvas, appearance, panel, rem);
     let inner = panel.inset(pad);
     let mut y = inner.y;
     for line in &layout.title {
@@ -251,6 +235,37 @@ pub(super) fn draw(
         x += (width + gap) * fit;
     }
     hits
+}
+
+/// The setup screen's buttons: primary green for the screen's default, menu neutral otherwise.
+fn button(
+    canvas: &mut Canvas,
+    text: &mut Text,
+    screen: &Screen,
+    style: &Style<'_>,
+    action: Action,
+    rect: Rect,
+    rem: f32,
+) {
+    let role = style.appearance.role(if screen.primary() == Some(action) {
+        theme::PRIMARY_ROLE
+    } else {
+        theme::MENU_NEUTRAL
+    });
+    let state = ButtonState {
+        hovered: style.hovered == Some(action),
+        focused: style.focused == Some(action),
+        pressed: style.pressed == Some(action),
+    };
+    let face = raised_button(canvas, style.appearance, role, state, rect, rem);
+    button_label(
+        canvas,
+        text,
+        face,
+        rem,
+        role.text,
+        screen.button_label(action),
+    );
 }
 
 #[cfg(test)]
