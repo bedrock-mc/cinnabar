@@ -15,10 +15,14 @@ use std::{
 
 use crash_report::{folder::Logs, report::Report};
 use launcher::install_layout::InstallLayout;
-use launcher_host::lifecycle::crash::protocol::{self, Launch, Restart};
+use launcher_host::lifecycle::crash::{
+    heartbeat::{Heartbeat, Region},
+    protocol::{self, HangWatch, Launch, Restart},
+};
 
 use crate::{
     actions, describe,
+    hang::{self, Stall, Watchdog},
     outcome::{self, Ending},
     parent::Parent,
     server::{Event, Handler, Liveness, Observed},
@@ -115,6 +119,10 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
             let _ = events.send(Event::ClientGone);
         })
         .map_err(|error| error.to_string())?;
+    let watchdog = launch
+        .hang
+        .as_ref()
+        .and_then(|hang| watch_hangs(args, hang, &observed));
     let mut panics = Vec::new();
     for event in &received {
         match event {
@@ -122,7 +130,13 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
             Event::ClientGone => break,
         }
     }
+    let hung = watchdog.and_then(Watchdog::stop);
     let exit_code = parent.exit_code();
+    if let Some(hang) = &launch.hang
+        && let Err(error) = std::fs::remove_file(&hang.heartbeat)
+    {
+        tracing::warn!("heartbeat file not removed: {error}");
+    }
     if liveness.client_gone() || server_finished.recv_timeout(DRAIN).is_err() {
         shutdown.store(true, Ordering::Relaxed);
     }
@@ -139,6 +153,8 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
             let uptimes: Vec<u64> = panics.iter().map(|panic| panic.report.uptime_ms).collect();
             outcome::fatal_panic(&uptimes).map(|fatal| panics.swap_remove(fatal))
         }
+        // Killed while not responding: the hang's report already tells what happened.
+        Ending::Abort(_) if hung.is_some() => hung,
         _ => report(args, &observed, &ending),
     };
     Ok(shown.map(|written| {
@@ -211,6 +227,96 @@ fn write_panics(args: &Args, observed: &Mutex<Observed>) -> Vec<Written> {
             }
         })
         .collect()
+}
+
+/// Watches the client's heartbeat for hangs, each written by [`write_hang`]; `None` when the
+/// heartbeat cannot be read, so hangs go unreported.
+fn watch_hangs(
+    args: &Args,
+    hang: &HangWatch,
+    observed: &Arc<Mutex<Observed>>,
+) -> Option<Watchdog<Written>> {
+    let heartbeat = Heartbeat::open(&hang.heartbeat)
+        .map_err(|error| tracing::warn!("hang detection unavailable: {error}"))
+        .ok()?;
+    let args = args.clone();
+    let observed = Arc::clone(observed);
+    hang::spawn(
+        heartbeat,
+        hang.stall_after_ms,
+        now_ms,
+        move |region, stall| write_hang(&args, &observed, region, stall),
+    )
+    .map_err(|error| tracing::warn!("hang watchdog did not start: {error}"))
+    .ok()
+}
+
+/// Writes the report of `stall` while the client keeps running, with a dump of all its threads
+/// where the platform allows one. Nothing is written for a client that never introduced itself,
+/// one being dumped for a crash, or one paused in a debugger.
+fn write_hang(
+    args: &Args,
+    observed: &Mutex<Observed>,
+    region: &Region,
+    stall: Stall,
+) -> Option<Written> {
+    let (hello, state, crashing) = {
+        let observed = observed.lock().unwrap_or_else(PoisonError::into_inner);
+        (
+            observed.hello.clone(),
+            observed.state.clone(),
+            observed.dump_requested || observed.panic.is_some() || observed.dump.is_some(),
+        )
+    };
+    let Some(hello) = hello else {
+        tracing::warn!("no hang report: the client never introduced itself");
+        return None;
+    };
+    if crashing {
+        tracing::info!("no hang report: the client is being dumped for a crash");
+        return None;
+    }
+    if hang::debugger_attached(args.parent) {
+        tracing::info!("no hang report: a debugger is attached to the client");
+        return None;
+    }
+    let thread = region.thread();
+    let pending = args
+        .crash_dir
+        .join(format!(".pending-hang-{}.dmp", std::process::id()));
+    let missing_dump = std::fs::create_dir_all(&args.crash_dir)
+        .map_err(|error| error.to_string())
+        .and_then(|()| hang::dump_live(args.parent, thread, hello.full_dump, &pending))
+        .err();
+    if let Some(reason) = &missing_dump {
+        tracing::warn!("hang minidump failed: {reason}");
+        let _ = std::fs::remove_file(&pending);
+    }
+    let now_ms = now_ms();
+    let report = hang::report(
+        &hello.identity,
+        &state,
+        stall,
+        thread,
+        missing_dump.as_deref(),
+        now_ms,
+    );
+    let dump = missing_dump.is_none().then_some(pending.as_path());
+    match outcome::write(&args.crash_dir, &hello, &report, dump, now_ms) {
+        Ok((folder, logs)) => {
+            tracing::info!("hang report saved to {}", folder.display());
+            Some(Written {
+                report,
+                logs,
+                folder,
+            })
+        }
+        Err(error) => {
+            tracing::error!("hang report could not be written: {error}");
+            let _ = std::fs::remove_file(&pending);
+            None
+        }
+    }
 }
 
 /// Writes the report for `ending`, when it needs a new one.

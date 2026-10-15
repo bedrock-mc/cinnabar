@@ -674,6 +674,39 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   CI; the window and native dialog are not visually verified on macOS or Linux; dumps are not
   yet walked with `minidump-stackwalk`; next-launch notices for unshown reports and the optional
   user comment remain open.
+- Diagnostics Phase 4, hang watchdog: the client maps a small heartbeat file in its crash
+  directory that the monitor also maps; the main thread ticks a frame counter once per frame in
+  `First` (one relaxed load and store), and a loading count covers each world join until two
+  in-world frames finished. Nothing counts before the first frame, so carrier loading, first-run
+  preparation and renderer setup are never hangs; pack compilation runs off the main thread and
+  needs no loading phase. The monitor samples ten times per 10 s window; no progress outside
+  loading writes one `kind: hang` folder (report, log sections, minidump of every thread taken
+  from the monitor side) and keeps the client running, without a window. Progress then a new
+  stall writes a new folder; killing a hung client shows its hang folder instead of an abort
+  folder. A client in a debugger, one being dumped for a crash, and gaps in the monitor's own
+  sampling (system sleep) are not hangs. Verified locally on Windows: detection unit tests on a
+  manual clock, and fixture clients where a stall then kill gives exactly one hang folder with a
+  dump holding the watched thread, a loading stall gives none, and recovery then a second stall
+  gives two. Incomplete: Linux (`ptrace` dump after `PR_SET_PTRACER`) and macOS (report without
+  a dump; the task port needs privileges) fixtures run only in CI; a real client hang has not
+  been reproduced; a Windows title-bar drag or resize that blocks frames for 10 s would be
+  reported as a hang.
+- Diagnostics Phase 5, core process wiring: every bedrock-core spawn (game, account, sign-in
+  and catalog helpers) gets `-log-level` from the `core` log category (trace and debug map to
+  debug, off to error) and `-crash-output` in the session's crash staging directory (`core/`,
+  pruned with it once the client is gone). A reader thread per process
+  labels stderr lines without a `process=` attribute with role and pid and queues them for one
+  `core.log` writer (a per-session family with the `CORE_SESSION_START` header and the client
+  log's mid-session size cap); a full queue drops and counts lines, never blocking a core.
+  Exit statuses are recorded; an exit nobody asked for other than status 0 or the core's own
+  `core failed` status 1, or any Go crash output, writes a `kind: core` folder with the client
+  and core log sections, the staged packet and flight attachments and `core-crash.txt`, without
+  a crash window; the staged file is
+  deleted afterwards. The account core restarts with `RestartBackoff` (0.5 s doubling to 8 s,
+  giving up after five quick exits until sign-in changes or a refresh). Verified locally on
+  Windows with a Go stand-in core: a panic gives one folder with the traceback, clean and status
+  1 exits and kills give none, helper stderr reaches the log labelled. Incomplete: Linux and
+  macOS run only in CI; no live client run with a crashing real core.
 - Startup recovery files have an exclusive OS lease through the first completed frame;
   sentinels include PID and process start time. Window closure and handled SIGINT/SIGTERM
   cancel unfinished startup without recording a GPU failure. Termination revokes later sentinel

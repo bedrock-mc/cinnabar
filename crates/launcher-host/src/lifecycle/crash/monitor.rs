@@ -16,23 +16,29 @@ use std::{
     time::Duration,
 };
 
-use super::protocol::{self, Hello, Launch, Restart, TOKEN_BYTES, Token};
+use super::{
+    heartbeat,
+    protocol::{self, HangWatch, Hello, Launch, Restart, TOKEN_BYTES, Token},
+};
 use crate::lifecycle::children;
 
 /// How to start the monitor: a program and the arguments before `<socket> <parent pid>
-/// <crash dir>`.
+/// <crash dir>`, and how long the main thread may stall before the monitor reports a hang.
 #[derive(Clone, Debug)]
 pub struct MonitorCommand {
     pub program: PathBuf,
     pub args: Vec<std::ffi::OsString>,
+    pub stall_after: Duration,
 }
 
 impl MonitorCommand {
-    /// This executable re-run with [`super::MONITOR_FLAG`].
+    /// This executable re-run with [`super::MONITOR_FLAG`], reporting hangs after
+    /// [`heartbeat::STALL_AFTER`].
     pub fn current_exe() -> io::Result<Self> {
         Ok(Self {
             program: std::env::current_exe()?,
             args: vec![super::MONITOR_FLAG.into()],
+            stall_after: heartbeat::STALL_AFTER,
         })
     }
 }
@@ -97,8 +103,23 @@ fn try_start(
     let mut token: Token = [0; TOKEN_BYTES];
     getrandom::fill(&mut token).map_err(|error| io::Error::other(error.to_string()))?;
     let pid = std::process::id();
-    let socket = socket_path(pid, nonce())?;
-    let mut launch = serde_json::to_vec(&Launch { token, restart })?;
+    let nonce = nonce();
+    let socket = socket_path(pid, nonce)?;
+    let hang = match heartbeat::watch(crash_dir, pid, nonce) {
+        Ok(heartbeat) => Some(HangWatch {
+            heartbeat,
+            stall_after_ms: u64::try_from(command.stall_after.as_millis()).unwrap_or(u64::MAX),
+        }),
+        Err(error) => {
+            tracing::warn!("hang detection unavailable: {error}");
+            None
+        }
+    };
+    let mut launch = serde_json::to_vec(&Launch {
+        token,
+        restart,
+        hang: hang.clone(),
+    })?;
     launch.push(b'\n');
     let hello = serde_json::to_vec(hello)?;
     let mut monitor = Command::new(&command.program);
@@ -111,7 +132,15 @@ fn try_start(
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     detach_from_terminal(&mut monitor);
-    let spawned = children::spawn_outliving(&mut monitor)?;
+    let spawned = match children::spawn_outliving(&mut monitor) {
+        Ok(spawned) => spawned,
+        Err(error) => {
+            if let Some(hang) = hang {
+                let _ = std::fs::remove_file(hang.heartbeat);
+            }
+            return Err(error);
+        }
+    };
     let _ = PID.set(spawned.id());
     let mut stdin = spawned
         .take_stdin()
@@ -181,11 +210,14 @@ fn introduce() -> Result<(), String> {
 }
 
 /// Connects again after a dump, which ends the server's side of a connection, so later faults
-/// still reach the monitor; false when that failed.
+/// and hangs still reach the monitor; false when that failed.
 pub(super) fn reconnect() -> bool {
     let Ok(client) = open_connection() else {
         return false;
     };
+    if let Some(pid) = PID.get() {
+        super::handler::allow_dumps_by(*pid);
+    }
     if !say_hello(&client) {
         return false;
     }

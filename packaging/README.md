@@ -187,6 +187,10 @@ the panic that ended it. A client that dies without a dump (a fail-fast abort su
 a clean exit (code 0, or 130 after Ctrl+C) gets none. When `main` fails in a Windows GUI build,
 the window shows the error: as `Cinnabar couldn't start` (`kind: startup`) before the game showed
 its first frames, such as on a missing carrier, and as `Cinnabar stopped` (`kind: runtime`) after.
+When the main loop finishes no frame for 10 s outside a world join, the monitor writes one
+`kind: hang` folder per stall, with a minidump of every thread on Windows and Linux (macOS reports
+say why they have none), and leaves the client running without a window; killing the hung client
+then shows that folder instead of writing an abort report.
 Without a GPU for the window the monitor uses a native dialog with the same actions. Until the
 monitor is connected, or where it cannot run (Android), the client writes the folder itself, and
 a monitor that connects later reports nothing more; folders from fatal Unix signals then end in
@@ -195,6 +199,13 @@ newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
 `CINNABAR_FULL_DUMP=1` writes full-memory dumps (Windows). `devtool diag` bundles the latest
 session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
 uploaded.
+
+A `bedrock-core` process that crashes while the client lives (a Go panic or fatal error, or an
+exit other than 0 or its own logged failure status 1 that the client did not ask for) gets a
+`kind: core` folder written by the client, with `core-crash.txt` holding the Go runtime's
+panic and every goroutine's stack; no crash window opens, since the client shows its own
+disconnect. Every core's stderr goes to `logs/core.log`, one file per client session, each line
+labelled with the process role and pid.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and

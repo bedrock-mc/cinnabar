@@ -7,8 +7,10 @@
 //! [`attachments`] the client keeps in its crash staging directory while it runs.
 
 pub mod attachments;
+pub(crate) mod core_exit;
 mod fallback;
 mod handler;
+pub mod heartbeat;
 pub mod monitor;
 pub mod protocol;
 pub mod state;

@@ -448,7 +448,7 @@ fn poll_join(
     let attempt = controller.join.take().expect("pending join");
     use client_session::connection::JoinPoll;
     match attempt.poll(controller.generation, controller.connecting, || {
-        controller.core.exited()
+        controller.core.exit_status()
     }) {
         JoinPoll::Retired => {}
         JoinPoll::Pending(attempt) => controller.join = Some(attempt),
