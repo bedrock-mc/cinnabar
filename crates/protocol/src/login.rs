@@ -528,9 +528,7 @@ impl PlaySession {
             let packet_bytes = raw.inner_frame().len();
             let packet_name = raw.id;
             let raw = detach_cached_chunk(raw);
-            if matches!(packet_name, PacketId::LevelChunk | PacketId::SubChunk) {
-                self.transport.compact_current(&raw);
-            }
+            self.transport.compact_current(&raw);
 
             if matches!(packet_name, PacketId::Transfer | PacketId::Disconnect) {
                 if self.absorb_boundary_packet(raw, packet_name).await? {

@@ -224,6 +224,8 @@ impl SessionTransport {
     pub(crate) fn compact_current(&mut self, packet: &RawPacket) {
         if let Some(current) = &mut self.current
             && packet.record == Some(current.record)
+            && (current.body.as_ptr() != packet.body().as_ptr()
+                || current.body.len() != packet.body().len())
         {
             current.body = packet.body().clone();
         }
