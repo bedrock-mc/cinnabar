@@ -226,10 +226,13 @@ impl NearRadius {
     }
 }
 
+/// Destination, level, dimension, session and terrain inputs that identify one cache visit.
+type WorldIdentity<D> = (D, Option<u64>, i32, u64, [u8; 32]);
+
 /// The world and session the cache was last pointed at, so unchanged frames skip the
 /// identity hash.
 #[derive(Default)]
-pub(crate) struct ActiveWorld(Option<(String, Option<u64>, i32, u64, [u8; 32])>);
+pub(crate) struct ActiveWorld(Option<WorldIdentity<String>>);
 
 /// Keeps extraction, the cache namespace, the loaded area and the drawn tiles current.
 pub(crate) fn feed_far_terrain(
@@ -279,7 +282,7 @@ pub(crate) fn feed_far_terrain(
     if !draining {
         far.drain_since = None;
     }
-    let target = world
+    let target: Option<WorldIdentity<&str>> = world
         .stream
         .as_ref()
         .zip(destination)
@@ -303,7 +306,7 @@ pub(crate) fn feed_far_terrain(
     {
         stream.set_far_terrain_enabled(enabled);
     }
-    let current =
+    let current: Option<WorldIdentity<&str>> =
         active
             .0
             .as_ref()

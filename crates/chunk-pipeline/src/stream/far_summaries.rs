@@ -302,8 +302,8 @@ impl Default for FarTerrainFeed {
 }
 
 impl WorldStream {
-    /// Discards old resource generations and resummarizes complete resident columns.
-    pub(super) fn reload_far_terrain_resources(&mut self) {
+    /// Discards old resource or namespace generations and resummarizes complete resident columns.
+    pub fn reload_far_terrain_resources(&mut self) {
         let feed = &mut self.far_terrain;
         feed.prepared = None;
         feed.inbox.cancel_pending();

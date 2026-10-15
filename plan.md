@@ -9060,11 +9060,12 @@ Incomplete parity: full pack-reload galleries and streaming frame budgets remain
 Live pack changes also prepare held terrain models and their artwork on the resource worker.
 Publishing a replacement retires cached block meshes, including non-cube models, and removal
 restores startup resources. Compatible authored carried sheets remain available without
-replacing shaped terrain models. Far-terrain reloads discard old summary jobs, resummarize
-resident columns, and keep disk colors separate for each set of terrain resource inputs while
+replacing shaped terrain models. Far-terrain reloads discard old summary jobs and resummarize
+resident columns when the carrier or terrain cache identity changes, including when the carrier
+is reused. Disk colors stay separate for each set of terrain resource inputs while
 sharing one destination's disk quota. Regression tests cover warmed models, both hands,
 authored sheets, restoration, mesh-slot reuse, resource generations, and shared disk quotas.
-Rendered acceptance and app/stream integration regression execution remain incomplete.
+Rendered acceptance and the full pack-reload gallery remain incomplete.
 
 ## Loom banner previews
 

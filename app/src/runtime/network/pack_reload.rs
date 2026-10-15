@@ -473,6 +473,8 @@ pub(crate) fn reload_resource_packs(
                     environment.publish(prepared);
                 }
                 let packs = prepared.application;
+                let terrain_identity_changed =
+                    world.terrain_resource_identity != packs.terrain_identity;
                 world.terrain_resource_identity = packs.terrain_identity;
                 if art_changed
                     && let (Some(scene), Some(art)) =
@@ -487,7 +489,13 @@ pub(crate) fn reload_resource_packs(
                     current.0 = (**next).clone();
                 }
                 if let Some(stream) = world.stream.as_mut() {
-                    stream.reload_resource_assets(prepared.assets.clone());
+                    if terrain_identity_changed
+                        && Arc::ptr_eq(stream.runtime_assets(), &prepared.assets)
+                    {
+                        stream.reload_far_terrain_resources();
+                    } else {
+                        stream.reload_resource_assets(prepared.assets.clone());
+                    }
                     if let Some(tints) = biome_tints.as_mut() {
                         crate::runtime::world::synchronize_biome_tints(stream, tints);
                     }
