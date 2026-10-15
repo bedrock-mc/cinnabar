@@ -285,6 +285,12 @@ carry monotonic build numbers, and digest-named partial downloads resume with HT
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
 
+Nightly checks both the nightly and beta signed manifests and offers the newer release while
+keeping the Nightly preference. Release ordering compares the version core, then the shared
+publication number, then SemVer prerelease precedence. An unavailable or invalid beta manifest
+leaves nightly usable. Cached offers and retained stages use the same order to prevent automatic
+downgrades when the winning publishing channel changes. Beta remains the default channel.
+
 Incomplete: CI must compile and run the written regression tests on all platforms. The package
 workflow publishes each channel's signed manifest. The `CINNABAR_UPDATE_SIGNING_KEY` secret in
 the protected `release` environment and the `UPDATE_TRUSTED_KEYS` repository variable are
@@ -1194,6 +1200,11 @@ not close a parity or visual acceptance gate.
   content shares a prepared layer across wire allocations; presentation reads ready layers
   without waiting. Cold capes appear after preparation, and session changes retire their
   queues. Rendered-frame and hardware performance acceptance remain incomplete.
+- The HUD cape now uses the evaluated player cape bone and the shared world-cape attachment
+  calculation instead of a resting menu mesh. Worn wings suppress its separate cape layer.
+  Missing and hidden cape bones omit collapsed faces while keeping the body visible; flattened
+  capes retain their visible faces. Filtered HUD, cape geometry and wing-routing tests pass.
+  Before/after rendered validation remains incomplete.
 - Golden tests assert composed stacks and projected arm, item and cape points against Java's
   calls.
 - Review corrections: local head sampling stays in the current render frame; cape and camera

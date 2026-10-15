@@ -39,6 +39,45 @@ fn signed_manifest_download_verify_stage_and_reopen_without_network() {
 }
 
 #[test]
+fn nightly_reopens_a_signed_beta_stage_and_refuses_it_after_a_newer_nightly_is_installed() {
+    let root = tempfile::tempdir().unwrap();
+    let platform = "linux-x86_64";
+    let (directory, keys) = staged(root.path(), platform);
+    let nightly = Check {
+        channel: update_manifest::channel::Channel::Nightly.name(),
+        current: "2.0.0-nightly",
+        current_build: 1,
+        ..check(platform)
+    };
+    let selected = verify(&directory, &keys, nightly, now()).unwrap();
+    assert_eq!(
+        selected.manifest.channel,
+        update_manifest::channel::Channel::Beta.name()
+    );
+    assert!(
+        verify(
+            &directory,
+            &keys,
+            Check {
+                current_build: 3,
+                ..nightly
+            },
+            now()
+        )
+        .is_err()
+    );
+    let mut invalid: update_manifest::Envelope =
+        serde_json::from_slice(&fs::read(directory.join(ENVELOPE_FILE)).unwrap()).unwrap();
+    invalid.signature = "AAAA".into();
+    fs::write(
+        directory.join(ENVELOPE_FILE),
+        serde_json::to_vec(&invalid).unwrap(),
+    )
+    .unwrap();
+    assert!(verify(&directory, &keys, nightly, now()).is_err());
+}
+
+#[test]
 fn bad_signature_channel_expiry_platform_and_downgrade_are_refused() {
     let (envelope, keys) = signed("linux-x86_64", "2.0.0", PAYLOAD);
     let mut bad: update_manifest::Envelope = serde_json::from_slice(&envelope).unwrap();
@@ -54,7 +93,7 @@ fn bad_signature_channel_expiry_platform_and_downgrade_are_refused() {
     );
     for policy in [
         Check {
-            channel: "nightly",
+            channel: "stable",
             ..check("linux-x86_64")
         },
         check("windows-x86_64"),
@@ -97,7 +136,7 @@ fn only_explicit_switch_now_permits_an_older_signed_release_on_the_chosen_channe
             &envelope,
             &keys,
             Check {
-                channel: "nightly",
+                channel: "stable",
                 switch_now: true,
                 ..check("linux-x86_64")
             },
