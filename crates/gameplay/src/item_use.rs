@@ -176,6 +176,11 @@ impl ItemUseRuntime {
         self.active.is_some() && (!held || self.release_pending)
     }
 
+    /// Retains release-facing ordering for an accepted Riptide use, even while inventory is hidden.
+    pub fn riptide_release_needs_facing(&self) -> bool {
+        self.active.as_ref().is_some_and(|active| active.riptide)
+    }
+
     /// Observes release facts on the local clock before any interaction or facing input can wait.
     pub fn observe_riptide_release(
         &mut self,

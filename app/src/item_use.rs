@@ -335,7 +335,7 @@ fn admit_with_action_aim(
         );
         return;
     }
-    let riptide_fence = frame.riptide.is_some_and(|riptide| riptide.level > 0);
+    let riptide_fence = runtime.riptide_release_needs_facing();
     let use_modifier = runtime.movement_modifier();
     let mut deferred = None;
     admit_on_tick(

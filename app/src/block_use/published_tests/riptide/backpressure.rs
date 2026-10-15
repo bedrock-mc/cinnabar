@@ -4,6 +4,9 @@ use super::respawn::{charging_world, use_button};
 use super::*;
 use client_interaction::item_use::ItemUseRuntime;
 
+#[path = "backpressure/retained_fence.rs"]
+mod retained_fence;
+
 struct Dry;
 
 impl sim::CollisionWorld for Dry {
