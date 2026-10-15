@@ -408,6 +408,8 @@ impl Content<'_, '_> {
             "Automatic uses display detection. Choose On if variable refresh is enabled in your display and system settings, or Off to disable the VRR frame cap.".to_owned()
         } else if id == SettingId::CinnabarVisible {
             "Let other Cinnabar players see a Cinnabar badge next to your name.".to_owned()
+        } else if id == SettingId::CinnabarBadges {
+            "Show Cinnabar badges beside player names and in the player list.".to_owned()
         } else if id == SettingId::AutoUpdateEnabled {
             "Check the selected channel and download verified updates in the background.".to_owned()
         } else if id == SettingId::InstallUpdatesOnQuit {

@@ -52,7 +52,7 @@ fn render(list: &mut PlayerList) -> Vec<json_ui::DrawNode> {
             &ViewState::default(),
         )
         .unwrap();
-    rendered.nodes.clone()
+    rendered.nodes.to_vec()
 }
 
 #[test]

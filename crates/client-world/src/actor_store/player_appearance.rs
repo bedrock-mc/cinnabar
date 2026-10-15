@@ -301,6 +301,7 @@ mod tests {
         let PlayerListEntry::Add {
             username,
             verified,
+            xuid,
             skin,
             ..
         } = listed.entries[0].clone()
@@ -312,6 +313,7 @@ mod tests {
             unique_id: XUID + 1,
             username,
             verified,
+            xuid,
             skin,
         };
         let entries = [listed.entries[0].clone(), unspawned];

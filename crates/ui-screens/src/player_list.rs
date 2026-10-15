@@ -18,6 +18,9 @@ const ROW_HEIGHT: f64 = 9.0;
 const SCREEN: &str = "cinnabar_tab.screen";
 /// The roster badge's built-in texture path.
 pub const CINNABAR_BADGE: &str = "textures/ui/cinnabar_badge";
+/// Original gem pixels shared by tab-list and world-space name-tag atlases.
+pub const CINNABAR_BADGE_PNG: &[u8] =
+    include_bytes!("../../../assets/java-hud/textures/ui/cinnabar_badge.png");
 /// Width a badged cell reserves beside its name.
 const BADGE_WIDTH: f64 = 9.0;
 

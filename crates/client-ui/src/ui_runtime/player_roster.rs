@@ -1,4 +1,4 @@
-//! The tab roster's player-list entries, each badged by its own XUID when the Cinnabar API reports it.
+//! Shared roster answers and display policy for tab-list and name-tag badges.
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -10,6 +10,7 @@ pub struct PlayerRoster {
     entries: Vec<(Arc<str>, Arc<str>)>,
     revision: u64,
     reported: Arc<HashSet<String>>,
+    hide_badges: bool,
     rows: Vec<RosterRow>,
 }
 
@@ -49,13 +50,28 @@ impl PlayerRoster {
         &self.rows
     }
 
+    /// Controls both tab-list and name-tag badges without changing API visibility or answers.
+    pub fn set_show_badges(&mut self, show: bool) {
+        let hide = !show;
+        if self.hide_badges != hide {
+            self.hide_badges = hide;
+            self.rebadge();
+        }
+    }
+
+    /// Whether this roster identity has a visible, currently reported badge.
+    pub fn has_badge(&self, xuid: &str) -> bool {
+        !self.hide_badges && !xuid.is_empty() && self.reported.contains(xuid)
+    }
+
+    /// Rebuilds tab rows only when roster identities, API answers or display policy change.
     fn rebadge(&mut self) {
         self.rows = self
             .entries
             .iter()
             .map(|(name, xuid)| RosterRow {
                 name: Arc::clone(name),
-                badged: !xuid.is_empty() && self.reported.contains(&**xuid),
+                badged: self.has_badge(xuid),
             })
             .collect();
     }
@@ -118,5 +134,23 @@ mod tests {
             badges(&roster),
             [("Alex", false), ("Alex", true), ("Alex", false)]
         );
+    }
+
+    /// Both surfaces use the same setting and answer, including the cache's expiry publication.
+    #[test]
+    fn display_setting_and_expiry_hide_both_surfaces() {
+        let mut roster = PlayerRoster::default();
+        roster.set_entries(vec![entry("ExamplePlayer", "11")]);
+        roster.set_cinnabar(Arc::new(HashSet::from(["11".to_owned()])));
+        assert!(roster.rows()[0].badged && roster.has_badge("11"));
+        roster.set_show_badges(false);
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
+        roster.set_show_badges(true);
+        assert!(roster.rows()[0].badged && roster.has_badge("11"));
+        roster.set_cinnabar(Arc::default());
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
+        roster.set_show_badges(false);
+        roster.set_cinnabar(Arc::new(HashSet::from(["11".to_owned()])));
+        assert!(!roster.rows()[0].badged && !roster.has_badge("11"));
     }
 }

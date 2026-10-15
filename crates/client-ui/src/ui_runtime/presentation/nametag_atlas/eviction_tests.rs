@@ -8,10 +8,11 @@ fn seed_cell(atlas: &mut NametagAtlas, text: Arc<str>, width: u32, height: u32) 
         cell: [x, y, width, height],
         width_px: width as f32 / FONT_DESIGN_PIXEL_TEXELS as f32,
         top_px: 0.0,
+        ink_y_px: [0.0, height as f32 / FONT_DESIGN_PIXEL_TEXELS as f32],
     };
     atlas.lines.insert(Arc::clone(&text), atlas.cells.len());
     atlas.cells.push(AtlasCell {
-        text,
+        text: Some(text),
         line,
         rgba8: vec![255; (width * height * 4) as usize].into(),
         shelf,
@@ -98,7 +99,7 @@ fn a_miss_reclaims_one_shelf_and_keeps_later_hits_and_other_unused_pixels() {
     }
     assert_eq!(NametagAtlasRect::updates(&after, &before).count(), 2);
     for (text, &index) in &atlas.lines {
-        assert_eq!(text, &atlas.cells[index].text);
+        assert_eq!(Some(text), atlas.cells[index].text.as_ref());
     }
 }
 
@@ -122,7 +123,8 @@ fn rejected_ink_never_samples_pixels_and_does_not_block_a_smaller_miss() {
         font_page(&font, page)
     };
     let measured = measure_line(&wide, &font, &mut layouts).unwrap();
-    assert_eq!(measured.size[0], NAMETAG_ATLAS_SIDE);
+    // The bounded prefix must exceed either shelf's free half, even at a glyph boundary.
+    assert!(measured.size[0] > NAMETAG_ATLAS_SIDE / 2);
     // The previous order rasterized this ink before discovering it could not be placed.
     let _ = rasterize_line(&measured, &pages, &ui::FormattingPalette::default());
     assert!(reads.get() > 0);
@@ -486,7 +488,7 @@ fn assert_placed_cells(atlas: &NametagAtlas) {
         }
     }
     for (index, cell) in atlas.cells.iter().enumerate() {
-        assert_eq!(atlas.lines[&cell.text], index);
+        assert_eq!(atlas.lines[cell.text.as_ref().unwrap()], index);
         let shelf = &atlas.shelves[cell.shelf];
         let [x, y, width, height] = cell.line.cell;
         assert_eq!(cell.rgba8.len(), (width * height * 4) as usize);

@@ -294,6 +294,10 @@ impl WorldAuthority {
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
     }
+    /// Borrows this actor's current roster XUID, even while its appearance is being prepared.
+    pub fn actor_player_xuid(&self, runtime_id: u64) -> Option<&str> {
+        self.actors.player_xuid(runtime_id)
+    }
     /// Replaces `views` with dropped-item stacks at their interpolated pose, spin, and pickup
     /// flight at `partial_tick`.
     pub fn dropped_items_into(&self, partial_tick: f32, views: &mut Vec<crate::DroppedItemView>) {

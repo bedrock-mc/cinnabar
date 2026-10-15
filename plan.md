@@ -648,10 +648,13 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   older-session replies. Release notices include manifest builds and schedule jittered checks with
   bounded retries for older signed manifests. Packaging rejects placeholder origins and announces
   only changed signed manifests.
+- Tab-list and name-tag badges share roster answers and the default-on General display toggle.
+  Name tags reuse the original gem in a retained atlas cell, widen the name plate and apply the
+  existing text visibility, depth and opacity passes.
 - Go tests cover the handshake, lookups, release identities, retry policy and schema conformance.
   Rust tests cover roster-cache lifetimes, session changes and release-check scheduling.
 - Incomplete: an authenticated live run against the deployed API, the production origin, and
-  name-tag badges remain outstanding. No vanilla parity gate closes for this optional feature.
+  owner visual acceptance remain outstanding. No vanilla parity gate closes for this optional feature.
 
 ## Small-surface render safety
 

@@ -63,7 +63,7 @@ pub const JAVA_HUD_PACK: [(&str, &str, &[u8]); 4] = [
 pub const JAVA_HUD_IMAGES: [(&str, &[u8]); 3] = [
     (
         crate::player_list::CINNABAR_BADGE,
-        include_bytes!("../../../assets/java-hud/textures/ui/cinnabar_badge.png"),
+        crate::player_list::CINNABAR_BADGE_PNG,
     ),
     (
         "textures/ui/hotbar_offhand_left",

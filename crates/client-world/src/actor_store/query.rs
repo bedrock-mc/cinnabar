@@ -30,6 +30,18 @@ impl ActorStore {
         profile.filter(|profile| profile.unique_id == actor.unique_id)
     }
 
+    /// Reads the current roster identity independently of skin preparation or display names.
+    pub(crate) fn player_xuid(&self, runtime_id: u64) -> Option<&str> {
+        let actor = self.actors.get(&runtime_id)?;
+        let ActorKind::Player { uuid, .. } = &actor.kind else {
+            return None;
+        };
+        self.players
+            .get(uuid)
+            .filter(|profile| profile.unique_id == actor.unique_id)
+            .map(|profile| &*profile.xuid)
+    }
+
     pub(crate) fn actor_display_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         let runtime_id = self.unique_to_runtime.get(&unique_id)?;
         let actor = self.actors.get(runtime_id)?;

@@ -916,6 +916,8 @@ mod player_appearance;
 mod profiles;
 #[cfg(test)]
 mod riding_tests;
+#[cfg(test)]
+mod roster_identity_tests;
 mod skin_update;
 #[cfg(test)]
 mod tests;

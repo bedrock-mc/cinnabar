@@ -518,6 +518,8 @@ settings! {
         [(SettingPanel::GeneralNetwork, 1)], [], None, None;
     CinnabarVisible => "cinnabar_visible", toggle("Show me as a Cinnabar player", true),
         [(SettingPanel::GeneralNetwork, 2)], [], None, None;
+    CinnabarBadges => "show_cinnabar_badges", toggle("Show Cinnabar badges", true),
+        [(SettingPanel::GeneralNetwork, 3)], [], None, None;
     AutoUpdateEnabled => "auto_update_enabled", toggle("Check for updates", super::super::updates::Preferences::DEFAULT.checks),
         [(SettingPanel::GeneralUpdates, 0)], [], None, None;
     InstallUpdatesOnQuit => "install_updates_on_quit", toggle("Install updates when I quit", super::super::updates::Preferences::DEFAULT.install_on_quit),
