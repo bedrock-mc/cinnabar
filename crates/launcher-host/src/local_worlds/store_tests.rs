@@ -334,3 +334,33 @@ fn thumbnails_are_kept_beside_their_world() {
         Err(WorldError::NotFound)
     ));
 }
+
+/// Import folders a killed client left behind, with an unlocked or missing lock file, are
+/// removed on the next open; a live import's folder and lock are not.
+#[test]
+fn abandoned_import_folders_are_removed_on_open() {
+    let dir = scratch();
+    let root = dir.path().join("worlds");
+    let store = store(&dir);
+    let live = store.staging().expect("live import");
+    for (name, with_lock_file) in [("unlocked", true), ("missing", false)] {
+        let folder = root.join(format!("{STAGING_PREFIX}{name}"));
+        fs::create_dir_all(folder.join("db")).expect("partial world");
+        if with_lock_file {
+            fs::write(
+                root.join(format!("{STAGING_PREFIX}{name}{STAGING_LOCK_SUFFIX}")),
+                b"",
+            )
+            .expect("lock file");
+        }
+    }
+    Store::open(root.clone()).expect("reopen");
+    let mut left: Vec<_> = fs::read_dir(&root)
+        .expect("worlds")
+        .map(|entry| entry.expect("entry").path())
+        .collect();
+    left.sort();
+    let mut expected = vec![live.path().to_path_buf(), live.lock_path.clone()];
+    expected.sort();
+    assert_eq!(left, expected);
+}

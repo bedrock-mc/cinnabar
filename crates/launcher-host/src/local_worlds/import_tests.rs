@@ -279,14 +279,15 @@ fn refused_archives_leave_nothing_behind() {
     }
 }
 
-/// Import folders a killed client left behind are removed when the store opens again.
+/// Another client starting on the same worlds never deletes an import still running here.
 #[test]
-fn stale_import_folders_are_removed_on_open() {
+fn a_starting_client_keeps_a_running_import() {
     let fixture = fixture();
     let staging = fixture.store.staging().expect("staging");
-    fs::write(staging.path().join("level.dat"), b"partial").expect("partial");
-    let left = staging.keep();
-    Store::open(fixture.worlds.clone()).expect("reopen");
-    assert!(!left.exists());
-    assert!(fixture.leftovers().is_empty());
+    let partial = staging.path().join("level.dat");
+    fs::write(&partial, b"partial").expect("partial");
+    Store::open(fixture.worlds.clone()).expect("second client");
+    assert!(partial.is_file(), "the running import lost its folder");
+    drop(staging);
+    assert!(fixture.leftovers().is_empty(), "{:?}", fixture.leftovers());
 }

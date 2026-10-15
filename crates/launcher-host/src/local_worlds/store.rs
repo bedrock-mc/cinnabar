@@ -23,6 +23,30 @@ pub(crate) const LEVEL_DIR: &str = "db";
 pub(crate) const THUMBNAIL_FILE: &str = "world_icon.jpeg";
 /// Scratch folders of imports in progress; ids never start with it, so listings skip them.
 const STAGING_PREFIX: &str = ".import-";
+/// Beside each scratch folder, a file its importer holds locked until the folder is gone.
+const STAGING_LOCK_SUFFIX: &str = ".lock";
+
+/// An import's scratch folder, removed when dropped. Its lock file stays locked until then, so
+/// other clients sharing the worlds folder leave it alone.
+pub(crate) struct Staging {
+    dir: PathBuf,
+    lock_path: PathBuf,
+    lock: fs::File,
+}
+
+impl Staging {
+    pub(crate) fn path(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl Drop for Staging {
+    /// Removes the folder while still locked, then the lock file; the lock ends with the handle.
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+        let _ = fs::remove_file(&self.lock_path);
+    }
+}
 /// Largest thumbnail read back; one is a few tens of kilobytes.
 const MAX_THUMBNAIL_BYTES: u64 = 1024 * 1024;
 
@@ -225,12 +249,31 @@ impl Store {
         Ok(world)
     }
 
-    /// A scratch folder beside the worlds, removed when dropped, so adopting from it is a rename.
-    pub(crate) fn staging(&self) -> Result<tempfile::TempDir, WorldError> {
-        tempfile::Builder::new()
-            .prefix(STAGING_PREFIX)
-            .tempdir_in(&self.root)
-            .map_err(|error| failed(format!("create import folder: {error}")))
+    /// A scratch folder beside the worlds, so adopting from it is a rename. Its lock is taken
+    /// before the folder exists, so no other client ever sees it unlocked.
+    pub(crate) fn staging(&self) -> Result<Staging, WorldError> {
+        let error = |error: io::Error| failed(format!("create import folder: {error}"));
+        let name = format!(
+            "{STAGING_PREFIX}{:016x}",
+            u64::from_be_bytes(random_bytes()?)
+        );
+        let lock_path = self.root.join(format!("{name}{STAGING_LOCK_SUFFIX}"));
+        let lock = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .map_err(error)?;
+        let staging = Staging {
+            dir: self.root.join(name),
+            lock_path,
+            lock,
+        };
+        staging
+            .lock
+            .try_lock()
+            .map_err(|locked| error(io::Error::other(locked)))?;
+        create_private_dir(&staging.dir).map_err(error)?;
+        Ok(staging)
     }
 
     /// Moves the Bedrock world folder `level` into a new world saved as `world`. The world gets a
@@ -402,18 +445,33 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
     })
 }
 
-/// Removes import folders a killed client left behind.
+/// Removes import folders a killed client left behind: those whose lock file is gone or can be
+/// locked. A folder whose lock another client holds is a live import and stays.
 fn remove_stale_staging(root: &Path) {
     let Ok(entries) = fs::read_dir(root) else {
         return;
     };
     for entry in entries.flatten() {
-        if entry
-            .file_name()
-            .to_str()
-            .is_some_and(|name| name.starts_with(STAGING_PREFIX))
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !name.starts_with(STAGING_PREFIX)
+            || name.ends_with(STAGING_LOCK_SUFFIX)
+            || !entry.file_type().is_ok_and(|kind| kind.is_dir())
         {
-            let _ = fs::remove_dir_all(entry.path());
+            continue;
+        }
+        let lock_path = root.join(format!("{name}{STAGING_LOCK_SUFFIX}"));
+        // Held until both are removed, so a racing cleanup skips this folder too.
+        let lock = match fs::OpenOptions::new().write(true).open(&lock_path) {
+            Ok(lock) if lock.try_lock().is_ok() => Some(lock),
+            Ok(_) => continue,
+            // Importers lock before creating their folder, so a folder without one is abandoned.
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(_) => continue,
+        };
+        let _ = fs::remove_dir_all(entry.path());
+        if lock.is_some() {
+            let _ = fs::remove_file(&lock_path);
         }
     }
 }
