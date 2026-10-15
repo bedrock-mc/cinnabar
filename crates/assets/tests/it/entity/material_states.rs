@@ -27,6 +27,10 @@ fn additive_source_alpha_material_state_round_trips_through_entity_carrier() {
 }
 
 /// Reads an explicitly named carrier fixture, skipping only when it is unavailable.
+#[expect(
+    clippy::print_stderr,
+    reason = "names the missing fixture when the test skips"
+)]
 fn carrier_fixture(variable: &str) -> Option<Vec<u8>> {
     let Some(path) = std::env::var_os(variable) else {
         eprintln!("missing fixture {variable}: skipping entity carrier check");

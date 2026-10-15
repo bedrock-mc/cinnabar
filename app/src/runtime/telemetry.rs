@@ -368,6 +368,10 @@ pub(crate) fn update_visibility_diagnostics(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::print_stderr,
+    reason = "the CINNABAR_ERROR_COUNTERS marker line is emitted on stderr"
+)]
 pub(crate) fn record_metrics(
     time: Res<Time<Real>>,
     mut client_world: ResMut<ClientWorld>,
@@ -795,6 +799,10 @@ pub(crate) fn record_metrics(
     client_world.reported_decode_errors = total_errors;
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "profiling scripts parse CINNABAR_STAGE_PROFILE lines from stderr"
+)]
 pub(crate) fn publish_runtime_stage_profile(profiler: Option<Res<RuntimeStageProfiler>>) {
     let Some(snapshot) = profiler
         .as_deref()

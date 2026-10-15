@@ -88,6 +88,10 @@ pub fn snapshot_menu_vanilla(
 }
 
 /// Renders an offline menu fixture with the requested retained-frame state.
+#[expect(
+    clippy::print_stderr,
+    reason = "explains on stderr why a menu snapshot skips when the UI carrier fixture is absent"
+)]
 pub fn snapshot_menu_with_catalog(
     player_runtime: &player_state::PlayerState,
     view: &MenuView,

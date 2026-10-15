@@ -115,7 +115,7 @@ pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
                 .load(grants)
                 .inspect_err(|error| {
                     let path = source.path().display();
-                    eprintln!("Cinnabar extension {path} disabled: {error:#}");
+                    bevy::log::warn!("Cinnabar extension {path} disabled: {error:#}");
                 })
                 .ok()
         })
@@ -487,7 +487,7 @@ pub fn run_frame(
             failed(index, format!("{error:#}"));
         }
         if let Some(error) = host.take_settings_error() {
-            eprintln!("Cinnabar extension preferences could not be saved: {error}");
+            bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
         }
         merged.absorb(host);
     }

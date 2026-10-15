@@ -1,4 +1,8 @@
 //! CPU cost of selecting far-terrain tiles and building their meshes.
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports quad and tile counts on stderr"
+)]
 
 use std::hint::black_box;
 

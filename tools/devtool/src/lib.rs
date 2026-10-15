@@ -1,3 +1,9 @@
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "devtool commands report selections, summaries and replayed command output on the terminal"
+)]
+
 mod baseline;
 mod capture;
 mod cargo_failures;

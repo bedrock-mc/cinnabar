@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "fixture helpers explain on stderr why a test skips when a local fixture is missing"
+)]
+
 mod atmosphere;
 mod audio_pcm;
 mod block_icons;

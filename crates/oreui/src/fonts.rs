@@ -30,7 +30,7 @@ pub fn install(base: Arc<RuntimeFontCatalog>, compiled_dir: &Path) -> Arc<Runtim
     let fallback = match fallback {
         Ok(fallback) => fallback,
         Err(reason) => {
-            eprintln!(
+            tracing::warn!(
                 "OreUI faces unavailable without their Sans fallback ({reason}); using default font"
             );
             return base;
@@ -47,7 +47,7 @@ pub fn install(base: Arc<RuntimeFontCatalog>, compiled_dir: &Path) -> Arc<Runtim
                 combined = font;
                 installed += 1;
             }
-            Err(reason) => eprintln!(
+            Err(reason) => tracing::warn!(
                 "{} unavailable at {} ({reason}); using default font; rebuild with make {}-assets",
                 face.name(),
                 path.display(),

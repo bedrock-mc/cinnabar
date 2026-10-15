@@ -35,6 +35,10 @@ const OVERSIZED_LOAD_FAILED: &str = "the load failure exceeds the frame limit";
 /// Serves one session, reading requests from `input` and writing responses to `output`, and
 /// returns the process exit code. With `report_fuel`, each callback logs the fuel it consumed.
 /// An error is a frame that could not be written; the binary then exits with [`EXIT_PROTOCOL`].
+#[expect(
+    clippy::print_stderr,
+    reason = "`fuel <id> <call> <n>` lines on stderr are the --report-fuel interface"
+)]
 pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) -> Result<i32> {
     let (dir, items) = match read_frame(&mut input) {
         Ok(Some(Request::Load { dir, items })) => (dir, items),
@@ -113,6 +117,10 @@ fn answer_loaded(
 }
 
 /// Answers a failed load with `reason` cut by [`bounded_reason`], and logs the same.
+#[expect(
+    clippy::print_stderr,
+    reason = "the helper's stderr is the log stream its supervisor captures"
+)]
 fn answer_load_failed(output: &mut impl Write, reason: String) -> io::Result<()> {
     let reason = bounded_reason(reason);
     eprintln!("serve: load failed: {reason}");
@@ -124,6 +132,10 @@ fn answer_load_failed(output: &mut impl Write, reason: String) -> io::Result<()>
 }
 
 /// Logs why the session ends without an answer, and returns [`EXIT_PROTOCOL`].
+#[expect(
+    clippy::print_stderr,
+    reason = "the helper's stderr is the log stream its supervisor captures"
+)]
 fn protocol_error(error: impl Display) -> i32 {
     eprintln!("serve: protocol error: {error}");
     EXIT_PROTOCOL
@@ -145,6 +157,10 @@ fn answer(output: &mut impl Write, seq: u64, outcome: Outcome) -> io::Result<()>
 
 /// Writes `response`, or `fallback()` when `response` is too large for a frame, which
 /// [`write_frame`] refuses before it writes anything. Returns whether `response` was written.
+#[expect(
+    clippy::print_stderr,
+    reason = "the helper's stderr is the log stream its supervisor captures"
+)]
 fn write_or(
     output: &mut impl Write,
     response: &Response,

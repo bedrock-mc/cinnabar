@@ -5,6 +5,10 @@ use super::*;
 impl WorldAuthority {
     /// Retains canonical custom state identities independently of visual pack compilation.
     /// Sequential identities require the admitted internal range; hashed identities use their hash.
+    #[expect(
+        clippy::print_stderr,
+        reason = "SESSION_CUSTOM_BLOCK_IDENTITIES is a stderr marker line read during live session runs"
+    )]
     pub fn set_custom_block_identities(&mut self, definitions: &CustomBlocks) {
         let mut identities = HashMap::new();
         self.block_names.clear_custom();
@@ -90,7 +94,7 @@ impl BlockNames {
                 assets::active_content_registry_protocol(),
             )
             .unwrap_or_else(|error| {
-                eprintln!("block name registry unavailable: {error}");
+                tracing::warn!("block name registry unavailable: {error}");
                 Box::default()
             });
             let mut names: HashMap<Box<str>, Vec<u32>> = HashMap::new();

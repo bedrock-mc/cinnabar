@@ -163,7 +163,7 @@ pub(super) fn drive(
         if Some(index) == owner {
             runtime.screens.data_change = Some(event);
         } else if let Err(error) = runtime.hosts.host_mut(index).dispatch(vec![event]) {
-            eprintln!("Cinnabar mod data-changed failed: {error:#}");
+            warn!("Cinnabar mod data-changed failed: {error:#}");
         }
     }
     let owner = runtime.hosts.screen_owner();
@@ -199,7 +199,7 @@ fn set_owner(runtime: &mut ModRuntime, owner: Option<usize>) {
         let mut events = vec![ModEvent::ScreenChanged(None)];
         events.extend(runtime.screens.data_change.take());
         if let Err(error) = runtime.hosts.host_mut(previous).dispatch(events) {
-            eprintln!("Cinnabar departing mod screen closure failed: {error:#}");
+            warn!("Cinnabar departing mod screen closure failed: {error:#}");
         }
     }
     runtime.screens.owner = owner;
@@ -233,7 +233,7 @@ fn drive_owner(
         publish(host, presentation);
     }
     if let Some(reason) = presentation.mod_ui().mod_screens_failure() {
-        eprintln!("Cinnabar mod screens refused, mod quarantined: {reason}");
+        warn!("Cinnabar mod screens refused, mod quarantined: {reason}");
         host.quarantine();
     }
     let mut events: Vec<ModEvent> = state.data_change.take().into_iter().collect();
@@ -269,7 +269,7 @@ fn drive_owner(
         Ok(())
     };
     if let Err(error) = result {
-        eprintln!("Cinnabar mod event refused: {error:#}");
+        warn!("Cinnabar mod event refused: {error:#}");
     }
     publish(host, presentation);
 }

@@ -135,6 +135,10 @@ fn captured_entity_stack_retains_animation_payloads() {
     assert_eq!(pages.rejected_bindings(), 0);
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the entity pack report prints title actor evaluation on stderr"
+)]
 fn report_title_rigs(
     vanilla: &assets::RuntimeEntityAssets,
     actors: &pack_entity_compiler::ActorPackCompilation,
@@ -409,6 +413,10 @@ fn report_local_pack_entities() {
 }
 
 /// Counts entity references the pack's own files cannot satisfy (vanilla-defined or missing).
+#[expect(
+    clippy::print_stderr,
+    reason = "the entity pack report prints unresolved references on stderr"
+)]
 fn diagnose_references(name: &str, files: &[(Box<str>, Vec<u8>)]) {
     use std::collections::{BTreeMap, BTreeSet};
     let json = |bytes: &[u8]| pack_runtime::pack_textures::parse_pack_json(bytes);

@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stderr,
+    reason = "GPU fixture helpers explain skipped tests and report raster comparisons on stderr"
+)]
+
 #[path = "../../src/chunk/constants.rs"]
 #[allow(dead_code, reason = "reuse the production quad index order")]
 mod chunk_constants;

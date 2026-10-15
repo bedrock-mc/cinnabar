@@ -4,6 +4,8 @@ pub mod console;
 pub mod logging;
 pub mod markers;
 pub mod metrics;
+pub mod rate;
+pub mod secret;
 pub mod session;
 pub mod session_log;
 

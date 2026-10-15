@@ -6,6 +6,11 @@ use launcher_host::lifecycle::crash;
 use std::io::Write;
 
 /// Dispatches client startup and reports failures before the process exits.
+#[expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "--query-build and --help answer on stdout; argument errors precede logging setup"
+)]
 pub(crate) fn dispatch() {
     let mode = std::env::args_os().nth(1);
     if mode

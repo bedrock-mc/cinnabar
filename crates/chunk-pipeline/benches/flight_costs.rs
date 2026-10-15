@@ -1,4 +1,8 @@
 //! Main-thread cost of streaming while the camera flies over realistic synthetic terrain.
+#![expect(
+    clippy::print_stderr,
+    reason = "the benchmark reports its preflight measurement lines on stderr"
+)]
 
 use std::{
     collections::VecDeque,

@@ -2,6 +2,10 @@ use super::*;
 use render_scene::RuntimeStage;
 
 /// Uses the hardware backend because the NOOP backend never writes timestamp values.
+#[expect(
+    clippy::print_stderr,
+    reason = "explains on stderr why the regression skips when the Metal timestamp fixture is absent"
+)]
 fn metal_device() -> Option<(RenderDevice, RenderQueue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::METAL,

@@ -17,6 +17,10 @@ impl WorldAuthority {
     }
 
     /// Retains the first valid named definition, preserving dimensions already in use.
+    #[expect(
+        clippy::print_stderr,
+        reason = "DIMENSION_RANGE_SKIPPED is a stderr marker line read during live session runs"
+    )]
     pub fn apply_dimension_heights(&mut self, heights: &[DimensionHeightDiagnostic]) {
         for height in heights {
             let name_already_defined = self

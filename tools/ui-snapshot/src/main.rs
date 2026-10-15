@@ -1,4 +1,9 @@
 //! Window-free, service-free screenshots through the production UI painters.
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "ui-snapshot prints listings and image metadata on stdout, and failures and fixture skips on stderr"
+)]
 
 mod carriers;
 mod fixtures;

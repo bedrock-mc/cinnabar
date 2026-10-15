@@ -56,6 +56,10 @@ impl Prompter for NativePrompter {
         })
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the terminal is the user-facing fallback when no notification or dialog surface exists"
+    )]
     fn info(&self, title: &str, body: &str) {
         let surfaces = commands(Kind::Info, title, body);
         let title = title.to_owned();
@@ -67,6 +71,10 @@ impl Prompter for NativePrompter {
         });
     }
 
+    #[expect(
+        clippy::print_stderr,
+        reason = "the terminal is the user-facing fallback when no dialog or notification surface exists"
+    )]
     fn alert(&self, title: &str, body: &str) {
         #[cfg(windows)]
         {
@@ -262,6 +270,10 @@ fn run_answer(argv: &[String]) -> Option<Answer> {
     })
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the consent prompt is written to the terminal the user answers on"
+)]
 fn tty_confirm(title: &str, body: &str) -> Consent {
     if !std::io::stdin().is_terminal() {
         return Consent::Unavailable;

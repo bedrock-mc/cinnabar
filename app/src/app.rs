@@ -446,11 +446,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let hud_assets = carriers
         .hud
         .context("load pinned official Mojang sample HUD carrier")?;
-    diagnostics::log_stderr!("{}", hud_assets.startup_summary());
+    bevy::log::info!("{}", hud_assets.startup_summary());
     let icon_assets = carriers
         .icons
         .context("load pinned official Mojang sample item-icon carrier")?;
-    diagnostics::log_stderr!("{}", icon_assets.startup_summary());
+    bevy::log::info!("{}", icon_assets.startup_summary());
     // Optional: without the carrier, held items still draw as sprites and worn armor is skipped.
     let (equipment_runtime, actor_artwork, equipment_geometries) =
         client_presentation::presentation::equipment::EquipmentRuntime::build(
@@ -464,7 +464,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let lang_assets = carriers
         .lang
         .context("load pinned official Mojang sample localization carrier")?;
-    diagnostics::log_stderr!("{}", lang_assets.startup_summary());
+    bevy::log::info!("{}", lang_assets.startup_summary());
     let saved_settings = launcher::menu::settings_options::SettingsOptions::load(
         &layout
             .server_file()
@@ -529,7 +529,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             .unwrap_or(Path::new(".")),
     ) && let Err(reason) = ui_presentation.enable_oreui_originals(images)
     {
-        diagnostics::log_stderr!("OreUI originals disabled ({reason})");
+        bevy::log::warn!("OreUI originals disabled ({reason})");
     }
     let food_catalog = equipment_catalog.clone();
     ui_presentation.set_equipment_catalog(equipment_catalog);
@@ -570,7 +570,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             &entity_runtime,
         )?;
     let collision_registries = carriers.collision?;
-    diagnostics::log_stderr!(
+    bevy::log::info!(
         "loaded {} authoritative collision records for local physics",
         collision_registries.available_record_count()
     );

@@ -2420,6 +2420,7 @@ dependencies = [
  "chunk-pipeline",
  "client-ui",
  "client-world",
+ "diagnostics",
  "glam",
  "image",
  "inventory 0.1.20",
