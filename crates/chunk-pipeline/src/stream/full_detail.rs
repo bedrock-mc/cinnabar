@@ -22,8 +22,8 @@ pub(super) struct FullDetail {
     columns: HashSet<ChunkKey>,
     /// Derived from membership by `insert_column` and `remove_column` only.
     ordered_columns: BTreeSet<ChunkKey>,
-    /// Interrupted restoration keeps cached membership only for columns already resident.
-    columns_generation: Option<u64>,
+    /// Membership eligibility and unfinished refresh work during interrupted restoration.
+    checkpoint: Option<DetailCheckpoint>,
     /// Near-drawn columns past the band, still meshed until far terrain covers them.
     handoffs: BTreeMap<ChunkKey, Handoff>,
     scan: Option<DetailScan>,
@@ -34,6 +34,15 @@ pub(super) struct FullDetail {
     /// Original unlimited members before this frontier have already been classified.
     initial_cursor: Option<ChunkKey>,
     demotion_cursor: Option<ChunkKey>,
+}
+
+/// Keeps recent residents eligible without forgetting their unfinished refresh.
+#[derive(Clone, Copy)]
+struct DetailCheckpoint {
+    /// Residents present at the latest cancellation may keep cached membership.
+    eligible_generation: u64,
+    /// Residents newer than the first cancellation still need a full refresh.
+    refresh_generation: u64,
 }
 
 struct DetailScan {
@@ -74,9 +83,9 @@ impl FullDetail {
     /// Includes unvisited columns that were full detail when the first limit was requested.
     fn contains_column(&self, column: ChunkKey, resident: &ColumnSubChunkSet) -> bool {
         (self.columns.contains(&column)
-            && self
-                .columns_generation
-                .is_none_or(|generation| resident.existed_at(column, generation)))
+            && self.checkpoint.is_none_or(|checkpoint| {
+                resident.existed_at(column, checkpoint.eligible_generation)
+            }))
             || (self.initial_cursor.is_none_or(|cursor| column > cursor)
                 && self
                     .initial_generation
@@ -110,7 +119,12 @@ impl WorldStream {
             }
             self.full_detail.initial_generation = Some(self.resident.column_generation());
         } else if self.full_detail.radius.is_none() {
-            self.full_detail.columns_generation = Some(self.resident.column_generation());
+            let generation = self.resident.column_generation();
+            let checkpoint = self.full_detail.checkpoint.get_or_insert(DetailCheckpoint {
+                eligible_generation: generation,
+                refresh_generation: generation,
+            });
+            checkpoint.eligible_generation = generation;
         }
         self.full_detail.demotion_cursor = None;
         self.full_detail.scan_residents |= radius.is_none() || self.full_detail.radius.is_none();
@@ -203,11 +217,18 @@ impl WorldStream {
                     self.full_detail.scan_residents = false;
                     self.full_detail.initial_generation = None;
                     self.full_detail.initial_cursor = None;
-                    self.full_detail.columns_generation = None;
+                    self.full_detail.checkpoint = None;
                     self.full_detail.demotion_cursor = None;
                     continue;
                 };
                 let initial_member = self.full_detail.contains_column(column, &self.resident);
+                let needs_refresh = !initial_member
+                    || self.full_detail.handoffs.contains_key(&column)
+                    || self.full_detail.checkpoint.is_some_and(|checkpoint| {
+                        !self
+                            .resident
+                            .existed_at(column, checkpoint.refresh_generation)
+                    });
                 self.full_detail.demotion_cursor = Some(column);
                 if self.full_detail.initial_generation.is_some() {
                     self.full_detail.initial_cursor =
@@ -227,7 +248,7 @@ impl WorldStream {
                         if self.full_detail.scan_residents
                             || self.full_detail.handoffs.contains_key(&column)
                         {
-                            if !initial_member || self.full_detail.handoffs.contains_key(&column) {
+                            if needs_refresh {
                                 self.promote_full_detail_column(column);
                             } else {
                                 self.full_detail.insert_column(column);
@@ -255,7 +276,7 @@ impl WorldStream {
                         }
                     }
                 } else {
-                    if !initial_member || self.full_detail.handoffs.contains_key(&column) {
+                    if needs_refresh {
                         self.refresh_full_detail_column(column);
                         self.full_detail.handoffs.remove(&column);
                     }
@@ -469,7 +490,7 @@ impl WorldStream {
     pub(super) fn forget_full_detail_columns(&mut self, columns: &BTreeSet<ChunkKey>) {
         for column in columns {
             self.full_detail.handoffs.remove(column);
-            if self.full_detail.columns_generation.is_some() {
+            if self.full_detail.checkpoint.is_some() {
                 self.full_detail.remove_column(*column);
             }
         }

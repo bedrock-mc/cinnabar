@@ -7,6 +7,8 @@ Near/far terrain still hands coverage over only after its summaries and uploads 
 Outgoing handoffs recheck the latest radius and player centre before withdrawing coverage.
 Discarded detail invalidates pending meshes; retained handoffs regain lighting and its halo.
 Eviction clears interrupted membership so replacement columns refresh through the entering cursor.
+Repeated restoration cancellations retain the original refresh checkpoint while keeping
+published members eligible for later edits.
 Poll reports count maintenance work and its maximum item time; trace spans record commit
 sizes and reclaim waits.
 
