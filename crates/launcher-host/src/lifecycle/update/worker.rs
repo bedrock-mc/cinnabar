@@ -51,12 +51,34 @@ pub(super) fn retry_missing(
     }
 }
 
+/// The signed channel manifest has not caught up with a release push yet.
+#[derive(Debug, thiserror::Error)]
+#[error("the signed manifest is older than the announced release")]
+struct ManifestBehind;
+
+/// Waits on the edge clock while allowing preference changes to cancel a delayed check promptly.
+fn wait_announcement(generation: u64, mut hint: Announcement) -> Option<Announcement> {
+    loop {
+        let state = STATE.lock().ok()?;
+        if !state.accepts_worker(generation) {
+            return None;
+        }
+        hint = state.announcement.clone().unwrap_or(hint);
+        let remaining = hint.not_before.saturating_sub(now_secs());
+        drop(state);
+        if remaining == 0 {
+            return Some(hint);
+        }
+        std::thread::park_timeout(Duration::from_secs(remaining.min(1)));
+    }
+}
+
 /// Runs one worker at a time and retries when a preference changes during its request.
 pub(super) fn start(force: bool) {
     let Some(layout) = LAYOUT.get().cloned() else {
         return;
     };
-    let (preferences, switch_now, generation) = {
+    let (preferences, switch_now, check_now, generation, announcement) = {
         let Ok(mut state) = STATE.lock() else {
             return;
         };
@@ -68,23 +90,55 @@ pub(super) fn start(force: bool) {
             return;
         }
         state.running = true;
-        (state.preferences, state.switch_now, state.generation)
+        let check_now = std::mem::take(&mut state.check_now);
+        (
+            state.preferences,
+            state.switch_now,
+            check_now,
+            state.generation,
+            (!force && !check_now)
+                .then(|| state.announcement.clone())
+                .flatten(),
+        )
     };
     std::thread::spawn(move || {
+        let announcement = announcement.and_then(|hint| wait_announcement(generation, hint));
         let result = retry_missing(
-            || run(&layout, preferences, switch_now, generation, force),
+            || {
+                run(
+                    &layout,
+                    preferences,
+                    switch_now,
+                    generation,
+                    force || check_now || announcement.is_some(),
+                    force,
+                    announcement.as_ref(),
+                )
+            },
             || active(generation),
         );
         if let Err(error) = &result {
             tracing::debug!("update check: {error:#}");
         }
-        let changed = if let Ok(mut state) = STATE.lock() {
-            state.finish_check(generation, switch_now, result.is_err())
+        let (changed, pending) = if let Ok(mut state) = STATE.lock() {
+            state.finish_announcement(
+                announcement.as_ref(),
+                result
+                    .as_ref()
+                    .is_err_and(|error| error.is::<ManifestBehind>()),
+                now_secs(),
+                announcements::jitter(),
+            );
+            let changed = state.finish_check(generation, switch_now, result.is_err());
+            (changed, state.check_now || state.announcement.is_some())
         } else {
-            false
+            (false, false)
         };
         if changed {
             start(true);
+        } else if pending {
+            // A notice that arrived during this check may name a release it started too early to see.
+            start(false);
         }
     });
 }
@@ -97,12 +151,15 @@ fn active(generation: u64) -> bool {
 }
 
 /// Reopens a verified ready stage, or checks the selected channel and resumes its artifact.
+/// `immediate` ignores the completion stamp; `cached` also reuses a verified cached manifest.
 fn run(
     layout: &InstallLayout,
     preferences: Preferences,
     switch_now: bool,
     generation: u64,
-    force: bool,
+    immediate: bool,
+    cached: bool,
+    announcement: Option<&Announcement>,
 ) -> Result<()> {
     let Some(_) = preferences.channel.manifest_url() else {
         return Ok(());
@@ -144,7 +201,7 @@ fn run(
     }
     let destination = root.join("ready");
     stage::recover(&destination, &keys, check, OffsetDateTime::now_utc())?;
-    // A postponed stage stays offered while daily checks continue, and a newer release replaces it.
+    // A postponed stage stays offered while periodic checks continue, and a newer release replaces it.
     let retained = STATE.lock().ok().and_then(|state| state.ready.clone());
     let mut staged = retained_manifest(retained.as_ref(), &keys, check, OffsetDateTime::now_utc());
     if retained.is_some()
@@ -167,7 +224,7 @@ fn run(
         return Ok(());
     }
     let stamp_path = stamp_path(&root, preferences.channel);
-    if !force && !switch_now && !due(last_check(&root, preferences.channel), now_secs()) {
+    if !immediate && !switch_now && !due(last_check(&root, preferences.channel), now_secs()) {
         // The skipped check would have found the same release, so restore what it offered.
         let switch_available =
             staged.is_none() && cached_switch_offer(&root, &keys, check, OffsetDateTime::now_utc());
@@ -200,7 +257,7 @@ fn run(
             &root,
             &keys,
             check,
-            force,
+            cached,
             OffsetDateTime::now_utc(),
             async |channel| {
                 fetch(
@@ -213,6 +270,11 @@ fn run(
             },
         )
         .await?;
+        if announcement.is_some_and(|hint| {
+            hint.ahead_of(&selected.manifest.version, selected.manifest.build_number)
+        }) {
+            return Err(ManifestBehind.into());
+        }
         let switch_available = staged.is_none() && older_release(&selected.manifest, check)?;
         if let Ok(mut state) = STATE.lock()
             && state.generation == generation
@@ -346,7 +408,7 @@ pub(super) fn stamp_path(root: &Path, channel: Channel) -> PathBuf {
     root.join(format!("last-check-{}.json", channel.name()))
 }
 
-/// Reads this running build's last successful check without moving its daily deadline.
+/// Reads this running build's last successful check without moving its next deadline.
 pub(super) fn last_check(root: &Path, channel: Channel) -> Option<u64> {
     let stamp: Stamp = serde_json::from_slice(&read_cached(&stamp_path(root, channel))?).ok()?;
     (stamp.current == env!("CARGO_PKG_VERSION") && stamp.build == update_manifest::build_number())
@@ -487,8 +549,8 @@ pub(super) fn http_client() -> Result<reqwest::Client> {
         .build()?)
 }
 
-/// Reads the edge clock for the daily check stamp.
-fn now_secs() -> u64 {
+/// Reads the edge clock for the check stamp.
+pub(super) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())

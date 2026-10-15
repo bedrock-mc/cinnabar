@@ -92,6 +92,7 @@ fn profile(runtime_id: u64, value: u8) -> PlayerProfile {
         unique_id: runtime_id as i64,
         username: "player".into(),
         verified: true,
+        xuid: "".into(),
         skin: PlayerSkin::Standard(StandardSkin {
             geometry: None,
             cape: None,

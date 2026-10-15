@@ -49,11 +49,13 @@ fn primitive_text_centers_lines_and_gives_each_its_own_background() {
             cell: [0, 0, 24, 16],
             width_px: 5.5,
             top_px: -1.0,
+            ink_y_px: [-1.0, 7.0],
         },
         AtlasLine {
             cell: [24, 0, 8, 16],
             width_px: 2.0,
             top_px: 0.0,
+            ink_y_px: [0.0, 8.0],
         },
     ];
     let mut style = text("one\ntwo");

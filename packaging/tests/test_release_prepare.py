@@ -72,6 +72,9 @@ def fixture(root: Path) -> None:
         directory = root / path
         directory.mkdir(parents=True)
         (directory / "Cargo.toml").write_text(f'[package]\nname = "{name}"\n{declaration}\n')
+    contract = root / "crates/bridge/data/contract.json"
+    contract.parent.mkdir(parents=True)
+    contract.write_text(json.dumps({"constants": [{"go_name": "CinnabarAPIBaseURL", "value": "https://api.example.test"}]}))
     (root / "packaging").mkdir()
     for name in ["bump-version.py", "prepare-release.py", "release-assets.json"]:
         shutil.copyfile(PACKAGING / name, root / "packaging" / name)
@@ -213,6 +216,53 @@ else:
 
     def assert_no_outputs(self):
         self.assertFalse(self.output.exists())
+
+    def test_releases_that_predate_the_api_do_not_require_an_origin(self):
+        """An older source revision has no API connection or origin to validate."""
+        contract = self.root / "crates/bridge/data/contract.json"
+        contract.write_text(json.dumps({"constants": []}))
+        self.git("add", ".")
+        self.git("commit", "-m", "Model a release before the API was added")
+        result = self.prepare(check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs()["version"], SOURCE_VERSION)
+
+    def test_release_without_a_client_does_not_require_a_bridge_contract(self):
+        """Separate release tooling can prepare an old target without the client or contract."""
+        tooling = self.directory / "release-tools"
+        shutil.copytree(self.root / "packaging", tooling)
+        self.git("rm", "-r", "app", "crates/bridge", "packaging")
+        manifest = self.root / "Cargo.toml"
+        manifest.write_text(manifest.read_text().replace('"app", ', ''))
+        self.git("add", "Cargo.toml")
+        self.git("commit", "-m", "Model an old target without the client")
+        result = run(sys.executable, str(tooling / "prepare-release.py"), cwd=self.root, env=self.env, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.outputs()["version"], SOURCE_VERSION)
+
+    def test_client_release_requires_a_bridge_contract_before_changing_refs(self):
+        """A client target with a missing contract must fail before creating release refs."""
+        self.git("rm", "crates/bridge/data/contract.json")
+        self.git("commit", "-m", "Remove the client bridge contract")
+        before = self.refs()
+        result = self.prepare(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("client release requires the bridge contract", result.stderr)
+        self.assertEqual(self.refs(), before)
+        self.assert_no_outputs()
+
+    def test_placeholder_api_origin_is_rejected_before_creating_a_tag(self):
+        """A release cannot publish a client whose API still has a reserved placeholder host."""
+        contract = self.root / "crates/bridge/data/contract.json"
+        contract.write_text(json.dumps({"constants": [{"go_name": "CinnabarAPIBaseURL", "value": "https://api.example.invalid"}]}))
+        self.git("add", ".")
+        self.git("commit", "-m", "Use a placeholder API origin")
+        before = self.refs()
+        result = self.prepare(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("placeholder", result.stderr)
+        self.assertEqual(self.refs(), before)
+        self.assert_no_outputs()
 
     def test_main_push_is_read_only_nightly_at_the_event_commit(self):
         before = self.refs()

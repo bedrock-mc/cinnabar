@@ -43,6 +43,10 @@ impl WorldAuthority {
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
         self.actors.player_list_usernames()
     }
+    /// Named player-list entries as `(username, xuid)`, sorted by username.
+    pub fn player_list_roster(&self) -> Vec<(std::sync::Arc<str>, std::sync::Arc<str>)> {
+        self.actors.player_list_roster()
+    }
     /// How many players are on the player list, without allocating.
     pub fn player_count(&self) -> usize {
         self.actors.player_list_count()
@@ -289,6 +293,10 @@ impl WorldAuthority {
     /// Borrows the player profile associated with this actor.
     pub fn actor_player_profile(&self, runtime_id: u64) -> Option<&PlayerProfile> {
         self.actors.player_profile(runtime_id)
+    }
+    /// Borrows this actor's current roster XUID, even while its appearance is being prepared.
+    pub fn actor_player_xuid(&self, runtime_id: u64) -> Option<&str> {
+        self.actors.player_xuid(runtime_id)
     }
     /// Replaces `views` with dropped-item stacks at their interpolated pose, spin, and pickup
     /// flight at `partial_tick`.

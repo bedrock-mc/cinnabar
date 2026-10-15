@@ -10,6 +10,7 @@ use launcher::menu::{
     MenuAction, MenuScreen, MenuView, settings_options::SettingId,
     settings_sections::SettingSection,
 };
+use ui_screens::player_list::RosterRow;
 
 /// A repeatable viewport and the runtime observations its screen paints.
 pub struct State {
@@ -29,6 +30,8 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
     },
+    /// The held tab roster's rows.
+    TabList(Vec<RosterRow>),
 }
 
 const SIZE: [u32; 2] = [1280, 720];
@@ -226,6 +229,18 @@ pub const STATES: &[State] = &[
         fixture: chat_command_targets,
     },
     State {
+        name: "tab-list-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(true),
+    },
+    State {
+        name: "tab-list-expired-badges",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || tab_list_badges(false),
+    },
+    State {
         name: "settings-video",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -394,6 +409,24 @@ fn chat_completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
         messages: Default::default(),
         options: Arc::new(options),
     }
+}
+
+/// Badges two Cinnabar players, one of them sharing a name with an unbadged player.
+fn tab_list_badges(visible: bool) -> Fixture {
+    Fixture::TabList(
+        [
+            ("Alex", true),
+            ("Alex", false),
+            ("Riley", false),
+            ("Steve", visible),
+            ("Zoe", false),
+        ]
+        .map(|(name, badged)| RosterRow {
+            name: Arc::from(name),
+            badged,
+        })
+        .into(),
+    )
 }
 
 /// Opens a settings category by its registered name rather than a copied index.

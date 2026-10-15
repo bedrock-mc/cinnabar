@@ -115,6 +115,8 @@ type EventsV1 struct {
 	Connect *ConnectProgress `json:"connect,omitempty"`
 	// ServerTrust is the join's pending question whether to trust a NetherNet server.
 	ServerTrust *ServerTrustPrompt `json:"server_trust,omitempty"`
+	// CinnabarRelease is the newest release the Cinnabar API announced on the client's channel.
+	CinnabarRelease *CinnabarReleaseV1 `json:"cinnabar_release,omitempty"`
 }
 
 // ConnectProgress is the preparing join's stage; an empty Stage means no join is being prepared.
@@ -201,6 +203,10 @@ func (store *Store) Events() EventsV1 {
 	if store.trustPrompt != nil {
 		prompt := *store.trustPrompt
 		events.ServerTrust = &prompt
+	}
+	if store.cinnabarRelease != nil {
+		release := *store.cinnabarRelease
+		events.CinnabarRelease = &release
 	}
 	return events
 }

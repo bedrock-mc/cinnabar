@@ -30,6 +30,7 @@ fn player_list_marker_refreshes_known_names_without_a_ui_event() {
                     unique_id: 7,
                     username: Arc::from("Alex"),
                     verified: true,
+                    xuid: "2535400000000007".into(),
                     skin: PlayerSkin::Unavailable(PlayerSkinUnavailable::InvalidDimensions),
                 }]),
             })),
@@ -45,4 +46,8 @@ fn player_list_marker_refreshes_known_names_without_a_ui_event() {
     let mut ui = UiRuntime::new(1);
     refresh_player_list_cache_for_controls(&stream, &mut ui, &controls);
     assert_eq!(ui.known_player_names(), [Arc::<str>::from("Alex")]);
+    assert_eq!(
+        ui.player_roster.xuids().collect::<Vec<_>>(),
+        ["2535400000000007"]
+    );
 }

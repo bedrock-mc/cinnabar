@@ -284,6 +284,8 @@ update / Later actions, and a separate default-off install-on-quit preference. S
 carry monotonic build numbers, and digest-named partial downloads resume with HTTP ranges.
 An offline Rust helper waits for the old process, applies the verified native package, and
 restores failed macOS/Linux starts. Read-only installs offer the manual download action.
+Each launch checks once startup completes; the fallback poll runs every six hours, and a Cinnabar
+API release notice for the selected channel checks immediately.
 
 Nightly checks both the nightly and beta signed manifests and offers the newer release while
 keeping the Nightly preference. Release ordering compares the version core, then the shared
@@ -642,6 +644,23 @@ Values are unchanged; compilation and test execution remain unverified until CI.
   permission gates remain incomplete. The current heartbeat
   fallback is provisional. Signed-in friends-visible validation is incomplete, and no
   Xbox presence parity gate closes. Discord presence is unchanged.
+
+## Cinnabar API
+
+- The account core keeps an optional WebSocket to the Cinnabar API (`core/cinnabarapi`). It dials
+  before minting and reuses unexpired key-bound credentials with fresh challenge proofs. Negotiated
+  limits, retry minima, reconnect jitter and bounded frame-rejection retries control its traffic.
+- Player lookups prioritize new joiners, drain coalesced refresh rounds, expire visible positives and discard
+  older-session replies. Release notices include manifest builds and schedule jittered checks with
+  bounded retries for older signed manifests. Packaging rejects placeholder origins and announces
+  only changed signed manifests.
+- Tab-list and name-tag badges share roster answers and the default-on General display toggle.
+  Name tags reuse the original gem in a retained atlas cell, widen the name plate and apply the
+  existing text visibility, depth and opacity passes.
+- Go tests cover the handshake, lookups, release identities, retry policy and schema conformance.
+  Rust tests cover roster-cache lifetimes, session changes and release-check scheduling.
+- Incomplete: an authenticated live run against the deployed API and
+  owner visual acceptance remain outstanding. No vanilla parity gate closes for this optional feature.
 
 ## Small-surface render safety
 

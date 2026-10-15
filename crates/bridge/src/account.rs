@@ -390,6 +390,9 @@ pub struct Events {
     /// The join's pending question whether to trust a NetherNet server.
     #[serde(default)]
     pub server_trust: Option<ServerTrustPrompt>,
+    /// The newest release the Cinnabar API announced on the client's channel.
+    #[serde(default)]
+    pub cinnabar_release: Option<crate::CinnabarRelease>,
 }
 
 /// Asks whether to trust the NetherNet server at `url`, answered with [`answer_server_trust`].
