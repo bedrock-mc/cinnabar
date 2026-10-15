@@ -752,32 +752,6 @@ mod tests {
         }
     }
 
-    /// Times complete selections for the optional report without asserting noisy wall-clock values.
-    #[cfg(feature = "reports")]
-    #[test]
-    fn nearest_observations_timing_benchmark() {
-        let template = actor_template();
-        let iterations = 2000;
-        for count in [16, 100, 1000] {
-            let actors = crowd(&template, count);
-            let start = Instant::now();
-            for _ in 0..iterations {
-                std::hint::black_box(
-                    full_sort_nearest(std::hint::black_box(actors.iter()), [0.; 3]).count(),
-                );
-            }
-            let before = start.elapsed() / iterations;
-            let start = Instant::now();
-            for _ in 0..iterations {
-                std::hint::black_box(
-                    nearest_observed_actors(std::hint::black_box(actors.iter()), [0.; 3]).count(),
-                );
-            }
-            let after = start.elapsed() / iterations;
-            eprintln!("nearest actors={count}: before={before:?} after={after:?} per selection");
-        }
-    }
-
     #[test]
     fn ping_keeps_unknown_distinct_and_rejects_old_connections() {
         let mut poll = PingPoll::default();
